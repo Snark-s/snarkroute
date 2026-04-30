@@ -15,7 +15,7 @@ import {
   type NodeChange,
   type NodeProps
 } from "@xyflow/react";
-import { Download, FileJson, KeyRound, Play, Plus, Save, Trash2, Upload, Wand2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -320,6 +320,8 @@ function App() {
   const [replicateConfigured, setReplicateConfigured] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [pendingBrowse, setPendingBrowse] = useState<{ nodeId: string; kind: AssetKind } | null>(null);
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
@@ -587,9 +589,16 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${leftCollapsed ? "leftCollapsed" : ""} ${rightCollapsed ? "rightCollapsed" : ""}`}>
       <aside className="sidebar left">
-        <h1>SnarkRoute</h1>
+        <div className="sidebarHeader">
+          {!leftCollapsed ? <h1>SnarkRoute</h1> : null}
+          <button className="iconButton" title={leftCollapsed ? "Expand left panel" : "Collapse left panel"} onClick={() => setLeftCollapsed((value) => !value)}>
+            {leftCollapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}
+          </button>
+        </div>
+        {!leftCollapsed ? (
+        <>
         <div className="toolbar">
           <button onClick={loadExample} title="Load example"><Wand2 size={16} /> Example</button>
           <button onClick={exportJson} title="Export route JSON"><Download size={16} /> Export</button>
@@ -605,6 +614,8 @@ function App() {
         {library.map((item) => (
           <button key={item.type} className="libraryItem" onClick={() => addNode(item.type)}><Plus size={16} />{item.label}<span>{item.type}</span></button>
         ))}
+        </>
+        ) : null}
       </aside>
 
       <main className="canvas" onDragOver={(event) => event.preventDefault()} onDrop={handleCanvasDrop}>
@@ -649,7 +660,14 @@ function App() {
       </main>
 
       <aside className="sidebar right">
-        <h2>Settings</h2>
+        <div className="sidebarHeader">
+          {!rightCollapsed ? <h2>Settings</h2> : null}
+          <button className="iconButton" title={rightCollapsed ? "Expand right panel" : "Collapse right panel"} onClick={() => setRightCollapsed((value) => !value)}>
+            {rightCollapsed ? <ChevronLeft size={17} /> : <PanelRightClose size={17} />}
+          </button>
+        </div>
+        {!rightCollapsed ? (
+        <>
         <div className="settingsPanel">
           <div className={`settingsStatus ${replicateConfigured ? "configured" : ""}`}>
             <KeyRound size={14} />
@@ -681,6 +699,8 @@ function App() {
         ) : (
           <p className="muted">Select a node.</p>
         )}
+        </>
+        ) : null}
       </aside>
 
       <section className="bottom">

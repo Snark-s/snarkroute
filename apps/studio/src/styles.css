@@ -56,6 +56,18 @@ button:disabled {
   height: 100vh;
 }
 
+.app.leftCollapsed {
+  grid-template-columns: 52px 1fr 300px;
+}
+
+.app.rightCollapsed {
+  grid-template-columns: 250px 1fr 52px;
+}
+
+.app.leftCollapsed.rightCollapsed {
+  grid-template-columns: 52px 1fr 52px;
+}
+
 .sidebar {
   background: #161a22;
   border-color: #2b313d;
@@ -70,6 +82,31 @@ button:disabled {
 
 .right {
   border-width: 0 0 1px 1px;
+}
+
+.sidebarHeader {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 34px;
+}
+
+.sidebarHeader h1,
+.sidebarHeader h2 {
+  margin: 0;
+}
+
+.iconButton {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 6px;
+  width: 32px;
+}
+
+.leftCollapsed .left,
+.rightCollapsed .right {
+  padding: 10px;
 }
 
 h1 {
