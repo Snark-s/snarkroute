@@ -18,7 +18,9 @@
 
 ## Nodes
 
-`packages/nodes` contains safe built-in runners: text input, template transform, debug log, and local output file.
+`packages/nodes` contains safe built-in runners: text input, local file/image/video inputs, template transform, debug log, and local output file.
+
+Local asset input nodes keep the protocol simple: the route stores `params.path`, the executor reads metadata from the local filesystem, and Studio uses the local server for file browsing, metadata, and image previews. The MVP does not upload files or create an asset registry.
 
 ## Adapters
 

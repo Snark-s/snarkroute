@@ -1,0 +1,38 @@
+routeVersion: "0.1"
+route:
+  id: image-debug
+  title: Image Debug
+  description: Inspect a local image file and write its metadata.
+  author:
+    name: SnarkRoute
+  tags:
+    - local
+    - image
+economics:
+  enabled: false
+nodes:
+  - id: image_asset
+    type: input.image
+    title: Image Asset
+    params:
+      path: C:\path\to\image.png
+  - id: debug
+    type: debug.log
+    title: Debug
+    params:
+      value: "{{image_asset.output.filename}}"
+  - id: output
+    type: output.file
+    title: Output
+    params:
+      filename: image-metadata.json
+edges:
+  - from: image_asset
+    to: debug
+  - from: image_asset
+    to: output
+  - from: debug
+    to: output
+provenance:
+  tool: snarkroute
+  events: []

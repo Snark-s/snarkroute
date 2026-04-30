@@ -39,6 +39,16 @@ button:hover,
   border-color: #4fa58d;
 }
 
+.danger {
+  background: #4b2530;
+  border-color: #8b4a58;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .app {
   display: grid;
   grid-template-columns: 250px 1fr 300px;
@@ -84,6 +94,10 @@ h2 {
   display: none;
 }
 
+.hiddenFileInput {
+  display: none;
+}
+
 .libraryItem {
   align-items: flex-start;
   display: grid;
@@ -98,6 +112,28 @@ h2 {
   color: #99a3b4;
   font-size: 12px;
   grid-column: 2;
+}
+
+.portLegend {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr 1fr;
+  margin: 0 0 12px;
+}
+
+.portLegend span {
+  align-items: center;
+  color: #aeb6c5;
+  display: flex;
+  font-size: 12px;
+  gap: 6px;
+}
+
+.legendDot {
+  border-radius: 999px;
+  display: inline-block;
+  height: 9px;
+  width: 9px;
 }
 
 .canvas {
@@ -130,6 +166,16 @@ h2 {
   position: relative;
   text-align: center;
   width: 260px;
+}
+
+.react-flow__node-route.selected .routeNodeCard {
+  border-color: #7dd3c0;
+  box-shadow: 0 0 0 2px rgba(125, 211, 192, 0.28), 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #7dd3c0;
+  stroke-width: 2.5;
 }
 
 .nodeStatus {
@@ -216,6 +262,31 @@ h2 {
   border-color: #67c5ad;
 }
 
+.assetParams {
+  display: grid;
+  gap: 8px;
+}
+
+.nodeSmallButton {
+  font-size: 12px;
+  min-height: 28px;
+  padding: 5px 8px;
+}
+
+.nodeWarning {
+  color: #f4c95d;
+  font-size: 11px;
+  text-align: left;
+}
+
+.nodeImagePreview {
+  border: 1px solid #394456;
+  border-radius: 5px;
+  max-height: 110px;
+  object-fit: contain;
+  width: 100%;
+}
+
 .nodeResult {
   background: #101620;
   border: 1px solid #355045;
@@ -251,11 +322,35 @@ h2 {
   padding: 0;
 }
 
-.react-flow__handle {
-  background: #7dd3c0;
-  border: 1px solid #d9fff6;
+.typedHandle {
+  border: 1px solid rgba(255, 255, 255, 0.86);
   height: 8px;
   width: 8px;
+}
+
+.typedHandle.text,
+.legendDot.text {
+  background: #7dd3c0;
+}
+
+.typedHandle.image,
+.legendDot.image {
+  background: #78a6ff;
+}
+
+.typedHandle.video,
+.legendDot.video {
+  background: #c084fc;
+}
+
+.typedHandle.file,
+.legendDot.file {
+  background: #f4c95d;
+}
+
+.typedHandle.data,
+.legendDot.data {
+  background: #a8b3c7;
 }
 
 textarea {
@@ -278,6 +373,12 @@ textarea {
   color: #ff9ca8;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.selectionHint {
+  color: #a1a9b8;
+  font-size: 12px;
+  margin: -4px 0 10px;
 }
 
 .settingsPanel {

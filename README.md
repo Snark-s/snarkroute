@@ -62,6 +62,29 @@ Routes live in `examples/routes`:
 
 - `debug-basic.route.yaml`
 - `flux-basic.route.yaml`
+- `file-debug.route.yaml`
+- `image-debug.route.yaml`
+- `video-debug.route.yaml`
+- `replicate-flux-basic.route.yaml`
+- `template-chain.route.yaml`
+
+## Local Asset Inputs
+
+Studio supports local input nodes:
+
+- `input.file`
+- `input.image`
+- `input.video`
+
+Add one from the node library, then use `Browse...` in the node to select a local file. The selected absolute path is stored in `params.path` and exported as part of the `.route.json` file.
+
+Outputs:
+
+- `input.file`: `path`, `filename`, `mimeType`, `sizeBytes`
+- `input.image`: `path`, `filename`, `mimeType`, `sizeBytes`, `width`, `height`
+- `input.video`: `path`, `filename`, `mimeType`, `sizeBytes`, optional `width`, `height`, `durationSec`
+
+Absolute local paths are an MVP limitation: they work well on the current machine, but reduce portability when sharing routes with other users.
 
 The Studio MVP imports `.route.json`. YAML is supported by the protocol package and examples document the portable format.
 

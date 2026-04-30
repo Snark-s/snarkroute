@@ -1,0 +1,38 @@
+routeVersion: "0.1"
+route:
+  id: file-debug
+  title: File Debug
+  description: Inspect a local file and write its metadata.
+  author:
+    name: SnarkRoute
+  tags:
+    - local
+    - file
+economics:
+  enabled: false
+nodes:
+  - id: file_asset
+    type: input.file
+    title: File Asset
+    params:
+      path: C:\path\to\file.txt
+  - id: debug
+    type: debug.log
+    title: Debug
+    params:
+      value: "{{file_asset.output.filename}}"
+  - id: output
+    type: output.file
+    title: Output
+    params:
+      filename: file-metadata.json
+edges:
+  - from: file_asset
+    to: debug
+  - from: file_asset
+    to: output
+  - from: debug
+    to: output
+provenance:
+  tool: snarkroute
+  events: []

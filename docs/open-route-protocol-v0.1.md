@@ -85,7 +85,26 @@ In the MVP, edges define graph dependencies and execution order. Template refere
 ## MVP Node Types
 
 - `input.text`: outputs `{ text }`
+- `input.file`: reads a local file path and outputs `{ path, filename, mimeType, sizeBytes }`
+- `input.image`: reads a local image path and outputs `{ path, filename, mimeType, sizeBytes, width, height }`
+- `input.video`: reads a local video path and outputs `{ path, filename, mimeType, sizeBytes, width?, height?, durationSec? }`
 - `transform.template`: outputs `{ text }`
 - `debug.log`: logs and outputs `{ value }`
 - `output.file`: writes text or JSON to a local run folder
 - `replicate.model`: runs a Replicate model prediction on the local server
+
+## Local Asset Inputs
+
+Local asset input nodes use `params.path`:
+
+```yaml
+nodes:
+  - id: image_asset
+    type: input.image
+    params:
+      path: C:\path\to\image.png
+```
+
+`input.file` accepts any known local file type. `input.image` currently supports metadata for PNG, JPG, and WebP. `input.video` validates video file types and returns basic file metadata; `width`, `height`, and `durationSec` are optional in the MVP.
+
+Absolute local paths are useful for local-first execution, but they reduce route portability across machines. Future protocol versions may add portable asset IDs or manifests; v0.1 preserves paths exactly as route metadata.
