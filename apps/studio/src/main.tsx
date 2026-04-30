@@ -321,8 +321,8 @@ function App() {
   const [settingsMessage, setSettingsMessage] = useState("");
   const [pendingBrowse, setPendingBrowse] = useState<{ nodeId: string; kind: AssetKind } | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
-  const [rightCollapsed, setRightCollapsed] = useState(false);
-  const [bottomCollapsed, setBottomCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(true);
+  const [bottomCollapsed, setBottomCollapsed] = useState(true);
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
@@ -593,7 +593,7 @@ function App() {
     <div className={`app ${leftCollapsed ? "leftCollapsed" : ""} ${rightCollapsed ? "rightCollapsed" : ""} ${bottomCollapsed ? "bottomCollapsed" : ""}`}>
       <aside className="sidebar left">
         <div className="sidebarHeader">
-          {!leftCollapsed ? <h1>SnarkRoute</h1> : null}
+          {!leftCollapsed ? <h1><img src="/snarkroute-icon.png" alt="" />SnarkRoute</h1> : null}
           <button className="iconButton" title={leftCollapsed ? "Expand left panel" : "Collapse left panel"} onClick={() => setLeftCollapsed((value) => !value)}>
             {leftCollapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}
           </button>

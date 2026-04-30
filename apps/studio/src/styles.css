@@ -114,8 +114,18 @@ button:disabled {
 }
 
 h1 {
+  align-items: center;
+  display: flex;
   font-size: 22px;
+  gap: 9px;
   margin: 0 0 18px;
+}
+
+h1 img {
+  border-radius: 6px;
+  height: 28px;
+  object-fit: contain;
+  width: 28px;
 }
 
 h2 {
