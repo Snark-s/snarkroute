@@ -1,0 +1,47 @@
+routeVersion: "0.1"
+route:
+  id: flux-basic
+  title: Flux Basic
+  description: Generate an image through Replicate using Flux Schnell.
+  author:
+    name: SnarkRoute
+  license: MIT
+  tags:
+    - replicate
+    - image
+economics:
+  enabled: false
+  modelShares:
+    - model: black-forest-labs/flux-schnell
+      share: 0
+  notes: Placeholder economics metadata for future implementations.
+nodes:
+  - id: input_prompt
+    type: input.text
+    title: Prompt
+    params:
+      value: A portable protocol route editor on a tidy workbench, crisp product render
+  - id: flux
+    type: replicate.model
+    title: Flux Schnell
+    params:
+      model: black-forest-labs/flux-schnell
+      input:
+        prompt: "{{input_prompt.output.text}}"
+      pollingIntervalMs: 1000
+      timeoutMs: 120000
+  - id: output
+    type: output.file
+    title: Output
+    params:
+      filename: flux-output.json
+      from: "{{flux.output.output}}"
+edges:
+  - from: input_prompt
+    to: flux
+  - from: flux
+    to: output
+provenance:
+  createdAt: "2026-04-30T00:00:00.000Z"
+  tool: snarkroute
+  events: []

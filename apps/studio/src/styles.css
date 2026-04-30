@@ -1,0 +1,304 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #111318;
+  color: #e6e8ee;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+.fileButton {
+  align-items: center;
+  background: #252a34;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
+  color: #f4f6fb;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 8px;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+button:hover,
+.fileButton:hover {
+  background: #303746;
+}
+
+.primary {
+  background: #2f6f5e;
+  border-color: #4fa58d;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 250px 1fr 300px;
+  grid-template-rows: 1fr 230px;
+  height: 100vh;
+}
+
+.sidebar {
+  background: #161a22;
+  border-color: #2b313d;
+  border-style: solid;
+  padding: 16px;
+  overflow: auto;
+}
+
+.left {
+  border-width: 0 1px 1px 0;
+}
+
+.right {
+  border-width: 0 0 1px 1px;
+}
+
+h1 {
+  font-size: 22px;
+  margin: 0 0 18px;
+}
+
+h2 {
+  font-size: 13px;
+  letter-spacing: 0;
+  margin: 16px 0 10px;
+  text-transform: uppercase;
+  color: #aeb6c5;
+}
+
+.toolbar {
+  display: grid;
+  gap: 8px;
+}
+
+.fileButton input {
+  display: none;
+}
+
+.libraryItem {
+  align-items: flex-start;
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  justify-items: start;
+  margin-bottom: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.libraryItem span {
+  color: #99a3b4;
+  font-size: 12px;
+  grid-column: 2;
+}
+
+.canvas {
+  min-width: 0;
+  position: relative;
+}
+
+.topbar {
+  display: flex;
+  gap: 8px;
+  left: 16px;
+  position: absolute;
+  top: 16px;
+  z-index: 10;
+}
+
+.react-flow__node-route {
+  background: transparent;
+  border: 0;
+  color: #edf2f7;
+  padding: 0;
+  width: 260px;
+}
+
+.routeNodeCard {
+  background: #202631;
+  border: 1px solid #506070;
+  border-radius: 8px;
+  padding: 12px;
+  position: relative;
+  text-align: center;
+  width: 260px;
+}
+
+.nodeStatus {
+  background: #586274;
+  border: 1px solid #9aa5b8;
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px rgba(88, 98, 116, 0.16);
+  height: 12px;
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  width: 12px;
+}
+
+.nodeStatus.succeeded {
+  background: #35d28f;
+  border-color: #a8f5d5;
+  box-shadow: 0 0 0 3px rgba(53, 210, 143, 0.18);
+}
+
+.nodeStatus.failed {
+  background: #ff5263;
+  border-color: #ffc0c8;
+  box-shadow: 0 0 0 3px rgba(255, 82, 99, 0.18);
+}
+
+.nodeStatus.running {
+  background: #f4c95d;
+  border-color: #fff0a6;
+  box-shadow: 0 0 0 3px rgba(244, 201, 93, 0.18);
+}
+
+.nodeStatus.pending {
+  background: #586274;
+  border-color: #9aa5b8;
+}
+
+.nodeTitle {
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.nodeType {
+  color: #d8e4ff;
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 3px;
+}
+
+.nodeField {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+  text-align: left;
+}
+
+.nodeField span {
+  color: #9da8ba;
+  font-size: 11px;
+}
+
+.nodeInput,
+.nodeTextarea {
+  background: #111722;
+  border: 1px solid #394456;
+  border-radius: 5px;
+  color: #eef4ff;
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+  outline: none;
+  padding: 6px 7px;
+  width: 100%;
+}
+
+.nodeTextarea {
+  height: 62px;
+  min-height: 42px;
+  resize: vertical;
+}
+
+.nodeInput:focus,
+.nodeTextarea:focus {
+  border-color: #67c5ad;
+}
+
+.nodeResult {
+  background: #101620;
+  border: 1px solid #355045;
+  border-radius: 6px;
+  margin-top: 10px;
+  padding: 7px;
+  text-align: left;
+}
+
+.nodeResult.failed {
+  border-color: #7a3e46;
+}
+
+.nodeResult div {
+  color: #7dd3c0;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+}
+
+.nodeResult.failed div {
+  color: #ff9ca8;
+}
+
+.nodeResult pre {
+  border: 0;
+  background: transparent;
+  color: #d6deeb;
+  font-size: 11px;
+  height: auto;
+  max-height: 96px;
+  padding: 0;
+}
+
+.react-flow__handle {
+  background: #7dd3c0;
+  border: 1px solid #d9fff6;
+  height: 8px;
+  width: 8px;
+}
+
+textarea {
+  background: #10141b;
+  border: 1px solid #384151;
+  border-radius: 6px;
+  color: #f1f5f9;
+  font: 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  height: 320px;
+  padding: 10px;
+  resize: vertical;
+  width: 100%;
+}
+
+.muted {
+  color: #a1a9b8;
+}
+
+.errorText {
+  color: #ff9ca8;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.bottom {
+  background: #11151d;
+  border-top: 1px solid #2b313d;
+  display: grid;
+  gap: 16px;
+  grid-column: 1 / 4;
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+  padding: 12px 16px;
+}
+
+pre {
+  background: #0b0e13;
+  border: 1px solid #252b35;
+  border-radius: 6px;
+  color: #d6deeb;
+  height: 160px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  white-space: pre-wrap;
+}

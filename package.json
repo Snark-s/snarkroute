@@ -1,0 +1,19 @@
+{
+  "name": "snarkroute",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "corepack pnpm -r build",
+    "test": "corepack pnpm -r test",
+    "dev:server": "corepack pnpm --filter @snarkroute/server dev",
+    "dev:studio": "corepack pnpm --filter @snarkroute/studio dev",
+    "lint": "corepack pnpm -r lint"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.12",
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  },
+  "packageManager": "pnpm@9.1.0"
+}

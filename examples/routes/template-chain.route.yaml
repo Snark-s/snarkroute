@@ -1,0 +1,56 @@
+routeVersion: "0.1"
+route:
+  id: template-chain
+  title: Template Chain
+  description: Local route showing chained template bindings.
+  author:
+    name: SnarkRoute
+  license: MIT
+  tags:
+    - template
+    - local
+economics:
+  enabled: false
+  notes: Economics metadata is preserved even in local-only examples.
+nodes:
+  - id: input_prompt
+    type: input.text
+    title: Prompt
+    params:
+      value: portable routes
+  - id: headline
+    type: transform.template
+    title: Headline
+    params:
+      template: "Open Route Protocol makes {{input_prompt.output.text}} inspectable."
+  - id: summary
+    type: transform.template
+    title: Summary
+    params:
+      template: "Summary: {{headline.output.text}}"
+  - id: debug
+    type: debug.log
+    title: Debug
+    params:
+      value: "{{summary.output.text}}"
+  - id: output
+    type: output.file
+    title: Output
+    params:
+      filename: template-chain.txt
+      from: "{{summary.output.text}}"
+edges:
+  - from: input_prompt
+    to: headline
+  - from: headline
+    to: summary
+  - from: summary
+    to: debug
+  - from: debug
+    to: output
+  - from: summary
+    to: output
+provenance:
+  createdAt: "2026-04-30T00:00:00.000Z"
+  tool: snarkroute
+  events: []

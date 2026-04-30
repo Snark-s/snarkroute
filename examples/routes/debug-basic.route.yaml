@@ -1,0 +1,47 @@
+routeVersion: "0.1"
+route:
+  id: debug-basic
+  title: Debug Basic
+  description: Local route that exercises built-in nodes.
+  author:
+    name: SnarkRoute
+  license: MIT
+  tags:
+    - debug
+    - local
+economics:
+  enabled: false
+  notes: Economics metadata is part of the route format even when disabled.
+nodes:
+  - id: input_prompt
+    type: input.text
+    title: Prompt
+    params:
+      value: Hello from Open Route Protocol
+  - id: template
+    type: transform.template
+    title: Template
+    params:
+      template: "Route says: {{input_prompt.output.text}}"
+  - id: debug
+    type: debug.log
+    title: Debug
+    params:
+      value: "{{template.output.text}}"
+  - id: output
+    type: output.file
+    title: Output
+    params:
+      filename: debug-output.txt
+      from: "{{debug.output.value}}"
+edges:
+  - from: input_prompt
+    to: template
+  - from: template
+    to: debug
+  - from: debug
+    to: output
+provenance:
+  createdAt: "2026-04-30T00:00:00.000Z"
+  tool: snarkroute
+  events: []
