@@ -15,7 +15,7 @@ import {
   type NodeChange,
   type NodeProps
 } from "@xyflow/react";
-import { ChevronLeft, ChevronRight, Download, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -322,6 +322,7 @@ function App() {
   const [pendingBrowse, setPendingBrowse] = useState<{ nodeId: string; kind: AssetKind } | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  const [bottomCollapsed, setBottomCollapsed] = useState(false);
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
@@ -589,7 +590,7 @@ function App() {
   }
 
   return (
-    <div className={`app ${leftCollapsed ? "leftCollapsed" : ""} ${rightCollapsed ? "rightCollapsed" : ""}`}>
+    <div className={`app ${leftCollapsed ? "leftCollapsed" : ""} ${rightCollapsed ? "rightCollapsed" : ""} ${bottomCollapsed ? "bottomCollapsed" : ""}`}>
       <aside className="sidebar left">
         <div className="sidebarHeader">
           {!leftCollapsed ? <h1>SnarkRoute</h1> : null}
@@ -704,6 +705,14 @@ function App() {
       </aside>
 
       <section className="bottom">
+        <div className="bottomHeader">
+          <button className="iconButton" title={bottomCollapsed ? "Expand bottom panel" : "Collapse bottom panel"} onClick={() => setBottomCollapsed((value) => !value)}>
+            {bottomCollapsed ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
+          </button>
+          <span>Logs / Outputs</span>
+        </div>
+        {!bottomCollapsed ? (
+        <>
         <div>
           <h2>Logs</h2>
           <pre>{formatLogs(runResult, logs)}</pre>
@@ -712,6 +721,8 @@ function App() {
           <h2>Outputs</h2>
           <pre>{outputs ? formatOutputs(outputs) : "No outputs yet."}</pre>
         </div>
+        </>
+        ) : null}
       </section>
     </div>
   );

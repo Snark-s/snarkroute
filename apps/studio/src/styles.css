@@ -56,6 +56,10 @@ button:disabled {
   height: 100vh;
 }
 
+.app.bottomCollapsed {
+  grid-template-rows: 1fr 42px;
+}
+
 .app.leftCollapsed {
   grid-template-columns: 52px 1fr 300px;
 }
@@ -462,9 +466,26 @@ textarea {
   display: grid;
   gap: 16px;
   grid-column: 1 / 4;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: auto 1fr 1fr;
   overflow: hidden;
-  padding: 12px 16px;
+  padding: 10px 16px 12px;
+}
+
+.bottomCollapsed .bottom {
+  align-items: center;
+  grid-template-columns: auto 1fr;
+  padding: 5px 10px;
+}
+
+.bottomHeader {
+  align-items: center;
+  color: #aeb6c5;
+  display: flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 8px;
+  min-width: 138px;
+  text-transform: uppercase;
 }
 
 pre {
