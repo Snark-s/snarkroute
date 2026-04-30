@@ -55,7 +55,7 @@ export function createReplicateClient(options: ReplicateClientOptions = {}) {
       parseModel(model);
       return request("/predictions", {
         method: "POST",
-        body: JSON.stringify({ model, input })
+        body: JSON.stringify({ version: model, input })
       });
     },
 
@@ -72,7 +72,7 @@ export function createReplicateClient(options: ReplicateClientOptions = {}) {
 
       while (!["succeeded", "failed", "canceled"].includes(prediction.status)) {
         if (Date.now() - started > timeoutMs) {
-          throw new Error(`Replicate prediction timed out after ${timeoutMs}ms`);
+          throw new Error(`Replicate prediction timed out for model "${model}" after ${timeoutMs}ms${prediction.id ? ` (predictionId: ${prediction.id})` : ""}`);
         }
         await delay(pollingIntervalMs);
         prediction = await this.getPrediction(prediction.id);

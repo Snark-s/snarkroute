@@ -280,6 +280,44 @@ textarea {
   line-height: 1.4;
 }
 
+.settingsPanel {
+  display: grid;
+  gap: 9px;
+}
+
+.settingsStatus {
+  align-items: center;
+  color: #ffbdc5;
+  display: flex;
+  font-size: 12px;
+  gap: 7px;
+}
+
+.settingsStatus.configured {
+  color: #87e7c1;
+}
+
+.settingsField {
+  display: grid;
+  gap: 5px;
+}
+
+.settingsField span {
+  color: #9da8ba;
+  font-size: 11px;
+}
+
+.settingsField input {
+  background: #10141b;
+  border: 1px solid #384151;
+  border-radius: 6px;
+  color: #f1f5f9;
+  font: 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  min-height: 34px;
+  padding: 7px 9px;
+  width: 100%;
+}
+
 .bottom {
   background: #11151d;
   border-top: 1px solid #2b313d;

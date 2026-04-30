@@ -16,6 +16,7 @@ describe("Replicate client", () => {
     const client = createReplicateClient({ token: "token", fetchImpl });
     await expect(client.createPrediction("owner/model", { prompt: "hi" })).resolves.toMatchObject({ id: "p1" });
     expect(fetchImpl).toHaveBeenCalledWith(expect.stringContaining("/predictions"), expect.objectContaining({ method: "POST" }));
+    expect(fetchImpl.mock.calls[0][1].body).toContain('"version":"owner/model"');
   });
 
   it("polls until a prediction succeeds", async () => {

@@ -13,8 +13,8 @@ import {
   type Node,
   type NodeProps
 } from "@xyflow/react";
-import { Download, FileJson, Play, Plus, Upload, Wand2 } from "lucide-react";
-import React, { useMemo, useState } from "react";
+import { Download, FileJson, KeyRound, Play, Plus, Save, Upload, Wand2 } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 type RouteDoc = {
@@ -241,6 +241,9 @@ function App() {
   const [logs, setLogs] = useState<string[]>(["SnarkRoute Studio ready."]);
   const [outputs, setOutputs] = useState<unknown>(null);
   const [runResult, setRunResult] = useState<RunDisplayResult | null>(null);
+  const [replicateToken, setReplicateToken] = useState("");
+  const [replicateConfigured, setReplicateConfigured] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState("");
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const displayNodes = useMemo(
@@ -255,6 +258,45 @@ function App() {
       })),
     [nodes, runResult]
   );
+
+  useEffect(() => {
+    void loadSettings();
+  }, []);
+
+  async function loadSettings() {
+    try {
+      const response = await fetch(`${apiBase}/api/settings`);
+      const result = await response.json();
+      setReplicateConfigured(Boolean(result.replicateConfigured));
+    } catch {
+      setSettingsMessage("Settings API unavailable.");
+    }
+  }
+
+  async function saveReplicateToken() {
+    const token = replicateToken.trim();
+    if (!token) {
+      setSettingsMessage("Token cannot be empty.");
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBase}/api/settings/replicate-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ replicateApiToken: token })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to save token.");
+      setReplicateConfigured(Boolean(result.replicateConfigured));
+      setReplicateToken("");
+      setSettingsMessage("Replicate token saved locally.");
+      setLogs((current) => ["Replicate token saved locally.", ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    }
+  }
 
   function updateNodeParams(nodeId: string, params: Record<string, unknown>) {
     setNodes((current) =>
@@ -406,6 +448,26 @@ function App() {
       </main>
 
       <aside className="sidebar right">
+        <h2>Settings</h2>
+        <div className="settingsPanel">
+          <div className={`settingsStatus ${replicateConfigured ? "configured" : ""}`}>
+            <KeyRound size={14} />
+            {replicateConfigured ? "Replicate configured" : "Replicate not configured"}
+          </div>
+          <label className="settingsField">
+            <span>REPLICATE_API_TOKEN</span>
+            <input
+              type="password"
+              value={replicateToken}
+              placeholder="Paste token"
+              onChange={(event) => setReplicateToken(event.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <button onClick={() => void saveReplicateToken()}><Save size={16} /> Save Token</button>
+          {settingsMessage ? <p className={settingsMessage.includes("error") || settingsMessage.includes("Failed") || settingsMessage.includes("empty") ? "errorText" : "muted"}>{settingsMessage}</p> : null}
+        </div>
+
         <h2>Inspector</h2>
         {selectedNode ? (
           <>
