@@ -541,25 +541,116 @@ h2 {
   padding-right: 30px;
 }
 
-.nodeDownloadButton {
+.nodeImageActions {
+  display: flex;
+  gap: 5px;
+  position: absolute;
+  right: 7px;
+  top: 7px;
+}
+
+.nodeImageActionButton {
+  align-items: center;
+  appearance: none;
+  background: #1d2532;
+  border: 1px solid #506078;
+  border-radius: 5px;
+  color: #dce8ff;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: inline-flex;
+  flex: 0 0 26px;
+  height: 26px;
+  justify-content: center;
+  line-height: 1;
+  min-height: 26px;
+  min-width: 26px;
+  padding: 0;
+  text-decoration: none;
+  width: 26px;
+}
+
+.nodeImageActionButton svg {
+  display: block;
+}
+
+.nodeImageActionButton:hover {
+  border-color: #7dd3c0;
+  color: #ffffff;
+}
+
+.imageViewerOverlay {
+  align-items: center;
+  background: rgba(5, 8, 13, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 28px;
+  position: fixed;
+  z-index: 40;
+}
+
+.imageViewerWindow {
+  background: #121821;
+  border: 1px solid #45536a;
+  border-radius: 8px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  max-height: min(86vh, 920px);
+  max-width: min(88vw, 1120px);
+  min-width: min(520px, 92vw);
+  overflow: hidden;
+}
+
+.imageViewerHeader {
+  align-items: center;
+  border-bottom: 1px solid #273244;
+  color: #dce8ff;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.imageViewerHeader span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.imageViewerActions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 7px;
+}
+
+.imageViewerButton {
   align-items: center;
   background: #1d2532;
   border: 1px solid #506078;
   border-radius: 5px;
   color: #dce8ff;
   display: inline-flex;
-  height: 26px;
+  height: 28px;
   justify-content: center;
-  position: absolute;
-  right: 7px;
   text-decoration: none;
-  top: 7px;
-  width: 26px;
+  width: 28px;
 }
 
-.nodeDownloadButton:hover {
+.imageViewerButton:hover {
   border-color: #7dd3c0;
   color: #ffffff;
+}
+
+.imageViewerImage {
+  background: #0b1018;
+  max-height: calc(86vh - 50px);
+  max-width: 100%;
+  object-fit: contain;
+  width: 100%;
 }
 
 .nodeResult pre {

@@ -16,7 +16,7 @@ import {
   type NodeProps,
   type ReactFlowInstance
 } from "@xyflow/react";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2, X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { localApiUnavailableMessage, replicateTokenStatusText, serializeRouteJson } from "./security-ui";
@@ -160,6 +160,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onBrowseAsset = data.onBrowseAsset as ((nodeId: string, kind: AssetKind) => void) | undefined;
   const replicateConfigured = Boolean(data.replicateConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
+  const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
   const ports = getNodePorts(type);
 
   function patchParams(patch: Record<string, unknown>) {
@@ -199,7 +200,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
         </div>
       ) : null}
       <NodeInlineParams type={type} params={params} onChange={patchParams} onBrowse={(kind) => onBrowseAsset?.(id, kind)} />
-      {result ? <NodeInlineResult result={result} /> : null}
+      {result ? <NodeInlineResult result={result} onOpenImage={onOpenImage} /> : null}
       {ports.outputs.map((port, index) => (
         <React.Fragment key={port.id}>
           <span className="portLabel output" style={{ top: `${34 + index * 28}px` }}>
@@ -363,20 +364,34 @@ function NodeInlineParams({
   return null;
 }
 
-function NodeInlineResult({ result }: { result: NodeRunResult }) {
+function NodeInlineResult({ result, onOpenImage }: { result: NodeRunResult; onOpenImage?: (image: ImageViewerState) => void }) {
   const imageSrc = imagePreviewSrc(result.output);
   const cost = costLabel(result.output);
   const statusText = result.status && result.status !== "succeeded" ? result.status : null;
+  const imageTitle = imageLabel(result.output);
   if (imageSrc) {
     return (
       <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
         {cost ? <span className="nodeCost">{cost}</span> : null}
-        <a className="nodeDownloadButton nodrag nopan" href={imageSrc} download={downloadFilename(result.output)} title="Download image">
-          <Download size={14} />
-        </a>
+        <div className="nodeImageActions">
+          <button
+            className="nodeImageActionButton nodrag nopan"
+            type="button"
+            title="View image"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenImage?.({ src: imageSrc, title: imageTitle, filename: downloadFilename(result.output) });
+            }}
+          >
+            <Eye size={16} strokeWidth={2.2} />
+          </button>
+          <a className="nodeImageActionButton nodrag nopan" href={imageSrc} download={downloadFilename(result.output)} title="Download image">
+            <Download size={14} />
+          </a>
+        </div>
         <img className="nodeImagePreview" src={imageSrc} alt="" />
-        <pre>{truncateText(imageLabel(result.output), 220)}</pre>
+        <pre>{truncateText(imageTitle, 220)}</pre>
       </div>
     );
   }
@@ -404,6 +419,12 @@ const nodeTypes = {
 };
 
 type PortKind = "text" | "image" | "video" | "file" | "json" | "data";
+
+type ImageViewerState = {
+  src: string;
+  title: string;
+  filename: string;
+};
 
 type PortSpec = {
   id: string;
@@ -509,6 +530,7 @@ function App() {
   const [bottomCollapsed, setBottomCollapsed] = useState(true);
   const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+  const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [collapsedLibrarySections, setCollapsedLibrarySections] = useState<Record<string, boolean>>(
     () => Object.fromEntries(librarySections.map((section) => [section.id, true]))
   );
@@ -525,6 +547,7 @@ function App() {
           onParamsChange: updateNodeParams,
           onBrowseAsset: browseAsset,
           onConfigureReplicate: openReplicateSettings,
+          onOpenImage: setImageViewer,
           replicateConfigured,
           result: runResult?.nodeResults?.[node.id]
         }
@@ -1010,6 +1033,25 @@ function App() {
         </>
         ) : null}
       </section>
+
+      {imageViewer ? (
+        <div className="imageViewerOverlay" role="dialog" aria-modal="true" aria-label="Image preview" onClick={() => setImageViewer(null)}>
+          <div className="imageViewerWindow" onClick={(event) => event.stopPropagation()}>
+            <div className="imageViewerHeader">
+              <span title={imageViewer.title}>{truncateText(imageViewer.title, 96)}</span>
+              <div className="imageViewerActions">
+                <a className="imageViewerButton" href={imageViewer.src} download={imageViewer.filename} title="Download image">
+                  <Download size={15} />
+                </a>
+                <button className="imageViewerButton" type="button" title="Close" onClick={() => setImageViewer(null)}>
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+            <img className="imageViewerImage" src={imageViewer.src} alt={imageViewer.title} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

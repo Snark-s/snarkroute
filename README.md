@@ -4,15 +4,43 @@ SnarkRoute is a local-first visual editor and executor for Open Route Protocol.
 
 Open Route Protocol is the portable standard for describing AI/model/API routes. SnarkRoute is the reference implementation: a small working MVP that proves route documents can be created, inspected, remixed, validated, and executed locally.
 
+## Why This Exists
+
+AI tools are becoming the new creative infrastructure. But most of that infrastructure is being built inside closed platforms: models, workflows, prompts, assets, APIs, billing systems, and execution environments are locked into separate services.
+
+SnarkRoute starts from a different idea: the workflow itself should be portable.
+
+A route should not belong to a platform. It should be a readable, shareable, inspectable document that can connect models, APIs, local assets, and tools across providers.
+
+This project is not about hosting one more model, and not about building another central AI platform.
+
+The model is not the center. The route is.
+
+The long-term goal is to support a freer ecosystem of neural tools: not one central gatekeeper, but an open protocol where independent creators and developers can build, share, remix, and execute routes without giving up control of their workflows.
+
+We think of Open Route Protocol as infrastructure for a "free city" of AI tools: many providers, many creators, many routes, no single owner of the road.
+
+SnarkRoute is the first reference implementation of this idea.
+
+## Demo
+
+![SnarkRoute Studio: image route with Clarity Upscaler](docs/images/snarkroute-clarity-demo.png)
+
+A simple image-processing route:
+
+```text
+local image input -> Replicate Clarity Upscaler -> local output preview
+```
+
+[Watch a short demo video](docs/videos/snarkroute-clarity-demo.mp4)
+
+See `docs/demo-script.md` for a short recording plan.
+
 ## What Is Open Route Protocol?
 
 Open Route Protocol describes portable `.route.yaml` and `.route.json` documents. A route can contain inputs, transforms, model/API providers, outputs, provenance, and economics metadata without being locked to one platform.
 
 SnarkRoute is not just a Replicate wrapper. Replicate is the first external provider inside routes; the route/workflow is the primary unit of value.
-
-## Why Routes Are The Unit Of Value
-
-A single model call is useful, but a shareable workflow is more valuable: it captures intent, inputs, provider choices, transformations, outputs, provenance, and future attribution/economics metadata. Open Route Protocol keeps that workflow portable.
 
 ## Current MVP Features
 
@@ -25,15 +53,6 @@ A single model call is useful, but a shareable workflow is more valuable: it cap
 - Vite + React + React Flow Studio
 - Import/export `.route.json`
 - Local settings for Replicate token through `.env` or Studio Settings
-
-## Screenshots And Demo
-
-Use `docs/demo-script.md` for a short recording plan. It covers:
-
-- `input.text -> replicate.model -> output.file`
-- `input.image -> replicate.clarity-upscaler -> preview.image -> output.file`
-
-Project screenshots or generated demo media can be added later; do not commit private runs, tokens, or user outputs.
 
 ## Windows Quick Start
 
