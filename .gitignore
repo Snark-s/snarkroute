@@ -1,6 +1,17 @@
 node_modules/
 dist/
 dist-types/
+build/
 data/
+data/ledger/
+data/secrets/
+data/runs/
+data/assets/
 *.log
 .env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+desktop.ini
+/SnarkRoute.png

@@ -13,3 +13,7 @@ Provenance matters. Route documents should carry authorship, tool, timestamps, a
 Economics metadata belongs in the route format from day one. Actual payments are outside the MVP, but route authorship, author share, model shares, and notes need a stable home before routes are widely remixed.
 
 Community extension must be safe by design. SnarkRoute must not execute arbitrary community code. Future community nodes should be declarative manifests with explicit permissions and auditable behavior.
+
+---
+
+This document is licensed under CC BY-SA 4.0.

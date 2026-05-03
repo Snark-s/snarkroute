@@ -5,7 +5,7 @@ route:
   description: Live smoke test route for Replicate Flux Schnell.
   author:
     name: SnarkRoute
-  license: MIT
+  license: CC-BY-SA-4.0
   tags:
     - replicate
     - smoke

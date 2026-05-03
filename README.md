@@ -1,60 +1,80 @@
 # SnarkRoute
 
-SnarkRoute is a local-first reference editor and executor for Open Route Protocol.
+SnarkRoute is a local-first visual editor and executor for Open Route Protocol.
 
-Open Route Protocol is the portable standard. SnarkRoute is the app proving the standard with a working MVP.
+Open Route Protocol is the portable standard for describing AI/model/API routes. SnarkRoute is the reference implementation: a small working MVP that proves route documents can be created, inspected, remixed, validated, and executed locally.
 
-The route is the unit of value: a shareable workflow that can describe inputs, transforms, model/API providers, outputs, provenance, and future economics metadata. Replicate is included as the first external model provider, but SnarkRoute is not a Replicate wrapper.
+## What Is Open Route Protocol?
 
-## Install
+Open Route Protocol describes portable `.route.yaml` and `.route.json` documents. A route can contain inputs, transforms, model/API providers, outputs, provenance, and economics metadata without being locked to one platform.
 
-```bash
-pnpm install
-```
+SnarkRoute is not just a Replicate wrapper. Replicate is the first external provider inside routes; the route/workflow is the primary unit of value.
 
-If `pnpm` is not installed as a shell command, use Corepack:
+## Why Routes Are The Unit Of Value
+
+A single model call is useful, but a shareable workflow is more valuable: it captures intent, inputs, provider choices, transformations, outputs, provenance, and future attribution/economics metadata. Open Route Protocol keeps that workflow portable.
+
+## Current MVP Features
+
+- Open Route Protocol v0.1 schema, parsing, validation, YAML and JSON support
+- DAG executor with topological sorting, cycle detection, template references, logs, and run results
+- Local filesystem run storage under `data/runs/`
+- Local ledger accounting under `data/ledger/runs.jsonl`
+- Built-in nodes for text, files, images, videos, templates, debug logs, text output, image preview, and file output
+- Replicate provider adapter and model-specific Clarity Upscaler node
+- Vite + React + React Flow Studio
+- Import/export `.route.json`
+- Local settings for Replicate token through `.env` or Studio Settings
+
+## Screenshots And Demo
+
+Use `docs/demo-script.md` for a short recording plan. It covers:
+
+- `input.text -> replicate.model -> output.file`
+- `input.image -> replicate.clarity-upscaler -> preview.image -> output.file`
+
+Project screenshots or generated demo media can be added later; do not commit private runs, tokens, or user outputs.
+
+## Quick Start
 
 ```bash
 corepack pnpm install
+corepack pnpm test
+corepack pnpm build
+corepack pnpm dev
 ```
 
-## Test
+`corepack pnpm dev` runs the local Fastify server and Studio in parallel.
+
+You can also run them separately:
 
 ```bash
-pnpm test
+corepack pnpm dev:server
+corepack pnpm dev:studio
 ```
 
-## Build
+The API listens on `http://127.0.0.1:4317`. Studio runs on `http://127.0.0.1:5173` and proxies `/api` to the local server.
 
-```bash
-pnpm build
-```
+## Configure Replicate
 
-## Run The Local Server
+Copy `.env.example` to `.env` and add your token:
 
-```bash
-pnpm dev:server
-```
-
-The API listens on `http://127.0.0.1:4317`.
-
-## Run Studio
-
-```bash
-pnpm dev:studio
-```
-
-Studio runs on `http://127.0.0.1:5173` and proxies `/api` to the local server.
-
-## Add Replicate
-
-Create `.env` from `.env.example`:
-
-```bash
+```env
 REPLICATE_API_TOKEN=your_token_here
 ```
 
-The token is read only by `apps/server`; it is never exposed to Studio.
+You can also paste the token in Studio Settings. Tokens are stored locally and used only by the server. Do not commit `.env`.
+
+## Smoke Tests
+
+Live smoke tests are not part of the normal test suite because they call external providers.
+
+```bash
+corepack pnpm smoke:replicate
+corepack pnpm smoke:clarity
+```
+
+They require `REPLICATE_API_TOKEN`. They must not print or store the token.
 
 ## Example Routes
 
@@ -62,11 +82,14 @@ Routes live in `examples/routes`:
 
 - `debug-basic.route.yaml`
 - `flux-basic.route.yaml`
+- `replicate-flux-basic.route.yaml`
+- `template-chain.route.yaml`
 - `file-debug.route.yaml`
 - `image-debug.route.yaml`
 - `video-debug.route.yaml`
-- `replicate-flux-basic.route.yaml`
-- `template-chain.route.yaml`
+- `clarity-upscale-basic.route.yaml`
+
+Example route documents are licensed under CC BY-SA 4.0 unless otherwise stated.
 
 ## Local Asset Inputs
 
@@ -76,33 +99,98 @@ Studio supports local input nodes:
 - `input.image`
 - `input.video`
 
-Add one from the node library, then use `Browse...` in the node to select a local file. The selected absolute path is stored in `params.path` and exported as part of the `.route.json` file.
+Add one from the node library, then use `Browse...` or drag a local image onto the canvas. The selected absolute path is stored in `params.path` and exported as part of the route document.
 
-Outputs:
+Absolute local paths are an MVP limitation: they work well on the current machine, but reduce portability when sharing routes.
 
-- `input.file`: `path`, `filename`, `mimeType`, `sizeBytes`
-- `input.image`: `path`, `filename`, `mimeType`, `sizeBytes`, `width`, `height`
-- `input.video`: `path`, `filename`, `mimeType`, `sizeBytes`, optional `width`, `height`, `durationSec`
+## Clarity Upscaler Example
 
-Absolute local paths are an MVP limitation: they work well on the current machine, but reduce portability when sharing routes with other users.
+SnarkRoute includes a model-specific node for Replicate Clarity Upscaler:
 
-The Studio MVP imports `.route.json`. YAML is supported by the protocol package and examples document the portable format.
+```text
+input.image -> replicate.clarity-upscaler -> preview.image -> output.file
+```
 
-## MVP Limitations
+In Studio:
 
-- No auth
+1. Add `Input Image`, choose or drop a local image.
+2. Add `Clarity Upscaler`.
+3. Connect the image port from `Input Image` to `Clarity Upscaler`.
+4. Adjust `prompt`, `negative_prompt`, `scale_factor`, `dynamic`, `creativity`, `resemblance`, `num_inference_steps`, and `seed` directly in the node.
+5. Use `Image Preview` to view the result, or `Save Text File`/`Output File` when you explicitly want a local route output artifact.
+
+Downloaded model outputs are stored under:
+
+```text
+data/runs/<runId>/assets/
+```
+
+Replicate output URLs may expire, so SnarkRoute downloads the first returned image locally when the Clarity run succeeds.
+
+## Economics Metadata And Run Accounting
+
+SnarkRoute v0.1 stores economics as metadata and local accounting only. It does not execute payments, settlements, marketplace actions, checkout, billing API calls, blockchain calls, or share payouts.
+
+Routes can include authors, contributors, revenue splits, provider cost hints, currency, and notes. Every run gets a local accounting summary with `paymentExecuted: false`, provider usage events such as Replicate prediction ids, and estimated/actual provider costs when known. Actual provider cost may be `null`.
+
+The ledger is local, ignored by git, and not exported with route documents:
+
+```text
+data/ledger/runs.jsonl
+```
+
+Secrets such as API tokens are not stored in economics metadata or ledger entries.
+
+## Security Notes
+
+- Do not commit `.env`, local runs, local assets, generated outputs, or private user files.
+- Routes and bundles must not contain secret values.
+- SnarkRoute does not execute arbitrary community JavaScript.
+- Future community nodes must be declarative manifests with explicit permissions.
+- External provider outputs are the user's responsibility and are subject to provider/model/service terms.
+
+See `SECURITY.md` for more detail.
+
+## Current Limitations
+
+- No authentication
 - No cloud deployment
-- No accounts
+- No user accounts
 - No marketplace
 - No payments
 - No arbitrary community JavaScript execution
-- No database
+- No complex database
+- Absolute local asset paths reduce route portability
+- Provider actual costs may be unknown
 
 ## Roadmap
 
-- Better route inspector and YAML import/export
-- Declarative node manifests with explicit permissions
-- More provider adapters
-- Stronger provenance event history
-- Compatibility tests for protocol evolution
-- Optional economics execution outside the MVP
+See `docs/roadmap.md`.
+
+Short version:
+
+- v0.1-alpha: protocol, executor, Studio, Replicate, local assets
+- v0.2: secrets/profiles
+- v0.3: route bundles
+- v0.4: community node manifests
+- v0.5: async task nodes
+- v0.6: route macros
+- v1.0: stable Open Route Protocol
+
+## Contributing
+
+See `CONTRIBUTING.md`.
+
+Code contributions are accepted under AGPL-3.0-or-later. Documentation, specification, and example route contributions are accepted under CC BY-SA 4.0 unless otherwise stated.
+
+## License
+
+SnarkRoute source code is licensed under AGPL-3.0-or-later.
+
+Open Route Protocol specification, documentation, and example route documents are licensed under CC BY-SA 4.0 unless otherwise stated.
+
+Generated outputs created by users through SnarkRoute are not automatically covered by AGPL or CC BY-SA and belong to their creators/users, subject to the terms of the models, APIs, routes, and services used.
+
+Third-party dependencies are governed by their own licenses.
+
+See `LICENSES.md` for the full project license map.

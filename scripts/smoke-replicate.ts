@@ -12,7 +12,7 @@ const routePath = join(process.cwd(), "examples", "routes", "replicate-flux-basi
 
 async function main() {
   if (!process.env.REPLICATE_API_TOKEN?.trim()) {
-    throw new Error("REPLICATE_API_TOKEN is not configured. Add it to Y:\\Процесс\\SnarkRoute\\.env as REPLICATE_API_TOKEN=your_token_here.");
+    throw new Error("REPLICATE_API_TOKEN is not configured. Add it to the local .env file as REPLICATE_API_TOKEN=your_token_here.");
   }
 
   const route = loadRouteFromYaml(await readFile(routePath, "utf8"));

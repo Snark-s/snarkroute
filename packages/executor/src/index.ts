@@ -1,5 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import type { OpenRoute, RouteNode } from "@snarkroute/protocol";
 
 export type RunStatus = "pending" | "running" | "succeeded" | "failed";
@@ -24,6 +24,7 @@ export interface NodeRunnerResult {
   logs?: string[];
   metrics?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
+  providerUsage?: ProviderUsageEvent | ProviderUsageEvent[];
 }
 
 export type NodeRunner = (input: NodeRunnerInput) => Promise<NodeRunnerResult> | NodeRunnerResult;
@@ -55,12 +56,61 @@ export interface RunResult {
   nodeResults: Record<string, NodeResult>;
   logs: RunLogEntry[];
   provenance: Record<string, unknown>;
+  economics: RunEconomicsSummary;
   outputDirectory: string;
 }
 
 export interface ExecuteOptions {
   runId?: string;
   outputDirectory?: string;
+  activeProfile?: string;
+  ledgerPath?: string;
+}
+
+export interface ProviderUsageEvent {
+  provider: string;
+  model?: string;
+  nodeId?: string;
+  nodeType?: string;
+  externalId?: string;
+  status?: string;
+  metrics?: Record<string, unknown>;
+  estimatedCost?: number | null;
+  actualCost?: number | null;
+  pricingHint?: string;
+}
+
+export interface RunEconomicsSummary {
+  mode: "metadata-only" | "accounting-only" | "disabled";
+  paymentExecuted: false;
+  activeProfile?: string;
+  routeId?: string;
+  routeTitle?: string;
+  routeAuthor?: unknown;
+  contributors?: unknown[];
+  revenueSplits?: unknown[];
+  providersUsed: ProviderUsageEvent[];
+  costSummary: {
+    currency?: string;
+    estimatedProviderCost: number | null;
+    actualProviderCost: number | null;
+    notes?: string;
+  };
+  warnings: string[];
+}
+
+export interface RunLedgerEntry {
+  runId: string;
+  createdAt: string;
+  completedAt: string;
+  status: RunStatus;
+  routeId?: string;
+  routeTitle?: string;
+  activeProfile?: string;
+  providersUsed: ProviderUsageEvent[];
+  estimatedProviderCost: number | null;
+  actualProviderCost: number | null;
+  paymentExecuted: false;
 }
 
 export interface RouteExecutor {
@@ -83,6 +133,7 @@ export function createExecutor(): RouteExecutor {
 
       const startedAt = new Date().toISOString();
       const logs: RunLogEntry[] = [];
+      const providersUsed: ProviderUsageEvent[] = [];
       const nodeResults: Record<string, NodeResult> = Object.fromEntries(
         route.nodes.map((node) => [
           node.id,
@@ -138,6 +189,7 @@ export function createExecutor(): RouteExecutor {
             const inputs = collectInputs(route, node, nodeOutputs);
             const result = await runner({ node, params, inputs, context });
             const output = result.output ?? {};
+            providersUsed.push(...normalizeProviderUsage(result.providerUsage, node));
             nodeOutputs[node.id] = output;
             nodeResults[node.id] = {
               nodeId: node.id,
@@ -167,13 +219,15 @@ export function createExecutor(): RouteExecutor {
           }
         }
 
-        const completed = completeRun(runId, "succeeded", startedAt, nodeResults, logs, route, outputDirectory);
+        const completed = completeRun(runId, "succeeded", startedAt, nodeResults, logs, route, outputDirectory, providersUsed, options.activeProfile);
+        await appendRunLedger(completed, options.ledgerPath);
         await persistRunResult(completed);
         return completed;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         log(message);
-        const completed = completeRun(runId, "failed", startedAt, nodeResults, logs, route, outputDirectory);
+        const completed = completeRun(runId, "failed", startedAt, nodeResults, logs, route, outputDirectory, providersUsed, options.activeProfile);
+        await appendRunLedger(completed, options.ledgerPath);
         await persistRunResult(completed);
         return completed;
       }
@@ -188,13 +242,17 @@ function completeRun(
   nodeResults: Record<string, NodeResult>,
   logs: RunLogEntry[],
   route: OpenRoute,
-  outputDirectory: string
+  outputDirectory: string,
+  providersUsed: ProviderUsageEvent[],
+  activeProfile?: string
 ): RunResult {
+  const completedAt = new Date().toISOString();
+  const economics = buildRunEconomics(route, providersUsed, activeProfile);
   return {
     runId,
     status,
     startedAt,
-    completedAt: new Date().toISOString(),
+    completedAt,
     nodeResults,
     logs,
     provenance: {
@@ -203,12 +261,94 @@ function completeRun(
       tool: "snarkroute",
       sourceProvenance: route.provenance ?? {}
     },
+    economics,
     outputDirectory
   };
 }
 
 async function persistRunResult(result: RunResult): Promise<void> {
   await writeFile(join(result.outputDirectory, "run.json"), JSON.stringify(result, null, 2), "utf8");
+}
+
+async function appendRunLedger(result: RunResult, ledgerPath = join(process.cwd(), "data", "ledger", "runs.jsonl")): Promise<void> {
+  try {
+    await mkdir(dirname(ledgerPath), { recursive: true });
+    const entry: RunLedgerEntry = {
+      runId: result.runId,
+      createdAt: result.startedAt,
+      completedAt: result.completedAt,
+      status: result.status,
+      routeId: result.economics.routeId,
+      routeTitle: result.economics.routeTitle,
+      activeProfile: result.economics.activeProfile,
+      providersUsed: result.economics.providersUsed.map(stripProviderUsageSecrets),
+      estimatedProviderCost: result.economics.costSummary.estimatedProviderCost,
+      actualProviderCost: result.economics.costSummary.actualProviderCost,
+      paymentExecuted: false
+    };
+    await appendFile(ledgerPath, `${JSON.stringify(entry)}\n`, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    result.economics.warnings.push(`Could not append local ledger entry: ${message}`);
+  }
+}
+
+function buildRunEconomics(route: OpenRoute, providersUsed: ProviderUsageEvent[], activeProfile?: string): RunEconomicsSummary {
+  const routeEconomics = route.economics;
+  const mode = routeEconomics?.enabled === false ? "disabled" : routeEconomics?.mode ?? (routeEconomics ? "metadata-only" : "disabled");
+  const sanitizedProviders = providersUsed.map(stripProviderUsageSecrets);
+  const estimatedCosts = collectCosts(sanitizedProviders, "estimatedCost");
+  const actualCosts = collectCosts(sanitizedProviders, "actualCost");
+  return {
+    mode,
+    paymentExecuted: false,
+    activeProfile,
+    routeId: route.route.id,
+    routeTitle: route.route.title,
+    routeAuthor: routeEconomics?.author ?? route.route.author,
+    contributors: routeEconomics?.contributors,
+    revenueSplits: routeEconomics?.revenueSplits,
+    providersUsed: sanitizedProviders,
+    costSummary: {
+      currency: routeEconomics?.currency,
+      estimatedProviderCost: estimatedCosts.length > 0 ? sum(estimatedCosts) : null,
+      actualProviderCost: actualCosts.length > 0 ? sum(actualCosts) : null,
+      notes: routeEconomics?.providerCosts?.length ? "Route provider cost metadata is preserved; no billing calls were made." : "No payment executed. Provider actual cost may be unknown."
+    },
+    warnings: []
+  };
+}
+
+function normalizeProviderUsage(providerUsage: NodeRunnerResult["providerUsage"], node: RouteNode): ProviderUsageEvent[] {
+  const events = Array.isArray(providerUsage) ? providerUsage : providerUsage ? [providerUsage] : [];
+  return events.map((event) => ({
+    ...event,
+    nodeId: event.nodeId ?? node.id,
+    nodeType: event.nodeType ?? node.type
+  }));
+}
+
+function stripProviderUsageSecrets(event: ProviderUsageEvent): ProviderUsageEvent {
+  return {
+    provider: event.provider,
+    model: event.model,
+    nodeId: event.nodeId,
+    nodeType: event.nodeType,
+    externalId: event.externalId,
+    status: event.status,
+    metrics: event.metrics,
+    estimatedCost: event.estimatedCost ?? null,
+    actualCost: event.actualCost ?? null,
+    pricingHint: event.pricingHint
+  };
+}
+
+function collectCosts(events: ProviderUsageEvent[], key: "estimatedCost" | "actualCost"): number[] {
+  return events.map((event) => event[key]).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+}
+
+function sum(values: number[]): number {
+  return Number(values.reduce((total, value) => total + value, 0).toFixed(6));
 }
 
 export function topologicalSort(route: OpenRoute): RouteNode[] {
@@ -353,9 +493,21 @@ function collectTemplateReferences(value: unknown, refs: TemplateReference[]): v
 function collectInputs(route: OpenRoute, node: RouteNode, nodeOutputs: Record<string, unknown>): Record<string, unknown> {
   const inputs: Record<string, unknown> = {};
   for (const edge of route.edges.filter((candidate) => candidate.to === node.id)) {
-    inputs[edge.from] = nodeOutputs[edge.from];
+    const value = readOutputPort(nodeOutputs[edge.from], edge.fromPort);
+    inputs[edge.toPort ?? edge.from] = value;
   }
   return inputs;
+}
+
+function readOutputPort(output: unknown, port?: string): unknown {
+  if (!port || port === "output") return output;
+  if (output && typeof output === "object" && port in output) {
+    return (output as Record<string, unknown>)[port];
+  }
+  if (port === "image" || port === "file" || port === "video") {
+    return output;
+  }
+  return readPath(output, port);
 }
 
 function readPath(source: unknown, path: string): unknown {

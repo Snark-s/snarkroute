@@ -19,7 +19,7 @@ route:
     name: Creator
     did: null
     wallet: null
-  license: MIT
+  license: CC-BY-SA-4.0
   tags: [example]
 economics:
   enabled: false
@@ -63,9 +63,13 @@ edges:
   - id: optional-edge-id
     from: input_prompt
     to: template
+    fromPort: text
+    toPort: template
 ```
 
 Cycles are executor-level errors, not protocol parse errors.
+
+`fromPort` and `toPort` are optional. They let an editor distinguish multiple outputs from the same node while preserving the simple `from` -> `to` dependency relationship. Older routes without port fields remain valid.
 
 ## References And Templates
 
@@ -88,10 +92,57 @@ In the MVP, edges define graph dependencies and execution order. Template refere
 - `input.file`: reads a local file path and outputs `{ path, filename, mimeType, sizeBytes }`
 - `input.image`: reads a local image path and outputs `{ path, filename, mimeType, sizeBytes, width, height }`
 - `input.video`: reads a local video path and outputs `{ path, filename, mimeType, sizeBytes, width?, height?, durationSec? }`
+- `preview.image`: passes through image values and lets Studio render a local or remote preview
 - `transform.template`: outputs `{ text }`
 - `debug.log`: logs and outputs `{ value }`
+- `output.text`: displays text or JSON output without writing a file
 - `output.file`: writes text or JSON to a local run folder
 - `replicate.model`: runs a Replicate model prediction on the local server
+- `replicate.clarity-upscaler`: application-specific node over Replicate `philz1337x/clarity-upscaler`; accepts image input and returns downloaded image metadata
+
+## Economics
+
+`economics` is optional in v0.1. When present, it is metadata and local accounting configuration only:
+
+```yaml
+economics:
+  enabled: true
+  mode: metadata-only
+  currency: USD
+  author:
+    id: author-1
+    name: Route Author
+    role: route-author
+    share: 0.5
+    wallet: null
+    did: did:example:author
+  contributors:
+    - id: artist-1
+      name: Artist
+      role: artist
+      share: 0.25
+  revenueSplits:
+    - recipientId: author-1
+      share: 0.5
+      reason: route authorship
+  providerCosts:
+    - provider: replicate
+      model: philz1337x/clarity-upscaler
+      nodeType: replicate.clarity-upscaler
+      pricingHint: external-provider-billing
+      estimatedCost: null
+      actualCost: null
+  notes: Metadata only. No payment execution in v0.1.
+```
+
+Rules:
+
+- `mode` is `metadata-only`, `accounting-only`, or `disabled`.
+- `share` values must be between `0` and `1`.
+- `revenueSplits` share total must be `<= 1`.
+- `wallet` and `did` are portable metadata only.
+- `paymentExecuted` is never part of route metadata and is always `false` in v0.1 run accounting.
+- Older MVP fields such as `authorShare` and `modelShares` remain valid for compatibility.
 
 ## Local Asset Inputs
 
@@ -108,3 +159,40 @@ nodes:
 `input.file` accepts any known local file type. `input.image` currently supports metadata for PNG, JPG, and WebP. `input.video` validates video file types and returns basic file metadata; `width`, `height`, and `durationSec` are optional in the MVP.
 
 Absolute local paths are useful for local-first execution, but they reduce route portability across machines. Future protocol versions may add portable asset IDs or manifests; v0.1 preserves paths exactly as route metadata.
+
+## Clarity Upscaler Node
+
+`replicate.clarity-upscaler` is a SnarkRoute application node built on top of the generic Replicate adapter. It is not a marketplace/plugin system. It exists to make one real image-to-image route work well in the MVP.
+
+Recommended binding:
+
+```yaml
+nodes:
+  - id: input_image
+    type: input.image
+    params:
+      path: C:\path\to\image.png
+  - id: upscale
+    type: replicate.clarity-upscaler
+    params:
+      scale_factor: 2
+      creativity: 0.25
+      resemblance: 0.8
+edges:
+  - from: input_image
+    to: upscale
+    fromPort: image
+    toPort: image
+  - from: upscale
+    to: output_text
+    fromPort: output
+    toPort: from
+```
+
+The executor passes the `input.image` output object through the edge. The clarity node also supports `params.image: "{{input_image.output.path}}"`, but the Studio route can rely on the edge input.
+
+Clarity output includes an estimated `cost` object when Replicate returns prediction timing metrics. This is an estimate for the completed prediction, calculated from actual prediction seconds and SnarkRoute's default per-second estimate; final provider billing may differ.
+
+---
+
+Open Route Protocol specification is licensed under CC BY-SA 4.0.

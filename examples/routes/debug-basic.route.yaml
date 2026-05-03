@@ -5,12 +5,13 @@ route:
   description: Local route that exercises built-in nodes.
   author:
     name: SnarkRoute
-  license: MIT
+  license: CC-BY-SA-4.0
   tags:
     - debug
     - local
 economics:
   enabled: false
+  mode: disabled
   notes: Economics metadata is part of the route format even when disabled.
 nodes:
   - id: input_prompt

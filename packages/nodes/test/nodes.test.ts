@@ -6,6 +6,27 @@ import { createExecutor } from "@snarkroute/executor";
 import { registerBuiltInNodeRunners } from "../src/index";
 
 describe("built-in nodes", () => {
+  it("output.text displays input without writing a file", async () => {
+    const executor = createExecutor();
+    registerBuiltInNodeRunners(executor);
+    const result = await executor.executeRoute(
+      {
+        routeVersion: "0.1",
+        route: { id: "text-output-test", title: "Text Output Test", author: {} },
+        economics: { enabled: false },
+        nodes: [
+          { id: "input", type: "input.text", params: { value: "hello text" } },
+          { id: "output", type: "output.text" }
+        ],
+        edges: [{ from: "input", to: "output", fromPort: "text", toPort: "from" }]
+      },
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-text-output-")) }
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.output.output).toEqual({ text: "hello text" });
+  });
+
   it("output.file writes to the run folder", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-node-"));
     const executor = createExecutor();
@@ -75,6 +96,57 @@ describe("built-in nodes", () => {
     const result = await executeSingleAssetNode("input.video", join(tmpdir(), "missing-snarkroute-video.mp4"));
     expect(result.status).toBe("failed");
     expect(result.nodeResults.asset.error).toContain("was not found");
+  });
+
+  it("preview.image accepts local image object", async () => {
+    const executor = createExecutor();
+    registerBuiltInNodeRunners(executor);
+    const result = await executor.executeRoute(
+      {
+        routeVersion: "0.1",
+        route: { id: "preview-test", title: "Preview Test", author: {} },
+        economics: { enabled: false },
+        nodes: [{ id: "preview", type: "preview.image", params: { image: { localPath: "C:\\image.png", mimeType: "image/png" } } }],
+        edges: []
+      },
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-preview-")) }
+    );
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.preview.output).toMatchObject({ image: { localPath: "C:\\image.png" } });
+  });
+
+  it("preview.image accepts remote URL", async () => {
+    const executor = createExecutor();
+    registerBuiltInNodeRunners(executor);
+    const result = await executor.executeRoute(
+      {
+        routeVersion: "0.1",
+        route: { id: "preview-test", title: "Preview Test", author: {} },
+        economics: { enabled: false },
+        nodes: [{ id: "preview", type: "preview.image", params: { image: "https://example.com/out.webp" } }],
+        edges: []
+      },
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-preview-")) }
+    );
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.preview.output).toMatchObject({ image: { originalUrl: "https://example.com/out.webp" } });
+  });
+
+  it("preview.image rejects non-image input clearly", async () => {
+    const executor = createExecutor();
+    registerBuiltInNodeRunners(executor);
+    const result = await executor.executeRoute(
+      {
+        routeVersion: "0.1",
+        route: { id: "preview-test", title: "Preview Test", author: {} },
+        economics: { enabled: false },
+        nodes: [{ id: "preview", type: "preview.image", params: { image: "not-image.txt" } }],
+        edges: []
+      },
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-preview-")) }
+    );
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults.preview.error).toContain("expected an image");
   });
 });
 

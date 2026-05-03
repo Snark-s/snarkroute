@@ -13,7 +13,8 @@ import {
   type EdgeChange,
   type Node,
   type NodeChange,
-  type NodeProps
+  type NodeProps,
+  type ReactFlowInstance
 } from "@xyflow/react";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
@@ -22,9 +23,9 @@ import { createRoot } from "react-dom/client";
 type RouteDoc = {
   routeVersion: string;
   route: { id: string; title: string; description?: string; author: Record<string, unknown>; tags?: string[] };
-  economics: Record<string, unknown>;
+  economics?: Record<string, unknown>;
   nodes: Array<{ id: string; type: string; title?: string; params?: Record<string, unknown>; ui?: Record<string, unknown> }>;
-  edges: Array<{ id?: string; from: string; to: string }>;
+  edges: Array<{ id?: string; from: string; to: string; fromPort?: string; toPort?: string }>;
   provenance?: Record<string, unknown>;
 };
 
@@ -43,39 +44,108 @@ type RunDisplayResult = {
   completedAt?: string;
   nodeResults?: Record<string, NodeRunResult>;
   logs?: Array<{ timestamp?: string; nodeId?: string; message: string }>;
+  economics?: unknown;
   error?: string;
+};
+
+type LedgerSummary = {
+  totalRuns: number;
+  runsByProvider: Record<string, number>;
+  runsByStatus: Record<string, number>;
+  estimatedProviderCostTotal: number | null;
+  actualProviderCostTotal: number | null;
+  paymentExecuted: false;
+  paymentExecutedCount: number;
+  recentRuns: Array<Record<string, unknown>>;
 };
 
 type AssetKind = "file" | "image" | "video";
 
 const apiBase = "";
+const NODE_DRAG_MIME = "application/x-snarkroute-node";
 
 const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
   { type: "input.file", label: "Input File", params: { path: "" } },
   { type: "input.image", label: "Input Image", params: { path: "" } },
   { type: "input.video", label: "Input Video", params: { path: "" } },
+  {
+    type: "replicate.clarity-upscaler",
+    label: "Clarity Upscaler",
+    params: {
+      prompt: "masterpiece, best quality, highres",
+      negative_prompt: "(worst quality, low quality, normal quality:2)",
+      scale_factor: 2,
+      dynamic: 6,
+      creativity: 0.35,
+      resemblance: 0.6,
+      tiling_width: 112,
+      tiling_height: 144,
+      scheduler: "DPM++ 3M SDE Karras",
+      num_inference_steps: 18,
+      seed: 1337,
+      downscaling: false,
+      downscaling_resolution: 768,
+      lora_links: "",
+      pollingIntervalMs: 1000,
+      timeoutMs: 120000
+    }
+  },
+  { type: "preview.image", label: "Image Preview", params: { title: "Preview" } },
   { type: "transform.template", label: "Template Transform", params: { template: "{{input_prompt.output.text}}" } },
   { type: "replicate.model", label: "Replicate Model", params: { model: "black-forest-labs/flux-schnell", input: { prompt: "{{input_prompt.output.text}}" } } },
   { type: "debug.log", label: "Debug Log", params: { message: "Debug value", value: "{{input_prompt.output.text}}" } },
-  { type: "output.file", label: "Output File", params: { filename: "output.json", from: "{{debug.output.value}}" } }
+  { type: "output.text", label: "Text Output", params: {} },
+  { type: "output.file", label: "Save Text File", params: { filename: "output.txt", from: "{{output_text.output.text}}" } }
+];
+
+const librarySections = [
+  { id: "inputs", title: "Input", types: ["input.text", "input.file", "input.image", "input.video"] },
+  { id: "image", title: "Image Processing", types: ["replicate.clarity-upscaler", "preview.image"] },
+  { id: "models", title: "Models / Providers", types: ["replicate.model"] },
+  { id: "transforms", title: "Transforms", types: ["transform.template"] },
+  { id: "outputs", title: "Output", types: ["output.text", "output.file"] },
+  { id: "debug", title: "Debug", types: ["debug.log"] }
 ];
 
 const exampleRoute: RouteDoc = {
   routeVersion: "0.1",
-  route: { id: "debug-basic", title: "Debug Basic", author: { name: "SnarkRoute" }, tags: ["debug", "local"] },
-  economics: { enabled: false, notes: "Economics metadata is preserved even when disabled." },
+  route: { id: "clarity-upscale-basic", title: "Clarity Upscale Basic", author: { name: "SnarkRoute" }, tags: ["replicate", "image", "upscale"] },
+  economics: {
+    enabled: false,
+    mode: "disabled",
+    currency: "USD",
+    providerCosts: [{ provider: "replicate", model: "philz1337x/clarity-upscaler", nodeType: "replicate.clarity-upscaler", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null }],
+    notes: "Economics metadata is preserved. No payment execution in v0.1."
+  },
   nodes: [
-    { id: "input_prompt", type: "input.text", title: "Prompt", params: { value: "Hello from Open Route Protocol" }, ui: { x: 80, y: 80 } },
-    { id: "template", type: "transform.template", title: "Template", params: { template: "Route says: {{input_prompt.output.text}}" }, ui: { x: 370, y: 80 } },
-    { id: "debug", type: "debug.log", title: "Debug", params: { value: "{{template.output.text}}" }, ui: { x: 660, y: 80 } },
-    { id: "output", type: "output.file", title: "Output", params: { filename: "debug-output.txt", from: "{{debug.output.value}}" }, ui: { x: 950, y: 80 } }
+    { id: "input_image", type: "input.image", title: "Input Image", params: { path: "" }, ui: { x: 80, y: 80 } },
+    {
+      id: "upscale",
+      type: "replicate.clarity-upscaler",
+      title: "Clarity Upscaler",
+      params: {
+        prompt: "masterpiece, best quality, highres",
+        negative_prompt: "(worst quality, low quality, normal quality:2)",
+        scale_factor: 2,
+        dynamic: 6,
+        creativity: "0,25",
+        resemblance: "1,5",
+        tiling_width: 112,
+        tiling_height: 144,
+        scheduler: "DPM++ 3M SDE Karras",
+        num_inference_steps: 18,
+        seed: 1337,
+        downscaling: false,
+        downscaling_resolution: 768,
+        lora_links: "",
+        pollingIntervalMs: 1000,
+        timeoutMs: 120000
+      },
+      ui: { x: 470, y: 80 }
+    }
   ],
-  edges: [
-    { from: "input_prompt", to: "template" },
-    { from: "template", to: "debug" },
-    { from: "debug", to: "output" }
-  ],
+  edges: [{ from: "input_image", to: "upscale", fromPort: "image", toPort: "image" }],
   provenance: { tool: "snarkroute-studio" }
 };
 
@@ -97,30 +167,38 @@ function RouteNodeCard({ id, data }: NodeProps) {
     <div className="routeNodeCard">
       <span className={`nodeStatus ${statusClass(result?.status)}`} />
       {ports.inputs.map((port, index) => (
-        <Handle
-          key={port.id}
-          className={`typedHandle ${port.kind}`}
-          id={port.id}
-          type="target"
-          position={Position.Left}
-          style={{ top: `${42 + index * 28}px` }}
-          title={`${port.id}: ${port.kind}`}
-        />
+        <React.Fragment key={port.id}>
+          <span className="portLabel input" style={{ top: `${34 + index * 28}px` }}>
+            {port.id}
+          </span>
+          <Handle
+            className={`typedHandle ${port.kind}`}
+            id={port.id}
+            type="target"
+            position={Position.Left}
+            style={{ top: `${42 + index * 28}px` }}
+            title={`${port.id}: ${port.kind}`}
+          />
+        </React.Fragment>
       ))}
       <div className="nodeTitle">{title}</div>
       <div className="nodeType">{type}</div>
       <NodeInlineParams type={type} params={params} onChange={patchParams} onBrowse={(kind) => onBrowseAsset?.(id, kind)} />
       {result ? <NodeInlineResult result={result} /> : null}
       {ports.outputs.map((port, index) => (
-        <Handle
-          key={port.id}
-          className={`typedHandle ${port.kind}`}
-          id={port.id}
-          type="source"
-          position={Position.Right}
-          style={{ top: `${42 + index * 28}px` }}
-          title={`${port.id}: ${port.kind}`}
-        />
+        <React.Fragment key={port.id}>
+          <span className="portLabel output" style={{ top: `${34 + index * 28}px` }}>
+            {port.id}
+          </span>
+          <Handle
+            className={`typedHandle ${port.kind}`}
+            id={port.id}
+            type="source"
+            position={Position.Right}
+            style={{ top: `${42 + index * 28}px` }}
+            title={`${port.id}: ${port.kind}`}
+          />
+        </React.Fragment>
       ))}
     </div>
   );
@@ -196,6 +274,47 @@ function NodeInlineParams({
     );
   }
 
+  if (type === "replicate.clarity-upscaler") {
+    return (
+      <>
+        <label className="nodeField">
+          <span>prompt</span>
+          <textarea className="nodrag nopan nodeTextarea" value={String(params.prompt ?? "")} onChange={(event) => onChange({ prompt: event.target.value })} />
+        </label>
+        <label className="nodeField">
+          <span>negative</span>
+          <textarea className="nodrag nopan nodeTextarea compact" value={String(params.negative_prompt ?? "")} onChange={(event) => onChange({ negative_prompt: event.target.value })} />
+        </label>
+        <div className="nodeGridFields">
+          {(["scale_factor", "dynamic", "creativity", "resemblance", "num_inference_steps", "seed"] as const).map((key) => (
+            <label className="nodeField" key={key}>
+              <span>{key}</span>
+              <input
+                className="nodrag nopan nodeInput"
+                inputMode="decimal"
+                value={String(params[key] ?? "").replace(".", ",")}
+                onChange={(event) => onChange({ [key]: event.target.value.replace(".", ",") })}
+              />
+            </label>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  if (type === "preview.image") {
+    return (
+      <label className="nodeField">
+        <span>title</span>
+        <input className="nodrag nopan nodeInput" value={String(params.title ?? "Preview")} onChange={(event) => onChange({ title: event.target.value })} />
+      </label>
+    );
+  }
+
+  if (type === "output.text") {
+    return <div className="nodeHint">Text output</div>;
+  }
+
   if (type === "debug.log") {
     return (
       <>
@@ -230,11 +349,29 @@ function NodeInlineParams({
 }
 
 function NodeInlineResult({ result }: { result: NodeRunResult }) {
+  const imageSrc = imagePreviewSrc(result.output);
+  const cost = costLabel(result.output);
+  const statusText = result.status && result.status !== "succeeded" ? result.status : null;
+  if (imageSrc) {
+    return (
+      <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
+        {statusText ? <div>{statusText}</div> : null}
+        {cost ? <span className="nodeCost">{cost}</span> : null}
+        <a className="nodeDownloadButton nodrag nopan" href={imageSrc} download={downloadFilename(result.output)} title="Download image">
+          <Download size={14} />
+        </a>
+        <img className="nodeImagePreview" src={imageSrc} alt="" />
+        <pre>{truncateText(imageLabel(result.output), 220)}</pre>
+      </div>
+    );
+  }
+  const textOutput = result.status !== "failed" ? outputText(result.output) : null;
   const preview = truncateText(result.error ?? JSON.stringify(result.output ?? {}, null, 2), 420);
   return (
     <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
-      <div>{result.status ?? "unknown"}</div>
-      <pre>{preview}</pre>
+      {statusText ? <div>{statusText}</div> : null}
+      {cost ? <span className="nodeCost">{cost}</span> : null}
+      {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : <pre>{preview}</pre>}
     </div>
   );
 }
@@ -251,7 +388,7 @@ const nodeTypes = {
   route: RouteNodeCard
 };
 
-type PortKind = "text" | "image" | "video" | "file" | "data";
+type PortKind = "text" | "image" | "video" | "file" | "json" | "data";
 
 type PortSpec = {
   id: string;
@@ -263,15 +400,28 @@ function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] }
   if (type === "input.file") return { inputs: [], outputs: [{ id: "file", kind: "file" }] };
   if (type === "input.image") return { inputs: [], outputs: [{ id: "image", kind: "image" }] };
   if (type === "input.video") return { inputs: [], outputs: [{ id: "video", kind: "video" }] };
-  if (type === "replicate.model") return { inputs: [{ id: "input", kind: "data" }], outputs: [{ id: "output", kind: "data" }] };
-  if (type === "output.file") return { inputs: [{ id: "from", kind: "data" }], outputs: [] };
+  if (type === "replicate.clarity-upscaler") {
+    return {
+      inputs: [{ id: "image", kind: "image" }],
+      outputs: [
+        { id: "image", kind: "image" },
+        { id: "output", kind: "json" }
+      ]
+    };
+  }
+  if (type === "preview.image") return { inputs: [{ id: "image", kind: "image" }], outputs: [{ id: "image", kind: "image" }] };
+  if (type === "replicate.model") return { inputs: [{ id: "input", kind: "json" }], outputs: [{ id: "output", kind: "json" }] };
+  if (type === "output.text") return { inputs: [{ id: "from", kind: "json" }], outputs: [{ id: "text", kind: "text" }] };
+  if (type === "output.file") return { inputs: [{ id: "from", kind: "text" }], outputs: [] };
   if (type === "transform.template") return { inputs: [{ id: "template", kind: "text" }], outputs: [{ id: "text", kind: "text" }] };
-  if (type === "debug.log") return { inputs: [{ id: "value", kind: "data" }], outputs: [{ id: "value", kind: "data" }] };
-  return { inputs: [{ id: "input", kind: "data" }], outputs: [{ id: "output", kind: "data" }] };
+  if (type === "debug.log") return { inputs: [{ id: "value", kind: "json" }], outputs: [{ id: "value", kind: "json" }] };
+  return { inputs: [{ id: "input", kind: "json" }], outputs: [{ id: "output", kind: "json" }] };
 }
 
 function arePortsCompatible(source: PortKind, target: PortKind): boolean {
   if (source === "data" || target === "data") return true;
+  if (source === "json" && target === "text") return true;
+  if (source === "text" && target === "json") return true;
   return source === target;
 }
 
@@ -287,7 +437,13 @@ function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
       position: { x: Number(node.ui?.x ?? 80 + index * 240), y: Number(node.ui?.y ?? 120) },
       data: { label: `${node.title ?? node.id}\n${node.type}`, routeNode: node }
     })),
-    edges: route.edges.map((edge, index) => ({ id: edge.id ?? `${edge.from}-${edge.to}-${index}`, source: edge.from, target: edge.to }))
+    edges: route.edges.map((edge, index) => ({
+      id: edge.id ?? `${edge.from}-${edge.fromPort ?? "output"}-${edge.to}-${edge.toPort ?? "input"}-${index}`,
+      source: edge.from,
+      target: edge.to,
+      sourceHandle: edge.fromPort,
+      targetHandle: edge.toPort
+    }))
   };
 }
 
@@ -300,7 +456,13 @@ function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDo
       const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
       return { ...routeNode, ui: { ...(routeNode.ui ?? {}), x: node.position.x, y: node.position.y } };
     }),
-    edges: edges.map((edge) => ({ id: edge.id, from: edge.source, to: edge.target })),
+    edges: edges.map((edge) => ({
+      id: edge.id,
+      from: edge.source,
+      to: edge.target,
+      fromPort: edge.sourceHandle ?? undefined,
+      toPort: edge.targetHandle ?? undefined
+    })),
     provenance: { tool: "snarkroute-studio", updatedAt: new Date().toISOString() }
   };
 }
@@ -323,6 +485,9 @@ function App() {
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(true);
   const [bottomCollapsed, setBottomCollapsed] = useState(true);
+  const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
+  const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
+  const [collapsedLibrarySections, setCollapsedLibrarySections] = useState<Record<string, boolean>>({});
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
@@ -343,6 +508,7 @@ function App() {
 
   useEffect(() => {
     void loadSettings();
+    void loadLedgerSummary();
   }, []);
 
   async function loadSettings() {
@@ -352,6 +518,16 @@ function App() {
       setReplicateConfigured(Boolean(result.replicateConfigured));
     } catch {
       setSettingsMessage("Settings API unavailable.");
+    }
+  }
+
+  async function loadLedgerSummary() {
+    try {
+      const response = await fetch(`${apiBase}/api/ledger/summary`);
+      if (!response.ok) throw new Error("Ledger API unavailable.");
+      setLedgerSummary(await response.json());
+    } catch {
+      setLedgerSummary(null);
     }
   }
 
@@ -406,6 +582,12 @@ function App() {
   async function handleCanvasDrop(event: React.DragEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
+    const draggedNodeType = event.dataTransfer.getData(NODE_DRAG_MIME);
+    if (draggedNodeType) {
+      addNode(draggedNodeType, flowPositionFromEvent(event));
+      return;
+    }
+
     const file = event.dataTransfer.files?.[0];
     if (!file) return;
     const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
@@ -426,6 +608,10 @@ function App() {
     }
   }
 
+  function flowPositionFromEvent(event: React.DragEvent<HTMLElement>) {
+    return reactFlowInstance?.screenToFlowPosition({ x: event.clientX, y: event.clientY }) ?? { x: 160 + nodes.length * 30, y: 120 + nodes.length * 24 };
+  }
+
   function updateNodeParams(nodeId: string, params: Record<string, unknown>) {
     setNodes((current) =>
       current.map((node) => {
@@ -437,15 +623,37 @@ function App() {
     if (selectedId === nodeId) setParamsText(JSON.stringify(params, null, 2));
   }
 
-  function addNode(type: string) {
+  function addNode(type: string, position?: { x: number; y: number }) {
     const item = library.find((candidate) => candidate.type === type)!;
     const idBase = type.replace(".", "_");
     const id = `${idBase}_${nodes.length + 1}`;
-    const routeNode = { id, type, title: item.label, params: item.params, ui: {} };
+    const params = structuredClone(item.params ?? {});
+    const routeNode = { id, type, title: item.label, params, ui: {} };
     setNodes((current) => [
       ...current,
-      { id, type: "route", position: { x: 120 + current.length * 36, y: 140 + current.length * 28 }, data: { label: `${item.label}\n${type}`, routeNode } }
+      { id, type: "route", position: position ?? { x: 120 + current.length * 36, y: 140 + current.length * 28 }, data: { label: `${item.label}\n${type}`, routeNode } }
     ]);
+  }
+
+  function toggleLibrarySection(id: string) {
+    setCollapsedLibrarySections((current) => ({ ...current, [id]: !current[id] }));
+  }
+
+  function renderLibraryItem(item: (typeof library)[number]) {
+    return (
+      <button
+        key={item.type}
+        className="libraryItem"
+        draggable
+        onClick={() => addNode(item.type)}
+        onDragStart={(event) => {
+          event.dataTransfer.setData(NODE_DRAG_MIME, item.type);
+          event.dataTransfer.effectAllowed = "copy";
+        }}
+      >
+        <Plus size={13} />{item.label}<span>{item.type}</span>
+      </button>
+    );
   }
 
   function handleNodesChange(changes: NodeChange[]) {
@@ -549,6 +757,7 @@ function App() {
     const result = await response.json();
     setOutputs(result);
     setRunResult(result);
+    void loadLedgerSummary();
     const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
     setLogs((current) => [...runLogs.reverse(), ...current]);
   }
@@ -586,7 +795,7 @@ function App() {
     setEdges(flow.edges);
     setRunResult(null);
     setOutputs(null);
-    setLogs((current) => ["Loaded debug example.", ...current]);
+    setLogs((current) => ["Loaded Clarity example.", ...current]);
   }
 
   return (
@@ -609,17 +818,38 @@ function App() {
         <div className="portLegend">
           <span><i className="legendDot text" />Text</span>
           <span><i className="legendDot image" />Image</span>
+          <span><i className="legendDot json" />JSON</span>
           <span><i className="legendDot video" />Video</span>
           <span><i className="legendDot file" />File</span>
         </div>
-        {library.map((item) => (
-          <button key={item.type} className="libraryItem" onClick={() => addNode(item.type)}><Plus size={16} />{item.label}<span>{item.type}</span></button>
-        ))}
+        <div className="librarySections">
+          {librarySections.map((section) => {
+            const collapsed = Boolean(collapsedLibrarySections[section.id]);
+            const items = section.types.map((type) => library.find((item) => item.type === type)).filter((item): item is (typeof library)[number] => Boolean(item));
+            return (
+              <section className="librarySection" key={section.id}>
+                <button className="librarySectionHeader" onClick={() => toggleLibrarySection(section.id)}>
+                  {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                  <span>{section.title}</span>
+                  <small>{items.length}</small>
+                </button>
+                {!collapsed ? <div className="librarySectionItems">{items.map(renderLibraryItem)}</div> : null}
+              </section>
+            );
+          })}
+        </div>
         </>
         ) : null}
       </aside>
 
-      <main className="canvas" onDragOver={(event) => event.preventDefault()} onDrop={handleCanvasDrop}>
+      <main
+        className="canvas"
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = event.dataTransfer.types.includes(NODE_DRAG_MIME) || event.dataTransfer.types.includes("Files") ? "copy" : "none";
+        }}
+        onDrop={handleCanvasDrop}
+      >
         <div className="topbar">
           <button onClick={validate}><FileJson size={16} /> Validate</button>
           <button className="primary" onClick={() => void run()}><Play size={16} /> Run</button>
@@ -632,17 +862,20 @@ function App() {
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={connectNodes}
+          onInit={setReactFlowInstance}
           isValidConnection={isConnectionValid}
           onNodeClick={(_event, node) => selectNode(node)}
           onEdgeClick={() => setSelectedId(null)}
           onPaneClick={() => selectNode(null)}
           onKeyDown={(event) => {
-            if (event.key === "Delete" || event.key === "Backspace") deleteSelection();
+            if ((event.key === "Delete" || event.key === "Backspace") && !isTextEditingTarget(event.target)) {
+              deleteSelection();
+            }
           }}
           multiSelectionKeyCode={["Shift", "Meta", "Control"]}
           selectionOnDrag
           panOnDrag={[1, 2]}
-          deleteKeyCode={["Delete", "Backspace"]}
+          deleteKeyCode={null}
           proOptions={{ hideAttribution: true }}
           fitView
         >
@@ -700,6 +933,9 @@ function App() {
         ) : (
           <p className="muted">Select a node.</p>
         )}
+
+        <h2>Economics</h2>
+        <EconomicsPanel route={flowToRoute(nodes, edges, routeBase)} runResult={runResult} ledgerSummary={ledgerSummary} />
         </>
         ) : null}
       </aside>
@@ -728,6 +964,70 @@ function App() {
   );
 }
 
+function EconomicsPanel({ route, runResult, ledgerSummary }: { route: RouteDoc; runResult: RunDisplayResult | null; ledgerSummary: LedgerSummary | null }) {
+  const economics = route.economics ?? { enabled: false, mode: "disabled" };
+  const runEconomics = runResult?.economics && typeof runResult.economics === "object" ? (runResult.economics as Record<string, unknown>) : null;
+  const providersUsed = Array.isArray(runEconomics?.providersUsed) ? runEconomics.providersUsed : [];
+  return (
+    <div className="economicsPanel">
+      <div className="economicsGrid">
+        <span>enabled</span>
+        <strong>{String(economics.enabled ?? false)}</strong>
+        <span>mode</span>
+        <strong>{String(economics.mode ?? (economics.enabled ? "metadata-only" : "disabled"))}</strong>
+        <span>payment</span>
+        <strong>false</strong>
+      </div>
+      <pre className="miniPre">
+        {JSON.stringify(
+          {
+            author: economics.author ?? route.route.author,
+            contributors: economics.contributors ?? [],
+            revenueSplits: economics.revenueSplits ?? []
+          },
+          null,
+          2
+        )}
+      </pre>
+      <h3>Last Run</h3>
+      {runEconomics ? (
+        <pre className="miniPre">
+          {JSON.stringify(
+            {
+              providersUsed,
+              costSummary: runEconomics.costSummary,
+              paymentExecuted: false
+            },
+            null,
+            2
+          )}
+        </pre>
+      ) : (
+        <p className="muted">No run accounting yet.</p>
+      )}
+      <h3>Ledger</h3>
+      {ledgerSummary ? (
+        <pre className="miniPre">
+          {JSON.stringify(
+            {
+              totalRuns: ledgerSummary.totalRuns,
+              runsByProvider: ledgerSummary.runsByProvider,
+              runsByStatus: ledgerSummary.runsByStatus,
+              estimatedProviderCostTotal: ledgerSummary.estimatedProviderCostTotal,
+              actualProviderCostTotal: ledgerSummary.actualProviderCostTotal,
+              recentRuns: ledgerSummary.recentRuns.slice(0, 3)
+            },
+            null,
+            2
+          )}
+        </pre>
+      ) : (
+        <p className="muted">Ledger unavailable.</p>
+      )}
+    </div>
+  );
+}
+
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
 
 function truncateText(value: string, maxLength: number): string {
@@ -743,7 +1043,75 @@ function formatLogs(runResult: RunDisplayResult | null, fallbackLogs: string[]):
 }
 
 function formatOutputs(outputs: unknown): string {
-  return JSON.stringify(outputs, null, 2);
+  const cost = runCostLabel(outputs);
+  const body = JSON.stringify(outputs, null, 2);
+  return cost ? `${cost}\n\n${body}` : body;
+}
+
+function imagePreviewSrc(value: unknown): string | null {
+  if (!value) return null;
+  if (Array.isArray(value)) return imagePreviewSrc(value[0]);
+  if (typeof value === "string") {
+    if (/^https?:\/\//i.test(value)) return value;
+    if (/\.(png|jpg|jpeg|webp)(\?.*)?$/i.test(value)) return `${apiBase}/api/assets/preview?path=${encodeURIComponent(value)}`;
+    return null;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return imagePreviewSrc(record.image ?? record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.output);
+  }
+  return null;
+}
+
+function imageLabel(value: unknown): string {
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const image = (record.image && typeof record.image === "object" ? record.image : record) as Record<string, unknown>;
+    return String(image.filename ?? image.localPath ?? image.path ?? image.originalUrl ?? "image");
+  }
+  return String(value ?? "image");
+}
+
+function outputText(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const text = (value as Record<string, unknown>).text;
+  return typeof text === "string" ? text : null;
+}
+
+function downloadFilename(value: unknown): string {
+  const label = imageLabel(value).split(/[\\/]/).pop() ?? "snarkroute-image.png";
+  return label || "snarkroute-image.png";
+}
+
+function costLabel(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const output = value as Record<string, unknown>;
+  const cost = output.cost;
+  const record = cost && typeof cost === "object" ? (cost as Record<string, unknown>) : null;
+  const metrics = output.metrics && typeof output.metrics === "object" ? (output.metrics as Record<string, unknown>) : null;
+  const seconds = Number(record?.seconds ?? metrics?.predict_time ?? metrics?.total_time);
+  const estimatedUsdFromCost = Number(record?.estimatedUsd ?? record?.amountUsd);
+  const estimatedUsd = Number.isFinite(estimatedUsdFromCost) ? estimatedUsdFromCost : Number.isFinite(seconds) ? seconds * 0.0014 : NaN;
+  if (!Number.isFinite(estimatedUsd)) return null;
+  const parts = [`Estimated cost for this image: $${estimatedUsd.toFixed(4)}`];
+  if (Number.isFinite(seconds)) parts.push(`${seconds.toFixed(2)}s`);
+  return parts.join(" · ");
+}
+
+function runCostLabel(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const nodeResults = record.nodeResults;
+  if (!nodeResults || typeof nodeResults !== "object") return null;
+  const labels = Object.entries(nodeResults as Record<string, unknown>)
+    .map(([nodeId, result]) => {
+      if (!result || typeof result !== "object") return null;
+      const output = (result as Record<string, unknown>).output;
+      const label = costLabel(output);
+      return label ? `${nodeId}: ${label}` : null;
+    })
+    .filter((label): label is string => Boolean(label));
+  return labels.length > 0 ? labels.join("\n") : null;
 }
 
 async function importLocalAsset(file: File, kind: AssetKind): Promise<string> {
@@ -769,4 +1137,10 @@ function fileToBase64(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("Could not read file."));
     reader.readAsDataURL(file);
   });
+}
+
+function isTextEditingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return tagName === "input" || tagName === "textarea" || tagName === "select" || target.isContentEditable;
 }

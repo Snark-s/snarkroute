@@ -54,6 +54,56 @@ describe("protocol", () => {
     expect(exportRouteToJson(route)).toContain("authorShare");
   });
 
+  it("allows routes without economics", () => {
+    const { economics: _economics, ...withoutEconomics } = baseRoute;
+    expect(validateRoute(withoutEconomics).ok).toBe(true);
+  });
+
+  it("preserves v0.1 economics metadata", () => {
+    const route = parseRoute({
+      ...baseRoute,
+      economics: {
+        enabled: true,
+        mode: "metadata-only",
+        currency: "USD",
+        author: { id: "author", name: "Route Author", role: "route-author", share: 0.5, wallet: null, did: "did:example:123" },
+        contributors: [{ id: "artist", name: "Artist", role: "artist", share: 0.25 }],
+        revenueSplits: [{ recipientId: "author", share: 0.5, reason: "route authorship" }],
+        providerCosts: [{ provider: "replicate", model: "owner/model", estimatedCost: null, actualCost: null }],
+        notes: "metadata only",
+        customField: { preserved: true }
+      }
+    });
+    expect(route.economics?.author?.id).toBe("author");
+    expect(route.economics?.customField).toEqual({ preserved: true });
+    expect(exportRouteToJson(route)).toContain("revenueSplits");
+  });
+
+  it("rejects invalid share values", () => {
+    expect(validateRoute({ ...baseRoute, economics: { enabled: true, author: { share: 1.1 } } }).ok).toBe(false);
+    expect(validateRoute({ ...baseRoute, economics: { enabled: true, contributors: [{ id: "c", share: -0.1 }] } }).ok).toBe(false);
+  });
+
+  it("rejects revenue splits above one", () => {
+    const result = validateRoute({
+      ...baseRoute,
+      economics: {
+        enabled: true,
+        mode: "metadata-only",
+        revenueSplits: [
+          { recipientId: "a", share: 0.7 },
+          { recipientId: "b", share: 0.4 }
+        ]
+      }
+    });
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((issue) => issue.message.includes("revenueSplits"))).toBe(true);
+  });
+
+  it("allows metadata-only mode", () => {
+    expect(validateRoute({ ...baseRoute, economics: { enabled: true, mode: "metadata-only" } }).ok).toBe(true);
+  });
+
   it("allows unknown node types at protocol level", () => {
     expect(parseRoute(baseRoute).nodes[1].type).toBe("unknown.node");
   });

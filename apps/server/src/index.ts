@@ -8,7 +8,7 @@ import { basename, join } from "node:path";
 import { createExecutor } from "@snarkroute/executor";
 import { builtInNodeDefinitions, getLocalAssetMetadata, registerBuiltInNodeRunners, type LocalAssetKind } from "@snarkroute/nodes";
 import { parseRoute, validateRoute } from "@snarkroute/protocol";
-import { createReplicateClient, createReplicateNodeRunner } from "@snarkroute/replicate";
+import { createClarityUpscalerNodeRunner, createReplicateClient, createReplicateNodeRunner } from "@snarkroute/replicate";
 import { createLocalRunStorage } from "@snarkroute/storage";
 
 dotenv.config();
@@ -18,6 +18,7 @@ const host = process.env.HOST ?? "127.0.0.1";
 const storage = createLocalRunStorage(join(process.cwd(), "data", "runs"));
 const envPath = join(process.cwd(), ".env");
 const assetsDirectory = join(process.cwd(), "data", "assets");
+const getLedgerPath = () => process.env.SNARKROUTE_LEDGER_PATH ?? join(process.cwd(), "data", "ledger", "runs.jsonl");
 
 export function buildServer() {
   const app = Fastify({ logger: true, bodyLimit: 250 * 1024 * 1024 });
@@ -42,7 +43,8 @@ export function buildServer() {
   app.get("/api/nodes", async () => ({
     nodes: [
       ...builtInNodeDefinitions,
-      { type: "replicate.model", title: "Replicate Model", description: "Runs a Replicate model prediction.", enabled: isReplicateEnabled() }
+      { type: "replicate.model", title: "Replicate Model", description: "Runs a Replicate model prediction.", enabled: isReplicateEnabled() },
+      { type: "replicate.clarity-upscaler", title: "Clarity Upscaler", description: "Runs Replicate philz1337x/clarity-upscaler.", enabled: isReplicateEnabled() }
     ]
   }));
 
@@ -108,7 +110,15 @@ export function buildServer() {
       const route = parseRoute(request.body);
       const executor = createExecutor();
       registerBuiltInNodeRunners(executor);
-      if (isReplicateEnabled()) executor.registerNodeRunner("replicate.model", createReplicateNodeRunner());
+      executor.registerNodeRunner("output.text", ({ params, inputs }) => {
+        const from = params.from ?? Object.values(inputs)[0] ?? "";
+        const text = typeof from === "string" ? from : JSON.stringify(from, null, 2);
+        return { output: { text } };
+      });
+      if (isReplicateEnabled()) {
+        executor.registerNodeRunner("replicate.model", createReplicateNodeRunner());
+        executor.registerNodeRunner("replicate.clarity-upscaler", createClarityUpscalerNodeRunner());
+      }
       const runId = `run_${Date.now()}`;
       const outputDirectory = await storage.createRunDirectory(runId);
       return await executor.executeRoute(route, { runId, outputDirectory });
@@ -125,6 +135,21 @@ export function buildServer() {
     }
   });
 
+  app.get<{ Querystring: { limit?: string } }>("/api/ledger/runs", async (request) => {
+    const limit = Math.min(Number(request.query.limit ?? 100), 500);
+    const runs = await readLedgerRuns();
+    return { runs: runs.slice(-limit).reverse() };
+  });
+
+  app.get<{ Params: { runId: string } }>("/api/ledger/runs/:runId", async (request, reply) => {
+    const runs = await readLedgerRuns();
+    const run = runs.find((entry) => entry.runId === request.params.runId);
+    if (!run) return reply.code(404).send({ error: `Ledger run "${request.params.runId}" was not found.` });
+    return run;
+  });
+
+  app.get("/api/ledger/summary", async () => summarizeLedgerRuns(await readLedgerRuns()));
+
   return app;
 }
 
@@ -138,6 +163,75 @@ function isReplicateEnabled(): boolean {
 
 function sanitizeFilename(filename: string): string {
   return filename.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+}
+
+async function readLedgerRuns(): Promise<Array<Record<string, unknown>>> {
+  let text = "";
+  try {
+    text = await readFile(getLedgerPath(), "utf8");
+  } catch {
+    return [];
+  }
+  return text
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .map(stripSecretLikeFields);
+}
+
+function summarizeLedgerRuns(runs: Array<Record<string, unknown>>) {
+  const runsByProvider: Record<string, number> = {};
+  const runsByStatus: Record<string, number> = {};
+  let estimatedProviderCostTotal = 0;
+  let estimatedCount = 0;
+  let actualProviderCostTotal = 0;
+  let actualCount = 0;
+
+  for (const run of runs) {
+    const status = String(run.status ?? "unknown");
+    runsByStatus[status] = (runsByStatus[status] ?? 0) + 1;
+    for (const provider of Array.isArray(run.providersUsed) ? run.providersUsed : []) {
+      if (provider && typeof provider === "object") {
+        const name = String((provider as Record<string, unknown>).provider ?? "unknown");
+        runsByProvider[name] = (runsByProvider[name] ?? 0) + 1;
+      }
+    }
+    if (typeof run.estimatedProviderCost === "number") {
+      estimatedProviderCostTotal += run.estimatedProviderCost;
+      estimatedCount += 1;
+    }
+    if (typeof run.actualProviderCost === "number") {
+      actualProviderCostTotal += run.actualProviderCost;
+      actualCount += 1;
+    }
+  }
+
+  return {
+    totalRuns: runs.length,
+    runsByProvider,
+    runsByStatus,
+    estimatedProviderCostTotal: estimatedCount > 0 ? Number(estimatedProviderCostTotal.toFixed(6)) : null,
+    actualProviderCostTotal: actualCount > 0 ? Number(actualProviderCostTotal.toFixed(6)) : null,
+    paymentExecuted: false,
+    paymentExecutedCount: 0,
+    recentRuns: runs.slice(-10).reverse()
+  };
+}
+
+function stripSecretLikeFields(value: unknown): Record<string, unknown> {
+  return stripSecrets(value) as Record<string, unknown>;
+}
+
+function stripSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripSecrets);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !/token|secret|password|api[_-]?key/i.test(key))
+        .map(([key, entry]) => [key, stripSecrets(entry)])
+    );
+  }
+  return value;
 }
 
 async function writeEnvValue(key: string, value: string): Promise<void> {

@@ -18,12 +18,79 @@ export const AuthorSchema = z.object({
   wallet: z.string().nullable().optional()
 });
 
-export const EconomicsSchema = z.object({
-  enabled: z.boolean(),
-  authorShare: z.number().optional(),
-  modelShares: z.array(z.object({ model: z.string(), share: z.number() })).optional(),
-  notes: z.string().optional()
-});
+const ShareSchema = z.number().min(0).max(1);
+
+export const EconomicsPersonSchema = z
+  .object({
+    id: z.string().optional(),
+    name: z.string().optional(),
+    role: z.enum(["route-author", "artist", "developer", "other"]).or(z.string()).optional(),
+    share: ShareSchema.optional(),
+    wallet: z.string().nullable().optional(),
+    did: z.string().nullable().optional()
+  })
+  .catchall(z.unknown());
+
+export const EconomicsSchema = z
+  .object({
+    enabled: z.boolean(),
+    mode: z.enum(["metadata-only", "accounting-only", "disabled"]).optional(),
+    currency: z.string().optional(),
+    author: EconomicsPersonSchema.optional(),
+    contributors: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            name: z.string().optional(),
+            role: z.string().optional(),
+            share: ShareSchema.optional(),
+            wallet: z.string().nullable().optional(),
+            did: z.string().nullable().optional()
+          })
+          .catchall(z.unknown())
+      )
+      .optional(),
+    revenueSplits: z
+      .array(
+        z
+          .object({
+            recipientId: z.string(),
+            share: ShareSchema,
+            reason: z.string().optional()
+          })
+          .catchall(z.unknown())
+      )
+      .optional(),
+    providerCosts: z
+      .array(
+        z
+          .object({
+            provider: z.string(),
+            model: z.string().optional(),
+            nodeType: z.string().optional(),
+            pricingHint: z.string().optional(),
+            estimatedCost: z.number().nullable().optional(),
+            actualCost: z.number().nullable().optional()
+          })
+          .catchall(z.unknown())
+      )
+      .optional(),
+    notes: z.string().optional(),
+    authorShare: ShareSchema.optional(),
+    modelShares: z.array(z.object({ model: z.string(), share: ShareSchema })).optional()
+  })
+  .catchall(z.unknown())
+  .superRefine((economics, context) => {
+    const splitSum = economics.revenueSplits?.reduce((sum, split) => sum + split.share, 0) ?? 0;
+    if (splitSum > 1) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["revenueSplits"],
+        message: `revenueSplits share sum must be <= 1, got ${splitSum}`
+      });
+    }
+  });
 
 export const RouteNodeSchema = z.object({
   id: z.string().min(1),
@@ -38,7 +105,9 @@ export const RouteNodeSchema = z.object({
 export const RouteEdgeSchema = z.object({
   id: z.string().optional(),
   from: z.string().min(1),
-  to: z.string().min(1)
+  to: z.string().min(1),
+  fromPort: z.string().min(1).optional(),
+  toPort: z.string().min(1).optional()
 });
 
 export const ProvenanceSchema = z.object({
@@ -58,7 +127,7 @@ export const OpenRouteSchema = z.object({
     license: z.string().optional(),
     tags: z.array(z.string()).optional()
   }),
-  economics: EconomicsSchema,
+  economics: EconomicsSchema.optional(),
   nodes: z.array(RouteNodeSchema),
   edges: z.array(RouteEdgeSchema),
   provenance: ProvenanceSchema.optional()

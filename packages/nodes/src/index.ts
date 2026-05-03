@@ -6,16 +6,32 @@ export interface NodeDefinition {
   type: string;
   title: string;
   description: string;
+  economics?: NodeEconomicsMetadata;
+}
+
+export interface NodeEconomicsMetadata {
+  author?: {
+    id?: string;
+    name?: string;
+    wallet?: string | null;
+    did?: string | null;
+  };
+  license?: string;
+  suggestedShare?: number;
+  pricingHint?: string;
+  notes?: string;
 }
 
 export const builtInNodeDefinitions: NodeDefinition[] = [
-  { type: "input.text", title: "Text Input", description: "Produces a text value from params.value." },
-  { type: "input.file", title: "Input File", description: "Reads metadata for a local file path." },
-  { type: "input.image", title: "Input Image", description: "Reads metadata and dimensions for a local image path." },
-  { type: "input.video", title: "Input Video", description: "Reads metadata for a local video path." },
-  { type: "transform.template", title: "Template Transform", description: "Produces text from params.template after route template resolution." },
-  { type: "debug.log", title: "Debug Log", description: "Logs a message or value and passes the value through." },
-  { type: "output.file", title: "Output File", description: "Writes text or JSON to the local run folder." }
+  { type: "input.text", title: "Text Input", description: "Produces a text value from params.value.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "input.file", title: "Input File", description: "Reads metadata for a local file path.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "input.image", title: "Input Image", description: "Reads metadata and dimensions for a local image path.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "input.video", title: "Input Video", description: "Reads metadata for a local video path.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "preview.image", title: "Image Preview", description: "Passes through an image value for Studio preview.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "transform.template", title: "Template Transform", description: "Produces text from params.template after route template resolution.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "debug.log", title: "Debug Log", description: "Logs a message or value and passes the value through.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "output.text", title: "Text Output", description: "Displays text or JSON output without writing a file.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "output.file", title: "Output File", description: "Writes text or JSON to the local run folder.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } }
 ];
 
 export const inputTextRunner: NodeRunner = ({ params }) => ({
@@ -36,6 +52,13 @@ export const inputVideoRunner: NodeRunner = async ({ params }) => ({
   output: await getLocalAssetMetadata(String(params.path ?? ""), "video")
 });
 
+export const previewImageRunner: NodeRunner = ({ params, inputs }) => {
+  const image = normalizePreviewImage(params.image ?? firstInputValue(inputs));
+  return {
+    output: { image }
+  };
+};
+
 export const transformTemplateRunner: NodeRunner = ({ params }) => ({
   output: {
     text: String(params.template ?? "")
@@ -49,6 +72,16 @@ export const debugLogRunner: NodeRunner = ({ params, context }) => {
   return {
     output: { value },
     logs: [message]
+  };
+};
+
+export const outputTextRunner: NodeRunner = ({ params, inputs }) => {
+  const from = params.from ?? firstInputValue(inputs) ?? "";
+  const text = typeof from === "string" ? from : JSON.stringify(from, null, 2);
+  return {
+    output: {
+      text
+    }
   };
 };
 
@@ -73,9 +106,33 @@ export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("input.file", inputFileRunner);
   executor.registerNodeRunner("input.image", inputImageRunner);
   executor.registerNodeRunner("input.video", inputVideoRunner);
+  executor.registerNodeRunner("preview.image", previewImageRunner);
   executor.registerNodeRunner("transform.template", transformTemplateRunner);
   executor.registerNodeRunner("debug.log", debugLogRunner);
+  executor.registerNodeRunner("output.text", outputTextRunner);
   executor.registerNodeRunner("output.file", outputFileRunner);
+}
+
+export function normalizePreviewImage(value: unknown): unknown {
+  if (Array.isArray(value)) return normalizePreviewImage(value[0]);
+  if (typeof value === "string") {
+    if (/^https?:\/\//i.test(value)) return { originalUrl: value };
+    if (/\.(png|jpg|jpeg|webp)(\?.*)?$/i.test(value)) return { localPath: value, path: value };
+    throw new Error("preview.image expected an image URL or image file path.");
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const image = record.image ? normalizePreviewImage(record.image) : record;
+    const candidate = image as Record<string, unknown>;
+    const path = candidate.localPath ?? candidate.path ?? candidate.originalUrl ?? candidate.url;
+    if (typeof path !== "string") throw new Error("preview.image expected an image object with localPath, path, originalUrl, or url.");
+    const mimeType = typeof candidate.mimeType === "string" ? candidate.mimeType : path.startsWith("http") ? "image/remote" : getMimeType(path);
+    if (mimeType !== "image/remote" && !mimeType.startsWith("image/")) {
+      throw new Error(`preview.image expected image input, got ${mimeType}.`);
+    }
+    return image;
+  }
+  throw new Error("preview.image requires an image input.");
 }
 
 export type LocalAssetKind = "file" | "image" | "video";

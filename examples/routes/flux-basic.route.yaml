@@ -5,7 +5,7 @@ route:
   description: Generate an image through Replicate using Flux Schnell.
   author:
     name: SnarkRoute
-  license: MIT
+  license: CC-BY-SA-4.0
   tags:
     - replicate
     - image

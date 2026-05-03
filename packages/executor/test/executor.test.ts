@@ -51,6 +51,45 @@ describe("executor", () => {
     expect(Object.keys(result.nodeResults)).toHaveLength(3);
   });
 
+  it("passes explicit edge ports into named inputs", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("source", () => ({ output: { image: { path: "image.png" }, output: { raw: true } } }));
+    executor.registerNodeRunner("sink", ({ inputs }) => ({ output: { value: inputs } }));
+    const result = await executor.executeRoute(
+      route({
+        nodes: [
+          { id: "upscale", type: "source" },
+          { id: "preview", type: "sink" },
+          { id: "file", type: "sink" }
+        ],
+        edges: [
+          { from: "upscale", to: "preview", fromPort: "image", toPort: "image" },
+          { from: "upscale", to: "file", fromPort: "output", toPort: "from" }
+        ]
+      }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.nodeResults.preview.output).toEqual({ value: { image: { path: "image.png" } } });
+    expect(result.nodeResults.file.output).toEqual({ value: { from: { image: { path: "image.png" }, output: { raw: true } } } });
+  });
+
+  it("passes asset-shaped outputs through image ports", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("input.image", () => ({ output: { path: "local.png", mimeType: "image/png" } }));
+    executor.registerNodeRunner("consumer", ({ inputs }) => ({ output: { image: inputs.image } }));
+    const result = await executor.executeRoute(
+      route({
+        nodes: [
+          { id: "input", type: "input.image" },
+          { id: "consume", type: "consumer" }
+        ],
+        edges: [{ from: "input", to: "consume", fromPort: "image", toPort: "image" }]
+      }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.nodeResults.consume.output).toEqual({ image: { path: "local.png", mimeType: "image/png" } });
+  });
+
   it("executes according to edge order even when nodes are listed out of order", async () => {
     const executor = createExecutor();
     const seen: string[] = [];
@@ -152,5 +191,60 @@ describe("executor", () => {
     const result = await executor.executeRoute(route(), { outputDirectory });
     const saved = JSON.parse(await readFile(join(result.outputDirectory, "run.json"), "utf8"));
     expect(saved.status).toBe("succeeded");
+  });
+
+  it("includes economics summary with paymentExecuted false", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("input.text", ({ params }) => ({ output: { text: params.value } }));
+    const result = await executor.executeRoute(
+      route({ nodes: [{ id: "a", type: "input.text", params: { value: "hello" } }], edges: [], economics: undefined }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.economics.mode).toBe("disabled");
+    expect(result.economics.paymentExecuted).toBe(false);
+    expect(JSON.stringify(result.economics)).not.toContain("token");
+  });
+
+  it("collects provider usage from node runners", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("replicate.model", ({ node }) => ({
+      output: { ok: true },
+      providerUsage: {
+        provider: "replicate",
+        model: "owner/model",
+        nodeId: node.id,
+        nodeType: node.type,
+        externalId: "prediction-1",
+        status: "succeeded",
+        pricingHint: "external-provider-billing",
+        actualCost: null,
+        estimatedCost: null
+      }
+    }));
+    const result = await executor.executeRoute(
+      route({
+        economics: { enabled: true, mode: "accounting-only", currency: "USD" },
+        nodes: [{ id: "model", type: "replicate.model" }],
+        edges: []
+      }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.economics.providersUsed[0]).toMatchObject({ provider: "replicate", model: "owner/model", externalId: "prediction-1" });
+    expect(result.economics.costSummary.actualProviderCost).toBeNull();
+  });
+
+  it("appends a local run ledger entry", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sr-ledger-"));
+    const ledgerPath = join(directory, "runs.jsonl");
+    const executor = createExecutor();
+    executor.registerNodeRunner("input.text", () => ({ output: { text: "hello" } }));
+    const result = await executor.executeRoute(route({ nodes: [{ id: "a", type: "input.text" }], edges: [] }), {
+      outputDirectory: join(directory, "run"),
+      ledgerPath
+    });
+    const ledger = await readFile(ledgerPath, "utf8");
+    expect(ledger).toContain(result.runId);
+    expect(ledger).toContain('"paymentExecuted":false');
+    expect(ledger).not.toMatch(/token|secret/i);
   });
 });

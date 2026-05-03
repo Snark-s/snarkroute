@@ -2,14 +2,17 @@
   "name": "snarkroute",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "build": "corepack pnpm -r build",
     "test": "corepack pnpm -r test",
+    "dev": "corepack pnpm -r --parallel --filter @snarkroute/server --filter @snarkroute/studio run dev",
     "dev:server": "corepack pnpm --filter @snarkroute/server dev",
     "dev:studio": "corepack pnpm --filter @snarkroute/studio dev",
     "lint": "corepack pnpm -r lint",
-    "smoke:replicate": "tsx scripts/smoke-replicate.ts"
+    "smoke:replicate": "tsx scripts/smoke-replicate.ts",
+    "smoke:clarity": "tsx scripts/smoke-clarity-upscaler.ts"
   },
   "dependencies": {
     "@snarkroute/executor": "workspace:*",

@@ -1,0 +1,57 @@
+routeVersion: "0.1"
+route:
+  id: clarity-upscale-basic
+  title: Clarity Upscale Basic
+  description: Local image to Replicate Clarity Upscaler.
+  author:
+    name: SnarkRoute
+  tags:
+    - replicate
+    - image
+    - upscale
+economics:
+  enabled: false
+  mode: disabled
+  currency: USD
+  providerCosts:
+    - provider: replicate
+      model: philz1337x/clarity-upscaler
+      nodeType: replicate.clarity-upscaler
+      pricingHint: external-provider-billing
+      estimatedCost: null
+      actualCost: null
+  notes: Economics metadata is preserved; no payment execution in v0.1.
+nodes:
+  - id: input_image
+    type: input.image
+    title: Input Image
+    params:
+      path: examples/assets/clarity-input.png
+  - id: upscale
+    type: replicate.clarity-upscaler
+    title: Clarity Upscaler
+    params:
+      prompt: masterpiece, best quality, highres
+      negative_prompt: "(worst quality, low quality, normal quality:2)"
+      scale_factor: 2
+      dynamic: 6
+      creativity: 0.25
+      resemblance: 0.8
+      tiling_width: 112
+      tiling_height: 144
+      scheduler: DPM++ 3M SDE Karras
+      num_inference_steps: 18
+      seed: 1337
+      downscaling: false
+      downscaling_resolution: 768
+      lora_links: ""
+      pollingIntervalMs: 1000
+      timeoutMs: 120000
+edges:
+  - from: input_image
+    to: upscale
+    fromPort: image
+    toPort: image
+provenance:
+  tool: snarkroute
+  events: []
