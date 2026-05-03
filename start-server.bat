@@ -1,9 +1,25 @@
 @echo off
+setlocal
+
 cd /d "%~dp0"
-echo Starting SnarkRoute Server...
-echo URL: http://127.0.0.1:4317
+
+if "%API_PORT%"=="" set "API_PORT=4317"
+set "HOST=127.0.0.1"
+
 echo.
-echo Building backend packages...
+echo SnarkRoute Server
+echo =================
+echo API: http://127.0.0.1:%API_PORT%
+echo.
+
+where corepack >nul 2>nul
+if errorlevel 1 (
+  echo ERROR: Corepack is not available.
+  pause
+  exit /b 1
+)
+
+echo Building backend workspace packages...
 corepack pnpm --filter @snarkroute/protocol build
 if errorlevel 1 goto fail
 corepack pnpm --filter @snarkroute/executor build
@@ -14,9 +30,17 @@ corepack pnpm --filter @snarkroute/nodes build
 if errorlevel 1 goto fail
 corepack pnpm --filter @snarkroute/replicate build
 if errorlevel 1 goto fail
+
 corepack pnpm dev:server
+if errorlevel 1 (
+  echo.
+  echo Server failed to start or exited with an error.
+  pause
+  exit /b 1
+)
+
 echo.
-echo Server stopped or failed.
+echo Server stopped.
 pause
 exit /b 0
 

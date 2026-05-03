@@ -35,7 +35,36 @@ Use `docs/demo-script.md` for a short recording plan. It covers:
 
 Project screenshots or generated demo media can be added later; do not commit private runs, tokens, or user outputs.
 
-## Quick Start
+## Windows Quick Start
+
+For normal use on Windows:
+
+1. Double-click `start-snarkroute.bat`.
+2. Wait until the browser opens.
+3. Open `Settings -> Secrets` to add API tokens.
+
+The launcher installs dependencies if `node_modules/` is missing, starts the local API server, waits for `/api/health`, starts Studio, and opens:
+
+```text
+http://127.0.0.1:5173
+```
+
+Default one-click ports:
+
+- API: `http://127.0.0.1:4317`
+- Studio: `http://127.0.0.1:5173`
+
+If a port is busy, the launcher prints a message such as:
+
+```text
+Port 4317 is busy. Another SnarkRoute instance may already be running.
+```
+
+Close the other SnarkRoute windows or run `stop-snarkroute.bat`, then start again. The stop script is intentionally safe: it does not kill every `node.exe` process on your machine.
+
+If Studio says the API is disconnected, check that the server window is running. The message will include the exact API URL Studio is trying to reach.
+
+## Developer Quick Start
 
 ```bash
 corepack pnpm install
@@ -44,7 +73,7 @@ corepack pnpm build
 corepack pnpm dev
 ```
 
-`corepack pnpm dev` runs the local Fastify server and Studio in parallel.
+`corepack pnpm dev` runs the local Fastify server and Studio in parallel. For day-to-day Windows use, prefer `start-snarkroute.bat`.
 
 You can also run them separately:
 
@@ -90,7 +119,7 @@ $env:API_PORT="4318"; corepack pnpm dev:server
 $env:VITE_API_BASE_URL="http://127.0.0.1:4318"; corepack pnpm dev:studio
 ```
 
-Studio shows the active API URL, connection status, and Replicate token status in the top bar. If the API is not reachable, it shows: `Local API server is not reachable at <url>. Start the server or check VITE_API_BASE_URL.`
+Studio shows the active API URL, connection status, and Replicate token status in the top bar. If the API is not reachable, it shows: `Local API server is not reachable at <url>. Run start-snarkroute.bat or start the server manually. Check VITE_API_BASE_URL if needed.`
 
 ## Configuring API Tokens
 

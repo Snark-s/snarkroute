@@ -3,7 +3,7 @@ export function replicateTokenStatusText(configured: boolean): string {
 }
 
 export function localApiUnavailableMessage(apiBaseUrl: string): string {
-  return `Local API server is not reachable at ${apiBaseUrl}. Start the server or check VITE_API_BASE_URL.`;
+  return `Local API server is not reachable at ${apiBaseUrl}. Run start-snarkroute.bat or start the server manually. Check VITE_API_BASE_URL if needed.`;
 }
 
 export function serializeRouteJson(route: unknown): string {
