@@ -600,7 +600,22 @@ h2 {
 
 .typedHandle.json,
 .legendDot.json {
-  background: #fb7185;
+  background: #7dd3c0;
+  position: relative;
+}
+
+.typedHandle.json::after,
+.legendDot.json::after {
+  background: #10141b;
+  border-radius: 999px;
+  content: "";
+  display: block;
+  height: 3px;
+  left: 50%;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
 }
 
 .typedHandle.data,

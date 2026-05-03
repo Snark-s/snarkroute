@@ -20,7 +20,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-corepack pnpm dev:studio
+call corepack pnpm dev:studio
 if errorlevel 1 (
   echo.
   echo Studio failed to start or exited with an error.

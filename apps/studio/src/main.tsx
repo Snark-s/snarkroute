@@ -426,7 +426,7 @@ function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] }
   }
   if (type === "preview.image") return { inputs: [{ id: "image", kind: "image" }], outputs: [{ id: "image", kind: "image" }] };
   if (type === "replicate.model") return { inputs: [{ id: "input", kind: "json" }], outputs: [{ id: "output", kind: "json" }] };
-  if (type === "output.text") return { inputs: [{ id: "from", kind: "json" }], outputs: [{ id: "text", kind: "text" }] };
+  if (type === "output.text") return { inputs: [{ id: "from", kind: "text" }], outputs: [{ id: "text", kind: "text" }] };
   if (type === "output.file") return { inputs: [{ id: "from", kind: "text" }], outputs: [] };
   if (type === "transform.template") return { inputs: [{ id: "template", kind: "text" }], outputs: [{ id: "text", kind: "text" }] };
   if (type === "debug.log") return { inputs: [{ id: "value", kind: "json" }], outputs: [{ id: "value", kind: "json" }] };

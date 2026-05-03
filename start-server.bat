@@ -20,18 +20,18 @@ if errorlevel 1 (
 )
 
 echo Building backend workspace packages...
-corepack pnpm --filter @snarkroute/protocol build
+call corepack pnpm --filter @snarkroute/protocol build
 if errorlevel 1 goto fail
-corepack pnpm --filter @snarkroute/executor build
+call corepack pnpm --filter @snarkroute/executor build
 if errorlevel 1 goto fail
-corepack pnpm --filter @snarkroute/storage build
+call corepack pnpm --filter @snarkroute/storage build
 if errorlevel 1 goto fail
-corepack pnpm --filter @snarkroute/nodes build
+call corepack pnpm --filter @snarkroute/nodes build
 if errorlevel 1 goto fail
-corepack pnpm --filter @snarkroute/replicate build
+call corepack pnpm --filter @snarkroute/replicate build
 if errorlevel 1 goto fail
 
-corepack pnpm dev:server
+call corepack pnpm dev:server
 if errorlevel 1 (
   echo.
   echo Server failed to start or exited with an error.

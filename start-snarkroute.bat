@@ -35,7 +35,7 @@ if errorlevel 1 (
 
 if not exist "node_modules" (
   echo Installing dependencies...
-  corepack pnpm install
+  call corepack pnpm install
   if errorlevel 1 (
     echo.
     echo ERROR: Dependency installation failed.
