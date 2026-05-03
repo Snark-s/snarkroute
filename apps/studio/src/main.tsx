@@ -19,6 +19,7 @@ import {
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { replicateTokenStatusText, serializeRouteJson } from "./security-ui";
 
 type RouteDoc = {
   routeVersion: string;
@@ -157,6 +158,8 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const result = data.result as NodeRunResult | undefined;
   const onParamsChange = data.onParamsChange as ((nodeId: string, params: Record<string, unknown>) => void) | undefined;
   const onBrowseAsset = data.onBrowseAsset as ((nodeId: string, kind: AssetKind) => void) | undefined;
+  const replicateConfigured = Boolean(data.replicateConfigured);
+  const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
   const ports = getNodePorts(type);
 
   function patchParams(patch: Record<string, unknown>) {
@@ -183,6 +186,18 @@ function RouteNodeCard({ id, data }: NodeProps) {
       ))}
       <div className="nodeTitle">{title}</div>
       <div className="nodeType">{type}</div>
+      {isReplicateNode(type) ? (
+        <div className={`nodeTokenStatus ${replicateConfigured ? "configured" : "missing"}`}>
+          <span>{replicateTokenStatusText(replicateConfigured)}</span>
+          {!replicateConfigured ? (
+            <>
+              <strong>Requires Replicate API token</strong>
+              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureReplicate}>Configure Replicate</button>
+              <small>Open Settings \u2192 Secrets \u2192 Replicate</small>
+            </>
+          ) : null}
+        </div>
+      ) : null}
       <NodeInlineParams type={type} params={params} onChange={patchParams} onBrowse={(kind) => onBrowseAsset?.(id, kind)} />
       {result ? <NodeInlineResult result={result} /> : null}
       {ports.outputs.map((port, index) => (
@@ -447,6 +462,10 @@ function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
   };
 }
 
+function isReplicateNode(type: string): boolean {
+  return type === "replicate.model" || type === "replicate.clarity-upscaler";
+}
+
 function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDoc {
   return {
     routeVersion: baseRoute.routeVersion,
@@ -487,7 +506,9 @@ function App() {
   const [bottomCollapsed, setBottomCollapsed] = useState(true);
   const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
-  const [collapsedLibrarySections, setCollapsedLibrarySections] = useState<Record<string, boolean>>({});
+  const [collapsedLibrarySections, setCollapsedLibrarySections] = useState<Record<string, boolean>>(
+    () => Object.fromEntries(librarySections.map((section) => [section.id, true]))
+  );
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
@@ -500,10 +521,12 @@ function App() {
           ...node.data,
           onParamsChange: updateNodeParams,
           onBrowseAsset: browseAsset,
+          onConfigureReplicate: openReplicateSettings,
+          replicateConfigured,
           result: runResult?.nodeResults?.[node.id]
         }
       })),
-    [nodes, runResult]
+    [nodes, runResult, replicateConfigured]
   );
 
   useEffect(() => {
@@ -515,7 +538,7 @@ function App() {
     try {
       const response = await fetch(`${apiBase}/api/settings`);
       const result = await response.json();
-      setReplicateConfigured(Boolean(result.replicateConfigured));
+      setReplicateConfigured(Boolean(result.replicate?.configured ?? result.replicateConfigured));
     } catch {
       setSettingsMessage("Settings API unavailable.");
     }
@@ -545,7 +568,7 @@ function App() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Failed to save token.");
-      setReplicateConfigured(Boolean(result.replicateConfigured));
+      setReplicateConfigured(Boolean(result.replicate?.configured ?? result.replicateConfigured));
       setReplicateToken("");
       setSettingsMessage("Replicate token saved locally.");
       setLogs((current) => ["Replicate token saved locally.", ...current]);
@@ -554,6 +577,11 @@ function App() {
       setSettingsMessage(message);
       setLogs((current) => [`Settings error: ${message}`, ...current]);
     }
+  }
+
+  function openReplicateSettings() {
+    setRightCollapsed(false);
+    setSettingsMessage("Paste your Replicate token in Settings \u2192 Secrets \u2192 Replicate.");
   }
 
   async function browseAsset(nodeId: string, kind: AssetKind) {
@@ -763,7 +791,7 @@ function App() {
   }
 
   function exportJson() {
-    const blob = new Blob([JSON.stringify(flowToRoute(nodes, edges, routeBase), null, 2)], { type: "application/json" });
+    const blob = new Blob([serializeRouteJson(flowToRoute(nodes, edges, routeBase))], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -903,9 +931,11 @@ function App() {
         {!rightCollapsed ? (
         <>
         <div className="settingsPanel">
+          <h3>Secrets</h3>
+          <h4>Replicate</h4>
           <div className={`settingsStatus ${replicateConfigured ? "configured" : ""}`}>
             <KeyRound size={14} />
-            {replicateConfigured ? "Replicate configured" : "Replicate not configured"}
+            {replicateTokenStatusText(replicateConfigured)}
           </div>
           <label className="settingsField">
             <span>REPLICATE_API_TOKEN</span>

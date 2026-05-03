@@ -23,7 +23,7 @@ describe("Replicate runner registration", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.body).toContain("REPLICATE_API_TOKEN is not configured. Add it in Settings \u2192 Secrets or .env.");
+      expect(response.body).toContain("REPLICATE_API_TOKEN is not configured.\\nOpen Settings \u2192 Secrets \u2192 Replicate and paste your token.");
       expect(response.body).not.toContain("No runner registered");
     } finally {
       await app.close();

@@ -26,7 +26,7 @@ export function buildServer() {
 
   app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled() }));
 
-  app.get("/api/settings", async () => ({ replicateConfigured: isReplicateEnabled() }));
+  app.get("/api/settings", async () => ({ replicate: { configured: isReplicateEnabled() } }));
 
   app.post<{ Body: { replicateApiToken?: string } }>("/api/settings/replicate-token", async (request, reply) => {
     const token = request.body?.replicateApiToken?.trim();
@@ -34,7 +34,7 @@ export function buildServer() {
     try {
       await writeEnvValue("REPLICATE_API_TOKEN", token);
       process.env.REPLICATE_API_TOKEN = token;
-      return { ok: true, replicateConfigured: true };
+      return { ok: true, replicate: { configured: true } };
     } catch (error) {
       return reply.code(500).send({ error: errorMessage(error) });
     }
@@ -94,7 +94,7 @@ export function buildServer() {
   });
 
   app.get<{ Querystring: { model?: string } }>("/api/replicate/schema", async (request, reply) => {
-    if (!isReplicateEnabled()) return reply.code(400).send({ error: "REPLICATE_API_TOKEN is not configured." });
+    if (!isReplicateEnabled()) return reply.code(400).send({ error: "REPLICATE_API_TOKEN is not configured.\nOpen Settings \u2192 Secrets \u2192 Replicate and paste your token." });
     if (!request.query.model) return reply.code(400).send({ error: "Query parameter model is required." });
     try {
       return await createReplicateClient().getModelSchema(request.query.model);

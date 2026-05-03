@@ -5,7 +5,7 @@ import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 const API_BASE = "https://api.replicate.com/v1";
 const LOCAL_FILE_DATA_URI_LIMIT_BYTES = 10 * 1024 * 1024;
 const CLARITY_MODEL = "philz1337x/clarity-upscaler";
-const MISSING_TOKEN_MESSAGE = "REPLICATE_API_TOKEN is not configured. Add it in Settings \u2192 Secrets or .env.";
+const MISSING_TOKEN_MESSAGE = "REPLICATE_API_TOKEN is not configured.\nOpen Settings \u2192 Secrets \u2192 Replicate and paste your token.";
 
 export interface ReplicateClientOptions {
   token?: string;

@@ -52,7 +52,7 @@ describe("Replicate client", () => {
 
   it("fails clearly without a token", async () => {
     const client = createReplicateClient({ token: "" });
-    await expect(client.createPrediction("owner/model", {})).rejects.toThrow("REPLICATE_API_TOKEN is not configured. Add it in Settings \u2192 Secrets or .env.");
+    await expect(client.createPrediction("owner/model", {})).rejects.toThrow("REPLICATE_API_TOKEN is not configured.\nOpen Settings \u2192 Secrets \u2192 Replicate and paste your token.");
   });
 
   it("converts a local image path to a data URI", async () => {
@@ -107,7 +107,7 @@ describe("Replicate client", () => {
     );
 
     expect(result.status).toBe("failed");
-    expect(result.nodeResults.upscale.error).toContain("REPLICATE_API_TOKEN is not configured. Add it in Settings \u2192 Secrets or .env.");
+    expect(result.nodeResults.upscale.error).toContain("REPLICATE_API_TOKEN is not configured.\nOpen Settings \u2192 Secrets \u2192 Replicate and paste your token.");
     expect(result.nodeResults.upscale.error).not.toContain("No runner registered");
   });
 
@@ -127,7 +127,7 @@ describe("Replicate client", () => {
     );
 
     expect(result.status).toBe("failed");
-    expect(result.nodeResults.generate.error).toContain("REPLICATE_API_TOKEN is not configured. Add it in Settings \u2192 Secrets or .env.");
+    expect(result.nodeResults.generate.error).toContain("REPLICATE_API_TOKEN is not configured.\nOpen Settings \u2192 Secrets \u2192 Replicate and paste your token.");
     expect(result.nodeResults.generate.error).not.toContain("No runner registered");
   });
 

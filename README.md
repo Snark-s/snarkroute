@@ -55,15 +55,26 @@ corepack pnpm dev:studio
 
 The API listens on `http://127.0.0.1:4317`. Studio runs on `http://127.0.0.1:5173` and proxies `/api` to the local server.
 
-## Configure Replicate
+## Configuring API Tokens
 
-Copy `.env.example` to `.env` and add your token:
+Replicate nodes require a local Replicate API token.
+
+In Studio:
+
+1. Open `Settings`.
+2. Open `Secrets`.
+3. Open `Replicate`.
+4. Paste the token and click `Save Token`.
+
+Studio shows only whether the token is `configured` or `missing`. It never reads the token value back from the server.
+
+Fallback: copy `.env.example` to `.env` and add your token:
 
 ```env
 REPLICATE_API_TOKEN=your_token_here
 ```
 
-You can also paste the token in Studio Settings. Tokens are stored locally and used only by the server. Do not commit `.env`.
+Tokens are stored locally and used only by the server. They are not exported with routes or bundles. Do not commit `.env`.
 
 ## Smoke Tests
 
