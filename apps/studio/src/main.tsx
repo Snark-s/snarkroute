@@ -172,7 +172,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
       {ports.inputs.map((port, index) => (
         <React.Fragment key={port.id}>
           <span className="portLabel input" style={{ top: `${34 + index * 28}px` }}>
-            {port.id}
+            {port.label ?? port.id}
           </span>
           <Handle
             className={`typedHandle ${port.kind}`}
@@ -203,7 +203,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
       {ports.outputs.map((port, index) => (
         <React.Fragment key={port.id}>
           <span className="portLabel output" style={{ top: `${34 + index * 28}px` }}>
-            {port.id}
+            {port.label ?? port.id}
           </span>
           <Handle
             className={`typedHandle ${port.kind}`}
@@ -408,6 +408,7 @@ type PortKind = "text" | "image" | "video" | "file" | "json" | "data";
 type PortSpec = {
   id: string;
   kind: PortKind;
+  label?: string;
 };
 
 function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] } {
@@ -420,17 +421,17 @@ function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] }
       inputs: [{ id: "image", kind: "image" }],
       outputs: [
         { id: "image", kind: "image" },
-        { id: "output", kind: "json" }
+        { id: "output", kind: "json", label: "JSON" }
       ]
     };
   }
   if (type === "preview.image") return { inputs: [{ id: "image", kind: "image" }], outputs: [{ id: "image", kind: "image" }] };
-  if (type === "replicate.model") return { inputs: [{ id: "input", kind: "json" }], outputs: [{ id: "output", kind: "json" }] };
+  if (type === "replicate.model") return { inputs: [{ id: "input", kind: "json", label: "JSON" }], outputs: [{ id: "output", kind: "json", label: "JSON" }] };
   if (type === "output.text") return { inputs: [{ id: "from", kind: "text" }], outputs: [{ id: "text", kind: "text" }] };
   if (type === "output.file") return { inputs: [{ id: "from", kind: "text" }], outputs: [] };
   if (type === "transform.template") return { inputs: [{ id: "template", kind: "text" }], outputs: [{ id: "text", kind: "text" }] };
-  if (type === "debug.log") return { inputs: [{ id: "value", kind: "json" }], outputs: [{ id: "value", kind: "json" }] };
-  return { inputs: [{ id: "input", kind: "json" }], outputs: [{ id: "output", kind: "json" }] };
+  if (type === "debug.log") return { inputs: [{ id: "value", kind: "json", label: "JSON" }], outputs: [{ id: "value", kind: "json", label: "JSON" }] };
+  return { inputs: [{ id: "input", kind: "json", label: "JSON" }], outputs: [{ id: "output", kind: "json", label: "JSON" }] };
 }
 
 function arePortsCompatible(source: PortKind, target: PortKind): boolean {

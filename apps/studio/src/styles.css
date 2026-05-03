@@ -601,6 +601,9 @@ h2 {
 .typedHandle.json,
 .legendDot.json {
   background: #7dd3c0;
+}
+
+.legendDot.json {
   position: relative;
 }
 
