@@ -115,10 +115,8 @@ export function buildServer() {
         const text = typeof from === "string" ? from : JSON.stringify(from, null, 2);
         return { output: { text } };
       });
-      if (isReplicateEnabled()) {
-        executor.registerNodeRunner("replicate.model", createReplicateNodeRunner());
-        executor.registerNodeRunner("replicate.clarity-upscaler", createClarityUpscalerNodeRunner());
-      }
+      executor.registerNodeRunner("replicate.model", createReplicateNodeRunner());
+      executor.registerNodeRunner("replicate.clarity-upscaler", createClarityUpscalerNodeRunner());
       const runId = `run_${Date.now()}`;
       const outputDirectory = await storage.createRunDirectory(runId);
       return await executor.executeRoute(route, { runId, outputDirectory });

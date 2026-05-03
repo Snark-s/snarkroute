@@ -5,6 +5,7 @@ import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 const API_BASE = "https://api.replicate.com/v1";
 const LOCAL_FILE_DATA_URI_LIMIT_BYTES = 10 * 1024 * 1024;
 const CLARITY_MODEL = "philz1337x/clarity-upscaler";
+const MISSING_TOKEN_MESSAGE = "REPLICATE_API_TOKEN is not configured. Add it in Settings \u2192 Secrets or .env.";
 
 export interface ReplicateClientOptions {
   token?: string;
@@ -39,15 +40,15 @@ export interface DownloadedImageAsset {
 }
 
 export function createReplicateClient(options: ReplicateClientOptions = {}) {
-  const token = options.token ?? process.env.REPLICATE_API_TOKEN;
   const fetcher = options.fetchImpl ?? fetch;
 
   async function request(path: string, init: RequestInit = {}) {
-    if (!token) throw new Error("REPLICATE_API_TOKEN is required for Replicate requests.");
+    const token = options.token ?? process.env.REPLICATE_API_TOKEN;
+    if (!token?.trim()) throw new Error(MISSING_TOKEN_MESSAGE);
     const response = await fetcher(`${API_BASE}${path}`, {
       ...init,
       headers: {
-        Authorization: `Token ${token}`,
+        Authorization: `Token ${token.trim()}`,
         "Content-Type": "application/json",
         ...(init.headers ?? {})
       }

@@ -1,8 +1,9 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createExecutor } from "@snarkroute/executor";
 import { describe, expect, it, vi } from "vitest";
-import { buildClarityInput, createClarityUpscalerNodeRunner, createReplicateClient, estimateReplicateCost, prepareImageValue } from "../src/index";
+import { buildClarityInput, createClarityUpscalerNodeRunner, createReplicateClient, createReplicateNodeRunner, estimateReplicateCost, prepareImageValue } from "../src/index";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return {
@@ -51,7 +52,7 @@ describe("Replicate client", () => {
 
   it("fails clearly without a token", async () => {
     const client = createReplicateClient({ token: "" });
-    await expect(client.createPrediction("owner/model", {})).rejects.toThrow(/REPLICATE_API_TOKEN/);
+    await expect(client.createPrediction("owner/model", {})).rejects.toThrow("REPLICATE_API_TOKEN is not configured. Add it in Settings \u2192 Secrets or .env.");
   });
 
   it("converts a local image path to a data URI", async () => {
@@ -88,6 +89,46 @@ describe("Replicate client", () => {
     expect(result.output).toMatchObject({ predictionId: "p1", status: "succeeded", image: { originalUrl: "https://example.com/out.webp", mimeType: "image/webp" } });
     expect(result.providerUsage).toMatchObject({ provider: "replicate", model: "philz1337x/clarity-upscaler", externalId: "p1", status: "succeeded" });
     expect(JSON.stringify(result.providerUsage)).not.toContain("token");
+  });
+
+  it("replicate.clarity-upscaler runner is registered without a token and fails clearly", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("replicate.clarity-upscaler", createClarityUpscalerNodeRunner({ token: "" }));
+    const result = await executor.executeRoute(
+      {
+        routeVersion: "0.1",
+        route: { id: "clarity-missing-token", title: "Clarity Missing Token", author: {} },
+        nodes: [
+          { id: "upscale", type: "replicate.clarity-upscaler", params: { image: "https://example.com/in.png" } }
+        ],
+        edges: []
+      },
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-clarity-missing-token-")) }
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults.upscale.error).toContain("REPLICATE_API_TOKEN is not configured. Add it in Settings \u2192 Secrets or .env.");
+    expect(result.nodeResults.upscale.error).not.toContain("No runner registered");
+  });
+
+  it("replicate.model runner is registered without a token and fails clearly", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("replicate.model", createReplicateNodeRunner({ token: "" }));
+    const result = await executor.executeRoute(
+      {
+        routeVersion: "0.1",
+        route: { id: "replicate-missing-token", title: "Replicate Missing Token", author: {} },
+        nodes: [
+          { id: "generate", type: "replicate.model", params: { model: "owner/model", input: { prompt: "hi" } } }
+        ],
+        edges: []
+      },
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-replicate-missing-token-")) }
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults.generate.error).toContain("REPLICATE_API_TOKEN is not configured. Add it in Settings \u2192 Secrets or .env.");
+    expect(result.nodeResults.generate.error).not.toContain("No runner registered");
   });
 
   it("estimates cost from prediction metrics", () => {
