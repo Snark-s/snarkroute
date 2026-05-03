@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { replicateTokenStatusText, serializeRouteJson } from "../src/security-ui";
+import { localApiUnavailableMessage, replicateTokenStatusText, serializeRouteJson } from "../src/security-ui";
 
 describe("Replicate token UX helpers", () => {
   it("can display missing and configured token status", () => {
@@ -18,5 +18,11 @@ describe("Replicate token UX helpers", () => {
 
     expect(routeJson).not.toContain(token);
     expect(routeJson).not.toContain("REPLICATE_API_TOKEN");
+  });
+
+  it("formats unreachable local API message with target URL", () => {
+    expect(localApiUnavailableMessage("http://127.0.0.1:4318")).toBe(
+      "Local API server is not reachable at http://127.0.0.1:4318. Start the server or check VITE_API_BASE_URL."
+    );
   });
 });

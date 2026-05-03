@@ -53,7 +53,44 @@ corepack pnpm dev:server
 corepack pnpm dev:studio
 ```
 
-The API listens on `http://127.0.0.1:4317`. Studio runs on `http://127.0.0.1:5173` and proxies `/api` to the local server.
+The API listens on `http://127.0.0.1:4317` by default. Studio runs on `http://127.0.0.1:5173` and connects to `VITE_API_BASE_URL`, defaulting to `http://127.0.0.1:4317`.
+
+## Dev Ports
+
+SnarkRoute uses explicit local dev ports so two clones do not accidentally talk to the same backend.
+
+Server:
+
+```bash
+API_PORT=4317 corepack pnpm dev:server
+```
+
+Studio:
+
+```bash
+VITE_API_BASE_URL=http://127.0.0.1:4317 corepack pnpm dev:studio
+```
+
+For a second clone, use a different API port and point that clone's Studio at it:
+
+```bash
+# Clone A
+API_PORT=4317 corepack pnpm dev:server
+VITE_API_BASE_URL=http://127.0.0.1:4317 corepack pnpm dev:studio
+
+# Clone B
+API_PORT=4318 corepack pnpm dev:server
+VITE_API_BASE_URL=http://127.0.0.1:4318 corepack pnpm dev:studio
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:API_PORT="4318"; corepack pnpm dev:server
+$env:VITE_API_BASE_URL="http://127.0.0.1:4318"; corepack pnpm dev:studio
+```
+
+Studio shows the active API URL, connection status, and Replicate token status in the top bar. If the API is not reachable, it shows: `Local API server is not reachable at <url>. Start the server or check VITE_API_BASE_URL.`
 
 ## Configuring API Tokens
 

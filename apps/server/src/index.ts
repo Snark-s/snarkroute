@@ -13,7 +13,7 @@ import { createLocalRunStorage } from "@snarkroute/storage";
 
 dotenv.config();
 
-const port = Number(process.env.PORT ?? 4317);
+const port = Number(process.env.API_PORT ?? 4317);
 const host = process.env.HOST ?? "127.0.0.1";
 const storage = createLocalRunStorage(join(process.cwd(), "data", "runs"));
 const envPath = join(process.cwd(), ".env");

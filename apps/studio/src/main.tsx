@@ -19,7 +19,7 @@ import {
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2 } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { replicateTokenStatusText, serializeRouteJson } from "./security-ui";
+import { localApiUnavailableMessage, replicateTokenStatusText, serializeRouteJson } from "./security-ui";
 
 type RouteDoc = {
   routeVersion: string;
@@ -62,7 +62,7 @@ type LedgerSummary = {
 
 type AssetKind = "file" | "image" | "video";
 
-const apiBase = "";
+const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 const NODE_DRAG_MIME = "application/x-snarkroute-node";
 
 const library = [
@@ -499,6 +499,8 @@ function App() {
   const [runResult, setRunResult] = useState<RunDisplayResult | null>(null);
   const [replicateToken, setReplicateToken] = useState("");
   const [replicateConfigured, setReplicateConfigured] = useState(false);
+  const [apiConnected, setApiConnected] = useState(false);
+  const [apiError, setApiError] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
   const [pendingBrowse, setPendingBrowse] = useState<{ nodeId: string; kind: AssetKind } | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
@@ -537,10 +539,16 @@ function App() {
   async function loadSettings() {
     try {
       const response = await fetch(`${apiBase}/api/settings`);
+      if (!response.ok) throw new Error(localApiUnavailableMessage(apiBase));
       const result = await response.json();
       setReplicateConfigured(Boolean(result.replicate?.configured ?? result.replicateConfigured));
+      setApiConnected(true);
+      setApiError("");
     } catch {
-      setSettingsMessage("Settings API unavailable.");
+      const message = localApiUnavailableMessage(apiBase);
+      setApiConnected(false);
+      setApiError(message);
+      setSettingsMessage(message);
     }
   }
 
@@ -882,6 +890,11 @@ function App() {
           <button onClick={validate}><FileJson size={16} /> Validate</button>
           <button className="primary" onClick={() => void run()}><Play size={16} /> Run</button>
           <button className="danger" onClick={deleteSelection} disabled={selectedNodeCount === 0 && selectedEdgeCount === 0 && !selectedId}><Trash2 size={16} /> Delete</button>
+          <div className={`apiStatus ${apiConnected ? "connected" : "disconnected"}`} title={apiError || `API: ${apiBase}`}>
+            <span>API: {apiBase}</span>
+            <strong>{apiConnected ? "connected" : "disconnected"}</strong>
+            <em>{replicateConfigured ? "replicate: configured" : "replicate: missing"}</em>
+          </div>
         </div>
         <ReactFlow
           nodes={displayNodes}
@@ -931,6 +944,12 @@ function App() {
         {!rightCollapsed ? (
         <>
         <div className="settingsPanel">
+          <div className={`apiStatusPanel ${apiConnected ? "connected" : "disconnected"}`}>
+            <span>API</span>
+            <strong>{apiBase}</strong>
+            <em>{apiConnected ? "connected" : "disconnected"}</em>
+            {apiError ? <p>{apiError}</p> : null}
+          </div>
           <h3>Secrets</h3>
           <h4>Replicate</h4>
           <div className={`settingsStatus ${replicateConfigured ? "configured" : ""}`}>

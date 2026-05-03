@@ -260,6 +260,41 @@ h2 {
   z-index: 10;
 }
 
+.apiStatus {
+  align-items: center;
+  background: #171d27;
+  border: 1px solid #394355;
+  border-radius: 6px;
+  color: #b9c3d4;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 8px;
+  max-width: min(520px, calc(100vw - 420px));
+  min-height: 34px;
+  padding: 5px 8px;
+}
+
+.apiStatus span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apiStatus strong {
+  color: #ff9ca8;
+  font-weight: 700;
+}
+
+.apiStatus.connected strong {
+  color: #7ee0bd;
+}
+
+.apiStatus em {
+  color: #aeb6c5;
+  font-style: normal;
+  white-space: nowrap;
+}
+
 .react-flow__node-route {
   background: transparent;
   border: 0;
@@ -620,6 +655,39 @@ textarea {
   color: #aeb6c5;
   font-size: 12px;
   text-transform: uppercase;
+}
+
+.apiStatusPanel {
+  background: #111722;
+  border: 1px solid #7b4a54;
+  border-radius: 6px;
+  display: grid;
+  gap: 5px;
+  padding: 8px;
+}
+
+.apiStatusPanel.connected {
+  border-color: #315d4d;
+}
+
+.apiStatusPanel span,
+.apiStatusPanel em {
+  color: #9da8ba;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.apiStatusPanel strong {
+  color: #edf4ff;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.apiStatusPanel p {
+  color: #ff9ca8;
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 0;
 }
 
 .economicsPanel {
