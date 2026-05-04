@@ -91,6 +91,29 @@ describe("Replicate client", () => {
     expect(JSON.stringify(result.providerUsage)).not.toContain("token");
   });
 
+  it("clarity node prefers connected prompt input over params.prompt", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ latest_version: { id: "version-1" } }))
+      .mockResolvedValueOnce(jsonResponse({ id: "p1", status: "succeeded", output: ["https://example.com/out.webp"] }))
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => "image/webp" },
+        arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer
+      } as Response);
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-clarity-prompt-"));
+    const runner = createClarityUpscalerNodeRunner({ token: "token", fetchImpl });
+    await runner({
+      node: { id: "upscale", type: "replicate.clarity-upscaler", params: {} },
+      params: { prompt: "panel prompt" },
+      inputs: { image: "https://example.com/in.png", prompt: "connected prompt" },
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[1][1]?.body));
+    expect(body.input.prompt).toBe("connected prompt");
+  });
+
   it("replicate.clarity-upscaler runner is registered without a token and fails clearly", async () => {
     const executor = createExecutor();
     executor.registerNodeRunner("replicate.clarity-upscaler", createClarityUpscalerNodeRunner({ token: "" }));

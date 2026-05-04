@@ -161,6 +161,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const replicateConfigured = Boolean(data.replicateConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
+  const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
   const ports = getNodePorts(type);
 
   function patchParams(patch: Record<string, unknown>) {
@@ -199,8 +200,14 @@ function RouteNodeCard({ id, data }: NodeProps) {
           ) : null}
         </div>
       ) : null}
-      <NodeInlineParams type={type} params={params} onChange={patchParams} onBrowse={(kind) => onBrowseAsset?.(id, kind)} />
-      {result ? <NodeInlineResult result={result} onOpenImage={onOpenImage} /> : null}
+      <NodeInlineParams
+        type={type}
+        params={params}
+        connectedInputPorts={connectedInputPorts}
+        onChange={patchParams}
+        onBrowse={(kind) => onBrowseAsset?.(id, kind)}
+      />
+      {result && shouldShowInlineResult(type) ? <NodeInlineResult result={result} onOpenImage={onOpenImage} /> : null}
       {ports.outputs.map((port, index) => (
         <React.Fragment key={port.id}>
           <span className="portLabel output" style={{ top: `${34 + index * 28}px` }}>
@@ -223,11 +230,13 @@ function RouteNodeCard({ id, data }: NodeProps) {
 function NodeInlineParams({
   type,
   params,
+  connectedInputPorts,
   onChange,
   onBrowse
 }: {
   type: string;
   params: Record<string, unknown>;
+  connectedInputPorts: Set<string>;
   onChange: (patch: Record<string, unknown>) => void;
   onBrowse: (kind: AssetKind) => void;
 }) {
@@ -291,11 +300,18 @@ function NodeInlineParams({
   }
 
   if (type === "replicate.clarity-upscaler") {
+    const promptConnected = connectedInputPorts.has("prompt");
     return (
       <>
         <label className="nodeField">
           <span>prompt</span>
-          <textarea className="nodrag nopan nodeTextarea" value={String(params.prompt ?? "")} onChange={(event) => onChange({ prompt: event.target.value })} />
+          <textarea
+            className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
+            value={String(params.prompt ?? "")}
+            disabled={promptConnected}
+            onChange={(event) => onChange({ prompt: event.target.value })}
+          />
+          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
         </label>
         <label className="nodeField">
           <span>negative</span>
@@ -439,7 +455,10 @@ function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] }
   if (type === "input.video") return { inputs: [], outputs: [{ id: "video", kind: "video" }] };
   if (type === "replicate.clarity-upscaler") {
     return {
-      inputs: [{ id: "image", kind: "image" }],
+      inputs: [
+        { id: "image", kind: "image" },
+        { id: "prompt", kind: "text" }
+      ],
       outputs: [
         { id: "image", kind: "image" },
         { id: "output", kind: "json", label: "JSON" }
@@ -486,6 +505,10 @@ function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
 
 function isReplicateNode(type: string): boolean {
   return type === "replicate.model" || type === "replicate.clarity-upscaler";
+}
+
+function shouldShowInlineResult(type: string): boolean {
+  return !type.startsWith("input.");
 }
 
 function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDoc {
@@ -548,11 +571,12 @@ function App() {
           onBrowseAsset: browseAsset,
           onConfigureReplicate: openReplicateSettings,
           onOpenImage: setImageViewer,
+          connectedInputPorts: edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle).filter((handle): handle is string => Boolean(handle)),
           replicateConfigured,
           result: runResult?.nodeResults?.[node.id]
         }
       })),
-    [nodes, runResult, replicateConfigured]
+    [nodes, edges, runResult, replicateConfigured]
   );
 
   useEffect(() => {

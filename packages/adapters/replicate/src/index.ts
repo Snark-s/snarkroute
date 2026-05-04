@@ -150,7 +150,8 @@ export function createClarityUpscalerNodeRunner(options: ReplicateClientOptions 
   return async ({ node, params, inputs, context }) => {
     const image = params.image ?? firstInputImage(inputs);
     if (!image) throw new Error("replicate.clarity-upscaler requires an image input. Use params.image or connect input.image.");
-    const input = await buildClarityInput(params, image);
+    const prompt = firstInputText(inputs.prompt);
+    const input = await buildClarityInput(prompt === undefined ? params : { ...params, prompt }, image);
     const result = await client.runPrediction(CLARITY_MODEL, input, {
       pollingIntervalMs: Number(params.pollingIntervalMs ?? 1000),
       timeoutMs: Number(params.timeoutMs ?? 120000)
@@ -311,12 +312,23 @@ async function localFileToDataUri(path: string): Promise<string> {
 }
 
 function firstInputImage(inputs: Record<string, unknown>): unknown {
+  if ("image" in inputs) return inputs.image;
   for (const value of Object.values(inputs)) {
     if (value && typeof value === "object" && "path" in value) return value;
     if (value && typeof value === "object" && "image" in value) return (value as { image: unknown }).image;
     if (typeof value === "string") return value;
   }
   return undefined;
+}
+
+function firstInputText(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "text" in value) {
+    const text = (value as Record<string, unknown>).text;
+    return text === undefined || text === null ? undefined : String(text);
+  }
+  return String(value);
 }
 
 function firstImageUrl(output: unknown): string | undefined {
