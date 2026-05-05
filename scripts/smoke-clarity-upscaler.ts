@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createExecutor } from "@snarkroute/executor";
 import { registerBuiltInNodeRunners } from "@snarkroute/nodes";
-import { loadRouteFromYaml } from "@snarkroute/protocol";
+import { loadRouteFromText } from "@snarkroute/protocol";
 import { createClarityUpscalerNodeRunner } from "@snarkroute/replicate";
 
 dotenv.config();
@@ -14,8 +14,8 @@ async function main() {
     process.exit(1);
   }
 
-  const routePath = join(process.cwd(), "examples", "routes", "clarity-upscale-basic.route.yaml");
-  const route = loadRouteFromYaml(await readFile(routePath, "utf8"));
+  const routePath = join(process.cwd(), "examples", "upscale.orp");
+  const route = loadRouteFromText(await readFile(routePath, "utf8"), routePath);
   const runId = `smoke_clarity_${Date.now()}`;
   const outputDirectory = join(process.cwd(), "data", "runs", runId);
 

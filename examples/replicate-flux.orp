@@ -1,0 +1,72 @@
+{
+  "routeVersion": "0.1",
+  "route": {
+    "id": "replicate-flux",
+    "title": "Replicate Flux",
+    "description": "Live smoke test route for Replicate Flux Schnell.",
+    "author": {
+      "name": "SnarkRoute"
+    },
+    "license": "CC-BY-SA-4.0",
+    "tags": ["replicate", "smoke", "image"]
+  },
+  "economics": {
+    "enabled": false,
+    "modelShares": [
+      {
+        "model": "black-forest-labs/flux-schnell",
+        "share": 0
+      }
+    ],
+    "notes": "Smoke test route; economics metadata is preserved but not executed."
+  },
+  "nodes": [
+    {
+      "id": "input_prompt",
+      "type": "input.text",
+      "title": "Prompt",
+      "params": {
+        "value": "A tiny stained glass dragon icon, art nouveau, clean simple composition"
+      }
+    },
+    {
+      "id": "generate_image",
+      "type": "replicate.model",
+      "title": "Generate Image",
+      "params": {
+        "model": "black-forest-labs/flux-schnell",
+        "input": {
+          "prompt": "{{input_prompt.output.text}}",
+          "aspect_ratio": "1:1",
+          "output_format": "webp"
+        },
+        "pollingIntervalMs": 1000,
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "save_output",
+      "type": "output.file",
+      "title": "Save Output",
+      "params": {
+        "filename": "replicate-flux-output.json",
+        "from": "{{generate_image.output.output}}"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "input_prompt",
+      "to": "generate_image"
+    },
+    {
+      "from": "generate_image",
+      "to": "save_output"
+    }
+  ],
+  "provenance": {
+    "createdAt": "2026-04-30T00:00:00.000Z",
+    "tool": "snarkroute-smoke",
+    "events": []
+  }
+}

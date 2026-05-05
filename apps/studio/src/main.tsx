@@ -16,10 +16,11 @@ import {
   type NodeProps,
   type ReactFlowInstance
 } from "@xyflow/react";
+import { exportRouteToText, loadRouteFromText, normalizeRouteExportFilename, type OpenRoute } from "@snarkroute/protocol";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2, X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText, serializeRouteJson } from "./security-ui";
+import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
 
 type RouteDoc = {
   routeVersion: string;
@@ -64,6 +65,7 @@ type AssetKind = "file" | "image" | "video";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 const NODE_DRAG_MIME = "application/x-snarkroute-node";
+const ROUTE_FILE_ACCEPT = ".orp,.orp.json,.orp.yaml,.orp.yml,.route,.route.json,.route.yaml,.route.yml,.json,.yaml,.yml,application/json,application/yaml,text/yaml,text/x-yaml";
 
 const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
@@ -1141,20 +1143,21 @@ function App() {
     setLogs((current) => [...runLogs.reverse(), ...current]);
   }
 
-  function exportJson() {
-    const blob = new Blob([serializeRouteJson(flowToRoute(nodes, edges, routeBase))], { type: "application/json" });
+  function exportRoute() {
+    const filename = normalizeRouteExportFilename(`${routeBase.route.id || "studio-route"}`);
+    const blob = new Blob([exportRouteToText(flowToRoute(nodes, edges, routeBase) as OpenRoute, filename)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "studio-route.route.json";
+    anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
   }
 
-  async function importJson(file: File | null) {
+  async function importRoute(file: File | null) {
     if (!file) return;
     try {
-      const route = JSON.parse(await file.text()) as RouteDoc;
+      const route = loadRouteFromText(await file.text(), file.name) as RouteDoc;
       const flow = routeToFlow(route);
       setRouteBase(route);
       setNodes(flow.nodes);
@@ -1190,8 +1193,8 @@ function App() {
         <>
         <div className="toolbar">
           <button onClick={loadExample} title="Load example"><Wand2 size={16} /> Example</button>
-          <button onClick={exportJson} title="Export route JSON"><Download size={16} /> Export</button>
-          <label className="fileButton" title="Import route JSON"><Upload size={16} /> Import<input type="file" accept=".json,.route.json,application/json" onChange={(event) => void importJson(event.target.files?.[0] ?? null)} /></label>
+          <button onClick={exportRoute} title="Export route"><Download size={16} /> Export</button>
+          <label className="fileButton" title="Import route"><Upload size={16} /> Import<input type="file" accept={ROUTE_FILE_ACCEPT} onChange={(event) => void importRoute(event.target.files?.[0] ?? null)} /></label>
         </div>
         <h2>Nodes</h2>
         <div className="portLegend">

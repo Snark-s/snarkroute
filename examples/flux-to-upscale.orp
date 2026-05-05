@@ -1,0 +1,102 @@
+{
+  "routeVersion": "0.1",
+  "route": {
+    "id": "flux-to-upscale",
+    "title": "Flux To Upscale",
+    "description": "Generate an image with Replicate Flux, then upscale it with Clarity Upscaler.",
+    "author": {
+      "name": "SnarkRoute"
+    },
+    "license": "CC-BY-SA-4.0",
+    "tags": ["replicate", "image", "upscale"]
+  },
+  "economics": {
+    "enabled": false,
+    "mode": "disabled",
+    "currency": "USD",
+    "providerCosts": [
+      {
+        "provider": "replicate",
+        "model": "black-forest-labs/flux-schnell",
+        "nodeType": "replicate.model",
+        "pricingHint": "external-provider-billing",
+        "estimatedCost": null,
+        "actualCost": null
+      },
+      {
+        "provider": "replicate",
+        "model": "philz1337x/clarity-upscaler",
+        "nodeType": "replicate.clarity-upscaler",
+        "pricingHint": "external-provider-billing",
+        "estimatedCost": null,
+        "actualCost": null
+      }
+    ],
+    "notes": "Economics metadata is preserved; no payment execution in v0.1."
+  },
+  "nodes": [
+    {
+      "id": "input_prompt",
+      "type": "input.text",
+      "title": "Prompt",
+      "params": {
+        "value": "A tiny stained glass dragon icon, art nouveau, clean simple composition"
+      }
+    },
+    {
+      "id": "generate_image",
+      "type": "replicate.model",
+      "title": "Generate Image",
+      "params": {
+        "model": "black-forest-labs/flux-schnell",
+        "input": {
+          "prompt": "{{input_prompt.output.text}}",
+          "aspect_ratio": "1:1",
+          "output_format": "webp"
+        },
+        "pollingIntervalMs": 1000,
+        "timeoutMs": 120000
+      }
+    },
+    {
+      "id": "upscale",
+      "type": "replicate.clarity-upscaler",
+      "title": "Clarity Upscaler",
+      "params": {
+        "prompt": "masterpiece, best quality, highres",
+        "negative_prompt": "(worst quality, low quality, normal quality:2)",
+        "scale_factor": 2,
+        "dynamic": 6,
+        "creativity": 0.25,
+        "resemblance": 0.8,
+        "tiling_width": 112,
+        "tiling_height": 144,
+        "scheduler": "DPM++ 3M SDE Karras",
+        "num_inference_steps": 18,
+        "seed": 1337,
+        "downscaling": false,
+        "downscaling_resolution": 768,
+        "lora_links": "",
+        "pollingIntervalMs": 1000,
+        "timeoutMs": 120000
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "input_prompt",
+      "to": "generate_image"
+    },
+    {
+      "from": "generate_image",
+      "to": "upscale",
+      "fromPort": "output",
+      "toPort": "image"
+    }
+  ],
+  "provenance": {
+    "createdAt": "2026-05-05T00:00:00.000Z",
+    "tool": "snarkroute",
+    "events": []
+  }
+}

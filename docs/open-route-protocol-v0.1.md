@@ -2,10 +2,17 @@
 
 Open Route Protocol describes portable route documents for AI/model/API workflows.
 
-Supported file extensions:
+Open Route Protocol uses explicit file extensions:
 
-- `.route.yaml`
-- `.route.json`
+- `.orp` is the canonical user-facing extension for complete Open Route Protocol route documents.
+- `.orp.json` and `.orp.yaml` are explicit developer-friendly variants.
+- `.route` remains supported as a human-readable compatibility alias.
+- `.route.json`, `.route.yaml`, and `.route.yml` remain supported compatibility aliases.
+- `.node.json` describes reusable node type definitions.
+
+Route files contain node instances. Node definition files describe reusable node types. Do not use `.node.json` for node instances inside a route.
+
+For v0.1, `.orp` and `.route` serialize as JSON. `.orp.yaml`, `.orp.yml`, `.route.yaml`, and `.route.yml` serialize as YAML.
 
 ## Route Document
 

@@ -2,7 +2,7 @@
 
 SnarkRoute is a reference implementation for Open Route Protocol. Open Route Protocol is a portable route language, not a platform.
 
-The central promise is simple: users must be able to take a route with them. A route should remain readable, inspectable, remixable, and exportable as `.route.yaml` or `.route.json`.
+The central promise is simple: users must be able to take a route with them. A route should remain readable, inspectable, remixable, and exportable as `.orp`, with `.orp.json`, `.orp.yaml`, and `.route.*` aliases available for compatibility and developer clarity.
 
 ## Core Idea
 

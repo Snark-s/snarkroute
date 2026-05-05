@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { exportRouteToJson, loadRouteFromYaml, parseNodeRef, parseRoute, validateRoute } from "../src/index";
+import {
+  exportRouteToJson,
+  getNodeFormatFromFilename,
+  getRouteFormatFromFilename,
+  isNodeDefinitionFile,
+  isOpenRouteFile,
+  isRouteFile,
+  isRouteJsonFile,
+  isRouteYamlFile,
+  loadRouteFromText,
+  loadRouteFromYaml,
+  normalizeRouteExportFilename,
+  parseNodeRef,
+  parseRoute,
+  validateRoute
+} from "../src/index";
 
 const baseRoute = {
   routeVersion: "0.1",
@@ -129,5 +144,68 @@ nodes:
 edges: []
 `);
     expect(route.route.id).toBe("yaml-route");
+  });
+
+  it("detects explicit route file extensions", () => {
+    for (const filename of ["basic.orp", "basic.orp.json", "basic.orp.yaml", "basic.orp.yml", "basic.route", "basic.route.json", "basic.route.yaml", "basic.route.yml"]) {
+      expect(isRouteFile(filename)).toBe(true);
+      expect(isOpenRouteFile(filename)).toBe(true);
+    }
+    expect(isRouteFile("node.node.json")).toBe(false);
+    expect(isRouteFile("plain.json")).toBe(false);
+  });
+
+  it("detects route JSON and YAML formats by filename", () => {
+    for (const filename of ["basic.orp", "basic.orp.json", "basic.route", "basic.route.json", "plain.json"]) {
+      expect(getRouteFormatFromFilename(filename)).toBe("json");
+    }
+    for (const filename of ["basic.orp.yaml", "basic.orp.yml", "basic.route.yaml", "basic.route.yml", "plain.yaml", "plain.yml"]) {
+      expect(getRouteFormatFromFilename(filename)).toBe("yaml");
+    }
+    expect(isRouteJsonFile("basic.orp")).toBe(true);
+    expect(isRouteYamlFile("basic.orp.yaml")).toBe(true);
+    expect(getRouteFormatFromFilename("node.node.json")).toBeNull();
+    expect(getRouteFormatFromFilename("unknown.txt")).toBeNull();
+  });
+
+  it("detects node definition extensions separately from route files", () => {
+    for (const filename of ["resize.node.json", "resize.node.yaml", "resize.node.yml"]) {
+      expect(isNodeDefinitionFile(filename)).toBe(true);
+    }
+    expect(getNodeFormatFromFilename("resize.node.json")).toBe("json");
+    expect(getNodeFormatFromFilename("resize.node.yaml")).toBe("yaml");
+    expect(getNodeFormatFromFilename("resize.node.yml")).toBe("yaml");
+    expect(isNodeDefinitionFile("route.orp")).toBe(false);
+    expect(isRouteFile("resize.node.json")).toBe(false);
+  });
+
+  it("normalizes route export filenames to .orp by default", () => {
+    expect(normalizeRouteExportFilename("test")).toBe("test.orp");
+    expect(normalizeRouteExportFilename("test.orp")).toBe("test.orp");
+    expect(normalizeRouteExportFilename("test.orp.json")).toBe("test.orp.json");
+    expect(normalizeRouteExportFilename("test.orp.yaml")).toBe("test.orp.yaml");
+    expect(normalizeRouteExportFilename("test.route")).toBe("test.route");
+    expect(normalizeRouteExportFilename("test.route.json")).toBe("test.route.json");
+  });
+
+  it("keeps plain JSON/YAML route import compatibility", () => {
+    const jsonRoute = loadRouteFromText(JSON.stringify(baseRoute), "plain.json");
+    const yamlRoute = loadRouteFromText(
+      `
+routeVersion: "0.1"
+route:
+  id: plain-yaml
+  title: Plain YAML
+  author:
+    name: Tester
+economics:
+  enabled: false
+nodes: []
+edges: []
+`,
+      "plain.yaml"
+    );
+    expect(jsonRoute.route.id).toBe("test-route");
+    expect(yamlRoute.route.id).toBe("plain-yaml");
   });
 });

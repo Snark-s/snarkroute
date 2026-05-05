@@ -136,6 +136,7 @@ export const OpenRouteSchema = z.object({
 export type OpenRoute = z.infer<typeof OpenRouteSchema>;
 export type RouteNode = z.infer<typeof RouteNodeSchema>;
 export type RouteEdge = z.infer<typeof RouteEdgeSchema>;
+export type RouteDocumentFormat = "json" | "yaml";
 
 export type NodeRefKind = "input" | "output";
 
@@ -228,10 +229,76 @@ export function loadRouteFromJson(text: string): OpenRoute {
   return parseRoute(JSON.parse(text));
 }
 
+export function loadRouteFromText(text: string, filename: string): OpenRoute {
+  const format = getRouteFormatFromFilename(filename);
+  if (!format) {
+    throw new Error(
+      `Unsupported route file extension for "${filename}". Preferred extension: .orp. Also supports .orp.json, .orp.yaml, .route, .json, and .yaml.`
+    );
+  }
+  return format === "yaml" ? loadRouteFromYaml(text) : loadRouteFromJson(text);
+}
+
 export function exportRouteToYaml(route: OpenRoute): string {
   return YAML.stringify(parseRoute(route));
 }
 
 export function exportRouteToJson(route: OpenRoute): string {
   return `${JSON.stringify(parseRoute(route), null, 2)}\n`;
+}
+
+export function exportRouteToText(route: OpenRoute, filename: string): string {
+  const format = getRouteFormatFromFilename(normalizeRouteExportFilename(filename)) ?? "json";
+  return format === "yaml" ? exportRouteToYaml(route) : exportRouteToJson(route);
+}
+
+const routeJsonExtensions = [".orp", ".orp.json", ".route", ".route.json"] as const;
+const routeYamlExtensions = [".orp.yaml", ".orp.yml", ".route.yaml", ".route.yml"] as const;
+const plainRouteJsonExtensions = [".json"] as const;
+const plainRouteYamlExtensions = [".yaml", ".yml"] as const;
+const nodeJsonExtensions = [".node.json"] as const;
+const nodeYamlExtensions = [".node.yaml", ".node.yml"] as const;
+
+export function isOpenRouteFile(filename: string): boolean {
+  return isRouteFile(filename);
+}
+
+export function isRouteFile(filename: string): boolean {
+  return hasAnyExtension(filename, [...routeJsonExtensions, ...routeYamlExtensions]);
+}
+
+export function isRouteJsonFile(filename: string): boolean {
+  return hasAnyExtension(filename, routeJsonExtensions);
+}
+
+export function isRouteYamlFile(filename: string): boolean {
+  return hasAnyExtension(filename, routeYamlExtensions);
+}
+
+export function isNodeDefinitionFile(filename: string): boolean {
+  return getNodeFormatFromFilename(filename) !== null;
+}
+
+export function getRouteFormatFromFilename(filename: string): RouteDocumentFormat | null {
+  if (isNodeDefinitionFile(filename)) return null;
+  if (hasAnyExtension(filename, [...routeJsonExtensions, ...plainRouteJsonExtensions])) return "json";
+  if (hasAnyExtension(filename, [...routeYamlExtensions, ...plainRouteYamlExtensions])) return "yaml";
+  return null;
+}
+
+export function getNodeFormatFromFilename(filename: string): RouteDocumentFormat | null {
+  if (hasAnyExtension(filename, nodeJsonExtensions)) return "json";
+  if (hasAnyExtension(filename, nodeYamlExtensions)) return "yaml";
+  return null;
+}
+
+export function normalizeRouteExportFilename(filename: string): string {
+  const trimmed = filename.trim();
+  if (!trimmed) return "route.orp";
+  return isRouteFile(trimmed) ? trimmed : `${trimmed}.orp`;
+}
+
+function hasAnyExtension(filename: string, extensions: readonly string[]): boolean {
+  const normalized = filename.trim().toLowerCase();
+  return extensions.some((extension) => normalized.endsWith(extension));
 }

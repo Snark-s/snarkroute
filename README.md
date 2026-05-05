@@ -38,7 +38,9 @@ See `docs/demo-script.md` for a short recording plan.
 
 ## What Is Open Route Protocol?
 
-Open Route Protocol describes portable `.route.yaml` and `.route.json` documents. A route can contain inputs, transforms, model/API providers, outputs, provenance, and economics metadata without being locked to one platform.
+Open Route Protocol uses explicit file extensions for portable route documents. `.orp` is the canonical user-facing extension for complete Open Route Protocol route documents; `.orp.json` and `.orp.yaml` are explicit developer-friendly variants; `.route` remains supported as a human-readable compatibility alias.
+
+Route files contain node instances. Node definition files such as `.node.json` describe reusable node types. A route can contain inputs, transforms, model/API providers, outputs, provenance, and economics metadata without being locked to one platform.
 
 SnarkRoute is not just a Replicate wrapper. Replicate is the first external provider inside routes; the route/workflow is the primary unit of value.
 
@@ -55,7 +57,7 @@ SnarkRoute is designed as a portable route language, not a closed platform. Node
 - Built-in nodes for text, files, images, videos, templates, debug logs, text output, image preview, and file output
 - Replicate provider adapter and model-specific Clarity Upscaler node
 - Vite + React + React Flow Studio
-- Import/export `.route.json`
+- Import/export Open Route Protocol documents, preferring `.orp`
 - Local settings for Replicate token through `.env` or Studio Settings
 
 ## Windows Quick Start
@@ -178,16 +180,14 @@ They require `REPLICATE_API_TOKEN`. They must not print or store the token.
 
 ## Example Routes
 
-Routes live in `examples/routes`:
+Canonical examples live in `examples`:
 
-- `debug-basic.route.yaml`
-- `flux-basic.route.yaml`
-- `replicate-flux-basic.route.yaml`
-- `template-chain.route.yaml`
-- `file-debug.route.yaml`
-- `image-debug.route.yaml`
-- `video-debug.route.yaml`
-- `clarity-upscale-basic.route.yaml`
+- `basic.orp`
+- `upscale.orp`
+- `replicate-flux.orp`
+- `flux-to-upscale.orp`
+
+Compatibility YAML examples remain in `examples/routes`.
 
 Example route documents are licensed under CC BY-SA 4.0 unless otherwise stated.
 

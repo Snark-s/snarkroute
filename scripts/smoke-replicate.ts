@@ -3,19 +3,19 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createExecutor } from "@snarkroute/executor";
 import { registerBuiltInNodeRunners } from "@snarkroute/nodes";
-import { loadRouteFromYaml } from "@snarkroute/protocol";
+import { loadRouteFromText } from "@snarkroute/protocol";
 import { createReplicateNodeRunner } from "@snarkroute/replicate";
 
 dotenv.config();
 
-const routePath = join(process.cwd(), "examples", "routes", "replicate-flux-basic.route.yaml");
+const routePath = join(process.cwd(), "examples", "replicate-flux.orp");
 
 async function main() {
   if (!process.env.REPLICATE_API_TOKEN?.trim()) {
     throw new Error("REPLICATE_API_TOKEN is not configured. Add it to the local .env file as REPLICATE_API_TOKEN=your_token_here.");
   }
 
-  const route = loadRouteFromYaml(await readFile(routePath, "utf8"));
+  const route = loadRouteFromText(await readFile(routePath, "utf8"), routePath);
   const model = String(route.nodes.find((node) => node.id === "generate_image")?.params?.model ?? "");
   const runId = `smoke_replicate_${Date.now()}`;
   const outputDirectory = join(process.cwd(), "data", "runs", runId);

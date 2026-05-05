@@ -2,7 +2,7 @@
 
 ## Studio
 
-`apps/studio` is a Vite + React + React Flow editor. It edits route graphs, imports and exports `.route.json`, validates routes through the local API, runs routes, and displays logs and outputs.
+`apps/studio` is a Vite + React + React Flow editor. It edits route graphs, imports Open Route Protocol documents, exports `.orp` by default, validates routes through the local API, runs routes, and displays logs and outputs.
 
 ## Server
 
@@ -10,7 +10,7 @@
 
 ## Protocol
 
-`packages/protocol` owns Open Route Protocol v0.1 schemas, parsing, validation, YAML/JSON loading, and exporting. It allows unknown node types so route documents stay portable.
+`packages/protocol` owns Open Route Protocol v0.1 schemas, parsing, validation, YAML/JSON loading, extension detection, export filename normalization, and exporting. It allows unknown node types so route documents stay portable.
 
 ## Executor
 
@@ -53,7 +53,7 @@ route economics metadata
 
 The executor sets `paymentExecuted: false` for every run. Replicate runners emit provider usage events with provider, model, node id, prediction id, status, and metrics when available. No billing API calls are made, and actual provider costs may remain `null`.
 
-The ledger is local-only and ignored by git. It is never exported as part of `.route.yaml` or `.route.json`, and secret-like keys are filtered from ledger API responses.
+The ledger is local-only and ignored by git. It is never exported as part of `.orp`, `.orp.yaml`, `.route.yaml`, or `.route.json`, and secret-like keys are filtered from ledger API responses.
 
 ## Storage
 
