@@ -20,6 +20,8 @@
 
 `packages/nodes` contains safe built-in runners: text input, local file/image/video inputs, template transform, debug log, text output, and local output file.
 
+In Open Route Protocol terminology, a node is a portable operation definition. A provider or implementation is how that operation is executed. The executor is the runtime that executes a route; it is not the protocol itself.
+
 Local asset input nodes keep the protocol simple: the route stores `params.path`, the executor reads metadata from the local filesystem, and Studio uses the local server for file browsing, metadata, and image previews. The MVP does not upload files or create an asset registry.
 
 For the Clarity Upscaler milestone, the image flow is:
@@ -59,7 +61,7 @@ The ledger is local-only and ignored by git. It is never exported as part of `.r
 
 ## Future Extension Points
 
-Future nodes should be declarative and permissioned. A future registry can distribute manifests, schemas, and permission declarations, but SnarkRoute should not execute arbitrary community JavaScript.
+Future nodes should be declarative and permissioned. A future registry can distribute manifests, schemas, and permission declarations, but it is an optional discovery mechanism, not the source of truth. SnarkRoute should not execute arbitrary community JavaScript.
 
 ---
 

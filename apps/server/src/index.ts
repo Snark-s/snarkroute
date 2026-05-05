@@ -6,6 +6,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { basename, join } from "node:path";
 import { createExecutor } from "@snarkroute/executor";
+import { createNanoBanana2NodeRunner } from "@snarkroute/gemini";
 import { builtInNodeDefinitions, getLocalAssetMetadata, registerBuiltInNodeRunners, type LocalAssetKind } from "@snarkroute/nodes";
 import { parseRoute, validateRoute } from "@snarkroute/protocol";
 import { createClarityUpscalerNodeRunner, createReplicateClient, createReplicateNodeRunner } from "@snarkroute/replicate";
@@ -24,9 +25,9 @@ export function buildServer() {
   const app = Fastify({ logger: true, bodyLimit: 250 * 1024 * 1024 });
   app.register(cors, { origin: true });
 
-  app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled() }));
+  app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled() }));
 
-  app.get("/api/settings", async () => ({ replicate: { configured: isReplicateEnabled() } }));
+  app.get("/api/settings", async () => ({ replicate: { configured: isReplicateEnabled() }, gemini: { configured: isGeminiEnabled() } }));
 
   app.post<{ Body: { replicateApiToken?: string } }>("/api/settings/replicate-token", async (request, reply) => {
     const token = request.body?.replicateApiToken?.trim();
@@ -40,11 +41,24 @@ export function buildServer() {
     }
   });
 
+  app.post<{ Body: { geminiApiKey?: string } }>("/api/settings/gemini-token", async (request, reply) => {
+    const token = request.body?.geminiApiKey?.trim();
+    if (!token) return reply.code(400).send({ error: "GEMINI_API_KEY cannot be empty." });
+    try {
+      await writeEnvValue("GEMINI_API_KEY", token);
+      process.env.GEMINI_API_KEY = token;
+      return { ok: true, gemini: { configured: true } };
+    } catch (error) {
+      return reply.code(500).send({ error: errorMessage(error) });
+    }
+  });
+
   app.get("/api/nodes", async () => ({
     nodes: [
       ...builtInNodeDefinitions,
       { type: "replicate.model", title: "Replicate Model", description: "Runs a Replicate model prediction.", enabled: isReplicateEnabled() },
-      { type: "replicate.clarity-upscaler", title: "Clarity Upscaler", description: "Runs Replicate philz1337x/clarity-upscaler.", enabled: isReplicateEnabled() }
+      { type: "replicate.clarity-upscaler", title: "Clarity Upscaler", description: "Runs Replicate philz1337x/clarity-upscaler.", enabled: isReplicateEnabled() },
+      { type: "gemini.nano-banana-2", title: "Nano Banana 2", description: "Runs Gemini image generation/editing.", enabled: isGeminiEnabled() }
     ]
   }));
 
@@ -105,9 +119,10 @@ export function buildServer() {
 
   app.post("/api/routes/validate", async (request) => validateRoute(request.body));
 
-  app.post("/api/routes/run", async (request, reply) => {
+  app.post<{ Body: { route?: unknown; initialNodeOutputs?: Record<string, unknown> } }>("/api/routes/run", async (request, reply) => {
     try {
-      const route = parseRoute(request.body);
+      const routeInput = request.body && typeof request.body === "object" && "routeVersion" in request.body ? request.body : request.body?.route;
+      const route = parseRoute(routeInput);
       const executor = createExecutor();
       registerBuiltInNodeRunners(executor);
       executor.registerNodeRunner("output.text", ({ params, inputs }) => {
@@ -117,9 +132,10 @@ export function buildServer() {
       });
       executor.registerNodeRunner("replicate.model", createReplicateNodeRunner());
       executor.registerNodeRunner("replicate.clarity-upscaler", createClarityUpscalerNodeRunner());
+      executor.registerNodeRunner("gemini.nano-banana-2", createNanoBanana2NodeRunner());
       const runId = `run_${Date.now()}`;
       const outputDirectory = await storage.createRunDirectory(runId);
-      return await executor.executeRoute(route, { runId, outputDirectory });
+      return await executor.executeRoute(route, { runId, outputDirectory, initialNodeOutputs: request.body?.initialNodeOutputs });
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -157,6 +173,10 @@ function errorMessage(error: unknown): string {
 
 function isReplicateEnabled(): boolean {
   return Boolean(process.env.REPLICATE_API_TOKEN?.trim());
+}
+
+function isGeminiEnabled(): boolean {
+  return Boolean(process.env.GEMINI_API_KEY?.trim());
 }
 
 function sanitizeFilename(filename: string): string {

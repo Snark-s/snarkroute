@@ -90,6 +90,32 @@ describe("executor", () => {
     expect(result.nodeResults.consume.output).toEqual({ image: { path: "local.png", mimeType: "image/png" } });
   });
 
+  it("collects multiple edges into the same named input as an array", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("input.image", ({ node }) => ({ output: { path: `${node.id}.png`, mimeType: "image/png" } }));
+    executor.registerNodeRunner("consumer", ({ inputs }) => ({ output: { images: inputs.images } }));
+    const result = await executor.executeRoute(
+      route({
+        nodes: [
+          { id: "first", type: "input.image" },
+          { id: "second", type: "input.image" },
+          { id: "consume", type: "consumer" }
+        ],
+        edges: [
+          { from: "first", to: "consume", fromPort: "image", toPort: "images" },
+          { from: "second", to: "consume", fromPort: "image", toPort: "images" }
+        ]
+      }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.nodeResults.consume.output).toEqual({
+      images: [
+        { path: "first.png", mimeType: "image/png" },
+        { path: "second.png", mimeType: "image/png" }
+      ]
+    });
+  });
+
   it("executes according to edge order even when nodes are listed out of order", async () => {
     const executor = createExecutor();
     const seen: string[] = [];

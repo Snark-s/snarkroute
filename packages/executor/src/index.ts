@@ -65,6 +65,7 @@ export interface ExecuteOptions {
   outputDirectory?: string;
   activeProfile?: string;
   ledgerPath?: string;
+  initialNodeOutputs?: Record<string, unknown>;
 }
 
 export interface ProviderUsageEvent {
@@ -147,7 +148,7 @@ export function createExecutor(): RouteExecutor {
           }
         ])
       );
-      const nodeOutputs: Record<string, unknown> = {};
+      const nodeOutputs: Record<string, unknown> = { ...(options.initialNodeOutputs ?? {}) };
       const log = (message: string, nodeId?: string) => logs.push({ timestamp: new Date().toISOString(), message, nodeId });
 
       const context: NodeExecutionContext = { runId, route, outputDirectory, nodeOutputs, log };
@@ -494,7 +495,12 @@ function collectInputs(route: OpenRoute, node: RouteNode, nodeOutputs: Record<st
   const inputs: Record<string, unknown> = {};
   for (const edge of route.edges.filter((candidate) => candidate.to === node.id)) {
     const value = readOutputPort(nodeOutputs[edge.from], edge.fromPort);
-    inputs[edge.toPort ?? edge.from] = value;
+    const key = edge.toPort ?? edge.from;
+    if (key in inputs) {
+      inputs[key] = Array.isArray(inputs[key]) ? [...inputs[key], value] : [inputs[key], value];
+    } else {
+      inputs[key] = value;
+    }
   }
   return inputs;
 }

@@ -358,6 +358,41 @@ h2 {
   border-color: #9aa5b8;
 }
 
+.nodeRunActions {
+  display: flex;
+  gap: 5px;
+  left: 9px;
+  position: absolute;
+  top: 9px;
+}
+
+.nodeRunButton {
+  align-items: center;
+  appearance: none;
+  background: #1d2532;
+  border: 1px solid #506078;
+  border-radius: 5px;
+  color: #dce8ff;
+  cursor: pointer;
+  display: inline-flex;
+  height: 24px;
+  justify-content: center;
+  line-height: 1;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0;
+  width: 24px;
+}
+
+.nodeRunButton.dependency {
+  color: #9fc4ff;
+}
+
+.nodeRunButton:hover {
+  border-color: #7dd3c0;
+  color: #ffffff;
+}
+
 .portLabel {
   color: #9da8ba;
   font-size: 10px;
@@ -422,6 +457,11 @@ h2 {
   outline: none;
   padding: 6px 7px;
   width: 100%;
+}
+
+.nodeSelect {
+  appearance: auto;
+  height: 34px;
 }
 
 .nodeTextarea {

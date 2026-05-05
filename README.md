@@ -42,6 +42,10 @@ Open Route Protocol describes portable `.route.yaml` and `.route.json` documents
 
 SnarkRoute is not just a Replicate wrapper. Replicate is the first external provider inside routes; the route/workflow is the primary unit of value.
 
+## Commons Principle
+
+SnarkRoute is designed as a portable route language, not a closed platform. Nodes are free protocol components; paid value belongs to execution, services, APIs, support, route authorship, and final products. See `docs/commons-principle.md`.
+
 ## Current MVP Features
 
 - Open Route Protocol v0.1 schema, parsing, validation, YAML and JSON support

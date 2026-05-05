@@ -19,7 +19,7 @@ import {
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2, X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { localApiUnavailableMessage, replicateTokenStatusText, serializeRouteJson } from "./security-ui";
+import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText, serializeRouteJson } from "./security-ui";
 
 type RouteDoc = {
   routeVersion: string;
@@ -92,6 +92,16 @@ const library = [
       timeoutMs: 120000
     }
   },
+  {
+    type: "gemini.nano-banana-2",
+    label: "Nano Banana 2",
+    params: {
+      model: "gemini-3.1-flash-image-preview",
+      prompt: "Transform this into a polished, high-detail image.",
+      aspectRatio: "1:1",
+      imageSize: "2K"
+    }
+  },
   { type: "preview.image", label: "Image Preview", params: { title: "Preview" } },
   { type: "transform.template", label: "Template Transform", params: { template: "{{input_prompt.output.text}}" } },
   { type: "replicate.model", label: "Replicate Model", params: { model: "black-forest-labs/flux-schnell", input: { prompt: "{{input_prompt.output.text}}" } } },
@@ -102,12 +112,21 @@ const library = [
 
 const librarySections = [
   { id: "inputs", title: "Input", types: ["input.text", "input.file", "input.image", "input.video"] },
-  { id: "image", title: "Image Processing", types: ["replicate.clarity-upscaler", "preview.image"] },
+  { id: "image", title: "Image Processing", types: ["replicate.clarity-upscaler", "gemini.nano-banana-2", "preview.image"] },
   { id: "models", title: "Models / Providers", types: ["replicate.model"] },
   { id: "transforms", title: "Transforms", types: ["transform.template"] },
   { id: "outputs", title: "Output", types: ["output.text", "output.file"] },
   { id: "debug", title: "Debug", types: ["debug.log"] }
 ];
+
+const blankRoute: RouteDoc = {
+  routeVersion: "0.1",
+  route: { id: "blank-route", title: "Blank Route", author: { name: "SnarkRoute" } },
+  economics: { enabled: false, mode: "disabled" },
+  nodes: [],
+  edges: [],
+  provenance: { tool: "snarkroute-studio" }
+};
 
 const exampleRoute: RouteDoc = {
   routeVersion: "0.1",
@@ -159,9 +178,14 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onParamsChange = data.onParamsChange as ((nodeId: string, params: Record<string, unknown>) => void) | undefined;
   const onBrowseAsset = data.onBrowseAsset as ((nodeId: string, kind: AssetKind) => void) | undefined;
   const replicateConfigured = Boolean(data.replicateConfigured);
+  const geminiConfigured = Boolean(data.geminiConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
+  const onConfigureGemini = data.onConfigureGemini as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
+  const onRunNodeOnly = data.onRunNodeOnly as ((nodeId: string) => void) | undefined;
+  const onRunNodeWithDependencies = data.onRunNodeWithDependencies as ((nodeId: string) => void) | undefined;
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
+  const inputConnectionCounts = (data.inputConnectionCounts as Record<string, number> | undefined) ?? {};
   const ports = getNodePorts(type);
 
   function patchParams(patch: Record<string, unknown>) {
@@ -171,10 +195,36 @@ function RouteNodeCard({ id, data }: NodeProps) {
   return (
     <div className="routeNodeCard">
       <span className={`nodeStatus ${statusClass(result?.status)}`} />
+      {shouldShowNodeRunButton(type) ? (
+        <div className="nodeRunActions">
+          <button
+            className="nodeRunButton nodrag nopan"
+            type="button"
+            title="Run this node only"
+            onClick={(event) => {
+              event.stopPropagation();
+              onRunNodeOnly?.(id);
+            }}
+          >
+            <Play size={12} />
+          </button>
+          <button
+            className="nodeRunButton dependency nodrag nopan"
+            type="button"
+            title="Run this node with upstream dependencies"
+            onClick={(event) => {
+              event.stopPropagation();
+              onRunNodeWithDependencies?.(id);
+            }}
+          >
+            <ChevronRight size={12} />
+          </button>
+        </div>
+      ) : null}
       {ports.inputs.map((port, index) => (
         <React.Fragment key={port.id}>
           <span className="portLabel input" style={{ top: `${34 + index * 28}px` }}>
-            {port.label ?? port.id}
+            {port.maxConnections ? `${port.label ?? port.id} (${inputConnectionCounts[port.id] ?? 0}/${port.maxConnections})` : port.label ?? port.id}
           </span>
           <Handle
             className={`typedHandle ${port.kind}`}
@@ -196,6 +246,18 @@ function RouteNodeCard({ id, data }: NodeProps) {
               <strong>Requires Replicate API token</strong>
               <button className="nodeSmallButton nodrag nopan" onClick={onConfigureReplicate}>Configure Replicate</button>
               <small>Open Settings \u2192 Secrets \u2192 Replicate</small>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {isGeminiNode(type) ? (
+        <div className={`nodeTokenStatus ${geminiConfigured ? "configured" : "missing"}`}>
+          <span>{geminiTokenStatusText(geminiConfigured)}</span>
+          {!geminiConfigured ? (
+            <>
+              <strong>Requires Gemini API key</strong>
+              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureGemini}>Configure Gemini</button>
+              <small>Open Settings \u2192 Secrets \u2192 Gemini</small>
             </>
           ) : null}
         </div>
@@ -264,8 +326,14 @@ function NodeInlineParams({
     return (
       <div className="assetParams">
         <label className="nodeField">
-          <span>path</span>
-          <input className="nodrag nopan nodeInput" value={path} onChange={(event) => onChange({ path: event.target.value })} />
+          <span>file</span>
+          <input
+            className="nodrag nopan nodeInput"
+            value={path ? filenameFromPath(path) : ""}
+            placeholder="No file selected"
+            title={path}
+            readOnly
+          />
         </label>
         <button className="nodeSmallButton nodrag nopan" onClick={() => onBrowse(kind)}>Browse...</button>
         {!path ? <div className="nodeWarning">Path required</div> : null}
@@ -329,6 +397,54 @@ function NodeInlineParams({
               />
             </label>
           ))}
+        </div>
+      </>
+    );
+  }
+
+  if (type === "gemini.nano-banana-2") {
+    const promptConnected = connectedInputPorts.has("prompt");
+    return (
+      <>
+        <label className="nodeField">
+          <span>model</span>
+          <input className="nodrag nopan nodeInput" value={String(params.model ?? "gemini-3.1-flash-image-preview")} onChange={(event) => onChange({ model: event.target.value })} />
+        </label>
+        <label className="nodeField">
+          <span>prompt</span>
+          <textarea
+            className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
+            value={String(params.prompt ?? "")}
+            disabled={promptConnected}
+            onChange={(event) => onChange({ prompt: event.target.value })}
+          />
+          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
+        </label>
+        <div className="nodeGridFields">
+          <label className="nodeField">
+            <span>aspect ratio</span>
+            <select
+              className="nodrag nopan nodeInput nodeSelect"
+              value={String(params.aspectRatio ?? "1:1")}
+              onChange={(event) => onChange({ aspectRatio: event.target.value })}
+            >
+              {["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"].map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+          <label className="nodeField">
+            <span>quality</span>
+            <select
+              className="nodrag nopan nodeInput nodeSelect"
+              value={String(params.imageSize ?? "2K")}
+              onChange={(event) => onChange({ imageSize: event.target.value })}
+            >
+              {["1K", "2K", "4K"].map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
         </div>
       </>
     );
@@ -446,6 +562,7 @@ type PortSpec = {
   id: string;
   kind: PortKind;
   label?: string;
+  maxConnections?: number;
 };
 
 function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] } {
@@ -457,6 +574,18 @@ function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] }
     return {
       inputs: [
         { id: "image", kind: "image" },
+        { id: "prompt", kind: "text" }
+      ],
+      outputs: [
+        { id: "image", kind: "image" },
+        { id: "output", kind: "json", label: "JSON" }
+      ]
+    };
+  }
+  if (type === "gemini.nano-banana-2") {
+    return {
+      inputs: [
+        { id: "images", kind: "image", maxConnections: 14 },
         { id: "prompt", kind: "text" }
       ],
       outputs: [
@@ -485,6 +614,15 @@ function describeConnection(connection: Connection): string {
   return `${connection.source ?? "unknown"}.${connection.sourceHandle ?? "output"} -> ${connection.target ?? "unknown"}.${connection.targetHandle ?? "input"}`;
 }
 
+function countInputConnections(edges: Edge[], nodeId: string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const edge of edges) {
+    if (edge.target !== nodeId || !edge.targetHandle) continue;
+    counts[edge.targetHandle] = (counts[edge.targetHandle] ?? 0) + 1;
+  }
+  return counts;
+}
+
 function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
   return {
     nodes: route.nodes.map((node, index) => ({
@@ -507,7 +645,15 @@ function isReplicateNode(type: string): boolean {
   return type === "replicate.model" || type === "replicate.clarity-upscaler";
 }
 
+function isGeminiNode(type: string): boolean {
+  return type === "gemini.nano-banana-2";
+}
+
 function shouldShowInlineResult(type: string): boolean {
+  return !type.startsWith("input.");
+}
+
+function shouldShowNodeRunButton(type: string): boolean {
   return !type.startsWith("input.");
 }
 
@@ -531,9 +677,35 @@ function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDo
   };
 }
 
+function flowToNodeRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc, targetNodeId: string): RouteDoc {
+  const included = new Set<string>([targetNodeId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const edge of edges) {
+      if (included.has(edge.target) && !included.has(edge.source)) {
+        included.add(edge.source);
+        changed = true;
+      }
+    }
+  }
+  return flowToRoute(
+    nodes.filter((node) => included.has(node.id)),
+    edges.filter((edge) => included.has(edge.source) && included.has(edge.target)),
+    {
+      ...baseRoute,
+      route: {
+        ...baseRoute.route,
+        id: `${baseRoute.route.id}-${targetNodeId}`,
+        title: `${baseRoute.route.title}: ${targetNodeId}`
+      }
+    }
+  );
+}
+
 function App() {
-  const initial = useMemo(() => routeToFlow(exampleRoute), []);
-  const [routeBase, setRouteBase] = useState<RouteDoc>(exampleRoute);
+  const initial = useMemo(() => routeToFlow(blankRoute), []);
+  const [routeBase, setRouteBase] = useState<RouteDoc>(blankRoute);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -544,6 +716,8 @@ function App() {
   const [runResult, setRunResult] = useState<RunDisplayResult | null>(null);
   const [replicateToken, setReplicateToken] = useState("");
   const [replicateConfigured, setReplicateConfigured] = useState(false);
+  const [geminiToken, setGeminiToken] = useState("");
+  const [geminiConfigured, setGeminiConfigured] = useState(false);
   const [apiConnected, setApiConnected] = useState(false);
   const [apiError, setApiError] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
@@ -570,13 +744,18 @@ function App() {
           onParamsChange: updateNodeParams,
           onBrowseAsset: browseAsset,
           onConfigureReplicate: openReplicateSettings,
+          onConfigureGemini: openGeminiSettings,
           onOpenImage: setImageViewer,
+          onRunNodeOnly: runNodeOnly,
+          onRunNodeWithDependencies: runNodeWithDependencies,
           connectedInputPorts: edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle).filter((handle): handle is string => Boolean(handle)),
+          inputConnectionCounts: countInputConnections(edges, node.id),
           replicateConfigured,
+          geminiConfigured,
           result: runResult?.nodeResults?.[node.id]
         }
       })),
-    [nodes, edges, runResult, replicateConfigured]
+    [nodes, edges, runResult, replicateConfigured, geminiConfigured]
   );
 
   useEffect(() => {
@@ -590,11 +769,14 @@ function App() {
       if (!response.ok) throw new Error(localApiUnavailableMessage(apiBase));
       const result = await response.json();
       setReplicateConfigured(Boolean(result.replicate?.configured ?? result.replicateConfigured));
+      setGeminiConfigured(Boolean(result.gemini?.configured ?? result.geminiConfigured));
       setApiConnected(true);
       setApiError("");
     } catch {
       const message = localApiUnavailableMessage(apiBase);
       setApiConnected(false);
+      setReplicateConfigured(false);
+      setGeminiConfigured(false);
       setApiError(message);
       setSettingsMessage(message);
     }
@@ -635,9 +817,39 @@ function App() {
     }
   }
 
+  async function saveGeminiToken() {
+    const token = geminiToken.trim();
+    if (!token) {
+      setSettingsMessage("Gemini key cannot be empty.");
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBase}/api/settings/gemini-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ geminiApiKey: token })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to save Gemini key.");
+      setGeminiConfigured(Boolean(result.gemini?.configured ?? result.geminiConfigured));
+      setGeminiToken("");
+      setSettingsMessage("Gemini key saved locally.");
+      setLogs((current) => ["Gemini key saved locally.", ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    }
+  }
+
   function openReplicateSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your Replicate token in Settings \u2192 Secrets \u2192 Replicate.");
+  }
+
+  function openGeminiSettings() {
+    setRightCollapsed(false);
+    setSettingsMessage("Paste your Gemini API key in Settings \u2192 Secrets \u2192 Gemini.");
   }
 
   async function browseAsset(nodeId: string, kind: AssetKind) {
@@ -779,6 +991,8 @@ function App() {
     const sourcePort = getNodePorts(sourceType).outputs.find((port) => port.id === connection.sourceHandle);
     const targetPort = getNodePorts(targetType).inputs.find((port) => port.id === connection.targetHandle);
     if (!sourcePort || !targetPort) return false;
+    const existingCount = edges.filter((edge) => edge.target === connection.target && edge.targetHandle === connection.targetHandle).length;
+    if (existingCount >= (targetPort.maxConnections ?? 1)) return false;
     return arePortsCompatible(sourcePort.kind, targetPort.kind);
   }
 
@@ -841,6 +1055,87 @@ function App() {
     const result = await response.json();
     setOutputs(result);
     setRunResult(result);
+    void loadLedgerSummary();
+    const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
+    setLogs((current) => [...runLogs.reverse(), ...current]);
+  }
+
+  async function runNodeWithDependencies(nodeId: string) {
+    const target = nodes.find((node) => node.id === nodeId);
+    if (!target) return;
+    const route = flowToNodeRoute(nodes, edges, routeBase, nodeId);
+    setRunResult({
+      status: "running",
+      nodeResults: Object.fromEntries(route.nodes.map((node) => [node.id, { status: "pending" }]))
+    });
+    setLogs((current) => [`Running ${nodeId} and ${Math.max(route.nodes.length - 1, 0)} upstream dependency node(s).`, ...current]);
+    const response = await fetch(`${apiBase}/api/routes/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(route) });
+    const result = await response.json();
+    setOutputs(result);
+    setRunResult(result);
+    void loadLedgerSummary();
+    const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
+    setLogs((current) => [...runLogs.reverse(), ...current]);
+  }
+
+  async function runNodeOnly(nodeId: string) {
+    const target = nodes.find((node) => node.id === nodeId);
+    if (!target) return;
+    const routeNode = target.data.routeNode as RouteDoc["nodes"][number];
+    const incomingEdges = edges.filter((edge) => edge.target === nodeId);
+    const initialNodeOutputs: Record<string, unknown> = {};
+    const missing = new Set<string>();
+
+    for (const edge of incomingEdges) {
+      const previous = runResult?.nodeResults?.[edge.source];
+      if (previous?.status !== "succeeded" || previous.output === undefined) {
+        missing.add(edge.source);
+      } else {
+        initialNodeOutputs[edge.source] = previous.output;
+      }
+    }
+
+    if (missing.size > 0) {
+      const message = `Cannot run ${nodeId} only: missing ready upstream output(s): ${[...missing].join(", ")}. Run dependencies first.`;
+      setRunResult((current) => ({
+        ...(current ?? {}),
+        status: "failed",
+        nodeResults: {
+          ...(current?.nodeResults ?? {}),
+          [nodeId]: { status: "failed", error: message }
+        }
+      }));
+      setLogs((current) => [message, ...current]);
+      return;
+    }
+
+    const route = flowToRoute([target], incomingEdges, {
+      ...routeBase,
+      route: { ...routeBase.route, id: `${routeBase.route.id}-${nodeId}-only`, title: `${routeBase.route.title}: ${nodeId} only` }
+    });
+    setRunResult((current) => ({
+      ...(current ?? {}),
+      status: "running",
+      nodeResults: {
+        ...(current?.nodeResults ?? {}),
+        [nodeId]: { status: "pending" }
+      }
+    }));
+    setLogs((current) => [`Running ${routeNode.id} only.`, ...current]);
+    const response = await fetch(`${apiBase}/api/routes/run`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ route, initialNodeOutputs })
+    });
+    const result = await response.json();
+    setOutputs(result);
+    setRunResult((current) => ({
+      ...result,
+      nodeResults: {
+        ...(current?.nodeResults ?? {}),
+        ...(result.nodeResults ?? {})
+      }
+    }));
     void loadLedgerSummary();
     const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
     setLogs((current) => [...runLogs.reverse(), ...current]);
@@ -941,7 +1236,8 @@ function App() {
           <div className={`apiStatus ${apiConnected ? "connected" : "disconnected"}`} title={apiError || `API: ${apiBase}`}>
             <span>API: {apiBase}</span>
             <strong>{apiConnected ? "connected" : "disconnected"}</strong>
-            <em>{replicateConfigured ? "replicate: configured" : "replicate: missing"}</em>
+            <em>{apiConnected ? (replicateConfigured ? "replicate: configured" : "replicate: missing") : "replicate: unknown"}</em>
+            <em>{apiConnected ? (geminiConfigured ? "gemini: configured" : "gemini: missing") : "gemini: unknown"}</em>
           </div>
         </div>
         <ReactFlow
@@ -1015,6 +1311,22 @@ function App() {
             />
           </label>
           <button onClick={() => void saveReplicateToken()}><Save size={16} /> Save Token</button>
+          <h4>Gemini</h4>
+          <div className={`settingsStatus ${geminiConfigured ? "configured" : ""}`}>
+            <KeyRound size={14} />
+            {geminiTokenStatusText(geminiConfigured)}
+          </div>
+          <label className="settingsField">
+            <span>GEMINI_API_KEY</span>
+            <input
+              type="password"
+              value={geminiToken}
+              placeholder="Paste key"
+              onChange={(event) => setGeminiToken(event.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <button onClick={() => void saveGeminiToken()}><Save size={16} /> Save Key</button>
           {settingsMessage ? <p className={settingsMessage.includes("error") || settingsMessage.includes("Failed") || settingsMessage.includes("empty") ? "errorText" : "muted"}>{settingsMessage}</p> : null}
         </div>
 
@@ -1197,6 +1509,10 @@ function outputText(value: unknown): string | null {
 function downloadFilename(value: unknown): string {
   const label = imageLabel(value).split(/[\\/]/).pop() ?? "snarkroute-image.png";
   return label || "snarkroute-image.png";
+}
+
+function filenameFromPath(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
 function costLabel(value: unknown): string | null {

@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@snarkroute/executor": "workspace:*",
+    "@snarkroute/gemini": "workspace:*",
     "@snarkroute/nodes": "workspace:*",
     "@snarkroute/protocol": "workspace:*",
     "@snarkroute/replicate": "workspace:*",

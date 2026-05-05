@@ -11,6 +11,9 @@ importers:
       '@snarkroute/executor':
         specifier: workspace:*
         version: link:packages/executor
+      '@snarkroute/gemini':
+        specifier: workspace:*
+        version: link:packages/adapters/gemini
       '@snarkroute/nodes':
         specifier: workspace:*
         version: link:packages/nodes
@@ -45,6 +48,9 @@ importers:
       '@snarkroute/executor':
         specifier: workspace:*
         version: link:../../packages/executor
+      '@snarkroute/gemini':
+        specifier: workspace:*
+        version: link:../../packages/adapters/gemini
       '@snarkroute/nodes':
         specifier: workspace:*
         version: link:../../packages/nodes
@@ -101,6 +107,16 @@ importers:
       typescript:
         specifier: ^5.4.5
         version: 5.9.3
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.39)
+
+  packages/adapters/gemini:
+    dependencies:
+      '@snarkroute/executor':
+        specifier: workspace:*
+        version: link:../../executor
+    devDependencies:
       vitest:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@20.19.39)
