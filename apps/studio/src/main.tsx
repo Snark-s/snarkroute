@@ -165,7 +165,7 @@ const exampleRoute: RouteDoc = {
       id: "input_prompt",
       type: "input.text",
       title: "Text Input",
-      params: { value: "А мы сделаем свой нодевый редактор с преферансом и куртизанками" },
+      params: { value: "А мы сделаем свой нодовый редактор с преферансом и куртизанками" },
       ui: { x: 80, y: 160 }
     },
     {
@@ -1471,7 +1471,6 @@ function App() {
         onDrop={handleCanvasDrop}
       >
         <div className="topbar">
-          <button onClick={validate}><FileJson size={16} /> Validate</button>
           <button className="primary" onClick={() => void run()}><Play size={16} /> Run</button>
           <button className="danger" onClick={deleteSelection} disabled={selectedNodeCount === 0 && selectedEdgeCount === 0 && !selectedId}><Trash2 size={16} /> Delete</button>
           <div className={`apiStatus ${apiConnected ? "connected" : "disconnected"}`} title={apiError || `API: ${apiBase}`}>
