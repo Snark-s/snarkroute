@@ -5,6 +5,18 @@ import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const LOCAL_FILE_DATA_URI_LIMIT_BYTES = 10 * 1024 * 1024;
 export const NANO_BANANA_2_DEFAULT_MODEL = "gemini-3.1-flash-image-preview";
+export const GEMINI_LLM_DEFAULT_MODEL = "gemini-2.5-flash-lite";
+export const GEMINI_LLM_DEFAULT_SYSTEM_PROMPT = `Convert the user's rough idea into a clean image-generation prompt.
+Preserve the humor and core idea.
+Make risky wording safe and non-erotic.
+Do not include copyrighted characters, logos, or text.
+Output only the final image prompt.`;
+const GEMINI_LLM_PRICING_USD_PER_MILLION_TOKENS: Record<string, { input: number; output: number; label: string }> = {
+  "gemini-2.5-flash": { input: 0.3, output: 2.5, label: "Gemini 2.5 Flash" },
+  "gemini-2.5-flash-preview-09-2025": { input: 0.3, output: 2.5, label: "Gemini 2.5 Flash Preview" },
+  "gemini-2.5-flash-lite": { input: 0.1, output: 0.4, label: "Gemini 2.5 Flash-Lite" },
+  "gemini-2.5-flash-lite-preview-09-2025": { input: 0.1, output: 0.4, label: "Gemini 2.5 Flash-Lite Preview" }
+};
 const MISSING_TOKEN_MESSAGE = "GEMINI_API_KEY is not configured.\nOpen Settings \u2192 Secrets \u2192 Gemini and paste your token.";
 
 export interface GeminiClientOptions {
@@ -78,6 +90,21 @@ export function createGeminiClient(options: GeminiClientOptions = {}) {
         image: firstInlineImage(output),
         text: firstText(output)
       };
+    },
+    async generateText(model: string, prompt: string, systemPrompt?: string): Promise<GeminiGenerateResult> {
+      const output = await request(`/models/${encodeURIComponent(model)}:generateContent`, {
+        method: "POST",
+        body: JSON.stringify({
+          systemInstruction: stringParam(systemPrompt) ? { parts: [{ text: String(systemPrompt) }] } : undefined,
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: { responseModalities: ["TEXT"] }
+        })
+      });
+      return {
+        model,
+        output,
+        text: firstText(output)
+      };
     }
   };
 }
@@ -85,7 +112,7 @@ export function createGeminiClient(options: GeminiClientOptions = {}) {
 export function createNanoBanana2NodeRunner(options: GeminiClientOptions = {}): NodeRunner {
   const client = createGeminiClient(options);
   return async ({ node, params, inputs, context }) => {
-    const model = String(params.model ?? NANO_BANANA_2_DEFAULT_MODEL);
+    const model = NANO_BANANA_2_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "Create a polished image.");
     const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
     if (images.length > 14) throw new Error(`gemini.nano-banana-2 accepts at most 14 input images, got ${images.length}.`);
@@ -117,6 +144,41 @@ export function createNanoBanana2NodeRunner(options: GeminiClientOptions = {}): 
         status: "succeeded"
       },
       logs: [`Downloaded Nano Banana 2 output to ${imageAsset.localPath}`],
+      provenance: { provider: "gemini", model },
+      providerUsage: {
+        provider: "gemini",
+        model,
+        nodeId: node.id,
+        nodeType: node.type,
+        status: "succeeded",
+        estimatedCost: null,
+        actualCost: null,
+        pricingHint: "external-provider-billing"
+      } satisfies ProviderUsageEvent
+    };
+  };
+}
+
+export function createGeminiLlmNodeRunner(options: GeminiClientOptions = {}): NodeRunner {
+  const client = createGeminiClient(options);
+  return async ({ node, params, inputs }) => {
+    const model = stringParam(params.model) ?? GEMINI_LLM_DEFAULT_MODEL;
+    const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
+    const systemPrompt = firstInputText(inputs.systemPrompt) ?? String(params.systemPrompt ?? GEMINI_LLM_DEFAULT_SYSTEM_PROMPT);
+    const result = await client.generateText(model, prompt, systemPrompt);
+    const text = result.text?.trim();
+    if (!text) {
+      throw new Error(`Gemini LLM (${model}) did not return text.`);
+    }
+    return {
+      output: {
+        text,
+        output: result.output,
+        model,
+        cost: estimateGeminiLlmCost(model, result.output),
+        status: "succeeded"
+      },
+      logs: [`Generated Gemini text with ${model}`],
       provenance: { provider: "gemini", model },
       providerUsage: {
         provider: "gemini",
@@ -295,6 +357,37 @@ export function estimateGeminiImageCost(imageSize: unknown): Record<string, unkn
     source: "Gemini image generation public pricing hint",
     note: "Estimated provider cost for this image; final billing may differ."
   };
+}
+
+export function estimateGeminiLlmCost(model: string, output: unknown): Record<string, unknown> {
+  const pricing = GEMINI_LLM_PRICING_USD_PER_MILLION_TOKENS[model];
+  const usage = output && typeof output === "object" ? (output as Record<string, unknown>).usageMetadata : undefined;
+  const usageRecord = usage && typeof usage === "object" ? (usage as Record<string, unknown>) : {};
+  const inputTokens = numberValue(usageRecord.promptTokenCount);
+  const outputTokens = numberValue(usageRecord.candidatesTokenCount);
+  const amountUsd =
+    pricing && inputTokens !== null && outputTokens !== null
+      ? (inputTokens * pricing.input + outputTokens * pricing.output) / 1_000_000
+      : null;
+
+  return {
+    estimated: true,
+    currency: "USD",
+    amountUsd: amountUsd === null ? null : Number(amountUsd.toFixed(8)),
+    model,
+    modelLabel: pricing?.label ?? model,
+    inputTokens,
+    outputTokens,
+    inputUsdPerMillionTokens: pricing?.input ?? null,
+    outputUsdPerMillionTokens: pricing?.output ?? null,
+    source: "Gemini Developer API pricing",
+    note: "Estimated provider cost for text generation; free tier, taxes, billing account settings, and provider changes may differ."
+  };
+}
+
+function numberValue(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function sanitizeFilename(filename: string): string {

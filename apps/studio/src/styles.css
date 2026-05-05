@@ -168,7 +168,8 @@ h2 {
 .libraryItem {
   align-items: center;
   display: grid;
-  grid-template-columns: 16px 1fr;
+  grid-template-columns: 24px 1fr;
+  gap: 8px;
   justify-items: start;
   margin-bottom: 4px;
   min-height: 42px;
@@ -177,11 +178,23 @@ h2 {
   width: 100%;
 }
 
+.libraryItem strong {
+  color: #edf2ff;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
 .libraryItem span {
   color: #99a3b4;
   font-size: 10px;
   grid-column: 2;
   line-height: 1.15;
+}
+
+.libraryItem .libraryNodeIcon {
+  grid-column: 1;
+  grid-row: 1 / span 2;
 }
 
 .librarySections {
@@ -356,14 +369,42 @@ h2 {
 .nodeStatus.pending {
   background: #586274;
   border-color: #9aa5b8;
+  box-shadow: 0 0 0 3px rgba(154, 165, 184, 0.16);
+}
+
+.nodeStatus.pending::after {
+  animation: pendingStatusPulse 1.35s ease-out infinite;
+  border: 2px solid rgba(154, 165, 184, 0.78);
+  border-radius: 999px;
+  content: "";
+  inset: -5px;
+  position: absolute;
+}
+
+@keyframes pendingStatusPulse {
+  0% {
+    opacity: 0.9;
+    transform: scale(0.78);
+  }
+
+  70% {
+    opacity: 0.12;
+    transform: scale(1.7);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.95);
+  }
 }
 
 .nodeRunActions {
   display: flex;
+  flex-direction: column;
   gap: 5px;
-  left: 9px;
+  left: 12px;
   position: absolute;
-  top: 9px;
+  top: 12px;
 }
 
 .nodeRunButton {
@@ -428,6 +469,81 @@ h2 {
   width: 46px;
 }
 
+.nodeHeader {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  margin: 0 auto 16px;
+  min-height: 28px;
+  max-width: 210px;
+  text-align: left;
+}
+
+.routeNodeCard:has(.nodeRunActions) .nodeHeader {
+  justify-content: flex-start;
+  margin: 0 28px 16px 54px;
+  max-width: none;
+}
+
+.nodeHeader > div {
+  min-width: 0;
+}
+
+.nodeIcon,
+.libraryNodeIcon {
+  align-items: center;
+  border: 1px solid #4d5b70;
+  border-radius: 6px;
+  color: #dce8ff;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 24px;
+  justify-content: center;
+  width: 24px;
+}
+
+.nodeIcon.input,
+.libraryNodeIcon.input {
+  color: #7dd3c0;
+}
+
+.nodeIcon.output,
+.libraryNodeIcon.output {
+  color: #b5f3c7;
+}
+
+.nodeIcon.replicate,
+.libraryNodeIcon.replicate {
+  color: #9fc4ff;
+}
+
+.nodeIcon.gemini,
+.libraryNodeIcon.gemini {
+  color: #f6d365;
+}
+
+.nodeIcon.preview,
+.libraryNodeIcon.preview {
+  color: #c8d8ff;
+}
+
+.nodeIcon.debug,
+.libraryNodeIcon.debug {
+  color: #ff9fb0;
+}
+
+.nodeIcon.transform,
+.libraryNodeIcon.transform {
+  color: #d8b4fe;
+}
+
+.providerGlyph {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .nodeTitle {
   color: #ffffff;
   font-size: 13px;
@@ -439,7 +555,15 @@ h2 {
   color: #d8e4ff;
   font-size: 12px;
   line-height: 1.35;
-  margin-top: 3px;
+  margin-top: 2px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routeNodeCard:has(.nodeRunActions) .nodeType {
+  max-width: 130px;
 }
 
 .nodeField {
@@ -567,6 +691,19 @@ h2 {
 .nodeTokenStatus small {
   color: #c7cfda;
   font-size: 11px;
+}
+
+.nodeTokenLink,
+.settingsLink {
+  color: #8ec5ff;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.nodeTokenLink:hover,
+.settingsLink:hover {
+  color: #b9dcff;
+  text-decoration: underline;
 }
 
 .nodeImagePreview {

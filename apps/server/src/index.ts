@@ -6,7 +6,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { basename, join } from "node:path";
 import { createExecutor } from "@snarkroute/executor";
-import { createNanoBanana2NodeRunner } from "@snarkroute/gemini";
+import { createGeminiLlmNodeRunner, createNanoBanana2NodeRunner } from "@snarkroute/gemini";
 import { builtInNodeDefinitions, getLocalAssetMetadata, registerBuiltInNodeRunners, type LocalAssetKind } from "@snarkroute/nodes";
 import { parseRoute, validateRoute } from "@snarkroute/protocol";
 import { createClarityUpscalerNodeRunner, createReplicateClient, createReplicateNodeRunner } from "@snarkroute/replicate";
@@ -58,6 +58,7 @@ export function buildServer() {
       ...builtInNodeDefinitions,
       { type: "replicate.model", title: "Replicate Model", description: "Runs a Replicate model prediction.", enabled: isReplicateEnabled() },
       { type: "replicate.clarity-upscaler", title: "Clarity Upscaler", description: "Runs Replicate philz1337x/clarity-upscaler.", enabled: isReplicateEnabled() },
+      { type: "gemini.llm", title: "Gemini LLM", description: "Runs Gemini text generation.", enabled: isGeminiEnabled() },
       { type: "gemini.nano-banana-2", title: "Nano Banana 2", description: "Runs Gemini image generation/editing.", enabled: isGeminiEnabled() }
     ]
   }));
@@ -132,6 +133,7 @@ export function buildServer() {
       });
       executor.registerNodeRunner("replicate.model", createReplicateNodeRunner());
       executor.registerNodeRunner("replicate.clarity-upscaler", createClarityUpscalerNodeRunner());
+      executor.registerNodeRunner("gemini.llm", createGeminiLlmNodeRunner());
       executor.registerNodeRunner("gemini.nano-banana-2", createNanoBanana2NodeRunner());
       const runId = `run_${Date.now()}`;
       const outputDirectory = await storage.createRunDirectory(runId);

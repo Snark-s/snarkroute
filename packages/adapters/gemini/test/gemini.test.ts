@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildNanoBanana2Parts, createGeminiClient, createNanoBanana2NodeRunner, prepareImageInlineData } from "../src/index";
+import { buildNanoBanana2Parts, createGeminiClient, createGeminiLlmNodeRunner, createNanoBanana2NodeRunner, prepareImageInlineData } from "../src/index";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return {
@@ -50,6 +50,7 @@ describe("Gemini adapter", () => {
   it("Nano Banana 2 runner writes returned inline image locally", async () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(
       jsonResponse({
+        usageMetadata: { promptTokenCount: 20, candidatesTokenCount: 12 },
         candidates: [
           {
             content: {
@@ -100,6 +101,67 @@ describe("Gemini adapter", () => {
 
     const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
     expect(body.generationConfig.imageConfig).toEqual({ aspectRatio: "16:9", imageSize: "4K" });
+  });
+
+  it("Gemini LLM runner sends system prompt and returns text", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: "A clean funny image prompt." }]
+            }
+          }
+        ]
+      })
+    );
+    const runner = createGeminiLlmNodeRunner({ token: "token", fetchImpl });
+    const result = await runner({
+      node: { id: "llm", type: "gemini.llm", params: {} },
+      params: { systemPrompt: "Rewrite safely.", prompt: "rough joke", model: "gemini-test" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: "", nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(result.output).toMatchObject({ text: "A clean funny image prompt.", model: "gemini-test", status: "succeeded", cost: { amountUsd: null } });
+    expect(result.providerUsage).toMatchObject({ provider: "gemini", model: "gemini-test", status: "succeeded" });
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(body.systemInstruction.parts[0].text).toBe("Rewrite safely.");
+    expect(body.contents[0].parts[0].text).toBe("rough joke");
+    expect(body.generationConfig.responseModalities).toEqual(["TEXT"]);
+    expect(JSON.stringify(result.providerUsage)).not.toContain("token");
+  });
+
+  it("Gemini LLM runner estimates known model cost from usage metadata", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        usageMetadata: { promptTokenCount: 1000, candidatesTokenCount: 2000 },
+        candidates: [
+          {
+            content: {
+              parts: [{ text: "A cheaper clean prompt." }]
+            }
+          }
+        ]
+      })
+    );
+    const runner = createGeminiLlmNodeRunner({ token: "token", fetchImpl });
+    const result = await runner({
+      node: { id: "llm", type: "gemini.llm", params: {} },
+      params: { prompt: "rough joke", model: "gemini-2.5-flash-lite" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: "", nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(result.output).toMatchObject({
+      cost: {
+        amountUsd: 0.0009,
+        inputTokens: 1000,
+        outputTokens: 2000,
+        inputUsdPerMillionTokens: 0.1,
+        outputUsdPerMillionTokens: 0.4
+      }
+    });
   });
 
   it("Nano Banana 2 runner reports provider text when no image is returned", async () => {

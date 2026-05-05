@@ -17,7 +17,7 @@ import {
   type ReactFlowInstance
 } from "@xyflow/react";
 import { exportRouteToText, loadRouteFromText, normalizeRouteExportFilename, type OpenRoute } from "@snarkroute/protocol";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, FileJson, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Trash2, Upload, Wand2, X } from "lucide-react";
+import { Braces, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, FileJson, FileText, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
@@ -66,10 +66,21 @@ type AssetKind = "file" | "image" | "video";
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 const NODE_DRAG_MIME = "application/x-snarkroute-node";
 const ROUTE_FILE_ACCEPT = ".orp,.orp.json,.orp.yaml,.orp.yml,.route,.route.json,.route.yaml,.route.yml,.json,.yaml,.yml,application/json,application/yaml,text/yaml,text/x-yaml";
+const GEMINI_API_KEY_URL = "https://aistudio.google.com/app/apikey";
+const GEMINI_LLM_DEFAULT_SYSTEM_PROMPT = `Convert the user's rough idea into a clean image-generation prompt.
+Preserve the humor and core idea.
+Make risky wording safe and non-erotic.
+Do not include copyrighted characters, logos, or text.
+Output only the final image prompt.`;
+const GEMINI_LLM_MODEL_OPTIONS = [
+  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4 },
+  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5 },
+  { value: "gemini-2.5-flash-preview-09-2025", label: "Gemini 2.5 Flash Preview", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5 },
+  { value: "gemini-2.5-flash-lite-preview-09-2025", label: "Gemini 2.5 Flash-Lite Preview", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4 }
+];
 
 const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
-  { type: "input.file", label: "Input File", params: { path: "" } },
   { type: "input.image", label: "Input Image", params: { path: "" } },
   { type: "input.video", label: "Input Video", params: { path: "" } },
   {
@@ -98,25 +109,30 @@ const library = [
     type: "gemini.nano-banana-2",
     label: "Nano Banana 2",
     params: {
-      model: "gemini-3.1-flash-image-preview",
       prompt: "Transform this into a polished, high-detail image.",
       aspectRatio: "1:1",
       imageSize: "2K"
     }
   },
+  {
+    type: "gemini.llm",
+    label: "Gemini LLM",
+    params: {
+      systemPrompt: GEMINI_LLM_DEFAULT_SYSTEM_PROMPT,
+      prompt: "",
+      model: "gemini-2.5-flash-lite"
+    }
+  },
   { type: "preview.image", label: "Image Preview", params: { title: "Preview" } },
-  { type: "transform.template", label: "Template Transform", params: { template: "{{input_prompt.output.text}}" } },
-  { type: "replicate.model", label: "Replicate Model", params: { model: "black-forest-labs/flux-schnell", input: { prompt: "{{input_prompt.output.text}}" } } },
   { type: "debug.log", label: "Debug Log", params: { message: "Debug value", value: "{{input_prompt.output.text}}" } },
   { type: "output.text", label: "Text Output", params: {} },
   { type: "output.file", label: "Save Text File", params: { filename: "output.txt", from: "{{output_text.output.text}}" } }
 ];
 
 const librarySections = [
-  { id: "inputs", title: "Input", types: ["input.text", "input.file", "input.image", "input.video"] },
+  { id: "inputs", title: "Input", types: ["input.text", "input.image", "input.video"] },
   { id: "image", title: "Image Processing", types: ["replicate.clarity-upscaler", "gemini.nano-banana-2", "preview.image"] },
-  { id: "models", title: "Models / Providers", types: ["replicate.model"] },
-  { id: "transforms", title: "Transforms", types: ["transform.template"] },
+  { id: "text", title: "Text Generation", types: ["gemini.llm"] },
   { id: "outputs", title: "Output", types: ["output.text", "output.file"] },
   { id: "debug", title: "Debug", types: ["debug.log"] }
 ];
@@ -132,42 +148,52 @@ const blankRoute: RouteDoc = {
 
 const exampleRoute: RouteDoc = {
   routeVersion: "0.1",
-  route: { id: "clarity-upscale-basic", title: "Clarity Upscale Basic", author: { name: "SnarkRoute" }, tags: ["replicate", "image", "upscale"] },
+  route: { id: "gemini-prompt-to-image", title: "Gemini Prompt to Image", author: { name: "SnarkRoute" }, tags: ["gemini", "llm", "image"] },
   economics: {
     enabled: false,
     mode: "disabled",
     currency: "USD",
-    providerCosts: [{ provider: "replicate", model: "philz1337x/clarity-upscaler", nodeType: "replicate.clarity-upscaler", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null }],
+    providerCosts: [
+      { provider: "gemini", model: "gemini-2.5-flash-lite", nodeType: "gemini.llm", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null },
+      { provider: "gemini", model: "gemini-3.1-flash-image-preview", nodeType: "gemini.nano-banana-2", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null }
+    ],
     notes: "Economics metadata is preserved. No payment execution in v0.1."
   },
   nodes: [
-    { id: "input_image", type: "input.image", title: "Input Image", params: { path: "" }, ui: { x: 80, y: 80 } },
     {
-      id: "upscale",
-      type: "replicate.clarity-upscaler",
-      title: "Clarity Upscaler",
+      id: "input_prompt",
+      type: "input.text",
+      title: "Text Input",
+      params: { value: "А мы сделаем свой нодевый редактор с преферансом и куртизанками" },
+      ui: { x: 80, y: 160 }
+    },
+    {
+      id: "gemini_llm",
+      type: "gemini.llm",
+      title: "Gemini LLM",
       params: {
-        prompt: "masterpiece, best quality, highres",
-        negative_prompt: "(worst quality, low quality, normal quality:2)",
-        scale_factor: 2,
-        dynamic: 6,
-        creativity: "0,25",
-        resemblance: "1,5",
-        tiling_width: 112,
-        tiling_height: 144,
-        scheduler: "DPM++ 3M SDE Karras",
-        num_inference_steps: 18,
-        seed: 1337,
-        downscaling: false,
-        downscaling_resolution: 768,
-        lora_links: "",
-        pollingIntervalMs: 1000,
-        timeoutMs: 120000
+        systemPrompt: GEMINI_LLM_DEFAULT_SYSTEM_PROMPT,
+        prompt: "",
+        model: "gemini-2.5-flash-lite"
       },
-      ui: { x: 470, y: 80 }
+      ui: { x: 440, y: 80 }
+    },
+    {
+      id: "gemini_nano-banana-2",
+      type: "gemini.nano-banana-2",
+      title: "Nano Banana 2",
+      params: {
+        prompt: "Transform this into a polished, high-detail image.",
+        aspectRatio: "16:9",
+        imageSize: "1K"
+      },
+      ui: { x: 820, y: 80 }
     }
   ],
-  edges: [{ from: "input_image", to: "upscale", fromPort: "image", toPort: "image" }],
+  edges: [
+    { from: "input_prompt", to: "gemini_llm", fromPort: "text", toPort: "prompt" },
+    { from: "gemini_llm", to: "gemini_nano-banana-2", fromPort: "text", toPort: "prompt" }
+  ],
   provenance: { tool: "snarkroute-studio" }
 };
 
@@ -240,8 +266,13 @@ function RouteNodeCard({ id, data }: NodeProps) {
           />
         </React.Fragment>
       ))}
-      <div className="nodeTitle">{title}</div>
-      <div className="nodeType">{type}</div>
+      <div className="nodeHeader">
+        <span className={`nodeIcon ${nodeIconClass(type)}`}>{nodeIcon(type)}</span>
+        <div>
+          <div className="nodeTitle">{title}</div>
+          <div className="nodeType" title={type}>{type}</div>
+        </div>
+      </div>
       {isReplicateNode(type) ? (
         <div className={`nodeTokenStatus ${replicateConfigured ? "configured" : "missing"}`}>
           <span>{replicateTokenStatusText(replicateConfigured)}</span>
@@ -262,6 +293,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
               <strong>Requires Gemini API key</strong>
               <button className="nodeSmallButton nodrag nopan" onClick={onConfigureGemini}>Configure Gemini</button>
               <small>Open Settings \u2192 Secrets \u2192 Gemini</small>
+              <a className="nodeTokenLink nodrag nopan" href={GEMINI_API_KEY_URL} target="_blank" rel="noreferrer">Get Gemini API key</a>
             </>
           ) : null}
         </div>
@@ -411,10 +443,6 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
-          <input className="nodrag nopan nodeInput" value={String(params.model ?? "gemini-3.1-flash-image-preview")} onChange={(event) => onChange({ model: event.target.value })} />
-        </label>
-        <label className="nodeField">
           <span>prompt</span>
           <textarea
             className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
@@ -450,6 +478,50 @@ function NodeInlineParams({
             </select>
           </label>
         </div>
+      </>
+    );
+  }
+
+  if (type === "gemini.llm") {
+    const systemPromptConnected = connectedInputPorts.has("systemPrompt");
+    const promptConnected = connectedInputPorts.has("prompt");
+    return (
+      <>
+        <label className="nodeField">
+          <span>system prompt</span>
+          <textarea
+            className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`}
+            value={String(params.systemPrompt ?? GEMINI_LLM_DEFAULT_SYSTEM_PROMPT)}
+            disabled={systemPromptConnected}
+            onChange={(event) => onChange({ systemPrompt: event.target.value })}
+          />
+          {systemPromptConnected ? <small className="nodeConnectedHint">System prompt comes from connected text input.</small> : null}
+        </label>
+        <label className="nodeField">
+          <span>prompt</span>
+          <textarea
+            className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
+            value={String(params.prompt ?? "")}
+            disabled={promptConnected}
+            onChange={(event) => onChange({ prompt: event.target.value })}
+          />
+          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
+        </label>
+        <label className="nodeField">
+          <span>model</span>
+          <select
+            className="nodrag nopan nodeInput nodeSelect"
+            value={String(params.model ?? "gemini-2.5-flash-lite")}
+            onChange={(event) => onChange({ model: event.target.value })}
+          >
+            {GEMINI_LLM_MODEL_OPTIONS.map((model) => (
+              <option key={model.value} value={model.value}>
+                {model.label}
+              </option>
+            ))}
+          </select>
+          <small className="nodeConnectedHint">{geminiLlmPricingLabel(String(params.model ?? "gemini-2.5-flash-lite"))}</small>
+        </label>
       </>
     );
   }
@@ -598,6 +670,18 @@ function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] }
       ]
     };
   }
+  if (type === "gemini.llm") {
+    return {
+      inputs: [
+        { id: "systemPrompt", kind: "text", label: "system" },
+        { id: "prompt", kind: "text" }
+      ],
+      outputs: [
+        { id: "text", kind: "text" },
+        { id: "output", kind: "json", label: "JSON" }
+      ]
+    };
+  }
   if (type === "preview.image") return { inputs: [{ id: "image", kind: "image" }], outputs: [{ id: "image", kind: "image" }] };
   if (type === "replicate.model") return { inputs: [{ id: "input", kind: "json", label: "JSON" }], outputs: [{ id: "output", kind: "json", label: "JSON" }] };
   if (type === "output.text") return { inputs: [{ id: "from", kind: "text" }], outputs: [{ id: "text", kind: "text" }] };
@@ -650,7 +734,7 @@ function isReplicateNode(type: string): boolean {
 }
 
 function isGeminiNode(type: string): boolean {
-  return type === "gemini.nano-banana-2";
+  return type === "gemini.nano-banana-2" || type === "gemini.llm";
 }
 
 function shouldShowInlineResult(type: string): boolean {
@@ -659,6 +743,33 @@ function shouldShowInlineResult(type: string): boolean {
 
 function shouldShowNodeRunButton(type: string): boolean {
   return !type.startsWith("input.");
+}
+
+function nodeIcon(type: string) {
+  if (type === "input.text") return <Type size={15} />;
+  if (type === "input.image") return <ImageIcon size={15} />;
+  if (type === "input.video") return <Video size={15} />;
+  if (type === "transform.template") return <Braces size={15} />;
+  if (type === "replicate.clarity-upscaler") return <Wand2 size={15} />;
+  if (type === "replicate.model") return <span className="providerGlyph">R</span>;
+  if (type === "gemini.llm") return <Type size={15} />;
+  if (type === "gemini.nano-banana-2") return <Sparkles size={15} />;
+  if (type === "preview.image") return <Eye size={15} />;
+  if (type === "debug.log") return <Bug size={15} />;
+  if (type === "output.text") return <FileText size={15} />;
+  if (type === "output.file") return <Save size={15} />;
+  return <FileJson size={15} />;
+}
+
+function nodeIconClass(type: string): string {
+  if (type.startsWith("input.")) return "input";
+  if (type.startsWith("output.")) return "output";
+  if (type.startsWith("replicate.")) return "replicate";
+  if (type.startsWith("gemini.")) return "gemini";
+  if (type.startsWith("preview.")) return "preview";
+  if (type.startsWith("debug.")) return "debug";
+  if (type.startsWith("transform.")) return "transform";
+  return "generic";
 }
 
 function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDoc {
@@ -951,11 +1062,13 @@ function App() {
           event.dataTransfer.setData(NODE_DRAG_MIME, item.type);
           event.dataTransfer.effectAllowed = "copy";
         }}
-      >
-        <Plus size={13} />{item.label}<span>{item.type}</span>
-      </button>
-    );
-  }
+        >
+          <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
+          <strong>{item.label}</strong>
+          <span>{item.type}</span>
+        </button>
+      );
+    }
 
   function handleNodesChange(changes: NodeChange[]) {
     onNodesChange(changes);
@@ -1207,7 +1320,7 @@ function App() {
     setEdges(flow.edges);
     setRunResult(null);
     setOutputs(null);
-    setLogs((current) => ["Loaded Clarity example.", ...current]);
+    setLogs((current) => ["Loaded Gemini prompt-to-image example.", ...current]);
   }
 
   return (
@@ -1349,6 +1462,11 @@ function App() {
             <KeyRound size={14} />
             {geminiTokenStatusText(geminiConfigured)}
           </div>
+          {!geminiConfigured ? (
+            <a className="settingsLink" href={GEMINI_API_KEY_URL} target="_blank" rel="noreferrer">
+              Get Gemini API key in Google AI Studio
+            </a>
+          ) : null}
           <label className="settingsField">
             <span>GEMINI_API_KEY</span>
             <input
@@ -1539,6 +1657,11 @@ function outputText(value: unknown): string | null {
   return typeof text === "string" ? text : null;
 }
 
+function geminiLlmPricingLabel(modelValue: string): string {
+  const model = GEMINI_LLM_MODEL_OPTIONS.find((entry) => entry.value === modelValue) ?? GEMINI_LLM_MODEL_OPTIONS[0];
+  return `Paid tier: input $${model.inputUsdPerMillionTokens.toFixed(2)} / output $${model.outputUsdPerMillionTokens.toFixed(2)} per 1M tokens.`;
+}
+
 function downloadFilename(value: unknown): string {
   const label = imageLabel(value).split(/[\\/]/).pop() ?? "snarkroute-image.png";
   return label || "snarkroute-image.png";
@@ -1568,7 +1691,7 @@ function costLabel(value: unknown): string | null {
   const estimatedUsdFromCost = Number(record?.estimatedUsd ?? record?.amountUsd);
   const estimatedUsd = Number.isFinite(estimatedUsdFromCost) ? estimatedUsdFromCost : Number.isFinite(seconds) ? seconds * 0.0014 : NaN;
   if (!Number.isFinite(estimatedUsd)) return null;
-  const parts = [`Estimated cost for this image: $${estimatedUsd.toFixed(4)}`];
+  const parts = [`Estimated provider cost: $${estimatedUsd.toFixed(4)}`];
   if (Number.isFinite(seconds)) parts.push(`${seconds.toFixed(2)}s`);
   return parts.join(" · ");
 }
