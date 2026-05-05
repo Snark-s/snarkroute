@@ -161,6 +161,21 @@ export function createExecutor(): RouteExecutor {
         validateTemplateDependencies(route);
 
         for (const node of topologicalSort(route)) {
+          if (Object.prototype.hasOwnProperty.call(options.initialNodeOutputs ?? {}, node.id)) {
+            const now = new Date().toISOString();
+            nodeResults[node.id] = {
+              nodeId: node.id,
+              type: node.type,
+              status: "succeeded",
+              output: nodeOutputs[node.id],
+              logs: ["Using existing output"],
+              startedAt: now,
+              completedAt: now
+            };
+            log(`Using existing output for ${node.id}`, node.id);
+            continue;
+          }
+
           const runner = runners.get(node.type);
           if (!runner) {
             nodeResults[node.id] = {

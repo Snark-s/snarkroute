@@ -188,6 +188,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onRunNodeWithDependencies = data.onRunNodeWithDependencies as ((nodeId: string) => void) | undefined;
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
   const inputConnectionCounts = (data.inputConnectionCounts as Record<string, number> | undefined) ?? {};
+  const canRunNodeOnly = Boolean(data.canRunNodeOnly);
   const ports = getNodePorts(type);
 
   function patchParams(patch: Record<string, unknown>) {
@@ -202,7 +203,8 @@ function RouteNodeCard({ id, data }: NodeProps) {
           <button
             className="nodeRunButton nodrag nopan"
             type="button"
-            title="Run this node only"
+            title={canRunNodeOnly ? "Run this node only" : "Run this node only after all inputs have ready outputs"}
+            disabled={!canRunNodeOnly}
             onClick={(event) => {
               event.stopPropagation();
               onRunNodeOnly?.(id);
@@ -219,7 +221,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
               onRunNodeWithDependencies?.(id);
             }}
           >
-            <ChevronRight size={12} />
+            <span className="nodeRunDoubleArrow">&gt;&gt;</span>
           </button>
         </div>
       ) : null}
@@ -752,6 +754,7 @@ function App() {
           onRunNodeWithDependencies: runNodeWithDependencies,
           connectedInputPorts: edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle).filter((handle): handle is string => Boolean(handle)),
           inputConnectionCounts: countInputConnections(edges, node.id),
+          canRunNodeOnly: canRunNodeOnly(node.id),
           replicateConfigured,
           geminiConfigured,
           result: runResult?.nodeResults?.[node.id]
@@ -1080,6 +1083,15 @@ function App() {
     setLogs((current) => [...runLogs.reverse(), ...current]);
   }
 
+  function canRunNodeOnly(nodeId: string): boolean {
+    const target = nodes.find((node) => node.id === nodeId);
+    if (!target) return false;
+    const targetNode = target.data.routeNode as RouteDoc["nodes"][number];
+    const incomingEdges = edges.filter((edge) => edge.target === nodeId);
+    const connectedInputsReady = incomingEdges.every((edge) => isReadySourceForNodeOnlyRun(edge.source));
+    return connectedInputsReady && hasRequiredNodeOnlyInputs(targetNode, incomingEdges);
+  }
+
   async function runNodeOnly(nodeId: string) {
     const target = nodes.find((node) => node.id === nodeId);
     if (!target) return;
@@ -1091,7 +1103,7 @@ function App() {
     for (const edge of incomingEdges) {
       const previous = runResult?.nodeResults?.[edge.source];
       if (previous?.status !== "succeeded" || previous.output === undefined) {
-        missing.add(edge.source);
+        if (!isImmediateInputSource(edge.source)) missing.add(edge.source);
       } else {
         initialNodeOutputs[edge.source] = previous.output;
       }
@@ -1111,7 +1123,9 @@ function App() {
       return;
     }
 
-    const route = flowToRoute([target], incomingEdges, {
+    const sourceNodeIds = new Set(incomingEdges.map((edge) => edge.source));
+    const routeNodes = nodes.filter((node) => node.id === nodeId || sourceNodeIds.has(node.id));
+    const route = flowToRoute(routeNodes, incomingEdges, {
       ...routeBase,
       route: { ...routeBase.route, id: `${routeBase.route.id}-${nodeId}-only`, title: `${routeBase.route.title}: ${nodeId} only` }
     });
@@ -1141,6 +1155,22 @@ function App() {
     void loadLedgerSummary();
     const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
     setLogs((current) => [...runLogs.reverse(), ...current]);
+  }
+
+  function isReadySourceForNodeOnlyRun(sourceNodeId: string): boolean {
+    const previous = runResult?.nodeResults?.[sourceNodeId];
+    return (previous?.status === "succeeded" && previous.output !== undefined) || isImmediateInputSource(sourceNodeId);
+  }
+
+  function isImmediateInputSource(sourceNodeId: string): boolean {
+    const source = nodes.find((node) => node.id === sourceNodeId);
+    const routeNode = source?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (!routeNode) return false;
+    if (routeNode.type === "input.text") return true;
+    if (routeNode.type === "input.file" || routeNode.type === "input.image" || routeNode.type === "input.video") {
+      return Boolean(String(routeNode.params?.path ?? "").trim());
+    }
+    return false;
   }
 
   function exportRoute() {
@@ -1516,6 +1546,16 @@ function downloadFilename(value: unknown): string {
 
 function filenameFromPath(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+function hasRequiredNodeOnlyInputs(node: RouteDoc["nodes"][number], incomingEdges: Edge[]): boolean {
+  if (node.type === "replicate.clarity-upscaler") {
+    return Boolean(node.params?.image) || incomingEdges.some((edge) => !edge.targetHandle || edge.targetHandle === "image");
+  }
+  if (node.type === "preview.image") {
+    return Boolean(node.params?.image) || incomingEdges.some((edge) => !edge.targetHandle || edge.targetHandle === "image");
+  }
+  return true;
 }
 
 function costLabel(value: unknown): string | null {

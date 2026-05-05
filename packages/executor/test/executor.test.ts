@@ -116,6 +116,30 @@ describe("executor", () => {
     });
   });
 
+  it("uses initial node outputs without rerunning seeded upstream nodes", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("source", () => {
+      throw new Error("seeded source should not run");
+    });
+    executor.registerNodeRunner("consumer", ({ inputs }) => ({ output: { image: inputs.image } }));
+    const result = await executor.executeRoute(
+      route({
+        nodes: [
+          { id: "source", type: "source" },
+          { id: "consume", type: "consumer" }
+        ],
+        edges: [{ from: "source", to: "consume", fromPort: "image", toPort: "image" }]
+      }),
+      {
+        outputDirectory: await mkdtemp(join(tmpdir(), "sr-")),
+        initialNodeOutputs: { source: { image: { path: "ready.png", mimeType: "image/png" } } }
+      }
+    );
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.source.logs).toEqual(["Using existing output"]);
+    expect(result.nodeResults.consume.output).toEqual({ image: { path: "ready.png", mimeType: "image/png" } });
+  });
+
   it("executes according to edge order even when nodes are listed out of order", async () => {
     const executor = createExecutor();
     const seen: string[] = [];

@@ -45,14 +45,20 @@ export function createReplicateClient(options: ReplicateClientOptions = {}) {
   async function request(path: string, init: RequestInit = {}) {
     const token = options.token ?? process.env.REPLICATE_API_TOKEN;
     if (!token?.trim()) throw new Error(MISSING_TOKEN_MESSAGE);
-    const response = await fetcher(`${API_BASE}${path}`, {
-      ...init,
-      headers: {
-        Authorization: `Token ${token.trim()}`,
-        "Content-Type": "application/json",
-        ...(init.headers ?? {})
-      }
-    });
+    let response: Response;
+    try {
+      response = await fetcher(`${API_BASE}${path}`, {
+        ...init,
+        headers: {
+          Authorization: `Token ${token.trim()}`,
+          "Content-Type": "application/json",
+          ...(init.headers ?? {})
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Replicate API is unreachable while ${replicateRequestLabel(path)}: ${message}. Check internet access and Replicate availability.`);
+    }
     if (!response.ok) {
       const body = await response.text();
       throw new Error(`Replicate request failed (${response.status}): ${body}`);
@@ -269,7 +275,13 @@ export async function downloadPredictionImage(
   options: { outputDirectory: string; sourceNodeId: string; predictionId: string; fetchImpl?: typeof fetch }
 ): Promise<DownloadedImageAsset> {
   const fetcher = options.fetchImpl ?? fetch;
-  const response = await fetcher(url);
+  let response: Response;
+  try {
+    response = await fetcher(url);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not download Replicate output image from ${url}: ${message}.`);
+  }
   if (!response.ok) throw new Error(`Could not download Replicate output image (${response.status}).`);
   const arrayBuffer = await response.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
@@ -301,6 +313,13 @@ function parseModel(model: string): [string, string] {
 function asObject(value: unknown): object {
   if (value && typeof value === "object" && !Array.isArray(value)) return value;
   throw new Error("Replicate input must be an object.");
+}
+
+function replicateRequestLabel(path: string): string {
+  if (path.startsWith("/models/")) return "reading model schema";
+  if (path === "/predictions") return "creating prediction";
+  if (path.startsWith("/predictions/")) return "polling prediction";
+  return "calling Replicate";
 }
 
 async function localFileToDataUri(path: string): Promise<string> {
