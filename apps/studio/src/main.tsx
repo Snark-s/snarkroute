@@ -17,7 +17,7 @@ import {
   type ReactFlowInstance
 } from "@xyflow/react";
 import { exportRouteToText, loadRouteFromText, normalizeRouteExportFilename, type OpenRoute } from "@snarkroute/protocol";
-import { Braces, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, FileJson, FileText, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import { Braces, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, FileJson, FileText, FolderOpen, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
@@ -65,7 +65,8 @@ type AssetKind = "file" | "image" | "video";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 const NODE_DRAG_MIME = "application/x-snarkroute-node";
-const ROUTE_FILE_ACCEPT = ".orp,.orp.json,.orp.yaml,.orp.yml,.route,.route.json,.route.yaml,.route.yml,.json,.yaml,.yml,application/json,application/yaml,text/yaml,text/x-yaml";
+const ROUTE_FILE_ACCEPT = ".orp,.opt,.orp.json,.opt.json,.orp.yaml,.opt.yaml,.orp.yml,.opt.yml,.route,.route.json,.route.yaml,.route.yml,.json,.yaml,.yml,application/json,application/yaml,text/yaml,text/x-yaml";
+const SAVED_PROJECT_STORAGE_KEY = "snarkroute-studio:saved-project";
 const GEMINI_API_KEY_URL = "https://aistudio.google.com/app/apikey";
 const GEMINI_LLM_DEFAULT_SYSTEM_PROMPT = `Convert the user's rough idea into a clean image-generation prompt.
 Preserve the humor and core idea.
@@ -729,6 +730,30 @@ function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
   };
 }
 
+function canImportDroppedRouteFile(file: File): boolean {
+  return /\.(orp|opt|route)(\.(json|ya?ml))?$/i.test(file.name) || /\.(json|ya?ml)$/i.test(file.name);
+}
+
+function routeImportFilename(file: File): string {
+  return file.name.replace(/\.opt(?=$|\.)/i, ".orp");
+}
+
+function uniqueFlowId(preferredId: string, usedIds: Set<string>): string {
+  if (!usedIds.has(preferredId)) {
+    usedIds.add(preferredId);
+    return preferredId;
+  }
+
+  let index = 2;
+  let candidate = `${preferredId}_${index}`;
+  while (usedIds.has(candidate)) {
+    index += 1;
+    candidate = `${preferredId}_${index}`;
+  }
+  usedIds.add(candidate);
+  return candidate;
+}
+
 function isReplicateNode(type: string): boolean {
   return type === "replicate.model" || type === "replicate.clarity-upscaler";
 }
@@ -991,6 +1016,42 @@ function App() {
     }
   }
 
+  async function importRouteOntoCanvas(file: File, position: { x: number; y: number }) {
+    const route = loadRouteFromText(await file.text(), routeImportFilename(file)) as RouteDoc;
+    const imported = routeToFlow(route);
+    const usedNodeIds = new Set(nodes.map((node) => node.id));
+    const usedEdgeIds = new Set(edges.map((edge) => edge.id));
+    const nodeIdMap = new Map<string, string>();
+    const minX = Math.min(...imported.nodes.map((node) => node.position.x), position.x);
+    const minY = Math.min(...imported.nodes.map((node) => node.position.y), position.y);
+    const offset = { x: position.x - minX, y: position.y - minY };
+
+    const importedNodes = imported.nodes.map((node) => {
+      const importedId = uniqueFlowId(node.id, usedNodeIds);
+      nodeIdMap.set(node.id, importedId);
+      const routeNode = { ...(node.data.routeNode as RouteDoc["nodes"][number]), id: importedId };
+      return {
+        ...node,
+        id: importedId,
+        position: { x: node.position.x + offset.x, y: node.position.y + offset.y },
+        data: { ...node.data, label: `${routeNode.title ?? routeNode.id}\n${routeNode.type}`, routeNode }
+      };
+    });
+
+    const importedEdges = imported.edges.map((edge, index) => ({
+      ...edge,
+      id: uniqueFlowId(edge.id ?? `${edge.source}-${edge.target}-${index}`, usedEdgeIds),
+      source: nodeIdMap.get(edge.source) ?? edge.source,
+      target: nodeIdMap.get(edge.target) ?? edge.target
+    }));
+
+    setNodes((current) => [...current, ...importedNodes]);
+    setEdges((current) => [...current, ...importedEdges]);
+    setRunResult(null);
+    setOutputs(null);
+    setLogs((current) => [`Imported ${file.name} onto canvas.`, ...current]);
+  }
+
   async function handleCanvasDrop(event: React.DragEvent<HTMLElement>) {
     event.preventDefault();
     event.stopPropagation();
@@ -1002,6 +1063,16 @@ function App() {
 
     const file = event.dataTransfer.files?.[0];
     if (!file) return;
+    if (canImportDroppedRouteFile(file)) {
+      try {
+        await importRouteOntoCanvas(file, flowPositionFromEvent(event));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setLogs((entries) => [`Drop route import error: ${message}`, ...entries]);
+      }
+      return;
+    }
+
     const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
     const type = `input.${kind}`;
     const item = library.find((candidate) => candidate.type === type)!;
@@ -1297,30 +1368,52 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
+  function applyRoute(route: RouteDoc, logMessage: string) {
+    const flow = routeToFlow(route);
+    setRouteBase(route);
+    setNodes(flow.nodes);
+    setEdges(flow.edges);
+    setRunResult(null);
+    setOutputs(null);
+    setLogs((current) => [logMessage, ...current]);
+  }
+
+  function saveProject() {
+    try {
+      const filename = normalizeRouteExportFilename(`${routeBase.route.id || "studio-route"}`);
+      const text = exportRouteToText(flowToRoute(nodes, edges, routeBase) as OpenRoute, filename);
+      localStorage.setItem(SAVED_PROJECT_STORAGE_KEY, text);
+      setLogs((current) => ["Saved current project locally.", ...current]);
+    } catch (error) {
+      setLogs((current) => [`Save failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  function loadSavedProject() {
+    try {
+      const text = localStorage.getItem(SAVED_PROJECT_STORAGE_KEY);
+      if (!text) {
+        setLogs((current) => ["No saved project found.", ...current]);
+        return;
+      }
+      applyRoute(loadRouteFromText(text, "saved-project.orp.json") as RouteDoc, "Loaded saved project.");
+    } catch (error) {
+      setLogs((current) => [`Load failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
   async function importRoute(file: File | null) {
     if (!file) return;
     try {
       const route = loadRouteFromText(await file.text(), file.name) as RouteDoc;
-      const flow = routeToFlow(route);
-      setRouteBase(route);
-      setNodes(flow.nodes);
-      setEdges(flow.edges);
-      setRunResult(null);
-      setOutputs(null);
-      setLogs((current) => [`Imported ${file.name}.`, ...current]);
+      applyRoute(route, `Imported ${file.name}.`);
     } catch (error) {
       setLogs((current) => [`Import failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
     }
   }
 
   function loadExample() {
-    const flow = routeToFlow(exampleRoute);
-    setRouteBase(exampleRoute);
-    setNodes(flow.nodes);
-    setEdges(flow.edges);
-    setRunResult(null);
-    setOutputs(null);
-    setLogs((current) => ["Loaded Gemini prompt-to-image example.", ...current]);
+    applyRoute(exampleRoute, "Loaded Gemini prompt-to-image example.");
   }
 
   return (
@@ -1338,6 +1431,8 @@ function App() {
           <button onClick={loadExample} title="Load example"><Wand2 size={16} /> Example</button>
           <button onClick={exportRoute} title="Export route"><Download size={16} /> Export</button>
           <label className="fileButton" title="Import route"><Upload size={16} /> Import<input type="file" accept={ROUTE_FILE_ACCEPT} onChange={(event) => void importRoute(event.target.files?.[0] ?? null)} /></label>
+          <button onClick={saveProject} title="Save current project"><Save size={16} /> Save</button>
+          <button onClick={loadSavedProject} title="Load saved project"><FolderOpen size={16} /> Load</button>
         </div>
         <h2>Nodes</h2>
         <div className="portLegend">
