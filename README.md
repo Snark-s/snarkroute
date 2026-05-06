@@ -2,7 +2,9 @@
 
 SnarkRoute is a local-first visual editor and executor for Open Route Protocol.
 
-Open Route Protocol is the portable standard for describing AI/model/API routes. SnarkRoute is the reference implementation: a small working MVP that proves route documents can be created, inspected, remixed, validated, and executed locally.
+It allows users to create, inspect, remix, validate, and execute portable AI/model/API routes. Routes describe graphs of operations. Reusable external resources are referenced through AssetRef and resolved by the host through configured AssetSources. This keeps routes portable, auditable, and safer than directly loading arbitrary files or URLs.
+
+Open Route Protocol is a portable route format for describing AI/model/API workflows as graphs. Routes can reference external assets, but only through the AssetRef system. The host application controls how asset references are resolved, validated, cached, embedded, bundled, or blocked.
 
 ## Why This Exists
 
@@ -10,7 +12,7 @@ AI tools are becoming the new creative infrastructure. But most of that infrastr
 
 SnarkRoute starts from a different idea: the workflow itself should be portable.
 
-A route should not belong to a platform. It should be a readable, shareable, inspectable document that can connect models, APIs, local assets, and tools across providers.
+A route should not belong to a platform. It should be a readable, shareable, inspectable document that can connect models, APIs, assets, and tools across providers without directly loading arbitrary external resources from the route itself.
 
 This project is not about hosting one more model, and not about building another central AI platform.
 
@@ -40,13 +42,37 @@ See `docs/demo-script.md` for a short recording plan.
 
 Open Route Protocol uses explicit file extensions for portable route documents. `.orp` is the canonical user-facing extension for complete Open Route Protocol route documents; `.orp.json` and `.orp.yaml` are explicit developer-friendly variants; `.route` remains supported as a human-readable compatibility alias.
 
-Route files contain node instances. Node definition files such as `.node.json` describe reusable node types. A route can contain inputs, transforms, model/API providers, outputs, provenance, and economics metadata without being locked to one platform.
+Route files contain node instances, edges, params, provenance, economics metadata, and AssetRefs. Reusable external resources are assets resolved by the host, not raw files or URLs loaded directly by the route.
+
+Node definition files such as `.node.json` describe reusable node types. Future Node Definition Assets may also describe interfaces and execution adapters through AssetRef, but they must not inject arbitrary executable code into SnarkRoute.
 
 SnarkRoute is not just a Replicate wrapper. Replicate is the first external provider inside routes; the route/workflow is the primary unit of value.
 
 ## Commons Principle
 
 SnarkRoute is designed as a portable route language, not a closed platform. Nodes are free protocol components; paid value belongs to execution, services, APIs, support, route authorship, and final products. See `docs/commons-principle.md`.
+
+## Asset System
+
+SnarkRoute uses a two-level asset architecture:
+
+- Route level: routes contain nodes, edges, params, and AssetRefs. Routes do not directly load files, URLs, JSON, Markdown, node definitions, or executable resources.
+- Asset resolution level: the host application has configured AssetSources. AssetResolver takes an AssetRef and resolves it to a normalized asset, validating schema, kind, version, hash, permissions, and trust rules where applicable.
+
+An AssetRef stored in a route looks like:
+
+```json
+{
+  "uri": "asset://local/text/prompt/image-generation/retro-futuristic-editor-joke",
+  "kind": "text/prompt",
+  "expectedHash": "sha256:...",
+  "version": "1.0.0"
+}
+```
+
+AssetSources can be local folders, embedded route assets, bundles, remote manifests, GitHub repositories, or future provider-specific sources. The route stores the reference; the host decides whether the asset can be resolved, cached, embedded, bundled, or blocked.
+
+See `docs/assets.md`.
 
 ## Current MVP Features
 
@@ -191,7 +217,7 @@ Compatibility YAML examples remain in `examples/routes`.
 
 Example route documents are licensed under CC BY-SA 4.0 unless otherwise stated.
 
-## Local Asset Inputs
+## Local Input Nodes
 
 Studio supports local input nodes:
 
@@ -201,7 +227,60 @@ Studio supports local input nodes:
 
 Add one from the node library, then use `Browse...` or drag a local image onto the canvas. The selected absolute path is stored in `params.path` and exported as part of the route document.
 
-Absolute local paths are an MVP limitation: they work well on the current machine, but reduce portability when sharing routes.
+Absolute local paths are an MVP limitation for direct input nodes: they work well on the current machine, but reduce portability when sharing routes. Reusable resources should move toward AssetRef instead of direct paths.
+
+## Prompt Library Node
+
+`library.prompt` is the first user-facing example of the Asset System. It outputs a saved prompt or text snippet as `{ "text": "..." }`, so other nodes can use it through normal text ports or template references such as `{{prompt1.output.text}}`.
+
+Prompt Library is a Text Asset source. The node stores only `params.assetRef`; it does not store linked or embedded modes.
+
+Prompt files live under `data/prompt-library/`. The backend should discover files matching `data/prompt-library/**/*.prompt.md` on startup and when Studio's `Refresh Prompt Library` button is clicked.
+
+Each `.prompt.md` file uses YAML frontmatter plus a Markdown body:
+
+```markdown
+---
+id: retro-futuristic-editor-joke
+title: Retro-futuristic editor joke
+kind: text/prompt
+category: image-generation
+description: Demo prompt for a playful SnarkRoute easter egg
+tags:
+  - demo
+---
+
+A retro-futuristic easter egg illustration about building our own visual AI editor with blackjack and courtesans, playful but not explicit, cinematic, detailed, humorous.
+```
+
+The `.prompt.md` files are for human editing. Internally, discovered files are normalized into JSON-compatible asset metadata or manifest structures. Prompt files should not need manual registration in code, and one central `prompt-library.json` should not be the human editing surface.
+
+```json
+{
+  "id": "prompt1",
+  "type": "library.prompt",
+  "params": {
+    "assetRef": {
+      "uri": "asset://local/text/prompt/image-generation/retro-futuristic-editor-joke",
+      "kind": "text/prompt"
+    }
+  }
+}
+```
+
+At execution time, `library.prompt` asks AssetResolver to resolve `assetRef`. The resolved asset must be `text/prompt` or a compatible text asset kind. The node does not know whether the prompt came from a local `.prompt.md` file, generated manifest, embedded route asset, exported bundle, remote manifest, or future provider.
+
+See `docs/prompt-library.md`.
+
+## Export Modes
+
+Linked, embedded, and bundle are export modes, not node params.
+
+- Linked export keeps AssetRefs. The importing host must have compatible AssetSources.
+- Embedded export resolves selected assets during export and embeds them into the route document.
+- Bundle export packages the route and assets together, for example `my-route.orp.zip` with `route.json`, `assets.manifest.json`, and asset files.
+
+See `docs/export.md`.
 
 ## Clarity Upscaler Example
 
@@ -245,11 +324,16 @@ Secrets such as API tokens are not stored in economics metadata or ledger entrie
 
 - Do not commit `.env`, local runs, local assets, generated outputs, or private user files.
 - Routes and bundles must not contain secret values.
+- Routes do not directly fetch arbitrary files or URLs.
+- External AssetSources must be explicitly configured by the host.
+- Asset manifests must be schema-validated, and asset kind must match what the node expects.
+- Hash pinning should warn about changed assets and support reproducible routes.
 - SnarkRoute does not execute arbitrary community JavaScript.
-- Future community nodes must be declarative manifests with explicit permissions.
+- Future community nodes and remote Node Definition Assets must be declarative manifests with explicit permissions and execution adapters, not arbitrary downloaded code.
+- Credentials remain host-side and are never embedded into routes.
 - External provider outputs are the user's responsibility and are subject to provider/model/service terms.
 
-See `SECURITY.md` for more detail.
+See `SECURITY.md` and `docs/security.md` for more detail.
 
 ## Current Limitations
 
@@ -260,7 +344,9 @@ See `SECURITY.md` for more detail.
 - No payments
 - No arbitrary community JavaScript execution
 - No complex database
-- Absolute local asset paths reduce route portability
+- Absolute local input paths reduce route portability
+- AssetRef, AssetSource, and AssetResolver are not fully implemented yet
+- Linked, embedded, and bundle export modes are still roadmap items
 - Provider actual costs may be unknown
 
 ## Roadmap
@@ -269,13 +355,15 @@ See `docs/roadmap.md`.
 
 Short version:
 
-- v0.1-alpha: protocol, executor, Studio, Replicate, local assets
-- v0.2: secrets/profiles
-- v0.3: route bundles
-- v0.4: community node manifests
-- v0.5: async task nodes
-- v0.6: route macros
-- v1.0: stable Open Route Protocol
+- Milestone A: stable MVP foundation
+- Milestone B: AssetRef foundation
+- Milestone C: Prompt Library as the first Text Asset source
+- Milestone D: linked, embedded, and bundle export modes
+- Milestone E: cautious remote AssetSources
+- Milestone F: Node Definition Assets
+- Milestone G: provider/API nodes and demo routes
+- Milestone H: Photoshop plugin integration
+- Milestone I: early-user preview
 
 ## Contributing
 

@@ -1,11 +1,134 @@
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createExecutor } from "@snarkroute/executor";
-import { registerBuiltInNodeRunners } from "../src/index";
+import { loadPromptLibrary, parsePromptFile, registerBuiltInNodeRunners, validatePromptLibraryNodes } from "../src/index";
 
 describe("built-in nodes", () => {
+  it("scans data/prompt-library style .prompt.md files", async () => {
+    const libraryPath = await writePromptLibrary();
+    const library = await loadPromptLibrary(libraryPath);
+    expect(library.categories[0].id).toBe("image-generation");
+    expect(library.categories[0].prompts[0]).toMatchObject({ id: "demo", title: "Demo", text: "A reusable image prompt.", ref: "image-generation/demo" });
+  });
+
+  it("parses prompt frontmatter and markdown body", () => {
+    const parsed = parsePromptFile(`---
+id: demo
+title: Demo
+category: image-generation
+description: Demo description
+tags:
+  - demo
+kind: system
+---
+
+A reusable image prompt.
+`);
+    expect("prompt" in parsed ? parsed.prompt : null).toMatchObject({
+      id: "demo",
+      title: "Demo",
+      category: "image-generation",
+      description: "Demo description",
+      tags: ["demo"],
+      kind: "system",
+      text: "A reusable image prompt."
+    });
+  });
+
+  it("library.prompt resolves linked prompt text", async () => {
+    const libraryPath = await writePromptLibrary();
+    const previous = process.env.SNARKROUTE_PROMPT_LIBRARY_PATH;
+    process.env.SNARKROUTE_PROMPT_LIBRARY_PATH = libraryPath;
+    try {
+      const result = await executeRoute({
+        nodes: [{ id: "prompt", type: "library.prompt", params: { category: "image-generation", promptId: "demo", mode: "linked" } }],
+        edges: []
+      });
+      expect(result.status).toBe("succeeded");
+      expect(result.nodeResults.prompt.output).toEqual({ text: "A reusable image prompt." });
+    } finally {
+      restorePromptLibraryPath(previous);
+    }
+  });
+
+  it("library.prompt resolves embedded prompt text", async () => {
+    const result = await executeRoute({
+      nodes: [{ id: "prompt", type: "library.prompt", params: { category: "custom", promptId: "copy", mode: "embedded", embeddedText: "Local embedded text." } }],
+      edges: []
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.prompt.output).toEqual({ text: "Local embedded text." });
+  });
+
+  it("library.prompt fails clearly for a missing linked prompt", async () => {
+    const libraryPath = await writePromptLibrary();
+    const previous = process.env.SNARKROUTE_PROMPT_LIBRARY_PATH;
+    process.env.SNARKROUTE_PROMPT_LIBRARY_PATH = libraryPath;
+    try {
+      const result = await executeRoute({
+        nodes: [{ id: "prompt", type: "library.prompt", params: { category: "image-generation", promptId: "missing", mode: "linked" } }],
+        edges: []
+      });
+      expect(result.status).toBe("failed");
+      expect(result.nodeResults.prompt.error).toContain('Linked prompt "image-generation/missing" was not found');
+    } finally {
+      restorePromptLibraryPath(previous);
+    }
+  });
+
+  it("validates missing linked prompts clearly", async () => {
+    const issues = await validatePromptLibraryNodes(
+      [{ id: "prompt", type: "library.prompt", params: { category: "image-generation", promptId: "missing", mode: "linked" } }],
+      await writePromptLibrary()
+    );
+    expect(issues).toEqual([
+      {
+        path: "nodes.prompt.params",
+        message: 'Linked prompt "image-generation/missing" was not found in the local prompt library.'
+      }
+    ]);
+  });
+
+  it("reports invalid prompt frontmatter without crashing", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sr-prompt-library-data-"));
+    await writeFile(join(directory, "broken.prompt.md"), "---\nid: broken\n---\n\nBody", "utf8");
+    const library = await loadPromptLibrary(directory);
+    expect(library.categories).toEqual([]);
+    expect(library.diagnostics[0].message).toContain("requires string fields");
+  });
+
+  it("handles duplicate prompt refs without crashing", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sr-prompt-library-data-"));
+    await writePromptFile(directory, "one.prompt.md", "image-generation", "demo", "First");
+    await writePromptFile(directory, "two.prompt.md", "image-generation", "demo", "Second");
+    const library = await loadPromptLibrary(directory);
+    expect(library.categories[0].prompts[0].text).toBe("First");
+    expect(library.diagnostics.some((entry) => entry.message.includes("Duplicate prompt ref"))).toBe(true);
+  });
+
+
+  it("library.prompt output text can be referenced by a template node", async () => {
+    const libraryPath = await writePromptLibrary();
+    const previous = process.env.SNARKROUTE_PROMPT_LIBRARY_PATH;
+    process.env.SNARKROUTE_PROMPT_LIBRARY_PATH = libraryPath;
+    try {
+      const result = await executeRoute({
+        nodes: [
+          { id: "prompt", type: "library.prompt", params: { category: "image-generation", promptId: "demo", mode: "linked" } },
+          { id: "template", type: "transform.template", params: { template: "{{prompt.output.text}} Use warm light." } }
+        ],
+        edges: [{ from: "prompt", to: "template" }]
+      });
+      expect(result.status).toBe("succeeded");
+      expect(result.nodeResults.template.output).toEqual({ text: "A reusable image prompt. Use warm light." });
+    } finally {
+      restorePromptLibraryPath(previous);
+    }
+  });
+
   it("output.text displays input without writing a file", async () => {
     const executor = createExecutor();
     registerBuiltInNodeRunners(executor);
@@ -148,6 +271,56 @@ describe("built-in nodes", () => {
     expect(result.status).toBe("failed");
     expect(result.nodeResults.preview.error).toContain("expected an image");
   });
+
+  it("http.request calls JSON endpoints through the runner", async () => {
+    const server = createServer((request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ ok: true, url: request.url }));
+    });
+    const baseUrl = await listen(server);
+    try {
+      const result = await executeRoute({
+        nodes: [{ id: "http", type: "http.request", params: { url: `${baseUrl}/demo`, method: "GET", query: { q: "snark" }, responseMode: "json" } }],
+        edges: []
+      });
+      expect(result.status).toBe("succeeded");
+      expect(result.nodeResults.http.output).toMatchObject({ status: 200, responseJson: { ok: true, url: "/demo?q=snark" } });
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it("local Stable Diffusion txt2img stores returned base64 image", async () => {
+    let requestBody = "";
+    const server = createServer((request, response) => {
+      if (request.url !== "/sdapi/v1/txt2img") {
+        response.statusCode = 404;
+        response.end("missing");
+        return;
+      }
+      request.on("data", (chunk) => {
+        requestBody += chunk;
+      });
+      request.on("end", () => {
+        response.setHeader("Content-Type", "application/json");
+        response.end(JSON.stringify({ images: [tinyPng().toString("base64")], info: JSON.stringify({ seed: 42 }) }));
+      });
+    });
+    const endpoint = await listen(server);
+    try {
+      const result = await executeRoute({
+        nodes: [{ id: "sd", type: "local.stableDiffusion.textToImage", params: { endpoint, model: "demo-model.safetensors", prompt: "test", width: 1, height: 1, steps: 1, cfgScale: 1, batchSize: 1 } }],
+        edges: []
+      });
+      expect(result.status).toBe("succeeded");
+      const output = result.nodeResults.sd.output as { image?: { localPath?: string }; metadata?: { localBackend?: string; seed?: number } };
+      expect(output.metadata).toMatchObject({ localBackend: "stable-diffusion-webui-compatible", seed: 42, model: "demo-model.safetensors" });
+      expect(JSON.parse(requestBody).override_settings).toEqual({ sd_model_checkpoint: "demo-model.safetensors" });
+      expect(await readFile(output.image!.localPath!)).toEqual(tinyPng());
+    } finally {
+      await closeServer(server);
+    }
+  });
 });
 
 async function executeSingleAssetNode(type: string, path: string) {
@@ -166,9 +339,62 @@ async function executeSingleAssetNode(type: string, path: string) {
   );
 }
 
+async function executeRoute(routePart: { nodes: Array<{ id: string; type: string; params?: Record<string, unknown> }>; edges: Array<{ from: string; to: string; fromPort?: string; toPort?: string }> }) {
+  const executor = createExecutor();
+  registerBuiltInNodeRunners(executor);
+  return executor.executeRoute(
+    {
+      routeVersion: "0.1",
+      route: { id: "prompt-library-test", title: "Prompt Library Test", author: {} },
+      economics: { enabled: false },
+      nodes: routePart.nodes,
+      edges: routePart.edges
+    },
+    { outputDirectory: await mkdtemp(join(tmpdir(), "sr-prompt-library-")) }
+  );
+}
+
+async function writePromptLibrary(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "sr-prompt-library-data-"));
+  await writePromptFile(directory, "image-generation/demo.prompt.md", "image-generation", "demo", "A reusable image prompt.");
+  return directory;
+}
+
+async function writePromptFile(directory: string, filename: string, category: string, id: string, body: string): Promise<void> {
+  const path = join(directory, filename);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(
+    path,
+    `---\nid: ${id}\ntitle: ${id === "demo" ? "Demo" : id}\ncategory: ${category}\n---\n\n${body}\n`,
+    "utf8"
+  );
+}
+
+function restorePromptLibraryPath(previous: string | undefined): void {
+  if (previous === undefined) delete process.env.SNARKROUTE_PROMPT_LIBRARY_PATH;
+  else process.env.SNARKROUTE_PROMPT_LIBRARY_PATH = previous;
+}
+
 function tinyPng(): Buffer {
   return Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
     "base64"
   );
+}
+
+function listen(server: ReturnType<typeof createServer>): Promise<string> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address();
+      if (!address || typeof address === "string") reject(new Error("Could not bind test server."));
+      else resolve(`http://127.0.0.1:${address.port}`);
+    });
+  });
+}
+
+function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
 }

@@ -123,6 +123,74 @@ describe("protocol", () => {
     expect(parseRoute(baseRoute).nodes[1].type).toBe("unknown.node");
   });
 
+  it("preserves library.prompt params during route import and export", () => {
+    const route = parseRoute({
+      ...baseRoute,
+      nodes: [
+        {
+          id: "prompt1",
+          type: "library.prompt",
+          params: {
+            category: "image-generation",
+            promptId: "retro-futuristic-editor-joke",
+            mode: "linked"
+          }
+        },
+        {
+          id: "prompt2",
+          type: "library.prompt",
+          params: {
+            category: "custom",
+            promptId: "local-copy",
+            mode: "embedded",
+            embeddedText: "Some local prompt text..."
+          }
+        }
+      ],
+      edges: []
+    });
+    const exported = exportRouteToJson(route);
+    expect(exported).toContain('"type": "library.prompt"');
+    expect(exported).toContain('"embeddedText": "Some local prompt text..."');
+    expect(loadRouteFromText(exported, "prompt-library.orp.json").nodes[0].params?.promptId).toBe("retro-futuristic-editor-joke");
+  });
+
+  it("validates library.prompt required params", () => {
+    const result = validateRoute({
+      ...baseRoute,
+      nodes: [{ id: "prompt1", type: "library.prompt", params: { category: "", mode: "embedded" } }],
+      edges: []
+    });
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((issue) => issue.message.includes("embeddedText"))).toBe(true);
+  });
+
+  it("validates http.request required params and JSON fields", () => {
+    const result = validateRoute({
+      ...baseRoute,
+      nodes: [{ id: "http", type: "http.request", params: { url: "", method: "BREW", headers: "{bad", bodyMode: "rawJson", body: "{bad" } }],
+      edges: []
+    });
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((issue) => issue.path.endsWith(".url"))).toBe(true);
+    expect(result.issues.some((issue) => issue.path.endsWith(".method"))).toBe(true);
+    expect(result.issues.some((issue) => issue.path.endsWith(".headers"))).toBe(true);
+    expect(result.issues.some((issue) => issue.path.endsWith(".body"))).toBe(true);
+  });
+
+  it("validates local Stable Diffusion required and numeric params", () => {
+    const result = validateRoute({
+      ...baseRoute,
+      nodes: [{ id: "sd", type: "local.stableDiffusion.textToImage", params: { endpoint: "", prompt: "", width: 0, height: "bad", steps: 20, cfgScale: 7, batchSize: 1 } }],
+      edges: []
+    });
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((issue) => issue.path.endsWith(".endpoint"))).toBe(true);
+    expect(result.issues.some((issue) => issue.path.endsWith(".prompt"))).toBe(true);
+    expect(result.issues.some((issue) => issue.path.endsWith(".width"))).toBe(true);
+    expect(result.issues.some((issue) => issue.path.endsWith(".height"))).toBe(true);
+  });
+
   it("rejects invalid node reference strings", () => {
     expect(() => parseNodeRef("input_prompt.output.text")).not.toThrow();
     expect(() => parseNodeRef("input_prompt.text")).toThrow(/Invalid node reference/);

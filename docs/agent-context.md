@@ -19,6 +19,25 @@ Look for:
 - example `.route.json`, `.route.yaml`, or related files
 - protocol documentation
 
+## Asset system tasks
+
+Likely areas:
+
+- `docs/assets.md`
+- `docs/prompt-library.md`
+- `docs/export.md`
+- `docs/security.md`
+- protocol and executor packages when implementation begins
+
+Look for:
+
+- AssetRef
+- AssetSource
+- AssetResolver
+- normalized assets
+- Prompt Library as `text/prompt` assets
+- linked, embedded, and bundle export modes
+
 ## Execution tasks
 
 Likely areas:

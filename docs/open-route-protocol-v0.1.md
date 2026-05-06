@@ -1,6 +1,6 @@
 # Open Route Protocol v0.1
 
-Open Route Protocol describes portable route documents for AI/model/API workflows.
+Open Route Protocol is a portable route format for describing AI/model/API workflows as graphs. Routes can reference external assets, but only through the AssetRef system. The host application controls how asset references are resolved, validated, cached, embedded, bundled, or blocked.
 
 Open Route Protocol uses explicit file extensions:
 
@@ -10,7 +10,9 @@ Open Route Protocol uses explicit file extensions:
 - `.route.json`, `.route.yaml`, and `.route.yml` remain supported compatibility aliases.
 - `.node.json` describes reusable node type definitions.
 
-Route files contain node instances. Node definition files describe reusable node types. Do not use `.node.json` for node instances inside a route.
+Route files contain node instances, edges, params, provenance, economics metadata, and AssetRefs. They do not directly load files, URLs, JSON, Markdown, node definitions, or executable resources.
+
+Node definition files describe reusable node types. Do not use `.node.json` for node instances inside a route. Future Node Definition Assets may be referenced through AssetRef, but remote node definitions must describe interfaces and execution adapters, not arbitrary executable code.
 
 For v0.1, `.orp` and `.route` serialize as JSON. `.orp.yaml`, `.orp.yml`, `.route.yaml`, and `.route.yml` serialize as YAML.
 
@@ -93,12 +95,48 @@ template: "Prompt: {{input_prompt.output.text}}"
 
 In the MVP, edges define graph dependencies and execution order. Template references define value binding. If a node references another node in params, there must be an edge from the referenced node to the referencing node. The executor rejects missing referenced nodes, missing dependency edges, and missing output fields with clear errors.
 
+## Asset System
+
+SnarkRoute uses two levels:
+
+- Route level: routes contain nodes, edges, params, and AssetRefs.
+- Asset resolution level: the host application has configured AssetSources. AssetResolver takes an AssetRef and resolves it to a normalized asset.
+
+Routes store references to reusable assets, not raw external files. The resolver validates schema, kind, version, hash, permissions, and trust rules where applicable.
+
+AssetRef example:
+
+```json
+{
+  "uri": "asset://local/text/prompt/image-generation/retro-futuristic-editor-joke",
+  "kind": "text/prompt",
+  "expectedHash": "sha256:...",
+  "version": "1.0.0"
+}
+```
+
+Normalized Text Asset example:
+
+```json
+{
+  "schema": "open-route-asset.v0",
+  "kind": "text/prompt",
+  "id": "retro-futuristic-editor-joke",
+  "title": "Retro-futuristic editor joke",
+  "version": "1.0.0",
+  "content": {
+    "text": "A retro-futuristic easter egg illustration..."
+  }
+}
+```
+
 ## MVP Node Types
 
 - `input.text`: outputs `{ text }`
 - `input.file`: reads a local file path and outputs `{ path, filename, mimeType, sizeBytes }`
 - `input.image`: reads a local image path and outputs `{ path, filename, mimeType, sizeBytes, width, height }`
 - `input.video`: reads a local video path and outputs `{ path, filename, mimeType, sizeBytes, width?, height?, durationSec? }`
+- `library.prompt`: resolves `params.assetRef` to a `text/prompt` or compatible text asset and outputs `{ text }`
 - `preview.image`: passes through image values and lets Studio render a local or remote preview
 - `transform.template`: outputs `{ text }`
 - `debug.log`: logs and outputs `{ value }`
@@ -151,7 +189,7 @@ Rules:
 - `paymentExecuted` is never part of route metadata and is always `false` in v0.1 run accounting.
 - Older MVP fields such as `authorShare` and `modelShares` remain valid for compatibility.
 
-## Local Asset Inputs
+## Local Input Nodes
 
 Local asset input nodes use `params.path`:
 
@@ -165,7 +203,42 @@ nodes:
 
 `input.file` accepts any known local file type. `input.image` currently supports metadata for PNG, JPG, and WebP. `input.video` validates video file types and returns basic file metadata; `width`, `height`, and `durationSec` are optional in the MVP.
 
-Absolute local paths are useful for local-first execution, but they reduce route portability across machines. Future protocol versions may add portable asset IDs or manifests; v0.1 preserves paths exactly as route metadata.
+Absolute local paths are useful for local-first execution, but they reduce route portability across machines. They are an MVP input-node convenience, not the pattern for reusable route resources. Reusable resources should be referenced through AssetRef.
+
+## Prompt Library Route Example
+
+```json
+{
+  "schema": "open-route.v0",
+  "nodes": [
+    {
+      "id": "prompt1",
+      "type": "library.prompt",
+      "params": {
+        "assetRef": {
+          "uri": "asset://local/text/prompt/image-generation/retro-futuristic-editor-joke",
+          "kind": "text/prompt"
+        }
+      }
+    },
+    {
+      "id": "image1",
+      "type": "image.generate",
+      "params": {
+        "prompt": "{{prompt1.output.text}}"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "prompt1",
+      "to": "image1"
+    }
+  ]
+}
+```
+
+`library.prompt` must not contain `mode: linked`, `mode: embedded`, direct file paths, direct URLs, or `embeddedText` as a node mode. Linked, embedded, and bundle are export modes.
 
 ## Clarity Upscaler Node
 

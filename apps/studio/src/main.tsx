@@ -1,4 +1,4 @@
-import "@xyflow/react/dist/style.css";
+﻿import "@xyflow/react/dist/style.css";
 import "./styles.css";
 import {
   Background,
@@ -17,7 +17,7 @@ import {
   type ReactFlowInstance
 } from "@xyflow/react";
 import { exportRouteToText, loadRouteFromText, normalizeRouteExportFilename, type OpenRoute } from "@snarkroute/protocol";
-import { Braces, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Eye, FileJson, FileText, FolderOpen, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import { BookOpen, Braces, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eye, FileJson, FileText, FolderOpen, Globe, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
@@ -63,6 +63,36 @@ type LedgerSummary = {
 
 type AssetKind = "file" | "image" | "video";
 
+type PromptLibraryPrompt = {
+  id: string;
+  title: string;
+  category?: string;
+  description?: string;
+  tags?: string[];
+  kind?: string;
+  ref?: string;
+  path?: string;
+  text: string;
+};
+
+type PromptLibraryCategory = {
+  id: string;
+  title: string;
+  prompts: PromptLibraryPrompt[];
+};
+
+type PromptLibraryData = {
+  categories: PromptLibraryCategory[];
+  diagnostics?: Array<{ path: string; message: string; severity: "warning" | "error" }>;
+};
+
+type StableDiffusionModel = {
+  title: string;
+  modelName?: string;
+  filename?: string;
+  hash?: string;
+};
+
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 const NODE_DRAG_MIME = "application/x-snarkroute-node";
 const ROUTE_FILE_ACCEPT = ".orp,.opt,.orp.json,.opt.json,.orp.yaml,.opt.yaml,.orp.yml,.opt.yml,.route,.route.json,.route.yaml,.route.yml,.json,.yaml,.yml,application/json,application/yaml,text/yaml,text/x-yaml";
@@ -79,11 +109,31 @@ const GEMINI_LLM_MODEL_OPTIONS = [
   { value: "gemini-2.5-flash-preview-09-2025", label: "Gemini 2.5 Flash Preview", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5 },
   { value: "gemini-2.5-flash-lite-preview-09-2025", label: "Gemini 2.5 Flash-Lite Preview", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4 }
 ];
+const DEFAULT_PROMPT_LIBRARY: PromptLibraryData = {
+  categories: [
+    {
+      id: "image-generation",
+      title: "Image generation",
+      prompts: [
+        {
+          id: "adapt-user-idea-for-image-generator",
+          title: "Adapt user idea for image generator",
+          category: "image-generation",
+          description: "Starter fallback prompt shown when the local prompt library API is unavailable.",
+          ref: "image-generation/adapt-user-idea-for-image-generator",
+          path: "data/prompt-library/image-generation/adapt-user-idea-for-image-generator.prompt.md",
+          text: GEMINI_LLM_DEFAULT_SYSTEM_PROMPT
+        }
+      ]
+    }
+  ]
+};
 
 const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
   { type: "input.image", label: "Input Image", params: { path: "" } },
   { type: "input.video", label: "Input Video", params: { path: "" } },
+  { type: "library.prompt", label: "Prompt Library", params: { category: "image-generation", promptId: "image-generation-demo", mode: "linked" } },
   {
     type: "replicate.clarity-upscaler",
     label: "Clarity Upscaler",
@@ -119,9 +169,43 @@ const library = [
     type: "gemini.llm",
     label: "Gemini LLM",
     params: {
-      systemPrompt: GEMINI_LLM_DEFAULT_SYSTEM_PROMPT,
+      systemPrompt: "",
       prompt: "",
       model: "gemini-2.5-flash-lite"
+    }
+  },
+  {
+    type: "local.stableDiffusion.textToImage",
+    label: "Local Stable Diffusion",
+    params: {
+      endpoint: "http://127.0.0.1:7860",
+      model: "",
+      prompt: "A tiny stained glass dragon icon, art nouveau, clean simple composition",
+      negativePrompt: "",
+      width: 512,
+      height: 512,
+      steps: 20,
+      seed: -1,
+      cfgScale: 7,
+      samplerName: "",
+      batchSize: 1,
+      restoreFaces: false,
+      enableHrFix: false,
+      timeoutMs: 180000
+    }
+  },
+  {
+    type: "http.request",
+    label: "HTTP Request",
+    params: {
+      url: "http://127.0.0.1:4317/api/health",
+      method: "GET",
+      headers: {},
+      query: {},
+      bodyMode: "none",
+      body: "{}",
+      responseMode: "json",
+      timeoutMs: 30000
     }
   },
   { type: "preview.image", label: "Image Preview", params: { title: "Preview" } },
@@ -132,8 +216,9 @@ const library = [
 
 const librarySections = [
   { id: "inputs", title: "Input", types: ["input.text", "input.image", "input.video"] },
-  { id: "image", title: "Image Processing", types: ["replicate.clarity-upscaler", "gemini.nano-banana-2", "preview.image"] },
-  { id: "text", title: "Text Generation", types: ["gemini.llm"] },
+  { id: "image", title: "Image Processing", types: ["replicate.clarity-upscaler", "gemini.nano-banana-2", "local.stableDiffusion.textToImage", "preview.image"] },
+  { id: "api", title: "API / HTTP", types: ["http.request"] },
+  { id: "text", title: "Text", types: ["library.prompt", "gemini.llm"] },
   { id: "outputs", title: "Output", types: ["output.text", "output.file"] },
   { id: "debug", title: "Debug", types: ["debug.log"] }
 ];
@@ -149,7 +234,7 @@ const blankRoute: RouteDoc = {
 
 const exampleRoute: RouteDoc = {
   routeVersion: "0.1",
-  route: { id: "gemini-prompt-to-image", title: "Gemini Prompt to Image", author: { name: "SnarkRoute" }, tags: ["gemini", "llm", "image"] },
+  route: { id: "prompt-library-to-image", title: "Prompt Library to Image", author: { name: "SnarkRoute" }, tags: ["prompt-library", "gemini", "llm", "image"] },
   economics: {
     enabled: false,
     mode: "disabled",
@@ -162,22 +247,33 @@ const exampleRoute: RouteDoc = {
   },
   nodes: [
     {
+      id: "prompt_library",
+      type: "library.prompt",
+      title: "Prompt Library",
+      params: {
+        category: "image-generation",
+        promptId: "image-generation-demo",
+        mode: "linked"
+      },
+      ui: { x: 40, y: 40 }
+    },
+    {
       id: "input_prompt",
       type: "input.text",
       title: "Text Input",
       params: { value: "А мы сделаем свой нодовый редактор с преферансом и куртизанками" },
-      ui: { x: 80, y: 160 }
+      ui: { x: 40, y: 540 }
     },
     {
       id: "gemini_llm",
       type: "gemini.llm",
       title: "Gemini LLM",
       params: {
-        systemPrompt: GEMINI_LLM_DEFAULT_SYSTEM_PROMPT,
+        systemPrompt: "",
         prompt: "",
         model: "gemini-2.5-flash-lite"
       },
-      ui: { x: 440, y: 80 }
+      ui: { x: 560, y: 220 }
     },
     {
       id: "gemini_nano-banana-2",
@@ -188,19 +284,78 @@ const exampleRoute: RouteDoc = {
         aspectRatio: "16:9",
         imageSize: "1K"
       },
-      ui: { x: 820, y: 80 }
+      ui: { x: 1040, y: 220 }
     }
   ],
   edges: [
+    { from: "prompt_library", to: "gemini_llm", fromPort: "text", toPort: "systemPrompt" },
     { from: "input_prompt", to: "gemini_llm", fromPort: "text", toPort: "prompt" },
     { from: "gemini_llm", to: "gemini_nano-banana-2", fromPort: "text", toPort: "prompt" }
   ],
   provenance: { tool: "snarkroute-studio" }
 };
 
+const milestoneExamples: RouteDoc[] = [
+  {
+    routeVersion: "0.1",
+    route: { id: "m31-replicate-upscale", title: "M3.1 Replicate Upscale", description: "Input Image -> Replicate Clarity Upscaler -> Image Preview.", author: { name: "SnarkRoute" }, tags: ["milestone-3.1", "replicate", "upscale"] },
+    economics: { enabled: false, mode: "disabled", providerCosts: [{ provider: "replicate", model: "philz1337x/clarity-upscaler", nodeType: "replicate.clarity-upscaler", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null }] },
+    nodes: [
+      { id: "input_image", type: "input.image", title: "Input Image", params: { path: "examples/assets/clarity-input.png" }, ui: { x: 40, y: 160 } },
+      { id: "upscale", type: "replicate.clarity-upscaler", title: "Clarity Upscaler", params: { prompt: "masterpiece, best quality, highres", negative_prompt: "(worst quality, low quality, normal quality:2)", scale_factor: 2, dynamic: 6, creativity: 0.25, resemblance: 0.8, tiling_width: 112, tiling_height: 144, scheduler: "DPM++ 3M SDE Karras", num_inference_steps: 18, seed: 1337, downscaling: false, downscaling_resolution: 768, lora_links: "", pollingIntervalMs: 1000, timeoutMs: 120000 }, ui: { x: 420, y: 120 } },
+      { id: "preview", type: "preview.image", title: "Image Preview", params: { title: "Upscaled" }, ui: { x: 820, y: 140 } }
+    ],
+    edges: [{ from: "input_image", to: "upscale", fromPort: "image", toPort: "image" }, { from: "upscale", to: "preview", fromPort: "image", toPort: "image" }],
+    provenance: { tool: "snarkroute-studio" }
+  },
+  {
+    routeVersion: "0.1",
+    route: { id: "m31-nano-banana-compose", title: "M3.1 Nano Banana Two Image Compose", description: "Two images plus a prompt into Gemini/Nano Banana image generation.", author: { name: "SnarkRoute" }, tags: ["milestone-3.1", "gemini", "image"] },
+    economics: { enabled: false, mode: "disabled", providerCosts: [{ provider: "gemini", model: "gemini-3.1-flash-image-preview", nodeType: "gemini.nano-banana-2", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null }] },
+    nodes: [
+      { id: "image_a", type: "input.image", title: "Input Image 1", params: { path: "examples/assets/clarity-input.png" }, ui: { x: 40, y: 80 } },
+      { id: "image_b", type: "input.image", title: "Input Image 2", params: { path: "examples/assets/clarity-input.png" }, ui: { x: 40, y: 360 } },
+      { id: "prompt", type: "input.text", title: "Prompt", params: { value: "Compose these two images into one polished poster-style image." }, ui: { x: 40, y: 620 } },
+      { id: "compose", type: "gemini.nano-banana-2", title: "Nano Banana 2", params: { prompt: "Compose these images.", aspectRatio: "1:1", imageSize: "1K" }, ui: { x: 520, y: 250 } },
+      { id: "preview", type: "preview.image", title: "Image Preview", params: { title: "Composed image" }, ui: { x: 920, y: 280 } }
+    ],
+    edges: [{ from: "image_a", to: "compose", fromPort: "image", toPort: "images" }, { from: "image_b", to: "compose", fromPort: "image", toPort: "images" }, { from: "prompt", to: "compose", fromPort: "text", toPort: "prompt" }, { from: "compose", to: "preview", fromPort: "image", toPort: "image" }],
+    provenance: { tool: "snarkroute-studio" }
+  },
+  {
+    ...exampleRoute,
+    route: { ...exampleRoute.route, id: "m31-api-prompt-to-image", title: "M3.1 Prompt to Image via API", description: "Text prompt through Gemini API image generation.", tags: ["milestone-3.1", "gemini", "api", "image"] }
+  },
+  {
+    routeVersion: "0.1",
+    route: { id: "m31-local-sd-text-to-image", title: "M3.1 Local Stable Diffusion Text To Image", description: "Prompt -> local Stable Diffusion WebUI-compatible txt2img -> preview.", author: { name: "SnarkRoute" }, tags: ["milestone-3.1", "local", "stable-diffusion"] },
+    economics: { enabled: false, mode: "disabled" },
+    nodes: [
+      { id: "prompt", type: "input.text", title: "Prompt", params: { value: "A tiny stained glass dragon icon, art nouveau, clean simple composition" }, ui: { x: 40, y: 220 } },
+      { id: "sd", type: "local.stableDiffusion.textToImage", title: "Local Stable Diffusion", params: { endpoint: "http://127.0.0.1:7860", model: "", prompt: "", negativePrompt: "", width: 512, height: 512, steps: 20, seed: -1, cfgScale: 7, samplerName: "", batchSize: 1, restoreFaces: false, enableHrFix: false, timeoutMs: 180000 }, ui: { x: 460, y: 120 } },
+      { id: "preview", type: "preview.image", title: "Image Preview", params: { title: "Local SD output" }, ui: { x: 900, y: 170 } }
+    ],
+    edges: [{ from: "prompt", to: "sd", fromPort: "text", toPort: "prompt" }, { from: "sd", to: "preview", fromPort: "image", toPort: "image" }],
+    provenance: { tool: "snarkroute-studio" }
+  },
+  {
+    routeVersion: "0.1",
+    route: { id: "m31-http-json-test", title: "M3.1 Generic HTTP JSON Test", description: "HTTP Request -> Debug Log -> Text Output.", author: { name: "SnarkRoute" }, tags: ["milestone-3.1", "http", "json"] },
+    economics: { enabled: false, mode: "disabled" },
+    nodes: [
+      { id: "http", type: "http.request", title: "HTTP Request", params: { url: "http://127.0.0.1:4317/api/health", method: "GET", headers: {}, query: {}, bodyMode: "none", body: "{}", responseMode: "json", timeoutMs: 30000 }, ui: { x: 80, y: 160 } },
+      { id: "debug", type: "debug.log", title: "Debug Log", params: { value: "{{http.output.responseText}}" }, ui: { x: 500, y: 180 } },
+      { id: "output", type: "output.text", title: "JSON Preview", params: {}, ui: { x: 880, y: 190 } }
+    ],
+    edges: [{ from: "http", to: "debug", fromPort: "responseJson", toPort: "value" }, { from: "debug", to: "output", fromPort: "value", toPort: "from" }],
+    provenance: { tool: "snarkroute-studio" }
+  }
+];
+
 function RouteNodeCard({ id, data }: NodeProps) {
   const label = String(data.label ?? "");
   const [title, type] = label.split("\n");
+  const [paramsCollapsed, setParamsCollapsed] = useState(false);
   const routeNode = data.routeNode as RouteDoc["nodes"][number] | undefined;
   const params = routeNode?.params ?? {};
   const result = data.result as NodeRunResult | undefined;
@@ -213,6 +368,10 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
   const onRunNodeOnly = data.onRunNodeOnly as ((nodeId: string) => void) | undefined;
   const onRunNodeWithDependencies = data.onRunNodeWithDependencies as ((nodeId: string) => void) | undefined;
+  const promptLibrary = data.promptLibrary as PromptLibraryData | undefined;
+  const onRefreshPromptLibrary = data.onRefreshPromptLibrary as (() => void) | undefined;
+  const stableDiffusionModels = (data.stableDiffusionModels as StableDiffusionModel[] | undefined) ?? [];
+  const onRefreshStableDiffusionModels = data.onRefreshStableDiffusionModels as ((endpoint: string) => void) | undefined;
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
   const inputConnectionCounts = (data.inputConnectionCounts as Record<string, number> | undefined) ?? {};
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
@@ -272,7 +431,19 @@ function RouteNodeCard({ id, data }: NodeProps) {
         <div>
           <div className="nodeTitle">{title}</div>
           <div className="nodeType" title={type}>{type}</div>
+          <div className={`executorBadge ${executorKind(type)}`}>{executorLabel(type)}</div>
         </div>
+        <button
+          className="nodeCollapseButton nodrag nopan"
+          type="button"
+          title={paramsCollapsed ? "Show parameters" : "Hide parameters"}
+          onClick={(event) => {
+            event.stopPropagation();
+            setParamsCollapsed((value) => !value);
+          }}
+        >
+          {paramsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+        </button>
       </div>
       {isReplicateNode(type) ? (
         <div className={`nodeTokenStatus ${replicateConfigured ? "configured" : "missing"}`}>
@@ -299,13 +470,21 @@ function RouteNodeCard({ id, data }: NodeProps) {
           ) : null}
         </div>
       ) : null}
-      <NodeInlineParams
-        type={type}
-        params={params}
-        connectedInputPorts={connectedInputPorts}
-        onChange={patchParams}
-        onBrowse={(kind) => onBrowseAsset?.(id, kind)}
-      />
+      {!paramsCollapsed ? (
+        <NodeInlineParams
+          type={type}
+          params={params}
+          connectedInputPorts={connectedInputPorts}
+          promptLibrary={promptLibrary ?? { categories: [] }}
+          onRefreshPromptLibrary={onRefreshPromptLibrary}
+          stableDiffusionModels={stableDiffusionModels}
+          onRefreshStableDiffusionModels={onRefreshStableDiffusionModels}
+          onChange={patchParams}
+          onBrowse={(kind) => onBrowseAsset?.(id, kind)}
+        />
+      ) : (
+        <div className="nodeCollapsedHint">Parameters hidden</div>
+      )}
       {result && shouldShowInlineResult(type) ? <NodeInlineResult result={result} onOpenImage={onOpenImage} /> : null}
       {ports.outputs.map((port, index) => (
         <React.Fragment key={port.id}>
@@ -330,12 +509,20 @@ function NodeInlineParams({
   type,
   params,
   connectedInputPorts,
+  promptLibrary,
+  onRefreshPromptLibrary,
+  stableDiffusionModels,
+  onRefreshStableDiffusionModels,
   onChange,
   onBrowse
 }: {
   type: string;
   params: Record<string, unknown>;
   connectedInputPorts: Set<string>;
+  promptLibrary: PromptLibraryData;
+  onRefreshPromptLibrary?: () => void;
+  stableDiffusionModels: StableDiffusionModel[];
+  onRefreshStableDiffusionModels?: (endpoint: string) => void;
   onChange: (patch: Record<string, unknown>) => void;
   onBrowse: (kind: AssetKind) => void;
 }) {
@@ -354,6 +541,83 @@ function NodeInlineParams({
         <span>template</span>
         <textarea className="nodrag nopan nodeTextarea" value={String(params.template ?? "")} onChange={(event) => onChange({ template: event.target.value })} />
       </label>
+    );
+  }
+
+  if (type === "library.prompt") {
+    const categories = promptLibrary.categories;
+    const selectedCategory = categories.find((category) => category.id === String(params.category ?? "")) ?? categories[0];
+    const prompts = selectedCategory?.prompts ?? [];
+    const selectedPromptId = String(params.promptId ?? "");
+    const selectedPrompt = prompts.find((prompt) => prompt.id === selectedPromptId);
+    const displayPrompt = selectedPrompt ?? prompts[0];
+    const mode = String(params.mode ?? "linked") === "embedded" ? "embedded" : "linked";
+    const previewText = mode === "embedded" ? String(params.embeddedText ?? "") : displayPrompt?.text ?? "";
+    if (categories.length === 0) {
+      return (
+        <div className="assetParams">
+          <div className="nodeWarning">No prompts found. Add .prompt.md files to data/prompt-library/ and refresh.</div>
+          <button className="nodeSmallButton nodrag nopan" type="button" onClick={onRefreshPromptLibrary}>Refresh Prompt Library</button>
+        </div>
+      );
+    }
+    return (
+      <>
+        <button className="nodeSmallButton nodrag nopan" type="button" onClick={onRefreshPromptLibrary}>Refresh Prompt Library</button>
+        <label className="nodeField">
+          <span>category</span>
+          <select
+            className="nodrag nopan nodeInput nodeSelect"
+            value={selectedCategory?.id ?? ""}
+            onChange={(event) => {
+              const category = categories.find((entry) => entry.id === event.target.value);
+              onChange({ category: event.target.value, promptId: category?.prompts[0]?.id ?? "", mode });
+            }}
+          >
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>{category.title}</option>
+            ))}
+          </select>
+        </label>
+        <label className="nodeField">
+          <span>prompt</span>
+          <select
+            className="nodrag nopan nodeInput nodeSelect"
+            value={selectedPrompt?.id ?? displayPrompt?.id ?? ""}
+            onChange={(event) => onChange({ promptId: event.target.value })}
+          >
+            {prompts.map((prompt) => (
+              <option key={prompt.id} value={prompt.id}>{prompt.title}</option>
+            ))}
+          </select>
+        </label>
+        {displayPrompt?.description ? <div className="nodeHint">{displayPrompt.description}</div> : null}
+        {mode === "linked" && selectedPromptId && !selectedPrompt ? <div className="nodeWarning">Selected prompt was not found in the local library.</div> : null}
+        <label className="nodeField">
+          <span>mode</span>
+          <select className="nodrag nopan nodeInput nodeSelect" value={mode} onChange={(event) => onChange({ mode: event.target.value })}>
+            <option value="linked">linked</option>
+            <option value="embedded">embedded</option>
+          </select>
+        </label>
+        <button
+          className="nodeSmallButton nodrag nopan"
+          type="button"
+          disabled={!displayPrompt}
+          onClick={() => onChange({ mode: "embedded", embeddedTitle: displayPrompt?.title ?? "", embeddedText: displayPrompt?.text ?? "" })}
+        >
+          Embed selected prompt
+        </button>
+        <label className="nodeField">
+          <span>preview</span>
+          <textarea
+            className="nodrag nopan nodeTextarea outputTextArea"
+            value={previewText}
+            readOnly={mode === "linked"}
+            onChange={(event) => onChange({ embeddedText: event.target.value })}
+          />
+        </label>
+      </>
     );
   }
 
@@ -492,7 +756,7 @@ function NodeInlineParams({
           <span>system prompt</span>
           <textarea
             className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`}
-            value={String(params.systemPrompt ?? GEMINI_LLM_DEFAULT_SYSTEM_PROMPT)}
+            value={String(params.systemPrompt ?? "")}
             disabled={systemPromptConnected}
             onChange={(event) => onChange({ systemPrompt: event.target.value })}
           />
@@ -523,6 +787,122 @@ function NodeInlineParams({
           </select>
           <small className="nodeConnectedHint">{geminiLlmPricingLabel(String(params.model ?? "gemini-2.5-flash-lite"))}</small>
         </label>
+      </>
+    );
+  }
+
+  if (type === "local.stableDiffusion.textToImage") {
+    const promptConnected = connectedInputPorts.has("prompt");
+    const negativeConnected = connectedInputPorts.has("negativePrompt");
+    const endpoint = String(params.endpoint ?? "http://127.0.0.1:7860");
+    const selectedModel = String(params.model ?? "");
+    return (
+      <>
+        <label className="nodeField">
+          <span>endpoint</span>
+          <input className="nodrag nopan nodeInput" value={endpoint} onChange={(event) => onChange({ endpoint: event.target.value })} />
+        </label>
+        <label className="nodeField">
+          <span>model</span>
+          <select
+            className="nodrag nopan nodeInput nodeSelect"
+            value={selectedModel}
+            onChange={(event) => onChange({ model: event.target.value })}
+          >
+            <option value="">current WebUI model</option>
+            {stableDiffusionModels.map((model) => (
+              <option key={model.title} value={model.title}>{model.title}</option>
+            ))}
+            {selectedModel && !stableDiffusionModels.some((model) => model.title === selectedModel) ? <option value={selectedModel}>{selectedModel}</option> : null}
+          </select>
+          <small className="nodeConnectedHint">Sent as sd_model_checkpoint for this request.</small>
+        </label>
+        <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onRefreshStableDiffusionModels?.(endpoint)}>Refresh models</button>
+        {stableDiffusionModels.length === 0 ? (
+          <label className="nodeField">
+            <span>manual model</span>
+            <input className="nodrag nopan nodeInput" value={selectedModel} placeholder="Optional checkpoint title" onChange={(event) => onChange({ model: event.target.value })} />
+          </label>
+        ) : null}
+        <label className="nodeField">
+          <span>prompt</span>
+          <textarea
+            className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
+            value={String(params.prompt ?? "")}
+            disabled={promptConnected}
+            onChange={(event) => onChange({ prompt: event.target.value })}
+          />
+          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
+        </label>
+        <label className="nodeField">
+          <span>negative</span>
+          <textarea
+            className={`nodrag nopan nodeTextarea compact ${negativeConnected ? "nodeParamDisabled" : ""}`}
+            value={String(params.negativePrompt ?? "")}
+            disabled={negativeConnected}
+            onChange={(event) => onChange({ negativePrompt: event.target.value })}
+          />
+        </label>
+        <div className="nodeGridFields">
+          {(["width", "height", "steps", "cfgScale", "batchSize", "seed"] as const).map((key) => (
+            <label className="nodeField" key={key}>
+              <span>{key}</span>
+              <input className="nodrag nopan nodeInput" inputMode="decimal" value={String(params[key] ?? "")} onChange={(event) => onChange({ [key]: event.target.value })} />
+            </label>
+          ))}
+        </div>
+        <label className="nodeField">
+          <span>sampler</span>
+          <input className="nodrag nopan nodeInput" value={String(params.samplerName ?? "")} onChange={(event) => onChange({ samplerName: event.target.value })} />
+        </label>
+      </>
+    );
+  }
+
+  if (type === "http.request") {
+    const bodyMode = String(params.bodyMode ?? "none");
+    return (
+      <>
+        <label className="nodeField">
+          <span>url</span>
+          <input className="nodrag nopan nodeInput" value={String(params.url ?? "")} onChange={(event) => onChange({ url: event.target.value })} />
+        </label>
+        <div className="nodeGridFields">
+          <label className="nodeField">
+            <span>method</span>
+            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.method ?? "GET")} onChange={(event) => onChange({ method: event.target.value })}>
+              {["GET", "POST", "PUT", "PATCH", "DELETE"].map((method) => <option key={method} value={method}>{method}</option>)}
+            </select>
+          </label>
+          <label className="nodeField">
+            <span>response</span>
+            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.responseMode ?? "json")} onChange={(event) => onChange({ responseMode: event.target.value })}>
+              {["json", "text"].map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+            </select>
+          </label>
+        </div>
+        <label className="nodeField">
+          <span>headers JSON</span>
+          <textarea className="nodrag nopan nodeTextarea compact" value={formatJsonish(params.headers ?? {})} onChange={(event) => onChange({ headers: event.target.value })} />
+        </label>
+        <label className="nodeField">
+          <span>query JSON</span>
+          <textarea className="nodrag nopan nodeTextarea compact" value={formatJsonish(params.query ?? {})} onChange={(event) => onChange({ query: event.target.value })} />
+        </label>
+        <label className="nodeField">
+          <span>body mode</span>
+          <select className="nodrag nopan nodeInput nodeSelect" value={bodyMode} onChange={(event) => onChange({ bodyMode: event.target.value })}>
+            <option value="none">none</option>
+            <option value="rawJson">raw JSON</option>
+            <option value="rawText">raw text</option>
+          </select>
+        </label>
+        {bodyMode !== "none" ? (
+          <label className="nodeField">
+            <span>body</span>
+            <textarea className="nodrag nopan nodeTextarea" value={String(params.body ?? "")} onChange={(event) => onChange({ body: event.target.value })} />
+          </label>
+        ) : null}
       </>
     );
   }
@@ -647,6 +1027,7 @@ function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] }
   if (type === "input.file") return { inputs: [], outputs: [{ id: "file", kind: "file" }] };
   if (type === "input.image") return { inputs: [], outputs: [{ id: "image", kind: "image" }] };
   if (type === "input.video") return { inputs: [], outputs: [{ id: "video", kind: "video" }] };
+  if (type === "library.prompt") return { inputs: [], outputs: [{ id: "text", kind: "text" }] };
   if (type === "replicate.clarity-upscaler") {
     return {
       inputs: [
@@ -680,6 +1061,32 @@ function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] }
       outputs: [
         { id: "text", kind: "text" },
         { id: "output", kind: "json", label: "JSON" }
+      ]
+    };
+  }
+  if (type === "local.stableDiffusion.textToImage") {
+    return {
+      inputs: [
+        { id: "prompt", kind: "text" },
+        { id: "negativePrompt", kind: "text", label: "negative" }
+      ],
+      outputs: [
+        { id: "image", kind: "image" },
+        { id: "metadata", kind: "json" },
+        { id: "output", kind: "json", label: "JSON" }
+      ]
+    };
+  }
+  if (type === "http.request") {
+    return {
+      inputs: [
+        { id: "text", kind: "text" },
+        { id: "json", kind: "json", label: "JSON" }
+      ],
+      outputs: [
+        { id: "responseJson", kind: "json", label: "JSON" },
+        { id: "responseText", kind: "text", label: "text" },
+        { id: "output", kind: "json", label: "output" }
       ]
     };
   }
@@ -762,6 +1169,24 @@ function isGeminiNode(type: string): boolean {
   return type === "gemini.nano-banana-2" || type === "gemini.llm";
 }
 
+function executorKind(type: string): string {
+  if (type.startsWith("local.")) return "local";
+  if (type.startsWith("gemini.")) return "gemini";
+  if (type.startsWith("replicate.")) return "replicate";
+  if (type.startsWith("http.")) return "http";
+  if (type.startsWith("input.") || type.startsWith("output.") || type.startsWith("preview.") || type.startsWith("debug.") || type.startsWith("transform.") || type.startsWith("library.")) return "local";
+  return "custom";
+}
+
+function executorLabel(type: string): string {
+  const kind = executorKind(type);
+  if (kind === "gemini") return "Gemini";
+  if (kind === "replicate") return "Replicate";
+  if (kind === "http") return "HTTP";
+  if (kind === "local") return "local";
+  return "unknown/custom";
+}
+
 function shouldShowInlineResult(type: string): boolean {
   return !type.startsWith("input.");
 }
@@ -774,11 +1199,14 @@ function nodeIcon(type: string) {
   if (type === "input.text") return <Type size={15} />;
   if (type === "input.image") return <ImageIcon size={15} />;
   if (type === "input.video") return <Video size={15} />;
+  if (type === "library.prompt") return <BookOpen size={15} />;
   if (type === "transform.template") return <Braces size={15} />;
   if (type === "replicate.clarity-upscaler") return <Wand2 size={15} />;
   if (type === "replicate.model") return <span className="providerGlyph">R</span>;
   if (type === "gemini.llm") return <Type size={15} />;
   if (type === "gemini.nano-banana-2") return <Sparkles size={15} />;
+  if (type === "local.stableDiffusion.textToImage") return <Cpu size={15} />;
+  if (type === "http.request") return <Globe size={15} />;
   if (type === "preview.image") return <Eye size={15} />;
   if (type === "debug.log") return <Bug size={15} />;
   if (type === "output.text") return <FileText size={15} />;
@@ -788,9 +1216,12 @@ function nodeIcon(type: string) {
 
 function nodeIconClass(type: string): string {
   if (type.startsWith("input.")) return "input";
+  if (type.startsWith("library.")) return "transform";
   if (type.startsWith("output.")) return "output";
   if (type.startsWith("replicate.")) return "replicate";
   if (type.startsWith("gemini.")) return "gemini";
+  if (type.startsWith("local.")) return "local";
+  if (type.startsWith("http.")) return "http";
   if (type.startsWith("preview.")) return "preview";
   if (type.startsWith("debug.")) return "debug";
   if (type.startsWith("transform.")) return "transform";
@@ -866,6 +1297,9 @@ function App() {
   const [rightCollapsed, setRightCollapsed] = useState(true);
   const [bottomCollapsed, setBottomCollapsed] = useState(true);
   const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
+  const [promptLibrary, setPromptLibrary] = useState<PromptLibraryData>(DEFAULT_PROMPT_LIBRARY);
+  const [stableDiffusionModels, setStableDiffusionModels] = useState<StableDiffusionModel[]>([]);
+  const [selectedExampleId, setSelectedExampleId] = useState(milestoneExamples[0]?.route.id ?? exampleRoute.route.id);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [collapsedLibrarySections, setCollapsedLibrarySections] = useState<Record<string, boolean>>(
@@ -888,19 +1322,24 @@ function App() {
           onOpenImage: setImageViewer,
           onRunNodeOnly: runNodeOnly,
           onRunNodeWithDependencies: runNodeWithDependencies,
+          onRefreshPromptLibrary: refreshPromptLibraryData,
+          onRefreshStableDiffusionModels: refreshStableDiffusionModels,
           connectedInputPorts: edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle).filter((handle): handle is string => Boolean(handle)),
           inputConnectionCounts: countInputConnections(edges, node.id),
           canRunNodeOnly: canRunNodeOnly(node.id),
+          promptLibrary,
+          stableDiffusionModels,
           replicateConfigured,
           geminiConfigured,
           result: runResult?.nodeResults?.[node.id]
         }
       })),
-    [nodes, edges, runResult, replicateConfigured, geminiConfigured]
+    [nodes, edges, runResult, promptLibrary, stableDiffusionModels, replicateConfigured, geminiConfigured]
   );
 
   useEffect(() => {
     void loadSettings();
+    void loadPromptLibraryData();
     void loadLedgerSummary();
   }, []);
 
@@ -930,6 +1369,51 @@ function App() {
       setLedgerSummary(await response.json());
     } catch {
       setLedgerSummary(null);
+    }
+  }
+
+  async function loadPromptLibraryData() {
+    try {
+      const response = await fetch(`${apiBase}/api/prompt-library`);
+      const result = await response.json();
+      const fallbackMessage = result.error ?? "data/prompt-library/ was not found.";
+      setPromptLibrary({ categories: response.ok && Array.isArray(result.categories) ? result.categories : DEFAULT_PROMPT_LIBRARY.categories });
+      if (!response.ok) setLogs((current) => [`Prompt library unavailable: ${fallbackMessage}. Showing bundled starter prompt. Restart the API server to use the local library file.`, ...current]);
+    } catch {
+      setPromptLibrary(DEFAULT_PROMPT_LIBRARY);
+    }
+  }
+
+  async function refreshPromptLibraryData() {
+    try {
+      const response = await fetch(`${apiBase}/api/prompt-library/refresh`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Prompt library refresh failed.");
+      setPromptLibrary({ categories: Array.isArray(result.categories) ? result.categories : [], diagnostics: result.diagnostics ?? [] });
+      const diagnostics = Array.isArray(result.diagnostics) ? result.diagnostics : [];
+      setLogs((current) => [
+        `Prompt library refreshed: ${result.categories?.length ?? 0} categor${result.categories?.length === 1 ? "y" : "ies"}.`,
+        ...diagnostics.map((entry: { severity: string; path: string; message: string }) => `${entry.severity}: ${entry.path}: ${entry.message}`),
+        ...current
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLogs((current) => [`Prompt library refresh failed: ${message}`, ...current]);
+    }
+  }
+
+  async function refreshStableDiffusionModels(endpoint: string) {
+    try {
+      const response = await fetch(`${apiBase}/api/local-stable-diffusion/models?endpoint=${encodeURIComponent(endpoint)}`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Stable Diffusion model refresh failed.");
+      const models = Array.isArray(result.models) ? result.models : [];
+      setStableDiffusionModels(models);
+      setLogs((current) => [`Stable Diffusion models refreshed: ${models.length}.`, ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setStableDiffusionModels([]);
+      setLogs((current) => [`Stable Diffusion model refresh failed: ${message}`, ...current]);
     }
   }
 
@@ -1351,6 +1835,7 @@ function App() {
     const routeNode = source?.data.routeNode as RouteDoc["nodes"][number] | undefined;
     if (!routeNode) return false;
     if (routeNode.type === "input.text") return true;
+    if (routeNode.type === "library.prompt") return true;
     if (routeNode.type === "input.file" || routeNode.type === "input.image" || routeNode.type === "input.video") {
       return Boolean(String(routeNode.params?.path ?? "").trim());
     }
@@ -1413,7 +1898,8 @@ function App() {
   }
 
   function loadExample() {
-    applyRoute(exampleRoute, "Loaded Gemini prompt-to-image example.");
+    const route = milestoneExamples.find((candidate) => candidate.route.id === selectedExampleId) ?? exampleRoute;
+    applyRoute(route, `Loaded ${route.route.title}.`);
   }
 
   return (
@@ -1428,6 +1914,11 @@ function App() {
         {!leftCollapsed ? (
         <>
         <div className="toolbar">
+          <select className="exampleSelect" value={selectedExampleId} title="Example route" onChange={(event) => setSelectedExampleId(event.target.value)}>
+            {milestoneExamples.map((route) => (
+              <option key={route.route.id} value={route.route.id}>{route.route.title}</option>
+            ))}
+          </select>
           <button onClick={loadExample} title="Load example"><Wand2 size={16} /> Example</button>
           <button onClick={exportRoute} title="Export route"><Download size={16} /> Export</button>
           <label className="fileButton" title="Import route"><Upload size={16} /> Import<input type="file" accept={ROUTE_FILE_ACCEPT} onChange={(event) => void importRoute(event.target.files?.[0] ?? null)} /></label>
@@ -1707,6 +2198,10 @@ function truncateText(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
+function formatJsonish(value: unknown): string {
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
 function formatLogs(runResult: RunDisplayResult | null, fallbackLogs: string[]): string {
   const header = runResult?.runId
     ? [`runId: ${runResult.runId}`, `status: ${runResult.status ?? "unknown"}`, `startedAt: ${runResult.startedAt ?? ""}`, `completedAt: ${runResult.completedAt ?? ""}`, ""]
@@ -1787,7 +2282,7 @@ function costLabel(value: unknown): string | null {
   if (!Number.isFinite(estimatedUsd)) return null;
   const parts = [`Estimated provider cost: $${estimatedUsd.toFixed(4)}`];
   if (Number.isFinite(seconds)) parts.push(`${seconds.toFixed(2)}s`);
-  return parts.join(" · ");
+  return parts.join(" В· ");
 }
 
 function runCostLabel(value: unknown): string | null {

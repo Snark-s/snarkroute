@@ -1,0 +1,47 @@
+routeVersion: "0.1"
+route:
+  id: m31-api-prompt-to-image
+  title: M3.1 Prompt To Image Via API
+  description: Text prompt to Gemini/Nano Banana image API to preview.
+  author:
+    name: SnarkRoute
+  tags: [milestone-3.1, gemini, api, image]
+economics:
+  enabled: false
+  mode: disabled
+  providerCosts:
+    - provider: gemini
+      model: gemini-3.1-flash-image-preview
+      nodeType: gemini.nano-banana-2
+      pricingHint: external-provider-billing
+      estimatedCost: null
+      actualCost: null
+nodes:
+  - id: prompt
+    type: input.text
+    title: Prompt
+    params:
+      value: A tiny stained glass dragon icon, art nouveau, clean simple composition
+  - id: generate
+    type: gemini.nano-banana-2
+    title: Nano Banana 2
+    params:
+      prompt: Create a polished image.
+      aspectRatio: "1:1"
+      imageSize: 1K
+  - id: preview
+    type: preview.image
+    title: Image Preview
+    params:
+      title: API image output
+edges:
+  - from: prompt
+    to: generate
+    fromPort: text
+    toPort: prompt
+  - from: generate
+    to: preview
+    fromPort: image
+    toPort: image
+provenance:
+  tool: snarkroute

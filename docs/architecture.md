@@ -12,6 +12,26 @@
 
 `packages/protocol` owns Open Route Protocol v0.1 schemas, parsing, validation, YAML/JSON loading, extension detection, export filename normalization, and exporting. It allows unknown node types so route documents stay portable.
 
+Open Route Protocol describes routes as graphs of operations. Routes can contain AssetRefs, but they must not directly load JSON, Markdown, files, URLs, node definitions, or remote resources. The host application owns asset resolution.
+
+## Asset System
+
+SnarkRoute has a two-level architecture:
+
+- Route level: routes contain nodes, edges, params, and AssetRefs.
+- Asset resolution level: the host configures AssetSources and uses AssetResolver to turn AssetRefs into normalized assets.
+
+AssetResolver validates schema, kind, version, hash, permissions, and trust rules where applicable. A normalized asset is the validated object that the executor or UI can safely use.
+
+Core types:
+
+- AssetRef: a reference stored in a route.
+- AssetSource: a configured source of assets, such as `local-folder`, `embedded`, `bundle`, `remote-manifest`, `github`, or a future provider-specific source.
+- AssetResolver: the host service that resolves AssetRefs.
+- Normalized Asset: a validated asset object with schema, kind, id, version, metadata, and content.
+
+Linked, embedded, and bundle are export modes. A node does not decide whether an asset is linked or embedded.
+
 ## Executor
 
 `packages/executor` owns DAG execution, topological sorting, cycle detection, template resolution, runner registration, run logs, node results, and provenance output.
@@ -23,6 +43,14 @@
 In Open Route Protocol terminology, a node is a portable operation definition. A provider or implementation is how that operation is executed. The executor is the runtime that executes a route; it is not the protocol itself.
 
 Local asset input nodes keep the protocol simple: the route stores `params.path`, the executor reads metadata from the local filesystem, and Studio uses the local server for file browsing, metadata, and image previews. The MVP does not upload files or create an asset registry.
+
+Direct local input paths are an MVP input-node convenience. Reusable resources should use AssetRef so the route remains portable and auditable.
+
+## Prompt Library
+
+Prompt Library is the first Text Asset source. Prompt files are human-editable Markdown files under `data/prompt-library/**/*.prompt.md`, parsed from YAML frontmatter plus body text and normalized into `text/prompt` assets.
+
+`library.prompt` stores only `params.assetRef`. During execution it asks AssetResolver for a `text/prompt` or compatible text asset and outputs `{ "text": "<resolved prompt text>" }`. It does not know whether the prompt came from a local file, embedded route asset, bundle, remote manifest, or future provider.
 
 For the Clarity Upscaler milestone, the image flow is:
 
@@ -61,7 +89,9 @@ The ledger is local-only and ignored by git. It is never exported as part of `.o
 
 ## Future Extension Points
 
-Future nodes should be declarative and permissioned. A future registry can distribute manifests, schemas, and permission declarations, but it is an optional discovery mechanism, not the source of truth. SnarkRoute should not execute arbitrary community JavaScript.
+Future nodes should be declarative and permissioned. A future registry can distribute manifests, schemas, and permission declarations, but it is an optional discovery mechanism, not the source of truth.
+
+Remote Node Definition Assets may describe node id, title, version, inputs, outputs, UI metadata, execution adapter, endpoint or provider type, required permissions, and required credentials. They must not silently inject arbitrary executable JS/TS/Python code into SnarkRoute. The host must show permissions before enabling external node definitions.
 
 ---
 

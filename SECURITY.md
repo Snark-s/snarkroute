@@ -14,6 +14,14 @@ Please report security issues privately to the project maintainer before public 
 
 SnarkRoute does not support arbitrary community JavaScript execution. Future community nodes must be declarative manifests with explicit permissions and auditable behavior.
 
+## Asset Resolution
+
+Routes do not directly fetch arbitrary files or URLs. Reusable external resources are referenced through AssetRef and resolved by the host through explicitly configured AssetSources.
+
+Asset manifests must be schema-validated. Asset kind must match what the consuming node expects. Hash pinning should be supported for reproducibility; missing assets must produce clear diagnostics, and changed assets should warn when `expectedHash` is present.
+
+Remote Node Definition Assets must describe interfaces, metadata, execution adapters, permissions, and credential requirements. They must not execute arbitrary downloaded JS/TS/Python code by default. Credentials remain host-side and are never embedded into routes.
+
 ## Token Handling
 
 Provider tokens are read by the local server. Studio must not receive raw provider tokens except when the user is actively saving one through Settings. Tokens must not appear in logs, run ledgers, route exports, tests, or generated files.

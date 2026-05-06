@@ -1,0 +1,44 @@
+routeVersion: "0.1"
+route:
+  id: m31-generic-http-json-test
+  title: M3.1 Generic HTTP JSON Test
+  description: Generic HTTP request returning JSON/text for debug output.
+  author:
+    name: SnarkRoute
+  tags: [milestone-3.1, http, json]
+economics:
+  enabled: false
+  mode: disabled
+nodes:
+  - id: http
+    type: http.request
+    title: HTTP Request
+    params:
+      url: http://127.0.0.1:4317/api/health
+      method: GET
+      headers: {}
+      query: {}
+      bodyMode: none
+      body: "{}"
+      responseMode: json
+      timeoutMs: 30000
+  - id: debug
+    type: debug.log
+    title: Debug Log
+    params:
+      value: "{{http.output.responseText}}"
+  - id: output
+    type: output.text
+    title: JSON Preview
+    params: {}
+edges:
+  - from: http
+    to: debug
+    fromPort: responseJson
+    toPort: value
+  - from: debug
+    to: output
+    fromPort: value
+    toPort: from
+provenance:
+  tool: snarkroute

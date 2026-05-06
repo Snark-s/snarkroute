@@ -1,14 +1,14 @@
 import cors from "@fastify/cors";
 import dotenv from "dotenv";
 import Fastify from "fastify";
-import { createReadStream } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createReadStream, existsSync } from "node:fs";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { createExecutor } from "@snarkroute/executor";
 import { createGeminiLlmNodeRunner, createNanoBanana2NodeRunner } from "@snarkroute/gemini";
-import { builtInNodeDefinitions, getLocalAssetMetadata, registerBuiltInNodeRunners, type LocalAssetKind } from "@snarkroute/nodes";
-import { parseRoute, validateRoute } from "@snarkroute/protocol";
+import { builtInNodeDefinitions, getLocalAssetMetadata, getPromptLibraryPrompt, loadPromptLibrary, registerBuiltInNodeRunners, summarizePromptLibrary, validatePromptLibraryNodes, type LocalAssetKind, type PromptLibrary } from "@snarkroute/nodes";
+import { loadRouteFromText, parseRoute, validateRoute } from "@snarkroute/protocol";
 import { createClarityUpscalerNodeRunner, createReplicateClient, createReplicateNodeRunner } from "@snarkroute/replicate";
 import { createLocalRunStorage } from "@snarkroute/storage";
 
@@ -19,11 +19,14 @@ const host = process.env.HOST ?? "127.0.0.1";
 const storage = createLocalRunStorage(join(process.cwd(), "data", "runs"));
 const envPath = join(process.cwd(), ".env");
 const assetsDirectory = join(process.cwd(), "data", "assets");
+const examplesDirectory = findExistingDirectory("examples", "routes");
 const getLedgerPath = () => process.env.SNARKROUTE_LEDGER_PATH ?? join(process.cwd(), "data", "ledger", "runs.jsonl");
+let promptLibraryCache: PromptLibrary = { categories: [], diagnostics: [] };
 
 export function buildServer() {
   const app = Fastify({ logger: true, bodyLimit: 250 * 1024 * 1024 });
   app.register(cors, { origin: true });
+  void refreshPromptLibraryCache();
 
   app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled() }));
 
@@ -62,6 +65,76 @@ export function buildServer() {
       { type: "gemini.nano-banana-2", title: "Nano Banana 2", description: "Runs Gemini image generation/editing.", enabled: isGeminiEnabled() }
     ]
   }));
+
+  app.get("/api/routes/examples", async () => {
+    const files = await listRouteFiles(examplesDirectory);
+    return {
+      routes: await Promise.all(
+        files.map(async (file) => {
+          const route = parseRoute(await loadExampleRoute(file));
+          return { id: route.route.id, title: route.route.title, description: route.route.description, filename: basename(file), path: file };
+        })
+      )
+    };
+  });
+
+  app.get<{ Params: { filename: string } }>("/api/routes/examples/:filename", async (request, reply) => {
+    try {
+      const file = resolve(examplesDirectory, request.params.filename);
+      if (!file.startsWith(resolve(examplesDirectory))) return reply.code(400).send({ error: "Invalid example route path." });
+      return await loadExampleRoute(file);
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/routes/saved", async () => {
+    const files = await listRouteFiles(assetsDirectory);
+    return { routes: files.map((file) => ({ filename: basename(file), path: file })) };
+  });
+
+  app.get<{ Querystring: { endpoint?: string } }>("/api/local-stable-diffusion/models", async (request, reply) => {
+    const endpoint = trimTrailingSlash(request.query.endpoint?.trim() || "http://127.0.0.1:7860");
+    try {
+      const response = await fetchWithTimeout(`${endpoint}/sdapi/v1/sd-models`, 5000);
+      if (response.status === 404) return reply.code(404).send({ error: "Stable Diffusion WebUI API endpoint is not available. Make sure API mode is enabled." });
+      const text = await response.text();
+      if (!response.ok) return reply.code(response.status).send({ error: `Stable Diffusion WebUI model list failed (${response.status}).` });
+      const models = JSON.parse(text) as unknown;
+      return { endpoint, models: normalizeStableDiffusionModels(models) };
+    } catch (error) {
+      return reply.code(400).send({ error: `Local Stable Diffusion server is not reachable at ${endpoint}` });
+    }
+  });
+
+  app.get("/api/prompt-library", async (request, reply) => {
+    try {
+      promptLibraryCache = await loadPromptLibrary();
+      return summarizePromptLibrary(promptLibraryCache);
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error), categories: [] });
+    }
+  });
+
+  app.get<{ Params: { category: string; id: string } }>("/api/prompt-library/:category/:id", async (request, reply) => {
+    try {
+      promptLibraryCache = await loadPromptLibrary();
+      const prompt = getPromptLibraryPrompt(promptLibraryCache, request.params.category, request.params.id);
+      if (!prompt) return reply.code(404).send({ error: `Prompt "${request.params.category}/${request.params.id}" was not found.` });
+      return prompt;
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/prompt-library/refresh", async (request, reply) => {
+    try {
+      promptLibraryCache = await loadPromptLibrary();
+      return summarizePromptLibrary(promptLibraryCache);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error), categories: [], diagnostics: [{ path: "data/prompt-library", severity: "error", message: errorMessage(error) }] });
+    }
+  });
 
   app.get<{ Querystring: { path?: string; kind?: LocalAssetKind } }>("/api/assets/metadata", async (request, reply) => {
     try {
@@ -118,7 +191,16 @@ export function buildServer() {
     }
   });
 
-  app.post("/api/routes/validate", async (request) => validateRoute(request.body));
+  app.post("/api/routes/validate", async (request) => {
+    const validation = validateRoute(request.body);
+    if (!validation.ok || !validation.route) return validation;
+    const promptIssues = await validatePromptLibraryNodes(validation.route.nodes);
+    return {
+      ok: promptIssues.length === 0,
+      route: promptIssues.length === 0 ? validation.route : undefined,
+      issues: promptIssues
+    };
+  });
 
   app.post<{ Body: { route?: unknown; initialNodeOutputs?: Record<string, unknown> } }>("/api/routes/run", async (request, reply) => {
     try {
@@ -169,8 +251,67 @@ export function buildServer() {
   return app;
 }
 
+async function listRouteFiles(directory: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await listRouteFiles(path)));
+    else if (/\.(orp|route)(\.(json|ya?ml))?$|\.json$|\.ya?ml$/i.test(entry.name)) files.push(path);
+  }
+  return files.sort();
+}
+
+async function loadExampleRoute(path: string): Promise<unknown> {
+  const fileStat = await stat(path);
+  if (!fileStat.isFile()) throw new Error(`Example route was not found: ${path}`);
+  const text = await readFile(path, "utf8");
+  return loadRouteFromText(text, path);
+}
+
+async function refreshPromptLibraryCache(): Promise<void> {
+  promptLibraryCache = await loadPromptLibrary();
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function normalizeStableDiffusionModels(value: unknown): Array<{ title: string; modelName?: string; filename?: string; hash?: string }> {
+  if (!Array.isArray(value)) return [];
+  const models: Array<{ title: string; modelName?: string; filename?: string; hash?: string }> = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const record = entry as Record<string, unknown>;
+    const title = typeof record.title === "string" ? record.title : typeof record.model_name === "string" ? record.model_name : "";
+    if (!title.trim()) continue;
+    models.push({
+      title,
+      modelName: typeof record.model_name === "string" ? record.model_name : undefined,
+      filename: typeof record.filename === "string" ? record.filename : undefined,
+      hash: typeof record.hash === "string" ? record.hash : undefined
+    });
+  }
+  return models;
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
 }
 
 function isReplicateEnabled(): boolean {
@@ -183,6 +324,17 @@ function isGeminiEnabled(): boolean {
 
 function sanitizeFilename(filename: string): string {
   return filename.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+}
+
+function findExistingDirectory(...parts: string[]): string {
+  let directory = process.cwd();
+  while (true) {
+    const candidate = join(directory, ...parts);
+    if (existsSync(candidate)) return candidate;
+    const parent = resolve(directory, "..");
+    if (parent === directory) return join(process.cwd(), ...parts);
+    directory = parent;
+  }
 }
 
 async function readLedgerRuns(): Promise<Array<Record<string, unknown>>> {

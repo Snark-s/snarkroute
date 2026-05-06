@@ -1,0 +1,51 @@
+routeVersion: "0.1"
+route:
+  id: m31-local-stable-diffusion-text-to-image
+  title: M3.1 Local Stable Diffusion Text To Image
+  description: Prompt to local Stable Diffusion WebUI-compatible txt2img.
+  author:
+    name: SnarkRoute
+  tags: [milestone-3.1, local, stable-diffusion, image]
+economics:
+  enabled: false
+  mode: disabled
+nodes:
+  - id: prompt
+    type: input.text
+    title: Prompt
+    params:
+      value: A tiny stained glass dragon icon, art nouveau, clean simple composition
+  - id: sd
+    type: local.stableDiffusion.textToImage
+    title: Local Stable Diffusion
+    params:
+      endpoint: http://127.0.0.1:7860
+      model: ""
+      prompt: ""
+      negativePrompt: ""
+      width: 512
+      height: 512
+      steps: 20
+      seed: -1
+      cfgScale: 7
+      samplerName: ""
+      batchSize: 1
+      restoreFaces: false
+      enableHrFix: false
+      timeoutMs: 180000
+  - id: preview
+    type: preview.image
+    title: Image Preview
+    params:
+      title: Local SD output
+edges:
+  - from: prompt
+    to: sd
+    fromPort: text
+    toPort: prompt
+  - from: sd
+    to: preview
+    fromPort: image
+    toPort: image
+provenance:
+  tool: snarkroute

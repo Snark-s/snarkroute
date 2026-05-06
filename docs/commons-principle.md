@@ -6,15 +6,19 @@ The central promise is simple: users must be able to take a route with them. A r
 
 ## Core Idea
 
-A route is a portable document. It can describe inputs, nodes, edges, parameters, provenance, and economics metadata without depending on one application, registry, marketplace, executor, or host.
+A route is a portable document. It can describe inputs, nodes, edges, parameters, AssetRefs, provenance, and economics metadata without depending on one application, registry, marketplace, executor, or host.
+
+Reusable external resources are assets. A route stores references to assets, not raw external files or arbitrary URLs. The host decides how AssetRefs are resolved, validated, cached, embedded, bundled, or blocked.
 
 Nodes are free protocol components, not rent-bearing assets. A node is a portable operation definition. It says what kind of operation exists, what it accepts, what it returns, and what permissions or dependencies it may need.
 
 A node is not the implementation. An implementation or provider is how that operation is executed: a local runner, hosted API, model provider, GPU server, media tool, or custom integration.
 
+A node also does not decide whether an asset is linked or embedded. Linked, embedded, and bundle are export modes.
+
 ## What Nodes Must Not Contain
 
-A node definition must not include pricing, royalties, DRM, license checks, mandatory payment services, or exclusive ownership claims.
+A node definition must not include pricing, royalties, DRM, license checks, mandatory payment services, exclusive ownership claims, or arbitrary executable code downloaded from a remote source.
 
 Those things may exist around execution or business relationships, but they are not part of the canonical protocol node.
 
@@ -48,7 +52,7 @@ These separations keep each layer replaceable.
 
 ## Portability
 
-Dependencies should be visible. If a route depends on a proprietary model, hosted API, paid service, local path, custom runner, or non-portable provider, that dependency should be inspectable.
+Dependencies should be visible. If a route depends on a proprietary model, hosted API, paid service, local path, AssetSource, custom runner, or non-portable provider, that dependency should be inspectable.
 
 Proprietary or paid implementations may exist, but they must be clearly marked as implementations/providers, not canonical nodes.
 

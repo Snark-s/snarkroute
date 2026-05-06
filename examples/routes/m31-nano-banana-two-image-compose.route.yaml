@@ -1,0 +1,65 @@
+routeVersion: "0.1"
+route:
+  id: m31-nano-banana-two-image-compose
+  title: M3.1 Nano Banana Two Image Compose
+  description: Two input images and a prompt to Gemini/Nano Banana image generation.
+  author:
+    name: SnarkRoute
+  tags: [milestone-3.1, gemini, nano-banana, image]
+economics:
+  enabled: false
+  mode: disabled
+  providerCosts:
+    - provider: gemini
+      model: gemini-3.1-flash-image-preview
+      nodeType: gemini.nano-banana-2
+      pricingHint: external-provider-billing
+      estimatedCost: null
+      actualCost: null
+nodes:
+  - id: image_a
+    type: input.image
+    title: Input Image 1
+    params:
+      path: examples/assets/clarity-input.png
+  - id: image_b
+    type: input.image
+    title: Input Image 2
+    params:
+      path: examples/assets/clarity-input.png
+  - id: prompt
+    type: input.text
+    title: Prompt
+    params:
+      value: Compose these two images into one polished poster-style image.
+  - id: compose
+    type: gemini.nano-banana-2
+    title: Nano Banana 2
+    params:
+      prompt: Compose these images.
+      aspectRatio: "1:1"
+      imageSize: 1K
+  - id: preview
+    type: preview.image
+    title: Image Preview
+    params:
+      title: Composed image
+edges:
+  - from: image_a
+    to: compose
+    fromPort: image
+    toPort: images
+  - from: image_b
+    to: compose
+    fromPort: image
+    toPort: images
+  - from: prompt
+    to: compose
+    fromPort: text
+    toPort: prompt
+  - from: compose
+    to: preview
+    fromPort: image
+    toPort: image
+provenance:
+  tool: snarkroute

@@ -198,11 +198,96 @@ export function validateRoute(input: unknown): ValidationResult {
     }
   }
 
+  for (const node of parsed.data.nodes) {
+    if (node.type !== "library.prompt") continue;
+    const params = node.params ?? {};
+    const mode = typeof params.mode === "string" ? params.mode : "";
+    const category = typeof params.category === "string" ? params.category.trim() : "";
+    const promptId = typeof params.promptId === "string" ? params.promptId.trim() : "";
+    const embeddedText = typeof params.embeddedText === "string" ? params.embeddedText.trim() : "";
+    const nodePath = `nodes.${node.id}.params`;
+
+    if (!mode) issues.push({ path: `${nodePath}.mode`, message: "mode is required for library.prompt." });
+    if (mode !== "linked" && mode !== "embedded") issues.push({ path: `${nodePath}.mode`, message: 'mode must be "linked" or "embedded".' });
+    if (mode === "linked" && !category) issues.push({ path: `${nodePath}.category`, message: "category is required when library.prompt mode is linked." });
+    if (mode === "linked" && !promptId) issues.push({ path: `${nodePath}.promptId`, message: "promptId is required when library.prompt mode is linked." });
+    if (mode === "embedded" && !embeddedText) issues.push({ path: `${nodePath}.embeddedText`, message: "embeddedText is required when library.prompt mode is embedded." });
+  }
+
+  for (const node of parsed.data.nodes) {
+    if (node.type === "http.request") {
+      validateHttpRequestNode(node, issues);
+    }
+    if (node.type === "local.stableDiffusion.textToImage") {
+      validateLocalStableDiffusionNode(node, parsed.data.edges, issues);
+    }
+  }
+
   return {
     ok: issues.length === 0,
     route: issues.length === 0 ? parsed.data : undefined,
     issues
   };
+}
+
+function validateHttpRequestNode(node: RouteNode, issues: ValidationIssue[]): void {
+  const params = node.params ?? {};
+  const nodePath = `nodes.${node.id}.params`;
+  const method = typeof params.method === "string" ? params.method.toUpperCase() : "";
+  if (!stringValue(params.url)) issues.push({ path: `${nodePath}.url`, message: "url is required for http.request." });
+  if (!method) issues.push({ path: `${nodePath}.method`, message: "method is required for http.request." });
+  if (method && !["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) {
+    issues.push({ path: `${nodePath}.method`, message: "method must be GET, POST, PUT, PATCH, or DELETE." });
+  }
+  if (params.headers !== undefined) validateJsonObjectLike(params.headers, `${nodePath}.headers`, "headers", issues);
+  if (params.query !== undefined) validateJsonObjectLike(params.query, `${nodePath}.query`, "query", issues);
+  if (params.queryParams !== undefined) validateJsonObjectLike(params.queryParams, `${nodePath}.queryParams`, "queryParams", issues);
+  if (params.bodyMode === "rawJson" && typeof params.body === "string") validateJsonText(params.body, `${nodePath}.body`, "body JSON", issues);
+}
+
+function validateLocalStableDiffusionNode(node: RouteNode, edges: RouteEdge[], issues: ValidationIssue[]): void {
+  const params = node.params ?? {};
+  const nodePath = `nodes.${node.id}.params`;
+  if (!stringValue(params.endpoint)) issues.push({ path: `${nodePath}.endpoint`, message: "endpoint is required for local.stableDiffusion.textToImage." });
+  const hasPromptInput = edges.some((edge) => edge.to === node.id && (!edge.toPort || edge.toPort === "prompt"));
+  if (!stringValue(params.prompt) && !hasPromptInput) issues.push({ path: `${nodePath}.prompt`, message: "prompt is required for local.stableDiffusion.textToImage unless a prompt input is connected." });
+  for (const key of ["width", "height", "steps", "cfgScale", "batchSize"] as const) {
+    const value = params[key];
+    const number = Number(typeof value === "string" ? value.replace(",", ".") : value);
+    if (!Number.isFinite(number)) {
+      issues.push({ path: `${nodePath}.${key}`, message: `${key} must be a valid number.` });
+    } else if (number <= 0) {
+      issues.push({ path: `${nodePath}.${key}`, message: `${key} must be positive.` });
+    }
+  }
+}
+
+function validateJsonObjectLike(value: unknown, path: string, label: string, issues: ValidationIssue[]): void {
+  const parsed = typeof value === "string" ? safeJsonParse(value) : { ok: true as const, value };
+  if (!parsed.ok) {
+    issues.push({ path, message: `${label} must be valid JSON.` });
+    return;
+  }
+  if (!parsed.value || typeof parsed.value !== "object" || Array.isArray(parsed.value)) {
+    issues.push({ path, message: `${label} must be a JSON object.` });
+  }
+}
+
+function validateJsonText(value: string, path: string, label: string, issues: ValidationIssue[]): void {
+  const parsed = safeJsonParse(value);
+  if (!parsed.ok) issues.push({ path, message: `${label} must be valid JSON.` });
+}
+
+function safeJsonParse(value: string): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(value) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 export function parseNodeRef(ref: string): NodeRef {

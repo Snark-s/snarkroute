@@ -1,0 +1,60 @@
+routeVersion: "0.1"
+route:
+  id: m31-replicate-upscale
+  title: M3.1 Replicate Upscale
+  description: Input Image to Replicate Clarity Upscaler to preview.
+  author:
+    name: SnarkRoute
+  tags: [milestone-3.1, replicate, upscale, image]
+economics:
+  enabled: false
+  mode: disabled
+  providerCosts:
+    - provider: replicate
+      model: philz1337x/clarity-upscaler
+      nodeType: replicate.clarity-upscaler
+      pricingHint: external-provider-billing
+      estimatedCost: null
+      actualCost: null
+nodes:
+  - id: input_image
+    type: input.image
+    title: Input Image
+    params:
+      path: examples/assets/clarity-input.png
+  - id: upscale
+    type: replicate.clarity-upscaler
+    title: Clarity Upscaler
+    params:
+      prompt: masterpiece, best quality, highres
+      negative_prompt: "(worst quality, low quality, normal quality:2)"
+      scale_factor: 2
+      dynamic: 6
+      creativity: 0.25
+      resemblance: 0.8
+      tiling_width: 112
+      tiling_height: 144
+      scheduler: DPM++ 3M SDE Karras
+      num_inference_steps: 18
+      seed: 1337
+      downscaling: false
+      downscaling_resolution: 768
+      lora_links: ""
+      pollingIntervalMs: 1000
+      timeoutMs: 120000
+  - id: preview
+    type: preview.image
+    title: Image Preview
+    params:
+      title: Upscaled
+edges:
+  - from: input_image
+    to: upscale
+    fromPort: image
+    toPort: image
+  - from: upscale
+    to: preview
+    fromPort: image
+    toPort: image
+provenance:
+  tool: snarkroute
