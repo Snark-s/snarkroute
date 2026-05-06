@@ -496,8 +496,8 @@ h2 {
 
 .nodeCollapseButton {
   align-items: center;
-  background: #151c28;
-  border: 1px solid #3a4658;
+  background: transparent;
+  border: 0;
   border-radius: 5px;
   color: #b9c6d8;
   display: inline-flex;
@@ -512,7 +512,7 @@ h2 {
 }
 
 .nodeCollapseButton:hover {
-  border-color: #67c5ad;
+  background: rgba(103, 197, 173, 0.12);
   color: #ffffff;
 }
 
