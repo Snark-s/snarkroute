@@ -376,13 +376,14 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const inputConnectionCounts = (data.inputConnectionCounts as Record<string, number> | undefined) ?? {};
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
   const ports = getNodePorts(type);
+  const portTopBase = paramsCollapsed ? 92 : 34;
 
   function patchParams(patch: Record<string, unknown>) {
     onParamsChange?.(id, { ...params, ...patch });
   }
 
   return (
-    <div className="routeNodeCard">
+    <div className={`routeNodeCard ${paramsCollapsed ? "paramsCollapsed" : ""}`}>
       <span className={`nodeStatus ${statusClass(result?.status)}`} />
       {shouldShowNodeRunButton(type) ? (
         <div className="nodeRunActions">
@@ -413,7 +414,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
       ) : null}
       {ports.inputs.map((port, index) => (
         <React.Fragment key={port.id}>
-          <span className="portLabel input" style={{ top: `${34 + index * 28}px` }}>
+          <span className="portLabel input" style={{ top: `${portTopBase + index * 28}px` }}>
             {port.maxConnections ? `${port.label ?? port.id} (${inputConnectionCounts[port.id] ?? 0}/${port.maxConnections})` : port.label ?? port.id}
           </span>
           <Handle
@@ -421,7 +422,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
             id={port.id}
             type="target"
             position={Position.Left}
-            style={{ top: `${42 + index * 28}px` }}
+            style={{ top: `${portTopBase + 8 + index * 28}px` }}
             title={`${port.id}: ${port.kind}`}
           />
         </React.Fragment>
@@ -488,7 +489,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
       {result && shouldShowInlineResult(type) ? <NodeInlineResult result={result} onOpenImage={onOpenImage} /> : null}
       {ports.outputs.map((port, index) => (
         <React.Fragment key={port.id}>
-          <span className="portLabel output" style={{ top: `${34 + index * 28}px` }}>
+          <span className="portLabel output" style={{ top: `${portTopBase + index * 28}px` }}>
             {port.label ?? port.id}
           </span>
           <Handle
@@ -496,7 +497,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
             id={port.id}
             type="source"
             position={Position.Right}
-            style={{ top: `${42 + index * 28}px` }}
+            style={{ top: `${portTopBase + 8 + index * 28}px` }}
             title={`${port.id}: ${port.kind}`}
           />
         </React.Fragment>

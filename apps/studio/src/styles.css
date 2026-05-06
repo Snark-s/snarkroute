@@ -331,6 +331,10 @@ h2 {
   width: 260px;
 }
 
+.routeNodeCard.paramsCollapsed {
+  min-height: 158px;
+}
+
 .react-flow__node-route.selected .routeNodeCard {
   border-color: #7dd3c0;
   box-shadow: 0 0 0 2px rgba(125, 211, 192, 0.28), 0 12px 28px rgba(0, 0, 0, 0.35);
@@ -482,7 +486,12 @@ h2 {
   margin: 0 auto 16px;
   min-height: 28px;
   max-width: 210px;
+  padding-right: 30px;
   text-align: left;
+}
+
+.routeNodeCard.paramsCollapsed .nodeHeader {
+  margin-bottom: 8px;
 }
 
 .nodeCollapseButton {
@@ -492,12 +501,14 @@ h2 {
   border-radius: 5px;
   color: #b9c6d8;
   display: inline-flex;
-  flex: 0 0 auto;
   height: 24px;
   justify-content: center;
-  margin-left: 2px;
   padding: 0;
+  position: absolute;
+  right: 10px;
+  top: 34px;
   width: 24px;
+  z-index: 3;
 }
 
 .nodeCollapseButton:hover {
@@ -652,7 +663,8 @@ h2 {
   border-radius: 5px;
   color: #8f9aaa;
   font-size: 11px;
-  margin-top: 8px;
+  margin: 8px auto 0;
+  max-width: 150px;
   padding: 6px 7px;
   text-align: center;
 }
