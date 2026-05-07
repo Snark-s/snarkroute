@@ -26,7 +26,7 @@ type RouteDoc = {
   routeVersion: string;
   route: { id: string; title: string; description?: string; author: Record<string, unknown>; tags?: string[] };
   economics?: Record<string, unknown>;
-  nodes: Array<{ id: string; type: string; title?: string; params?: Record<string, unknown>; ui?: Record<string, unknown> }>;
+  nodes: Array<{ id: string; type: string; title?: string; params?: Record<string, unknown>; nodePackage?: Record<string, unknown>; ui?: Record<string, unknown> }>;
   edges: Array<{ id?: string; from: string; to: string; fromPort?: string; toPort?: string }>;
   provenance?: Record<string, unknown>;
 };
@@ -91,6 +91,43 @@ type StableDiffusionModel = {
   modelName?: string;
   filename?: string;
   hash?: string;
+};
+
+type NodeManifest = {
+  id: string;
+  title: string;
+  version: string;
+  author: { name: string };
+  origin: string;
+  source?: string;
+  license: string;
+  category?: string;
+  description?: string;
+  permissions: { network: boolean; networkHosts?: string[]; readFiles: boolean; writeOutputs: boolean; shell: boolean; env: string[] };
+  executor: { type: string; runtime?: string; entry?: string; builtinRunner?: string };
+  inputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
+  outputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
+  params?: Array<{ id: string; type: string; label?: string; default?: unknown }>;
+  enabled?: boolean;
+};
+
+type NodeCatalogItem = {
+  type: string;
+  title: string;
+  description?: string;
+  enabled?: boolean;
+  manifest?: NodeManifest;
+  params?: Record<string, unknown>;
+};
+
+type NodeLibraryPreview = {
+  kind: "snarkroute.nodeLibrary";
+  id: string;
+  title: string;
+  version: string;
+  author: { name: string };
+  license: string;
+  nodes: Array<{ id: string; title: string; url: string; version?: string; description?: string }>;
 };
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
@@ -371,11 +408,13 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const promptLibrary = data.promptLibrary as PromptLibraryData | undefined;
   const onRefreshPromptLibrary = data.onRefreshPromptLibrary as (() => void) | undefined;
   const stableDiffusionModels = (data.stableDiffusionModels as StableDiffusionModel[] | undefined) ?? [];
+  const manifest = data.manifest as NodeManifest | undefined;
+  const isMissingNode = Boolean(data.isMissingNode);
   const onRefreshStableDiffusionModels = data.onRefreshStableDiffusionModels as ((endpoint: string) => void) | undefined;
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
   const inputConnectionCounts = (data.inputConnectionCounts as Record<string, number> | undefined) ?? {};
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
-  const ports = getNodePorts(type);
+  const ports = getNodePorts(type, manifest);
   const portTopBase = paramsCollapsed ? 92 : 34;
 
   function patchParams(patch: Record<string, unknown>) {
@@ -385,6 +424,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   return (
     <div className={`routeNodeCard ${paramsCollapsed ? "paramsCollapsed" : ""}`}>
       <span className={`nodeStatus ${statusClass(result?.status)}`} />
+      {isMissingNode ? <div className="nodeWarning">Missing node package. Install "{type}" or remove this node.</div> : null}
       {shouldShowNodeRunButton(type) ? (
         <div className="nodeRunActions">
           <button
@@ -432,7 +472,8 @@ function RouteNodeCard({ id, data }: NodeProps) {
         <div>
           <div className="nodeTitle">{title}</div>
           <div className="nodeType" title={type}>{type}</div>
-          <div className={`executorBadge ${executorKind(type)}`}>{executorLabel(type)}</div>
+          <div className={`executorBadge ${executorKind(type, manifest)}`}>{executorLabel(type, manifest)}</div>
+          {manifest ? <div className="nodeMetaLine">{manifest.author?.name} · {manifest.version} · {manifest.origin}{manifest.source ? ` · ${manifest.source}` : ""}</div> : null}
         </div>
         <button
           className="nodeCollapseButton nodrag nopan"
@@ -1023,7 +1064,13 @@ type PortSpec = {
   maxConnections?: number;
 };
 
-function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] } {
+function getNodePorts(type: string, manifest?: NodeManifest): { inputs: PortSpec[]; outputs: PortSpec[] } {
+  if (manifest && !isKnownBuiltInPortType(type)) {
+    return {
+      inputs: manifest.inputs.map((port) => ({ id: port.id, kind: portKindFromManifest(port.type), label: port.label })),
+      outputs: manifest.outputs.map((port) => ({ id: port.id, kind: portKindFromManifest(port.type), label: port.label }))
+    };
+  }
   if (type === "input.text") return { inputs: [], outputs: [{ id: "text", kind: "text" }] };
   if (type === "input.file") return { inputs: [], outputs: [{ id: "file", kind: "file" }] };
   if (type === "input.image") return { inputs: [], outputs: [{ id: "image", kind: "image" }] };
@@ -1100,6 +1147,65 @@ function getNodePorts(type: string): { inputs: PortSpec[]; outputs: PortSpec[] }
   return { inputs: [{ id: "input", kind: "json", label: "JSON" }], outputs: [{ id: "output", kind: "json", label: "JSON" }] };
 }
 
+function isKnownBuiltInPortType(type: string): boolean {
+  return library.some((item) => item.type === type);
+}
+
+function portKindFromManifest(value: string): PortKind {
+  if (value === "text" || value === "image" || value === "video" || value === "file" || value === "json" || value === "data") return value;
+  if (value === "number" || value === "boolean") return "data";
+  return "json";
+}
+
+function defaultParamsFromManifest(manifest?: NodeManifest): Record<string, unknown> {
+  return Object.fromEntries((manifest?.params ?? []).map((param) => [param.id, param.default ?? ""]));
+}
+
+function catalogItemTitle(item: NodeCatalogItem | (typeof library)[number]): string {
+  return "title" in item ? item.title : item.label;
+}
+
+function groupNodeCatalog(items: NodeCatalogItem[]): Array<{ id: string; title: string; items: NodeCatalogItem[] }> {
+  const groups = new Map<string, NodeCatalogItem[]>();
+  for (const item of items.filter((entry) => entry.enabled !== false)) {
+    const title = item.manifest?.category ?? fallbackSectionTitle(item.type);
+    groups.set(title, [...(groups.get(title) ?? []), item]);
+  }
+  return [...groups.entries()].map(([title, sectionItems]) => ({ id: title.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "nodes", title, items: sectionItems }));
+}
+
+function fallbackSectionTitle(type: string): string {
+  return librarySections.find((section) => section.types.includes(type))?.title ?? "Installed";
+}
+
+function canImportNodePackageFile(file: File): boolean {
+  return /\.snarknode$/i.test(file.name) || /(^|[.-])manifest\.json$/i.test(file.name) || /\.node\.json$/i.test(file.name);
+}
+
+function permissionsSummary(manifest: NodeManifest): string {
+  const permissions = manifest.permissions;
+  return [
+    permissions.network ? `network(${permissions.networkHosts?.join(", ") || "unspecified hosts"})` : "no network",
+    permissions.readFiles ? "read files" : "no file reads",
+    permissions.writeOutputs ? "write outputs" : "no output writes",
+    permissions.shell ? "shell requested" : "no shell",
+    permissions.env?.length ? `env: ${permissions.env.join(", ")}` : "no env"
+  ].join("; ");
+}
+
+function formatApiIssues(value: unknown): string {
+  if (!value || typeof value !== "object") return "Request failed.";
+  const record = value as Record<string, unknown>;
+  if (typeof record.error === "string") return record.error;
+  if (Array.isArray(record.issues)) {
+    return record.issues.map((issue) => {
+      const item = issue as Record<string, unknown>;
+      return `${item.path ?? "<root>"}: ${item.message ?? "invalid"}`;
+    }).join("; ");
+  }
+  return "Request failed.";
+}
+
 function arePortsCompatible(source: PortKind, target: PortKind): boolean {
   if (source === "data" || target === "data") return true;
   if (source === "json" && target === "text") return true;
@@ -1170,7 +1276,9 @@ function isGeminiNode(type: string): boolean {
   return type === "gemini.nano-banana-2" || type === "gemini.llm";
 }
 
-function executorKind(type: string): string {
+function executorKind(type: string, manifest?: NodeManifest): string {
+  if (manifest?.origin && manifest.origin !== "bundled") return "custom";
+  if (manifest?.executor.type === "plugin") return "custom";
   if (type.startsWith("local.")) return "local";
   if (type.startsWith("gemini.")) return "gemini";
   if (type.startsWith("replicate.")) return "replicate";
@@ -1179,8 +1287,10 @@ function executorKind(type: string): string {
   return "custom";
 }
 
-function executorLabel(type: string): string {
-  const kind = executorKind(type);
+function executorLabel(type: string, manifest?: NodeManifest): string {
+  if (manifest?.executor.type === "plugin") return `${manifest.executor.runtime ?? "plugin"} plugin`;
+  if (manifest?.executor.type === "declarative") return "declarative";
+  const kind = executorKind(type, manifest);
   if (kind === "gemini") return "Gemini";
   if (kind === "replicate") return "Replicate";
   if (kind === "http") return "HTTP";
@@ -1300,6 +1410,13 @@ function App() {
   const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
   const [promptLibrary, setPromptLibrary] = useState<PromptLibraryData>(DEFAULT_PROMPT_LIBRARY);
   const [stableDiffusionModels, setStableDiffusionModels] = useState<StableDiffusionModel[]>([]);
+  const [nodeCatalog, setNodeCatalog] = useState<NodeCatalogItem[]>(() => library.map((item) => ({ type: item.type, title: item.label, params: item.params })));
+  const [installedNodes, setInstalledNodes] = useState<NodeManifest[]>([]);
+  const [nodeUrl, setNodeUrl] = useState("");
+  const [nodePackagePath, setNodePackagePath] = useState("");
+  const [libraryUrl, setLibraryUrl] = useState("");
+  const [libraryPreview, setLibraryPreview] = useState<NodeLibraryPreview | null>(null);
+  const [selectedLibraryNodeIds, setSelectedLibraryNodeIds] = useState<Record<string, boolean>>({});
   const [selectedExampleId, setSelectedExampleId] = useState(milestoneExamples[0]?.route.id ?? exampleRoute.route.id);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
@@ -1310,12 +1427,15 @@ function App() {
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
   const selectedEdgeCount = edges.filter((edge) => edge.selected).length;
+  const catalogSections = useMemo(() => groupNodeCatalog(nodeCatalog), [nodeCatalog]);
   const displayNodes = useMemo(
     () =>
       nodes.map((node) => ({
         ...node,
         data: {
           ...node.data,
+          manifest: nodeCatalog.find((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type))?.manifest,
+          isMissingNode: !nodeCatalog.some((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type)),
           onParamsChange: updateNodeParams,
           onBrowseAsset: browseAsset,
           onConfigureReplicate: openReplicateSettings,
@@ -1335,14 +1455,36 @@ function App() {
           result: runResult?.nodeResults?.[node.id]
         }
       })),
-    [nodes, edges, runResult, promptLibrary, stableDiffusionModels, replicateConfigured, geminiConfigured]
+    [nodes, edges, runResult, promptLibrary, stableDiffusionModels, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
     void loadSettings();
+    void loadNodeCatalog();
     void loadPromptLibraryData();
     void loadLedgerSummary();
   }, []);
+
+  async function loadNodeCatalog() {
+    try {
+      const response = await fetch(`${apiBase}/api/nodes`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Node catalog unavailable.");
+      const catalog = Array.isArray(result.nodes)
+        ? result.nodes.map((entry: NodeCatalogItem) => {
+            const fallback = library.find((item) => item.type === entry.type);
+            return { ...entry, title: entry.title ?? entry.manifest?.title ?? fallback?.label ?? entry.type, params: fallback?.params ?? defaultParamsFromManifest(entry.manifest) };
+          })
+        : [];
+      setNodeCatalog(catalog);
+      const installedResponse = await fetch(`${apiBase}/api/node-packages/installed`);
+      const installedResult = await installedResponse.json();
+      setInstalledNodes(Array.isArray(installedResult.nodes) ? installedResult.nodes : []);
+    } catch (error) {
+      setNodeCatalog(library.map((item) => ({ type: item.type, title: item.label, params: item.params })));
+      setLogs((current) => [`Node catalog unavailable: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
 
   async function loadSettings() {
     try {
@@ -1548,6 +1690,10 @@ function App() {
 
     const file = event.dataTransfer.files?.[0];
     if (!file) return;
+    if (canImportNodePackageFile(file)) {
+      await importNodePackageFile(file, flowPositionFromEvent(event));
+      return;
+    }
     if (canImportDroppedRouteFile(file)) {
       try {
         await importRouteOntoCanvas(file, flowPositionFromEvent(event));
@@ -1560,19 +1706,162 @@ function App() {
 
     const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
     const type = `input.${kind}`;
-    const item = library.find((candidate) => candidate.type === type)!;
+    const item = nodeCatalog.find((candidate) => candidate.type === type) ?? library.find((candidate) => candidate.type === type);
+    if (!item) {
+      setLogs((entries) => [`Cannot add missing node type: ${type}`, ...entries]);
+      return;
+    }
     const id = `${type.replace(".", "_")}_${nodes.length + 1}`;
     try {
       const path = await importLocalAsset(file, kind);
-      const routeNode = { id, type, title: item.label, params: { path }, ui: {} };
+      const itemTitle = catalogItemTitle(item);
+      const routeNode = { id, type, title: itemTitle, params: { path }, ui: {} };
       setNodes((current) => [
         ...current,
-        { id, type: "route", position: { x: 160 + current.length * 30, y: 120 + current.length * 24 }, data: { label: `${item.label}\n${type}`, routeNode } }
+        { id, type: "route", position: { x: 160 + current.length * 30, y: 120 + current.length * 24 }, data: { label: `${itemTitle}\n${type}`, routeNode } }
       ]);
       setLogs((entries) => [`Dropped ${kind}: ${path}`, ...entries]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setLogs((entries) => [`Drop import error: ${message}`, ...entries]);
+    }
+  }
+
+  async function importNodePackageFile(file: File, position?: { x: number; y: number }) {
+    try {
+      const isArchive = /\.snarknode$/i.test(file.name);
+      const text = isArchive ? "" : await file.text();
+      const dataBase64 = isArchive ? await fileToBase64(file) : undefined;
+      const previewResponse = await fetch(`${apiBase}/api/node-packages/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, text, dataBase64 })
+      });
+      const preview = await previewResponse.json();
+      if (!previewResponse.ok || !preview.ok) throw new Error(formatApiIssues(preview));
+      const manifest = preview.manifest as NodeManifest;
+      const warningText = Array.isArray(preview.warnings) && preview.warnings.length ? `\n\nWarnings:\n${preview.warnings.join("\n")}` : "";
+      const confirmed = window.confirm(`Install node package?\n\n${manifest.title}\nAuthor: ${manifest.author.name}\nVersion: ${manifest.version}\nOrigin/source: ${manifest.origin} / ${manifest.source ?? "local-file"}\nExecutor: ${manifest.executor.type} ${manifest.executor.runtime ?? ""}\nPermissions: ${permissionsSummary(manifest)}${warningText}`);
+      if (!confirmed) return;
+      const installResponse = await fetch(`${apiBase}/api/node-packages/install`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, dataBase64, source: file.name })
+      });
+      const installed = await installResponse.json();
+      if (!installResponse.ok || !installed.ok) throw new Error(installed.error ?? formatApiIssues(installed));
+      await loadNodeCatalog();
+      if (position) addNodeFromCatalogItem({ type: manifest.id, title: manifest.title, manifest, params: defaultParamsFromManifest(manifest) }, position);
+      setLogs((current) => [`Installed node ${manifest.id}.`, ...current]);
+    } catch (error) {
+      setLogs((current) => [`Node package import failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  async function installNodeFromUrl() {
+    try {
+      const previewResponse = await fetch(`${apiBase}/api/node-packages/preview-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: nodeUrl })
+      });
+      const preview = await previewResponse.json();
+      if (!previewResponse.ok || !preview.ok || !preview.manifest) throw new Error(formatApiIssues(preview));
+      const manifest = preview.manifest as NodeManifest;
+      const confirmed = window.confirm(`Install node from URL?\n\n${manifest.title}\nAuthor: ${manifest.author.name}\nVersion: ${manifest.version}\nSource: ${nodeUrl}\nExecutor: ${manifest.executor.type} ${manifest.executor.runtime ?? ""}\nPermissions: ${permissionsSummary(manifest)}`);
+      if (!confirmed) return;
+      const response = await fetch(`${apiBase}/api/node-packages/install-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: nodeUrl })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
+      await loadNodeCatalog();
+      setLogs((current) => [`Installed node from URL: ${result.manifest?.id ?? nodeUrl}`, ...current]);
+    } catch (error) {
+      setLogs((current) => [`URL install failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  async function installNodeFromPath() {
+    try {
+      const response = await fetch(`${apiBase}/api/node-packages/install-path`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: nodePackagePath })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
+      await loadNodeCatalog();
+      setLogs((current) => [`Installed node package from path: ${result.manifest?.id ?? nodePackagePath}`, ...current]);
+    } catch (error) {
+      setLogs((current) => [`Path install failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  async function previewLibraryFromUrl() {
+    try {
+      const response = await fetch(`${apiBase}/api/node-packages/preview-url`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: libraryUrl })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok || !result.library) throw new Error(formatApiIssues(result));
+      setLibraryPreview(result.library);
+      setSelectedLibraryNodeIds(Object.fromEntries((result.library.nodes as NodeLibraryPreview["nodes"]).map((node) => [node.id, false])));
+    } catch (error) {
+      setLogs((current) => [`Library preview failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  async function installSelectedLibraryNodes() {
+    try {
+      if (!libraryPreview) return;
+      const nodeIds = Object.entries(selectedLibraryNodeIds).filter(([, selected]) => selected).map(([id]) => id);
+      const response = await fetch(`${apiBase}/api/node-packages/install-library`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ libraryUrl, nodeIds })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
+      await loadNodeCatalog();
+      setLogs((current) => [`Installed ${result.installed?.length ?? 0} node(s) from library.`, ...current]);
+    } catch (error) {
+      setLogs((current) => [`Library install failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  async function setInstalledNodeState(id: string, enabled: boolean) {
+    const response = await fetch(`${apiBase}/api/node-packages/${encodeURIComponent(id)}/enabled`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) setLogs((current) => [`Node ${enabled ? "enable" : "disable"} failed: ${result.error ?? "unknown error"}`, ...current]);
+    await loadNodeCatalog();
+  }
+
+  async function uninstallNode(id: string) {
+    if (!window.confirm(`Uninstall local node "${id}"? Existing route files will not be changed.`)) return;
+    const response = await fetch(`${apiBase}/api/node-packages/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const result = await response.json();
+    if (!response.ok || !result.ok) setLogs((current) => [`Uninstall failed: ${result.error ?? "unknown error"}`, ...current]);
+    await loadNodeCatalog();
+  }
+
+  async function viewInstalledNodeReadme(id: string) {
+    try {
+      const response = await fetch(`${apiBase}/api/node-packages/${encodeURIComponent(id)}/readme`);
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? "README not found.");
+      setOutputs({ node: id, readmePath: result.path, readme: result.text });
+      setBottomCollapsed(false);
+    } catch (error) {
+      setLogs((current) => [`README unavailable: ${error instanceof Error ? error.message : String(error)}`, ...current]);
     }
   }
 
@@ -1592,14 +1881,32 @@ function App() {
   }
 
   function addNode(type: string, position?: { x: number; y: number }) {
-    const item = library.find((candidate) => candidate.type === type)!;
-    const idBase = type.replace(".", "_");
+    const item = nodeCatalog.find((candidate) => candidate.type === type) ?? library.find((candidate) => candidate.type === type);
+    if (!item) {
+      setLogs((current) => [`Cannot add missing node type: ${type}`, ...current]);
+      return;
+    }
+    addNodeFromCatalogItem(item, position);
+  }
+
+  function addNodeFromCatalogItem(item: NodeCatalogItem | (typeof library)[number], position?: { x: number; y: number }) {
+    const type = item.type;
+    const idBase = type.replace(/\W+/g, "_");
     const id = `${idBase}_${nodes.length + 1}`;
     const params = structuredClone(item.params ?? {});
-    const routeNode = { id, type, title: item.label, params, ui: {} };
+    const itemTitle = catalogItemTitle(item);
+    const manifest = "manifest" in item ? item.manifest : undefined;
+    const routeNode = {
+      id,
+      type,
+      title: itemTitle,
+      params,
+      nodePackage: manifest && manifest.origin !== "bundled" ? { id: manifest.id, version: manifest.version, origin: manifest.origin, source: manifest.source } : undefined,
+      ui: {}
+    };
     setNodes((current) => [
       ...current,
-      { id, type: "route", position: position ?? { x: 120 + current.length * 36, y: 140 + current.length * 28 }, data: { label: `${item.label}\n${type}`, routeNode } }
+      { id, type: "route", position: position ?? { x: 120 + current.length * 36, y: 140 + current.length * 28 }, data: { label: `${itemTitle}\n${type}`, routeNode } }
     ]);
   }
 
@@ -1607,7 +1914,7 @@ function App() {
     setCollapsedLibrarySections((current) => ({ ...current, [id]: !current[id] }));
   }
 
-  function renderLibraryItem(item: (typeof library)[number]) {
+  function renderLibraryItem(item: NodeCatalogItem) {
     return (
       <button
         key={item.type}
@@ -1620,8 +1927,9 @@ function App() {
         }}
         >
           <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
-          <strong>{item.label}</strong>
+          <strong>{catalogItemTitle(item)}</strong>
           <span>{item.type}</span>
+          {item.manifest ? <small>{item.manifest.author.name} · {item.manifest.version} · {item.manifest.origin}</small> : null}
         </button>
       );
     }
@@ -1923,6 +2231,10 @@ function App() {
           <button onClick={loadExample} title="Load example"><Wand2 size={16} /> Example</button>
           <button onClick={exportRoute} title="Export route"><Download size={16} /> Export</button>
           <label className="fileButton" title="Import route"><Upload size={16} /> Import<input type="file" accept={ROUTE_FILE_ACCEPT} onChange={(event) => void importRoute(event.target.files?.[0] ?? null)} /></label>
+          <label className="fileButton" title="Import node package"><Plus size={16} /> Node<input type="file" accept=".snarknode,.json,.node.json,application/json" onChange={(event) => {
+            const file = event.target.files?.[0] ?? null;
+            if (file) void importNodePackageFile(file);
+          }} /></label>
           <button onClick={saveProject} title="Save current project"><Save size={16} /> Save</button>
           <button onClick={loadSavedProject} title="Load saved project"><FolderOpen size={16} /> Load</button>
         </div>
@@ -1935,9 +2247,9 @@ function App() {
           <span><i className="legendDot file" />File</span>
         </div>
         <div className="librarySections">
-          {librarySections.map((section) => {
+          {catalogSections.map((section) => {
             const collapsed = Boolean(collapsedLibrarySections[section.id]);
-            const items = section.types.map((type) => library.find((item) => item.type === type)).filter((item): item is (typeof library)[number] => Boolean(item));
+            const items = section.items;
             return (
               <section className="librarySection" key={section.id}>
                 <button className="librarySectionHeader" onClick={() => toggleLibrarySection(section.id)}>
@@ -2065,6 +2377,56 @@ function App() {
           </label>
           <button onClick={() => void saveGeminiToken()}><Save size={16} /> Save Key</button>
           {settingsMessage ? <p className={settingsMessage.includes("error") || settingsMessage.includes("Failed") || settingsMessage.includes("empty") ? "errorText" : "muted"}>{settingsMessage}</p> : null}
+        </div>
+
+        <div className="settingsPanel nodePackagePanel">
+          <h3>Node Packages</h3>
+          <label className="settingsField">
+            <span>Install local .snarknode folder or manifest path</span>
+            <input value={nodePackagePath} placeholder="Y:\\path\\my-node.snarknode" onChange={(event) => setNodePackagePath(event.target.value)} />
+          </label>
+          <button onClick={() => void installNodeFromPath()}><FolderOpen size={16} /> Install Local Path</button>
+          <label className="settingsField">
+            <span>Add node from URL</span>
+            <input value={nodeUrl} placeholder="https://example.com/node.snarknode" onChange={(event) => setNodeUrl(event.target.value)} />
+          </label>
+          <button onClick={() => void installNodeFromUrl()}><Plus size={16} /> Add Node URL</button>
+          <label className="settingsField">
+            <span>Add node library</span>
+            <input value={libraryUrl} placeholder="https://example.com/library.json" onChange={(event) => setLibraryUrl(event.target.value)} />
+          </label>
+          <button onClick={() => void previewLibraryFromUrl()}><BookOpen size={16} /> Preview Library</button>
+          {libraryPreview ? (
+            <div className="nodeLibraryPreview">
+              <strong>{libraryPreview.title}</strong>
+              <span>{libraryPreview.author.name} · {libraryPreview.version}</span>
+              {libraryPreview.nodes.map((node) => (
+                <label key={node.id}>
+                  <input type="checkbox" checked={Boolean(selectedLibraryNodeIds[node.id])} onChange={(event) => setSelectedLibraryNodeIds((current) => ({ ...current, [node.id]: event.target.checked }))} />
+                  <span>{node.title}</span>
+                </label>
+              ))}
+              <button onClick={() => void installSelectedLibraryNodes()}><Plus size={16} /> Install Selected</button>
+            </div>
+          ) : null}
+          <h4>Manage Installed Nodes</h4>
+          <div className="installedNodeList">
+            {installedNodes.length === 0 ? <p className="muted">No installed nodes yet.</p> : installedNodes.map((node) => (
+              <div className="installedNodeItem" key={node.id}>
+                <strong>{node.title}</strong>
+                <span>{node.id}</span>
+                <span>{node.author.name} · {node.version} · {node.origin}</span>
+                <span>{node.source ?? "local install"}</span>
+                <span>executor: {node.executor.type}{node.executor.runtime ? `/${node.executor.runtime}` : ""} · executable: {node.executor.type === "plugin" ? "yes" : "no"}</span>
+                <span>permissions: {permissionsSummary(node)}</span>
+                <div>
+                  <button className="nodeSmallButton" onClick={() => void setInstalledNodeState(node.id, node.enabled === false)}> {node.enabled === false ? "Enable" : "Disable"} </button>
+                  <button className="nodeSmallButton" onClick={() => void viewInstalledNodeReadme(node.id)}>README</button>
+                  <button className="nodeSmallButton danger" onClick={() => void uninstallNode(node.id)}>Uninstall</button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
 
         <h2>Inspector</h2>

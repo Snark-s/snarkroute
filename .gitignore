@@ -2,6 +2,7 @@ node_modules/
 dist/
 dist-types/
 build/
+.codex/
 data/*
 !data/prompt-library/
 !data/prompt-library/**
@@ -16,5 +17,6 @@ data/*
 .DS_Store
 Thumbs.db
 desktop.ini
+*.lnk
 /SnarkRoute.png
 /Процесс/

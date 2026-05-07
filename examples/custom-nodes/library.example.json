@@ -1,0 +1,25 @@
+{
+  "kind": "snarkroute.nodeLibrary",
+  "schemaVersion": "0.1",
+  "id": "example.custom-nodes",
+  "title": "Example Custom Nodes",
+  "version": "0.1.0",
+  "author": {
+    "name": "SnarkRoute maintainers"
+  },
+  "license": "AGPL-3.0-or-later",
+  "nodes": [
+    {
+      "id": "example.http.jsonRequest",
+      "title": "Example HTTP JSON Request",
+      "url": "https://example.com/snarkroute/nodes/http-json-declarative.portable.snarknode",
+      "version": "0.1.0"
+    },
+    {
+      "id": "example.plugin.envEcho",
+      "title": "Example Plugin Env Echo",
+      "url": "https://example.com/snarkroute/nodes/plugin-env-echo.portable.snarknode",
+      "version": "0.1.0"
+    }
+  ]
+}

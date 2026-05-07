@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@snarkroute/executor": "workspace:*",
-    "@snarkroute/protocol": "workspace:*"
+    "@snarkroute/protocol": "workspace:*",
+    "jszip": "^3.10.1"
   }
 }

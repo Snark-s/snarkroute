@@ -7,7 +7,32 @@ import { execFile } from "node:child_process";
 import { basename, join, resolve } from "node:path";
 import { createExecutor } from "@snarkroute/executor";
 import { createGeminiLlmNodeRunner, createNanoBanana2NodeRunner } from "@snarkroute/gemini";
-import { builtInNodeDefinitions, getLocalAssetMetadata, getPromptLibraryPrompt, loadPromptLibrary, registerBuiltInNodeRunners, summarizePromptLibrary, validatePromptLibraryNodes, type LocalAssetKind, type PromptLibrary } from "@snarkroute/nodes";
+import {
+  builtInNodeManifests,
+  formatIssues,
+  getInstalledNodesDirectory,
+  getLocalAssetMetadata,
+  installNodePackageFromManifest,
+  installNodePackageFromArchive,
+  previewNodePackageArchive,
+  isSupportedRemoteUrl,
+  loadInstalledNodeManifests,
+  nodeManifestToCatalogEntry,
+  registerBuiltInNodeRunners,
+  registerInstalledNodeRunners,
+  setInstalledNodeEnabled,
+  summarizePromptLibrary,
+  uninstallInstalledNode,
+  validateNodeLibraryManifest,
+  validateNodeManifest,
+  validatePromptLibraryNodes,
+  validateRouteNodeTypes,
+  getPromptLibraryPrompt,
+  loadPromptLibrary,
+  type LocalAssetKind,
+  type PromptLibrary,
+  type SnarkNodeManifest
+} from "@snarkroute/nodes";
 import { loadRouteFromText, parseRoute, validateRoute } from "@snarkroute/protocol";
 import { createClarityUpscalerNodeRunner, createReplicateClient, createReplicateNodeRunner } from "@snarkroute/replicate";
 import { createLocalRunStorage } from "@snarkroute/storage";
@@ -56,15 +81,154 @@ export function buildServer() {
     }
   });
 
-  app.get("/api/nodes", async () => ({
-    nodes: [
-      ...builtInNodeDefinitions,
-      { type: "replicate.model", title: "Replicate Model", description: "Runs a Replicate model prediction.", enabled: isReplicateEnabled() },
-      { type: "replicate.clarity-upscaler", title: "Clarity Upscaler", description: "Runs Replicate philz1337x/clarity-upscaler.", enabled: isReplicateEnabled() },
-      { type: "gemini.llm", title: "Gemini LLM", description: "Runs Gemini text generation.", enabled: isGeminiEnabled() },
-      { type: "gemini.nano-banana-2", title: "Nano Banana 2", description: "Runs Gemini image generation/editing.", enabled: isGeminiEnabled() }
-    ]
+  app.get("/api/nodes", async () => {
+    const installed = await loadInstalledNodeManifests();
+    return {
+      nodes: [
+        ...builtInNodeManifests.map(nodeManifestToCatalogEntry),
+        ...providerNodeManifests().map(nodeManifestToCatalogEntry),
+        ...installed.filter((manifest) => manifest.enabled !== false).map(nodeManifestToCatalogEntry)
+      ],
+      installedDirectory: getInstalledNodesDirectory()
+    };
+  });
+
+  app.get("/api/node-packages/installed", async () => ({
+    installedDirectory: getInstalledNodesDirectory(),
+    nodes: await loadInstalledNodeManifests()
   }));
+
+  app.post<{ Body: { filename?: string; manifest?: unknown; text?: string; dataBase64?: string } }>("/api/node-packages/preview", async (request, reply) => {
+    try {
+      if (request.body?.dataBase64 || isSnarkNodeArchiveFilename(request.body?.filename ?? "")) {
+        const data = Buffer.from(request.body?.dataBase64 ?? "", "base64");
+        const preview = await previewNodePackageArchive(data, { source: request.body?.filename ?? "local-file", existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
+        return { ok: true, ...preview };
+      }
+      const manifest = request.body?.manifest ?? JSON.parse(request.body?.text ?? "{}");
+      const validation = validateNodeManifest(manifest, { existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
+      return validation.ok ? { ok: true, manifest: validation.manifest, warnings: packageWarnings(validation.manifest!) } : validation;
+    } catch (error) {
+      return reply.code(400).send({ ok: false, issues: [{ path: request.body?.filename ?? "<upload>", message: errorMessage(error) }] });
+    }
+  });
+
+  app.post<{ Body: { manifest?: unknown; text?: string; dataBase64?: string; source?: string; files?: Array<{ path: string; dataBase64?: string; text?: string }> } }>("/api/node-packages/install", async (request, reply) => {
+    try {
+      if (request.body?.dataBase64) {
+        const installed = await installNodePackageFromArchive(Buffer.from(request.body.dataBase64, "base64"), { source: request.body.source ?? "local-file", origin: "installed", overwrite: true });
+        return { ok: true, manifest: installed };
+      }
+      const manifest = request.body?.manifest ?? JSON.parse(request.body?.text ?? "{}");
+      const duplicateValidation = validateNodeManifest(manifest, { existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
+      if (!duplicateValidation.ok) return reply.code(400).send(duplicateValidation);
+      const installed = await installNodePackageFromManifest(duplicateValidation.manifest!, {
+        source: request.body?.source ?? "local-file",
+        files: request.body?.files,
+        overwrite: true
+      });
+      return { ok: true, manifest: installed };
+    } catch (error) {
+      return reply.code(400).send({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: { path?: string } }>("/api/node-packages/install-path", async (request, reply) => {
+    try {
+      const packagePath = request.body?.path?.trim() ?? "";
+      if (!packagePath) return reply.code(400).send({ ok: false, error: "path is required." });
+      const { installNodePackageFromPath } = await import("@snarkroute/nodes");
+      const installed = await installNodePackageFromPath(packagePath, { overwrite: true });
+      return { ok: true, manifest: installed };
+    } catch (error) {
+      return reply.code(400).send({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: { url?: string } }>("/api/node-packages/preview-url", async (request, reply) => {
+    try {
+      const url = request.body?.url?.trim() ?? "";
+      if (!isSupportedRemoteUrl(url)) return reply.code(400).send({ ok: false, error: "URL must be http or https." });
+      if (isSnarkNodeArchiveFilename(url)) {
+        const preview = await previewNodePackageArchive(await fetchRemoteBytes(url), { source: url, origin: "remote", existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
+        return { ok: true, ...preview };
+      }
+      const json = await fetchRemoteJson(url);
+      if ((json as { kind?: string }).kind === "snarkroute.nodeLibrary") {
+        const validation = validateNodeLibraryManifest({ ...(json as object), source: url });
+        return validation.ok ? { ok: true, library: validation.library } : validation;
+      }
+      const validation = validateNodeManifest({ ...(json as object), source: url, origin: "remote" }, { existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
+      return validation.ok ? { ok: true, manifest: validation.manifest, warnings: packageWarnings(validation.manifest!) } : validation;
+    } catch (error) {
+      return reply.code(400).send({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: { url?: string } }>("/api/node-packages/install-url", async (request, reply) => {
+    try {
+      const url = request.body?.url?.trim() ?? "";
+      if (!isSupportedRemoteUrl(url)) return reply.code(400).send({ ok: false, error: "URL must be http or https." });
+      if (isSnarkNodeArchiveFilename(url)) {
+        const installed = await installNodePackageFromArchive(await fetchRemoteBytes(url), { source: url, origin: "installed", overwrite: true });
+        return { ok: true, manifest: installed };
+      }
+      const json = await fetchRemoteJson(url);
+      const validation = validateNodeManifest({ ...(json as object), source: url, origin: "remote" }, { existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
+      if (!validation.ok || !validation.manifest) return reply.code(400).send(validation);
+      const installed = await installNodePackageFromManifest(validation.manifest, { source: url, origin: "installed", overwrite: true });
+      return { ok: true, manifest: installed };
+    } catch (error) {
+      return reply.code(400).send({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: { libraryUrl?: string; nodeIds?: string[] } }>("/api/node-packages/install-library", async (request, reply) => {
+    try {
+      const libraryUrl = request.body?.libraryUrl?.trim() ?? "";
+      if (!isSupportedRemoteUrl(libraryUrl)) return reply.code(400).send({ ok: false, error: "Library URL must be http or https." });
+      const libraryValidation = validateNodeLibraryManifest({ ...((await fetchRemoteJson(libraryUrl)) as object), source: libraryUrl });
+      if (!libraryValidation.ok || !libraryValidation.library) return reply.code(400).send(libraryValidation);
+      const selected = new Set(request.body?.nodeIds ?? []);
+      const installed: SnarkNodeManifest[] = [];
+      for (const entry of libraryValidation.library.nodes.filter((node) => selected.has(node.id))) {
+        if (isSnarkNodeArchiveFilename(entry.url)) {
+          const manifest = await installNodePackageFromArchive(await fetchRemoteBytes(entry.url), { source: entry.url, origin: "installed", overwrite: true });
+          installed.push(manifest);
+          continue;
+        }
+        const json = await fetchRemoteJson(entry.url);
+        const validation = validateNodeManifest({ ...(json as object), source: entry.url, origin: "remote" }, { existingIds: allReservedNodeIds([...(await loadInstalledNodeManifests()), ...installed]) });
+        if (!validation.ok || !validation.manifest) throw new Error(`Invalid node "${entry.id}": ${formatIssues(validation.issues)}`);
+        installed.push(await installNodePackageFromManifest(validation.manifest, { source: entry.url, origin: "installed", overwrite: true }));
+      }
+      return { ok: true, installed };
+    } catch (error) {
+      return reply.code(400).send({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { id: string }; Body: { enabled?: boolean } }>("/api/node-packages/:id/enabled", async (request, reply) => {
+    try {
+      return { ok: true, manifest: await setInstalledNodeEnabled(request.params.id, Boolean(request.body?.enabled)) };
+    } catch (error) {
+      return reply.code(404).send({ ok: false, error: errorMessage(error) });
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/node-packages/:id", async (request) => {
+    await uninstallInstalledNode(request.params.id);
+    return { ok: true };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/node-packages/:id/readme", async (request, reply) => {
+    try {
+      const path = join(getInstalledNodesDirectory(), request.params.id.replace(/[^a-z0-9._-]/gi, "_"), "README.md");
+      return { ok: true, path, text: await readFile(path, "utf8") };
+    } catch (error) {
+      return reply.code(404).send({ ok: false, error: errorMessage(error) });
+    }
+  });
 
   app.get("/api/routes/examples", async () => {
     const files = await listRouteFiles(examplesDirectory);
@@ -195,10 +359,12 @@ export function buildServer() {
     const validation = validateRoute(request.body);
     if (!validation.ok || !validation.route) return validation;
     const promptIssues = await validatePromptLibraryNodes(validation.route.nodes);
+    const nodeTypeIssues = await validateRouteNodeTypes(validation.route.nodes, [...builtInNodeManifests, ...providerNodeManifests(), ...(await loadInstalledNodeManifests())]);
+    const issues = [...promptIssues, ...nodeTypeIssues];
     return {
-      ok: promptIssues.length === 0,
-      route: promptIssues.length === 0 ? validation.route : undefined,
-      issues: promptIssues
+      ok: issues.length === 0,
+      route: issues.length === 0 ? validation.route : undefined,
+      issues
     };
   });
 
@@ -208,6 +374,7 @@ export function buildServer() {
       const route = parseRoute(routeInput);
       const executor = createExecutor();
       registerBuiltInNodeRunners(executor);
+      await registerInstalledNodeRunners(executor);
       executor.registerNodeRunner("output.text", ({ params, inputs }) => {
         const from = params.from ?? Object.values(inputs)[0] ?? "";
         const text = typeof from === "string" ? from : JSON.stringify(from, null, 2);
@@ -335,6 +502,114 @@ function findExistingDirectory(...parts: string[]): string {
     if (parent === directory) return join(process.cwd(), ...parts);
     directory = parent;
   }
+}
+
+function providerNodeManifests(): SnarkNodeManifest[] {
+  return [
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "replicate.model",
+      title: "Replicate Model",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Image Processing",
+      description: "Runs a Replicate model prediction.",
+      enabled: isReplicateEnabled(),
+      permissions: { network: true, networkHosts: ["api.replicate.com"], readFiles: true, writeOutputs: false, shell: false, env: ["REPLICATE_API_TOKEN"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "replicate.model" },
+      inputs: [{ id: "input", type: "json", required: false, label: "Input" }],
+      outputs: [{ id: "output", type: "data", label: "Output" }],
+      params: [{ id: "model", type: "text", label: "Model" }]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "replicate.clarity-upscaler",
+      title: "Clarity Upscaler",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Image Processing",
+      description: "Runs Replicate philz1337x/clarity-upscaler.",
+      enabled: isReplicateEnabled(),
+      permissions: { network: true, networkHosts: ["api.replicate.com"], readFiles: true, writeOutputs: true, shell: false, env: ["REPLICATE_API_TOKEN"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "replicate.clarity-upscaler" },
+      inputs: [{ id: "image", type: "image", required: true, label: "Image" }, { id: "prompt", type: "text", required: false, label: "Prompt" }],
+      outputs: [{ id: "image", type: "image", label: "Image" }]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "gemini.llm",
+      title: "Gemini LLM",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Text",
+      description: "Runs Gemini text generation.",
+      enabled: isGeminiEnabled(),
+      permissions: { network: true, networkHosts: ["generativelanguage.googleapis.com"], readFiles: false, writeOutputs: false, shell: false, env: ["GEMINI_API_KEY"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "gemini.llm" },
+      inputs: [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "systemPrompt", type: "text", required: false, label: "System" }],
+      outputs: [{ id: "text", type: "text", label: "Text" }]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "gemini.nano-banana-2",
+      title: "Nano Banana 2",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Image Processing",
+      description: "Runs Gemini image generation/editing.",
+      enabled: isGeminiEnabled(),
+      permissions: { network: true, networkHosts: ["generativelanguage.googleapis.com"], readFiles: true, writeOutputs: true, shell: false, env: ["GEMINI_API_KEY"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "gemini.nano-banana-2" },
+      inputs: [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "images", type: "image", required: false, label: "Images" }],
+      outputs: [{ id: "image", type: "image", label: "Image" }]
+    }
+  ];
+}
+
+function allReservedNodeIds(installed: SnarkNodeManifest[]): string[] {
+  return [...builtInNodeManifests, ...providerNodeManifests(), ...installed].map((manifest) => manifest.id);
+}
+
+async function fetchRemoteJson(url: string): Promise<unknown> {
+  const response = await fetchWithTimeout(url, 15000);
+  const text = await response.text();
+  if (!response.ok) throw new Error(`Fetch failed (${response.status}).`);
+  return JSON.parse(text);
+}
+
+async function fetchRemoteBytes(url: string): Promise<Buffer> {
+  const response = await fetchWithTimeout(url, 15000);
+  if (!response.ok) throw new Error(`Fetch failed (${response.status}).`);
+  return Buffer.from(await response.arrayBuffer());
+}
+
+function isSnarkNodeArchiveFilename(filename: string): boolean {
+  return filename.toLowerCase().split("?")[0].endsWith(".snarknode");
+}
+
+function packageWarnings(manifest: SnarkNodeManifest): string[] {
+  const warnings: string[] = [];
+  if (manifest.executor.type === "plugin") warnings.push("Contains executable plugin code. Review permissions before installing.");
+  if (manifest.permissions.shell) warnings.push("Requests shell permission. This build refuses shell execution.");
+  if (manifest.permissions.readFiles) warnings.push("Requests local file read permission.");
+  if (manifest.permissions.network) warnings.push(`Requests network access${manifest.permissions.networkHosts?.length ? ` to ${manifest.permissions.networkHosts.join(", ")}` : ""}.`);
+  return warnings;
 }
 
 async function readLedgerRuns(): Promise<Array<Record<string, unknown>>> {

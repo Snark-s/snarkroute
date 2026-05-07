@@ -1,0 +1,53 @@
+{
+  "kind": "snarkroute.node",
+  "schemaVersion": "0.1",
+  "id": "example.plugin.envEcho",
+  "title": "Example Plugin Env Echo",
+  "version": "0.1.0",
+  "author": {
+    "name": "SnarkRoute maintainers"
+  },
+  "origin": "local",
+  "source": "examples/custom-nodes/plugin-env-echo.snarknode",
+  "license": "AGPL-3.0-or-later",
+  "category": "Debug",
+  "description": "Plugin example that demonstrates filtered env access and output asset helpers.",
+  "permissions": {
+    "network": false,
+    "networkHosts": [],
+    "readFiles": false,
+    "writeOutputs": true,
+    "shell": false,
+    "env": [
+      "SNARKROUTE_EXAMPLE_TOKEN"
+    ]
+  },
+  "executor": {
+    "type": "plugin",
+    "runtime": "node",
+    "entry": "executor.ts"
+  },
+  "inputs": [
+    {
+      "id": "message",
+      "type": "text",
+      "required": false,
+      "label": "Message"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "result",
+      "type": "json",
+      "label": "Result"
+    }
+  ],
+  "params": [
+    {
+      "id": "label",
+      "type": "text",
+      "label": "Label",
+      "default": "env-check"
+    }
+  ]
+}

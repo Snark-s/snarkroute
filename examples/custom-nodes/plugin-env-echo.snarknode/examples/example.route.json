@@ -1,0 +1,46 @@
+{
+  "routeVersion": "0.1",
+  "route": {
+    "id": "example-plugin-env-echo",
+    "title": "Example Plugin Env Echo",
+    "author": {
+      "name": "SnarkRoute maintainers"
+    }
+  },
+  "economics": {
+    "enabled": false,
+    "mode": "disabled"
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "type": "input.text",
+      "title": "Message",
+      "params": {
+        "value": "Hello plugin node"
+      }
+    },
+    {
+      "id": "plugin",
+      "type": "example.plugin.envEcho",
+      "title": "Example Plugin Env Echo",
+      "params": {
+        "label": "manual-test"
+      },
+      "nodePackage": {
+        "id": "example.plugin.envEcho",
+        "version": "0.1.0",
+        "origin": "local",
+        "source": "examples/custom-nodes/plugin-env-echo.snarknode"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "input",
+      "to": "plugin",
+      "fromPort": "text",
+      "toPort": "message"
+    }
+  ]
+}

@@ -4,9 +4,159 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createExecutor } from "@snarkroute/executor";
-import { loadPromptLibrary, parsePromptFile, registerBuiltInNodeRunners, validatePromptLibraryNodes } from "../src/index";
+import {
+  builtInNodeManifests,
+  installNodePackageFromManifest,
+  installNodePackageFromArchive,
+  loadInstalledNodeManifests,
+  loadPromptLibrary,
+  packNodePackage,
+  parsePromptFile,
+  previewNodePackageArchive,
+  registerBuiltInNodeRunners,
+  registerInstalledNodeRunners,
+  validateNodeLibraryManifest,
+  validateNodeManifest,
+  validatePromptLibraryNodes,
+  validateRouteNodeTypes
+} from "../src/index";
 
 describe("built-in nodes", () => {
+  it("exposes bundled nodes as manifest-style packages", () => {
+    expect(builtInNodeManifests.length).toBeGreaterThan(0);
+    expect(builtInNodeManifests.find((manifest) => manifest.id === "input.text")).toMatchObject({
+      kind: "snarkroute.node",
+      author: { name: "SnarkRoute maintainers" },
+      origin: "bundled",
+      source: "snarkroute-core",
+      executor: { type: "builtin" }
+    });
+  });
+
+  it("validates node manifests with required author and permissions", () => {
+    const valid = validateNodeManifest(examplePluginManifest());
+    expect(valid.ok).toBe(true);
+    const invalid = validateNodeManifest({ ...examplePluginManifest(), author: {} });
+    expect(invalid.ok).toBe(false);
+    expect(invalid.issues.some((issue) => issue.path === "author.name")).toBe(true);
+  });
+
+  it("validates library manifests", () => {
+    const validation = validateNodeLibraryManifest({
+      kind: "snarkroute.nodeLibrary",
+      schemaVersion: "0.1",
+      id: "example.nodes",
+      title: "Example Nodes",
+      version: "0.1.0",
+      author: { name: "Example Author" },
+      license: "private",
+      nodes: [{ id: "example.plugin.envEcho", title: "Env Echo", url: "https://example.com/env.snarknode", version: "0.1.0" }]
+    });
+    expect(validation.ok).toBe(true);
+  });
+
+  it("installs plugin nodes locally and filters env for executor code", async () => {
+    const installedDirectory = await mkdtemp(join(tmpdir(), "sr-installed-nodes-"));
+    const manifest = examplePluginManifest();
+    await installNodePackageFromManifest(manifest, {
+      installedDirectory,
+      files: [{
+        path: "executor.ts",
+        text: `export async function runNode(context) {
+  return { outputs: { envKeys: Object.keys(context.env), secret: context.env.SNARKROUTE_TEST_ALLOWED ?? null } };
+}
+`
+      }]
+    });
+    const previousAllowed = process.env.SNARKROUTE_TEST_ALLOWED;
+    const previousBlocked = process.env.SNARKROUTE_TEST_BLOCKED;
+    process.env.SNARKROUTE_TEST_ALLOWED = "allowed";
+    process.env.SNARKROUTE_TEST_BLOCKED = "blocked";
+    try {
+      const executor = createExecutor();
+      await registerInstalledNodeRunners(executor, installedDirectory);
+      const result = await executor.executeRoute(
+        {
+          routeVersion: "0.1",
+          route: { id: "plugin-test", title: "Plugin Test", author: {} },
+          economics: { enabled: false },
+          nodes: [{ id: "plugin", type: manifest.id }],
+          edges: []
+        },
+        { outputDirectory: await mkdtemp(join(tmpdir(), "sr-plugin-run-")) }
+      );
+      expect(result.status).toBe("succeeded");
+      expect(result.nodeResults.plugin.output).toEqual({ envKeys: ["SNARKROUTE_TEST_ALLOWED"], secret: "allowed" });
+      expect(JSON.stringify(result)).not.toContain("blocked");
+    } finally {
+      restoreEnv("SNARKROUTE_TEST_ALLOWED", previousAllowed);
+      restoreEnv("SNARKROUTE_TEST_BLOCKED", previousBlocked);
+    }
+  });
+
+  it("packs and installs a portable .snarknode archive with executor files", async () => {
+    const sourceDirectory = await writePluginPackageFolder();
+    const packed = await packNodePackage(sourceDirectory);
+    expect(packed.outputPath.endsWith(".snarknode")).toBe(true);
+    const archive = await readFile(packed.outputPath);
+    const preview = await previewNodePackageArchive(archive);
+    expect(preview.manifest).toMatchObject({ id: "example.plugin.envEcho", author: { name: "Test Author" } });
+    expect(preview.files.some((file) => file.path === "executor.ts")).toBe(true);
+    const installedDirectory = await mkdtemp(join(tmpdir(), "sr-installed-archive-"));
+    await installNodePackageFromArchive(archive, { installedDirectory, overwrite: true });
+    const manifests = await loadInstalledNodeManifests(installedDirectory);
+    expect(manifests[0].id).toBe("example.plugin.envEcho");
+  });
+
+  it("rejects malicious archives with path traversal", async () => {
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+    zip.file("manifest.json", JSON.stringify(examplePluginManifest()));
+    zip.file("../evil.js", "throw new Error('nope');");
+    const bytes = await zip.generateAsync({ type: "nodebuffer" });
+    await expect(previewNodePackageArchive(bytes)).rejects.toThrow(/escape|unsupported|relative/i);
+  });
+
+  it("runs a declarative.http node without plugin code", async () => {
+    const server = createServer((_request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify({ result: { text: "declarative ok" } }));
+    });
+    const baseUrl = await listen(server);
+    const installedDirectory = await mkdtemp(join(tmpdir(), "sr-declarative-http-"));
+    try {
+      await installNodePackageFromManifest(declarativeHttpManifest(baseUrl), { installedDirectory, overwrite: true });
+      const executor = createExecutor();
+      await registerInstalledNodeRunners(executor, installedDirectory);
+      const result = await executor.executeRoute(
+        {
+          routeVersion: "0.1",
+          route: { id: "declarative-http", title: "Declarative HTTP", author: {} },
+          economics: { enabled: false },
+          nodes: [{ id: "http", type: "example.http.declarative", params: { prompt: "hello" } }],
+          edges: []
+        },
+        { outputDirectory: await mkdtemp(join(tmpdir(), "sr-declarative-run-")) }
+      );
+      expect(result.status).toBe("succeeded");
+      expect(result.nodeResults.http.output).toEqual({ text: "declarative ok" });
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it("reports route nodes missing from the manifest catalog", async () => {
+    const issues = await validateRouteNodeTypes([{ id: "missing", type: "example.missing" }], builtInNodeManifests);
+    expect(issues[0].message).toContain("is not installed");
+  });
+
+  it("loads installed node manifests", async () => {
+    const installedDirectory = await mkdtemp(join(tmpdir(), "sr-installed-nodes-"));
+    await installNodePackageFromManifest(examplePluginManifest(), { installedDirectory, files: [{ path: "executor.ts", text: "export async function runNode(){ return { outputs: {} }; }\n" }] });
+    const manifests = await loadInstalledNodeManifests(installedDirectory);
+    expect(manifests[0]).toMatchObject({ id: "example.plugin.envEcho", origin: "installed" });
+  });
+
   it("scans data/prompt-library style .prompt.md files", async () => {
     const libraryPath = await writePromptLibrary();
     const library = await loadPromptLibrary(libraryPath);
@@ -373,6 +523,89 @@ async function writePromptFile(directory: string, filename: string, category: st
 function restorePromptLibraryPath(previous: string | undefined): void {
   if (previous === undefined) delete process.env.SNARKROUTE_PROMPT_LIBRARY_PATH;
   else process.env.SNARKROUTE_PROMPT_LIBRARY_PATH = previous;
+}
+
+function restoreEnv(key: string, previous: string | undefined): void {
+  if (previous === undefined) delete process.env[key];
+  else process.env[key] = previous;
+}
+
+function examplePluginManifest() {
+  return {
+    kind: "snarkroute.node",
+    schemaVersion: "0.1",
+    id: "example.plugin.envEcho",
+    title: "Example Plugin Env Echo",
+    version: "0.1.0",
+    author: { name: "Test Author" },
+    origin: "local",
+    source: "test",
+    license: "private",
+    permissions: {
+      network: false,
+      networkHosts: [],
+      readFiles: false,
+      writeOutputs: false,
+      shell: false,
+      env: ["SNARKROUTE_TEST_ALLOWED"]
+    },
+    executor: {
+      type: "plugin",
+      runtime: "node",
+      entry: "executor.ts"
+    },
+    inputs: [],
+    outputs: [{ id: "envKeys", type: "json", label: "Env Keys" }]
+  };
+}
+
+async function writePluginPackageFolder(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), "sr-plugin-package-"));
+  await writeFile(join(directory, "manifest.json"), JSON.stringify(examplePluginManifest(), null, 2), "utf8");
+  await writeFile(join(directory, "executor.ts"), "export async function runNode(){ return { outputs: { ok: true } }; }\n", "utf8");
+  await mkdir(join(directory, "examples"));
+  await writeFile(join(directory, "examples", "example.route.json"), JSON.stringify({ routeVersion: "0.1", route: { id: "example", title: "Example", author: { name: "Test Author" } }, nodes: [], edges: [] }, null, 2), "utf8");
+  await writeFile(join(directory, ".env"), "SECRET=do-not-pack", "utf8");
+  return directory;
+}
+
+function declarativeHttpManifest(baseUrl: string) {
+  return {
+    kind: "snarkroute.node",
+    schemaVersion: "0.1",
+    id: "example.http.declarative",
+    title: "Example Declarative HTTP",
+    version: "0.1.0",
+    author: { name: "Test Author" },
+    origin: "local",
+    source: "test",
+    license: "private",
+    permissions: {
+      network: true,
+      networkHosts: ["127.0.0.1"],
+      readFiles: false,
+      writeOutputs: false,
+      shell: false,
+      env: []
+    },
+    executor: {
+      type: "declarative.http",
+      method: "POST",
+      urlTemplate: `${baseUrl}/echo`,
+      headersTemplate: { "Content-Type": "application/json" },
+      bodyMode: "json",
+      bodyTemplate: { prompt: "{{params.prompt}}" },
+      response: {
+        mode: "json",
+        mappings: {
+          text: "$.result.text"
+        }
+      }
+    },
+    inputs: [],
+    outputs: [{ id: "text", type: "text", label: "Text" }],
+    params: [{ id: "prompt", type: "text", label: "Prompt", default: "" }]
+  };
 }
 
 function tinyPng(): Buffer {

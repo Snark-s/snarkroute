@@ -3,12 +3,15 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, resolve, join, parse } from "node:path";
 import type { NodeRunner, RouteExecutor } from "@snarkroute/executor";
 import type { RouteNode, ValidationIssue } from "@snarkroute/protocol";
+export * from "./package-system";
+import type { SnarkNodeManifest } from "./package-system";
 
 export interface NodeDefinition {
   type: string;
   title: string;
   description: string;
   economics?: NodeEconomicsMetadata;
+  manifest?: SnarkNodeManifest;
 }
 
 export interface NodeEconomicsMetadata {
@@ -67,6 +70,29 @@ export const builtInNodeDefinitions: NodeDefinition[] = [
   { type: "output.text", title: "Text Output", description: "Displays text or JSON output without writing a file.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "output.file", title: "Output File", description: "Writes text or JSON to the local run folder.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } }
 ];
+
+export const builtInNodeManifests: SnarkNodeManifest[] = builtInNodeDefinitions.map((definition) => ({
+  kind: "snarkroute.node",
+  schemaVersion: "0.1",
+  id: definition.type,
+  title: definition.title,
+  version: "0.1.0",
+  author: { name: "SnarkRoute maintainers" },
+  license: definition.economics?.license ?? "AGPL-3.0-or-later",
+  origin: "bundled",
+  source: "snarkroute-core",
+  category: builtInNodeCategory(definition.type),
+  description: definition.description,
+  permissions: builtInPermissions(definition.type),
+  executor: { type: "builtin", runtime: "builtin", builtinRunner: definition.type },
+  inputs: builtInInputs(definition.type),
+  outputs: builtInOutputs(definition.type),
+  params: builtInParams(definition.type)
+}));
+
+for (const definition of builtInNodeDefinitions) {
+  definition.manifest = builtInNodeManifests.find((manifest) => manifest.id === definition.type);
+}
 
 export const inputTextRunner: NodeRunner = ({ params }) => ({
   output: {
@@ -281,6 +307,60 @@ export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("local.stableDiffusion.textToImage", localStableDiffusionTextToImageRunner);
   executor.registerNodeRunner("output.text", outputTextRunner);
   executor.registerNodeRunner("output.file", outputFileRunner);
+}
+
+function builtInNodeCategory(type: string): string {
+  if (type.startsWith("input.")) return "Input";
+  if (type.startsWith("output.")) return "Output";
+  if (type.startsWith("preview.")) return "Preview";
+  if (type.startsWith("http.")) return "API / HTTP";
+  if (type.startsWith("local.")) return "Local";
+  if (type.startsWith("debug.")) return "Debug";
+  if (type.startsWith("library.")) return "Text";
+  return "Transform";
+}
+
+function builtInPermissions(type: string) {
+  return {
+    network: type === "http.request" || type === "local.stableDiffusion.textToImage",
+    networkHosts: type === "local.stableDiffusion.textToImage" ? ["127.0.0.1", "localhost"] : [],
+    readFiles: type === "input.file" || type === "input.image" || type === "input.video",
+    writeOutputs: type === "output.file" || type === "local.stableDiffusion.textToImage",
+    shell: false,
+    env: []
+  };
+}
+
+function builtInInputs(type: string) {
+  if (type === "preview.image") return [{ id: "image", type: "image", required: true, label: "Image" }];
+  if (type === "debug.log") return [{ id: "value", type: "data", required: false, label: "Value" }];
+  if (type === "output.text") return [{ id: "from", type: "data", required: false, label: "From" }];
+  if (type === "output.file") return [{ id: "from", type: "data", required: false, label: "From" }];
+  if (type === "local.stableDiffusion.textToImage") return [{ id: "prompt", type: "text", required: false, label: "Prompt" }];
+  return [];
+}
+
+function builtInOutputs(type: string) {
+  if (type === "input.text" || type === "library.prompt" || type === "transform.template" || type === "output.text") return [{ id: "text", type: "text", label: "Text" }];
+  if (type === "input.file" || type === "output.file") return [{ id: "file", type: "file", label: "File" }];
+  if (type === "input.image" || type === "preview.image" || type === "local.stableDiffusion.textToImage") return [{ id: "image", type: "image", label: "Image" }];
+  if (type === "input.video") return [{ id: "video", type: "video", label: "Video" }];
+  if (type === "http.request") return [{ id: "responseJson", type: "json", label: "JSON" }, { id: "responseText", type: "text", label: "Text" }];
+  if (type === "debug.log") return [{ id: "value", type: "data", label: "Value" }];
+  return [{ id: "output", type: "data", label: "Output" }];
+}
+
+function builtInParams(type: string) {
+  if (type === "input.text") return [{ id: "value", type: "text", label: "Value", default: "" }];
+  if (type === "input.file" || type === "input.image" || type === "input.video") return [{ id: "path", type: "file", label: "Path", default: "" }];
+  if (type === "transform.template") return [{ id: "template", type: "text", label: "Template", default: "" }];
+  if (type === "http.request") {
+    return [
+      { id: "url", type: "text", label: "URL", default: "" },
+      { id: "method", type: "text", label: "Method", default: "GET" }
+    ];
+  }
+  return [];
 }
 
 export function normalizePreviewImage(value: unknown): unknown {

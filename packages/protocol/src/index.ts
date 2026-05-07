@@ -99,6 +99,15 @@ export const RouteNodeSchema = z.object({
   params: z.record(JsonLikeSchema).optional(),
   inputs: z.record(JsonLikeSchema).optional(),
   outputs: z.record(JsonLikeSchema).optional(),
+  nodePackage: z
+    .object({
+      id: z.string().optional(),
+      version: z.string().optional(),
+      source: z.string().optional(),
+      origin: z.string().optional()
+    })
+    .catchall(z.unknown())
+    .optional(),
   ui: z.record(JsonLikeSchema).optional()
 });
 

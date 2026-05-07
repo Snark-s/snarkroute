@@ -1,0 +1,26 @@
+{
+  "routeVersion": "0.1",
+  "route": {
+    "id": "example-http-json-declarative",
+    "title": "Example HTTP JSON Declarative Node",
+    "author": {
+      "name": "SnarkRoute maintainers"
+    }
+  },
+  "economics": {
+    "enabled": false,
+    "mode": "disabled"
+  },
+  "nodes": [
+    {
+      "id": "http",
+      "type": "example.http.jsonRequest",
+      "title": "Example HTTP JSON Request",
+      "params": {
+        "url": "http://127.0.0.1:4317/api/health",
+        "method": "GET"
+      }
+    }
+  ],
+  "edges": []
+}

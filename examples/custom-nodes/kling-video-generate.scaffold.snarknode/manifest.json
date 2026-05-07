@@ -1,0 +1,63 @@
+{
+  "kind": "snarkroute.node",
+  "schemaVersion": "0.1",
+  "id": "example.kling.videoGenerate",
+  "title": "Kling Video Generate Scaffold",
+  "version": "0.1.0",
+  "author": {
+    "name": "TODO: Author Name"
+  },
+  "generatedWith": {
+    "tool": "Codex",
+    "skill": "snarkroute-node-builder"
+  },
+  "origin": "local",
+  "source": "local-file",
+  "license": "private",
+  "category": "Video",
+  "description": "Scaffold for a Kling video generation node. Real API endpoints are intentionally TODO until official docs are supplied.",
+  "permissions": {
+    "network": true,
+    "networkHosts": [],
+    "readFiles": false,
+    "writeOutputs": true,
+    "shell": false,
+    "env": [
+      "KLING_API_KEY"
+    ]
+  },
+  "executor": {
+    "type": "plugin",
+    "runtime": "node",
+    "entry": "executor.ts"
+  },
+  "inputs": [
+    {
+      "id": "prompt",
+      "type": "text",
+      "required": true,
+      "label": "Prompt"
+    },
+    {
+      "id": "image",
+      "type": "image",
+      "required": false,
+      "label": "Reference Image"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "video",
+      "type": "video",
+      "label": "Video"
+    }
+  ],
+  "params": [
+    {
+      "id": "duration",
+      "type": "number",
+      "label": "Duration",
+      "default": 5
+    }
+  ]
+}

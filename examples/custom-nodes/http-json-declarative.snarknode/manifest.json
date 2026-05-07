@@ -1,0 +1,75 @@
+{
+  "kind": "snarkroute.node",
+  "schemaVersion": "0.1",
+  "id": "example.http.jsonRequest",
+  "title": "Example HTTP JSON Request",
+  "version": "0.1.0",
+  "author": {
+    "name": "SnarkRoute maintainers"
+  },
+  "origin": "local",
+  "source": "examples/custom-nodes/http-json-declarative.snarknode",
+  "license": "AGPL-3.0-or-later",
+  "category": "API / HTTP",
+  "description": "Declarative example node that documents an HTTP JSON request shape.",
+  "permissions": {
+    "network": true,
+    "networkHosts": [
+      "127.0.0.1",
+      "localhost"
+    ],
+    "readFiles": false,
+    "writeOutputs": false,
+    "shell": false,
+    "env": []
+  },
+  "executor": {
+    "type": "declarative.http",
+    "method": "GET",
+    "urlTemplate": "{{params.url}}",
+    "queryTemplate": {},
+    "bodyMode": "none",
+    "response": {
+      "mode": "json",
+      "mappings": {
+        "responseJson": "$json",
+        "app": "$.app"
+      }
+    },
+    "timeoutMs": 30000
+  },
+  "inputs": [
+    {
+      "id": "json",
+      "type": "json",
+      "required": false,
+      "label": "JSON"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "app",
+      "type": "text",
+      "label": "App"
+    },
+    {
+      "id": "responseJson",
+      "type": "json",
+      "label": "Response JSON"
+    }
+  ],
+  "params": [
+    {
+      "id": "url",
+      "type": "text",
+      "label": "URL",
+      "default": "http://127.0.0.1:4317/api/health"
+    },
+    {
+      "id": "method",
+      "type": "text",
+      "label": "Method",
+      "default": "GET"
+    }
+  ]
+}
