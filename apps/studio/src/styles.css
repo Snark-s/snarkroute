@@ -371,6 +371,70 @@ h2 {
   position: relative;
 }
 
+.connectionNodeMenu {
+  background: #171d27;
+  border: 1px solid #394355;
+  border-radius: 8px;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 36%);
+  color: #dce3ef;
+  display: grid;
+  gap: 8px;
+  max-height: min(420px, calc(100vh - 32px));
+  overflow: auto;
+  padding: 8px;
+  position: fixed;
+  transform: translate(8px, 8px);
+  width: 260px;
+  z-index: 30;
+}
+
+.connectionNodeMenuHeader {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.connectionNodeMenuHeader strong {
+  font-size: 12px;
+}
+
+.connectionNodeMenuItems {
+  display: grid;
+  gap: 4px;
+}
+
+.connectionNodeMenuItem {
+  align-items: center;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 24px 1fr;
+  justify-items: start;
+  min-height: 42px;
+  padding: 7px 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.connectionNodeMenuItem strong {
+  color: #edf2ff;
+  font-size: 12px;
+  line-height: 1.15;
+}
+
+.connectionNodeMenuItem span:last-child {
+  color: #99a3b4;
+  font-size: 10px;
+  grid-column: 2;
+  line-height: 1.15;
+}
+
+.connectionNodeMenu p {
+  color: #aeb6c5;
+  font-size: 12px;
+  margin: 2px 4px 4px;
+}
+
 .topbar {
   display: flex;
   gap: 8px;

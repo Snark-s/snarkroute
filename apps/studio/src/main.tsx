@@ -11,9 +11,12 @@ import {
   type Connection,
   type Edge,
   type EdgeChange,
+  type FinalConnectionState,
   type Node,
   type NodeChange,
   type NodeProps,
+  type OnConnectEnd,
+  type OnConnectStart,
   type ReactFlowInstance
 } from "@xyflow/react";
 import { exportRouteToText, loadRouteFromText, normalizeRouteExportFilename, type OpenRoute } from "@snarkroute/protocol";
@@ -1122,6 +1125,20 @@ type ImageViewerState = {
   filename: string;
 };
 
+type PendingConnectionStart = {
+  nodeId: string;
+  handleId: string;
+  handleType: "source" | "target";
+};
+
+type ConnectionNodeMenuState = {
+  clientX: number;
+  clientY: number;
+  flowPosition: { x: number; y: number };
+  sourceNodeId: string;
+  sourceHandle: string;
+};
+
 type PortSpec = {
   id: string;
   kind: PortKind;
@@ -1228,6 +1245,10 @@ function defaultParamsFromManifest(manifest?: NodeManifest): Record<string, unkn
 
 function catalogItemTitle(item: NodeCatalogItem | (typeof library)[number]): string {
   return "title" in item ? item.title : item.label;
+}
+
+function catalogItemPorts(item: NodeCatalogItem | (typeof library)[number]): { inputs: PortSpec[]; outputs: PortSpec[] } {
+  return getNodePorts(item.type, "manifest" in item ? item.manifest : undefined);
 }
 
 function groupNodeCatalog(items: NodeCatalogItem[]): Array<{ id: string; title: string; items: NodeCatalogItem[] }> {
@@ -1439,6 +1460,16 @@ function flowSnapshot(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): string
   return routeSnapshot(flowToRoute(nodes, edges, baseRoute));
 }
 
+function loadInitialRoute(): { route: RouteDoc; loadedSavedProject: boolean } {
+  try {
+    const text = localStorage.getItem(SAVED_PROJECT_STORAGE_KEY);
+    if (!text) return { route: blankRoute, loadedSavedProject: false };
+    return { route: loadRouteFromText(text, "saved-project.orp.json") as RouteDoc, loadedSavedProject: true };
+  } catch {
+    return { route: blankRoute, loadedSavedProject: false };
+  }
+}
+
 function flowToNodeRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc, targetNodeId: string): RouteDoc {
   const included = new Set<string>([targetNodeId]);
   let changed = true;
@@ -1466,14 +1497,15 @@ function flowToNodeRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc, targ
 }
 
 function App() {
-  const initial = useMemo(() => routeToFlow(blankRoute), []);
-  const [routeBase, setRouteBase] = useState<RouteDoc>(blankRoute);
+  const initialRouteState = useMemo(() => loadInitialRoute(), []);
+  const initial = useMemo(() => routeToFlow(initialRouteState.route), [initialRouteState.route]);
+  const [routeBase, setRouteBase] = useState<RouteDoc>(initialRouteState.route);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [paramsText, setParamsText] = useState("{}");
   const [paramsError, setParamsError] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>(["SnarkRoute Studio ready."]);
+  const [logs, setLogs] = useState<string[]>(initialRouteState.loadedSavedProject ? ["Loaded saved project.", "SnarkRoute Studio ready."] : ["SnarkRoute Studio ready."]);
   const [outputs, setOutputs] = useState<unknown>(null);
   const [runResult, setRunResult] = useState<RunDisplayResult | null>(null);
   const [replicateToken, setReplicateToken] = useState("");
@@ -1498,12 +1530,14 @@ function App() {
   const [libraryPreview, setLibraryPreview] = useState<NodeLibraryPreview | null>(null);
   const [selectedLibraryNodeIds, setSelectedLibraryNodeIds] = useState<Record<string, boolean>>({});
   const [exampleMenuOpen, setExampleMenuOpen] = useState(false);
-  const [loadedRouteSnapshot, setLoadedRouteSnapshot] = useState(() => routeSnapshot(blankRoute));
+  const [loadedRouteSnapshot, setLoadedRouteSnapshot] = useState(() => routeSnapshot(initialRouteState.route));
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [collapsedLibrarySections, setCollapsedLibrarySections] = useState<Record<string, boolean>>(
     () => Object.fromEntries(librarySections.map((section) => [section.id, true]))
   );
+  const [pendingConnectionStart, setPendingConnectionStart] = useState<PendingConnectionStart | null>(null);
+  const [connectionNodeMenu, setConnectionNodeMenu] = useState<ConnectionNodeMenuState | null>(null);
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
@@ -1965,6 +1999,10 @@ function App() {
     return reactFlowInstance?.screenToFlowPosition({ x: event.clientX, y: event.clientY }) ?? { x: 160 + nodes.length * 30, y: 120 + nodes.length * 24 };
   }
 
+  function flowPositionFromClientPoint(clientX: number, clientY: number) {
+    return reactFlowInstance?.screenToFlowPosition({ x: clientX, y: clientY }) ?? { x: 160 + nodes.length * 30, y: 120 + nodes.length * 24 };
+  }
+
   function updateNodeParams(nodeId: string, params: Record<string, unknown>) {
     setNodes((current) =>
       current.map((node) => {
@@ -2004,10 +2042,11 @@ function App() {
       ...current,
       { id, type: "route", position: position ?? { x: 120 + current.length * 36, y: 140 + current.length * 28 }, data: { label: `${itemTitle}\n${type}`, routeNode } }
     ]);
+    return id;
   }
 
   function toggleLibrarySection(id: string) {
-    setCollapsedLibrarySections((current) => ({ ...current, [id]: !current[id] }));
+    setCollapsedLibrarySections((current) => ({ ...current, [id]: !(current[id] ?? true) }));
   }
 
   function renderLibraryItem(item: NodeCatalogItem) {
@@ -2092,11 +2131,75 @@ function App() {
   }
 
   function connectNodes(connection: Connection) {
+    setConnectionNodeMenu(null);
+    setPendingConnectionStart(null);
     if (!isConnectionValid(connection)) {
       setLogs((current) => [`Invalid connection: ${describeConnection(connection)}`, ...current]);
       return;
     }
     setEdges((current) => addEdge(connection, current));
+  }
+
+  function compatibleInputForConnection(item: NodeCatalogItem, sourceNodeId: string, sourceHandle: string): PortSpec | null {
+    const sourceNode = nodes.find((node) => node.id === sourceNodeId);
+    if (!sourceNode) return null;
+    const sourceType = String((sourceNode.data.routeNode as RouteDoc["nodes"][number]).type);
+    const sourcePort = getNodePorts(sourceType).outputs.find((port) => port.id === sourceHandle);
+    if (!sourcePort) return null;
+    return catalogItemPorts(item).inputs.find((targetPort) => arePortsCompatible(sourcePort.kind, targetPort.kind)) ?? null;
+  }
+
+  const possibleConnectionNodes = useMemo(() => {
+    if (!connectionNodeMenu) return [];
+    return nodeCatalog
+      .filter((item) => item.enabled !== false)
+      .map((item) => ({ item, inputPort: compatibleInputForConnection(item, connectionNodeMenu.sourceNodeId, connectionNodeMenu.sourceHandle) }))
+      .filter((entry): entry is { item: NodeCatalogItem; inputPort: PortSpec } => Boolean(entry.inputPort));
+  }, [connectionNodeMenu, nodeCatalog, nodes]);
+
+  const handleConnectStart: OnConnectStart = (_event, params) => {
+    setConnectionNodeMenu(null);
+    if (!params.nodeId || !params.handleId || params.handleType !== "source") {
+      setPendingConnectionStart(null);
+      return;
+    }
+    setPendingConnectionStart({ nodeId: params.nodeId, handleId: params.handleId, handleType: params.handleType });
+  };
+
+  const handleConnectEnd: OnConnectEnd = (event: MouseEvent | TouchEvent, connectionState: FinalConnectionState) => {
+    const start = pendingConnectionStart;
+    setPendingConnectionStart(null);
+    if (!start || start.handleType !== "source" || connectionState.isValid) return;
+
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest(".react-flow__pane")) return;
+
+    const point = "changedTouches" in event ? event.changedTouches[0] : event;
+    if (!point) return;
+    setConnectionNodeMenu({
+      clientX: point.clientX,
+      clientY: point.clientY,
+      flowPosition: flowPositionFromClientPoint(point.clientX, point.clientY),
+      sourceNodeId: start.nodeId,
+      sourceHandle: start.handleId
+    });
+  };
+
+  function addConnectedNode(item: NodeCatalogItem, targetHandle: string) {
+    if (!connectionNodeMenu) return;
+    const nodeId = addNodeFromCatalogItem(item, connectionNodeMenu.flowPosition);
+    setEdges((current) =>
+      addEdge(
+        {
+          source: connectionNodeMenu.sourceNodeId,
+          sourceHandle: connectionNodeMenu.sourceHandle,
+          target: nodeId,
+          targetHandle
+        },
+        current
+      )
+    );
+    setConnectionNodeMenu(null);
   }
 
   function selectNode(node: Node | null) {
@@ -2291,6 +2394,7 @@ function App() {
       const filename = normalizeRouteExportFilename(`${routeBase.route.id || "studio-route"}`);
       const text = exportRouteToText(flowToRoute(nodes, edges, routeBase) as OpenRoute, filename);
       localStorage.setItem(SAVED_PROJECT_STORAGE_KEY, text);
+      setLoadedRouteSnapshot(routeSnapshot(loadRouteFromText(text, filename) as RouteDoc));
       setLogs((current) => ["Saved current project locally.", ...current]);
     } catch (error) {
       setLogs((current) => [`Save failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
@@ -2384,7 +2488,7 @@ function App() {
         </div>
         <div className="librarySections">
           {catalogSections.map((section) => {
-            const collapsed = Boolean(collapsedLibrarySections[section.id]);
+            const collapsed = collapsedLibrarySections[section.id] ?? true;
             const items = section.items;
             return (
               <section className="librarySection" key={section.id}>
@@ -2428,11 +2532,16 @@ function App() {
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={connectNodes}
+          onConnectStart={handleConnectStart}
+          onConnectEnd={handleConnectEnd}
           onInit={setReactFlowInstance}
           isValidConnection={isConnectionValid}
           onNodeClick={(_event, node) => selectNode(node)}
           onEdgeClick={() => setSelectedId(null)}
-          onPaneClick={() => selectNode(null)}
+          onPaneClick={() => {
+            selectNode(null);
+            setConnectionNodeMenu(null);
+          }}
           onKeyDown={(event) => {
             if ((event.key === "Delete" || event.key === "Backspace") && !isTextEditingTarget(event.target)) {
               deleteSelection();
@@ -2447,6 +2556,31 @@ function App() {
         >
           <Background />
         </ReactFlow>
+        {connectionNodeMenu ? (
+          <div
+            className="connectionNodeMenu"
+            style={{ left: connectionNodeMenu.clientX, top: connectionNodeMenu.clientY }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="connectionNodeMenuHeader">
+              <strong>Add connected node</strong>
+              <button className="iconButton" title="Close" onClick={() => setConnectionNodeMenu(null)}><X size={14} /></button>
+            </div>
+            {possibleConnectionNodes.length ? (
+              <div className="connectionNodeMenuItems">
+                {possibleConnectionNodes.map(({ item, inputPort }) => (
+                  <button key={`${item.type}:${inputPort.id}`} className="connectionNodeMenuItem" onClick={() => addConnectedNode(item, inputPort.id)}>
+                    <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
+                    <strong>{catalogItemTitle(item)}</strong>
+                    <span>{item.type} / {inputPort.label ?? inputPort.id}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p>No compatible nodes.</p>
+            )}
+          </div>
+        ) : null}
         <input
           id="asset-file-picker"
           className="hiddenFileInput"
