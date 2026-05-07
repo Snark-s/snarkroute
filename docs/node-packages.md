@@ -114,6 +114,14 @@ data/installed-nodes/
 
 Routes reference node ids and params. They do not embed executor code or secrets.
 
+## Uninstalling
+
+Studio's Manage Installed Nodes area can remove imported local node packages from `data/installed-nodes/`.
+
+Bundled/core nodes have `origin: "bundled"` and cannot be removed.
+
+If the current route uses a node being deleted, Studio warns first. Confirming the uninstall removes the package but preserves route and canvas data. Existing instances are then shown as missing-node placeholders by the normal missing-node validation path.
+
 ## Missing Nodes
 
 If a route references a node id that is neither bundled nor installed, validation returns:

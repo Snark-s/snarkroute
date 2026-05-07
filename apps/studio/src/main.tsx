@@ -17,9 +17,18 @@ import {
   type ReactFlowInstance
 } from "@xyflow/react";
 import { exportRouteToText, loadRouteFromText, normalizeRouteExportFilename, type OpenRoute } from "@snarkroute/protocol";
-import { BookOpen, Braces, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eye, FileJson, FileText, FolderOpen, Globe, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import { BookOpen, Braces, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, FolderOpen, Globe, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  NODE_PACKAGE_INSTALL_PATH,
+  NODE_PACKAGE_PREVIEW_PATH,
+  canImportNodePackageFilename,
+  canUninstallNodePackage,
+  nodePackageIsUsedInRoute,
+  readNodePackageFilePayload,
+  uninstallNodeConfirmationMessage
+} from "./nodePackageImport";
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
 
 type RouteDoc = {
@@ -29,6 +38,17 @@ type RouteDoc = {
   nodes: Array<{ id: string; type: string; title?: string; params?: Record<string, unknown>; nodePackage?: Record<string, unknown>; ui?: Record<string, unknown> }>;
   edges: Array<{ id?: string; from: string; to: string; fromPort?: string; toPort?: string }>;
   provenance?: Record<string, unknown>;
+};
+
+type ExampleCategory = "Basic Image" | "AI Image" | "Local AI" | "Developer";
+
+type StudioExample = {
+  route: RouteDoc;
+  title: string;
+  description: string;
+  provider: "Replicate" | "Gemini" | "Local" | "HTTP";
+  category: ExampleCategory;
+  milestone?: string;
 };
 
 type NodeRunResult = {
@@ -388,6 +408,51 @@ const milestoneExamples: RouteDoc[] = [
     provenance: { tool: "snarkroute-studio" }
   }
 ];
+
+const studioExamples: StudioExample[] = [
+  {
+    route: milestoneExamples[0],
+    title: "Replicate Upscale",
+    description: "Upscale a starter image with Replicate Clarity Upscaler.",
+    provider: "Replicate",
+    category: "Basic Image",
+    milestone: "M3.1"
+  },
+  {
+    route: milestoneExamples[1],
+    title: "Nano Banana: Two Image Compose",
+    description: "Combine two images and a prompt with Gemini image generation.",
+    provider: "Gemini",
+    category: "AI Image",
+    milestone: "M3.1"
+  },
+  {
+    route: milestoneExamples[2],
+    title: "Prompt to Image",
+    description: "Generate an image from a text prompt through the Gemini API.",
+    provider: "Gemini",
+    category: "AI Image",
+    milestone: "M3.1"
+  },
+  {
+    route: milestoneExamples[3],
+    title: "Local Stable Diffusion Text to Image",
+    description: "Send a prompt to a local Stable Diffusion WebUI-compatible endpoint.",
+    provider: "Local",
+    category: "Local AI",
+    milestone: "M3.1"
+  },
+  {
+    route: milestoneExamples[4],
+    title: "Generic HTTP JSON Test",
+    description: "Call a JSON HTTP endpoint and inspect the response.",
+    provider: "HTTP",
+    category: "Developer",
+    milestone: "M3.1"
+  }
+];
+
+const exampleCategories: ExampleCategory[] = ["Basic Image", "AI Image", "Local AI", "Developer"];
 
 function RouteNodeCard({ id, data }: NodeProps) {
   const label = String(data.label ?? "");
@@ -1179,7 +1244,7 @@ function fallbackSectionTitle(type: string): string {
 }
 
 function canImportNodePackageFile(file: File): boolean {
-  return /\.snarknode$/i.test(file.name) || /(^|[.-])manifest\.json$/i.test(file.name) || /\.node\.json$/i.test(file.name);
+  return canImportNodePackageFilename(file.name);
 }
 
 function permissionsSummary(manifest: NodeManifest): string {
@@ -1359,6 +1424,21 @@ function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDo
   };
 }
 
+function routeSnapshot(route: RouteDoc): string {
+  return JSON.stringify({
+    routeVersion: route.routeVersion,
+    route: route.route,
+    economics: route.economics ?? null,
+    nodes: route.nodes,
+    edges: route.edges.map(({ id: _id, ...edge }) => edge),
+    provenance: route.provenance ? { ...route.provenance, updatedAt: undefined } : null
+  });
+}
+
+function flowSnapshot(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): string {
+  return routeSnapshot(flowToRoute(nodes, edges, baseRoute));
+}
+
 function flowToNodeRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc, targetNodeId: string): RouteDoc {
   const included = new Set<string>([targetNodeId]);
   let changed = true;
@@ -1417,7 +1497,8 @@ function App() {
   const [libraryUrl, setLibraryUrl] = useState("");
   const [libraryPreview, setLibraryPreview] = useState<NodeLibraryPreview | null>(null);
   const [selectedLibraryNodeIds, setSelectedLibraryNodeIds] = useState<Record<string, boolean>>({});
-  const [selectedExampleId, setSelectedExampleId] = useState(milestoneExamples[0]?.route.id ?? exampleRoute.route.id);
+  const [exampleMenuOpen, setExampleMenuOpen] = useState(false);
+  const [loadedRouteSnapshot, setLoadedRouteSnapshot] = useState(() => routeSnapshot(blankRoute));
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [collapsedLibrarySections, setCollapsedLibrarySections] = useState<Record<string, boolean>>(
@@ -1477,9 +1558,14 @@ function App() {
           })
         : [];
       setNodeCatalog(catalog);
-      const installedResponse = await fetch(`${apiBase}/api/node-packages/installed`);
-      const installedResult = await installedResponse.json();
-      setInstalledNodes(Array.isArray(installedResult.nodes) ? installedResult.nodes : []);
+      try {
+        const installedResponse = await fetch(`${apiBase}/api/node-packages/installed`);
+        const installedResult = await installedResponse.json();
+        if (!installedResponse.ok) throw new Error(installedResult.error ?? "Installed node registry refresh failed.");
+        setInstalledNodes(Array.isArray(installedResult.nodes) ? installedResult.nodes : []);
+      } catch (error) {
+        setLogs((current) => [`Installed node registry refresh failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+      }
     } catch (error) {
       setNodeCatalog(library.map((item) => ({ type: item.type, title: item.label, params: item.params })));
       setLogs((current) => [`Node catalog unavailable: ${error instanceof Error ? error.message : String(error)}`, ...current]);
@@ -1729,13 +1815,11 @@ function App() {
 
   async function importNodePackageFile(file: File, position?: { x: number; y: number }) {
     try {
-      const isArchive = /\.snarknode$/i.test(file.name);
-      const text = isArchive ? "" : await file.text();
-      const dataBase64 = isArchive ? await fileToBase64(file) : undefined;
-      const previewResponse = await fetch(`${apiBase}/api/node-packages/preview`, {
+      const payload = await readNodePackageFilePayload(file);
+      const previewResponse = await fetch(`${apiBase}${NODE_PACKAGE_PREVIEW_PATH}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, text, dataBase64 })
+        body: JSON.stringify(payload)
       });
       const preview = await previewResponse.json();
       if (!previewResponse.ok || !preview.ok) throw new Error(formatApiIssues(preview));
@@ -1743,10 +1827,10 @@ function App() {
       const warningText = Array.isArray(preview.warnings) && preview.warnings.length ? `\n\nWarnings:\n${preview.warnings.join("\n")}` : "";
       const confirmed = window.confirm(`Install node package?\n\n${manifest.title}\nAuthor: ${manifest.author.name}\nVersion: ${manifest.version}\nOrigin/source: ${manifest.origin} / ${manifest.source ?? "local-file"}\nExecutor: ${manifest.executor.type} ${manifest.executor.runtime ?? ""}\nPermissions: ${permissionsSummary(manifest)}${warningText}`);
       if (!confirmed) return;
-      const installResponse = await fetch(`${apiBase}/api/node-packages/install`, {
+      const installResponse = await fetch(`${apiBase}${NODE_PACKAGE_INSTALL_PATH}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, dataBase64, source: file.name })
+        body: JSON.stringify({ ...payload, source: file.name })
       });
       const installed = await installResponse.json();
       if (!installResponse.ok || !installed.ok) throw new Error(installed.error ?? formatApiIssues(installed));
@@ -1754,7 +1838,10 @@ function App() {
       if (position) addNodeFromCatalogItem({ type: manifest.id, title: manifest.title, manifest, params: defaultParamsFromManifest(manifest) }, position);
       setLogs((current) => [`Installed node ${manifest.id}.`, ...current]);
     } catch (error) {
-      setLogs((current) => [`Node package import failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(`Node package import failed: ${message}`);
+      setRightCollapsed(false);
+      setLogs((current) => [`Node package import failed: ${message}`, ...current]);
     }
   }
 
@@ -1846,11 +1933,20 @@ function App() {
   }
 
   async function uninstallNode(id: string) {
-    if (!window.confirm(`Uninstall local node "${id}"? Existing route files will not be changed.`)) return;
-    const response = await fetch(`${apiBase}/api/node-packages/${encodeURIComponent(id)}`, { method: "DELETE" });
-    const result = await response.json();
-    if (!response.ok || !result.ok) setLogs((current) => [`Uninstall failed: ${result.error ?? "unknown error"}`, ...current]);
-    await loadNodeCatalog();
+    const usedInCurrentRoute = nodePackageIsUsedInRoute(
+      id,
+      nodes.map((node) => node.data.routeNode as RouteDoc["nodes"][number])
+    );
+    if (!window.confirm(uninstallNodeConfirmationMessage(id, usedInCurrentRoute))) return;
+    try {
+      const response = await fetch(`${apiBase}/api/node-packages/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? "unknown error");
+      await loadNodeCatalog();
+      setLogs((current) => [`Uninstalled node "${id}".`, ...current]);
+    } catch (error) {
+      setLogs((current) => [`Uninstall failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
   }
 
   async function viewInstalledNodeReadme(id: string) {
@@ -1962,6 +2058,23 @@ function App() {
     setRunResult(null);
     setOutputs(null);
     setLogs((current) => [`Deleted ${selectedNodeIds.size} node(s), ${selectedEdgeIds.size} edge(s).`, ...current]);
+  }
+
+  function clearCanvas() {
+    if (nodes.length === 0 && edges.length === 0) return;
+
+    const nodeCount = nodes.length;
+    const edgeCount = edges.length;
+    if (!window.confirm(`Clear canvas and remove ${nodeCount} node(s), ${edgeCount} edge(s)?`)) return;
+
+    setNodes([]);
+    setEdges([]);
+    setSelectedId(null);
+    setParamsText("{}");
+    setParamsError(null);
+    setRunResult(null);
+    setOutputs(null);
+    setLogs((current) => [`Cleared canvas: removed ${nodeCount} node(s), ${edgeCount} edge(s).`, ...current]);
   }
 
   function isConnectionValid(connection: Connection | Edge): boolean {
@@ -2167,6 +2280,7 @@ function App() {
     setRouteBase(route);
     setNodes(flow.nodes);
     setEdges(flow.edges);
+    setLoadedRouteSnapshot(routeSnapshot(route));
     setRunResult(null);
     setOutputs(null);
     setLogs((current) => [logMessage, ...current]);
@@ -2206,9 +2320,14 @@ function App() {
     }
   }
 
-  function loadExample() {
-    const route = milestoneExamples.find((candidate) => candidate.route.id === selectedExampleId) ?? exampleRoute;
-    applyRoute(route, `Loaded ${route.route.title}.`);
+  function hasUnsavedRouteChanges(): boolean {
+    return flowSnapshot(nodes, edges, routeBase) !== loadedRouteSnapshot;
+  }
+
+  function openExample(example: StudioExample) {
+    if (hasUnsavedRouteChanges() && !window.confirm("Open this example? Unsaved changes may be lost.")) return;
+    applyRoute(example.route, `Loaded example: ${example.title}.`);
+    setExampleMenuOpen(false);
   }
 
   return (
@@ -2223,12 +2342,29 @@ function App() {
         {!leftCollapsed ? (
         <>
         <div className="toolbar">
-          <select className="exampleSelect" value={selectedExampleId} title="Example route" onChange={(event) => setSelectedExampleId(event.target.value)}>
-            {milestoneExamples.map((route) => (
-              <option key={route.route.id} value={route.route.id}>{route.route.title}</option>
-            ))}
-          </select>
-          <button onClick={loadExample} title="Load example"><Wand2 size={16} /> Example</button>
+          <button className="openExampleButton" onClick={() => setExampleMenuOpen((value) => !value)} title="Open example route"><Wand2 size={16} /> Open Example</button>
+          {exampleMenuOpen ? (
+            <div className="exampleMenu" role="menu" aria-label="Example routes">
+              {exampleCategories.map((category) => {
+                const examples = studioExamples.filter((example) => example.category === category);
+                if (examples.length === 0) return null;
+                return (
+                  <section className="exampleGroup" key={category}>
+                    <h3>{category}</h3>
+                    {examples.map((example) => (
+                      <button className="exampleItem" key={example.route.route.id} onClick={() => openExample(example)} role="menuitem">
+                        <span className="exampleItemText">
+                          <strong>{example.title}</strong>
+                          <span>{example.description}</span>
+                        </span>
+                        <span className={`providerBadge ${example.provider.toLowerCase()}`}>{example.provider}</span>
+                      </button>
+                    ))}
+                  </section>
+                );
+              })}
+            </div>
+          ) : null}
           <button onClick={exportRoute} title="Export route"><Download size={16} /> Export</button>
           <label className="fileButton" title="Import route"><Upload size={16} /> Import<input type="file" accept={ROUTE_FILE_ACCEPT} onChange={(event) => void importRoute(event.target.files?.[0] ?? null)} /></label>
           <label className="fileButton" title="Import node package"><Plus size={16} /> Node<input type="file" accept=".snarknode,.json,.node.json,application/json" onChange={(event) => {
@@ -2277,6 +2413,7 @@ function App() {
         <div className="topbar">
           <button className="primary" onClick={() => void run()}><Play size={16} /> Run</button>
           <button className="danger" onClick={deleteSelection} disabled={selectedNodeCount === 0 && selectedEdgeCount === 0 && !selectedId}><Trash2 size={16} /> Delete</button>
+          <button className="danger" onClick={clearCanvas} disabled={nodes.length === 0 && edges.length === 0}><Eraser size={16} /> Clear</button>
           <div className={`apiStatus ${apiConnected ? "connected" : "disconnected"}`} title={apiError || `API: ${apiBase}`}>
             <span>API: {apiBase}</span>
             <strong>{apiConnected ? "connected" : "disconnected"}</strong>
@@ -2422,7 +2559,9 @@ function App() {
                 <div>
                   <button className="nodeSmallButton" onClick={() => void setInstalledNodeState(node.id, node.enabled === false)}> {node.enabled === false ? "Enable" : "Disable"} </button>
                   <button className="nodeSmallButton" onClick={() => void viewInstalledNodeReadme(node.id)}>README</button>
-                  <button className="nodeSmallButton danger" onClick={() => void uninstallNode(node.id)}>Uninstall</button>
+                  {canUninstallNodePackage(node) ? (
+                    <button className="nodeSmallButton danger" onClick={() => void uninstallNode(node.id)}>Uninstall</button>
+                  ) : null}
                 </div>
               </div>
             ))}

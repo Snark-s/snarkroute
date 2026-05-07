@@ -151,15 +151,110 @@ h2 {
   white-space: nowrap;
 }
 
-.toolbar .exampleSelect {
+.toolbar .openExampleButton,
+.toolbar .exampleMenu {
   grid-column: 1 / -1;
-  min-width: 0;
 }
 
 .toolbar svg {
   flex: 0 0 auto;
   height: 14px;
   width: 14px;
+}
+
+.exampleMenu {
+  background: #1b202a;
+  border: 1px solid #303746;
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+}
+
+.exampleGroup {
+  display: grid;
+  gap: 6px;
+}
+
+.exampleGroup h3 {
+  color: #aeb6c5;
+  font-size: 11px;
+  letter-spacing: 0;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.toolbar .exampleItem {
+  align-items: start;
+  background: #202631;
+  border-color: #343c4b;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+  min-height: 0;
+  padding: 8px;
+  text-align: left;
+  white-space: normal;
+  width: 100%;
+}
+
+.toolbar .exampleItem:hover {
+  background: #27303d;
+}
+
+.exampleItemText {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.exampleItemText strong {
+  color: #f4f6fb;
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.exampleItemText span {
+  color: #aeb6c5;
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.providerBadge {
+  align-self: start;
+  border: 1px solid #485161;
+  border-radius: 999px;
+  color: #d9dee8;
+  font-size: 10px;
+  justify-self: start;
+  line-height: 1;
+  padding: 4px 6px;
+}
+
+.providerBadge.replicate {
+  border-color: #6f86b7;
+  color: #c9d8ff;
+}
+
+.providerBadge.gemini {
+  border-color: #8069ad;
+  color: #dbcfff;
+}
+
+.providerBadge.local {
+  border-color: #5b927d;
+  color: #c7f2e2;
+}
+
+.providerBadge.http {
+  border-color: #8a7a55;
+  color: #f1e1b8;
 }
 
 .fileButton input {

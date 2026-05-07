@@ -15,6 +15,7 @@ import {
   previewNodePackageArchive,
   registerBuiltInNodeRunners,
   registerInstalledNodeRunners,
+  uninstallInstalledNode,
   validateNodeLibraryManifest,
   validateNodeManifest,
   validatePromptLibraryNodes,
@@ -155,6 +156,36 @@ describe("built-in nodes", () => {
     await installNodePackageFromManifest(examplePluginManifest(), { installedDirectory, files: [{ path: "executor.ts", text: "export async function runNode(){ return { outputs: {} }; }\n" }] });
     const manifests = await loadInstalledNodeManifests(installedDirectory);
     expect(manifests[0]).toMatchObject({ id: "example.plugin.envEcho", origin: "installed" });
+  });
+
+  it("uninstalls local node packages from the installed directory", async () => {
+    const installedDirectory = await mkdtemp(join(tmpdir(), "sr-installed-delete-"));
+    await installNodePackageFromManifest(examplePluginManifest(), { installedDirectory, files: [{ path: "executor.ts", text: "export async function runNode(){ return { outputs: {} }; }\n" }] });
+
+    await uninstallInstalledNode("example.plugin.envEcho", installedDirectory);
+
+    expect(await loadInstalledNodeManifests(installedDirectory)).toEqual([]);
+  });
+
+  it("refuses to uninstall bundled node packages", async () => {
+    const installedDirectory = await mkdtemp(join(tmpdir(), "sr-installed-bundled-delete-"));
+    const bundled = { ...examplePluginManifest(), origin: "bundled" as const };
+    await installNodePackageFromManifest(bundled, { installedDirectory, origin: "bundled", files: [{ path: "executor.ts", text: "export async function runNode(){ return { outputs: {} }; }\n" }] });
+
+    await expect(uninstallInstalledNode("example.plugin.envEcho", installedDirectory)).rejects.toThrow("Bundled node");
+    expect((await loadInstalledNodeManifests(installedDirectory))[0]).toMatchObject({ id: "example.plugin.envEcho", origin: "bundled" });
+  });
+
+  it("keeps routes intact and reports missing nodes after uninstall", async () => {
+    const installedDirectory = await mkdtemp(join(tmpdir(), "sr-installed-route-delete-"));
+    await installNodePackageFromManifest(examplePluginManifest(), { installedDirectory, files: [{ path: "executor.ts", text: "export async function runNode(){ return { outputs: {} }; }\n" }] });
+    const routeNodes = [{ id: "plugin", type: "example.plugin.envEcho", params: { value: "preserved" } }];
+
+    await uninstallInstalledNode("example.plugin.envEcho", installedDirectory);
+
+    expect(routeNodes).toEqual([{ id: "plugin", type: "example.plugin.envEcho", params: { value: "preserved" } }]);
+    const issues = await validateRouteNodeTypes(routeNodes, [...builtInNodeManifests, ...(await loadInstalledNodeManifests(installedDirectory))]);
+    expect(issues[0].message).toContain("is not installed");
   });
 
   it("scans data/prompt-library style .prompt.md files", async () => {

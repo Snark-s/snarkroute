@@ -135,6 +135,17 @@ export interface PackNodePackageResult {
   files: string[];
 }
 
+export class NodePackageUninstallError extends Error {
+  constructor(
+    message: string,
+    public readonly code: "NODE_PACKAGE_NOT_FOUND" | "NODE_PACKAGE_NOT_UNINSTALLABLE" | "NODE_PACKAGE_DELETE_FAILED",
+    public readonly statusCode: number
+  ) {
+    super(message);
+    this.name = "NodePackageUninstallError";
+  }
+}
+
 export const EMPTY_PERMISSIONS: NodePermissions = {
   network: false,
   networkHosts: [],
@@ -409,7 +420,35 @@ export async function setInstalledNodeEnabled(id: string, enabled: boolean, dire
 }
 
 export async function uninstallInstalledNode(id: string, directory = getInstalledNodesDirectory()): Promise<void> {
-  await rm(join(directory, sanitizePackageDirectory(id)), { recursive: true, force: true });
+  const packagePath = join(directory, sanitizePackageDirectory(id));
+  try {
+    const packageStat = await stat(packagePath);
+    if (!packageStat.isDirectory()) throw new NodePackageUninstallError(`Installed node package "${id}" was not found.`, "NODE_PACKAGE_NOT_FOUND", 404);
+  } catch (error) {
+    if (error instanceof NodePackageUninstallError) throw error;
+    throw new NodePackageUninstallError(`Installed node package "${id}" was not found.`, "NODE_PACKAGE_NOT_FOUND", 404);
+  }
+
+  let manifest: SnarkNodeManifest;
+  try {
+    manifest = JSON.parse(await readFile(join(packagePath, "manifest.json"), "utf8")) as SnarkNodeManifest;
+  } catch {
+    throw new NodePackageUninstallError(`Installed node package "${id}" is not uninstallable because its manifest could not be read.`, "NODE_PACKAGE_NOT_UNINSTALLABLE", 400);
+  }
+
+  if (manifest.id !== id) {
+    throw new NodePackageUninstallError(`Installed node package "${id}" was not found.`, "NODE_PACKAGE_NOT_FOUND", 404);
+  }
+
+  if (manifest.origin === "bundled") {
+    throw new NodePackageUninstallError(`Bundled node "${id}" cannot be deleted.`, "NODE_PACKAGE_NOT_UNINSTALLABLE", 400);
+  }
+
+  try {
+    await rm(packagePath, { recursive: true, force: false });
+  } catch (error) {
+    throw new NodePackageUninstallError(`Filesystem deletion failed for node "${id}": ${error instanceof Error ? error.message : String(error)}`, "NODE_PACKAGE_DELETE_FAILED", 500);
+  }
 }
 
 export async function validateRouteNodeTypes(nodes: RouteNode[], manifests: SnarkNodeManifest[]): Promise<ValidationIssue[]> {

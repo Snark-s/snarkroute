@@ -98,28 +98,32 @@ export function buildServer() {
     nodes: await loadInstalledNodeManifests()
   }));
 
-  app.post<{ Body: { filename?: string; manifest?: unknown; text?: string; dataBase64?: string } }>("/api/node-packages/preview", async (request, reply) => {
+  app.post<{ Body: { filename?: string; fileName?: string; manifest?: unknown; text?: string; dataBase64?: string } }>("/api/node-packages/preview", async (request, reply) => {
     try {
-      if (request.body?.dataBase64 || isSnarkNodeArchiveFilename(request.body?.filename ?? "")) {
-        const data = Buffer.from(request.body?.dataBase64 ?? "", "base64");
-        const preview = await previewNodePackageArchive(data, { source: request.body?.filename ?? "local-file", existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
+      const upload = normalizeNodePackageUpload(request.body);
+      if (upload.mode === "archive") {
+        const preview = await previewNodePackageArchive(upload.data, { source: upload.filename, existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
         return { ok: true, ...preview };
       }
-      const manifest = request.body?.manifest ?? JSON.parse(request.body?.text ?? "{}");
+      if (upload.mode === "unsupported") return reply.code(400).send({ ok: false, issues: [{ path: upload.filename, message: unsupportedNodePackageMessage(upload.filename) }] });
+      const manifest = request.body?.manifest ?? parseUploadedNodeManifestJson(upload.text);
       const validation = validateNodeManifest(manifest, { existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
       return validation.ok ? { ok: true, manifest: validation.manifest, warnings: packageWarnings(validation.manifest!) } : validation;
     } catch (error) {
-      return reply.code(400).send({ ok: false, issues: [{ path: request.body?.filename ?? "<upload>", message: errorMessage(error) }] });
+      const filename = request.body?.filename ?? request.body?.fileName ?? "<upload>";
+      return reply.code(400).send({ ok: false, issues: [{ path: filename, message: nodePackagePreviewErrorMessage(filename, error) }] });
     }
   });
 
-  app.post<{ Body: { manifest?: unknown; text?: string; dataBase64?: string; source?: string; files?: Array<{ path: string; dataBase64?: string; text?: string }> } }>("/api/node-packages/install", async (request, reply) => {
+  app.post<{ Body: { manifest?: unknown; text?: string; dataBase64?: string; filename?: string; fileName?: string; source?: string; files?: Array<{ path: string; dataBase64?: string; text?: string }> } }>("/api/node-packages/install", async (request, reply) => {
     try {
-      if (request.body?.dataBase64) {
-        const installed = await installNodePackageFromArchive(Buffer.from(request.body.dataBase64, "base64"), { source: request.body.source ?? "local-file", origin: "installed", overwrite: true });
+      const upload = normalizeNodePackageUpload(request.body, request.body?.source);
+      if (upload.mode === "archive") {
+        const installed = await installNodePackageFromArchive(upload.data, { source: request.body.source ?? upload.filename, origin: "installed", overwrite: true });
         return { ok: true, manifest: installed };
       }
-      const manifest = request.body?.manifest ?? JSON.parse(request.body?.text ?? "{}");
+      if (upload.mode === "unsupported") return reply.code(400).send({ ok: false, issues: [{ path: upload.filename, message: unsupportedNodePackageMessage(upload.filename) }] });
+      const manifest = request.body?.manifest ?? parseUploadedNodeManifestJson(upload.text);
       const duplicateValidation = validateNodeManifest(manifest, { existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
       if (!duplicateValidation.ok) return reply.code(400).send(duplicateValidation);
       const installed = await installNodePackageFromManifest(duplicateValidation.manifest!, {
@@ -129,7 +133,8 @@ export function buildServer() {
       });
       return { ok: true, manifest: installed };
     } catch (error) {
-      return reply.code(400).send({ ok: false, error: errorMessage(error) });
+      const filename = request.body?.source ?? request.body?.filename ?? request.body?.fileName ?? "<upload>";
+      return reply.code(400).send({ ok: false, issues: [{ path: filename, message: nodePackagePreviewErrorMessage(filename, error) }] });
     }
   });
 
@@ -216,9 +221,20 @@ export function buildServer() {
     }
   });
 
-  app.delete<{ Params: { id: string } }>("/api/node-packages/:id", async (request) => {
-    await uninstallInstalledNode(request.params.id);
-    return { ok: true };
+  app.delete<{ Params: { id: string } }>("/api/node-packages/:id", async (request, reply) => {
+    const id = request.params.id;
+    const bundled = [...builtInNodeManifests, ...providerNodeManifests()].find((manifest) => manifest.id === id && manifest.origin === "bundled");
+    if (bundled) return reply.code(400).send({ ok: false, code: "NODE_PACKAGE_NOT_UNINSTALLABLE", error: `Bundled node "${id}" cannot be deleted.` });
+    try {
+      await uninstallInstalledNode(id);
+      return { ok: true, id, message: `Uninstalled node package "${id}".` };
+    } catch (error) {
+      const uninstallError = nodePackageUninstallErrorShape(error);
+      if (uninstallError) {
+        return reply.code(uninstallError.statusCode).send({ ok: false, code: uninstallError.code, error: uninstallError.message });
+      }
+      return reply.code(500).send({ ok: false, code: "NODE_PACKAGE_DELETE_FAILED", error: errorMessage(error) });
+    }
   });
 
   app.get<{ Params: { id: string } }>("/api/node-packages/:id/readme", async (request, reply) => {
@@ -449,6 +465,13 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function nodePackageUninstallErrorShape(error: unknown): { code: string; statusCode: number; message: string } | null {
+  if (!error || typeof error !== "object") return null;
+  const record = error as Record<string, unknown>;
+  if (typeof record.code !== "string" || typeof record.statusCode !== "number" || typeof record.message !== "string") return null;
+  return { code: record.code, statusCode: record.statusCode, message: record.message };
+}
+
 async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -601,6 +624,57 @@ async function fetchRemoteBytes(url: string): Promise<Buffer> {
 
 function isSnarkNodeArchiveFilename(filename: string): boolean {
   return filename.toLowerCase().split("?")[0].endsWith(".snarknode");
+}
+
+type NodePackageUpload =
+  | { mode: "archive"; filename: string; data: Buffer }
+  | { mode: "json"; filename: string; text: string }
+  | { mode: "unsupported"; filename: string };
+
+function normalizeNodePackageUpload(
+  body: { filename?: string; fileName?: string; manifest?: unknown; text?: string; dataBase64?: string } | undefined,
+  source?: string
+): NodePackageUpload {
+  const providedFilename = source ?? body?.filename ?? body?.fileName;
+  const filename = String(providedFilename ?? "local-file");
+  const lower = filename.toLowerCase().split("?")[0];
+  if (lower.endsWith(".snarknode")) {
+    return { mode: "archive", filename, data: Buffer.from(body?.dataBase64 ?? "", "base64") };
+  }
+  if (lower.endsWith(".node.json") || lower.endsWith(".json") || (providedFilename === undefined && (body?.manifest !== undefined || body?.text !== undefined))) {
+    return { mode: "json", filename, text: uploadedNodeManifestText(body) };
+  }
+  return { mode: "unsupported", filename };
+}
+
+function uploadedNodeManifestText(body: { text?: string; dataBase64?: string } | undefined): string {
+  if (typeof body?.text === "string" && body.text.length > 0) return body.text;
+  if (body?.dataBase64) return Buffer.from(body.dataBase64, "base64").toString("utf8");
+  return "{}";
+}
+
+function parseUploadedNodeManifestJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("Invalid JSON node manifest.");
+  }
+}
+
+function nodePackagePreviewErrorMessage(filename: string, error: unknown): string {
+  const message = errorMessage(error);
+  if (isSnarkNodeArchiveFilename(filename) && isZipFormatError(message)) {
+    return "Invalid .snarknode package: expected a ZIP archive. For a plain node manifest, use .node.json.";
+  }
+  return message;
+}
+
+function isZipFormatError(message: string): boolean {
+  return /central directory|zip file|corrupted zip|end of data|invalid zip/i.test(message);
+}
+
+function unsupportedNodePackageMessage(filename: string): string {
+  return `Unsupported node package file type for "${filename}". Use .snarknode for packaged nodes or .node.json for plain node manifests.`;
 }
 
 function packageWarnings(manifest: SnarkNodeManifest): string[] {
