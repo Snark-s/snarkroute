@@ -92,6 +92,34 @@ export const EconomicsSchema = z
     }
   });
 
+export const CompoundPortSchema = z
+  .object({
+    id: z.string().min(1),
+    label: z.string().optional(),
+    kind: z.enum(["text", "image", "video", "file", "json", "data"]).or(z.string()).optional(),
+    nodeId: z.string().min(1),
+    port: z.string().min(1).optional()
+  })
+  .catchall(z.unknown());
+
+export const CompoundInterfaceSchema = z
+  .object({
+    title: z.string().optional(),
+    inputs: z.array(CompoundPortSchema).optional(),
+    outputs: z.array(CompoundPortSchema).optional()
+  })
+  .catchall(z.unknown());
+
+export const CapabilityNodeSchema = z
+  .object({
+    id: z.string().min(1),
+    label: z.string().optional(),
+    provider: z.string().min(1).optional(),
+    providerParams: z.record(JsonLikeSchema).optional(),
+    resources: z.array(z.string().min(1)).optional()
+  })
+  .catchall(z.unknown());
+
 export const RouteNodeSchema = z.object({
   id: z.string().min(1),
   type: z.string().min(1),
@@ -99,6 +127,9 @@ export const RouteNodeSchema = z.object({
   params: z.record(JsonLikeSchema).optional(),
   inputs: z.record(JsonLikeSchema).optional(),
   outputs: z.record(JsonLikeSchema).optional(),
+  compound: CompoundInterfaceSchema.optional(),
+  capability: CapabilityNodeSchema.optional(),
+  subroute: z.unknown().optional(),
   nodePackage: z
     .object({
       id: z.string().optional(),
@@ -139,12 +170,28 @@ export const OpenRouteSchema = z.object({
   economics: EconomicsSchema.optional(),
   nodes: z.array(RouteNodeSchema),
   edges: z.array(RouteEdgeSchema),
+  resources: z
+    .array(
+      z
+        .object({
+          id: z.string().min(1),
+          kind: z.enum(["character", "location", "style", "promptPreset"]).or(z.string()),
+          title: z.string().min(1).optional(),
+          description: z.string().optional(),
+          prompt: z.string().optional(),
+          refs: z.array(z.string()).optional()
+        })
+        .catchall(z.unknown())
+    )
+    .optional(),
   provenance: ProvenanceSchema.optional()
 });
 
 export type OpenRoute = z.infer<typeof OpenRouteSchema>;
 export type RouteNode = z.infer<typeof RouteNodeSchema>;
 export type RouteEdge = z.infer<typeof RouteEdgeSchema>;
+export type CompoundInterface = z.infer<typeof CompoundInterfaceSchema>;
+export type CapabilityNode = z.infer<typeof CapabilityNodeSchema>;
 export type RouteDocumentFormat = "json" | "yaml";
 
 export type NodeRefKind = "input" | "output";

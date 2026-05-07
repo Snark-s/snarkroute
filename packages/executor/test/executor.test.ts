@@ -283,6 +283,96 @@ describe("executor", () => {
     expect(result.economics.costSummary.actualProviderCost).toBeNull();
   });
 
+  it("executes a capability node through a selected provider", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("provider.image", ({ node, params, inputs }) => ({
+      output: { image: { path: "generated.png" }, prompt: params.prompt, inputPrompt: inputs.prompt },
+      providerUsage: { provider: "test", model: "image-model", nodeId: node.id, nodeType: node.type, status: "succeeded" }
+    }));
+    executor.registerCapabilityProvider("image.create", "provider.image");
+    const result = await executor.executeRoute(
+      route({
+        nodes: [{ id: "make", type: "capability.image.create", params: { prompt: "a tiny moon" } }],
+        edges: []
+      }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.make.output).toMatchObject({ image: { path: "generated.png" }, prompt: "a tiny moon" });
+    expect(result.nodeResults["make/make__provider"].type).toBe("provider.image");
+    expect(result.economics.providersUsed[0]).toMatchObject({ nodeId: "make__provider", nodeType: "provider.image" });
+  });
+
+  it("fails clearly when an explicit capability provider is unavailable", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("provider.image", () => ({ output: { ok: true } }));
+    executor.registerCapabilityProvider("image.create", "provider.image");
+    const result = await executor.executeRoute(
+      route({
+        nodes: [{ id: "make", type: "capability.image.create", params: { provider: "missing.provider" } }],
+        edges: []
+      }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults.make.error).toContain("does not declare support");
+  });
+
+  it("executes a compound subroute and exposes mapped outputs", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("input.text", ({ params }) => ({ output: { text: params.value } }));
+    executor.registerNodeRunner("transform.template", ({ params }) => ({ output: { text: params.template } }));
+    const result = await executor.executeRoute(
+      route({
+        nodes: [
+          { id: "prefix", type: "input.text", params: { value: "hello" } },
+          {
+            id: "compound",
+            type: "compound.subroute",
+            compound: {
+              inputs: [{ id: "text", nodeId: "inner", port: "template" }],
+              outputs: [{ id: "text", nodeId: "inner", port: "text" }]
+            },
+            subroute: route({
+              route: { id: "sub", title: "Sub", author: {} },
+              nodes: [{ id: "inner", type: "transform.template", params: { template: "{{compound__input__text.output.value}} world" } }],
+              edges: [{ from: "compound__input__text", to: "inner" }]
+            })
+          }
+        ],
+        edges: [{ from: "prefix", to: "compound", fromPort: "text", toPort: "text" }]
+      }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.compound.output).toEqual({ text: "hello world" });
+    expect(result.nodeResults["compound/inner"].status).toBe("succeeded");
+  });
+
+  it("identifies the failed internal node for compound subroutes", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("explode", () => {
+      throw new Error("boom");
+    });
+    const result = await executor.executeRoute(
+      route({
+        nodes: [
+          {
+            id: "compound",
+            type: "compound.subroute",
+            compound: { outputs: [{ id: "value", nodeId: "inner", port: "value" }] },
+            subroute: route({ route: { id: "sub", title: "Sub", author: {} }, nodes: [{ id: "inner", type: "explode" }], edges: [] })
+          }
+        ],
+        edges: []
+      }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults.compound.error).toContain('internal node "inner"');
+    expect(result.nodeResults["compound/inner"].error).toContain("boom");
+  });
+
   it("appends a local run ledger entry", async () => {
     const directory = await mkdtemp(join(tmpdir(), "sr-ledger-"));
     const ledgerPath = join(directory, "runs.jsonl");

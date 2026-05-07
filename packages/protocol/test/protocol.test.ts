@@ -123,6 +123,32 @@ describe("protocol", () => {
     expect(parseRoute(baseRoute).nodes[1].type).toBe("unknown.node");
   });
 
+  it("preserves capability nodes and resource library metadata", () => {
+    const route = parseRoute({
+      ...baseRoute,
+      nodes: [
+        {
+          id: "make_image",
+          type: "capability.image.create",
+          capability: { id: "image.create", resources: ["character/hero"] },
+          params: { prompt: "portrait", provider: "local.stableDiffusion.textToImage" }
+        }
+      ],
+      edges: [],
+      resources: [
+        {
+          id: "hero",
+          kind: "character",
+          title: "Hero",
+          prompt: "same character design"
+        }
+      ]
+    });
+    const exported = exportRouteToJson(route);
+    expect(exported).toContain('"type": "capability.image.create"');
+    expect(exported).toContain('"kind": "character"');
+  });
+
   it("preserves library.prompt params during route import and export", () => {
     const route = parseRoute({
       ...baseRoute,

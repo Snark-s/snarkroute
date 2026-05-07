@@ -22,6 +22,13 @@ export interface NodeParamManifest extends NodePortManifest {
   default?: unknown;
 }
 
+export interface NodeCapabilityManifest {
+  id: string;
+  title?: string;
+  defaultParams?: Record<string, unknown>;
+  priority?: number;
+}
+
 export interface NodePermissions {
   network: boolean;
   networkHosts?: string[];
@@ -63,6 +70,7 @@ export interface SnarkNodeManifest {
   inputs: NodePortManifest[];
   outputs: NodePortManifest[];
   params?: NodeParamManifest[];
+  capabilities?: NodeCapabilityManifest[];
   ui?: unknown;
   description?: string;
   category?: string;
@@ -208,6 +216,7 @@ export function validateNodeManifest(input: unknown, options: { basePath?: strin
   validatePorts(record.inputs, "inputs", issues);
   validatePorts(record.outputs, "outputs", issues);
   if (record.params !== undefined) validatePorts(record.params, "params", issues);
+  if (record.capabilities !== undefined) validateCapabilities(record.capabilities, issues);
 
   return issues.length === 0 ? { ok: true, manifest: normalizeNodeManifest(record), issues: [] } : { ok: false, issues };
 }
@@ -453,8 +462,14 @@ export async function uninstallInstalledNode(id: string, directory = getInstalle
 
 export async function validateRouteNodeTypes(nodes: RouteNode[], manifests: SnarkNodeManifest[]): Promise<ValidationIssue[]> {
   const available = new Set(manifests.filter((manifest) => manifest.enabled !== false).map((manifest) => manifest.id));
+  const capabilities = new Set(
+    manifests
+      .filter((manifest) => manifest.enabled !== false)
+      .flatMap((manifest) => manifest.capabilities ?? [])
+      .map((capability) => capability.id)
+  );
   return nodes
-    .filter((node) => !available.has(node.type))
+    .filter((node) => !available.has(node.type) && !isAvailableCapabilityNode(node, capabilities))
     .map((node) => ({ path: `nodes.${node.id}.type`, message: `This route uses node "${node.type}", but it is not installed. Install the node package or remove this node.` }));
 }
 
@@ -464,6 +479,9 @@ export async function registerInstalledNodeRunners(executor: RouteExecutor, dire
     if (manifest.enabled === false) continue;
     if (manifest.executor.type === "plugin") executor.registerNodeRunner(manifest.id, createPluginNodeRunner(manifest, join(directory, sanitizePackageDirectory(manifest.id))));
     if (manifest.executor.type === "declarative.http") executor.registerNodeRunner(manifest.id, createDeclarativeHttpNodeRunner(manifest));
+    for (const capability of manifest.capabilities ?? []) {
+      executor.registerCapabilityProvider(capability.id, manifest.id, { defaultParams: capability.defaultParams, priority: capability.priority });
+    }
   }
 }
 
@@ -635,6 +653,32 @@ function validatePorts(value: unknown, path: string, issues: ValidationIssue[]):
     requiredString(record.type, `${path}.${index}.type`, issues);
     if (record.required !== undefined && typeof record.required !== "boolean") issues.push({ path: `${path}.${index}.required`, message: "required must be boolean." });
   });
+}
+
+function validateCapabilities(value: unknown, issues: ValidationIssue[]): void {
+  if (!Array.isArray(value)) {
+    issues.push({ path: "capabilities", message: "capabilities must be an array." });
+    return;
+  }
+  value.forEach((capability, index) => {
+    if (!capability || typeof capability !== "object" || Array.isArray(capability)) {
+      issues.push({ path: `capabilities.${index}`, message: "Capability must be an object." });
+      return;
+    }
+    const record = capability as Record<string, unknown>;
+    const id = requiredString(record.id, `capabilities.${index}.id`, issues);
+    if (id && !NODE_ID_PATTERN.test(id)) issues.push({ path: `capabilities.${index}.id`, message: "Capability id must use letters, numbers, dots, dashes, or underscores." });
+    if (record.defaultParams !== undefined && (!record.defaultParams || typeof record.defaultParams !== "object" || Array.isArray(record.defaultParams))) {
+      issues.push({ path: `capabilities.${index}.defaultParams`, message: "defaultParams must be an object." });
+    }
+    if (record.priority !== undefined && typeof record.priority !== "number") issues.push({ path: `capabilities.${index}.priority`, message: "priority must be a number." });
+  });
+}
+
+function isAvailableCapabilityNode(node: RouteNode, capabilities: Set<string>): boolean {
+  if (node.type.startsWith("capability.") && capabilities.has(node.type.slice("capability.".length))) return true;
+  const capability = (node as RouteNode & { capability?: { id?: unknown } }).capability?.id;
+  return typeof capability === "string" && capabilities.has(capability);
 }
 
 function normalizeNodeManifest(record: Record<string, unknown>): SnarkNodeManifest {

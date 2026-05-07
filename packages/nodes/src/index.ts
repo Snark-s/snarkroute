@@ -11,6 +11,7 @@ export interface NodeDefinition {
   title: string;
   description: string;
   economics?: NodeEconomicsMetadata;
+  capabilities?: Array<{ id: string; title?: string; defaultParams?: Record<string, unknown>; priority?: number }>;
   manifest?: SnarkNodeManifest;
 }
 
@@ -56,17 +57,47 @@ export interface PromptLibraryDiagnostic {
   severity: "warning" | "error";
 }
 
+export type ResourceLibraryKind = "character" | "location" | "style" | "promptPreset";
+
+export interface ResourceLibraryItem {
+  id: string;
+  kind: ResourceLibraryKind | string;
+  title: string;
+  description?: string;
+  tags?: string[];
+  prompt?: string;
+  ref: string;
+  path: string;
+}
+
+export interface ResourceLibrary {
+  resources: ResourceLibraryItem[];
+  diagnostics: PromptLibraryDiagnostic[];
+}
+
 export const builtInNodeDefinitions: NodeDefinition[] = [
   { type: "input.text", title: "Text Input", description: "Produces a text value from params.value.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "input.file", title: "Input File", description: "Reads metadata for a local file path.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "input.image", title: "Input Image", description: "Reads metadata and dimensions for a local image path.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "input.video", title: "Input Video", description: "Reads metadata for a local video path.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "capability.image.create", title: "Create Image", description: "User-facing image creation task that selects a supporting provider at execution time.", economics: { license: "AGPL-3.0-or-later", notes: "Capability layer only; provider economics are preserved." } },
+  { type: "capability.image.edit", title: "Edit Image", description: "User-facing image editing task that selects a supporting provider at execution time.", economics: { license: "AGPL-3.0-or-later", notes: "Capability layer only; provider economics are preserved." } },
+  { type: "capability.image.upscale", title: "Upscale Image", description: "User-facing image upscale task that selects a supporting provider at execution time.", economics: { license: "AGPL-3.0-or-later", notes: "Capability layer only; provider economics are preserved." } },
+  { type: "capability.video.animate", title: "Animate Video", description: "User-facing video animation task that selects a supporting provider at execution time.", economics: { license: "AGPL-3.0-or-later", notes: "Capability layer only; provider economics are preserved." } },
+  { type: "capability.character.create", title: "Create Character", description: "Creates or resolves a reusable character resource for routes.", economics: { license: "AGPL-3.0-or-later", notes: "Local resource metadata only; no marketplace or payment execution." } },
+  { type: "capability.location.create", title: "Create Location", description: "Creates or resolves a reusable location resource for routes.", economics: { license: "AGPL-3.0-or-later", notes: "Local resource metadata only; no marketplace or payment execution." } },
   { type: "library.prompt", title: "Prompt Library", description: "Outputs a saved local prompt or embedded text snippet.", economics: { license: "AGPL-3.0-or-later", notes: "Local library only; no marketplace or payment execution." } },
   { type: "preview.image", title: "Image Preview", description: "Passes through an image value for Studio preview.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "transform.template", title: "Template Transform", description: "Produces text from params.template after route template resolution.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "debug.log", title: "Debug Log", description: "Logs a message or value and passes the value through.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "http.request", title: "HTTP Request", description: "Calls an arbitrary HTTP API through the backend.", economics: { license: "AGPL-3.0-or-later", notes: "Generic API executor; no tokens are stored by this node." } },
-  { type: "local.stableDiffusion.textToImage", title: "Local Stable Diffusion", description: "Calls a local Stable Diffusion WebUI-compatible txt2img API.", economics: { license: "AGPL-3.0-or-later", notes: "Local executor metadata only; no payment execution." } },
+  {
+    type: "local.stableDiffusion.textToImage",
+    title: "Local Stable Diffusion",
+    description: "Calls a local Stable Diffusion WebUI-compatible txt2img API.",
+    economics: { license: "AGPL-3.0-or-later", notes: "Local executor metadata only; no payment execution." },
+    capabilities: [{ id: "image.create", title: "Create Image", priority: 10 }]
+  },
   { type: "output.text", title: "Text Output", description: "Displays text or JSON output without writing a file.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "output.file", title: "Output File", description: "Writes text or JSON to the local run folder.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } }
 ];
@@ -87,7 +118,8 @@ export const builtInNodeManifests: SnarkNodeManifest[] = builtInNodeDefinitions.
   executor: { type: "builtin", runtime: "builtin", builtinRunner: definition.type },
   inputs: builtInInputs(definition.type),
   outputs: builtInOutputs(definition.type),
-  params: builtInParams(definition.type)
+  params: builtInParams(definition.type),
+  capabilities: definition.capabilities
 }));
 
 for (const definition of builtInNodeDefinitions) {
@@ -138,6 +170,37 @@ export const debugLogRunner: NodeRunner = ({ params, context }) => {
   return {
     output: { value },
     logs: [message]
+  };
+};
+
+export const createResourceCapabilityRunner: NodeRunner = async ({ node, params }) => {
+  const kind = node.type === "capability.location.create" ? "location" : "character";
+  const linkedRef = stringParam(params.resource ?? params.resourceRef);
+  if (linkedRef) {
+    const resource = await resolveResourceLibraryItem(linkedRef);
+    return {
+      output: { resource },
+      logs: [`Resolved ${resource.kind} resource "${resource.ref}".`],
+      provenance: { resourceRef: resource.ref, resourcePath: resource.path }
+    };
+  }
+  const title = stringParam(params.title ?? params.name) ?? titleFromId(node.id);
+  const description = stringParam(params.description);
+  const prompt = stringParam(params.prompt);
+  const resource: ResourceLibraryItem = {
+    id: stringParam(params.id) ?? node.id,
+    kind,
+    title,
+    description,
+    prompt,
+    tags: Array.isArray(params.tags) ? params.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())) : undefined,
+    ref: `${kind}/${stringParam(params.id) ?? node.id}`,
+    path: "<route>"
+  };
+  return {
+    output: { resource },
+    logs: [`Created route-local ${kind} resource "${resource.ref}".`],
+    provenance: { resourceRef: resource.ref, local: true }
   };
 };
 
@@ -299,12 +362,15 @@ export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("input.file", inputFileRunner);
   executor.registerNodeRunner("input.image", inputImageRunner);
   executor.registerNodeRunner("input.video", inputVideoRunner);
+  executor.registerNodeRunner("capability.character.create", createResourceCapabilityRunner);
+  executor.registerNodeRunner("capability.location.create", createResourceCapabilityRunner);
   executor.registerNodeRunner("library.prompt", promptLibraryRunner);
   executor.registerNodeRunner("preview.image", previewImageRunner);
   executor.registerNodeRunner("transform.template", transformTemplateRunner);
   executor.registerNodeRunner("debug.log", debugLogRunner);
   executor.registerNodeRunner("http.request", httpRequestRunner);
   executor.registerNodeRunner("local.stableDiffusion.textToImage", localStableDiffusionTextToImageRunner);
+  executor.registerCapabilityProvider("image.create", "local.stableDiffusion.textToImage", { priority: 10 });
   executor.registerNodeRunner("output.text", outputTextRunner);
   executor.registerNodeRunner("output.file", outputFileRunner);
 }
@@ -313,6 +379,7 @@ function builtInNodeCategory(type: string): string {
   if (type.startsWith("input.")) return "Input";
   if (type.startsWith("output.")) return "Output";
   if (type.startsWith("preview.")) return "Preview";
+  if (type.startsWith("capability.")) return "Capability";
   if (type.startsWith("http.")) return "API / HTTP";
   if (type.startsWith("local.")) return "Local";
   if (type.startsWith("debug.")) return "Debug";
@@ -337,6 +404,8 @@ function builtInInputs(type: string) {
   if (type === "output.text") return [{ id: "from", type: "data", required: false, label: "From" }];
   if (type === "output.file") return [{ id: "from", type: "data", required: false, label: "From" }];
   if (type === "local.stableDiffusion.textToImage") return [{ id: "prompt", type: "text", required: false, label: "Prompt" }];
+  if (type === "capability.image.edit" || type === "capability.image.upscale") return [{ id: "image", type: "image", required: true, label: "Image" }];
+  if (type === "capability.video.animate") return [{ id: "image", type: "image", required: false, label: "Image" }];
   return [];
 }
 
@@ -344,6 +413,9 @@ function builtInOutputs(type: string) {
   if (type === "input.text" || type === "library.prompt" || type === "transform.template" || type === "output.text") return [{ id: "text", type: "text", label: "Text" }];
   if (type === "input.file" || type === "output.file") return [{ id: "file", type: "file", label: "File" }];
   if (type === "input.image" || type === "preview.image" || type === "local.stableDiffusion.textToImage") return [{ id: "image", type: "image", label: "Image" }];
+  if (type === "capability.image.create" || type === "capability.image.edit" || type === "capability.image.upscale") return [{ id: "image", type: "image", label: "Image" }];
+  if (type === "capability.video.animate") return [{ id: "video", type: "video", label: "Video" }];
+  if (type === "capability.character.create" || type === "capability.location.create") return [{ id: "resource", type: "json", label: "Resource" }];
   if (type === "input.video") return [{ id: "video", type: "video", label: "Video" }];
   if (type === "http.request") return [{ id: "responseJson", type: "json", label: "JSON" }, { id: "responseText", type: "text", label: "Text" }];
   if (type === "debug.log") return [{ id: "value", type: "data", label: "Value" }];
@@ -353,6 +425,7 @@ function builtInOutputs(type: string) {
 function builtInParams(type: string) {
   if (type === "input.text") return [{ id: "value", type: "text", label: "Value", default: "" }];
   if (type === "input.file" || type === "input.image" || type === "input.video") return [{ id: "path", type: "file", label: "Path", default: "" }];
+  if (type.startsWith("capability.")) return [{ id: "prompt", type: "text", label: "Prompt", default: "" }, { id: "provider", type: "text", label: "Provider", default: "" }];
   if (type === "transform.template") return [{ id: "template", type: "text", label: "Template", default: "" }];
   if (type === "http.request") {
     return [
@@ -445,6 +518,96 @@ export async function loadPromptLibraryOrEmpty(path = getPromptLibraryPath()): P
   }
 }
 
+export function getResourceLibraryPath(): string {
+  if (process.env.SNARKROUTE_RESOURCE_LIBRARY_PATH) return process.env.SNARKROUTE_RESOURCE_LIBRARY_PATH;
+  let directory = process.cwd();
+  while (true) {
+    const candidate = join(directory, "data", "resource-library");
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(directory);
+    if (parent === directory || directory === parse(directory).root) return join(process.cwd(), "data", "resource-library");
+    directory = parent;
+  }
+}
+
+export async function loadResourceLibrary(directory = getResourceLibraryPath()): Promise<ResourceLibrary> {
+  const diagnostics: PromptLibraryDiagnostic[] = [];
+  const resources: ResourceLibraryItem[] = [];
+  const files = await findResourceFiles(directory, diagnostics);
+  const seen = new Set<string>();
+
+  for (const file of files) {
+    let text = "";
+    try {
+      text = await readFile(file, "utf8");
+    } catch (error) {
+      diagnostics.push({ path: file, severity: "error", message: `Could not read resource file: ${errorMessage(error)}` });
+      continue;
+    }
+    const parsed = parseResourceFile(text, file);
+    if ("diagnostic" in parsed) {
+      diagnostics.push(parsed.diagnostic);
+      continue;
+    }
+    if (seen.has(parsed.resource.ref)) {
+      diagnostics.push({ path: file, severity: "error", message: `Duplicate resource ref "${parsed.resource.ref}". Keeping the first discovered file.` });
+      continue;
+    }
+    seen.add(parsed.resource.ref);
+    resources.push(parsed.resource);
+  }
+
+  return { resources: resources.sort((left, right) => left.kind.localeCompare(right.kind) || left.title.localeCompare(right.title)), diagnostics };
+}
+
+export async function loadResourceLibraryOrEmpty(path = getResourceLibraryPath()): Promise<ResourceLibrary> {
+  try {
+    return await loadResourceLibrary(path);
+  } catch {
+    return { resources: [], diagnostics: [] };
+  }
+}
+
+export function parseResourceFile(text: string, path = "<resource>"): { resource: ResourceLibraryItem } | { diagnostic: PromptLibraryDiagnostic } {
+  const match = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n)?([\s\S]*)$/u.exec(text);
+  if (!match) return { diagnostic: { path, severity: "error", message: "Resource file requires YAML frontmatter delimited by ---." } };
+  let metadata: Record<string, unknown>;
+  try {
+    metadata = parseSimpleFrontmatter(match[1]);
+  } catch (error) {
+    return { diagnostic: { path, severity: "error", message: `Invalid resource frontmatter: ${errorMessage(error)}` } };
+  }
+  const id = stringField(metadata, "id");
+  const kind = stringField(metadata, "kind");
+  const title = stringField(metadata, "title");
+  if (!id || !kind || !title) return { diagnostic: { path, severity: "error", message: "Resource frontmatter requires string fields: id, kind, title." } };
+  const body = match[2].trim();
+  const description = stringField(metadata, "description");
+  const prompt = stringField(metadata, "prompt") || body || undefined;
+  const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())) : undefined;
+  return {
+    resource: {
+      id,
+      kind,
+      title,
+      description: description || undefined,
+      tags,
+      prompt,
+      ref: `${kind}/${id}`,
+      path
+    }
+  };
+}
+
+export async function resolveResourceLibraryItem(ref: string, path = getResourceLibraryPath()): Promise<ResourceLibraryItem> {
+  const [kind, id] = ref.split("/", 2);
+  if (!kind || !id) throw new Error(`Resource ref "${ref}" must use kind/id format.`);
+  const library = await loadResourceLibrary(path);
+  const resource = library.resources.find((candidate) => candidate.kind === kind && candidate.id === id);
+  if (!resource) throw new Error(`Linked resource "${ref}" was not found in the local resource library.`);
+  return resource;
+}
+
 export function parsePromptFile(text: string, path = "<prompt>"): { prompt: PromptLibraryPrompt } | { diagnostic: PromptLibraryDiagnostic } {
   const match = /^---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n)?([\s\S]*)$/u.exec(text);
   if (!match) {
@@ -517,6 +680,24 @@ async function findPromptFiles(directory: string, diagnostics: PromptLibraryDiag
     const path = join(directory, entry.name);
     if (entry.isDirectory()) files.push(...(await findPromptFiles(path, diagnostics)));
     else if (entry.isFile() && entry.name.endsWith(".prompt.md")) files.push(path);
+  }
+  return files.sort();
+}
+
+async function findResourceFiles(directory: string, diagnostics: PromptLibraryDiagnostic[]): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch {
+    diagnostics.push({ path: directory, severity: "warning", message: `Resource library folder was not found: ${directory}` });
+    return [];
+  }
+
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await findResourceFiles(path, diagnostics)));
+    else if (entry.isFile() && entry.name.endsWith(".resource.md")) files.push(path);
   }
   return files.sort();
 }

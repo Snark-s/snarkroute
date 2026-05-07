@@ -1,6 +1,6 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { OpenRoute, RouteNode } from "@snarkroute/protocol";
+import type { OpenRoute, RouteEdge, RouteNode } from "@snarkroute/protocol";
 
 export type RunStatus = "pending" | "running" | "succeeded" | "failed";
 
@@ -25,6 +25,8 @@ export interface NodeRunnerResult {
   metrics?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
   providerUsage?: ProviderUsageEvent | ProviderUsageEvent[];
+  internalNodeResults?: Record<string, NodeResult>;
+  internalLogs?: RunLogEntry[];
 }
 
 export type NodeRunner = (input: NodeRunnerInput) => Promise<NodeRunnerResult> | NodeRunnerResult;
@@ -116,15 +118,42 @@ export interface RunLedgerEntry {
 
 export interface RouteExecutor {
   registerNodeRunner: (type: string, runner: NodeRunner) => void;
+  registerCapabilityProvider: (capability: string, providerType: string, options?: CapabilityProviderOptions) => void;
   executeRoute: (route: OpenRoute, options?: ExecuteOptions) => Promise<RunResult>;
+}
+
+export interface CapabilityProviderOptions {
+  defaultParams?: Record<string, unknown>;
+  priority?: number;
+}
+
+interface CapabilityProviderRegistration {
+  capability: string;
+  providerType: string;
+  defaultParams: Record<string, unknown>;
+  priority: number;
 }
 
 export function createExecutor(): RouteExecutor {
   const runners = new Map<string, NodeRunner>();
+  const capabilityProviders = new Map<string, CapabilityProviderRegistration[]>();
+  runners.set("compound.subroute", createCompoundRunner(() => executor));
 
-  return {
+  const executor: RouteExecutor = {
     registerNodeRunner(type, runner) {
       runners.set(type, runner);
+    },
+
+    registerCapabilityProvider(capability, providerType, options = {}) {
+      const providers = capabilityProviders.get(capability) ?? [];
+      providers.push({
+        capability,
+        providerType,
+        defaultParams: options.defaultParams ?? {},
+        priority: options.priority ?? 0
+      });
+      providers.sort((left, right) => right.priority - left.priority || left.providerType.localeCompare(right.providerType));
+      capabilityProviders.set(capability, providers);
     },
 
     async executeRoute(route, options = {}) {
@@ -135,8 +164,9 @@ export function createExecutor(): RouteExecutor {
       const startedAt = new Date().toISOString();
       const logs: RunLogEntry[] = [];
       const providersUsed: ProviderUsageEvent[] = [];
+      const routeNodes = route.nodes as RouteNode[];
       const nodeResults: Record<string, NodeResult> = Object.fromEntries(
-        route.nodes.map((node) => [
+        routeNodes.map((node: RouteNode) => [
           node.id,
           {
             nodeId: node.id,
@@ -176,7 +206,7 @@ export function createExecutor(): RouteExecutor {
             continue;
           }
 
-          const runner = runners.get(node.type);
+          const runner = runners.get(node.type) ?? getCapabilityRunner(node, runners, capabilityProviders);
           if (!runner) {
             nodeResults[node.id] = {
               nodeId: node.id,
@@ -207,6 +237,16 @@ export function createExecutor(): RouteExecutor {
             const output = result.output ?? {};
             providersUsed.push(...normalizeProviderUsage(result.providerUsage, node));
             nodeOutputs[node.id] = output;
+            for (const [internalNodeId, internalResult] of Object.entries(result.internalNodeResults ?? {})) {
+              nodeResults[`${node.id}/${internalNodeId}`] = {
+                ...internalResult,
+                nodeId: `${node.id}/${internalNodeId}`,
+                type: internalResult.type
+              };
+            }
+            for (const entry of result.internalLogs ?? []) {
+              logs.push({ ...entry, nodeId: entry.nodeId ? `${node.id}/${entry.nodeId}` : node.id });
+            }
             nodeResults[node.id] = {
               nodeId: node.id,
               type: node.type,
@@ -222,6 +262,19 @@ export function createExecutor(): RouteExecutor {
             log(`Completed ${node.id}`, node.id);
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
+            if (error instanceof CompoundExecutionError) {
+              providersUsed.push(...error.providersUsed);
+              for (const [internalNodeId, internalResult] of Object.entries(error.internalNodeResults)) {
+                nodeResults[`${node.id}/${internalNodeId}`] = {
+                  ...internalResult,
+                  nodeId: `${node.id}/${internalNodeId}`,
+                  type: internalResult.type
+                };
+              }
+              for (const entry of error.internalLogs) {
+                logs.push({ ...entry, nodeId: entry.nodeId ? `${node.id}/${entry.nodeId}` : node.id });
+              }
+            }
             nodeResults[node.id] = {
               nodeId: node.id,
               type: node.type,
@@ -249,6 +302,195 @@ export function createExecutor(): RouteExecutor {
       }
     }
   };
+  return executor;
+}
+
+class CompoundExecutionError extends Error {
+  constructor(
+    message: string,
+    readonly internalNodeResults: Record<string, NodeResult>,
+    readonly internalLogs: RunLogEntry[],
+    readonly providersUsed: ProviderUsageEvent[]
+  ) {
+    super(message);
+    this.name = "CompoundExecutionError";
+  }
+}
+
+function createCompoundRunner(getExecutor: () => RouteExecutor): NodeRunner {
+  return async ({ node, inputs, context }) => {
+    const compoundNode = node as RouteNode & {
+      compound?: { title?: string; inputs?: Array<{ id: string; nodeId: string; port?: string }>; outputs?: Array<{ id: string; nodeId: string; port?: string }> };
+      subroute?: OpenRoute;
+    };
+    if (!compoundNode.subroute) throw new Error(`Compound node "${node.id}" has no subroute.`);
+    const interfaceInputs: Array<{ id: string; nodeId: string; port?: string }> = compoundNode.compound?.inputs ?? [];
+    const interfaceOutputs: Array<{ id: string; nodeId: string; port?: string }> = compoundNode.compound?.outputs ?? [];
+    const syntheticNodes: RouteNode[] = [];
+    const syntheticEdges: RouteEdge[] = [];
+    const initialNodeOutputs: Record<string, unknown> = {};
+
+    for (const port of interfaceInputs) {
+      const syntheticId = `${node.id}__input__${port.id}`;
+      syntheticNodes.push({ id: syntheticId, type: "compound.input" });
+      syntheticEdges.push({ from: syntheticId, to: port.nodeId, fromPort: "value", toPort: port.port ?? port.id });
+      initialNodeOutputs[syntheticId] = { value: inputs[port.id] };
+    }
+
+    const subroute: OpenRoute = {
+      ...compoundNode.subroute,
+      route: {
+        ...compoundNode.subroute.route,
+        id: `${context.route.route.id}.${node.id}`,
+        title: compoundNode.compound?.title ?? node.title ?? compoundNode.subroute.route.title
+      },
+      nodes: [...syntheticNodes, ...compoundNode.subroute.nodes],
+      edges: [...syntheticEdges, ...compoundNode.subroute.edges]
+    };
+    const result = await getExecutor().executeRoute(subroute, {
+      runId: `${context.runId}_${node.id}`,
+      outputDirectory: join(context.outputDirectory, node.id),
+      initialNodeOutputs
+    });
+
+    const internalNodeResults = Object.fromEntries(
+      Object.entries(result.nodeResults).filter(([internalNodeId]) => !internalNodeId.startsWith(`${node.id}__input__`))
+    );
+    const internalLogs = result.logs.filter((entry) => !entry.nodeId?.startsWith(`${node.id}__input__`));
+
+    if (result.status !== "succeeded") {
+      const failed = Object.values(internalNodeResults).find((entry) => entry.status === "failed");
+      const failedId = failed?.nodeId ?? "unknown";
+      throw new CompoundExecutionError(
+        `Compound node "${node.id}" failed inside internal node "${failedId}": ${failed?.error ?? "subroute failed"}`,
+        internalNodeResults,
+        internalLogs,
+        result.economics.providersUsed
+      );
+    }
+
+    const output = Object.fromEntries(
+      interfaceOutputs.map((port) => [port.id, readOutputPort(result.nodeResults[port.nodeId]?.output, port.port ?? port.id)])
+    );
+    return {
+      output,
+      logs: [`Subroute completed with ${Object.keys(internalNodeResults).length} internal node(s).`],
+      providerUsage: result.economics.providersUsed,
+      provenance: { subrouteRunId: result.runId, internalNodeIds: Object.keys(internalNodeResults) },
+      internalNodeResults,
+      internalLogs
+    };
+  };
+}
+
+function getCapabilityRunner(
+  node: RouteNode,
+  runners: Map<string, NodeRunner>,
+  capabilityProviders: Map<string, CapabilityProviderRegistration[]>
+): NodeRunner | undefined {
+  const capability = readCapabilityId(node);
+  if (!capability) return undefined;
+  const providers = capabilityProviders.get(capability) ?? [];
+  if (providers.length === 0) return undefined;
+  return createCapabilityRunner(capability, providers, runners);
+}
+
+function createCapabilityRunner(
+  capability: string,
+  providers: CapabilityProviderRegistration[],
+  runners: Map<string, NodeRunner>
+): NodeRunner {
+  return async ({ node, params, inputs, context }) => {
+    const selected = selectCapabilityProvider(capability, params, node, providers);
+    const providerRunner = runners.get(selected.providerType);
+    if (!providerRunner) throw new Error(`Capability "${capability}" selected provider "${selected.providerType}", but no runner is registered for that provider.`);
+
+    const providerNode: RouteNode = {
+      id: `${node.id}__provider`,
+      type: selected.providerType,
+      title: node.title ? `${node.title} Provider` : undefined,
+      params: mergeProviderParams(selected.defaultParams, params)
+    };
+    const providerContext: NodeExecutionContext = {
+      ...context,
+      log: (message, nodeId) => context.log(message, nodeId ?? providerNode.id)
+    };
+    const startedAt = new Date().toISOString();
+    const result = await providerRunner({
+      node: providerNode,
+      params: providerNode.params ?? {},
+      inputs,
+      context: providerContext
+    });
+    const completedAt = new Date().toISOString();
+    return {
+      output: result.output ?? {},
+      logs: [`Capability "${capability}" used provider "${selected.providerType}".`, ...(result.logs ?? [])],
+      metrics: result.metrics,
+      provenance: {
+        ...(result.provenance ?? {}),
+        capability,
+        selectedProvider: selected.providerType,
+        resources: readResourceRefs(node, params)
+      },
+      providerUsage: result.providerUsage,
+      internalNodeResults: {
+        [providerNode.id]: {
+          nodeId: providerNode.id,
+          type: providerNode.type,
+          status: "succeeded",
+          output: result.output ?? {},
+          logs: result.logs ?? [],
+          metrics: result.metrics,
+          provenance: result.provenance,
+          startedAt,
+          completedAt
+        }
+      }
+    };
+  };
+}
+
+function readCapabilityId(node: RouteNode): string | null {
+  const capability = (node as RouteNode & { capability?: { id?: unknown } }).capability?.id;
+  if (typeof capability === "string" && capability.trim()) return capability.trim();
+  return node.type.startsWith("capability.") ? node.type.slice("capability.".length) : null;
+}
+
+function selectCapabilityProvider(
+  capability: string,
+  params: Record<string, unknown>,
+  node: RouteNode,
+  providers: CapabilityProviderRegistration[]
+): CapabilityProviderRegistration {
+  const requested = stringParam(params.provider ?? params.providerType ?? params.nodeType ?? (node as RouteNode & { capability?: { provider?: unknown } }).capability?.provider);
+  if (!requested) return providers[0];
+  const provider = providers.find((candidate) => candidate.providerType === requested);
+  if (!provider) {
+    throw new Error(`Capability "${capability}" requested provider "${requested}", but it does not declare support for that capability.`);
+  }
+  return provider;
+}
+
+function mergeProviderParams(defaultParams: Record<string, unknown>, params: Record<string, unknown>): Record<string, unknown> {
+  const providerParams = params.providerParams && typeof params.providerParams === "object" && !Array.isArray(params.providerParams)
+    ? params.providerParams as Record<string, unknown>
+    : {};
+  const passThrough = Object.fromEntries(
+    Object.entries(params).filter(([key]) => !["provider", "providerType", "nodeType", "providerParams"].includes(key))
+  );
+  return { ...defaultParams, ...passThrough, ...providerParams };
+}
+
+function readResourceRefs(node: RouteNode, params: Record<string, unknown>): string[] {
+  const capabilityResources = (node as RouteNode & { capability?: { resources?: unknown } }).capability?.resources;
+  const paramsResources = params.resources;
+  const values = Array.isArray(paramsResources) ? paramsResources : Array.isArray(capabilityResources) ? capabilityResources : [];
+  return values.filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function stringParam(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function completeRun(
@@ -368,16 +610,18 @@ function sum(values: number[]): number {
 }
 
 export function topologicalSort(route: OpenRoute): RouteNode[] {
-  const nodesById = new Map(route.nodes.map((node) => [node.id, node]));
-  const incoming = new Map(route.nodes.map((node) => [node.id, 0]));
+  const routeNodes = route.nodes as RouteNode[];
+  const routeEdges = route.edges as RouteEdge[];
+  const nodesById = new Map(routeNodes.map((node: RouteNode) => [node.id, node]));
+  const incoming = new Map(routeNodes.map((node: RouteNode) => [node.id, 0]));
   const outgoing = new Map<string, string[]>();
 
-  for (const edge of route.edges) {
+  for (const edge of routeEdges) {
     incoming.set(edge.to, (incoming.get(edge.to) ?? 0) + 1);
     outgoing.set(edge.from, [...(outgoing.get(edge.from) ?? []), edge.to]);
   }
 
-  const queue = route.nodes.filter((node) => incoming.get(node.id) === 0);
+  const queue = routeNodes.filter((node: RouteNode) => incoming.get(node.id) === 0);
   const sorted: RouteNode[] = [];
 
   while (queue.length > 0) {
@@ -392,7 +636,7 @@ export function topologicalSort(route: OpenRoute): RouteNode[] {
     }
   }
 
-  if (sorted.length !== route.nodes.length) {
+  if (sorted.length !== routeNodes.length) {
     throw new Error(`Route contains a cycle: ${detectCycles(route).join(" -> ")}`);
   }
 
@@ -400,9 +644,11 @@ export function topologicalSort(route: OpenRoute): RouteNode[] {
 }
 
 export function detectCycles(route: OpenRoute): string[] {
+  const routeNodes = route.nodes as RouteNode[];
+  const routeEdges = route.edges as RouteEdge[];
   const graph = new Map<string, string[]>();
-  for (const node of route.nodes) graph.set(node.id, []);
-  for (const edge of route.edges) graph.get(edge.from)?.push(edge.to);
+  for (const node of routeNodes) graph.set(node.id, []);
+  for (const edge of routeEdges) graph.get(edge.from)?.push(edge.to);
 
   const visiting = new Set<string>();
   const visited = new Set<string>();
@@ -425,7 +671,7 @@ export function detectCycles(route: OpenRoute): string[] {
     return [];
   };
 
-  for (const node of route.nodes) {
+  for (const node of routeNodes) {
     const cycle = visit(node.id);
     if (cycle.length > 0) return cycle;
   }
@@ -470,10 +716,12 @@ export function extractTemplateReferences(value: unknown): TemplateReference[] {
 }
 
 export function validateTemplateDependencies(route: OpenRoute): void {
-  const nodeIds = new Set(route.nodes.map((node) => node.id));
-  const edgeKeys = new Set(route.edges.map((edge) => `${edge.from}->${edge.to}`));
+  const routeNodes = route.nodes as RouteNode[];
+  const routeEdges = route.edges as RouteEdge[];
+  const nodeIds = new Set(routeNodes.map((node: RouteNode) => node.id));
+  const edgeKeys = new Set(routeEdges.map((edge: RouteEdge) => `${edge.from}->${edge.to}`));
 
-  for (const node of route.nodes) {
+  for (const node of routeNodes) {
     for (const ref of extractTemplateReferences(node.params ?? {})) {
       if (!nodeIds.has(ref.nodeId)) {
         throw new Error(`Node "${node.id}" has template reference "${ref.raw}" to missing node "${ref.nodeId}".`);
@@ -508,7 +756,7 @@ function collectTemplateReferences(value: unknown, refs: TemplateReference[]): v
 
 function collectInputs(route: OpenRoute, node: RouteNode, nodeOutputs: Record<string, unknown>): Record<string, unknown> {
   const inputs: Record<string, unknown> = {};
-  for (const edge of route.edges.filter((candidate) => candidate.to === node.id)) {
+  for (const edge of (route.edges as RouteEdge[]).filter((candidate: RouteEdge) => candidate.to === node.id)) {
     const value = readOutputPort(nodeOutputs[edge.from], edge.fromPort);
     const key = edge.toPort ?? edge.from;
     if (key in inputs) {

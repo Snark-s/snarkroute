@@ -388,6 +388,29 @@ h2 {
   z-index: 30;
 }
 
+.contextMenu {
+  position: fixed;
+  z-index: 30;
+  display: grid;
+  min-width: 176px;
+  padding: 6px;
+  border: 1px solid #3a4150;
+  border-radius: 8px;
+  background: #171b23;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
+}
+
+.contextMenu button {
+  justify-content: flex-start;
+  width: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.contextMenu button:hover {
+  background: #303746;
+}
+
 .connectionNodeMenuHeader {
   align-items: center;
   display: flex;
@@ -912,6 +935,12 @@ h2 {
   font-size: 12px;
   min-height: 28px;
   padding: 5px 8px;
+}
+
+.compoundActions {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 10px;
 }
 
 .nodeWarning {

@@ -10,8 +10,10 @@ import {
   installNodePackageFromArchive,
   loadInstalledNodeManifests,
   loadPromptLibrary,
+  loadResourceLibrary,
   packNodePackage,
   parsePromptFile,
+  parseResourceFile,
   previewNodePackageArchive,
   registerBuiltInNodeRunners,
   registerInstalledNodeRunners,
@@ -32,6 +34,10 @@ describe("built-in nodes", () => {
       source: "snarkroute-core",
       executor: { type: "builtin" }
     });
+    expect(builtInNodeManifests.find((manifest) => manifest.id === "local.stableDiffusion.textToImage")?.capabilities).toEqual([
+      { id: "image.create", title: "Create Image", priority: 10 }
+    ]);
+    expect(builtInNodeManifests.find((manifest) => manifest.id === "capability.image.create")).toBeTruthy();
   });
 
   it("validates node manifests with required author and permissions", () => {
@@ -151,6 +157,11 @@ describe("built-in nodes", () => {
     expect(issues[0].message).toContain("is not installed");
   });
 
+  it("accepts capability route nodes when a provider declares support", async () => {
+    const issues = await validateRouteNodeTypes([{ id: "make", type: "capability.image.create" }], builtInNodeManifests);
+    expect(issues).toEqual([]);
+  });
+
   it("loads installed node manifests", async () => {
     const installedDirectory = await mkdtemp(join(tmpdir(), "sr-installed-nodes-"));
     await installNodePackageFromManifest(examplePluginManifest(), { installedDirectory, files: [{ path: "executor.ts", text: "export async function runNode(){ return { outputs: {} }; }\n" }] });
@@ -193,6 +204,50 @@ describe("built-in nodes", () => {
     const library = await loadPromptLibrary(libraryPath);
     expect(library.categories[0].id).toBe("image-generation");
     expect(library.categories[0].prompts[0]).toMatchObject({ id: "demo", title: "Demo", text: "A reusable image prompt.", ref: "image-generation/demo" });
+  });
+
+  it("scans data/resource-library style .resource.md files", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sr-resource-library-data-"));
+    await writeResourceFile(directory, "characters/hero.resource.md", "character", "hero", "Hero", "brave explorer");
+    const library = await loadResourceLibrary(directory);
+    expect(library.resources[0]).toMatchObject({ id: "hero", kind: "character", title: "Hero", ref: "character/hero", prompt: "brave explorer" });
+  });
+
+  it("parses resource frontmatter and markdown body", () => {
+    const parsed = parseResourceFile(`---
+id: studio
+kind: location
+title: Studio
+tags:
+  - indoor
+---
+
+soft daylight loft
+`);
+    expect("resource" in parsed ? parsed.resource : null).toMatchObject({
+      id: "studio",
+      kind: "location",
+      title: "Studio",
+      tags: ["indoor"],
+      prompt: "soft daylight loft"
+    });
+  });
+
+  it("character capability can resolve a linked resource", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sr-resource-library-data-"));
+    await writeResourceFile(directory, "characters/hero.resource.md", "character", "hero", "Hero", "brave explorer");
+    const previous = process.env.SNARKROUTE_RESOURCE_LIBRARY_PATH;
+    process.env.SNARKROUTE_RESOURCE_LIBRARY_PATH = directory;
+    try {
+      const result = await executeRoute({
+        nodes: [{ id: "character", type: "capability.character.create", params: { resource: "character/hero" } }],
+        edges: []
+      });
+      expect(result.status).toBe("succeeded");
+      expect(result.nodeResults.character.output).toMatchObject({ resource: { ref: "character/hero", prompt: "brave explorer" } });
+    } finally {
+      restoreResourceLibraryPath(previous);
+    }
   });
 
   it("parses prompt frontmatter and markdown body", () => {
@@ -551,9 +606,20 @@ async function writePromptFile(directory: string, filename: string, category: st
   );
 }
 
+async function writeResourceFile(directory: string, filename: string, kind: string, id: string, title: string, body: string): Promise<void> {
+  const path = join(directory, filename);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `---\nid: ${id}\nkind: ${kind}\ntitle: ${title}\n---\n\n${body}\n`, "utf8");
+}
+
 function restorePromptLibraryPath(previous: string | undefined): void {
   if (previous === undefined) delete process.env.SNARKROUTE_PROMPT_LIBRARY_PATH;
   else process.env.SNARKROUTE_PROMPT_LIBRARY_PATH = previous;
+}
+
+function restoreResourceLibraryPath(previous: string | undefined): void {
+  if (previous === undefined) delete process.env.SNARKROUTE_RESOURCE_LIBRARY_PATH;
+  else process.env.SNARKROUTE_RESOURCE_LIBRARY_PATH = previous;
 }
 
 function restoreEnv(key: string, previous: string | undefined): void {

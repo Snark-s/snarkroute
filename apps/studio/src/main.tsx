@@ -34,11 +34,36 @@ import {
 } from "./nodePackageImport";
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
 
+type CompoundPortMapping = {
+  id: string;
+  label?: string;
+  kind?: string;
+  nodeId: string;
+  port?: string;
+};
+
+type CompoundInterface = {
+  title?: string;
+  inputs?: CompoundPortMapping[];
+  outputs?: CompoundPortMapping[];
+};
+
 type RouteDoc = {
   routeVersion: string;
   route: { id: string; title: string; description?: string; author: Record<string, unknown>; tags?: string[] };
   economics?: Record<string, unknown>;
-  nodes: Array<{ id: string; type: string; title?: string; params?: Record<string, unknown>; nodePackage?: Record<string, unknown>; ui?: Record<string, unknown> }>;
+  nodes: Array<{
+    id: string;
+    type: string;
+    title?: string;
+    params?: Record<string, unknown>;
+    inputs?: Record<string, unknown>;
+    outputs?: Record<string, unknown>;
+    compound?: CompoundInterface;
+    subroute?: RouteDoc;
+    nodePackage?: Record<string, unknown>;
+    ui?: Record<string, unknown>;
+  }>;
   edges: Array<{ id?: string; from: string; to: string; fromPort?: string; toPort?: string }>;
   provenance?: Record<string, unknown>;
 };
@@ -473,6 +498,8 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
   const onRunNodeOnly = data.onRunNodeOnly as ((nodeId: string) => void) | undefined;
   const onRunNodeWithDependencies = data.onRunNodeWithDependencies as ((nodeId: string) => void) | undefined;
+  const onOpenSubroute = data.onOpenSubroute as ((nodeId: string) => void) | undefined;
+  const onUncollapse = data.onUncollapse as ((nodeId: string) => void) | undefined;
   const promptLibrary = data.promptLibrary as PromptLibraryData | undefined;
   const onRefreshPromptLibrary = data.onRefreshPromptLibrary as (() => void) | undefined;
   const stableDiffusionModels = (data.stableDiffusionModels as StableDiffusionModel[] | undefined) ?? [];
@@ -482,7 +509,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
   const inputConnectionCounts = (data.inputConnectionCounts as Record<string, number> | undefined) ?? {};
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
-  const ports = getNodePorts(type, manifest);
+  const ports = getNodePorts(type, manifest, routeNode);
   const portTopBase = paramsCollapsed ? 92 : 34;
 
   function patchParams(patch: Record<string, unknown>) {
@@ -542,6 +569,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           <div className="nodeType" title={type}>{type}</div>
           <div className={`executorBadge ${executorKind(type, manifest)}`}>{executorLabel(type, manifest)}</div>
           {manifest ? <div className="nodeMetaLine">{manifest.author?.name} · {manifest.version} · {manifest.origin}{manifest.source ? ` · ${manifest.source}` : ""}</div> : null}
+          {routeNode?.type === "compound.subroute" ? <div className="nodeMetaLine">{routeNode.subroute?.nodes.length ?? 0} internal node(s)</div> : null}
         </div>
         <button
           className="nodeCollapseButton nodrag nopan"
@@ -565,6 +593,12 @@ function RouteNodeCard({ id, data }: NodeProps) {
               <small>Open Settings \u2192 Secrets \u2192 Replicate</small>
             </>
           ) : null}
+        </div>
+      ) : null}
+      {routeNode?.type === "compound.subroute" ? (
+        <div className="compoundActions">
+          <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onOpenSubroute?.(id)}>Open Subroute</button>
+          <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onUncollapse?.(id)}>Uncollapse</button>
         </div>
       ) : null}
       {isGeminiNode(type) ? (
@@ -1139,6 +1173,12 @@ type ConnectionNodeMenuState = {
   sourceHandle: string;
 };
 
+type ContextMenuState = {
+  clientX: number;
+  clientY: number;
+  nodeId?: string;
+};
+
 type PortSpec = {
   id: string;
   kind: PortKind;
@@ -1146,7 +1186,13 @@ type PortSpec = {
   maxConnections?: number;
 };
 
-function getNodePorts(type: string, manifest?: NodeManifest): { inputs: PortSpec[]; outputs: PortSpec[] } {
+function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDoc["nodes"][number]): { inputs: PortSpec[]; outputs: PortSpec[] } {
+  if (type === "compound.subroute") {
+    return {
+      inputs: (routeNode?.compound?.inputs ?? []).map((port) => ({ id: port.id, kind: portKindFromManifest(String(port.kind ?? "json")), label: port.label ?? port.id })),
+      outputs: (routeNode?.compound?.outputs ?? []).map((port) => ({ id: port.id, kind: portKindFromManifest(String(port.kind ?? "json")), label: port.label ?? port.id }))
+    };
+  }
   if (manifest && !isKnownBuiltInPortType(type)) {
     return {
       inputs: manifest.inputs.map((port) => ({ id: port.id, kind: portKindFromManifest(port.type), label: port.label })),
@@ -1230,7 +1276,7 @@ function getNodePorts(type: string, manifest?: NodeManifest): { inputs: PortSpec
 }
 
 function isKnownBuiltInPortType(type: string): boolean {
-  return library.some((item) => item.type === type);
+  return type === "compound.subroute" || library.some((item) => item.type === type);
 }
 
 function portKindFromManifest(value: string): PortKind {
@@ -1354,6 +1400,22 @@ function uniqueFlowId(preferredId: string, usedIds: Set<string>): string {
   return candidate;
 }
 
+function uniqueCompoundMappings(mappings: CompoundPortMapping[]): CompoundPortMapping[] {
+  const used = new Set<string>();
+  return mappings.map((mapping) => {
+    const id = uniqueFlowId(String(mapping.id || mapping.nodeId).replace(/\W+/g, "_") || "port", used);
+    return { ...mapping, id };
+  });
+}
+
+function chooseCompoundPorts(label: string, defaults: CompoundPortMapping[]): CompoundPortMapping[] | null {
+  if (defaults.length === 0) return [];
+  const value = window.prompt(label, defaults.map((port) => port.id).join(", "));
+  if (value === null) return null;
+  const selected = new Set(value.split(",").map((part) => part.trim()).filter(Boolean));
+  return defaults.filter((port) => selected.has(port.id));
+}
+
 function isReplicateNode(type: string): boolean {
   return type === "replicate.model" || type === "replicate.clarity-upscaler";
 }
@@ -1369,7 +1431,7 @@ function executorKind(type: string, manifest?: NodeManifest): string {
   if (type.startsWith("gemini.")) return "gemini";
   if (type.startsWith("replicate.")) return "replicate";
   if (type.startsWith("http.")) return "http";
-  if (type.startsWith("input.") || type.startsWith("output.") || type.startsWith("preview.") || type.startsWith("debug.") || type.startsWith("transform.") || type.startsWith("library.")) return "local";
+  if (type.startsWith("input.") || type.startsWith("output.") || type.startsWith("preview.") || type.startsWith("debug.") || type.startsWith("transform.") || type.startsWith("library.") || type === "compound.subroute") return "local";
   return "custom";
 }
 
@@ -1406,6 +1468,7 @@ function nodeIcon(type: string) {
   if (type === "http.request") return <Globe size={15} />;
   if (type === "preview.image") return <Eye size={15} />;
   if (type === "debug.log") return <Bug size={15} />;
+  if (type === "compound.subroute") return <Braces size={15} />;
   if (type === "output.text") return <FileText size={15} />;
   if (type === "output.file") return <Save size={15} />;
   return <FileJson size={15} />;
@@ -1422,6 +1485,7 @@ function nodeIconClass(type: string): string {
   if (type.startsWith("preview.")) return "preview";
   if (type.startsWith("debug.")) return "debug";
   if (type.startsWith("transform.")) return "transform";
+  if (type === "compound.subroute") return "transform";
   return "generic";
 }
 
@@ -1538,8 +1602,12 @@ function App() {
   );
   const [pendingConnectionStart, setPendingConnectionStart] = useState<PendingConnectionStart | null>(null);
   const [connectionNodeMenu, setConnectionNodeMenu] = useState<ConnectionNodeMenuState | null>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [routeStack, setRouteStack] = useState<Array<{ compoundId: string; parentRoute: RouteDoc }>>([]);
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
+  const contextNode = contextMenu?.nodeId ? nodes.find((node) => node.id === contextMenu.nodeId) : null;
+  const contextRouteNode = contextNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
   const selectedEdgeCount = edges.filter((edge) => edge.selected).length;
   const catalogSections = useMemo(() => groupNodeCatalog(nodeCatalog), [nodeCatalog]);
@@ -1550,7 +1618,7 @@ function App() {
         data: {
           ...node.data,
           manifest: nodeCatalog.find((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type))?.manifest,
-          isMissingNode: !nodeCatalog.some((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type)),
+          isMissingNode: !isKnownBuiltInPortType(String((node.data.routeNode as RouteDoc["nodes"][number]).type)) && !nodeCatalog.some((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type)),
           onParamsChange: updateNodeParams,
           onBrowseAsset: browseAsset,
           onConfigureReplicate: openReplicateSettings,
@@ -1558,6 +1626,8 @@ function App() {
           onOpenImage: setImageViewer,
           onRunNodeOnly: runNodeOnly,
           onRunNodeWithDependencies: runNodeWithDependencies,
+          onOpenSubroute: openSubroute,
+          onUncollapse: uncollapseCompoundNode,
           onRefreshPromptLibrary: refreshPromptLibraryData,
           onRefreshStableDiffusionModels: refreshStableDiffusionModels,
           connectedInputPorts: edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle).filter((handle): handle is string => Boolean(handle)),
@@ -2099,6 +2169,155 @@ function App() {
     setLogs((current) => [`Deleted ${selectedNodeIds.size} node(s), ${selectedEdgeIds.size} edge(s).`, ...current]);
   }
 
+  function collapseSelectedNodes() {
+    const selectedNodeIds = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
+    if (selectedNodeIds.size < 2) {
+      setLogs((current) => ["Select at least two nodes to collapse.", ...current]);
+      return;
+    }
+
+    const selectedNodes = nodes.filter((node) => selectedNodeIds.has(node.id));
+    const selectedEdges = edges.filter((edge) => selectedNodeIds.has(edge.source) && selectedNodeIds.has(edge.target));
+    const incomingEdges = edges.filter((edge) => !selectedNodeIds.has(edge.source) && selectedNodeIds.has(edge.target));
+    const outgoingEdges = edges.filter((edge) => selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target));
+    const title = window.prompt("Compound node title", "Compound Node")?.trim() || "Compound Node";
+    const defaultInputs = uniqueCompoundMappings(
+      incomingEdges.map((edge) => {
+        const target = selectedNodes.find((node) => node.id === edge.target)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+        const kind = getNodePorts(target?.type ?? "", undefined, target).inputs.find((port) => port.id === edge.targetHandle)?.kind ?? "json";
+        return { id: edge.targetHandle ?? edge.target, label: edge.targetHandle ?? edge.target, kind, nodeId: edge.target, port: edge.targetHandle ?? "input" };
+      })
+    );
+    const defaultOutputs = uniqueCompoundMappings(
+      outgoingEdges.map((edge) => {
+        const source = selectedNodes.find((node) => node.id === edge.source)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+        const kind = getNodePorts(source?.type ?? "", undefined, source).outputs.find((port) => port.id === edge.sourceHandle)?.kind ?? "json";
+        return { id: edge.sourceHandle ?? edge.source, label: edge.sourceHandle ?? edge.source, kind, nodeId: edge.source, port: edge.sourceHandle ?? "output" };
+      })
+    );
+    const chosenInputs = chooseCompoundPorts("Exposed input ports (comma-separated)", defaultInputs);
+    const chosenOutputs = chooseCompoundPorts("Exposed output ports (comma-separated)", defaultOutputs);
+    if (!chosenInputs || !chosenOutputs) return;
+
+    const compoundId = uniqueFlowId(`compound_${nodes.length + 1}`, new Set(nodes.map((node) => node.id)));
+    const position = {
+      x: selectedNodes.reduce((sum, node) => sum + node.position.x, 0) / selectedNodes.length,
+      y: selectedNodes.reduce((sum, node) => sum + node.position.y, 0) / selectedNodes.length
+    };
+    const subroute = flowToRoute(selectedNodes, selectedEdges, {
+      ...routeBase,
+      route: { ...routeBase.route, id: `${routeBase.route.id}.${compoundId}`, title },
+      economics: routeBase.economics,
+      provenance: { tool: "snarkroute-studio", compoundOf: [...selectedNodeIds] }
+    });
+    const routeNode: RouteDoc["nodes"][number] = {
+      id: compoundId,
+      type: "compound.subroute",
+      title,
+      params: {},
+      compound: { title, inputs: chosenInputs, outputs: chosenOutputs },
+      subroute,
+      ui: {}
+    };
+    const inputPortByTarget = new Map(chosenInputs.map((port) => [`${port.nodeId}:${port.port ?? "input"}`, port.id]));
+    const outputPortBySource = new Map(chosenOutputs.map((port) => [`${port.nodeId}:${port.port ?? "output"}`, port.id]));
+    const rewiredIncoming = incomingEdges
+      .map((edge) => ({ ...edge, target: compoundId, targetHandle: inputPortByTarget.get(`${edge.target}:${edge.targetHandle ?? "input"}`) }))
+      .filter((edge) => Boolean(edge.targetHandle));
+    const rewiredOutgoing = outgoingEdges
+      .map((edge) => ({ ...edge, source: compoundId, sourceHandle: outputPortBySource.get(`${edge.source}:${edge.sourceHandle ?? "output"}`) }))
+      .filter((edge) => Boolean(edge.sourceHandle));
+
+    setNodes((current) => [
+      ...current.filter((node) => !selectedNodeIds.has(node.id)),
+      { id: compoundId, type: "route", position, selected: true, data: { label: `${title}\ncompound.subroute`, routeNode } }
+    ]);
+    setEdges((current) => [
+      ...current.filter((edge) => !selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target)),
+      ...rewiredIncoming,
+      ...rewiredOutgoing
+    ]);
+    setSelectedId(compoundId);
+    setRunResult(null);
+    setOutputs(null);
+    setLogs((current) => [`Collapsed ${selectedNodeIds.size} node(s) into ${compoundId}.`, ...current]);
+  }
+
+  function deleteNodeFromContext(nodeId: string) {
+    setNodes((current) => current.filter((node) => node.id !== nodeId));
+    setEdges((current) => current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
+    setSelectedId(null);
+    setContextMenu(null);
+    setRunResult(null);
+    setOutputs(null);
+    setLogs((current) => [`Deleted ${nodeId}.`, ...current]);
+  }
+
+  function openSubroute(nodeId: string) {
+    const currentRoute = flowToRoute(nodes, edges, routeBase);
+    const compound = currentRoute.nodes.find((node) => node.id === nodeId && node.type === "compound.subroute");
+    if (!compound?.subroute) {
+      setLogs((current) => [`${nodeId} has no editable subroute.`, ...current]);
+      return;
+    }
+    const flow = routeToFlow(compound.subroute);
+    setRouteStack((current) => [...current, { compoundId: nodeId, parentRoute: currentRoute }]);
+    setRouteBase(compound.subroute);
+    setNodes(flow.nodes);
+    setEdges(flow.edges);
+    setSelectedId(null);
+    setRunResult(null);
+    setOutputs(null);
+    setLogs((current) => [`Opened subroute ${nodeId}.`, ...current]);
+  }
+
+  function closeSubroute() {
+    const frame = routeStack[routeStack.length - 1];
+    if (!frame) return;
+    const subroute = flowToRoute(nodes, edges, routeBase);
+    const parentRoute: RouteDoc = {
+      ...frame.parentRoute,
+      nodes: frame.parentRoute.nodes.map((node) => node.id === frame.compoundId ? { ...node, subroute, compound: { ...(node.compound ?? {}), title: node.compound?.title ?? subroute.route.title } } : node)
+    };
+    const flow = routeToFlow(parentRoute);
+    setRouteStack((current) => current.slice(0, -1));
+    setRouteBase(parentRoute);
+    setNodes(flow.nodes);
+    setEdges(flow.edges);
+    setSelectedId(frame.compoundId);
+    setRunResult(null);
+    setOutputs(null);
+    setLogs((current) => [`Saved subroute edits for ${frame.compoundId}.`, ...current]);
+  }
+
+  function uncollapseCompoundNode(nodeId: string) {
+    const compoundFlowNode = nodes.find((node) => node.id === nodeId);
+    const compoundNode = compoundFlowNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (!compoundFlowNode || compoundNode?.type !== "compound.subroute" || !compoundNode.subroute) return;
+    const subflow = routeToFlow(compoundNode.subroute);
+    const inputMappings = new Map((compoundNode.compound?.inputs ?? []).map((port) => [port.id, port]));
+    const outputMappings = new Map((compoundNode.compound?.outputs ?? []).map((port) => [port.id, port]));
+    const incoming: Edge[] = edges
+      .filter((edge) => edge.target === nodeId)
+      .flatMap((edge) => {
+        const port = inputMappings.get(edge.targetHandle ?? "");
+        return port ? [{ ...edge, target: port.nodeId, targetHandle: port.port ?? null }] : [];
+      });
+    const outgoing: Edge[] = edges
+      .filter((edge) => edge.source === nodeId)
+      .flatMap((edge) => {
+        const port = outputMappings.get(edge.sourceHandle ?? "");
+        return port ? [{ ...edge, source: port.nodeId, sourceHandle: port.port ?? null }] : [];
+      });
+
+    setNodes((current) => [...current.filter((node) => node.id !== nodeId), ...subflow.nodes.map((node) => ({ ...node, selected: true }))]);
+    setEdges((current) => [...current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId), ...subflow.edges, ...incoming, ...outgoing]);
+    setSelectedId(null);
+    setRunResult(null);
+    setOutputs(null);
+    setLogs((current) => [`Uncollapsed ${nodeId} into ${subflow.nodes.length} node(s).`, ...current]);
+  }
+
   function clearCanvas() {
     if (nodes.length === 0 && edges.length === 0) return;
 
@@ -2120,10 +2339,12 @@ function App() {
     const sourceNode = nodes.find((node) => node.id === connection.source);
     const targetNode = nodes.find((node) => node.id === connection.target);
     if (!sourceNode || !targetNode || !connection.sourceHandle || !connection.targetHandle) return false;
-    const sourceType = String((sourceNode.data.routeNode as RouteDoc["nodes"][number]).type);
-    const targetType = String((targetNode.data.routeNode as RouteDoc["nodes"][number]).type);
-    const sourcePort = getNodePorts(sourceType).outputs.find((port) => port.id === connection.sourceHandle);
-    const targetPort = getNodePorts(targetType).inputs.find((port) => port.id === connection.targetHandle);
+    const sourceRouteNode = sourceNode.data.routeNode as RouteDoc["nodes"][number];
+    const targetRouteNode = targetNode.data.routeNode as RouteDoc["nodes"][number];
+    const sourceManifest = nodeCatalog.find((item) => item.type === sourceRouteNode.type)?.manifest;
+    const targetManifest = nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest;
+    const sourcePort = getNodePorts(sourceRouteNode.type, sourceManifest, sourceRouteNode).outputs.find((port) => port.id === connection.sourceHandle);
+    const targetPort = getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === connection.targetHandle);
     if (!sourcePort || !targetPort) return false;
     const existingCount = edges.filter((edge) => edge.target === connection.target && edge.targetHandle === connection.targetHandle).length;
     if (existingCount >= (targetPort.maxConnections ?? 1)) return false;
@@ -2380,6 +2601,7 @@ function App() {
 
   function applyRoute(route: RouteDoc, logMessage: string) {
     const flow = routeToFlow(route);
+    setRouteStack([]);
     setRouteBase(route);
     setNodes(flow.nodes);
     setEdges(flow.edges);
@@ -2515,7 +2737,9 @@ function App() {
         onDrop={handleCanvasDrop}
       >
         <div className="topbar">
+          {routeStack.length > 0 ? <button onClick={closeSubroute}><ChevronLeft size={16} /> Back</button> : null}
           <button className="primary" onClick={() => void run()}><Play size={16} /> Run</button>
+          <button onClick={collapseSelectedNodes} disabled={routeStack.length > 0 || selectedNodeCount < 2}><Braces size={16} /> Collapse</button>
           <button className="danger" onClick={deleteSelection} disabled={selectedNodeCount === 0 && selectedEdgeCount === 0 && !selectedId}><Trash2 size={16} /> Delete</button>
           <button className="danger" onClick={clearCanvas} disabled={nodes.length === 0 && edges.length === 0}><Eraser size={16} /> Clear</button>
           <div className={`apiStatus ${apiConnected ? "connected" : "disconnected"}`} title={apiError || `API: ${apiBase}`}>
@@ -2536,11 +2760,32 @@ function App() {
           onConnectEnd={handleConnectEnd}
           onInit={setReactFlowInstance}
           isValidConnection={isConnectionValid}
-          onNodeClick={(_event, node) => selectNode(node)}
-          onEdgeClick={() => setSelectedId(null)}
+          onNodeClick={(_event, node) => {
+            setContextMenu(null);
+            selectNode(node);
+          }}
+          onNodeContextMenu={(event, node) => {
+            event.preventDefault();
+            setSelectedId(node.id);
+            setContextMenu({ clientX: event.clientX, clientY: event.clientY, nodeId: node.id });
+          }}
+          onSelectionContextMenu={(event) => {
+            event.preventDefault();
+            setContextMenu({ clientX: event.clientX, clientY: event.clientY });
+          }}
+          onPaneContextMenu={(event) => {
+            event.preventDefault();
+            setSelectedId(null);
+            setContextMenu({ clientX: event.clientX, clientY: event.clientY });
+          }}
+          onEdgeClick={() => {
+            setContextMenu(null);
+            setSelectedId(null);
+          }}
           onPaneClick={() => {
             selectNode(null);
             setConnectionNodeMenu(null);
+            setContextMenu(null);
           }}
           onKeyDown={(event) => {
             if ((event.key === "Delete" || event.key === "Backspace") && !isTextEditingTarget(event.target)) {
@@ -2556,6 +2801,27 @@ function App() {
         >
           <Background />
         </ReactFlow>
+        {contextMenu ? (
+          <div className="contextMenu" style={{ left: contextMenu.clientX, top: contextMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+            {contextMenu.nodeId ? (
+              <>
+                {contextRouteNode?.type === "compound.subroute" ? (
+                  <>
+                    <button onClick={() => { openSubroute(contextMenu.nodeId!); setContextMenu(null); }}>Open Subroute</button>
+                    <button onClick={() => { uncollapseCompoundNode(contextMenu.nodeId!); setContextMenu(null); }}>Uncollapse</button>
+                  </>
+                ) : null}
+                <button onClick={() => deleteNodeFromContext(contextMenu.nodeId!)}>Delete Node</button>
+              </>
+            ) : (
+              <>
+                <button disabled={routeStack.length > 0 || selectedNodeCount < 2} onClick={() => { collapseSelectedNodes(); setContextMenu(null); }}>Collapse Selection</button>
+                {routeStack.length > 0 ? <button onClick={() => { closeSubroute(); setContextMenu(null); }}>Back to Parent</button> : null}
+                <button disabled={nodes.length === 0 && edges.length === 0} onClick={() => { clearCanvas(); setContextMenu(null); }}>Clear Canvas</button>
+              </>
+            )}
+          </div>
+        ) : null}
         {connectionNodeMenu ? (
           <div
             className="connectionNodeMenu"
