@@ -78,6 +78,8 @@ A retro-futuristic easter egg illustration about building our own visual AI edit
 
 Discovered prompt files should be normalized into JSON-compatible asset metadata or manifest structures. Do not require manually registering prompt files in code. Do not use one central `prompt-library.json` as the human editing surface.
 
+To add a prompt in the current implementation, create `data/prompt-library/<category>/<id>.prompt.md` with required frontmatter fields `id`, `title`, and `category`, then put the prompt text in the Markdown body. Press `Refresh Prompt Library` in Studio, or call `POST /api/prompt-library/refresh`, to rescan without restarting the server.
+
 ## Route Example
 
 ```json

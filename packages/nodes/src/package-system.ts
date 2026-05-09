@@ -1,6 +1,6 @@
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { basename, dirname, extname, join, normalize, parse, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, join, normalize, parse, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import JSZip from "jszip";
 import type { NodeRunner, RouteExecutor } from "@snarkroute/executor";
@@ -708,8 +708,8 @@ function stringEquals(value: unknown, expected: string, path: string, issues: Va
 }
 
 function safePackageRelativePath(path: string): string {
-  const normalized = normalize(path).replace(/^([/\\])+/, "");
-  if (!normalized || normalized === "." || normalized.includes(`..${sep}`) || normalized === ".." || /^(?:[A-Za-z]:|\\\\)/.test(path)) {
+  const normalized = normalize(path.replace(/\\/g, "/")).replace(/^([/\\])+/, "").replace(/\\/g, "/");
+  if (!normalized || normalized === "." || normalized.includes("../") || normalized === ".." || /^(?:[A-Za-z]:|\\\\)/.test(path)) {
     throw new Error("Package paths must be relative and cannot escape the package directory.");
   }
   return normalized;

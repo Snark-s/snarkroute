@@ -25,6 +25,7 @@ Likely areas:
 
 - `docs/assets.md`
 - `docs/prompt-library.md`
+- `docs/node-palette.md`
 - `docs/export.md`
 - `docs/security.md`
 - protocol and executor packages when implementation begins

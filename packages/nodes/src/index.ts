@@ -35,6 +35,9 @@ export interface PromptLibraryPrompt {
   description?: string;
   tags?: string[];
   kind?: string;
+  previewImage?: string;
+  source?: Record<string, unknown>;
+  modelHints?: string[];
   ref: string;
   path: string;
   text: string;
@@ -90,6 +93,7 @@ export const builtInNodeDefinitions: NodeDefinition[] = [
   { type: "preview.image", title: "Image Preview", description: "Passes through an image value for Studio preview.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "transform.template", title: "Template Transform", description: "Produces text from params.template after route template resolution.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "debug.log", title: "Debug Log", description: "Logs a message or value and passes the value through.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "utility.null", title: "Null", description: "Accepts any input and intentionally produces no output.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "http.request", title: "HTTP Request", description: "Calls an arbitrary HTTP API through the backend.", economics: { license: "AGPL-3.0-or-later", notes: "Generic API executor; no tokens are stored by this node." } },
   {
     type: "local.stableDiffusion.textToImage",
@@ -172,6 +176,10 @@ export const debugLogRunner: NodeRunner = ({ params, context }) => {
     logs: [message]
   };
 };
+
+export const nullRunner: NodeRunner = () => ({
+  output: {}
+});
 
 export const createResourceCapabilityRunner: NodeRunner = async ({ node, params }) => {
   const kind = node.type === "capability.location.create" ? "location" : "character";
@@ -368,6 +376,7 @@ export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("preview.image", previewImageRunner);
   executor.registerNodeRunner("transform.template", transformTemplateRunner);
   executor.registerNodeRunner("debug.log", debugLogRunner);
+  executor.registerNodeRunner("utility.null", nullRunner);
   executor.registerNodeRunner("http.request", httpRequestRunner);
   executor.registerNodeRunner("local.stableDiffusion.textToImage", localStableDiffusionTextToImageRunner);
   executor.registerCapabilityProvider("image.create", "local.stableDiffusion.textToImage", { priority: 10 });
@@ -383,6 +392,7 @@ function builtInNodeCategory(type: string): string {
   if (type.startsWith("http.")) return "API / HTTP";
   if (type.startsWith("local.")) return "Local";
   if (type.startsWith("debug.")) return "Debug";
+  if (type.startsWith("utility.")) return "Debug";
   if (type.startsWith("library.")) return "Text";
   return "Transform";
 }
@@ -401,6 +411,7 @@ function builtInPermissions(type: string) {
 function builtInInputs(type: string) {
   if (type === "preview.image") return [{ id: "image", type: "image", required: true, label: "Image" }];
   if (type === "debug.log") return [{ id: "value", type: "data", required: false, label: "Value" }];
+  if (type === "utility.null") return [{ id: "input", type: "data", required: false, label: "Any" }];
   if (type === "output.text") return [{ id: "from", type: "data", required: false, label: "From" }];
   if (type === "output.file") return [{ id: "from", type: "data", required: false, label: "From" }];
   if (type === "local.stableDiffusion.textToImage") return [{ id: "prompt", type: "text", required: false, label: "Prompt" }];
@@ -419,6 +430,7 @@ function builtInOutputs(type: string) {
   if (type === "input.video") return [{ id: "video", type: "video", label: "Video" }];
   if (type === "http.request") return [{ id: "responseJson", type: "json", label: "JSON" }, { id: "responseText", type: "text", label: "Text" }];
   if (type === "debug.log") return [{ id: "value", type: "data", label: "Value" }];
+  if (type === "utility.null") return [];
   return [{ id: "output", type: "data", label: "Output" }];
 }
 
@@ -477,15 +489,15 @@ export async function loadPromptLibrary(directory = getPromptLibraryPath()): Pro
 
   const files = await findPromptFiles(directory, diagnostics);
   for (const file of files) {
-    let text = "";
+    let parsed: { prompt: PromptLibraryPrompt } | { diagnostic: PromptLibraryDiagnostic };
     try {
-      text = await readFile(file, "utf8");
+      parsed = file.endsWith(".prompt.png")
+        ? parsePromptPngFile(await readFile(file), file)
+        : parsePromptFile(await readFile(file, "utf8"), file);
     } catch (error) {
       diagnostics.push({ path: file, severity: "error", message: `Could not read prompt file: ${errorMessage(error)}` });
       continue;
     }
-
-    const parsed = parsePromptFile(text, file);
     if ("diagnostic" in parsed) {
       diagnostics.push(parsed.diagnostic);
       continue;
@@ -636,6 +648,9 @@ export function parsePromptFile(text: string, path = "<prompt>"): { prompt: Prom
   const description = stringField(metadata, "description");
   const kind = stringField(metadata, "kind");
   const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())) : undefined;
+  const previewImage = stringField(metadata, "previewImage");
+  const source = metadata.source && typeof metadata.source === "object" && !Array.isArray(metadata.source) ? metadata.source as Record<string, unknown> : undefined;
+  const modelHints = Array.isArray(metadata.modelHints) ? metadata.modelHints.filter((hint): hint is string => typeof hint === "string" && Boolean(hint.trim())) : undefined;
 
   return {
     prompt: {
@@ -645,11 +660,52 @@ export function parsePromptFile(text: string, path = "<prompt>"): { prompt: Prom
       description: description || undefined,
       tags,
       kind: kind || undefined,
+      previewImage: previewImage || undefined,
+      source,
+      modelHints,
       ref: `${category}/${id}`,
       path,
       text: body
     }
   };
+}
+
+export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { prompt: PromptLibraryPrompt } | { diagnostic: PromptLibraryDiagnostic } {
+  try {
+    const text = readPngTextChunk(buffer, "snarkroute:prompt");
+    if (!text) return { diagnostic: { path, severity: "error", message: "Prompt PNG requires snarkroute:prompt metadata." } };
+    const metadata = JSON.parse(text) as Record<string, unknown>;
+    const id = stringField(metadata, "id");
+    const title = stringField(metadata, "title");
+    const category = stringField(metadata, "category");
+    const body = stringField(metadata, "prompt");
+    if (!id || !title || !category || !body) {
+      return { diagnostic: { path, severity: "error", message: "Prompt PNG metadata requires id, title, category, and prompt." } };
+    }
+    const description = stringField(metadata, "description");
+    const kind = stringField(metadata, "kind");
+    const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())) : undefined;
+    const source = metadata.source && typeof metadata.source === "object" && !Array.isArray(metadata.source) ? metadata.source as Record<string, unknown> : undefined;
+    const modelHints = Array.isArray(metadata.modelHints) ? metadata.modelHints.filter((hint): hint is string => typeof hint === "string" && Boolean(hint.trim())) : undefined;
+    return {
+      prompt: {
+        id,
+        title,
+        category,
+        description: description || undefined,
+        tags,
+        kind: kind || undefined,
+        previewImage: basename(path),
+        source,
+        modelHints,
+        ref: `${category}/${id}`,
+        path,
+        text: body
+      }
+    };
+  } catch (error) {
+    return { diagnostic: { path, severity: "error", message: `Invalid prompt PNG metadata: ${errorMessage(error)}` } };
+  }
 }
 
 export function summarizePromptLibrary(library: PromptLibrary): PromptLibrary {
@@ -679,7 +735,7 @@ async function findPromptFiles(directory: string, diagnostics: PromptLibraryDiag
   for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) files.push(...(await findPromptFiles(path, diagnostics)));
-    else if (entry.isFile() && entry.name.endsWith(".prompt.md")) files.push(path);
+    else if (entry.isFile() && (entry.name.endsWith(".prompt.md") || entry.name.endsWith(".prompt.png"))) files.push(path);
   }
   return files.sort();
 }
@@ -714,14 +770,21 @@ function parseSimpleFrontmatter(text: string): Record<string, unknown> {
     const value = match[2].trim();
     if (!value) {
       const list: string[] = [];
+      const record: Record<string, unknown> = {};
       while (index + 1 < lines.length) {
         const next = lines[index + 1];
         const listMatch = /^\s*-\s*(.*)$/.exec(next);
-        if (!listMatch) break;
-        list.push(unquote(listMatch[1].trim()));
+        const nestedMatch = /^\s{2,}([A-Za-z0-9_-]+):\s*(.*)$/.exec(next);
+        if (listMatch) {
+          list.push(unquote(listMatch[1].trim()));
+        } else if (nestedMatch) {
+          record[nestedMatch[1]] = unquote(nestedMatch[2].trim());
+        } else {
+          break;
+        }
         index += 1;
       }
-      result[key] = list.length > 0 ? list : "";
+      result[key] = list.length > 0 ? list : Object.keys(record).length > 0 ? record : "";
     } else if (value.startsWith("[") && value.endsWith("]")) {
       result[key] = value.slice(1, -1).split(",").map((item) => unquote(item.trim())).filter(Boolean);
     } else {
@@ -1029,6 +1092,98 @@ function readImageDimensions(buffer: Buffer, mimeType: string): { width: number;
   if (mimeType === "image/jpeg") return readJpegDimensions(buffer);
   if (mimeType === "image/webp") return readWebpDimensions(buffer);
   throw new Error(`Unsupported image metadata format: ${mimeType}. Supported formats: png, jpg, webp.`);
+}
+
+export function readPngTextChunk(buffer: Buffer, key: string): string | null {
+  assertPng(buffer);
+  let offset = 8;
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    if (dataEnd + 4 > buffer.length) throw new Error("Invalid PNG chunk length.");
+    const data = buffer.subarray(dataStart, dataEnd);
+    if (type === "iTXt") {
+      const parsed = parseITxtChunk(data);
+      if (parsed?.key === key) return parsed.text;
+    }
+    if (type === "tEXt") {
+      const separator = data.indexOf(0);
+      if (separator > 0 && data.toString("latin1", 0, separator) === key) return data.toString("utf8", separator + 1);
+    }
+    if (type === "IEND") break;
+    offset = dataEnd + 4;
+  }
+  return null;
+}
+
+export function writePngTextChunk(buffer: Buffer, key: string, text: string): Buffer {
+  assertPng(buffer);
+  const chunks: Buffer[] = [buffer.subarray(0, 8)];
+  let offset = 8;
+  let inserted = false;
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    const chunkEnd = dataEnd + 4;
+    if (chunkEnd > buffer.length) throw new Error("Invalid PNG chunk length.");
+    const data = buffer.subarray(dataStart, dataEnd);
+    const sameKey = (type === "iTXt" && parseITxtChunk(data)?.key === key) || (type === "tEXt" && data.indexOf(0) > 0 && data.toString("latin1", 0, data.indexOf(0)) === key);
+    if (type === "IEND" && !inserted) {
+      chunks.push(createITxtChunk(key, text));
+      inserted = true;
+    }
+    if (!sameKey) chunks.push(buffer.subarray(offset, chunkEnd));
+    if (type === "IEND") break;
+    offset = chunkEnd;
+  }
+  if (!inserted) throw new Error("PNG file is missing IEND chunk.");
+  return Buffer.concat(chunks);
+}
+
+function assertPng(buffer: Buffer): void {
+  if (buffer.length < 24 || buffer.toString("ascii", 1, 4) !== "PNG") throw new Error("Invalid PNG image.");
+}
+
+function parseITxtChunk(data: Buffer): { key: string; text: string } | null {
+  const keyEnd = data.indexOf(0);
+  if (keyEnd <= 0 || keyEnd + 5 > data.length) return null;
+  const compressionFlag = data[keyEnd + 1];
+  if (compressionFlag !== 0) return null;
+  let offset = keyEnd + 3;
+  const languageEnd = data.indexOf(0, offset);
+  if (languageEnd < 0) return null;
+  offset = languageEnd + 1;
+  const translatedEnd = data.indexOf(0, offset);
+  if (translatedEnd < 0) return null;
+  return { key: data.toString("latin1", 0, keyEnd), text: data.toString("utf8", translatedEnd + 1) };
+}
+
+function createITxtChunk(key: string, text: string): Buffer {
+  const keyword = Buffer.from(key, "latin1");
+  const payload = Buffer.concat([keyword, Buffer.from([0, 0, 0, 0, 0]), Buffer.from(text, "utf8")]);
+  return createPngChunk("iTXt", payload);
+}
+
+function createPngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const typeBuffer = Buffer.from(type, "ascii");
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 0);
+  return Buffer.concat([length, typeBuffer, data, crc]);
+}
+
+function crc32(buffer: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function readJpegDimensions(buffer: Buffer): { width: number; height: number } {

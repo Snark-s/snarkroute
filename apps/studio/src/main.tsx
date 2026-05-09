@@ -33,6 +33,8 @@ import {
   uninstallNodeConfirmationMessage
 } from "./nodePackageImport";
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
+import { studioDocs, type StudioDocEntry } from "./docsRegistry";
+import { MarkdownDocument } from "./MarkdownDocument";
 
 type CompoundPortMapping = {
   id: string;
@@ -46,6 +48,15 @@ type CompoundInterface = {
   title?: string;
   inputs?: CompoundPortMapping[];
   outputs?: CompoundPortMapping[];
+};
+
+type SubrouteFrame = {
+  compoundId: string;
+  parentRoute: RouteDoc;
+  interfacePositions?: {
+    input?: { x: number; y: number };
+    output?: { x: number; y: number };
+  };
 };
 
 type RouteDoc = {
@@ -118,6 +129,9 @@ type PromptLibraryPrompt = {
   description?: string;
   tags?: string[];
   kind?: string;
+  previewImage?: string;
+  source?: Record<string, unknown>;
+  modelHints?: string[];
   ref?: string;
   path?: string;
   text: string;
@@ -216,29 +230,21 @@ const DEFAULT_PROMPT_LIBRARY: PromptLibraryData = {
 
 const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
+  { type: "library.prompt", label: "Prompt Library", params: { category: "image-generation", promptId: "image-generation-demo", mode: "linked" } },
   { type: "input.image", label: "Input Image", params: { path: "" } },
   { type: "input.video", label: "Input Video", params: { path: "" } },
-  { type: "library.prompt", label: "Prompt Library", params: { category: "image-generation", promptId: "image-generation-demo", mode: "linked" } },
+  { type: "input.file", label: "Input File", params: { path: "" } },
+  { type: "compound.input", label: "Compound Input", params: { portId: "input", kind: "data" } },
+  { type: "compound.output", label: "Compound Output", params: { portId: "output", kind: "data" } },
+  { type: "transform.template", label: "Template Transform", params: { template: "{{input.output.text}}" } },
+  { type: "utility.null", label: "Null", params: {} },
   {
-    type: "replicate.clarity-upscaler",
-    label: "Clarity Upscaler",
+    type: "gemini.llm",
+    label: "Gemini LLM",
     params: {
-      prompt: "masterpiece, best quality, highres",
-      negative_prompt: "(worst quality, low quality, normal quality:2)",
-      scale_factor: 2,
-      dynamic: 6,
-      creativity: 0.35,
-      resemblance: 0.6,
-      tiling_width: 112,
-      tiling_height: 144,
-      scheduler: "DPM++ 3M SDE Karras",
-      num_inference_steps: 18,
-      seed: 1337,
-      downscaling: false,
-      downscaling_resolution: 768,
-      lora_links: "",
-      pollingIntervalMs: 1000,
-      timeoutMs: 120000
+      systemPrompt: "",
+      prompt: "",
+      model: "gemini-2.5-flash-lite"
     }
   },
   {
@@ -248,15 +254,6 @@ const library = [
       prompt: "Transform this into a polished, high-detail image.",
       aspectRatio: "1:1",
       imageSize: "2K"
-    }
-  },
-  {
-    type: "gemini.llm",
-    label: "Gemini LLM",
-    params: {
-      systemPrompt: "",
-      prompt: "",
-      model: "gemini-2.5-flash-lite"
     }
   },
   {
@@ -280,6 +277,29 @@ const library = [
     }
   },
   {
+    type: "replicate.clarity-upscaler",
+    label: "Clarity Upscaler",
+    params: {
+      prompt: "masterpiece, best quality, highres",
+      negative_prompt: "(worst quality, low quality, normal quality:2)",
+      scale_factor: 2,
+      dynamic: 6,
+      creativity: 0.35,
+      resemblance: 0.6,
+      tiling_width: 112,
+      tiling_height: 144,
+      scheduler: "DPM++ 3M SDE Karras",
+      num_inference_steps: 18,
+      seed: 1337,
+      downscaling: false,
+      downscaling_resolution: 768,
+      lora_links: "",
+      pollingIntervalMs: 1000,
+      timeoutMs: 120000
+    }
+  },
+  { type: "preview.image", label: "Image Preview", params: { title: "Preview" } },
+  {
     type: "http.request",
     label: "HTTP Request",
     params: {
@@ -293,19 +313,37 @@ const library = [
       timeoutMs: 30000
     }
   },
-  { type: "preview.image", label: "Image Preview", params: { title: "Preview" } },
-  { type: "debug.log", label: "Debug Log", params: { message: "Debug value", value: "{{input_prompt.output.text}}" } },
   { type: "output.text", label: "Text Output", params: {} },
-  { type: "output.file", label: "Save Text File", params: { filename: "output.txt", from: "{{output_text.output.text}}" } }
+  { type: "output.file", label: "Save Text File", params: { filename: "output.txt", from: "{{output_text.output.text}}" } },
+  { type: "debug.log", label: "Debug Log", params: { message: "Debug value", value: "{{input_prompt.output.text}}" } },
+  { type: "capability.image.create", label: "Create Image Capability", params: { prompt: "", provider: "" } },
+  { type: "capability.image.edit", label: "Edit Image Capability", params: { prompt: "", provider: "" } },
+  { type: "capability.image.upscale", label: "Upscale Image Capability", params: { prompt: "", provider: "" } },
+  { type: "capability.video.animate", label: "Animate Video Capability", params: { prompt: "", provider: "" } },
+  { type: "capability.character.create", label: "Create Character Capability", params: { prompt: "", provider: "" } },
+  { type: "capability.location.create", label: "Create Location Capability", params: { prompt: "", provider: "" } }
 ];
 
 const librarySections = [
-  { id: "inputs", title: "Input", types: ["input.text", "input.image", "input.video"] },
-  { id: "image", title: "Image Processing", types: ["replicate.clarity-upscaler", "gemini.nano-banana-2", "local.stableDiffusion.textToImage", "preview.image"] },
-  { id: "api", title: "API / HTTP", types: ["http.request"] },
-  { id: "text", title: "Text", types: ["library.prompt", "gemini.llm"] },
-  { id: "outputs", title: "Output", types: ["output.text", "output.file"] },
-  { id: "debug", title: "Debug", types: ["debug.log"] }
+  { id: "inputs-assets", title: "Inputs & Assets", types: ["input.text", "library.prompt", "input.image", "input.video", "input.file", "compound.input", "compound.output"] },
+  { id: "text-prompting", title: "Text & Prompting", types: ["transform.template", "gemini.llm"] },
+  { id: "image-generation", title: "Image Generation", types: ["gemini.nano-banana-2", "local.stableDiffusion.textToImage"] },
+  { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image"] },
+  { id: "api-integration", title: "API & Integration", types: ["http.request"] },
+  { id: "outputs", title: "Outputs", types: ["output.text", "output.file"] },
+  { id: "debug", title: "Debug", types: ["debug.log", "utility.null"] },
+  {
+    id: "capabilities",
+    title: "Capabilities",
+    types: [
+      "capability.image.create",
+      "capability.image.edit",
+      "capability.image.upscale",
+      "capability.video.animate",
+      "capability.character.create",
+      "capability.location.create"
+    ]
+  }
 ];
 
 const blankRoute: RouteDoc = {
@@ -496,6 +534,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
   const onConfigureGemini = data.onConfigureGemini as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
+  const onImageResultContextMenu = data.onImageResultContextMenu as ((event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void) | undefined;
   const onRunNodeOnly = data.onRunNodeOnly as ((nodeId: string) => void) | undefined;
   const onRunNodeWithDependencies = data.onRunNodeWithDependencies as ((nodeId: string) => void) | undefined;
   const onOpenSubroute = data.onOpenSubroute as ((nodeId: string) => void) | undefined;
@@ -510,14 +549,28 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const inputConnectionCounts = (data.inputConnectionCounts as Record<string, number> | undefined) ?? {};
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
   const ports = getNodePorts(type, manifest, routeNode);
-  const portTopBase = paramsCollapsed ? 92 : 34;
+  const portTopBase = paramsCollapsed ? 14 : 34;
+  const collapsedPortSpacing = 20;
+  const collapsedPortCount = Math.max(ports.inputs.length, ports.outputs.length);
+  const collapsedMinHeight = paramsCollapsed ? Math.max(44, 30 + Math.max(0, collapsedPortCount - 1) * collapsedPortSpacing) : undefined;
+
+  function portLabelTop(index: number): number {
+    return paramsCollapsed ? portHandleTop(index, 1) : portTopBase + index * 28;
+  }
+
+  function portHandleTop(index: number, total: number): number {
+    if (!paramsCollapsed) return portTopBase + 8 + index * 28;
+    const count = Math.max(total, 1);
+    const first = (collapsedMinHeight ?? 44) / 2 - ((count - 1) * collapsedPortSpacing) / 2;
+    return first + index * collapsedPortSpacing;
+  }
 
   function patchParams(patch: Record<string, unknown>) {
     onParamsChange?.(id, { ...params, ...patch });
   }
 
   return (
-    <div className={`routeNodeCard ${paramsCollapsed ? "paramsCollapsed" : ""}`}>
+    <div className={`routeNodeCard ${paramsCollapsed ? "paramsCollapsed" : ""}`} style={collapsedMinHeight ? { minHeight: `${collapsedMinHeight}px` } : undefined}>
       <span className={`nodeStatus ${statusClass(result?.status)}`} />
       {isMissingNode ? <div className="nodeWarning">Missing node package. Install "{type}" or remove this node.</div> : null}
       {shouldShowNodeRunButton(type) ? (
@@ -549,7 +602,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
       ) : null}
       {ports.inputs.map((port, index) => (
         <React.Fragment key={port.id}>
-          <span className="portLabel input" style={{ top: `${portTopBase + index * 28}px` }}>
+          <span className="portLabel input" style={{ top: `${portLabelTop(index)}px` }}>
             {port.maxConnections ? `${port.label ?? port.id} (${inputConnectionCounts[port.id] ?? 0}/${port.maxConnections})` : port.label ?? port.id}
           </span>
           <Handle
@@ -557,7 +610,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
             id={port.id}
             type="target"
             position={Position.Left}
-            style={{ top: `${portTopBase + 8 + index * 28}px` }}
+            style={{ top: `${portHandleTop(index, ports.inputs.length)}px` }}
             title={`${port.id}: ${port.kind}`}
           />
         </React.Fragment>
@@ -566,10 +619,14 @@ function RouteNodeCard({ id, data }: NodeProps) {
         <span className={`nodeIcon ${nodeIconClass(type)}`}>{nodeIcon(type)}</span>
         <div>
           <div className="nodeTitle">{title}</div>
-          <div className="nodeType" title={type}>{type}</div>
-          <div className={`executorBadge ${executorKind(type, manifest)}`}>{executorLabel(type, manifest)}</div>
-          {manifest ? <div className="nodeMetaLine">{manifest.author?.name} · {manifest.version} · {manifest.origin}{manifest.source ? ` · ${manifest.source}` : ""}</div> : null}
-          {routeNode?.type === "compound.subroute" ? <div className="nodeMetaLine">{routeNode.subroute?.nodes.length ?? 0} internal node(s)</div> : null}
+          {!paramsCollapsed ? (
+            <>
+              <div className="nodeType" title={type}>{type}</div>
+              <div className={`executorBadge ${executorKind(type, manifest)}`}>{executorLabel(type, manifest)}</div>
+              {manifest ? <div className="nodeMetaLine">{manifest.author?.name} · {manifest.version} · {manifest.origin}{manifest.source ? ` · ${manifest.source}` : ""}</div> : null}
+              {routeNode?.type === "compound.subroute" ? <div className="nodeMetaLine">{routeNode.subroute?.nodes.length ?? 0} internal node(s)</div> : null}
+            </>
+          ) : null}
         </div>
         <button
           className="nodeCollapseButton nodrag nopan"
@@ -583,7 +640,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           {paramsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </button>
       </div>
-      {isReplicateNode(type) ? (
+      {!paramsCollapsed && isReplicateNode(type) ? (
         <div className={`nodeTokenStatus ${replicateConfigured ? "configured" : "missing"}`}>
           <span>{replicateTokenStatusText(replicateConfigured)}</span>
           {!replicateConfigured ? (
@@ -595,13 +652,33 @@ function RouteNodeCard({ id, data }: NodeProps) {
           ) : null}
         </div>
       ) : null}
-      {routeNode?.type === "compound.subroute" ? (
+      {!paramsCollapsed && routeNode?.type === "compound.subroute" ? (
         <div className="compoundActions">
-          <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onOpenSubroute?.(id)}>Open Subroute</button>
-          <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onUncollapse?.(id)}>Uncollapse</button>
+          <button
+            className="nodeSmallButton nodrag nopan"
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenSubroute?.(id);
+            }}
+          >
+            Open Subroute
+          </button>
+          <button
+            className="nodeSmallButton nodrag nopan"
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onUncollapse?.(id);
+            }}
+          >
+            Uncollapse
+          </button>
         </div>
       ) : null}
-      {isGeminiNode(type) ? (
+      {!paramsCollapsed && isGeminiNode(type) ? (
         <div className={`nodeTokenStatus ${geminiConfigured ? "configured" : "missing"}`}>
           <span>{geminiTokenStatusText(geminiConfigured)}</span>
           {!geminiConfigured ? (
@@ -625,14 +702,13 @@ function RouteNodeCard({ id, data }: NodeProps) {
           onRefreshStableDiffusionModels={onRefreshStableDiffusionModels}
           onChange={patchParams}
           onBrowse={(kind) => onBrowseAsset?.(id, kind)}
+          onOpenImage={onOpenImage}
         />
-      ) : (
-        <div className="nodeCollapsedHint">Parameters hidden</div>
-      )}
-      {result && shouldShowInlineResult(type) ? <NodeInlineResult result={result} onOpenImage={onOpenImage} /> : null}
+      ) : null}
+      {result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} result={result} onOpenImage={onOpenImage} onImageResultContextMenu={onImageResultContextMenu} /> : null}
       {ports.outputs.map((port, index) => (
         <React.Fragment key={port.id}>
-          <span className="portLabel output" style={{ top: `${portTopBase + index * 28}px` }}>
+          <span className="portLabel output" style={{ top: `${portLabelTop(index)}px` }}>
             {port.label ?? port.id}
           </span>
           <Handle
@@ -640,7 +716,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
             id={port.id}
             type="source"
             position={Position.Right}
-            style={{ top: `${portTopBase + 8 + index * 28}px` }}
+            style={{ top: `${portHandleTop(index, ports.outputs.length)}px` }}
             title={`${port.id}: ${port.kind}`}
           />
         </React.Fragment>
@@ -658,7 +734,8 @@ function NodeInlineParams({
   stableDiffusionModels,
   onRefreshStableDiffusionModels,
   onChange,
-  onBrowse
+  onBrowse,
+  onOpenImage
 }: {
   type: string;
   params: Record<string, unknown>;
@@ -669,6 +746,7 @@ function NodeInlineParams({
   onRefreshStableDiffusionModels?: (endpoint: string) => void;
   onChange: (patch: Record<string, unknown>) => void;
   onBrowse: (kind: AssetKind) => void;
+  onOpenImage?: (image: ImageViewerState) => void;
 }) {
   if (type === "input.text") {
     return (
@@ -723,18 +801,16 @@ function NodeInlineParams({
             ))}
           </select>
         </label>
-        <label className="nodeField">
-          <span>prompt</span>
-          <select
-            className="nodrag nopan nodeInput nodeSelect"
-            value={selectedPrompt?.id ?? displayPrompt?.id ?? ""}
-            onChange={(event) => onChange({ promptId: event.target.value })}
-          >
-            {prompts.map((prompt) => (
-              <option key={prompt.id} value={prompt.id}>{prompt.title}</option>
-            ))}
-          </select>
-        </label>
+        <div className="nodePromptCards">
+          {prompts.map((prompt) => (
+            <PromptLibraryPromptCard
+              key={prompt.id}
+              prompt={prompt}
+              selected={prompt.id === (displayPrompt?.id ?? "")}
+              onSelect={() => onChange({ promptId: prompt.id, category: selectedCategory?.id ?? prompt.category ?? "", mode })}
+            />
+          ))}
+        </div>
         {displayPrompt?.description ? <div className="nodeHint">{displayPrompt.description}</div> : null}
         {mode === "linked" && selectedPromptId && !selectedPrompt ? <div className="nodeWarning">Selected prompt was not found in the local library.</div> : null}
         <label className="nodeField">
@@ -768,6 +844,7 @@ function NodeInlineParams({
   if (type === "input.file" || type === "input.image" || type === "input.video") {
     const kind = type.split(".")[1] as AssetKind;
     const path = String(params.path ?? "");
+    const imageSrc = type === "input.image" && path ? `${apiBase}/api/assets/preview?path=${encodeURIComponent(path)}` : "";
     return (
       <div className="assetParams">
         <label className="nodeField">
@@ -782,7 +859,16 @@ function NodeInlineParams({
         </label>
         <button className="nodeSmallButton nodrag nopan" onClick={() => onBrowse(kind)}>Browse...</button>
         {!path ? <div className="nodeWarning">Path required</div> : null}
-        {type === "input.image" && path ? <img className="nodeImagePreview" src={`${apiBase}/api/assets/preview?path=${encodeURIComponent(path)}`} alt="" /> : null}
+        {imageSrc ? (
+          <button
+            className="nodeImagePreviewButton nodrag nopan"
+            type="button"
+            title="View image"
+            onClick={() => onOpenImage?.({ src: imageSrc, title: filenameFromPath(path), filename: filenameFromPath(path) })}
+          >
+            <img className="nodeImagePreview" src={imageSrc} alt="" />
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -1097,7 +1183,33 @@ function NodeInlineParams({
   return null;
 }
 
-function NodeInlineResult({ result, onOpenImage }: { result: NodeRunResult; onOpenImage?: (image: ImageViewerState) => void }) {
+function PromptLibraryPromptCard({ prompt, selected, onSelect }: { prompt: PromptLibraryPrompt; selected: boolean; onSelect: () => void }) {
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const previewSrc = prompt.previewImage && !previewFailed ? promptPreviewSrc(prompt) : "";
+  return (
+    <button
+      className={`nodePromptCard nodrag nopan ${previewSrc ? "withPreview" : ""} ${selected ? "selected" : ""}`}
+      type="button"
+      onClick={onSelect}
+    >
+      {previewSrc ? <img src={previewSrc} alt="" onError={() => setPreviewFailed(true)} /> : null}
+      <strong>{prompt.title}</strong>
+      {prompt.description ? <span>{truncateText(prompt.description, 80)}</span> : null}
+    </button>
+  );
+}
+
+function NodeInlineResult({
+  nodeId,
+  result,
+  onOpenImage,
+  onImageResultContextMenu
+}: {
+  nodeId: string;
+  result: NodeRunResult;
+  onOpenImage?: (image: ImageViewerState) => void;
+  onImageResultContextMenu?: (event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void;
+}) {
   const imageSrc = imagePreviewSrc(result.output);
   const cost = costLabel(result.output);
   const statusText = result.status && result.status !== "succeeded" ? result.status : null;
@@ -1123,7 +1235,22 @@ function NodeInlineResult({ result, onOpenImage }: { result: NodeRunResult; onOp
             <Download size={14} />
           </a>
         </div>
-        <img className="nodeImagePreview" src={imageSrc} alt="" />
+        <button
+          className="nodeImagePreviewButton nodrag nopan"
+          type="button"
+          title="View image"
+          onContextMenu={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onImageResultContextMenu?.(event, nodeId, result);
+          }}
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenImage?.({ src: imageSrc, title: imageTitle, filename: downloadFilename(result.output) });
+          }}
+        >
+          <img className="nodeImagePreview" src={imageSrc} alt="" />
+        </button>
         <pre>{truncateText(imageTitle, 220)}</pre>
       </div>
     );
@@ -1148,8 +1275,42 @@ function statusClass(status?: string): string {
 }
 
 const nodeTypes = {
+  interface: InterfaceNodeCard,
   route: RouteNodeCard
 };
+
+const SUBROUTE_INPUT_NODE_ID = "__subroute_input__";
+const SUBROUTE_OUTPUT_NODE_ID = "__subroute_output__";
+
+function InterfaceNodeCard({ data }: NodeProps) {
+  const routeNode = data.routeNode as RouteDoc["nodes"][number] | undefined;
+  const kind = routeNode?.type === "compound.output" ? "output" : "input";
+  const portKind = portKindFromManifest(String(routeNode?.params?.kind ?? "data"));
+  const title = kind === "input" ? "Input" : "Output";
+  const subtitle = kind === "input" ? "Connect to one internal parameter" : "Connect from one internal result";
+
+  return (
+    <div className={`interfaceNodeCard ${kind}`}>
+      <div className="interfaceNodeHeader">
+        <div>
+          <strong>{routeNode?.title ?? title}</strong>
+          <span>{subtitle}</span>
+        </div>
+      </div>
+      <div className={`interfacePortRow ${kind}`}>
+        <span>{String(routeNode?.params?.portId ?? (kind === "input" ? "input" : "output"))}</span>
+        <small>{portKind}</small>
+      </div>
+      <Handle
+        className={`typedHandle ${portKind}`}
+        id="value"
+        type={kind === "input" ? "source" : "target"}
+        position={kind === "input" ? Position.Right : Position.Left}
+        title={`value: ${portKind}`}
+      />
+    </div>
+  );
+}
 
 type PortKind = "text" | "image" | "video" | "file" | "json" | "data";
 
@@ -1157,6 +1318,24 @@ type ImageViewerState = {
   src: string;
   title: string;
   filename: string;
+};
+
+type PromptAssetDraft = {
+  title: string;
+  slug: string;
+  category: string;
+  categoryMode: "existing" | "custom";
+  description: string;
+  tagsText: string;
+  prompt: string;
+  negativePrompt: string;
+  modelHintsText: string;
+  sourceNodeId: string;
+  sourceRouteId: string;
+  sourceRunId: string;
+  imageSrc: string;
+  imagePath: string;
+  generalize: boolean;
 };
 
 type PendingConnectionStart = {
@@ -1177,6 +1356,13 @@ type ContextMenuState = {
   clientX: number;
   clientY: number;
   nodeId?: string;
+};
+
+type PromptAssetMenuState = {
+  clientX: number;
+  clientY: number;
+  nodeId: string;
+  result: NodeRunResult;
 };
 
 type PortSpec = {
@@ -1204,6 +1390,9 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
   if (type === "input.image") return { inputs: [], outputs: [{ id: "image", kind: "image" }] };
   if (type === "input.video") return { inputs: [], outputs: [{ id: "video", kind: "video" }] };
   if (type === "library.prompt") return { inputs: [], outputs: [{ id: "text", kind: "text" }] };
+  if (type === "compound.input") return { inputs: [], outputs: [{ id: "value", kind: portKindFromManifest(String(routeNode?.params?.kind ?? "data")), label: "value" }] };
+  if (type === "compound.output") return { inputs: [{ id: "value", kind: portKindFromManifest(String(routeNode?.params?.kind ?? "data")), label: "value" }], outputs: [] };
+  if (type === "utility.null") return { inputs: [{ id: "input", kind: "data", label: "Any" }], outputs: [] };
   if (type === "replicate.clarity-upscaler") {
     return {
       inputs: [
@@ -1279,6 +1468,14 @@ function isKnownBuiltInPortType(type: string): boolean {
   return type === "compound.subroute" || library.some((item) => item.type === type);
 }
 
+function isCompoundInterfaceType(type: string): boolean {
+  return type === "compound.input" || type === "compound.output";
+}
+
+function isCompoundInterfaceNode(node: Node): boolean {
+  return isCompoundInterfaceType(String((node.data.routeNode as RouteDoc["nodes"][number] | undefined)?.type ?? ""));
+}
+
 function portKindFromManifest(value: string): PortKind {
   if (value === "text" || value === "image" || value === "video" || value === "file" || value === "json" || value === "data") return value;
   if (value === "number" || value === "boolean") return "data";
@@ -1298,16 +1495,52 @@ function catalogItemPorts(item: NodeCatalogItem | (typeof library)[number]): { i
 }
 
 function groupNodeCatalog(items: NodeCatalogItem[]): Array<{ id: string; title: string; items: NodeCatalogItem[] }> {
-  const groups = new Map<string, NodeCatalogItem[]>();
+  const knownGroups = new Map(librarySections.map((section) => [section.id, { ...section, items: [] as NodeCatalogItem[] }]));
+  const extraGroups = new Map<string, NodeCatalogItem[]>();
   for (const item of items.filter((entry) => entry.enabled !== false)) {
+    const section = librarySections.find((entry) => entry.types.includes(item.type));
+    if (section) {
+      knownGroups.get(section.id)?.items.push(item);
+      continue;
+    }
     const title = item.manifest?.category ?? fallbackSectionTitle(item.type);
-    groups.set(title, [...(groups.get(title) ?? []), item]);
+    extraGroups.set(title, [...(extraGroups.get(title) ?? []), item]);
   }
-  return [...groups.entries()].map(([title, sectionItems]) => ({ id: title.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "nodes", title, items: sectionItems }));
+  return [
+    ...[...knownGroups.values()]
+      .map((section) => ({ id: section.id, title: section.title, items: sortCatalogItems(section.items, section.types) }))
+      .filter((section) => section.items.length > 0),
+    ...[...extraGroups.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([title, sectionItems]) => ({ id: title.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "nodes", title, items: sortCatalogItems(sectionItems) }))
+  ];
 }
 
 function fallbackSectionTitle(type: string): string {
   return librarySections.find((section) => section.types.includes(type))?.title ?? "Installed";
+}
+
+function studioDocKindLabel(kind: StudioDocEntry["kind"]): string {
+  if (kind === "capabilities") return "Capabilities";
+  if (kind === "prompt-library") return "Prompt Library";
+  return "Guide";
+}
+
+function sortCatalogItems(items: NodeCatalogItem[], orderedTypes: string[] = []): NodeCatalogItem[] {
+  return [...items].sort((left, right) => {
+    const leftIndex = orderedTypes.indexOf(left.type);
+    const rightIndex = orderedTypes.indexOf(right.type);
+    if (leftIndex !== -1 || rightIndex !== -1) return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) - (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex);
+    return catalogItemTitle(left).localeCompare(catalogItemTitle(right));
+  });
+}
+
+function withBuiltInCatalogItems(items: NodeCatalogItem[]): NodeCatalogItem[] {
+  const known = new Set(items.map((item) => item.type));
+  const missingBuiltIns = library
+    .filter((item) => !known.has(item.type))
+    .map((item) => ({ type: item.type, title: item.label, params: item.params }));
+  return [...items, ...missingBuiltIns];
 }
 
 function canImportNodePackageFile(file: File): boolean {
@@ -1362,7 +1595,7 @@ function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
   return {
     nodes: route.nodes.map((node, index) => ({
       id: node.id,
-      type: "route",
+      type: isCompoundInterfaceType(node.type) ? "interface" : "route",
       position: { x: Number(node.ui?.x ?? 80 + index * 240), y: Number(node.ui?.y ?? 120) },
       data: { label: `${node.title ?? node.id}\n${node.type}`, routeNode: node }
     })),
@@ -1374,6 +1607,130 @@ function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
       targetHandle: edge.toPort
     }))
   };
+}
+
+function routeToEditableSubrouteFlow(route: RouteDoc, compound: RouteDoc["nodes"][number]): { nodes: Node[]; edges: Edge[] } {
+  const flow = routeToFlow(route);
+  const usedNodeIds = new Set(flow.nodes.map((node) => node.id));
+  const usedEdgeIds = new Set(flow.edges.map((edge) => edge.id));
+  const inputNodes = (compound.compound?.inputs ?? []).map((port, index) => {
+    const id = uniqueFlowId(`input_${port.id}`, usedNodeIds);
+    const routeNode: RouteDoc["nodes"][number] = {
+      id,
+      type: "compound.input",
+      title: port.label ?? port.id,
+      params: { portId: port.id, kind: port.kind ?? "data" },
+      ui: { x: -260, y: 80 + index * 120 }
+    };
+    return { id, type: "interface", position: { x: Number(routeNode.ui?.x), y: Number(routeNode.ui?.y) }, data: { label: `${routeNode.title}\n${routeNode.type}`, routeNode } } as Node;
+  });
+  const outputNodes = (compound.compound?.outputs ?? []).map((port, index) => {
+    const id = uniqueFlowId(`output_${port.id}`, usedNodeIds);
+    const routeNode: RouteDoc["nodes"][number] = {
+      id,
+      type: "compound.output",
+      title: port.label ?? port.id,
+      params: { portId: port.id, kind: port.kind ?? "data" },
+      ui: { x: 760, y: 80 + index * 120 }
+    };
+    return { id, type: "interface", position: { x: Number(routeNode.ui?.x), y: Number(routeNode.ui?.y) }, data: { label: `${routeNode.title}\n${routeNode.type}`, routeNode } } as Node;
+  });
+  const inputEdges = inputNodes.flatMap((node) => {
+    const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
+    const port = (compound.compound?.inputs ?? []).find((entry) => entry.id === routeNode.params?.portId);
+    if (!port) return [];
+    return [{
+      id: uniqueFlowId(`${node.id}-${port.nodeId}-${port.port ?? "input"}`, usedEdgeIds),
+      source: node.id,
+      sourceHandle: "value",
+      target: port.nodeId,
+      targetHandle: port.port ?? null
+    } as Edge];
+  });
+  const outputEdges = outputNodes.flatMap((node) => {
+    const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
+    const port = (compound.compound?.outputs ?? []).find((entry) => entry.id === routeNode.params?.portId);
+    if (!port) return [];
+    return [{
+      id: uniqueFlowId(`${port.nodeId}-${port.port ?? "output"}-${node.id}`, usedEdgeIds),
+      source: port.nodeId,
+      sourceHandle: port.port ?? null,
+      target: node.id,
+      targetHandle: "value"
+    } as Edge];
+  });
+  return { nodes: [...inputNodes, ...flow.nodes, ...outputNodes], edges: [...inputEdges, ...flow.edges, ...outputEdges] };
+}
+
+function isSubrouteInterfaceId(id?: string | null): boolean {
+  return id === SUBROUTE_INPUT_NODE_ID || id === SUBROUTE_OUTPUT_NODE_ID || Boolean(id?.startsWith("__subroute_interface_edge__"));
+}
+
+function subrouteInterfaceKind(id?: string | null): "input" | "output" | null {
+  if (id === SUBROUTE_INPUT_NODE_ID) return "input";
+  if (id === SUBROUTE_OUTPUT_NODE_ID) return "output";
+  return null;
+}
+
+function subrouteInterfaceFlow(nodes: Node[], frame: SubrouteFrame | undefined): { nodes: Node[]; edges: Edge[] } {
+  if (!frame) return { nodes: [], edges: [] };
+  const compound = frame.parentRoute.nodes.find((node) => node.id === frame.compoundId && node.type === "compound.subroute");
+  if (!compound?.compound) return { nodes: [], edges: [] };
+
+  const inputPorts = compound.compound.inputs ?? [];
+  const outputPorts = compound.compound.outputs ?? [];
+  const xPositions = nodes.map((node) => node.position.x);
+  const yPositions = nodes.map((node) => node.position.y);
+  const minX = xPositions.length ? Math.min(...xPositions) : 80;
+  const maxX = xPositions.length ? Math.max(...xPositions) : 480;
+  const minY = yPositions.length ? Math.min(...yPositions) : 120;
+
+  const interfaceNodes: Node[] = [
+    {
+      id: SUBROUTE_INPUT_NODE_ID,
+      type: "interface",
+      position: frame.interfacePositions?.input ?? { x: minX - 340, y: minY },
+      selectable: false,
+      deletable: false,
+      data: { kind: "input", ports: inputPorts }
+    },
+    {
+      id: SUBROUTE_OUTPUT_NODE_ID,
+      type: "interface",
+      position: frame.interfacePositions?.output ?? { x: maxX + 340, y: minY },
+      selectable: false,
+      deletable: false,
+      data: { kind: "output", ports: outputPorts }
+    }
+  ];
+
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const inputEdges: Edge[] = inputPorts
+    .filter((port) => nodeIds.has(port.nodeId))
+    .map((port) => ({
+      id: `__subroute_interface_edge__input__${port.id}`,
+      source: SUBROUTE_INPUT_NODE_ID,
+      sourceHandle: port.id,
+      target: port.nodeId,
+      targetHandle: port.port ?? null,
+      selectable: false,
+      deletable: false,
+      data: { interfaceEdge: true }
+    }));
+  const outputEdges: Edge[] = outputPorts
+    .filter((port) => nodeIds.has(port.nodeId))
+    .map((port) => ({
+      id: `__subroute_interface_edge__output__${port.id}`,
+      source: port.nodeId,
+      sourceHandle: port.port ?? null,
+      target: SUBROUTE_OUTPUT_NODE_ID,
+      targetHandle: port.id,
+      selectable: false,
+      deletable: false,
+      data: { interfaceEdge: true }
+    }));
+
+  return { nodes: interfaceNodes, edges: [...inputEdges, ...outputEdges] };
 }
 
 function canImportDroppedRouteFile(file: File): boolean {
@@ -1431,7 +1788,7 @@ function executorKind(type: string, manifest?: NodeManifest): string {
   if (type.startsWith("gemini.")) return "gemini";
   if (type.startsWith("replicate.")) return "replicate";
   if (type.startsWith("http.")) return "http";
-  if (type.startsWith("input.") || type.startsWith("output.") || type.startsWith("preview.") || type.startsWith("debug.") || type.startsWith("transform.") || type.startsWith("library.") || type === "compound.subroute") return "local";
+  if (type.startsWith("input.") || type.startsWith("output.") || type.startsWith("preview.") || type.startsWith("debug.") || type.startsWith("transform.") || type.startsWith("library.") || type.startsWith("compound.")) return "local";
   return "custom";
 }
 
@@ -1447,7 +1804,7 @@ function executorLabel(type: string, manifest?: NodeManifest): string {
 }
 
 function shouldShowInlineResult(type: string): boolean {
-  return !type.startsWith("input.");
+  return !type.startsWith("input.") && type !== "library.prompt";
 }
 
 function shouldShowNodeRunButton(type: string): boolean {
@@ -1459,6 +1816,8 @@ function nodeIcon(type: string) {
   if (type === "input.image") return <ImageIcon size={15} />;
   if (type === "input.video") return <Video size={15} />;
   if (type === "library.prompt") return <BookOpen size={15} />;
+  if (type === "compound.input") return <ChevronRight size={15} />;
+  if (type === "compound.output") return <ChevronLeft size={15} />;
   if (type === "transform.template") return <Braces size={15} />;
   if (type === "replicate.clarity-upscaler") return <Wand2 size={15} />;
   if (type === "replicate.model") return <span className="providerGlyph">R</span>;
@@ -1468,6 +1827,7 @@ function nodeIcon(type: string) {
   if (type === "http.request") return <Globe size={15} />;
   if (type === "preview.image") return <Eye size={15} />;
   if (type === "debug.log") return <Bug size={15} />;
+  if (type === "utility.null") return <Eraser size={15} />;
   if (type === "compound.subroute") return <Braces size={15} />;
   if (type === "output.text") return <FileText size={15} />;
   if (type === "output.file") return <Save size={15} />;
@@ -1476,29 +1836,35 @@ function nodeIcon(type: string) {
 
 function nodeIconClass(type: string): string {
   if (type.startsWith("input.")) return "input";
+  if (type === "compound.input") return "input";
   if (type.startsWith("library.")) return "transform";
   if (type.startsWith("output.")) return "output";
+  if (type === "compound.output") return "output";
   if (type.startsWith("replicate.")) return "replicate";
   if (type.startsWith("gemini.")) return "gemini";
   if (type.startsWith("local.")) return "local";
   if (type.startsWith("http.")) return "http";
   if (type.startsWith("preview.")) return "preview";
   if (type.startsWith("debug.")) return "debug";
+  if (type.startsWith("utility.")) return "debug";
   if (type.startsWith("transform.")) return "transform";
   if (type === "compound.subroute") return "transform";
   return "generic";
 }
 
 function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDoc {
+  const routeNodes = nodes.filter((node) => !isCompoundInterfaceNode(node));
+  const routeNodeIds = new Set(routeNodes.map((node) => node.id));
+  const routeEdges = edges.filter((edge) => routeNodeIds.has(edge.source) && routeNodeIds.has(edge.target));
   return {
     routeVersion: baseRoute.routeVersion,
     route: baseRoute.route,
     economics: baseRoute.economics,
-    nodes: nodes.map((node) => {
+    nodes: routeNodes.map((node) => {
       const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
       return { ...routeNode, ui: { ...(routeNode.ui ?? {}), x: node.position.x, y: node.position.y } };
     }),
-    edges: edges.map((edge) => ({
+    edges: routeEdges.map((edge) => ({
       id: edge.id,
       from: edge.source,
       to: edge.target,
@@ -1507,6 +1873,35 @@ function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDo
     })),
     provenance: { tool: "snarkroute-studio", updatedAt: new Date().toISOString() }
   };
+}
+
+function flowToCompoundInterface(nodes: Node[], edges: Edge[], nodeCatalog: NodeCatalogItem[]): CompoundInterface {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const inputMappings = edges.flatMap((edge): CompoundPortMapping[] => {
+    const source = nodeById.get(edge.source);
+    const target = nodeById.get(edge.target);
+    if (!source || !target || !isCompoundInterfaceNode(source) || isCompoundInterfaceNode(target)) return [];
+    const sourceRouteNode = source.data.routeNode as RouteDoc["nodes"][number];
+    if (sourceRouteNode.type !== "compound.input") return [];
+    const targetRouteNode = target.data.routeNode as RouteDoc["nodes"][number];
+    const targetManifest = nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest;
+    const targetPort = getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === edge.targetHandle);
+    const id = String(sourceRouteNode.params?.portId ?? sourceRouteNode.id);
+    return [{ id, label: sourceRouteNode.title ?? id, kind: targetPort?.kind ?? String(sourceRouteNode.params?.kind ?? "data"), nodeId: edge.target, port: edge.targetHandle ?? "input" }];
+  });
+  const outputMappings = edges.flatMap((edge): CompoundPortMapping[] => {
+    const source = nodeById.get(edge.source);
+    const target = nodeById.get(edge.target);
+    if (!source || !target || isCompoundInterfaceNode(source) || !isCompoundInterfaceNode(target)) return [];
+    const targetRouteNode = target.data.routeNode as RouteDoc["nodes"][number];
+    if (targetRouteNode.type !== "compound.output") return [];
+    const sourceRouteNode = source.data.routeNode as RouteDoc["nodes"][number];
+    const sourceManifest = nodeCatalog.find((item) => item.type === sourceRouteNode.type)?.manifest;
+    const sourcePort = getNodePorts(sourceRouteNode.type, sourceManifest, sourceRouteNode).outputs.find((port) => port.id === edge.sourceHandle);
+    const id = String(targetRouteNode.params?.portId ?? targetRouteNode.id);
+    return [{ id, label: targetRouteNode.title ?? id, kind: sourcePort?.kind ?? String(targetRouteNode.params?.kind ?? "data"), nodeId: edge.source, port: edge.sourceHandle ?? "output" }];
+  });
+  return { inputs: uniqueCompoundMappings(inputMappings), outputs: uniqueCompoundMappings(outputMappings) };
 }
 
 function routeSnapshot(route: RouteDoc): string {
@@ -1520,8 +1915,10 @@ function routeSnapshot(route: RouteDoc): string {
   });
 }
 
-function flowSnapshot(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): string {
-  return routeSnapshot(flowToRoute(nodes, edges, baseRoute));
+function compactBreadcrumbTitle(title: string): string {
+  const normalized = title.trim();
+  if (normalized.length <= 10) return normalized;
+  return normalized.slice(-10);
 }
 
 function loadInitialRoute(): { route: RouteDoc; loadedSavedProject: boolean } {
@@ -1594,6 +1991,8 @@ function App() {
   const [libraryPreview, setLibraryPreview] = useState<NodeLibraryPreview | null>(null);
   const [selectedLibraryNodeIds, setSelectedLibraryNodeIds] = useState<Record<string, boolean>>({});
   const [exampleMenuOpen, setExampleMenuOpen] = useState(false);
+  const [docsMenuOpen, setDocsMenuOpen] = useState(false);
+  const [activeDoc, setActiveDoc] = useState<StudioDocEntry | null>(null);
   const [loadedRouteSnapshot, setLoadedRouteSnapshot] = useState(() => routeSnapshot(initialRouteState.route));
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
@@ -1603,7 +2002,11 @@ function App() {
   const [pendingConnectionStart, setPendingConnectionStart] = useState<PendingConnectionStart | null>(null);
   const [connectionNodeMenu, setConnectionNodeMenu] = useState<ConnectionNodeMenuState | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [routeStack, setRouteStack] = useState<Array<{ compoundId: string; parentRoute: RouteDoc }>>([]);
+  const [promptAssetMenu, setPromptAssetMenu] = useState<PromptAssetMenuState | null>(null);
+  const [promptAssetDraft, setPromptAssetDraft] = useState<PromptAssetDraft | null>(null);
+  const [promptAssetError, setPromptAssetError] = useState("");
+  const [promptAssetSaving, setPromptAssetSaving] = useState(false);
+  const [routeStack, setRouteStack] = useState<SubrouteFrame[]>([]);
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
   const contextNode = contextMenu?.nodeId ? nodes.find((node) => node.id === contextMenu.nodeId) : null;
@@ -1611,6 +2014,14 @@ function App() {
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
   const selectedEdgeCount = edges.filter((edge) => edge.selected).length;
   const catalogSections = useMemo(() => groupNodeCatalog(nodeCatalog), [nodeCatalog]);
+  const routeBreadcrumbs = useMemo(
+    () =>
+      routeStack.map((frame) => {
+        const compound = frame.parentRoute.nodes.find((node) => node.id === frame.compoundId);
+        return { id: frame.compoundId, title: compound?.title ?? compound?.compound?.title ?? frame.compoundId };
+      }),
+    [routeStack]
+  );
   const displayNodes = useMemo(
     () =>
       nodes.map((node) => ({
@@ -1624,6 +2035,7 @@ function App() {
           onConfigureReplicate: openReplicateSettings,
           onConfigureGemini: openGeminiSettings,
           onOpenImage: setImageViewer,
+          onImageResultContextMenu: openPromptAssetMenu,
           onRunNodeOnly: runNodeOnly,
           onRunNodeWithDependencies: runNodeWithDependencies,
           onOpenSubroute: openSubroute,
@@ -1661,7 +2073,7 @@ function App() {
             return { ...entry, title: entry.title ?? entry.manifest?.title ?? fallback?.label ?? entry.type, params: fallback?.params ?? defaultParamsFromManifest(entry.manifest) };
           })
         : [];
-      setNodeCatalog(catalog);
+      setNodeCatalog(withBuiltInCatalogItems(catalog));
       try {
         const installedResponse = await fetch(`${apiBase}/api/node-packages/installed`);
         const installedResult = await installedResponse.json();
@@ -1732,6 +2144,118 @@ function App() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setLogs((current) => [`Prompt library refresh failed: ${message}`, ...current]);
+    }
+  }
+
+  function openPromptAssetMenu(event: React.MouseEvent, nodeId: string, result: NodeRunResult) {
+    setContextMenu(null);
+    setPromptAssetMenu({ clientX: event.clientX, clientY: event.clientY, nodeId, result });
+  }
+
+  function openPromptAssetDialog(nodeId: string, result: NodeRunResult) {
+    const draft = promptAssetDraftFromResult(nodeId, result);
+    if (!draft) {
+      setLogs((current) => ["Could not create prompt asset: image output has no local file path.", ...current]);
+      return;
+    }
+    setPromptAssetDraft(draft);
+    setPromptAssetError("");
+    setPromptAssetSaving(false);
+  }
+
+  function promptAssetDraftFromResult(nodeId: string, result: NodeRunResult): PromptAssetDraft | null {
+    const imageSrc = imagePreviewSrc(result.output);
+    const imagePath = imageLocalPath(result.output);
+    if (!imageSrc || !imagePath) return null;
+    const sourceNode = sourceGeneratedImageNode(nodeId);
+    const routeNode = sourceNode ?? (nodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined);
+    const prompt = promptTextForNode(routeNode?.id ?? nodeId) || stringParam(routeNode?.params, "prompt");
+    const negativePrompt = promptTextForNode(routeNode?.id ?? nodeId, "negativePrompt") || stringParam(routeNode?.params, "negativePrompt");
+    const title = routeNode?.title || routeNode?.id || imageLabel(result.output);
+    const slug = slugFromText(title);
+    const modelHints = [stringParam(routeNode?.params, "model"), providerHintForNode(routeNode)].filter(Boolean);
+    return {
+      title,
+      slug,
+      category: "image-generation",
+      categoryMode: promptLibrary.categories.some((category) => category.id === "image-generation") ? "existing" : "custom",
+      description: `Reusable prompt asset promoted from ${routeNode?.id ?? nodeId}.`,
+      tagsText: "image, generated",
+      prompt: prompt || "",
+      negativePrompt,
+      modelHintsText: [...new Set(modelHints)].join(", "),
+      sourceNodeId: routeNode?.id ?? nodeId,
+      sourceRouteId: routeBase.route.id,
+      sourceRunId: runResult?.runId ?? "",
+      imageSrc,
+      imagePath,
+      generalize: false
+    };
+  }
+
+  function sourceGeneratedImageNode(nodeId: string): RouteDoc["nodes"][number] | undefined {
+    const currentNode = nodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (currentNode?.type !== "preview.image") return currentNode;
+    const edge = edges.find((entry) => entry.target === nodeId && (!entry.targetHandle || entry.targetHandle === "image"));
+    return nodes.find((node) => node.id === edge?.source)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+  }
+
+  function promptTextForNode(nodeId: string, targetHandle = "prompt"): string {
+    const edge = edges.find((entry) => entry.target === nodeId && entry.targetHandle === targetHandle);
+    const sourceNode = nodes.find((node) => node.id === edge?.source)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (!sourceNode) return "";
+    const sourceOutput = runResult?.nodeResults?.[sourceNode.id]?.output;
+    const textOutput = outputText(sourceOutput);
+    if (textOutput) return textOutput;
+    if (sourceNode.type === "input.text") return stringParam(sourceNode.params, "value");
+    if (sourceNode.type === "library.prompt") return promptTextFromLibraryNode(sourceNode);
+    return stringParam(sourceNode.params, "prompt") || stringParam(sourceNode.params, "value");
+  }
+
+  function promptTextFromLibraryNode(node: RouteDoc["nodes"][number]): string {
+    if (String(node.params?.mode ?? "linked") === "embedded") return stringParam(node.params, "embeddedText");
+    const category = String(node.params?.category ?? "");
+    const promptId = String(node.params?.promptId ?? "");
+    return promptLibrary.categories.find((entry) => entry.id === category)?.prompts.find((prompt) => prompt.id === promptId)?.text ?? "";
+  }
+
+  async function savePromptAsset() {
+    if (!promptAssetDraft || promptAssetSaving) return;
+    setPromptAssetError("");
+    setPromptAssetSaving(true);
+    try {
+      const imageDataBase64 = await imageUrlToPngBase64(promptAssetDraft.imageSrc);
+      const response = await fetch(`${apiBase}/api/prompt-library/generated-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: promptAssetDraft.title,
+          slug: promptAssetDraft.slug,
+          category: promptAssetDraft.category,
+          description: promptAssetDraft.description,
+          tags: splitCsv(promptAssetDraft.tagsText),
+          prompt: promptAssetDraft.prompt,
+          negativePrompt: promptAssetDraft.negativePrompt,
+          modelHints: splitCsv(promptAssetDraft.modelHintsText),
+          source: {
+            runId: promptAssetDraft.sourceRunId,
+            routeId: promptAssetDraft.sourceRouteId,
+            nodeId: promptAssetDraft.sourceNodeId
+          },
+          imagePath: promptAssetDraft.imagePath,
+          imageDataBase64
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Could not save prompt asset.");
+      if (result.library?.categories) setPromptLibrary(result.library);
+      else await refreshPromptLibraryData();
+      setPromptAssetDraft(null);
+      setLogs((current) => [`Created prompt asset ${promptAssetDraft.category}/${promptAssetDraft.slug}.`, ...current]);
+    } catch (error) {
+      setPromptAssetError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPromptAssetSaving(false);
     }
   }
 
@@ -2110,7 +2634,7 @@ function App() {
     };
     setNodes((current) => [
       ...current,
-      { id, type: "route", position: position ?? { x: 120 + current.length * 36, y: 140 + current.length * 28 }, data: { label: `${itemTitle}\n${type}`, routeNode } }
+      { id, type: isCompoundInterfaceType(type) ? "interface" : "route", position: position ?? { x: 120 + current.length * 36, y: 140 + current.length * 28 }, data: { label: `${itemTitle}\n${type}`, routeNode } }
     ]);
     return id;
   }
@@ -2139,14 +2663,34 @@ function App() {
       );
     }
 
+
   function handleNodesChange(changes: NodeChange[]) {
-    onNodesChange(changes);
+    const interfacePositionChanges = changes.filter((change) => "id" in change && "position" in change && change.type === "position" && subrouteInterfaceKind(change.id) && change.position);
+    if (interfacePositionChanges.length > 0) {
+      setRouteStack((current) => {
+        if (current.length === 0) return current;
+        const next = [...current];
+        const last = next[next.length - 1];
+        let positions = last.interfacePositions ?? {};
+        for (const change of interfacePositionChanges) {
+          if (!("id" in change) || !("position" in change)) continue;
+          const kind = subrouteInterfaceKind(change.id);
+          if (!kind || !change.position) continue;
+          positions = { ...positions, [kind]: change.position };
+        }
+        next[next.length - 1] = { ...last, interfacePositions: positions };
+        return next;
+      });
+    }
+    const routeNodeChanges = changes.filter((change) => !("id" in change) || !isSubrouteInterfaceId(change.id));
+    if (routeNodeChanges.length > 0) onNodesChange(routeNodeChanges);
     const selected = changes.find((change) => change.type === "select" && change.selected);
-    if (selected && "id" in selected) setSelectedId(selected.id);
+    if (selected && "id" in selected && !isSubrouteInterfaceId(selected.id)) setSelectedId(selected.id);
   }
 
   function handleEdgesChange(changes: EdgeChange[]) {
-    onEdgesChange(changes);
+    const routeEdgeChanges = changes.filter((change) => !("id" in change) || !isSubrouteInterfaceId(change.id));
+    if (routeEdgeChanges.length > 0) onEdgesChange(routeEdgeChanges);
   }
 
   function deleteSelection() {
@@ -2230,14 +2774,14 @@ function App() {
 
     setNodes((current) => [
       ...current.filter((node) => !selectedNodeIds.has(node.id)),
-      { id: compoundId, type: "route", position, selected: true, data: { label: `${title}\ncompound.subroute`, routeNode } }
+      { id: compoundId, type: "route", position, selected: false, data: { label: `${title}\ncompound.subroute`, routeNode } }
     ]);
     setEdges((current) => [
       ...current.filter((edge) => !selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target)),
       ...rewiredIncoming,
       ...rewiredOutgoing
     ]);
-    setSelectedId(compoundId);
+    setSelectedId(null);
     setRunResult(null);
     setOutputs(null);
     setLogs((current) => [`Collapsed ${selectedNodeIds.size} node(s) into ${compoundId}.`, ...current]);
@@ -2260,7 +2804,7 @@ function App() {
       setLogs((current) => [`${nodeId} has no editable subroute.`, ...current]);
       return;
     }
-    const flow = routeToFlow(compound.subroute);
+    const flow = routeToEditableSubrouteFlow(compound.subroute, compound);
     setRouteStack((current) => [...current, { compoundId: nodeId, parentRoute: currentRoute }]);
     setRouteBase(compound.subroute);
     setNodes(flow.nodes);
@@ -2272,22 +2816,71 @@ function App() {
   }
 
   function closeSubroute() {
+    closeSubrouteTo(routeStack.length - 1);
+  }
+
+  function closeSubrouteTo(depth: number) {
     const frame = routeStack[routeStack.length - 1];
     if (!frame) return;
-    const subroute = flowToRoute(nodes, edges, routeBase);
-    const parentRoute: RouteDoc = {
-      ...frame.parentRoute,
-      nodes: frame.parentRoute.nodes.map((node) => node.id === frame.compoundId ? { ...node, subroute, compound: { ...(node.compound ?? {}), title: node.compound?.title ?? subroute.route.title } } : node)
-    };
-    const flow = routeToFlow(parentRoute);
-    setRouteStack((current) => current.slice(0, -1));
-    setRouteBase(parentRoute);
+    const targetDepth = Math.max(0, Math.min(depth, routeStack.length - 1));
+    let savedRoute = flowToRoute(nodes, edges, routeBase);
+    const currentInterface = flowToCompoundInterface(nodes, edges, nodeCatalog);
+    for (let index = routeStack.length - 1; index >= targetDepth; index -= 1) {
+      const stackFrame = routeStack[index];
+      savedRoute = {
+        ...stackFrame.parentRoute,
+        nodes: stackFrame.parentRoute.nodes.map((node) =>
+          node.id === stackFrame.compoundId
+            ? {
+                ...node,
+                subroute: savedRoute,
+                compound: {
+                  ...(node.compound ?? {}),
+                  ...(index === routeStack.length - 1 ? currentInterface : {}),
+                  title: node.compound?.title ?? savedRoute.route.title
+                }
+              }
+            : node
+        )
+      };
+    }
+    const flow = routeToFlow(savedRoute);
+    setRouteStack((current) => current.slice(0, targetDepth));
+    setRouteBase(savedRoute);
     setNodes(flow.nodes);
     setEdges(flow.edges);
-    setSelectedId(frame.compoundId);
+    setSelectedId(routeStack[targetDepth]?.compoundId ?? null);
     setRunResult(null);
     setOutputs(null);
     setLogs((current) => [`Saved subroute edits for ${frame.compoundId}.`, ...current]);
+  }
+
+  function buildCurrentRouteDocument(): RouteDoc {
+    let savedRoute = flowToRoute(nodes, edges, routeBase);
+    if (routeStack.length === 0) return savedRoute;
+
+    const currentInterface = flowToCompoundInterface(nodes, edges, nodeCatalog);
+    for (let index = routeStack.length - 1; index >= 0; index -= 1) {
+      const stackFrame = routeStack[index];
+      savedRoute = {
+        ...stackFrame.parentRoute,
+        nodes: stackFrame.parentRoute.nodes.map((node) =>
+          node.id === stackFrame.compoundId
+            ? {
+                ...node,
+                subroute: savedRoute,
+                compound: {
+                  ...(node.compound ?? {}),
+                  ...(index === routeStack.length - 1 ? currentInterface : {}),
+                  title: node.compound?.title ?? savedRoute.route.title
+                }
+              }
+            : node
+        )
+      };
+    }
+
+    return savedRoute;
   }
 
   function uncollapseCompoundNode(nodeId: string) {
@@ -2341,6 +2934,7 @@ function App() {
     if (!sourceNode || !targetNode || !connection.sourceHandle || !connection.targetHandle) return false;
     const sourceRouteNode = sourceNode.data.routeNode as RouteDoc["nodes"][number];
     const targetRouteNode = targetNode.data.routeNode as RouteDoc["nodes"][number];
+    if (sourceRouteNode.type === "compound.output" || targetRouteNode.type === "compound.input") return false;
     const sourceManifest = nodeCatalog.find((item) => item.type === sourceRouteNode.type)?.manifest;
     const targetManifest = nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest;
     const sourcePort = getNodePorts(sourceRouteNode.type, sourceManifest, sourceRouteNode).outputs.find((port) => port.id === connection.sourceHandle);
@@ -2358,25 +2952,181 @@ function App() {
       setLogs((current) => [`Invalid connection: ${describeConnection(connection)}`, ...current]);
       return;
     }
+    patchInterfaceNodeFromConnection(connection);
     setEdges((current) => addEdge(connection, current));
+  }
+
+  function patchInterfaceNodeFromConnection(connection: Connection) {
+    const sourceNode = nodes.find((node) => node.id === connection.source);
+    const targetNode = nodes.find((node) => node.id === connection.target);
+    const sourceRouteNode = sourceNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    const targetRouteNode = targetNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (sourceRouteNode?.type === "compound.input" && targetNode && targetRouteNode && connection.targetHandle) {
+      const targetManifest = nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest;
+      const targetPort = getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === connection.targetHandle);
+      updateInterfaceNodeMetadata(sourceRouteNode.id, connection.targetHandle, targetPort?.kind ?? "data", targetPort?.label ?? connection.targetHandle);
+    }
+    if (targetRouteNode?.type === "compound.output" && sourceNode && sourceRouteNode && connection.sourceHandle) {
+      const sourceManifest = nodeCatalog.find((item) => item.type === sourceRouteNode.type)?.manifest;
+      const sourcePort = getNodePorts(sourceRouteNode.type, sourceManifest, sourceRouteNode).outputs.find((port) => port.id === connection.sourceHandle);
+      updateInterfaceNodeMetadata(targetRouteNode.id, connection.sourceHandle, sourcePort?.kind ?? "data", sourcePort?.label ?? connection.sourceHandle);
+    }
+  }
+
+  function updateInterfaceNodeMetadata(nodeId: string, portId: string, kind: string, label: string) {
+    setNodes((current) =>
+      current.map((node) => {
+        if (node.id !== nodeId) return node;
+        const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
+        const updated = { ...routeNode, title: routeNode.title && routeNode.title !== "Compound Input" && routeNode.title !== "Compound Output" ? routeNode.title : label, params: { ...(routeNode.params ?? {}), portId, kind } };
+        return { ...node, data: { ...node.data, label: `${updated.title ?? updated.id}\n${updated.type}`, routeNode: updated } };
+      })
+    );
+  }
+
+  function sourcePortForConnection(sourceNodeId: string, sourceHandle: string): PortSpec | null {
+    const sourceNode = nodes.find((node) => node.id === sourceNodeId);
+    if (!sourceNode) return null;
+    const sourceRouteNode = sourceNode.data.routeNode as RouteDoc["nodes"][number];
+    const sourceManifest = nodeCatalog.find((item) => item.type === sourceRouteNode.type)?.manifest;
+    return getNodePorts(sourceRouteNode.type, sourceManifest, sourceRouteNode).outputs.find((port) => port.id === sourceHandle) ?? null;
+  }
+
+  function exposeSubrouteOutput(sourceNodeId: string, sourceHandle: string, preferredId?: string) {
+    const frame = routeStack[routeStack.length - 1];
+    const sourceNode = nodes.find((node) => node.id === sourceNodeId);
+    const sourcePort = sourcePortForConnection(sourceNodeId, sourceHandle);
+    if (!frame || !sourceNode || !sourcePort) return;
+    const sourceRouteNode = sourceNode.data.routeNode as RouteDoc["nodes"][number];
+    const sourceTitle = sourceRouteNode.title ?? sourceRouteNode.id;
+    setRouteStack((current) => {
+      if (current.length === 0) return current;
+      const next = [...current];
+      const last = next[next.length - 1];
+      const parentRoute = {
+        ...last.parentRoute,
+        nodes: last.parentRoute.nodes.map((node) => {
+          if (node.id !== last.compoundId || node.type !== "compound.subroute") return node;
+          const outputs = node.compound?.outputs ?? [];
+          if (outputs.some((port) => port.nodeId === sourceNodeId && (port.port ?? "output") === sourceHandle)) return node;
+          const used = new Set(outputs.map((port) => port.id));
+          const id = uniqueFlowId(String(preferredId ?? sourceHandle ?? sourceNodeId).replace(/\W+/g, "_") || "output", used);
+          const mapping: CompoundPortMapping = {
+            id,
+            label: sourcePort.label ?? `${sourceTitle}.${sourceHandle}`,
+            kind: sourcePort.kind,
+            nodeId: sourceNodeId,
+            port: sourceHandle
+          };
+          return { ...node, compound: { ...(node.compound ?? {}), outputs: [...outputs, mapping] } };
+        })
+      };
+      next[next.length - 1] = { ...last, parentRoute };
+      return next;
+    });
+    setLogs((current) => [`Exposed ${sourceNodeId}.${sourceHandle} on compound output.`, ...current]);
+  }
+
+  function addSubrouteInterfacePort(kind: "input" | "output") {
+    if (kind === "input") {
+      addSubrouteInputParameter();
+      return;
+    }
+    const candidates = nodes.flatMap((node) => {
+      const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
+      const manifest = nodeCatalog.find((item) => item.type === routeNode.type)?.manifest;
+      return getNodePorts(routeNode.type, manifest, routeNode).outputs.map((port) => ({ node, routeNode, port }));
+    });
+    if (candidates.length === 0) {
+      setLogs((current) => ["No internal outputs available to expose.", ...current]);
+      return;
+    }
+    const defaultValue = `${candidates[0].node.id}.${candidates[0].port.id}`;
+    const value = window.prompt("Expose output as nodeId.port", defaultValue);
+    if (!value) return;
+    const [nodeId, portId] = value.trim().split(".");
+    if (!nodeId || !portId) return;
+    exposeSubrouteOutput(nodeId, portId);
+  }
+
+  function addSubrouteInputParameter() {
+    const frame = routeStack[routeStack.length - 1];
+    if (!frame) return;
+    const compound = frame.parentRoute.nodes.find((node) => node.id === frame.compoundId && node.type === "compound.subroute");
+    const existing = compound?.compound?.inputs ?? [];
+    const candidates = nodes.flatMap((node) => {
+      const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
+      const manifest = nodeCatalog.find((item) => item.type === routeNode.type)?.manifest;
+      return getNodePorts(routeNode.type, manifest, routeNode).inputs
+        .filter((port) => !existing.some((mapping) => mapping.nodeId === node.id && (mapping.port ?? "input") === port.id))
+        .map((port) => ({ node, routeNode, port }));
+    });
+    if (candidates.length === 0) {
+      setLogs((current) => ["No internal inputs available to expose.", ...current]);
+      return;
+    }
+    const defaultValue = `${candidates[0].node.id}.${candidates[0].port.id}`;
+    const value = window.prompt("Expose input parameter as nodeId.port", defaultValue);
+    if (!value) return;
+    const [nodeId, portId] = value.trim().split(".");
+    const candidate = candidates.find((entry) => entry.node.id === nodeId && entry.port.id === portId);
+    if (!candidate) {
+      setLogs((current) => [`Unknown internal input: ${value}.`, ...current]);
+      return;
+    }
+    const used = new Set(existing.map((port) => port.id));
+    const id = uniqueFlowId(String(portId || nodeId).replace(/\W+/g, "_") || "input", used);
+    const mapping: CompoundPortMapping = {
+      id,
+      label: candidate.port.label ?? `${candidate.routeNode.title ?? candidate.node.id}.${candidate.port.id}`,
+      kind: candidate.port.kind,
+      nodeId: candidate.node.id,
+      port: candidate.port.id
+    };
+    setRouteStack((current) => {
+      if (current.length === 0) return current;
+      const next = [...current];
+      const last = next[next.length - 1];
+      next[next.length - 1] = {
+        ...last,
+        parentRoute: {
+          ...last.parentRoute,
+          nodes: last.parentRoute.nodes.map((node) =>
+            node.id === last.compoundId && node.type === "compound.subroute"
+              ? { ...node, compound: { ...(node.compound ?? {}), inputs: [...(node.compound?.inputs ?? []), mapping] } }
+              : node
+          )
+        }
+      };
+      return next;
+    });
+    setLogs((current) => [`Exposed ${candidate.node.id}.${candidate.port.id} as compound input.`, ...current]);
   }
 
   function compatibleInputForConnection(item: NodeCatalogItem, sourceNodeId: string, sourceHandle: string): PortSpec | null {
     const sourceNode = nodes.find((node) => node.id === sourceNodeId);
     if (!sourceNode) return null;
-    const sourceType = String((sourceNode.data.routeNode as RouteDoc["nodes"][number]).type);
-    const sourcePort = getNodePorts(sourceType).outputs.find((port) => port.id === sourceHandle);
+    const sourceRouteNode = sourceNode.data.routeNode as RouteDoc["nodes"][number];
+    const sourceManifest = nodeCatalog.find((entry) => entry.type === sourceRouteNode.type)?.manifest;
+    const sourcePort = getNodePorts(sourceRouteNode.type, sourceManifest, sourceRouteNode).outputs.find((port) => port.id === sourceHandle);
     if (!sourcePort) return null;
     return catalogItemPorts(item).inputs.find((targetPort) => arePortsCompatible(sourcePort.kind, targetPort.kind)) ?? null;
   }
 
   const possibleConnectionNodes = useMemo(() => {
     if (!connectionNodeMenu) return [];
-    return nodeCatalog
+    const catalogEntries = nodeCatalog
       .filter((item) => item.enabled !== false)
-      .map((item) => ({ item, inputPort: compatibleInputForConnection(item, connectionNodeMenu.sourceNodeId, connectionNodeMenu.sourceHandle) }))
-      .filter((entry): entry is { item: NodeCatalogItem; inputPort: PortSpec } => Boolean(entry.inputPort));
-  }, [connectionNodeMenu, nodeCatalog, nodes]);
+      .flatMap((item) => {
+        const inputPort = compatibleInputForConnection(item, connectionNodeMenu.sourceNodeId, connectionNodeMenu.sourceHandle);
+        return inputPort ? [{ kind: "catalog" as const, item, inputPort }] : [];
+      });
+    const sourcePort = sourcePortForConnection(connectionNodeMenu.sourceNodeId, connectionNodeMenu.sourceHandle);
+    const outputEntry = routeStack.length > 0 && sourcePort
+      ? [{ kind: "output" as const, inputPort: { id: "output", kind: sourcePort.kind, label: "Compound Output" } satisfies PortSpec }]
+      : [];
+    return [...outputEntry, ...catalogEntries];
+  }, [connectionNodeMenu, nodeCatalog, nodes, routeStack]);
 
   const handleConnectStart: OnConnectStart = (_event, params) => {
     setConnectionNodeMenu(null);
@@ -2416,6 +3166,31 @@ function App() {
           sourceHandle: connectionNodeMenu.sourceHandle,
           target: nodeId,
           targetHandle
+        },
+        current
+      )
+    );
+    setConnectionNodeMenu(null);
+  }
+
+  function addConnectedOutput() {
+    if (!connectionNodeMenu) return;
+    const sourcePort = sourcePortForConnection(connectionNodeMenu.sourceNodeId, connectionNodeMenu.sourceHandle);
+    const nodeId = addNodeFromCatalogItem(
+      {
+        type: "compound.output",
+        label: "Compound Output",
+        params: { portId: connectionNodeMenu.sourceHandle, kind: sourcePort?.kind ?? "data" }
+      },
+      connectionNodeMenu.flowPosition
+    );
+    setEdges((current) =>
+      addEdge(
+        {
+          source: connectionNodeMenu.sourceNodeId,
+          sourceHandle: connectionNodeMenu.sourceHandle,
+          target: nodeId,
+          targetHandle: "value"
         },
         current
       )
@@ -2589,8 +3364,9 @@ function App() {
   }
 
   function exportRoute() {
-    const filename = normalizeRouteExportFilename(`${routeBase.route.id || "studio-route"}`);
-    const blob = new Blob([exportRouteToText(flowToRoute(nodes, edges, routeBase) as OpenRoute, filename)], { type: "application/json" });
+    const route = buildCurrentRouteDocument();
+    const filename = normalizeRouteExportFilename(`${route.route.id || "studio-route"}`);
+    const blob = new Blob([exportRouteToText(route as OpenRoute, filename)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -2613,8 +3389,9 @@ function App() {
 
   function saveProject() {
     try {
-      const filename = normalizeRouteExportFilename(`${routeBase.route.id || "studio-route"}`);
-      const text = exportRouteToText(flowToRoute(nodes, edges, routeBase) as OpenRoute, filename);
+      const route = buildCurrentRouteDocument();
+      const filename = normalizeRouteExportFilename(`${route.route.id || "studio-route"}`);
+      const text = exportRouteToText(route as OpenRoute, filename);
       localStorage.setItem(SAVED_PROJECT_STORAGE_KEY, text);
       setLoadedRouteSnapshot(routeSnapshot(loadRouteFromText(text, filename) as RouteDoc));
       setLogs((current) => ["Saved current project locally.", ...current]);
@@ -2647,13 +3424,18 @@ function App() {
   }
 
   function hasUnsavedRouteChanges(): boolean {
-    return flowSnapshot(nodes, edges, routeBase) !== loadedRouteSnapshot;
+    return routeSnapshot(buildCurrentRouteDocument()) !== loadedRouteSnapshot;
   }
 
   function openExample(example: StudioExample) {
     if (hasUnsavedRouteChanges() && !window.confirm("Open this example? Unsaved changes may be lost.")) return;
     applyRoute(example.route, `Loaded example: ${example.title}.`);
     setExampleMenuOpen(false);
+  }
+
+  function openDoc(doc: StudioDocEntry) {
+    setActiveDoc(doc);
+    setDocsMenuOpen(false);
   }
 
   return (
@@ -2691,6 +3473,17 @@ function App() {
               })}
             </div>
           ) : null}
+          <button className="docsButton" onClick={() => setDocsMenuOpen((value) => !value)} title="Open project documentation"><BookOpen size={16} /> Docs</button>
+          {docsMenuOpen ? (
+            <div className="docsMenu" role="menu" aria-label="Project documentation">
+              {studioDocs.map((doc) => (
+                <button className="docsMenuItem" key={doc.id} onClick={() => openDoc(doc)} role="menuitem">
+                  <span>{doc.title}</span>
+                  <small>{studioDocKindLabel(doc.kind)} · {doc.language.toUpperCase()}</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
           <button onClick={exportRoute} title="Export route"><Download size={16} /> Export</button>
           <label className="fileButton" title="Import route"><Upload size={16} /> Import<input type="file" accept={ROUTE_FILE_ACCEPT} onChange={(event) => void importRoute(event.target.files?.[0] ?? null)} /></label>
           <label className="fileButton" title="Import node package"><Plus size={16} /> Node<input type="file" accept=".snarknode,.json,.node.json,application/json" onChange={(event) => {
@@ -2711,7 +3504,8 @@ function App() {
         <div className="librarySections">
           {catalogSections.map((section) => {
             const collapsed = collapsedLibrarySections[section.id] ?? true;
-            const items = section.items;
+            const items = routeStack.length > 0 ? section.items : section.items.filter((item) => !isCompoundInterfaceType(item.type));
+            if (items.length === 0) return null;
             return (
               <section className="librarySection" key={section.id}>
                 <button className="librarySectionHeader" onClick={() => toggleLibrarySection(section.id)}>
@@ -2737,9 +3531,48 @@ function App() {
         onDrop={handleCanvasDrop}
       >
         <div className="topbar">
-          {routeStack.length > 0 ? <button onClick={closeSubroute}><ChevronLeft size={16} /> Back</button> : null}
+          {routeStack.length > 0 ? (
+            <div className="routeBreadcrumbs" aria-label="Subroute breadcrumbs">
+              <button className="breadcrumbBack" title="Back to parent subroute" onClick={closeSubroute}><ChevronLeft size={16} /></button>
+              <button className="breadcrumbRoot" title="Back to root route" onClick={() => closeSubrouteTo(0)}>Root</button>
+              {routeBreadcrumbs.map((crumb, index) => {
+                const isCurrent = index === routeBreadcrumbs.length - 1;
+                const isParent = index === routeBreadcrumbs.length - 2;
+                const isCompactAncestor = !isCurrent && !isParent;
+
+                return (
+                  <React.Fragment key={`${crumb.id}-${index}`}>
+                    <span className="breadcrumbSeparator">/</span>
+                    <button
+                      className={`breadcrumbCrumb ${isCurrent ? "current" : isParent ? "parent" : "compactAncestor"}`}
+                      title={`Back to ${crumb.title}`}
+                      disabled={isCurrent}
+                      onClick={() => closeSubrouteTo(index + 1)}
+                    >
+                      {isCompactAncestor ? (
+                        "..."
+                      ) : isParent ? (
+                        <>
+                          <span className="breadcrumbEllipsis">...</span>
+                          <span className="breadcrumbTail">{compactBreadcrumbTitle(crumb.title)}</span>
+                        </>
+                      ) : (
+                        crumb.title
+                      )}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          ) : null}
+          {routeStack.length > 0 ? (
+            <>
+              <button onClick={() => addNode("compound.input")}><ChevronRight size={16} /> Input</button>
+              <button onClick={() => addNode("compound.output")}><ChevronLeft size={16} /> Output</button>
+            </>
+          ) : null}
           <button className="primary" onClick={() => void run()}><Play size={16} /> Run</button>
-          <button onClick={collapseSelectedNodes} disabled={routeStack.length > 0 || selectedNodeCount < 2}><Braces size={16} /> Collapse</button>
+          <button onClick={collapseSelectedNodes} disabled={selectedNodeCount < 2}><Braces size={16} /> Collapse</button>
           <button className="danger" onClick={deleteSelection} disabled={selectedNodeCount === 0 && selectedEdgeCount === 0 && !selectedId}><Trash2 size={16} /> Delete</button>
           <button className="danger" onClick={clearCanvas} disabled={nodes.length === 0 && edges.length === 0}><Eraser size={16} /> Clear</button>
           <div className={`apiStatus ${apiConnected ? "connected" : "disconnected"}`} title={apiError || `API: ${apiBase}`}>
@@ -2761,31 +3594,39 @@ function App() {
           onInit={setReactFlowInstance}
           isValidConnection={isConnectionValid}
           onNodeClick={(_event, node) => {
+            if (isSubrouteInterfaceId(node.id)) return;
             setContextMenu(null);
+            setPromptAssetMenu(null);
             selectNode(node);
           }}
           onNodeContextMenu={(event, node) => {
+            if (isSubrouteInterfaceId(node.id)) return;
             event.preventDefault();
+            setPromptAssetMenu(null);
             setSelectedId(node.id);
             setContextMenu({ clientX: event.clientX, clientY: event.clientY, nodeId: node.id });
           }}
           onSelectionContextMenu={(event) => {
             event.preventDefault();
+            setPromptAssetMenu(null);
             setContextMenu({ clientX: event.clientX, clientY: event.clientY });
           }}
           onPaneContextMenu={(event) => {
             event.preventDefault();
+            setPromptAssetMenu(null);
             setSelectedId(null);
             setContextMenu({ clientX: event.clientX, clientY: event.clientY });
           }}
           onEdgeClick={() => {
             setContextMenu(null);
+            setPromptAssetMenu(null);
             setSelectedId(null);
           }}
           onPaneClick={() => {
             selectNode(null);
             setConnectionNodeMenu(null);
             setContextMenu(null);
+            setPromptAssetMenu(null);
           }}
           onKeyDown={(event) => {
             if ((event.key === "Delete" || event.key === "Backspace") && !isTextEditingTarget(event.target)) {
@@ -2815,11 +3656,16 @@ function App() {
               </>
             ) : (
               <>
-                <button disabled={routeStack.length > 0 || selectedNodeCount < 2} onClick={() => { collapseSelectedNodes(); setContextMenu(null); }}>Collapse Selection</button>
+                <button disabled={selectedNodeCount < 2} onClick={() => { collapseSelectedNodes(); setContextMenu(null); }}>Collapse Selection</button>
                 {routeStack.length > 0 ? <button onClick={() => { closeSubroute(); setContextMenu(null); }}>Back to Parent</button> : null}
                 <button disabled={nodes.length === 0 && edges.length === 0} onClick={() => { clearCanvas(); setContextMenu(null); }}>Clear Canvas</button>
               </>
             )}
+          </div>
+        ) : null}
+        {promptAssetMenu ? (
+          <div className="contextMenu" style={{ left: promptAssetMenu.clientX, top: promptAssetMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+            <button onClick={() => { openPromptAssetDialog(promptAssetMenu.nodeId, promptAssetMenu.result); setPromptAssetMenu(null); }}>Create Prompt Asset</button>
           </div>
         ) : null}
         {connectionNodeMenu ? (
@@ -2834,11 +3680,17 @@ function App() {
             </div>
             {possibleConnectionNodes.length ? (
               <div className="connectionNodeMenuItems">
-                {possibleConnectionNodes.map(({ item, inputPort }) => (
-                  <button key={`${item.type}:${inputPort.id}`} className="connectionNodeMenuItem" onClick={() => addConnectedNode(item, inputPort.id)}>
-                    <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
-                    <strong>{catalogItemTitle(item)}</strong>
-                    <span>{item.type} / {inputPort.label ?? inputPort.id}</span>
+                {possibleConnectionNodes.map((entry) => (
+                  <button
+                    key={entry.kind === "output" ? "compound-output" : `${entry.item.type}:${entry.inputPort.id}`}
+                    className="connectionNodeMenuItem"
+                    onClick={() => entry.kind === "output" ? addConnectedOutput() : addConnectedNode(entry.item, entry.inputPort.id)}
+                  >
+                    <span className={`libraryNodeIcon ${entry.kind === "output" ? "output" : nodeIconClass(entry.item.type)}`}>
+                      {entry.kind === "output" ? <Save size={15} /> : nodeIcon(entry.item.type)}
+                    </span>
+                    <strong>{entry.kind === "output" ? "Output" : catalogItemTitle(entry.item)}</strong>
+                    <span>{entry.kind === "output" ? "Expose on compound node" : `${entry.item.type} / ${entry.inputPort.label ?? entry.inputPort.id}`}</span>
                   </button>
                 ))}
               </div>
@@ -3026,6 +3878,95 @@ function App() {
           </div>
         </div>
       ) : null}
+      {promptAssetDraft ? (
+        <div className="promptAssetOverlay" role="dialog" aria-modal="true" aria-label="Create Prompt Asset" onClick={() => setPromptAssetDraft(null)}>
+          <div className="promptAssetWindow" onClick={(event) => event.stopPropagation()}>
+            <div className="promptAssetHeader">
+              <span>Create Prompt Asset</span>
+              <button className="imageViewerButton" type="button" title="Close" onClick={() => setPromptAssetDraft(null)}><X size={16} /></button>
+            </div>
+            <div className="promptAssetBody">
+              <div className="promptAssetPreview">
+                <img src={promptAssetDraft.imageSrc} alt="" />
+                <small>{promptAssetDraft.sourceRouteId} / {promptAssetDraft.sourceNodeId}</small>
+              </div>
+              <div className="promptAssetForm">
+                <label className="settingsField"><span>title</span><input value={promptAssetDraft.title} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, title: event.target.value, slug: slugFromText(event.target.value) })} /></label>
+                <label className="settingsField"><span>slug / id</span><input value={promptAssetDraft.slug} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, slug: slugFromText(event.target.value) })} /></label>
+                <label className="settingsField">
+                  <span>category mode</span>
+                  <select
+                    value={promptAssetDraft.categoryMode}
+                    onChange={(event) => {
+                      const mode = event.target.value === "custom" ? "custom" : "existing";
+                      const fallbackCategory = promptLibrary.categories[0]?.id ?? "image-generation";
+                      setPromptAssetDraft({ ...promptAssetDraft, categoryMode: mode, category: mode === "existing" ? fallbackCategory : promptAssetDraft.category });
+                    }}
+                  >
+                    <option value="existing">Choose existing rubric</option>
+                    <option value="custom">Create custom rubric</option>
+                  </select>
+                </label>
+                {promptAssetDraft.categoryMode === "existing" ? (
+                  <label className="settingsField">
+                    <span>rubric</span>
+                    <select value={promptAssetDraft.category} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, category: event.target.value })}>
+                      {promptLibrary.categories.map((category) => (
+                        <option key={category.id} value={category.id}>{category.title}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <label className="settingsField">
+                    <span>new rubric</span>
+                    <input value={promptAssetDraft.category} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, category: slugFromText(event.target.value) || "image-generation" })} />
+                  </label>
+                )}
+                <label className="settingsField"><span>description</span><input value={promptAssetDraft.description} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, description: event.target.value })} /></label>
+                <label className="settingsField"><span>tags</span><input value={promptAssetDraft.tagsText} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, tagsText: event.target.value })} /></label>
+                <label className="settingsField"><span>model hints</span><input value={promptAssetDraft.modelHintsText} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, modelHintsText: event.target.value })} /></label>
+                <label className="settingsField"><span>prompt body</span><textarea value={promptAssetDraft.prompt} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, prompt: event.target.value })} /></label>
+                <label className="settingsField"><span>negative prompt</span><textarea value={promptAssetDraft.negativePrompt} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, negativePrompt: event.target.value })} /></label>
+                {geminiConfigured ? (
+                  <label className="promptAssetCheckbox">
+                    <input type="checkbox" checked={promptAssetDraft.generalize} disabled title="Template generalization is not wired for this MVP save path yet." onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, generalize: event.target.checked })} />
+                    <span>Generalize into reusable template</span>
+                  </label>
+                ) : null}
+                <div className="promptAssetSource">
+                  <span>runId: {promptAssetDraft.sourceRunId || "unknown"}</span>
+                  <span>routeId: {promptAssetDraft.sourceRouteId}</span>
+                  <span>nodeId: {promptAssetDraft.sourceNodeId}</span>
+                </div>
+                {promptAssetError ? <p className="errorText">{promptAssetError}</p> : null}
+              </div>
+            </div>
+            <div className="promptAssetFooter">
+              <span className={promptAssetError ? "promptAssetFooterError" : "promptAssetFooterStatus"}>
+                {promptAssetError || (promptAssetSaving ? "Saving..." : "")}
+              </span>
+              <button type="button" disabled={promptAssetSaving} onClick={() => setPromptAssetDraft(null)}>Cancel</button>
+              <button className="primary" type="button" disabled={promptAssetSaving} onClick={() => void savePromptAsset()}><Save size={16} /> {promptAssetSaving ? "Saving..." : "Save"}</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {activeDoc ? (
+        <div className="docsViewerOverlay" role="dialog" aria-modal="true" aria-label={activeDoc.title} onClick={() => setActiveDoc(null)}>
+          <div className="docsViewerWindow" onClick={(event) => event.stopPropagation()}>
+            <div className="docsViewerHeader">
+              <div>
+                <span>{activeDoc.title}</span>
+                <small>{studioDocKindLabel(activeDoc.kind)} · {activeDoc.language.toUpperCase()}</small>
+              </div>
+              <button className="imageViewerButton" type="button" title="Close" onClick={() => setActiveDoc(null)}>
+                <X size={15} />
+              </button>
+            </div>
+            <MarkdownDocument content={activeDoc.content} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -3133,6 +4074,17 @@ function imagePreviewSrc(value: unknown): string | null {
   return null;
 }
 
+function imageLocalPath(value: unknown): string | null {
+  if (!value) return null;
+  if (Array.isArray(value)) return imageLocalPath(value[0]);
+  if (typeof value === "string") return /\.(png|jpg|jpeg|webp)$/i.test(value) && !/^https?:\/\//i.test(value) ? value : null;
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return imageLocalPath(record.image ?? record.localPath ?? record.path ?? record.output);
+  }
+  return null;
+}
+
 function imageLabel(value: unknown): string {
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
@@ -3160,6 +4112,36 @@ function downloadFilename(value: unknown): string {
 
 function filenameFromPath(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+function stringParam(params: Record<string, unknown> | undefined, key: string): string {
+  const value = params?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function providerHintForNode(node: RouteDoc["nodes"][number] | undefined): string {
+  if (!node) return "";
+  if (node.type.startsWith("gemini.")) return "gemini";
+  if (node.type.startsWith("local.stableDiffusion.")) return "stable-diffusion";
+  if (node.type.startsWith("replicate.")) return "replicate";
+  return "";
+}
+
+function slugFromText(value: string): string {
+  return value.toLowerCase().trim().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 72) || `prompt-${Date.now()}`;
+}
+
+function splitCsv(value: string): string[] {
+  return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
+function promptPreviewSrc(prompt: PromptLibraryPrompt): string {
+  const previewImage = prompt.previewImage ?? "";
+  if (/^https?:\/\//i.test(previewImage)) return previewImage;
+  const promptPath = prompt.path ?? "";
+  const separatorIndex = Math.max(promptPath.lastIndexOf("/"), promptPath.lastIndexOf("\\"));
+  const directory = separatorIndex >= 0 ? promptPath.slice(0, separatorIndex + 1) : "";
+  return `${apiBase}/api/assets/preview?path=${encodeURIComponent(`${directory}${previewImage}`)}`;
 }
 
 function hasRequiredNodeOnlyInputs(node: RouteDoc["nodes"][number], incomingEdges: Edge[]): boolean {
@@ -3226,6 +4208,22 @@ function fileToBase64(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("Could not read file."));
     reader.readAsDataURL(file);
   });
+}
+
+async function imageUrlToPngBase64(src: string): Promise<string> {
+  const response = await fetch(src);
+  if (!response.ok) throw new Error(`Could not read preview image (${response.status}).`);
+  const bitmap = await createImageBitmap(await response.blob());
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not create image conversion canvas.");
+  context.drawImage(bitmap, 0, 0);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Could not convert preview image to PNG.")), "image/png");
+  });
+  return fileToBase64(new File([blob], "prompt-asset.png", { type: "image/png" }));
 }
 
 function isTextEditingTarget(target: EventTarget | null): boolean {

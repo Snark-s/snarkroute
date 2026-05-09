@@ -16,13 +16,18 @@ Prompt files use:
 data/prompt-library/**/*.prompt.md
 ```
 
+To add a prompt now, create a new Markdown file under a category folder:
+
+```text
+data/prompt-library/<category>/<prompt-id>.prompt.md
+```
+
 Example:
 
 ```markdown
 ---
 id: retro-futuristic-editor-joke
 title: Retro-futuristic editor joke
-kind: text/prompt
 category: image-generation
 description: Demo prompt for SnarkRoute
 tags:
@@ -33,36 +38,70 @@ tags:
 A retro-futuristic easter egg illustration about building our own visual AI editor with blackjack and courtesans, playful but not explicit, cinematic, detailed, humorous.
 ```
 
+Required fields are `id`, `title`, `category`, and a non-empty Markdown body. Optional fields are `description`, `kind`, and `tags`.
+
+The prompt reference is:
+
+```text
+<category>/<id>
+```
+
+For the example above, the reference is:
+
+```text
+image-generation/retro-futuristic-editor-joke
+```
+
+The folder name does not have to match `category`, but keeping them aligned makes the library easier to browse.
+
+After adding or editing files, refresh the library in Studio with the `Refresh Prompt Library` button on a `Prompt Library` node. The server endpoint is:
+
+```text
+POST /api/prompt-library/refresh
+```
+
+The refresh rescans `.prompt.md` files, so a server restart is not required.
+
 These files are for human editing. Internally, discovered files should be normalized into JSON-compatible asset metadata or manifest structures. Prompt files should not be manually registered in code, and `prompt-library.json` should not be the primary editing surface.
 
 ## Node Shape
 
-The Prompt Library node stores only an AssetRef:
+Current MVP routes use linked prompt params:
 
 ```json
 {
   "id": "prompt1",
   "type": "library.prompt",
   "params": {
-    "assetRef": {
-      "uri": "asset://local/text/prompt/image-generation/retro-futuristic-editor-joke",
-      "kind": "text/prompt"
-    }
+    "category": "image-generation",
+    "promptId": "retro-futuristic-editor-joke",
+    "mode": "linked"
   }
 }
 ```
 
-The node must not store:
+Embedded prompt text is supported for local fallback and route portability experiments:
 
-- `mode: "linked"`
-- `mode: "embedded"`
-- `embeddedText` as a node mode
-- direct file paths
-- direct prompt URLs
+```json
+{
+  "id": "prompt1",
+  "type": "library.prompt",
+  "params": {
+    "category": "custom",
+    "promptId": "draft",
+    "mode": "embedded",
+    "embeddedText": "Local prompt text."
+  }
+}
+```
+
+Target architecture still moves this to `params.assetRef` so exported routes can resolve local files, embedded route assets, bundles, and remote manifests through the same resolver.
+
+The node must not store direct file paths or direct prompt URLs.
 
 ## Execution
 
-`library.prompt` asks AssetResolver to resolve `params.assetRef`. The resolved asset must be `text/prompt` or a compatible text asset kind.
+`library.prompt` resolves the linked prompt from the local prompt library or returns `embeddedText` when `mode` is `embedded`.
 
 The node outputs:
 
@@ -72,7 +111,7 @@ The node outputs:
 }
 ```
 
-The node does not know whether the prompt came from a local `.prompt.md` file, generated manifest, remote manifest, embedded route asset, exported bundle, or future provider.
+In the target AssetRef architecture, the node should not know whether the prompt came from a local `.prompt.md` file, generated manifest, remote manifest, embedded route asset, exported bundle, or future provider.
 
 ---
 

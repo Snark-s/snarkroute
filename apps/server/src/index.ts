@@ -28,6 +28,7 @@ import {
   validatePromptLibraryNodes,
   validateRouteNodeTypes,
   getPromptLibraryPrompt,
+  getPromptLibraryPath,
   loadPromptLibrary,
   type LocalAssetKind,
   type PromptLibrary,
@@ -316,6 +317,16 @@ export function buildServer() {
     }
   });
 
+  app.post<{ Body: CreatePromptAssetBody }>("/api/prompt-library/generated-image", async (request, reply) => {
+    try {
+      const saved = await createPromptAssetFromGeneratedImage(request.body ?? {});
+      promptLibraryCache = await loadPromptLibrary();
+      return { ok: true, ...saved, library: summarizePromptLibrary(promptLibraryCache) };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
   app.get<{ Querystring: { path?: string; kind?: LocalAssetKind } }>("/api/assets/metadata", async (request, reply) => {
     try {
       return await getLocalAssetMetadata(request.query.path ?? "", request.query.kind ?? "file");
@@ -432,6 +443,143 @@ export function buildServer() {
   app.get("/api/ledger/summary", async () => summarizeLedgerRuns(await readLedgerRuns()));
 
   return app;
+}
+
+type CreatePromptAssetBody = {
+  title?: string;
+  slug?: string;
+  category?: string;
+  description?: string;
+  tags?: string[];
+  prompt?: string;
+  negativePrompt?: string;
+  modelHints?: string[];
+  source?: {
+    runId?: string;
+    routeId?: string;
+    nodeId?: string;
+  };
+  imagePath?: string;
+  imageDataBase64?: string;
+};
+
+async function createPromptAssetFromGeneratedImage(body: CreatePromptAssetBody) {
+  const title = cleanSingleLine(body.title) || "Generated Image Prompt";
+  const category = safePathSegment(body.category || "image-generation") || "image-generation";
+  const slug = safePathSegment(body.slug || slugFromTitle(title));
+  const prompt = String(body.prompt ?? "").trim();
+  if (!prompt) throw new Error("Prompt body is required.");
+  if (!body.imagePath && !body.imageDataBase64) throw new Error("imagePath or imageDataBase64 is required.");
+
+  const imageBuffer = body.imageDataBase64
+    ? Buffer.from(body.imageDataBase64, "base64")
+    : await readPromptAssetImageFromPath(body.imagePath ?? "");
+  if (imageBuffer.length <= 0) throw new Error("Prompt asset image is empty.");
+  const directory = resolve(getPromptLibraryPath(), category);
+  const root = resolve(getPromptLibraryPath());
+  if (!directory.startsWith(root)) throw new Error("Invalid prompt library category.");
+  await mkdir(directory, { recursive: true });
+
+  const promptPath = join(directory, `${slug}.prompt.png`);
+  const tags = (body.tags ?? []).map(cleanSingleLine).filter(Boolean);
+  const modelHints = (body.modelHints ?? []).map(cleanSingleLine).filter(Boolean);
+  const promptMetadata = {
+    id: slug,
+    title,
+    category,
+    description: cleanSingleLine(body.description) || title,
+    kind: "system",
+    tags: tags.length ? tags : ["image"],
+    prompt,
+    negativePrompt: String(body.negativePrompt ?? "").trim() || undefined,
+    source: {
+      type: "generated-image",
+      runId: cleanSingleLine(body.source?.runId) || undefined,
+      routeId: cleanSingleLine(body.source?.routeId) || undefined,
+      nodeId: cleanSingleLine(body.source?.nodeId) || undefined
+    },
+    modelHints
+  };
+  const png = writePngTextChunk(imageBuffer, "snarkroute:prompt", JSON.stringify(promptMetadata));
+  await writeFile(promptPath, png);
+  return { promptPath, previewPath: promptPath, category, slug };
+}
+
+async function readPromptAssetImageFromPath(path: string): Promise<Buffer> {
+  const imageMetadata = await getLocalAssetMetadata(path, "image");
+  if (imageMetadata.sizeBytes <= 0) throw new Error(`Preview image is empty: ${imageMetadata.path}`);
+  if (imageMetadata.mimeType !== "image/png") throw new Error("Prompt PNG assets require a PNG image output.");
+  return readFile(imageMetadata.path);
+}
+
+function writePngTextChunk(buffer: Buffer, key: string, text: string): Buffer {
+  assertPng(buffer);
+  const chunks: Buffer[] = [buffer.subarray(0, 8)];
+  let offset = 8;
+  let inserted = false;
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    const chunkEnd = dataEnd + 4;
+    if (chunkEnd > buffer.length) throw new Error("Invalid PNG chunk length.");
+    const data = buffer.subarray(dataStart, dataEnd);
+    const sameKey = (type === "iTXt" && pngTextChunkKey(data) === key) || (type === "tEXt" && pngTextChunkKey(data) === key);
+    if (type === "IEND" && !inserted) {
+      chunks.push(createITxtChunk(key, text));
+      inserted = true;
+    }
+    if (!sameKey) chunks.push(buffer.subarray(offset, chunkEnd));
+    if (type === "IEND") break;
+    offset = chunkEnd;
+  }
+  if (!inserted) throw new Error("PNG file is missing IEND chunk.");
+  return Buffer.concat(chunks);
+}
+
+function assertPng(buffer: Buffer): void {
+  if (buffer.length < 24 || buffer.toString("ascii", 1, 4) !== "PNG") throw new Error("Invalid PNG image.");
+}
+
+function pngTextChunkKey(data: Buffer): string | null {
+  const separator = data.indexOf(0);
+  return separator > 0 ? data.toString("latin1", 0, separator) : null;
+}
+
+function createITxtChunk(key: string, text: string): Buffer {
+  const payload = Buffer.concat([Buffer.from(key, "latin1"), Buffer.from([0, 0, 0, 0, 0]), Buffer.from(text, "utf8")]);
+  return createPngChunk("iTXt", payload);
+}
+
+function createPngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const typeBuffer = Buffer.from(type, "ascii");
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 0);
+  return Buffer.concat([length, typeBuffer, data, crc]);
+}
+
+function crc32(buffer: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function cleanSingleLine(value: unknown): string {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function safePathSegment(value: string): string {
+  return value.toLowerCase().trim().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 96);
+}
+
+function slugFromTitle(value: string): string {
+  return safePathSegment(value) || `prompt-${Date.now()}`;
 }
 
 async function listRouteFiles(directory: string): Promise<string[]> {

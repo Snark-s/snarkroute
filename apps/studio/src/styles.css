@@ -152,7 +152,9 @@ h2 {
 }
 
 .toolbar .openExampleButton,
-.toolbar .exampleMenu {
+.toolbar .exampleMenu,
+.toolbar .docsButton,
+.toolbar .docsMenu {
   grid-column: 1 / -1;
 }
 
@@ -201,6 +203,48 @@ h2 {
 
 .toolbar .exampleItem:hover {
   background: #27303d;
+}
+
+.docsMenu {
+  background: #1b202a;
+  border: 1px solid #303746;
+  border-radius: 8px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.toolbar .docsMenuItem {
+  align-items: start;
+  background: #202631;
+  border-color: #343c4b;
+  display: grid;
+  gap: 3px;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
+  min-height: 0;
+  padding: 8px;
+  text-align: left;
+  white-space: normal;
+  width: 100%;
+}
+
+.toolbar .docsMenuItem:hover {
+  background: #27303d;
+}
+
+.docsMenuItem span {
+  color: #f4f6fb;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.docsMenuItem small {
+  color: #aeb6c5;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .exampleItemText {
@@ -459,12 +503,92 @@ h2 {
 }
 
 .topbar {
+  align-items: flex-start;
   display: flex;
   gap: 8px;
   left: 16px;
+  min-width: 0;
   position: absolute;
+  right: 16px;
   top: 16px;
   z-index: 10;
+}
+
+.topbar > button {
+  flex: 0 0 auto;
+}
+
+.routeBreadcrumbs {
+  align-items: center;
+  background: #171d27;
+  border: 1px solid #394355;
+  border-radius: 6px;
+  display: inline-flex;
+  flex: 1 1 auto;
+  gap: 4px;
+  max-width: 560px;
+  min-height: 34px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 3px;
+}
+
+.routeBreadcrumbs button {
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: #dce8ff;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 26px;
+  overflow: hidden;
+  padding: 4px 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routeBreadcrumbs .breadcrumbBack,
+.routeBreadcrumbs .breadcrumbRoot,
+.routeBreadcrumbs .breadcrumbCrumb.current {
+  flex: 0 0 auto;
+}
+
+.routeBreadcrumbs .breadcrumbCrumb.parent {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  text-align: left;
+}
+
+.routeBreadcrumbs .breadcrumbEllipsis {
+  flex: 0 0 auto;
+  color: #dce8ff;
+  font-size: inherit;
+}
+
+.routeBreadcrumbs .breadcrumbTail {
+  flex: 0 0 auto;
+  color: inherit;
+  font-size: inherit;
+  white-space: nowrap;
+}
+
+.routeBreadcrumbs .breadcrumbCrumb.compactAncestor {
+  flex: 0 0 auto;
+  min-width: 26px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.routeBreadcrumbs button:disabled {
+  color: #7dd3c0;
+  opacity: 1;
+}
+
+.routeBreadcrumbs .breadcrumbSeparator {
+  color: #667285;
+  flex: 0 0 auto;
+  font-size: 12px;
 }
 
 .apiStatus {
@@ -474,10 +598,13 @@ h2 {
   border-radius: 6px;
   color: #b9c3d4;
   display: inline-flex;
+  flex: 0 1 auto;
   font-size: 11px;
   gap: 8px;
-  max-width: min(520px, calc(100vw - 420px));
+  max-width: 520px;
   min-height: 34px;
+  min-width: 0;
+  overflow: hidden;
   padding: 5px 8px;
 }
 
@@ -510,6 +637,96 @@ h2 {
   width: 260px;
 }
 
+.react-flow__node-interface {
+  background: transparent;
+  border: 0;
+  color: #edf2f7;
+  padding: 0;
+  width: 250px;
+}
+
+.interfaceNodeCard {
+  background: #1a212b;
+  border: 1px solid #465468;
+  border-radius: 8px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
+  display: grid;
+  gap: 10px;
+  min-height: 92px;
+  padding: 10px;
+  position: relative;
+  width: 250px;
+}
+
+.interfaceNodeCard.input {
+  border-color: #4d8f83;
+}
+
+.interfaceNodeCard.output {
+  border-color: #7b9466;
+}
+
+.interfaceNodeHeader {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  text-align: left;
+}
+
+.interfaceNodeHeader div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.interfaceNodeHeader strong {
+  color: #ffffff;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.interfaceNodeHeader span,
+.interfaceNodeEmpty,
+.interfacePortLabel small {
+  color: #93a0b4;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.interfaceNodeEmpty {
+  background: #141b24;
+  border: 1px dashed #3c485a;
+  border-radius: 6px;
+  margin-top: 10px;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.interfacePortRow {
+  background: #121923;
+  border: 1px solid #303c4e;
+  border-radius: 6px;
+  color: #eef4ff;
+  display: grid;
+  font-size: 12px;
+  gap: 3px;
+  line-height: 1.1;
+  min-height: 30px;
+  overflow-wrap: anywhere;
+  padding: 5px 8px;
+  pointer-events: none;
+  text-align: left;
+}
+
+.interfacePortRow small {
+  color: #8f9aaa;
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .routeNodeCard {
   background: #202631;
   border: 1px solid #506070;
@@ -521,7 +738,8 @@ h2 {
 }
 
 .routeNodeCard.paramsCollapsed {
-  min-height: 158px;
+  min-height: 44px;
+  padding: 9px 12px;
 }
 
 .react-flow__node-route.selected .routeNodeCard {
@@ -668,7 +886,7 @@ h2 {
 }
 
 .nodeHeader {
-  align-items: center;
+  align-items: flex-start;
   display: inline-flex;
   gap: 8px;
   justify-content: center;
@@ -680,7 +898,13 @@ h2 {
 }
 
 .routeNodeCard.paramsCollapsed .nodeHeader {
-  margin-bottom: 8px;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 0;
+  max-width: none;
+  min-height: 26px;
+  padding-right: 54px;
+  width: 100%;
 }
 
 .nodeCollapseButton {
@@ -700,6 +924,12 @@ h2 {
   z-index: 3;
 }
 
+.routeNodeCard.paramsCollapsed .nodeCollapseButton {
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .nodeCollapseButton:hover {
   background: rgba(103, 197, 173, 0.12);
   color: #ffffff;
@@ -709,6 +939,34 @@ h2 {
   justify-content: flex-start;
   margin: 0 28px 16px 54px;
   max-width: none;
+}
+
+.routeNodeCard.paramsCollapsed:has(.nodeRunActions) .nodeHeader {
+  margin: 0 58px 0 68px;
+}
+
+.routeNodeCard.paramsCollapsed .nodeRunActions {
+  flex-direction: row;
+  gap: 5px;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.routeNodeCard.paramsCollapsed .portLabel {
+  display: none;
+}
+
+.routeNodeCard.paramsCollapsed .nodeStatus {
+  right: 38px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.routeNodeCard.paramsCollapsed .nodeTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nodeHeader > div {
@@ -1002,6 +1260,21 @@ h2 {
   width: 100%;
 }
 
+.nodeImagePreviewButton {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: zoom-in;
+  display: block;
+  line-height: 0;
+  padding: 0;
+  width: 100%;
+}
+
+.nodeImagePreviewButton:hover .nodeImagePreview {
+  border-color: #7dd3c0;
+}
+
 .nodeResult {
   background: #101620;
   border: 1px solid #355045;
@@ -1073,6 +1346,81 @@ h2 {
 .nodeImageActionButton:hover {
   border-color: #7dd3c0;
   color: #ffffff;
+}
+
+.nodePromptCards {
+  display: grid;
+  gap: 6px;
+  max-height: 230px;
+  overflow: auto;
+}
+
+.nodePromptCard {
+  align-items: start;
+  appearance: none;
+  background: #151c27;
+  border: 1px solid #303c4e;
+  border-radius: 6px;
+  color: #edf2ff;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 58px;
+  padding: 6px;
+  text-align: left;
+  width: 100%;
+}
+
+.nodePromptCard.withPreview {
+  grid-template-columns: 64px minmax(0, 1fr);
+}
+
+.nodePromptCard:hover,
+.nodePromptCard.selected {
+  border-color: #7dd3c0;
+}
+
+.nodePromptCard img {
+  background: #0b111b;
+  border: 1px solid #394456;
+  border-radius: 5px;
+  grid-row: 1 / span 2;
+  height: 64px;
+  object-fit: cover;
+  width: 64px;
+}
+
+.nodePromptCard strong,
+.nodePromptCard span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nodePromptCard.withPreview strong,
+.nodePromptCard.withPreview span {
+  grid-column: 2;
+}
+
+.nodePromptCard strong {
+  color: #edf2ff;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.nodePromptCard span {
+  color: #95a3b8;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.promptLibraryPreviewImage {
+  border: 1px solid #394456;
+  border-radius: 5px;
+  display: block;
+  max-height: 120px;
+  object-fit: cover;
+  width: 100%;
 }
 
 .imageViewerOverlay {
@@ -1147,6 +1495,304 @@ h2 {
   max-width: 100%;
   object-fit: contain;
   width: 100%;
+}
+
+.promptAssetOverlay {
+  align-items: center;
+  background: rgba(5, 8, 13, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 28px;
+  position: fixed;
+  z-index: 50;
+}
+
+.promptAssetWindow {
+  background: #121821;
+  border: 1px solid #45536a;
+  border-radius: 8px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  max-height: min(90vh, 940px);
+  max-width: min(92vw, 980px);
+  min-width: min(720px, 92vw);
+  overflow: hidden;
+}
+
+.promptAssetHeader,
+.promptAssetFooter {
+  align-items: center;
+  border-bottom: 1px solid #273244;
+  color: #dce8ff;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.promptAssetFooter {
+  border-bottom: 0;
+  border-top: 1px solid #273244;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.promptAssetFooterStatus,
+.promptAssetFooterError {
+  flex: 1 1 auto;
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.promptAssetFooterStatus {
+  color: #9da8ba;
+}
+
+.promptAssetFooterError {
+  color: #ff9ca8;
+}
+
+.promptAssetBody {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(190px, 260px) minmax(0, 1fr);
+  overflow: auto;
+  padding: 14px;
+}
+
+.promptAssetPreview img {
+  background: #0b1018;
+  border: 1px solid #394456;
+  border-radius: 6px;
+  display: block;
+  max-height: 320px;
+  object-fit: contain;
+  width: 100%;
+}
+
+.promptAssetPreview small,
+.promptAssetSource span {
+  color: #95a3b8;
+  display: block;
+  font-size: 11px;
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+}
+
+.promptAssetForm {
+  display: grid;
+  gap: 9px;
+}
+
+.promptAssetForm textarea {
+  background: #0b111b;
+  border: 1px solid #344055;
+  border-radius: 6px;
+  color: #edf4ff;
+  font-family: inherit;
+  min-height: 92px;
+  padding: 8px;
+  resize: vertical;
+}
+
+.promptAssetCheckbox {
+  align-items: center;
+  color: #dce8ff;
+  display: flex;
+  font-size: 12px;
+  gap: 8px;
+}
+
+.docsViewerOverlay {
+  align-items: center;
+  background: rgba(5, 8, 13, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 28px;
+  position: fixed;
+  z-index: 45;
+}
+
+.docsViewerWindow {
+  background: #121821;
+  border: 1px solid #45536a;
+  border-radius: 8px;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  height: min(86vh, 920px);
+  max-width: min(88vw, 980px);
+  min-width: min(620px, 92vw);
+  overflow: hidden;
+}
+
+.docsViewerHeader {
+  align-items: center;
+  border-bottom: 1px solid #273244;
+  color: #dce8ff;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.docsViewerHeader div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.docsViewerHeader span {
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.docsViewerHeader small {
+  color: #aeb6c5;
+  font-size: 11px;
+}
+
+.markdownDocument {
+  background: #0d121a;
+  color: #e6e8ee;
+  flex: 1 1 auto;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow: auto;
+  padding: 18px 22px 28px;
+}
+
+.markdownDocument h1,
+.markdownDocument h2,
+.markdownDocument h3,
+.markdownDocument h4 {
+  color: #f4f6fb;
+  letter-spacing: 0;
+  line-height: 1.25;
+  margin: 20px 0 10px;
+  text-transform: none;
+}
+
+.markdownDocument h1 {
+  display: block;
+  font-size: 24px;
+  margin-top: 0;
+}
+
+.markdownDocument h2 {
+  font-size: 18px;
+}
+
+.markdownDocument h3 {
+  font-size: 15px;
+}
+
+.markdownDocument h4 {
+  font-size: 13px;
+}
+
+.markdownDocument p {
+  margin: 0 0 12px;
+}
+
+.markdownDocument ul,
+.markdownDocument ol {
+  margin: 0 0 14px 22px;
+  padding: 0;
+}
+
+.markdownDocument li {
+  margin: 4px 0;
+}
+
+.markdownDocument code {
+  background: #202837;
+  border: 1px solid #344054;
+  border-radius: 4px;
+  color: #dce8ff;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92em;
+  padding: 1px 4px;
+}
+
+.markdownCode {
+  background: #080d14;
+  border: 1px solid #273244;
+  border-radius: 6px;
+  color: #dce8ff;
+  height: auto;
+  max-height: 280px;
+  margin: 0 0 14px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.markdownCode code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.markdownDocument blockquote {
+  border-left: 3px solid #4fa58d;
+  color: #cdd6e5;
+  margin: 0 0 14px;
+  padding: 2px 0 2px 12px;
+}
+
+.markdownDocument blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.markdownTableWrap {
+  border: 1px solid #273244;
+  border-radius: 6px;
+  margin: 0 0 16px;
+  overflow: auto;
+}
+
+.markdownDocument table {
+  border-collapse: collapse;
+  min-width: 100%;
+}
+
+.markdownDocument th,
+.markdownDocument td {
+  border-bottom: 1px solid #273244;
+  border-right: 1px solid #273244;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdownDocument th {
+  background: #18202c;
+  color: #f4f6fb;
+  font-size: 12px;
+}
+
+.markdownDocument td {
+  color: #d6deeb;
+}
+
+.markdownDocument tr:last-child td {
+  border-bottom: 0;
+}
+
+.markdownDocument th:last-child,
+.markdownDocument td:last-child {
+  border-right: 0;
 }
 
 .nodeResult pre {
@@ -1408,7 +2054,8 @@ textarea {
   font-size: 11px;
 }
 
-.settingsField input {
+.settingsField input,
+.settingsField select {
   background: #10141b;
   border: 1px solid #384151;
   border-radius: 6px;

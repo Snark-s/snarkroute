@@ -386,6 +386,31 @@ A reusable image prompt.
     expect(result.nodeResults.output.output).toEqual({ text: "hello text" });
   });
 
+  it("utility.null accepts any input and produces no output ports", async () => {
+    const executor = createExecutor();
+    registerBuiltInNodeRunners(executor);
+    const manifest = builtInNodeManifests.find((entry) => entry.id === "utility.null");
+    expect(manifest?.inputs).toEqual([{ id: "input", type: "data", required: false, label: "Any" }]);
+    expect(manifest?.outputs).toEqual([]);
+
+    const result = await executor.executeRoute(
+      {
+        routeVersion: "0.1",
+        route: { id: "null-test", title: "Null Test", author: {} },
+        economics: { enabled: false },
+        nodes: [
+          { id: "input", type: "input.text", params: { value: "ignored" } },
+          { id: "null", type: "utility.null" }
+        ],
+        edges: [{ from: "input", to: "null", fromPort: "text", toPort: "input" }]
+      },
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-null-")) }
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.null.output).toEqual({});
+  });
+
   it("output.file writes to the run folder", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-node-"));
     const executor = createExecutor();

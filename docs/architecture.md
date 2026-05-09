@@ -50,7 +50,9 @@ Direct local input paths are an MVP input-node convenience. Reusable resources s
 
 Prompt Library is the first Text Asset source. Prompt files are human-editable Markdown files under `data/prompt-library/**/*.prompt.md`, parsed from YAML frontmatter plus body text and normalized into `text/prompt` assets.
 
-`library.prompt` stores only `params.assetRef`. During execution it asks AssetResolver for a `text/prompt` or compatible text asset and outputs `{ "text": "<resolved prompt text>" }`. It does not know whether the prompt came from a local file, embedded route asset, bundle, remote manifest, or future provider.
+Current MVP routes store linked prompt params as `category`, `promptId`, and `mode: "linked"`, with `embeddedText` available for `mode: "embedded"`. During execution, `library.prompt` resolves the local library prompt or embedded text and outputs `{ "text": "<resolved prompt text>" }`.
+
+The target AssetRef architecture should move this to `params.assetRef`, so the node does not know whether the prompt came from a local file, embedded route asset, bundle, remote manifest, or future provider.
 
 For the Clarity Upscaler milestone, the image flow is:
 
