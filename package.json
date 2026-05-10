@@ -21,6 +21,7 @@
     "@snarkroute/executor": "workspace:*",
     "@snarkroute/gemini": "workspace:*",
     "@snarkroute/nodes": "workspace:*",
+    "@snarkroute/openrouter": "workspace:*",
     "@snarkroute/protocol": "workspace:*",
     "@snarkroute/replicate": "workspace:*",
     "dotenv": "^16.4.5"

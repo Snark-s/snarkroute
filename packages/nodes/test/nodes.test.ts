@@ -365,6 +365,91 @@ A reusable image prompt.
     }
   });
 
+  it("text.promptCompose joins two texts in plain mode", async () => {
+    const result = await executeRoute({
+      nodes: [
+        { id: "first", type: "input.text", params: { value: "Draw a black cat" } },
+        { id: "second", type: "input.text", params: { value: "Organic Art Nouveau style" } },
+        { id: "compose", type: "text.promptCompose", params: { mode: "plain", separator: "\n\n" } }
+      ],
+      edges: [
+        { from: "first", to: "compose", fromPort: "text", toPort: "texts" },
+        { from: "second", to: "compose", fromPort: "text", toPort: "texts" }
+      ]
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.compose.output).toEqual({ text: "Draw a black cat\n\nOrganic Art Nouveau style" });
+  });
+
+  it("text.promptCompose skips empty parts by default", async () => {
+    const result = await executeRoute({
+      nodes: [{ id: "compose", type: "text.promptCompose", params: { text1: "First", text2: "", text3: "Third", separator: "|" } }],
+      edges: []
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.compose.output).toEqual({ text: "First|Third" });
+  });
+
+  it("text.promptCompose trims parts by default", async () => {
+    const result = await executeRoute({
+      nodes: [{ id: "compose", type: "text.promptCompose", params: { text1: "  First\n", text2: "\nSecond  ", separator: " " } }],
+      edges: []
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.compose.output).toEqual({ text: "First Second" });
+  });
+
+  it("text.promptCompose adds prefix and suffix", async () => {
+    const result = await executeRoute({
+      nodes: [{ id: "compose", type: "text.promptCompose", params: { text1: "core prompt", prefix: "[", suffix: "]" } }],
+      edges: []
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.compose.output).toEqual({ text: "[core prompt]" });
+  });
+
+  it("text.promptCompose keeps legacy param parts plain", async () => {
+    const result = await executeRoute({
+      nodes: [{ id: "compose", type: "text.promptCompose", params: { text1: "Subject", text2: "Style", separator: "\n\n" } }],
+      edges: []
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.compose.output).toEqual({ text: "Subject\n\nStyle" });
+  });
+
+  it("text.promptCompose always labels connected named input slots", async () => {
+    const result = await executeRoute({
+      nodes: [
+        { id: "subjectA", type: "input.text", params: { value: "black cat" } },
+        { id: "subjectB", type: "input.text", params: { value: "green eyes" } },
+        { id: "style", type: "input.text", params: { value: "Art Nouveau" } },
+        {
+          id: "compose",
+          type: "text.promptCompose",
+          params: {
+            separator: "\n\n"
+          }
+        }
+      ],
+      edges: [
+        { from: "subjectA", to: "compose", fromPort: "text", toPort: "subject" },
+        { from: "subjectB", to: "compose", fromPort: "text", toPort: "subject" },
+        { from: "style", to: "compose", fromPort: "text", toPort: "style" }
+      ]
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.compose.output).toEqual({ text: "Subject:\nblack cat\n\nSubject 2:\ngreen eyes\n\nStyle:\nArt Nouveau" });
+  });
+
+  it("text.promptCompose stringifies non-string values", async () => {
+    const result = await executeRoute({
+      nodes: [{ id: "compose", type: "text.promptCompose", params: { text1: 42, text2: true, separator: ", " } }],
+      edges: []
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.compose.output).toEqual({ text: "42, true" });
+  });
+
   it("output.text displays input without writing a file", async () => {
     const executor = createExecutor();
     registerBuiltInNodeRunners(executor);

@@ -381,11 +381,11 @@ export function loadRouteFromText(text: string, filename: string): OpenRoute {
 }
 
 export function exportRouteToYaml(route: OpenRoute): string {
-  return YAML.stringify(parseRoute(route));
+  return YAML.stringify(stripRouteSecrets(parseRoute(route)));
 }
 
 export function exportRouteToJson(route: OpenRoute): string {
-  return `${JSON.stringify(parseRoute(route), null, 2)}\n`;
+  return `${JSON.stringify(stripRouteSecrets(parseRoute(route)), null, 2)}\n`;
 }
 
 export function exportRouteToText(route: OpenRoute, filename: string): string {
@@ -442,4 +442,16 @@ export function normalizeRouteExportFilename(filename: string): string {
 function hasAnyExtension(filename: string, extensions: readonly string[]): boolean {
   const normalized = filename.trim().toLowerCase();
   return extensions.some((extension) => normalized.endsWith(extension));
+}
+
+function stripRouteSecrets<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(stripRouteSecrets) as T;
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !/token|secret|password|api[_-]?key/i.test(key))
+        .map(([key, entry]) => [key, stripRouteSecrets(entry)])
+    ) as T;
+  }
+  return value;
 }

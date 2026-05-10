@@ -1,0 +1,123 @@
+{
+  "kind": "snarkroute.node",
+  "schemaVersion": "0.1",
+  "id": "custom.chatgpt-image-2",
+  "title": "ChatGPT Image 2",
+  "version": "0.1.0",
+  "author": {
+    "name": "SnarkRoute maintainers"
+  },
+  "generatedWith": {
+    "tool": "Codex",
+    "skill": "snarkroute-node-builder"
+  },
+  "origin": "local",
+  "source": "examples/custom-nodes/chatgpt-image-2.snarknode",
+  "license": "AGPL-3.0-or-later",
+  "category": "Image",
+  "description": "Generates or edits one image with the OpenAI ChatGPT image model from a prompt and optional reference images.",
+  "permissions": {
+    "network": true,
+    "networkHosts": [
+      "api.openai.com"
+    ],
+    "readFiles": true,
+    "writeOutputs": true,
+    "shell": false,
+    "env": [
+      "OPENAI_API_KEY"
+    ]
+  },
+  "executor": {
+    "type": "plugin",
+    "runtime": "node",
+    "entry": "executor.ts"
+  },
+  "inputs": [
+    {
+      "id": "prompt",
+      "type": "text",
+      "required": false,
+      "label": "Prompt"
+    },
+    {
+      "id": "images",
+      "type": "image",
+      "required": false,
+      "label": "Images"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "image",
+      "type": "image",
+      "label": "Image"
+    }
+  ],
+  "params": [
+    {
+      "id": "prompt",
+      "type": "text",
+      "label": "Prompt",
+      "default": "Create a polished image."
+    },
+    {
+      "id": "model",
+      "type": "text",
+      "label": "Model",
+      "default": "chatgpt-image-latest"
+    },
+    {
+      "id": "size",
+      "type": "text",
+      "label": "Size",
+      "default": "auto"
+    },
+    {
+      "id": "quality",
+      "type": "text",
+      "label": "Quality",
+      "default": "auto"
+    },
+    {
+      "id": "outputFormat",
+      "type": "text",
+      "label": "Output Format",
+      "default": "png"
+    },
+    {
+      "id": "background",
+      "type": "text",
+      "label": "Background",
+      "default": "auto"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "image.create",
+      "title": "Create Image",
+      "priority": 20
+    },
+    {
+      "id": "image.edit",
+      "title": "Edit Image",
+      "priority": 20
+    }
+  ],
+  "tags": [
+    "openai",
+    "chatgpt-image",
+    "image-generation",
+    "image-edit"
+  ],
+  "examples": [
+    {
+      "title": "Prompt to Image",
+      "params": {
+        "prompt": "A clean product photo of a translucent glass teapot on a white table.",
+        "size": "1024x1024",
+        "quality": "medium"
+      }
+    }
+  ]
+}

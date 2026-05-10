@@ -1,0 +1,565 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
+
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+export const OPENROUTER_MISSING_KEY_MESSAGE = "OpenRouter API key is missing.";
+
+export interface OpenRouterClientOptions {
+  apiKey?: string;
+  baseUrl?: string;
+  fetchImpl?: typeof fetch;
+  referer?: string;
+  title?: string;
+}
+
+export interface OpenRouterChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface OpenRouterModelInfo {
+  id: string;
+  name?: string;
+  description?: string;
+  architecture?: {
+    input_modalities?: string[];
+    output_modalities?: string[];
+    modality?: string;
+  };
+  context_length?: number;
+  pricing?: Record<string, unknown>;
+  supported_parameters?: string[];
+  top_provider?: Record<string, unknown>;
+}
+
+export interface OpenRouterCatalogCache {
+  refreshedAt: string;
+  models: OpenRouterModelInfo[];
+}
+
+export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
+  const fetcher = options.fetchImpl ?? fetch;
+  const baseUrl = trimTrailingSlash(options.baseUrl ?? OPENROUTER_BASE_URL);
+
+  async function request(path: string, init: RequestInit = {}, keyRequired = true): Promise<unknown> {
+    const apiKey = options.apiKey ?? process.env.OPENROUTER_API_KEY;
+    if (keyRequired && !apiKey?.trim()) throw new Error(OPENROUTER_MISSING_KEY_MESSAGE);
+    const headers = new Headers(init.headers);
+    headers.set("Content-Type", "application/json");
+    if (apiKey?.trim()) headers.set("Authorization", `Bearer ${apiKey.trim()}`);
+    const referer = options.referer ?? process.env.SNARKROUTE_SITE_URL;
+    if (referer) headers.set("HTTP-Referer", referer);
+    const title = options.title ?? process.env.OPENROUTER_APP_TITLE ?? "SnarkRoute";
+    if (title) headers.set("X-OpenRouter-Title", title);
+    let response: Response;
+    try {
+      response = await fetcher(`${baseUrl}${path}`, {
+        ...init,
+        headers
+      });
+    } catch (error) {
+      throw new Error(openRouterNetworkError(error, baseUrl));
+    }
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      throw new Error(openRouterHttpError(response.status, body));
+    }
+    return response.json();
+  }
+
+  return {
+    async testConnection(): Promise<{ ok: true; modelCount: number }> {
+      const catalog = parseOpenRouterModelCatalog(await request("/models", { method: "GET" }, true));
+      return { ok: true, modelCount: catalog.length };
+    },
+
+    async getModels(keyRequired = false): Promise<OpenRouterModelInfo[]> {
+      return parseOpenRouterModelCatalog(await request("/models", { method: "GET" }, keyRequired));
+    },
+
+    async chatCompletions(body: Record<string, unknown>): Promise<unknown> {
+      return request("/chat/completions", {
+        method: "POST",
+        body: JSON.stringify(body)
+      }, true);
+    }
+  };
+}
+
+export function createOpenRouterTextNodeRunner(options: OpenRouterClientOptions & { modelResolver?: ModelResolver } = {}): NodeRunner {
+  const client = createOpenRouterClient(options);
+  return async ({ node, params, inputs }) => {
+    const resolution = options.modelResolver?.({ task: "text", modelId: stringParam(params.model) ?? "text.default", providerMode: providerModeParam(params.providerMode) }) ?? {
+      provider: "openrouter" as const,
+      model: stringParam(params.model) ?? "openai/gpt-5.2",
+      reason: "openrouter direct model id",
+      warnings: [],
+      selectedModelId: stringParam(params.model) ?? "openai/gpt-5.2",
+      selectedModelLabel: stringParam(params.model) ?? "openai/gpt-5.2",
+      selectedConnectionRoute: providerModeParam(params.providerMode),
+      resolvedProvider: "OpenRouter",
+      resolvedRoute: "openrouter" as const,
+      supportsImageGeneration: "unknown" as const,
+      localMappingRequired: false,
+      fallbackUsed: false
+    };
+    if (resolution.provider !== "openrouter") throw new Error(resolution.reason || "Model is not available through OpenRouter.");
+    const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
+    if (!prompt.trim()) throw new Error("Text AI requires a prompt.");
+    const systemPrompt = firstInputText(inputs.systemPrompt) ?? stringParam(params.systemPrompt);
+    const messages: OpenRouterChatMessage[] = [
+      ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+      { role: "user", content: prompt }
+    ];
+    const response = await client.chatCompletions(buildChatRequestBody(resolution.model, messages, params));
+    const text = firstOpenRouterText(response);
+    if (!text) throw new Error(`OpenRouter model "${resolution.model}" did not return text.`);
+    const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : undefined;
+    const estimatedCost = estimateTextCostFromPricing(params.pricing, usage);
+    return {
+      output: {
+        text,
+        output: response,
+        provider: "openrouter",
+        model: resolution.model,
+        warnings: resolution.warnings,
+        estimatedCost,
+        actualUsage: usage,
+        actualCost: actualCostFromUsage(usage),
+        pricingSource: estimatedCost === null ? "unknown" : "openrouter_catalog",
+        status: "succeeded"
+      },
+      logs: [`Generated text with OpenRouter ${resolution.model}`],
+      provenance: { provider: "openrouter", model: resolution.model, reason: resolution.reason, warnings: resolution.warnings },
+      providerUsage: openRouterUsageEvent(node.id, node.type, resolution.model, "succeeded", usage, estimatedCost)
+    };
+  };
+}
+
+export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions & { modelResolver?: ModelResolver } = {}): NodeRunner {
+  const client = createOpenRouterClient(options);
+  return async ({ node, params, inputs }) => {
+    const selectedModelId = stringParam(params.model) ?? "image.nano-banana";
+    const selectedConnectionRoute = providerModeParam(params.providerMode);
+    const resolution = options.modelResolver?.({ task: "image", modelId: selectedModelId, providerMode: selectedConnectionRoute }) ?? {
+      provider: "openrouter" as const,
+      model: selectedModelId,
+      reason: "OpenRouter direct model id.",
+      warnings: [],
+      selectedModelId,
+      selectedModelLabel: selectedModelId,
+      selectedConnectionRoute,
+      resolvedProvider: "OpenRouter",
+      resolvedRoute: "openrouter",
+      supportsImageGeneration: "unknown" as const,
+      localMappingRequired: false,
+      fallbackUsed: false
+    };
+    if (resolution.provider !== "openrouter") throw new Error(resolution.reason || "This model is listed in the UI but has no executable image route.");
+    const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
+    if (!prompt.trim()) throw new Error("Image Generation requires a prompt.");
+    const response = await client.chatCompletions(buildImageRequestBody(resolution.model, prompt, params));
+    const image = firstOpenRouterImage(response);
+    if (!image) throw new Error(`OpenRouter model "${resolution.model}" did not return an image.`);
+    const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : undefined;
+    const estimatedCost = estimateImageCostFromPricing(params.pricing);
+    const metadata = resolutionMetadata(resolution, {
+      requestProvider: "openrouter",
+      requestModelSlug: resolution.model,
+      estimatedCostStatus: estimatedCost === null ? "unknown" : "available"
+    });
+    return {
+      output: {
+        image,
+        output: response,
+        metadata,
+        ...metadata,
+        estimatedCost,
+        actualUsage: usage,
+        actualCost: actualCostFromUsage(usage),
+        pricingSource: estimatedCost === null ? "unknown" : "openrouter_catalog",
+        status: "succeeded"
+      },
+      logs: [
+        `Generated image with OpenRouter ${resolution.model}`,
+        `Resolved route: ${metadata.resolvedRoute}; fallback: ${metadata.fallbackUsed ? metadata.fallbackReason || "yes" : "no"}`
+      ],
+      provenance: metadata,
+      providerUsage: openRouterUsageEvent(node.id, node.type, resolution.model, "succeeded", usage, estimatedCost)
+    };
+  };
+}
+
+export function buildChatRequestBody(model: string, messages: OpenRouterChatMessage[], params: Record<string, unknown>): Record<string, unknown> {
+  const supported = Array.isArray(params.supported_parameters) ? params.supported_parameters.filter((item): item is string => typeof item === "string") : null;
+  const allowed = supported ? new Set(supported) : new Set(["temperature", "max_tokens", "top_p", "stream"]);
+  const body: Record<string, unknown> = { model, messages };
+  for (const key of ["temperature", "max_tokens", "top_p", "stream"] as const) {
+    if (params[key] !== undefined && allowed.has(key)) body[key] = params[key];
+  }
+  return body;
+}
+
+export function buildImageRequestBody(model: string, prompt: string, params: Record<string, unknown>): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model,
+    messages: [{ role: "user", content: prompt }],
+    modalities: ["image", "text"]
+  };
+  if (params.aspectRatio !== undefined) body.aspect_ratio = params.aspectRatio;
+  if (params.imageSize !== undefined) body.size = params.imageSize;
+  return body;
+}
+
+export async function refreshOpenRouterModelCatalog(options: OpenRouterClientOptions & { cachePath?: string } = {}): Promise<OpenRouterCatalogCache> {
+  const client = createOpenRouterClient(options);
+  const models = await client.getModels(false);
+  const cache = { refreshedAt: new Date().toISOString(), models };
+  const cachePath = options.cachePath ?? join(process.cwd(), "data", "cache", "openrouter-models.json");
+  await mkdir(dirname(cachePath), { recursive: true });
+  await writeFile(cachePath, `${JSON.stringify(cache, null, 2)}\n`, "utf8");
+  return cache;
+}
+
+export async function readOpenRouterModelCatalogCache(cachePath = join(process.cwd(), "data", "cache", "openrouter-models.json")): Promise<OpenRouterCatalogCache | null> {
+  try {
+    const parsed = JSON.parse(await readFile(cachePath, "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const record = parsed as Record<string, unknown>;
+    return {
+      refreshedAt: typeof record.refreshedAt === "string" ? record.refreshedAt : "",
+      models: Array.isArray(record.models) ? record.models.map(parseOpenRouterModel).filter((model): model is OpenRouterModelInfo => Boolean(model)) : []
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function parseOpenRouterModelCatalog(input: unknown): OpenRouterModelInfo[] {
+  const data: unknown[] = input && typeof input === "object" && Array.isArray((input as Record<string, unknown>).data)
+    ? ((input as Record<string, unknown>).data as unknown[])
+    : Array.isArray(input) ? input : [];
+  return data.map(parseOpenRouterModel).filter((model): model is OpenRouterModelInfo => Boolean(model));
+}
+
+function parseOpenRouterModel(input: unknown): OpenRouterModelInfo | null {
+  if (!input || typeof input !== "object") return null;
+  const record = input as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id : "";
+  if (!id) return null;
+  const architecture = record.architecture && typeof record.architecture === "object" ? record.architecture as Record<string, unknown> : {};
+  return {
+    id,
+    name: optionalString(record.name),
+    description: optionalString(record.description),
+    architecture: {
+      input_modalities: stringArray(architecture.input_modalities),
+      output_modalities: stringArray(architecture.output_modalities),
+      modality: optionalString(architecture.modality)
+    },
+    context_length: optionalNumber(record.context_length),
+    pricing: record.pricing && typeof record.pricing === "object" ? record.pricing as Record<string, unknown> : undefined,
+    supported_parameters: stringArray(record.supported_parameters),
+    top_provider: record.top_provider && typeof record.top_provider === "object" ? record.top_provider as Record<string, unknown> : undefined
+  };
+}
+
+export type ProviderMode = "auto" | "openrouter" | "direct" | "local";
+export type SupportStatus = "supported" | "unsupported" | "unknown";
+export type ResolvedModelProvider =
+  | ResolvedModelBase & { provider: "openrouter"; model: string }
+  | ResolvedModelBase & { provider: "direct"; model: string; directProvider: string }
+  | ResolvedModelBase & { provider: "local"; model: string };
+
+export interface ResolvedModelBase {
+  reason: string;
+  warnings: string[];
+  selectedModelId: string;
+  selectedModelLabel: string;
+  selectedConnectionRoute: ProviderMode;
+  resolvedProvider: string;
+  resolvedRoute: "openrouter" | "direct" | "local";
+  supportsImageGeneration: SupportStatus;
+  localMappingRequired: boolean;
+  mappingKeyUsed?: string;
+  fallbackUsed: boolean;
+  fallbackReason?: string;
+}
+
+export interface ModelMapping {
+  id: string;
+  task: string;
+  defaultProvider?: string;
+  openrouterModel?: string | null;
+  directProvider?: string | null;
+  directModel?: string | null;
+  status?: "supported" | "partial" | "unsupported" | "unknown";
+  notes?: string;
+  label?: string;
+  provider?: string;
+  capabilities?: string[];
+  supportsImageGeneration?: SupportStatus | boolean;
+  routeSupport?: {
+    openrouter?: SupportStatus;
+    direct?: SupportStatus;
+  };
+}
+
+export type ModelResolver = (input: { task: string; modelId?: string; providerMode?: ProviderMode }) => ResolvedModelProvider;
+
+export function createModelResolver(mappings: ModelMapping[]): ModelResolver {
+  return ({ task, modelId, providerMode = "auto" }) => resolveModelProvider({ task, modelId, providerMode, mappings });
+}
+
+export function resolveModelProvider({
+  task,
+  modelId,
+  providerMode = "auto",
+  mappings
+}: {
+  task: string;
+  modelId?: string;
+  providerMode?: ProviderMode;
+  mappings: ModelMapping[];
+}): ResolvedModelProvider {
+  const mapping = mappings.find((entry) => entry.id === modelId || (!modelId || modelId === "auto" ? entry.task === task && entry.id.endsWith(".default") : false));
+  const warnings = mapping?.notes ? [mapping.notes] : [];
+  const selectedModelId = modelId || mapping?.id || `${task}.default`;
+  const selectedModelLabel = mapping?.label || selectedModelId;
+  const supportsImageGeneration = imageSupportFor(task, mapping, selectedModelId);
+  const mappedOpenRouterSupport = routeSupport(mapping, "openrouter");
+  const mappedDirectSupport = routeSupport(mapping, "direct");
+  const hasOpenRouterSlug = Boolean(mapping?.openrouterModel || selectedModelId.includes("/"));
+  const openrouterModel = mapping?.openrouterModel || (selectedModelId.includes("/") ? selectedModelId : undefined);
+  const base = {
+    warnings,
+    selectedModelId,
+    selectedModelLabel,
+    selectedConnectionRoute: providerMode,
+    supportsImageGeneration,
+    fallbackUsed: false
+  };
+  if (task === "image" && supportsImageGeneration === "unsupported") throw new Error("This model is not available for image generation.");
+  if (providerMode === "local") {
+    if (mapping?.directProvider === "local" && mapping.directModel) return { ...base, provider: "local", resolvedProvider: "local", resolvedRoute: "local", model: mapping.directModel, reason: "Local model selected.", localMappingRequired: true, mappingKeyUsed: mapping.id };
+    throw new Error("Local provider is not available.");
+  }
+  if (providerMode === "openrouter") {
+    if (openrouterModel) {
+      return { ...base, provider: "openrouter", resolvedProvider: "OpenRouter", resolvedRoute: "openrouter", model: openrouterModel, reason: "OpenRouter selected explicitly.", localMappingRequired: Boolean(mapping?.openrouterModel), mappingKeyUsed: mapping?.id };
+    }
+    throw new Error(mapping ? "This model is listed in the UI but has no executable image route." : "This model is not available for image generation.");
+  }
+  if (providerMode === "direct") {
+    if (mapping?.directProvider && mapping.directModel) return { ...base, provider: "direct", resolvedProvider: mapping.directProvider, resolvedRoute: "direct", directProvider: mapping.directProvider, model: mapping.directModel, reason: "Direct API selected explicitly.", localMappingRequired: true, mappingKeyUsed: mapping.id };
+    throw new Error(`Direct API route requires a provider mapping for ${selectedModelId}, but none was found.`);
+  }
+  if (openrouterModel && (mappedOpenRouterSupport === "supported" || (mapping?.status === "partial" && task !== "image"))) {
+    return {
+      ...base,
+      provider: "openrouter",
+      resolvedProvider: "OpenRouter",
+      resolvedRoute: "openrouter",
+      model: openrouterModel,
+      reason: mapping?.status === "partial" ? "OpenRouter mapping is partial." : "OpenRouter mapping is supported.",
+      warnings: mapping?.status === "partial" ? [...warnings, "This model mapping is partial. Check output format before production use."] : warnings,
+      localMappingRequired: Boolean(mapping?.openrouterModel),
+      mappingKeyUsed: mapping?.id
+    };
+  }
+  if (mapping?.directProvider && mapping.directModel && mappedDirectSupport === "supported") {
+    return { ...base, provider: "direct", resolvedProvider: mapping.directProvider, resolvedRoute: "direct", directProvider: mapping.directProvider, model: mapping.directModel, reason: "Direct API mapping is supported.", localMappingRequired: true, mappingKeyUsed: mapping.id };
+  }
+  if (task === "image" && (!mapping || hasOpenRouterSlug || supportsImageGeneration === "unknown")) {
+    throw new Error("Auto route cannot resolve this model because image support is unknown. Choose OpenRouter or Direct API explicitly.");
+  }
+  throw new Error(mapping ? "This model is listed in the UI but has no executable image route." : "This model is not available for image generation.");
+}
+
+export function resolutionMetadata(resolution: ResolvedModelProvider, extra: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    selectedModelLabel: resolution.selectedModelLabel,
+    selectedModelId: resolution.selectedModelId,
+    selectedConnectionRoute: resolution.selectedConnectionRoute,
+    resolvedProvider: resolution.resolvedProvider,
+    resolvedRoute: resolution.resolvedRoute,
+    supportsImageGeneration: resolution.supportsImageGeneration,
+    localMappingRequired: resolution.localMappingRequired,
+    mappingKeyUsed: resolution.mappingKeyUsed ?? null,
+    fallbackUsed: resolution.fallbackUsed,
+    fallbackReason: resolution.fallbackReason ?? null,
+    requestProvider: resolution.provider,
+    requestModelSlug: resolution.model,
+    ...extra
+  };
+}
+
+function firstOpenRouterText(response: unknown): string {
+  const choices = response && typeof response === "object" ? (response as Record<string, unknown>).choices : undefined;
+  if (!Array.isArray(choices)) return "";
+  const first = choices[0];
+  if (!first || typeof first !== "object") return "";
+  const message = (first as Record<string, unknown>).message;
+  const content = message && typeof message === "object" ? (message as Record<string, unknown>).content : undefined;
+  return typeof content === "string" ? content : "";
+}
+
+function firstOpenRouterImage(response: unknown): unknown {
+  if (!response || typeof response !== "object") return null;
+  const choices = (response as Record<string, unknown>).choices;
+  if (!Array.isArray(choices)) return null;
+  const first = choices[0];
+  if (!first || typeof first !== "object") return null;
+  const message = (first as Record<string, unknown>).message;
+  if (!message || typeof message !== "object") return null;
+  const record = message as Record<string, unknown>;
+  const images = record.images;
+  if (Array.isArray(images) && images.length > 0) {
+    const image = images[0];
+    if (typeof image === "string") return image;
+    if (image && typeof image === "object") {
+      const imageRecord = image as Record<string, unknown>;
+      const url = imageRecord.image_url && typeof imageRecord.image_url === "object" ? (imageRecord.image_url as Record<string, unknown>).url : imageRecord.url;
+      if (typeof url === "string") return url;
+    }
+  }
+  const content = record.content;
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      if (!part || typeof part !== "object") continue;
+      const partRecord = part as Record<string, unknown>;
+      const imageUrl = partRecord.image_url && typeof partRecord.image_url === "object" ? (partRecord.image_url as Record<string, unknown>).url : undefined;
+      if (typeof imageUrl === "string") return imageUrl;
+    }
+  }
+  return null;
+}
+
+function firstInputText(value: unknown): string | undefined {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return undefined;
+  for (const entry of Object.values(value as Record<string, unknown>)) {
+    if (typeof entry === "string") return entry;
+    if (entry && typeof entry === "object" && typeof (entry as Record<string, unknown>).text === "string") return String((entry as Record<string, unknown>).text);
+  }
+  return undefined;
+}
+
+function openRouterUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown, estimatedCost: number | null): ProviderUsageEvent {
+  return {
+    provider: "openrouter",
+    model,
+    nodeId,
+    nodeType,
+    status,
+    metrics: usage && typeof usage === "object" ? usage as Record<string, unknown> : undefined,
+    estimatedCost,
+    actualCost: actualCostFromUsage(usage),
+    pricingHint: estimatedCost === null ? "unknown" : "openrouter_catalog"
+  };
+}
+
+function estimateTextCostFromPricing(pricing: unknown, usage: unknown): number | null {
+  if (!pricing || typeof pricing !== "object" || !usage || typeof usage !== "object") return null;
+  const pricingRecord = pricing as Record<string, unknown>;
+  const usageRecord = usage as Record<string, unknown>;
+  const promptTokens = optionalNumber(usageRecord.prompt_tokens) ?? 0;
+  const completionTokens = optionalNumber(usageRecord.completion_tokens) ?? 0;
+  const promptPrice = numberFromPricing(pricingRecord.prompt);
+  const completionPrice = numberFromPricing(pricingRecord.completion);
+  if (promptPrice === undefined && completionPrice === undefined) return null;
+  return Number(((promptTokens * (promptPrice ?? 0)) + (completionTokens * (completionPrice ?? 0))).toFixed(8));
+}
+
+function estimateImageCostFromPricing(pricing: unknown): number | null {
+  if (!pricing || typeof pricing !== "object") return null;
+  const pricingRecord = pricing as Record<string, unknown>;
+  return numberFromPricing(pricingRecord.image) ?? numberFromPricing(pricingRecord.request) ?? null;
+}
+
+function imageSupportFor(task: string, mapping: ModelMapping | undefined, modelId: string): SupportStatus {
+  if (task !== "image") return "unknown";
+  if (typeof mapping?.supportsImageGeneration === "boolean") return mapping.supportsImageGeneration ? "supported" : "unsupported";
+  if (mapping?.supportsImageGeneration) return mapping.supportsImageGeneration;
+  if (mapping?.task === "image") return "supported";
+  return modelId.includes("/") ? "unknown" : "unsupported";
+}
+
+function routeSupport(mapping: ModelMapping | undefined, route: "openrouter" | "direct"): SupportStatus {
+  const explicit = mapping?.routeSupport?.[route];
+  if (explicit) return explicit;
+  if (route === "openrouter") {
+    if (mapping?.openrouterModel && (mapping.status === "supported" || mapping.status === "partial")) return "supported";
+    if (mapping?.openrouterModel === null || mapping?.status === "unsupported") return "unsupported";
+  }
+  if (route === "direct") {
+    if (mapping?.directProvider && mapping.directModel) return "supported";
+    if (mapping?.directProvider === null || mapping?.status === "unsupported") return "unsupported";
+  }
+  return "unknown";
+}
+
+function actualCostFromUsage(usage: unknown): number | null {
+  if (!usage || typeof usage !== "object") return null;
+  const cost = optionalNumber((usage as Record<string, unknown>).cost);
+  return cost ?? null;
+}
+
+function numberFromPricing(value: unknown): number | undefined {
+  const number = optionalNumber(value);
+  return number === undefined ? undefined : number;
+}
+
+function openRouterHttpError(status: number, body: string): string {
+  if (status === 401 || status === 403) return "OpenRouter API key seems invalid.";
+  if (status === 404) return "Model is not available through OpenRouter.";
+  const message = body ? ` ${truncate(body, 500)}` : "";
+  return `OpenRouter request failed (${status}).${message}`;
+}
+
+function openRouterNetworkError(error: unknown, baseUrl: string): string {
+  const message = errorMessage(error);
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause : null;
+  const causeMessage = cause?.message;
+  const code = cause && "code" in cause ? String((cause as { code?: unknown }).code ?? "") : "";
+  const detail = [code, causeMessage, message].filter(Boolean).join(": ");
+  return `OpenRouter is unreachable. The API key is configured, but SnarkRoute cannot reach ${baseUrl}. Check internet access, proxy/VPN/firewall settings, DNS, or OPENROUTER_BASE_URL. Details: ${detail || "network request failed"}`;
+}
+
+function providerModeParam(value: unknown): ProviderMode {
+  return value === "openrouter" || value === "direct" || value === "local" ? value : "auto";
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function stringParam(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function stringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  const number = typeof value === "string" ? Number(value) : typeof value === "number" ? value : NaN;
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function filterDefined<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as T;
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+function truncate(value: string, length: number): string {
+  return value.length > length ? `${value.slice(0, length)}...` : value;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

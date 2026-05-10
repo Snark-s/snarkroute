@@ -92,6 +92,10 @@ describe("create-snarknode skill generator", () => {
       inputs: [{ id: "text", type: "text", required: false }],
       outputs: [{ id: "result", type: "json" }],
       params: [],
+      capabilities: [{ id: "text.transform", title: "Transform Text", defaultParams: { mode: "echo" }, priority: 5 }],
+      tags: ["standalone", "skill"],
+      homepage: "https://example.com/snarknode",
+      repository: "https://example.com/repo",
       pluginCode: "export async function runNode(context) { return { outputs: { result: { text: context.inputs.text ?? null } } }; }\n"
     }), "utf8");
 
@@ -106,8 +110,54 @@ describe("create-snarknode skill generator", () => {
     expect(preview.manifest).toMatchObject({
       id: "custom.standalone-user-node",
       author: { name: "Test Author" },
-      executor: { type: "plugin", runtime: "node", entry: "executor.ts" }
+      executor: { type: "plugin", runtime: "node", entry: "executor.ts" },
+      capabilities: [{ id: "text.transform", title: "Transform Text", defaultParams: { mode: "echo" }, priority: 5 }],
+      tags: ["standalone", "skill"],
+      homepage: "https://example.com/snarknode",
+      repository: "https://example.com/repo"
     });
     expect(preview.files.map((file) => file.path)).toEqual(expect.arrayContaining(["manifest.json", "executor.ts", "README.md"]));
+  });
+
+  it("creates Studio-ready image nodes from the standalone skill profile", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "create-snarknode-studio-profile-"));
+    const specPath = join(outputDirectory, "spec.json");
+    await writeFile(specPath, JSON.stringify({
+      name: "Portable Image Node",
+      author: { name: "Any User" },
+      executorType: "plugin",
+      studioProfile: "openai-image",
+      pluginCode: "export async function runNode(context) { return { outputs: { output: { params: context.params } } }; }\n"
+    }), "utf8");
+
+    await execFileAsync(process.execPath, [
+      resolve("../../docs/snarkroute-node-builder/scripts/create-snarknode.mjs"),
+      specPath,
+      outputDirectory
+    ]);
+
+    const archive = await readFile(join(outputDirectory, "portable-image-node.snarknode"));
+    const preview = await previewNodePackageArchive(archive);
+    expect(preview.manifest).toMatchObject({
+      category: "Image Processing",
+      inputs: [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "images", type: "image", required: false, label: "Images" }],
+      outputs: [{ id: "image", type: "image", label: "Image" }, { id: "output", type: "json", label: "JSON" }],
+      permissions: {
+        network: true,
+        networkHosts: ["api.openai.com"],
+        readFiles: true,
+        writeOutputs: true,
+        shell: false,
+        env: ["OPENAI_API_KEY"]
+      }
+    });
+    expect(preview.manifest.params?.map((param) => param.id)).toEqual(["prompt", "model", "aspectRatio", "quality"]);
+    expect(preview.manifest.ui).toMatchObject({
+      params: {
+        prompt: { control: "textarea", multiline: true },
+        aspectRatio: { control: "select" },
+        quality: { control: "select", options: ["low", "medium", "high", "auto"] }
+      }
+    });
   });
 });

@@ -2,11 +2,23 @@ import cors from "@fastify/cors";
 import dotenv from "dotenv";
 import Fastify from "fastify";
 import { createReadStream, existsSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
-import { basename, join, resolve } from "node:path";
-import { createExecutor } from "@snarkroute/executor";
+import { basename, dirname, join, resolve } from "node:path";
+import { createExecutor, type NodeRunner } from "@snarkroute/executor";
 import { createGeminiLlmNodeRunner, createNanoBanana2NodeRunner } from "@snarkroute/gemini";
+import {
+  createModelResolver,
+  createOpenRouterImageNodeRunner,
+  createOpenRouterClient,
+  createOpenRouterTextNodeRunner,
+  readOpenRouterModelCatalogCache,
+  refreshOpenRouterModelCatalog,
+  resolutionMetadata,
+  type ModelMapping,
+  type OpenRouterModelInfo,
+  type ProviderMode
+} from "@snarkroute/openrouter";
 import {
   builtInNodeManifests,
   formatIssues,
@@ -45,6 +57,9 @@ const host = process.env.HOST ?? "127.0.0.1";
 const storage = createLocalRunStorage(join(process.cwd(), "data", "runs"));
 const envPath = join(process.cwd(), ".env");
 const assetsDirectory = join(process.cwd(), "data", "assets");
+const providerLinksPath = findExistingFile("data", "provider-links.json");
+const openRouterMappingsPath = findExistingFile("data", "model-registry", "openrouter-mappings.json");
+const openRouterCatalogCachePath = join(process.cwd(), "data", "cache", "openrouter-models.json");
 const examplesDirectory = findExistingDirectory("examples", "routes");
 const getLedgerPath = () => process.env.SNARKROUTE_LEDGER_PATH ?? join(process.cwd(), "data", "ledger", "runs.jsonl");
 let promptLibraryCache: PromptLibrary = { categories: [], diagnostics: [] };
@@ -56,7 +71,11 @@ export function buildServer() {
 
   app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled() }));
 
-  app.get("/api/settings", async () => ({ replicate: { configured: isReplicateEnabled() }, gemini: { configured: isGeminiEnabled() } }));
+  app.get("/api/settings", async () => ({
+    replicate: { configured: isReplicateEnabled() },
+    gemini: { configured: isGeminiEnabled() },
+    openrouter: await openRouterSettingsStatus()
+  }));
 
   app.post<{ Body: { replicateApiToken?: string } }>("/api/settings/replicate-token", async (request, reply) => {
     const token = request.body?.replicateApiToken?.trim();
@@ -80,6 +99,64 @@ export function buildServer() {
     } catch (error) {
       return reply.code(500).send({ error: errorMessage(error) });
     }
+  });
+
+  app.post<{ Body: { openRouterApiKey?: string; defaultModel?: string; budgetWarningUsd?: number | string | null } }>("/api/settings/openrouter", async (request, reply) => {
+    const token = request.body?.openRouterApiKey?.trim();
+    const defaultModel = stringValue(request.body?.defaultModel);
+    const budgetWarningUsd = request.body?.budgetWarningUsd;
+    try {
+      if (token) {
+        await writeEnvValue("OPENROUTER_API_KEY", token);
+        process.env.OPENROUTER_API_KEY = token;
+      }
+      if (defaultModel !== undefined) {
+        await writeEnvValue("OPENROUTER_DEFAULT_MODEL", defaultModel);
+        process.env.OPENROUTER_DEFAULT_MODEL = defaultModel;
+      }
+      if (budgetWarningUsd !== undefined && budgetWarningUsd !== null) {
+        await writeEnvValue("OPENROUTER_BUDGET_WARNING_USD", String(budgetWarningUsd));
+        process.env.OPENROUTER_BUDGET_WARNING_USD = String(budgetWarningUsd);
+      }
+      if (!token && defaultModel === undefined && budgetWarningUsd === undefined) return reply.code(400).send({ error: "OpenRouter settings payload is empty." });
+      return { ok: true, openrouter: await openRouterSettingsStatus() };
+    } catch (error) {
+      return reply.code(500).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/providers/links", async (request, reply) => {
+    try {
+      return JSON.parse(await readFile(providerLinksPath, "utf8"));
+    } catch (error) {
+      return reply.code(500).send({ error: `Provider links are unavailable: ${errorMessage(error)}` });
+    }
+  });
+
+  app.get("/api/providers/openrouter/status", async () => ({ openrouter: await openRouterSettingsStatus() }));
+
+  app.post("/api/providers/openrouter/test", async (request, reply) => {
+    try {
+      if (!isOpenRouterEnabled()) return reply.code(400).send({ ok: false, error: "OpenRouter API key is not set" });
+      const result = await createOpenRouterClient().testConnection();
+      return { ok: true, status: "connected", message: "Connected", modelCount: result.modelCount };
+    } catch (error) {
+      return reply.code(400).send({ ok: false, error: openRouterPublicError(error) });
+    }
+  });
+
+  app.post("/api/providers/openrouter/refresh-model-catalog", async (request, reply) => {
+    try {
+      const cache = await refreshOpenRouterModelCatalog({ cachePath: openRouterCatalogCachePath });
+      return { ok: true, refreshedAt: cache.refreshedAt, modelCount: cache.models.length, models: cache.models };
+    } catch (error) {
+      return reply.code(400).send({ ok: false, error: `OpenRouter catalog refresh failed: ${openRouterPublicError(error)}` });
+    }
+  });
+
+  app.get("/api/providers/openrouter/models", async () => {
+    const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
+    return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: cache?.models.length ?? 0, models: cache?.models ?? [] };
   });
 
   app.get("/api/nodes", async () => {
@@ -317,6 +394,26 @@ export function buildServer() {
     }
   });
 
+  app.patch<{ Params: { category: string; id: string }; Body: UpdatePromptAssetBody }>("/api/prompt-library/:category/:id", async (request, reply) => {
+    try {
+      const updated = await updatePromptAsset(request.params.category, request.params.id, request.body ?? {});
+      promptLibraryCache = await loadPromptLibrary();
+      return { ok: true, ...updated, library: summarizePromptLibrary(promptLibraryCache) };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.delete<{ Params: { category: string; id: string } }>("/api/prompt-library/:category/:id", async (request, reply) => {
+    try {
+      const deleted = await deletePromptAsset(request.params.category, request.params.id);
+      promptLibraryCache = await loadPromptLibrary();
+      return { ok: true, ...deleted, library: summarizePromptLibrary(promptLibraryCache) };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
   app.post<{ Body: CreatePromptAssetBody }>("/api/prompt-library/generated-image", async (request, reply) => {
     try {
       const saved = await createPromptAssetFromGeneratedImage(request.body ?? {});
@@ -407,10 +504,13 @@ export function buildServer() {
         const text = typeof from === "string" ? from : JSON.stringify(from, null, 2);
         return { output: { text } };
       });
+      const modelResolver = createModelResolver(await loadOpenRouterMappings());
       executor.registerNodeRunner("replicate.model", createReplicateNodeRunner());
       executor.registerNodeRunner("replicate.clarity-upscaler", createClarityUpscalerNodeRunner());
       executor.registerNodeRunner("gemini.llm", createGeminiLlmNodeRunner());
       executor.registerNodeRunner("gemini.nano-banana-2", createNanoBanana2NodeRunner());
+      executor.registerNodeRunner("ai.text", createRemoteTextNodeRunner(modelResolver));
+      executor.registerNodeRunner("ai.image.generate", createRemoteImageNodeRunner(modelResolver));
       const runId = `run_${Date.now()}`;
       const outputDirectory = await storage.createRunDirectory(runId);
       return await executor.executeRoute(route, { runId, outputDirectory, initialNodeOutputs: request.body?.initialNodeOutputs });
@@ -458,16 +558,114 @@ type CreatePromptAssetBody = {
     runId?: string;
     routeId?: string;
     nodeId?: string;
+    outputId?: string;
   };
   imagePath?: string;
   imageDataBase64?: string;
 };
+
+type UpdatePromptAssetBody = {
+  status?: string;
+  category?: string;
+};
+
+const promptAssetStatuses = new Set(["draft", "candidate", "approved", "published", "archived"]);
+
+async function updatePromptAsset(category: string, id: string, body: UpdatePromptAssetBody) {
+  const prompt = await loadPromptAssetForMutation(category, id);
+  const status = cleanSingleLine(body.status);
+  const nextCategory = cleanSingleLine(body.category);
+  if (!status && !nextCategory) throw new Error("status or category is required.");
+  if (status && !promptAssetStatuses.has(status)) throw new Error(`Unsupported prompt status "${status}".`);
+  if (nextCategory && !safePathSegment(nextCategory)) throw new Error("Invalid prompt category.");
+
+  const text = await readFile(prompt.path, "utf8");
+  const currentCategory = prompt.category;
+  const targetCategory = nextCategory || currentCategory;
+  const updatedText = updatePromptFrontmatter(text, {
+    status: status || prompt.status || "candidate",
+    category: targetCategory
+  });
+
+  const root = resolve(getPromptLibraryPath());
+  const targetDirectory = resolve(root, targetCategory);
+  if (!targetDirectory.startsWith(root)) throw new Error("Invalid prompt category.");
+  await mkdir(targetDirectory, { recursive: true });
+  const targetPath = join(targetDirectory, basename(prompt.path));
+  await writeFile(prompt.path, updatedText, "utf8");
+  if (targetPath !== prompt.path) {
+    if (existsSync(targetPath)) throw new Error(`Prompt asset "${targetCategory}/${id}" already exists.`);
+    await rename(prompt.path, targetPath);
+    await movePromptPreview(prompt.previewImage, dirname(prompt.path), targetDirectory);
+  }
+  return { category: targetCategory, id, path: targetPath };
+}
+
+async function deletePromptAsset(category: string, id: string) {
+  const prompt = await loadPromptAssetForMutation(category, id);
+  await rm(prompt.path, { force: true });
+  await deletePromptPreview(prompt.previewImage, dirname(prompt.path));
+  return { category: prompt.category, id };
+}
+
+async function loadPromptAssetForMutation(category: string, id: string) {
+  const library = await loadPromptLibrary();
+  const prompt = getPromptLibraryPrompt(library, category, id);
+  if (!prompt) throw new Error(`Prompt "${category}/${id}" was not found.`);
+  const root = resolve(getPromptLibraryPath());
+  const promptPath = resolve(prompt.path);
+  if (!promptPath.startsWith(root)) throw new Error("Prompt path is outside the prompt library.");
+  if (!promptPath.endsWith(".prompt.md")) throw new Error("Only markdown prompt assets can be edited from Studio.");
+  return { ...prompt, path: promptPath };
+}
+
+function updatePromptFrontmatter(text: string, updates: { status: string; category: string }): string {
+  const match = /^(---\s*\r?\n)([\s\S]*?)(\r?\n---\s*(?:\r?\n)?[\s\S]*)$/u.exec(text);
+  if (!match) throw new Error("Prompt file requires YAML frontmatter delimited by ---.");
+  let frontmatter = upsertYamlScalarLine(match[2], "category", updates.category);
+  frontmatter = upsertYamlScalarLine(frontmatter, "status", updates.status);
+  return `${match[1]}${frontmatter}${match[3]}`;
+}
+
+function upsertYamlScalarLine(frontmatter: string, key: string, value: string): string {
+  const line = `${key}: ${yamlScalar(value)}`;
+  const pattern = new RegExp(`^${escapeRegExp(key)}:\\s*.*$`, "m");
+  if (pattern.test(frontmatter)) return frontmatter.replace(pattern, line);
+  return `${frontmatter.replace(/\s*$/u, "")}\n${line}`;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+async function movePromptPreview(previewImage: string | undefined, fromDirectory: string, toDirectory: string): Promise<void> {
+  const previewPath = promptPreviewLocalPath(previewImage, fromDirectory);
+  if (!previewPath || !existsSync(previewPath)) return;
+  const targetPath = join(toDirectory, basename(previewPath));
+  if (targetPath === previewPath || existsSync(targetPath)) return;
+  await rename(previewPath, targetPath);
+}
+
+async function deletePromptPreview(previewImage: string | undefined, promptDirectory: string): Promise<void> {
+  const previewPath = promptPreviewLocalPath(previewImage, promptDirectory);
+  if (!previewPath) return;
+  await rm(previewPath, { force: true });
+}
+
+function promptPreviewLocalPath(previewImage: string | undefined, promptDirectory: string): string | null {
+  if (!previewImage || /^https?:\/\//i.test(previewImage)) return null;
+  const root = resolve(getPromptLibraryPath());
+  const previewPath = resolve(promptDirectory, previewImage);
+  if (!previewPath.startsWith(root)) return null;
+  return previewPath;
+}
 
 async function createPromptAssetFromGeneratedImage(body: CreatePromptAssetBody) {
   const title = cleanSingleLine(body.title) || "Generated Image Prompt";
   const category = safePathSegment(body.category || "image-generation") || "image-generation";
   const slug = safePathSegment(body.slug || slugFromTitle(title));
   const prompt = String(body.prompt ?? "").trim();
+  if (!slug) throw new Error("Slug is required.");
   if (!prompt) throw new Error("Prompt body is required.");
   if (!body.imagePath && !body.imageDataBase64) throw new Error("imagePath or imageDataBase64 is required.");
 
@@ -480,29 +678,50 @@ async function createPromptAssetFromGeneratedImage(body: CreatePromptAssetBody) 
   if (!directory.startsWith(root)) throw new Error("Invalid prompt library category.");
   await mkdir(directory, { recursive: true });
 
-  const promptPath = join(directory, `${slug}.prompt.png`);
+  const promptPath = join(directory, `${slug}.prompt.md`);
+  const previewPath = join(directory, `${slug}.preview.png`);
+  if (existsSync(promptPath) || existsSync(previewPath)) {
+    throw new Error(`Prompt asset "${category}/${slug}" already exists. Choose a different slug.`);
+  }
   const tags = (body.tags ?? []).map(cleanSingleLine).filter(Boolean);
   const modelHints = (body.modelHints ?? []).map(cleanSingleLine).filter(Boolean);
-  const promptMetadata = {
-    id: slug,
-    title,
-    category,
-    description: cleanSingleLine(body.description) || title,
-    kind: "system",
-    tags: tags.length ? tags : ["image"],
-    prompt,
-    negativePrompt: String(body.negativePrompt ?? "").trim() || undefined,
-    source: {
-      type: "generated-image",
-      runId: cleanSingleLine(body.source?.runId) || undefined,
-      routeId: cleanSingleLine(body.source?.routeId) || undefined,
-      nodeId: cleanSingleLine(body.source?.nodeId) || undefined
-    },
-    modelHints
+  const source = {
+    type: "generated-image",
+    runId: cleanSingleLine(body.source?.runId) || undefined,
+    routeId: cleanSingleLine(body.source?.routeId) || undefined,
+    nodeId: cleanSingleLine(body.source?.nodeId) || undefined,
+    outputId: cleanSingleLine(body.source?.outputId) || undefined
   };
-  const png = writePngTextChunk(imageBuffer, "snarkroute:prompt", JSON.stringify(promptMetadata));
-  await writeFile(promptPath, png);
-  return { promptPath, previewPath: promptPath, category, slug };
+  const frontmatter = [
+    "---",
+    `id: ${yamlScalar(slug)}`,
+    `title: ${yamlScalar(title)}`,
+    `category: ${yamlScalar(category)}`,
+    `description: ${yamlScalar(cleanSingleLine(body.description) || title)}`,
+    "kind: system",
+    "tags:",
+    ...(tags.length ? tags : ["image"]).map((tag) => `- ${yamlScalar(tag)}`),
+    `previewImage: ${yamlScalar(`${slug}.preview.png`)}`,
+    "status: candidate",
+    "source:",
+    ...Object.entries(source)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `  ${key}: ${yamlScalar(String(value))}`),
+    ...(modelHints.length ? ["modelHints:", ...modelHints.map((hint) => `- ${yamlScalar(hint)}`)] : []),
+    ...(String(body.negativePrompt ?? "").trim() ? [`negativePrompt: ${yamlScalar(String(body.negativePrompt ?? "").trim())}`] : []),
+    "---",
+    "",
+    prompt,
+    ""
+  ].join("\n");
+  await writeFile(promptPath, frontmatter, "utf8");
+  await writeFile(previewPath, imageBuffer);
+  return { promptPath, previewPath, category, slug };
+}
+
+function yamlScalar(value: string): string {
+  if (/^[A-Za-z0-9._/-]+$/.test(value)) return value;
+  return JSON.stringify(value);
 }
 
 async function readPromptAssetImageFromPath(path: string): Promise<Buffer> {
@@ -660,6 +879,152 @@ function isGeminiEnabled(): boolean {
   return Boolean(process.env.GEMINI_API_KEY?.trim());
 }
 
+function isOpenRouterEnabled(): boolean {
+  return Boolean(process.env.OPENROUTER_API_KEY?.trim());
+}
+
+async function openRouterSettingsStatus() {
+  const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
+  const defaultModel = process.env.OPENROUTER_DEFAULT_MODEL?.trim() || "text.default";
+  const models = cache?.models ?? [];
+  const resolvedDefault = defaultModel === "text.default" ? "openai/gpt-5.2" : defaultModel;
+  return {
+    configured: isOpenRouterEnabled(),
+    maskedApiKey: isOpenRouterEnabled() ? maskSecret(process.env.OPENROUTER_API_KEY) : "",
+    defaultModel,
+    budgetWarningUsd: numberEnv("OPENROUTER_BUDGET_WARNING_USD"),
+    catalog: {
+      refreshedAt: cache?.refreshedAt ?? null,
+      modelCount: models.length
+    },
+    defaultModelStatus: models.length === 0 ? "catalog-empty" : models.some((model) => model.id === resolvedDefault) ? "available" : "not-in-catalog"
+  };
+}
+
+async function loadOpenRouterMappings(): Promise<ModelMapping[]> {
+  const parsed = JSON.parse(await readFile(openRouterMappingsPath, "utf8")) as { models?: unknown };
+  return Array.isArray(parsed.models) ? parsed.models.filter((entry): entry is ModelMapping => Boolean(entry && typeof entry === "object" && typeof (entry as ModelMapping).id === "string")) : [];
+}
+
+function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof createModelResolver>): NodeRunner {
+  const openRouterRunner = createOpenRouterTextNodeRunner({ modelResolver });
+  const rawOpenRouterRunner = createOpenRouterTextNodeRunner();
+  const geminiRunner = createGeminiLlmNodeRunner();
+  return async (input) => {
+    const providerMode = providerModeParam(input.params.providerMode);
+    const requestedModel = stringValue(input.params.model);
+    const modelId = !requestedModel || requestedModel === "text.default" ? process.env.OPENROUTER_DEFAULT_MODEL || "text.default" : requestedModel;
+    if (modelId.includes("/") && providerMode !== "direct") return rawOpenRouterRunner({ ...input, params: { ...input.params, model: modelId, providerMode } });
+    const resolution = modelResolver({ task: "text", modelId, providerMode });
+    if (resolution.provider === "openrouter") return openRouterRunner({ ...input, params: { ...input.params, model: modelId, providerMode } });
+    if (resolution.provider === "direct" && resolution.directProvider === "gemini") {
+      return geminiRunner({ ...input, params: { ...input.params, model: resolution.model } });
+    }
+    throw new Error(resolution.provider === "direct" ? "Direct provider is not configured." : "Local provider is not available.");
+  };
+}
+
+function createRemoteImageNodeRunner(modelResolver: ReturnType<typeof createModelResolver>): NodeRunner {
+  const geminiRunner = createNanoBanana2NodeRunner();
+  const openRouterRunner = createOpenRouterImageNodeRunner({ modelResolver });
+  return async (input) => {
+    const providerMode = providerModeParam(input.params.providerMode);
+    const modelId = stringValue(input.params.model) || "image.nano-banana";
+    const cachedCatalog = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
+    const cachedModel = cachedCatalog?.models.find((model) => model.id === modelId);
+    if (cachedModel && !openRouterModelSupportsImage(cachedModel)) throw new Error("This model is not available for image generation.");
+    if (cachedModel && openRouterModelSupportsImage(cachedModel) && providerMode !== "direct") {
+      if (!isOpenRouterEnabled()) throw new Error("OpenRouter is selected, but OpenRouter is not configured.");
+      const catalogBackedRunner = createOpenRouterImageNodeRunner({
+        modelResolver: createModelResolver([catalogImageModelMapping(cachedModel)])
+      });
+      return catalogBackedRunner({ ...input, params: { ...input.params, model: modelId, providerMode } });
+    }
+    const resolution = modelResolver({ task: "image", modelId, providerMode });
+    if (resolution.provider === "openrouter") {
+      if (!isOpenRouterEnabled()) throw new Error("OpenRouter is selected, but OpenRouter is not configured.");
+      return openRouterRunner({ ...input, params: { ...input.params, model: modelId, providerMode } });
+    }
+    if (resolution.provider === "direct" && resolution.directProvider === "gemini") {
+      if (!isGeminiEnabled()) throw new Error("Direct API is selected, but direct provider credentials are missing.");
+      const result = await geminiRunner({ ...input, params: { ...input.params, model: resolution.model } });
+      const metadata = resolutionMetadata(resolution, {
+        requestProvider: resolution.directProvider,
+        requestModelSlug: resolution.model,
+        estimatedCostStatus: "unknown"
+      });
+      return {
+        ...result,
+        output: result.output && typeof result.output === "object" ? { ...(result.output as Record<string, unknown>), metadata, ...metadata } : result.output,
+        logs: [...(result.logs ?? []), `Resolved route: ${metadata.resolvedRoute}; fallback: ${metadata.fallbackUsed ? metadata.fallbackReason || "yes" : "no"}`],
+        provenance: { ...(result.provenance ?? {}), ...metadata }
+      };
+    }
+    throw new Error(resolution.provider === "direct" ? `Direct API route requires a provider mapping for ${modelId}, but none was found.` : "Local provider is not available.");
+  };
+}
+
+function catalogImageModelMapping(model: OpenRouterModelInfo): ModelMapping {
+  return {
+    id: model.id,
+    task: "image",
+    label: model.name ? `${model.name} (${model.id})` : model.id,
+    provider: model.id.split("/")[0] || "openrouter",
+    capabilities: ["image-generation"],
+    supportsImageGeneration: "supported",
+    openrouterModel: model.id,
+    directProvider: null,
+    directModel: null,
+    status: "supported",
+    routeSupport: { openrouter: "supported", direct: "unknown" }
+  };
+}
+
+function openRouterModelSupportsImage(model: OpenRouterModelInfo): boolean {
+  if (isOpenRouterRoutingAlias(model.id)) return false;
+  const output = model.architecture?.output_modalities ?? [];
+  const modality = model.architecture?.modality ?? "";
+  return output.includes("image") || modalityOutputModalities(modality).includes("image");
+}
+
+function isOpenRouterRoutingAlias(modelId: string): boolean {
+  return modelId === "openrouter/auto";
+}
+
+function modalityOutputModalities(modality: string): string[] {
+  if (!modality) return [];
+  const outputSide = modality.includes("->") ? modality.split("->").pop() ?? "" : modality;
+  return outputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
+}
+
+function providerModeParam(value: unknown): ProviderMode {
+  return value === "openrouter" || value === "direct" || value === "local" ? value : "auto";
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value.trim() : undefined;
+}
+
+function numberEnv(key: string): number | null {
+  const number = Number(process.env[key]);
+  return Number.isFinite(number) ? number : null;
+}
+
+function maskSecret(value: string | undefined): string {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return "";
+  return trimmed.length <= 8 ? "********" : `${trimmed.slice(0, 4)}${"*".repeat(Math.min(16, Math.max(8, trimmed.length - 8)))}${trimmed.slice(-4)}`;
+}
+
+function openRouterPublicError(error: unknown): string {
+  const message = errorMessage(error);
+  if (/missing|not set/i.test(message)) return "OpenRouter API key is not set";
+  if (/invalid|401|403/i.test(message)) return "OpenRouter API key seems invalid.";
+  if (/not available/i.test(message)) return "Model is not available through OpenRouter.";
+  if (/unreachable|fetch failed|network request failed/i.test(message)) return "OpenRouter is unreachable. The API key is configured, but SnarkRoute cannot reach OpenRouter. Check internet access, proxy/VPN/firewall settings, DNS, or OPENROUTER_BASE_URL.";
+  return message.replace(/Bearer\s+[A-Za-z0-9._-]+/g, "Bearer [redacted]");
+}
+
 function sanitizeFilename(filename: string): string {
   return filename.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
 }
@@ -675,8 +1040,68 @@ function findExistingDirectory(...parts: string[]): string {
   }
 }
 
+function findExistingFile(...parts: string[]): string {
+  let directory = process.cwd();
+  while (true) {
+    const candidate = join(directory, ...parts);
+    if (existsSync(candidate)) return candidate;
+    const parent = resolve(directory, "..");
+    if (parent === directory) return join(process.cwd(), ...parts);
+    directory = parent;
+  }
+}
+
 function providerNodeManifests(): SnarkNodeManifest[] {
   return [
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "ai.text",
+      title: "Text AI",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Text",
+      description: "Runs remote text models through OpenRouter by default, with Direct mode in Advanced.",
+      enabled: true,
+      permissions: { network: true, networkHosts: ["openrouter.ai", "generativelanguage.googleapis.com"], readFiles: false, writeOutputs: false, shell: false, env: ["OPENROUTER_API_KEY", "GEMINI_API_KEY"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.text" },
+      inputs: [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "systemPrompt", type: "text", required: false, label: "System" }],
+      outputs: [{ id: "text", type: "text", label: "Text" }, { id: "output", type: "json", label: "JSON" }],
+      params: [
+        { id: "model", type: "text", label: "Model", default: "text.default" },
+        { id: "providerMode", type: "text", label: "Provider Mode", default: "auto" },
+        { id: "prompt", type: "text", label: "Prompt", default: "" },
+        { id: "systemPrompt", type: "text", label: "System Prompt", default: "" }
+      ]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "ai.image.generate",
+      title: "Image Generation",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Image Processing",
+      description: "Task-based image generation with explicit model selection and transparent connection routing.",
+      enabled: true,
+      permissions: { network: true, networkHosts: ["openrouter.ai", "generativelanguage.googleapis.com"], readFiles: true, writeOutputs: true, shell: false, env: ["OPENROUTER_API_KEY", "GEMINI_API_KEY"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.image.generate" },
+      inputs: [{ id: "images", type: "image", required: false, label: "Images" }, { id: "prompt", type: "text", required: false, label: "Prompt" }],
+      outputs: [{ id: "image", type: "image", label: "Image" }, { id: "output", type: "json", label: "JSON" }],
+      params: [
+        { id: "model", type: "text", label: "Model", default: "image.nano-banana" },
+        { id: "providerMode", type: "text", label: "Connection Route", default: "auto" },
+        { id: "prompt", type: "text", label: "Prompt", default: "Create a polished image." },
+        { id: "aspectRatio", type: "text", label: "Aspect Ratio", default: "1:1" },
+        { id: "imageSize", type: "text", label: "Quality", default: "2K" }
+      ]
+    },
     {
       kind: "snarkroute.node",
       schemaVersion: "0.1",

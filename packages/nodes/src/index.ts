@@ -35,6 +35,7 @@ export interface PromptLibraryPrompt {
   description?: string;
   tags?: string[];
   kind?: string;
+  status?: string;
   previewImage?: string;
   source?: Record<string, unknown>;
   modelHints?: string[];
@@ -90,6 +91,7 @@ export const builtInNodeDefinitions: NodeDefinition[] = [
   { type: "capability.character.create", title: "Create Character", description: "Creates or resolves a reusable character resource for routes.", economics: { license: "AGPL-3.0-or-later", notes: "Local resource metadata only; no marketplace or payment execution." } },
   { type: "capability.location.create", title: "Create Location", description: "Creates or resolves a reusable location resource for routes.", economics: { license: "AGPL-3.0-or-later", notes: "Local resource metadata only; no marketplace or payment execution." } },
   { type: "library.prompt", title: "Prompt Library", description: "Outputs a saved local prompt or embedded text snippet.", economics: { license: "AGPL-3.0-or-later", notes: "Local library only; no marketplace or payment execution." } },
+  { type: "text.promptCompose", title: "Prompt Compose", description: "Combines multiple text inputs into one prompt.", economics: { license: "AGPL-3.0-or-later", notes: "Local text transform only; no payment execution." } },
   { type: "preview.image", title: "Image Preview", description: "Passes through an image value for Studio preview.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "transform.template", title: "Template Transform", description: "Produces text from params.template after route template resolution.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "debug.log", title: "Debug Log", description: "Logs a message or value and passes the value through.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
@@ -151,6 +153,12 @@ export const inputVideoRunner: NodeRunner = async ({ params }) => ({
 export const promptLibraryRunner: NodeRunner = async ({ params }) => ({
   output: {
     text: await resolvePromptLibraryText(params)
+  }
+});
+
+export const promptComposeRunner: NodeRunner = ({ params, inputs }) => ({
+  output: {
+    text: composePromptText(params, inputs)
   }
 });
 
@@ -373,6 +381,7 @@ export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("capability.character.create", createResourceCapabilityRunner);
   executor.registerNodeRunner("capability.location.create", createResourceCapabilityRunner);
   executor.registerNodeRunner("library.prompt", promptLibraryRunner);
+  executor.registerNodeRunner("text.promptCompose", promptComposeRunner);
   executor.registerNodeRunner("preview.image", previewImageRunner);
   executor.registerNodeRunner("transform.template", transformTemplateRunner);
   executor.registerNodeRunner("debug.log", debugLogRunner);
@@ -391,6 +400,7 @@ function builtInNodeCategory(type: string): string {
   if (type.startsWith("capability.")) return "Capability";
   if (type.startsWith("http.")) return "API / HTTP";
   if (type.startsWith("local.")) return "Local";
+  if (type.startsWith("text.")) return "Text / Prompt";
   if (type.startsWith("debug.")) return "Debug";
   if (type.startsWith("utility.")) return "Debug";
   if (type.startsWith("library.")) return "Text";
@@ -409,6 +419,13 @@ function builtInPermissions(type: string) {
 }
 
 function builtInInputs(type: string) {
+  if (type === "text.promptCompose") {
+    return [
+      { id: "subject", type: "text", required: false, label: "Subject" },
+      { id: "style", type: "text", required: false, label: "Style" },
+      { id: "scene", type: "text", required: false, label: "Scene" }
+    ];
+  }
   if (type === "preview.image") return [{ id: "image", type: "image", required: true, label: "Image" }];
   if (type === "debug.log") return [{ id: "value", type: "data", required: false, label: "Value" }];
   if (type === "utility.null") return [{ id: "input", type: "data", required: false, label: "Any" }];
@@ -421,7 +438,7 @@ function builtInInputs(type: string) {
 }
 
 function builtInOutputs(type: string) {
-  if (type === "input.text" || type === "library.prompt" || type === "transform.template" || type === "output.text") return [{ id: "text", type: "text", label: "Text" }];
+  if (type === "input.text" || type === "library.prompt" || type === "text.promptCompose" || type === "transform.template" || type === "output.text") return [{ id: "text", type: "text", label: "Text" }];
   if (type === "input.file" || type === "output.file") return [{ id: "file", type: "file", label: "File" }];
   if (type === "input.image" || type === "preview.image" || type === "local.stableDiffusion.textToImage") return [{ id: "image", type: "image", label: "Image" }];
   if (type === "capability.image.create" || type === "capability.image.edit" || type === "capability.image.upscale") return [{ id: "image", type: "image", label: "Image" }];
@@ -436,6 +453,15 @@ function builtInOutputs(type: string) {
 
 function builtInParams(type: string) {
   if (type === "input.text") return [{ id: "value", type: "text", label: "Value", default: "" }];
+  if (type === "text.promptCompose") {
+    return [
+      { id: "separator", type: "text", label: "Separator", default: "\n\n", description: "String used to separate non-empty text blocks." },
+      { id: "trimParts", type: "boolean", label: "Trim parts", default: true, description: "Trim whitespace and empty lines from the start/end of each block." },
+      { id: "skipEmpty", type: "boolean", label: "Skip empty", default: true, description: "Do not include empty blocks." },
+      { id: "prefix", type: "text", label: "Prefix", default: "", description: "Text added to the beginning of the result." },
+      { id: "suffix", type: "text", label: "Suffix", default: "", description: "Text added to the end of the result." }
+    ];
+  }
   if (type === "input.file" || type === "input.image" || type === "input.video") return [{ id: "path", type: "file", label: "Path", default: "" }];
   if (type.startsWith("capability.")) return [{ id: "prompt", type: "text", label: "Prompt", default: "" }, { id: "provider", type: "text", label: "Provider", default: "" }];
   if (type === "transform.template") return [{ id: "template", type: "text", label: "Template", default: "" }];
@@ -446,6 +472,46 @@ function builtInParams(type: string) {
     ];
   }
   return [];
+}
+
+export function composePromptText(params: Record<string, unknown>, inputs: Record<string, unknown>): string {
+  const trimParts = params.trimParts !== false;
+  const skipEmpty = params.skipEmpty !== false;
+  const separator = String(params.separator ?? "\n\n");
+  const slotParts = promptComposeFixedSlots().flatMap((slot) =>
+    inputTextParts(inputs[slot.id]).map((raw, index) => ({ slot, raw, index }))
+  );
+  const legacyInputParts = inputTextParts(inputs.texts).map((raw, index) => ({ slot: { id: "text", label: "Text" }, raw, index }));
+  const paramParts = [1, 2, 3, 4, 5, 6].flatMap((index) => {
+    const raw = params[`text${index}`];
+    return raw === undefined ? [] : [{ slot: { id: "text", label: "Text" }, raw, index: index - 1 }];
+  });
+  const hasSlotInputs = slotParts.length > 0;
+  const values = hasSlotInputs ? slotParts : legacyInputParts.length > 0 ? legacyInputParts : paramParts;
+  const parts = values
+    .map(({ slot, raw, index }) => {
+      const text = raw === undefined || raw === null ? "" : String(raw);
+      const value = trimParts ? text.trim() : text;
+      return { label: slot.label || titleFromId(slot.id), index: index + 1, value };
+    })
+    .filter((part) => !skipEmpty || part.value !== "");
+  const body = parts
+    .map((part) => hasSlotInputs ? `${part.label}${part.index > 1 ? ` ${part.index}` : ""}:\n${part.value}` : part.value)
+    .join(separator);
+  return `${String(params.prefix ?? "")}${body}${String(params.suffix ?? "")}`;
+}
+
+function promptComposeFixedSlots(): Array<{ id: string; label: string }> {
+  return [
+    { id: "subject", label: "Subject" },
+    { id: "style", label: "Style" },
+    { id: "scene", label: "Scene" }
+  ];
+}
+
+function inputTextParts(value: unknown): unknown[] {
+  if (value === undefined || value === null) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
 export function normalizePreviewImage(value: unknown): unknown {
@@ -647,6 +713,7 @@ export function parsePromptFile(text: string, path = "<prompt>"): { prompt: Prom
 
   const description = stringField(metadata, "description");
   const kind = stringField(metadata, "kind");
+  const status = stringField(metadata, "status");
   const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())) : undefined;
   const previewImage = stringField(metadata, "previewImage");
   const source = metadata.source && typeof metadata.source === "object" && !Array.isArray(metadata.source) ? metadata.source as Record<string, unknown> : undefined;
@@ -660,6 +727,7 @@ export function parsePromptFile(text: string, path = "<prompt>"): { prompt: Prom
       description: description || undefined,
       tags,
       kind: kind || undefined,
+      status: status || undefined,
       previewImage: previewImage || undefined,
       source,
       modelHints,
@@ -684,6 +752,7 @@ export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { pro
     }
     const description = stringField(metadata, "description");
     const kind = stringField(metadata, "kind");
+    const status = stringField(metadata, "status");
     const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())) : undefined;
     const source = metadata.source && typeof metadata.source === "object" && !Array.isArray(metadata.source) ? metadata.source as Record<string, unknown> : undefined;
     const modelHints = Array.isArray(metadata.modelHints) ? metadata.modelHints.filter((hint): hint is string => typeof hint === "string" && Boolean(hint.trim())) : undefined;
@@ -695,6 +764,7 @@ export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { pro
         description: description || undefined,
         tags,
         kind: kind || undefined,
+        status: status || undefined,
         previewImage: basename(path),
         source,
         modelHints,

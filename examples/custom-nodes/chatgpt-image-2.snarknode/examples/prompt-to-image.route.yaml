@@ -1,0 +1,20 @@
+id: chatgpt-image-2-basic
+title: ChatGPT Image 2 Basic
+version: 0.1.0
+description: Generate one image from a prompt and preview it.
+nodes:
+  - id: generate
+    type: custom.chatgpt-image-2
+    params:
+      prompt: A clean product photo of a translucent glass teapot on a white table.
+      model: chatgpt-image-latest
+      size: 1024x1024
+      quality: medium
+      outputFormat: png
+  - id: preview
+    type: preview.image
+edges:
+  - from: generate
+    fromPort: image
+    to: preview
+    toPort: image

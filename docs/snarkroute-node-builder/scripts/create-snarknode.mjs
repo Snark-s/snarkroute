@@ -15,6 +15,8 @@ const EMPTY_PERMISSIONS = {
 
 const NODE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PLUGIN_RUNTIMES = new Set(["node", "javascript", "typescript"]);
+const MAX_PACKAGE_BYTES = 25 * 1024 * 1024;
+const MAX_PACKAGE_FILE_COUNT = 200;
 
 async function main() {
   const specPath = process.argv[2];
@@ -24,7 +26,7 @@ async function main() {
     process.exit(1);
   }
 
-  const spec = JSON.parse(await readFile(resolve(specPath), "utf8"));
+  const spec = JSON.parse(stripBom(await readFile(resolve(specPath), "utf8")));
   const result = await createSnarkNode(spec, outputDirectory);
   console.log(`Created ${result.manifest.id}`);
   console.log(`Output: ${result.outputPath}`);
@@ -32,6 +34,7 @@ async function main() {
 }
 
 export async function createSnarkNode(spec, outputDirectory = process.cwd()) {
+  spec = applyStudioProfile(spec);
   const slug = safeSlug(spec.slug ?? spec.name ?? spec.title ?? spec.id ?? "snark-node");
   const title = stringOr(spec.title, titleFromSlug(slug));
   const manifest = buildManifest(spec, slug, title);
@@ -53,7 +56,7 @@ export async function createSnarkNode(spec, outputDirectory = process.cwd()) {
 function buildManifest(spec, slug, title) {
   const executorType = spec.executorType ?? spec.executor?.type ?? (spec.declarative ? "declarative" : spec.generatePluginCode === false ? "declarative" : "plugin");
   const executor = buildExecutor(spec, executorType);
-  return {
+  return removeUndefined({
     kind: "snarkroute.node",
     schemaVersion: "0.1",
     id: safeNodeId(spec.id ?? `custom.${slug}`),
@@ -70,7 +73,86 @@ function buildManifest(spec, slug, title) {
     executor,
     inputs: requireArray(spec.inputs, "inputs"),
     outputs: requireArray(spec.outputs, "outputs"),
-    params: requireArray(spec.params, "params")
+    params: requireArray(spec.params, "params"),
+    capabilities: spec.capabilities,
+    ui: spec.ui,
+    icon: spec.icon,
+    tags: spec.tags,
+    homepage: spec.homepage,
+    repository: spec.repository,
+    examples: spec.examples,
+    dependencies: spec.dependencies
+  });
+}
+
+function applyStudioProfile(spec) {
+  const profile = String(spec.studioProfile ?? spec.profile ?? "").toLowerCase();
+  if (!profile) return spec;
+  if (profile === "image-generation" || profile === "image-edit" || profile === "openai-image" || profile === "gemini-image") {
+    const qualityDefault = profile === "openai-image" ? "high" : "2K";
+    const modelDefault = profile === "openai-image" ? "gpt-image-1" : profile === "gemini-image" ? "gemini-3.1-flash-image-preview" : "";
+    return {
+      ...spec,
+      category: spec.category ?? "Image Processing",
+      inputs: spec.inputs ?? [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "images", type: "image", required: false, label: "Images" }],
+      outputs: spec.outputs ?? [{ id: "image", type: "image", label: "Image" }, { id: "output", type: "json", label: "JSON" }],
+      params: spec.params ?? [
+        { id: "prompt", type: "text", label: "Prompt", default: spec.defaultPrompt ?? "Transform this into a polished, high-detail image." },
+        { id: "model", type: "text", label: "Model", default: modelDefault },
+        { id: "aspectRatio", type: "text", label: "Aspect Ratio", default: "1:1" },
+        { id: "quality", type: "text", label: "Quality", default: qualityDefault }
+      ],
+      permissions: {
+        network: true,
+        networkHosts: profile === "openai-image" ? ["api.openai.com"] : profile === "gemini-image" ? ["generativelanguage.googleapis.com"] : [],
+        readFiles: true,
+        writeOutputs: true,
+        shell: false,
+        env: profile === "openai-image" ? ["OPENAI_API_KEY"] : profile === "gemini-image" ? ["GEMINI_API_KEY"] : [],
+        ...(spec.permissions ?? {})
+      },
+      ui: mergeUi({
+        params: {
+          prompt: { control: "textarea", multiline: true },
+          aspectRatio: { control: "select", options: ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"] },
+          quality: { control: "select", options: profile === "openai-image" ? ["low", "medium", "high", "auto"] : ["1K", "2K", "4K"] }
+        }
+      }, spec.ui)
+    };
+  }
+  if (profile === "text-generation" || profile === "llm") {
+    return {
+      ...spec,
+      category: spec.category ?? "Text",
+      inputs: spec.inputs ?? [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "systemPrompt", type: "text", required: false, label: "System" }],
+      outputs: spec.outputs ?? [{ id: "text", type: "text", label: "Text" }, { id: "output", type: "json", label: "JSON" }],
+      params: spec.params ?? [
+        { id: "systemPrompt", type: "text", label: "System Prompt", default: "" },
+        { id: "prompt", type: "text", label: "Prompt", default: "" },
+        { id: "model", type: "text", label: "Model", default: spec.defaultModel ?? "" },
+        { id: "temperature", type: "number", label: "Temperature", default: 0.7 },
+        { id: "maxTokens", type: "number", label: "Max Tokens", default: 1024 }
+      ],
+      ui: mergeUi({
+        params: {
+          systemPrompt: { control: "textarea", multiline: true },
+          prompt: { control: "textarea", multiline: true }
+        }
+      }, spec.ui)
+    };
+  }
+  return spec;
+}
+
+function mergeUi(base, override) {
+  if (!override || typeof override !== "object" || Array.isArray(override)) return base;
+  return {
+    ...base,
+    ...override,
+    params: {
+      ...(base.params ?? {}),
+      ...(override.params ?? {})
+    }
   };
 }
 
@@ -125,7 +207,8 @@ function validateManifest(manifest) {
   validateExecutor(manifest.executor, issues);
   validatePorts(manifest.inputs, "inputs", issues);
   validatePorts(manifest.outputs, "outputs", issues);
-  validatePorts(manifest.params, "params", issues);
+  if (manifest.params !== undefined) validatePorts(manifest.params, "params", issues);
+  if (manifest.capabilities !== undefined) validateCapabilities(manifest.capabilities, issues);
   if (issues.length) throw new Error(`Invalid SnarkRoute node manifest:\n${issues.join("\n")}`);
 }
 
@@ -166,6 +249,9 @@ function validateExecutor(value, issues) {
     if (!["GET", "POST", "PUT", "PATCH", "DELETE"].includes(method)) issues.push("executor.method: Declarative HTTP method must be GET, POST, PUT, PATCH, or DELETE.");
     requiredString(value.urlTemplate, "executor.urlTemplate", issues);
     if (!["none", "json", "text"].includes(String(value.bodyMode ?? "none"))) issues.push('executor.bodyMode: bodyMode must be "none", "json", or "text".');
+    if (value.response !== undefined && (!value.response || typeof value.response !== "object" || Array.isArray(value.response))) {
+      issues.push("executor.response: response must be an object.");
+    }
   }
 }
 
@@ -185,8 +271,28 @@ function validatePorts(value, path, issues) {
   });
 }
 
+function validateCapabilities(value, issues) {
+  if (!Array.isArray(value)) {
+    issues.push("capabilities: capabilities must be an array.");
+    return;
+  }
+  value.forEach((capability, index) => {
+    if (!capability || typeof capability !== "object" || Array.isArray(capability)) {
+      issues.push(`capabilities.${index}: Capability must be an object.`);
+      return;
+    }
+    const id = requiredString(capability.id, `capabilities.${index}.id`, issues);
+    if (id && !NODE_ID_PATTERN.test(id)) issues.push(`capabilities.${index}.id: Capability id must use letters, numbers, dots, dashes, or underscores.`);
+    if (capability.defaultParams !== undefined && (!capability.defaultParams || typeof capability.defaultParams !== "object" || Array.isArray(capability.defaultParams))) {
+      issues.push(`capabilities.${index}.defaultParams: defaultParams must be an object.`);
+    }
+    if (capability.priority !== undefined && typeof capability.priority !== "number") issues.push(`capabilities.${index}.priority: priority must be a number.`);
+  });
+}
+
 function validateFileSet(manifest, paths) {
   if (!paths.includes("manifest.json")) throw new Error("Package must include manifest.json.");
+  if (paths.length > MAX_PACKAGE_FILE_COUNT) throw new Error(`Package has too many files. Limit is ${MAX_PACKAGE_FILE_COUNT}.`);
   for (const path of paths) safePackagePath(path);
   if (manifest.executor.type === "plugin" && !paths.includes(manifest.executor.entry)) {
     throw new Error(`Plugin package is missing executor file: ${manifest.executor.entry}`);
@@ -239,6 +345,9 @@ function exampleRoute(manifest) {
 }
 
 function zipFiles(files) {
+  let totalSize = 0;
+  for (const data of files.values()) totalSize += data.byteLength;
+  if (totalSize > MAX_PACKAGE_BYTES) throw new Error(`Package is too large. Limit is ${MAX_PACKAGE_BYTES} bytes.`);
   const localParts = [];
   const centralParts = [];
   let offset = 0;
@@ -349,6 +458,14 @@ function requiredString(value, path, issues) {
     return "";
   }
   return value.trim();
+}
+
+function stripBom(value) {
+  return value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
+}
+
+function removeUndefined(record) {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
 
 function stringEquals(value, expected, path, issues) {

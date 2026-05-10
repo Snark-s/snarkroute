@@ -309,17 +309,125 @@ h2 {
   display: none;
 }
 
+.nodesHeading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 16px 0 10px;
+}
+
+.nodesHeading h2 {
+  margin: 0;
+}
+
+.nodesHeadingActions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.nodeSmallButton.active {
+  background: #203650;
+  border-color: #4e6e99;
+  color: #edf4ff;
+}
+
+.nodeSearch {
+  align-items: center;
+  background: #0c111a;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  display: flex;
+  gap: 6px;
+  margin: 0 0 10px;
+  min-height: 32px;
+  padding: 0 8px;
+}
+
+.nodeSearch input {
+  background: transparent;
+  border: 0;
+  color: #edf4ff;
+  min-width: 0;
+  outline: 0;
+  width: 100%;
+}
+
+.nodeSearchClear {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #9da8ba;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0;
+  width: 22px;
+}
+
+.nodeSearchClear:hover {
+  background: #202633;
+  color: #edf4ff;
+}
+
+.nodeSearchEmpty {
+  margin: 8px 2px;
+}
+
 .libraryItem {
   align-items: center;
+  background: #252a34;
+  border: 1px solid #3a4150;
+  border-radius: 6px;
   display: grid;
-  grid-template-columns: 24px 1fr;
-  gap: 8px;
-  justify-items: start;
+  grid-template-columns: minmax(0, 1fr);
   margin-bottom: 4px;
   min-height: 42px;
-  padding: 7px 9px;
+  width: 100%;
+}
+
+.libraryItem:hover {
+  background: #303746;
+}
+
+.libraryItem.hiddenLibraryItem {
+  border-style: dashed;
+  opacity: 0.72;
+}
+
+.libraryItemMain {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  justify-items: start;
+  min-height: 42px;
+  padding: 7px 4px 7px 9px;
   text-align: left;
   width: 100%;
+}
+
+.libraryItemMain:hover,
+.libraryItemDelete:hover {
+  background: transparent;
+}
+
+.libraryItemDelete {
+  align-self: stretch;
+  background: transparent;
+  border: 0;
+  border-left: 1px solid #343b49;
+  border-radius: 0 6px 6px 0;
+  color: #9da8ba;
+  min-height: 0;
+  padding: 0;
+  width: 28px;
+}
+
+.libraryItemDelete:hover {
+  color: #ffd1d8;
 }
 
 .libraryItem strong {
@@ -341,6 +449,17 @@ h2 {
   font-size: 10px;
   grid-column: 2;
   line-height: 1.15;
+}
+
+.libraryItem em {
+  border: 1px solid #49566b;
+  border-radius: 999px;
+  color: #b6c4d8;
+  font-size: 9px;
+  font-style: normal;
+  grid-column: 2;
+  line-height: 1;
+  padding: 2px 6px;
 }
 
 .libraryItem .libraryNodeIcon {
@@ -367,7 +486,7 @@ h2 {
   font-size: 11px;
   font-weight: 700;
   gap: 6px;
-  grid-template-columns: 14px 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
   min-height: 26px;
   padding: 3px 2px;
   text-transform: uppercase;
@@ -381,6 +500,41 @@ h2 {
 .librarySectionHeader small {
   color: #7f8a9d;
   font-size: 10px;
+}
+
+.librarySectionToggle {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  display: grid;
+  font-size: inherit;
+  font-weight: inherit;
+  gap: 6px;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  justify-content: stretch;
+  min-height: 24px;
+  padding: 0;
+  text-align: left;
+  text-transform: inherit;
+  width: 100%;
+}
+
+.librarySectionToggle:hover,
+.librarySectionDelete:hover {
+  background: transparent;
+}
+
+.librarySectionDelete {
+  background: transparent;
+  border: 0;
+  color: #7f8a9d;
+  min-height: 24px;
+  padding: 0;
+  width: 26px;
+}
+
+.librarySectionDelete:hover {
+  color: #ffd1d8;
 }
 
 .librarySectionItems {
@@ -453,6 +607,34 @@ h2 {
 
 .contextMenu button:hover {
   background: #303746;
+}
+
+.contextMenu strong {
+  color: #edf4ff;
+  font-size: 12px;
+  padding: 6px 8px 2px;
+}
+
+.contextMenu button.danger {
+  color: #ffb4b4;
+}
+
+.contextMenu button:disabled {
+  color: #657084;
+  cursor: not-allowed;
+}
+
+.contextMenu button:disabled:hover {
+  background: transparent;
+}
+
+.contextMenuHint {
+  color: #95a3b8;
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  max-width: 260px;
+  padding: 5px 8px 4px;
 }
 
 .connectionNodeMenuHeader {
@@ -1085,6 +1267,11 @@ h2 {
   color: #f6d365;
 }
 
+.executorBadge.openrouter {
+  border-color: #3f6f63;
+  color: #80dec8;
+}
+
 .executorBadge.replicate,
 .executorBadge.http {
   border-color: #385987;
@@ -1102,7 +1289,39 @@ h2 {
   text-align: left;
 }
 
+.nodeAdvanced {
+  border-top: 1px solid #303a4b;
+  color: #9da8ba;
+  font-size: 12px;
+  margin-top: 10px;
+  padding-top: 8px;
+}
+
+.nodeAdvanced summary {
+  cursor: pointer;
+}
+
 .nodeField span {
+  color: #9da8ba;
+  font-size: 11px;
+}
+
+.nodeCheckField {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  margin-top: 10px;
+  min-height: 28px;
+  text-align: left;
+}
+
+.nodeCheckField input {
+  accent-color: #67c5ad;
+  height: 14px;
+  width: 14px;
+}
+
+.nodeCheckField span {
   color: #9da8ba;
   font-size: 11px;
 }
@@ -1182,6 +1401,34 @@ h2 {
   color: #7dd3c0;
   font-size: 10px;
   line-height: 1.25;
+}
+
+.nodeRoutePreview {
+  border: 1px solid #303a4b;
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 8px;
+}
+
+.nodeRoutePreview div {
+  align-items: start;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(86px, 0.9fr) minmax(0, 1.1fr);
+}
+
+.nodeRoutePreview span {
+  color: #9da8ba;
+  font-size: 10px;
+}
+
+.nodeRoutePreview strong {
+  color: #e5edf8;
+  font-size: 10px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
 }
 
 .assetParams {
@@ -1393,25 +1640,69 @@ h2 {
 .nodePromptCard strong,
 .nodePromptCard span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .nodePromptCard.withPreview strong,
-.nodePromptCard.withPreview span {
+.nodePromptCard.withPreview span,
+.nodePromptCard.withPreview .nodePromptCardHeader {
   grid-column: 2;
+}
+
+.nodePromptCardHeader {
+  align-items: start;
+  display: flex;
+  gap: 6px;
+  justify-content: space-between;
+  min-width: 0;
 }
 
 .nodePromptCard strong {
   color: #edf2ff;
   font-size: 11px;
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nodePromptCard span {
   color: #95a3b8;
   font-size: 10px;
   line-height: 1.2;
+}
+
+.promptStatusBadge {
+  border: 1px solid #3a485b;
+  border-radius: 999px;
+  color: #cbd7e8;
+  flex: none;
+  font-size: 9px;
+  line-height: 1;
+  padding: 2px 5px;
+}
+
+.promptStatusBadge.draft {
+  background: #2a2631;
+  color: #d7c6ff;
+}
+
+.promptStatusBadge.candidate {
+  background: #1e3145;
+  color: #b9dcff;
+}
+
+.promptStatusBadge.approved {
+  background: #18352f;
+  color: #9be6d2;
+}
+
+.promptStatusBadge.published {
+  background: #26371d;
+  color: #c7e884;
+}
+
+.promptStatusBadge.archived {
+  background: #2c2f37;
+  color: #aeb6c2;
 }
 
 .promptLibraryPreviewImage {
@@ -1917,6 +2208,31 @@ textarea {
   font-size: 12px;
 }
 
+.nodeLibraryHeader,
+.installedNodeHeader {
+  align-items: start;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.nodeLibraryHeader > div,
+.nodeLibraryPreviewList label > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.nodeLibraryCount {
+  background: #223146;
+  border: 1px solid #37465a;
+  border-radius: 999px;
+  color: #d7e7ff;
+  flex: none;
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
 .nodeLibraryPreview span,
 .installedNodeItem span {
   color: #9da8ba;
@@ -1924,10 +2240,95 @@ textarea {
   overflow-wrap: anywhere;
 }
 
-.nodeLibraryPreview label {
+.nodeLibraryActions,
+.nodeLibraryToolbar,
+.installedNodeControls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nodeLibraryActions select,
+.nodeLibraryToolbar select,
+.installedNodeControls select {
+  background: #0c111a;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  color: #edf4ff;
+  min-height: 28px;
+  padding: 4px 7px;
+}
+
+.nodeLibraryPreviewList {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.nodeLibraryPreviewList label {
   align-items: center;
   display: flex;
   gap: 7px;
+}
+
+.nodeLibraryPreviewList small {
+  color: #7f8b9d;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.nodeLibrarySearch {
+  align-items: center;
+  background: #0c111a;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  display: flex;
+  flex: 1 1 170px;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.nodeLibrarySearch input {
+  background: transparent;
+  border: 0;
+  color: #edf4ff;
+  min-width: 0;
+  outline: 0;
+  width: 100%;
+}
+
+.nodeStatusFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nodeStatusFilters button {
+  align-items: center;
+  background: #111722;
+  border: 1px solid #2f3948;
+  border-radius: 999px;
+  color: #aab6c8;
+  display: inline-flex;
+  font-size: 11px;
+  gap: 5px;
+  min-height: 26px;
+  padding: 3px 8px;
+}
+
+.nodeStatusFilters button.active {
+  background: #203650;
+  border-color: #4e6e99;
+  color: #edf4ff;
+}
+
+.nodeStatusFilters span {
+  color: #d6e4f6;
+  font-size: 10px;
 }
 
 .installedNodeItem {
@@ -1939,14 +2340,81 @@ textarea {
   padding: 8px;
 }
 
-.installedNodeItem div {
-  display: flex;
-  gap: 6px;
+.nodeStatusBadge {
+  border: 1px solid #3a485b;
+  border-radius: 999px;
+  flex: none;
+  font-size: 10px;
+  padding: 2px 7px;
+}
+
+.nodeStatusBadge.draft {
+  background: #2a2631;
+  color: #d7c6ff;
+}
+
+.nodeStatusBadge.candidate {
+  background: #1e3145;
+  color: #b9dcff;
+}
+
+.nodeStatusBadge.approved {
+  background: #18352f;
+  color: #9be6d2;
+}
+
+.nodeStatusBadge.published {
+  background: #26371d;
+  color: #c7e884;
+}
+
+.nodeStatusBadge.archived {
+  background: #2c2f37;
+  color: #aeb6c2;
+}
+
+.nodeSmallButton.iconOnly {
+  aspect-ratio: 1;
+  justify-content: center;
+  min-width: 28px;
+  padding: 5px;
 }
 
 .settingsPanel h3,
 .settingsPanel h4 {
   margin: 0;
+}
+
+.providerCard {
+  background: #111722;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  display: grid;
+  gap: 9px;
+  padding: 10px;
+}
+
+.providerHeader {
+  display: grid;
+  gap: 3px;
+}
+
+.providerHeader span,
+.providerStatus span {
+  color: #9da8ba;
+  font-size: 11px;
+}
+
+.settingsLinks,
+.settingsActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.providerStatus {
+  display: grid;
+  gap: 3px;
 }
 
 .settingsPanel h3 {
@@ -2052,6 +2520,12 @@ textarea {
 .settingsField span {
   color: #9da8ba;
   font-size: 11px;
+}
+
+.settingsHint {
+  color: #9da8ba;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .settingsField input,

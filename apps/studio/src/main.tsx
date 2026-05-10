@@ -20,7 +20,7 @@ import {
   type ReactFlowInstance
 } from "@xyflow/react";
 import { exportRouteToText, loadRouteFromText, normalizeRouteExportFilename, type OpenRoute } from "@snarkroute/protocol";
-import { BookOpen, Braces, Bug, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, FolderOpen, Globe, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, FolderOpen, Globe, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -129,6 +129,7 @@ type PromptLibraryPrompt = {
   description?: string;
   tags?: string[];
   kind?: string;
+  status?: string;
   previewImage?: string;
   source?: Record<string, unknown>;
   modelHints?: string[];
@@ -148,11 +149,48 @@ type PromptLibraryData = {
   diagnostics?: Array<{ path: string; message: string; severity: "warning" | "error" }>;
 };
 
+type PromptStatusFilter = "published" | "approved" | "candidate" | "draft" | "archived" | "all";
+
 type StableDiffusionModel = {
   title: string;
   modelName?: string;
   filename?: string;
   hash?: string;
+};
+
+type ProviderLinks = Record<string, Record<string, string>>;
+
+type OpenRouterModel = {
+  id: string;
+  name?: string;
+  pricing?: Record<string, unknown>;
+  supported_parameters?: string[];
+  architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
+};
+
+type ImageModelOption = {
+  id: string;
+  slug: string;
+  label: string;
+  provider: string;
+  capabilities: string[];
+  supportsImageGeneration: "supported" | "unsupported" | "unknown";
+  routeSupport: {
+    openrouter: "supported" | "unsupported" | "unknown";
+    direct: "supported" | "unsupported" | "unknown";
+  };
+  disabled?: boolean;
+  note?: string;
+  pricing?: Record<string, unknown>;
+};
+
+type OpenRouterSettings = {
+  configured: boolean;
+  maskedApiKey?: string;
+  defaultModel?: string;
+  budgetWarningUsd?: number | null;
+  catalog?: { refreshedAt?: string | null; modelCount?: number };
+  defaultModelStatus?: string;
 };
 
 type NodeManifest = {
@@ -165,11 +203,21 @@ type NodeManifest = {
   license: string;
   category?: string;
   description?: string;
+  tags?: string[];
   permissions: { network: boolean; networkHosts?: string[]; readFiles: boolean; writeOutputs: boolean; shell: boolean; env: string[] };
   executor: { type: string; runtime?: string; entry?: string; builtinRunner?: string };
   inputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
   outputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
-  params?: Array<{ id: string; type: string; label?: string; default?: unknown }>;
+  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown }>;
+  ui?: {
+    params?: Record<string, {
+      control?: string;
+      options?: Array<string | { value: string; label?: string }>;
+      multiline?: boolean;
+      placeholder?: string;
+      helperText?: string;
+    }>;
+  };
   enabled?: boolean;
 };
 
@@ -189,14 +237,43 @@ type NodeLibraryPreview = {
   version: string;
   author: { name: string };
   license: string;
-  nodes: Array<{ id: string; title: string; url: string; version?: string; description?: string }>;
+  nodes: Array<{ id: string; title: string; url: string; version?: string; description?: string; status?: string }>;
+};
+
+type LibraryNodeStatus = "draft" | "candidate" | "approved" | "published" | "archived";
+
+type LibraryStatusFilter = LibraryNodeStatus | "all";
+
+type LibraryNodeMetadata = Record<string, { status?: LibraryNodeStatus; order?: number }>;
+
+type LibrarySortMode = "status" | "manual" | "title";
+
+type NodeLibraryGroup = {
+  id: string;
+  title: string;
+  types: string[];
+};
+
+type NodeLibraryLayout = {
+  groups: NodeLibraryGroup[];
+  hiddenTypes: string[];
 };
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 const NODE_DRAG_MIME = "application/x-snarkroute-node";
 const ROUTE_FILE_ACCEPT = ".orp,.opt,.orp.json,.opt.json,.orp.yaml,.opt.yaml,.orp.yml,.opt.yml,.route,.route.json,.route.yaml,.route.yml,.json,.yaml,.yml,application/json,application/yaml,text/yaml,text/x-yaml";
 const SAVED_PROJECT_STORAGE_KEY = "snarkroute-studio:saved-project";
+const LIBRARY_NODE_METADATA_STORAGE_KEY = "snarkroute-studio:node-library-metadata";
+const NODE_LIBRARY_LAYOUT_STORAGE_KEY = "snarkroute-studio:node-library-layout";
 const GEMINI_API_KEY_URL = "https://aistudio.google.com/app/apikey";
+const libraryNodeStatuses: Array<{ id: LibraryNodeStatus; label: string }> = [
+  { id: "draft", label: "Draft" },
+  { id: "candidate", label: "Candidate" },
+  { id: "approved", label: "Approved" },
+  { id: "published", label: "Published" },
+  { id: "archived", label: "Archived" }
+];
+const promptStatusOptions: PromptStatusFilter[] = ["published", "approved", "candidate", "draft", "archived", "all"];
 const GEMINI_LLM_DEFAULT_SYSTEM_PROMPT = `Convert the user's rough idea into a clean image-generation prompt.
 Preserve the humor and core idea.
 Make risky wording safe and non-erotic.
@@ -231,6 +308,7 @@ const DEFAULT_PROMPT_LIBRARY: PromptLibraryData = {
 const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
   { type: "library.prompt", label: "Prompt Library", params: { category: "image-generation", promptId: "image-generation-demo", mode: "linked" } },
+  { type: "text.promptCompose", label: "Prompt Compose", params: { separator: "\n\n", trimParts: true, skipEmpty: true, prefix: "", suffix: "" } },
   { type: "input.image", label: "Input Image", params: { path: "" } },
   { type: "input.video", label: "Input Video", params: { path: "" } },
   { type: "input.file", label: "Input File", params: { path: "" } },
@@ -245,6 +323,29 @@ const library = [
       systemPrompt: "",
       prompt: "",
       model: "gemini-2.5-flash-lite"
+    }
+  },
+  {
+    type: "ai.text",
+    label: "Text AI",
+    params: {
+      model: "text.default",
+      providerMode: "auto",
+      systemPrompt: "",
+      prompt: "",
+      temperature: 0.7,
+      max_tokens: 1024
+    }
+  },
+  {
+    type: "ai.image.generate",
+    label: "Image Generation",
+    params: {
+      model: "image.nano-banana",
+      providerMode: "auto",
+      prompt: "Create a polished image.",
+      aspectRatio: "1:1",
+      imageSize: "2K"
     }
   },
   {
@@ -326,8 +427,8 @@ const library = [
 
 const librarySections = [
   { id: "inputs-assets", title: "Inputs & Assets", types: ["input.text", "library.prompt", "input.image", "input.video", "input.file", "compound.input", "compound.output"] },
-  { id: "text-prompting", title: "Text & Prompting", types: ["transform.template", "gemini.llm"] },
-  { id: "image-generation", title: "Image Generation", types: ["gemini.nano-banana-2", "local.stableDiffusion.textToImage"] },
+  { id: "text-prompting", title: "Text & Prompting", types: ["text.promptCompose", "transform.template", "ai.text", "gemini.llm"] },
+  { id: "image-generation", title: "Image Generation", types: ["ai.image.generate", "gemini.nano-banana-2", "local.stableDiffusion.textToImage"] },
   { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image"] },
   { id: "api-integration", title: "API & Integration", types: ["http.request"] },
   { id: "outputs", title: "Outputs", types: ["output.text", "output.file"] },
@@ -531,8 +632,10 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onBrowseAsset = data.onBrowseAsset as ((nodeId: string, kind: AssetKind) => void) | undefined;
   const replicateConfigured = Boolean(data.replicateConfigured);
   const geminiConfigured = Boolean(data.geminiConfigured);
+  const openRouterConfigured = Boolean(data.openRouterConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
   const onConfigureGemini = data.onConfigureGemini as (() => void) | undefined;
+  const onConfigureOpenRouter = data.onConfigureOpenRouter as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
   const onImageResultContextMenu = data.onImageResultContextMenu as ((event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void) | undefined;
   const onRunNodeOnly = data.onRunNodeOnly as ((nodeId: string) => void) | undefined;
@@ -541,12 +644,15 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onUncollapse = data.onUncollapse as ((nodeId: string) => void) | undefined;
   const promptLibrary = data.promptLibrary as PromptLibraryData | undefined;
   const onRefreshPromptLibrary = data.onRefreshPromptLibrary as (() => void) | undefined;
+  const promptStatusFilter = (data.promptStatusFilter as PromptStatusFilter | undefined) ?? "published";
+  const onPromptStatusFilterChange = data.onPromptStatusFilterChange as ((filter: PromptStatusFilter) => void) | undefined;
+  const onPromptContextMenu = data.onPromptContextMenu as ((event: React.MouseEvent, prompt: PromptLibraryPrompt) => void) | undefined;
   const stableDiffusionModels = (data.stableDiffusionModels as StableDiffusionModel[] | undefined) ?? [];
+  const openRouterModels = (data.openRouterModels as OpenRouterModel[] | undefined) ?? [];
   const manifest = data.manifest as NodeManifest | undefined;
   const isMissingNode = Boolean(data.isMissingNode);
   const onRefreshStableDiffusionModels = data.onRefreshStableDiffusionModels as ((endpoint: string) => void) | undefined;
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
-  const inputConnectionCounts = (data.inputConnectionCounts as Record<string, number> | undefined) ?? {};
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
   const ports = getNodePorts(type, manifest, routeNode);
   const portTopBase = paramsCollapsed ? 14 : 34;
@@ -603,7 +709,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
       {ports.inputs.map((port, index) => (
         <React.Fragment key={port.id}>
           <span className="portLabel input" style={{ top: `${portLabelTop(index)}px` }}>
-            {port.maxConnections ? `${port.label ?? port.id} (${inputConnectionCounts[port.id] ?? 0}/${port.maxConnections})` : port.label ?? port.id}
+            {port.label ?? port.id}
           </span>
           <Handle
             className={`typedHandle ${port.kind}`}
@@ -691,14 +797,31 @@ function RouteNodeCard({ id, data }: NodeProps) {
           ) : null}
         </div>
       ) : null}
+      {!paramsCollapsed && isRemoteAiNode(type) ? (
+        <div className={`nodeTokenStatus ${openRouterConfigured ? "configured" : "missing"}`}>
+          <span>OpenRouter: {openRouterConfigured ? "key configured" : "missing"}</span>
+          {!openRouterConfigured ? (
+            <>
+              <strong>Uses OpenRouter by default</strong>
+              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureOpenRouter}>Configure OpenRouter</button>
+              <small>Direct mode remains available in Advanced for supported legacy providers.</small>
+            </>
+          ) : null}
+        </div>
+      ) : null}
       {!paramsCollapsed ? (
         <NodeInlineParams
           type={type}
+          manifest={manifest}
           params={params}
           connectedInputPorts={connectedInputPorts}
           promptLibrary={promptLibrary ?? { categories: [] }}
           onRefreshPromptLibrary={onRefreshPromptLibrary}
+          promptStatusFilter={promptStatusFilter}
+          onPromptStatusFilterChange={onPromptStatusFilterChange}
+          onPromptContextMenu={onPromptContextMenu}
           stableDiffusionModels={stableDiffusionModels}
+          openRouterModels={openRouterModels}
           onRefreshStableDiffusionModels={onRefreshStableDiffusionModels}
           onChange={patchParams}
           onBrowse={(kind) => onBrowseAsset?.(id, kind)}
@@ -727,32 +850,46 @@ function RouteNodeCard({ id, data }: NodeProps) {
 
 function NodeInlineParams({
   type,
+  manifest,
   params,
   connectedInputPorts,
   promptLibrary,
   onRefreshPromptLibrary,
+  promptStatusFilter,
+  onPromptStatusFilterChange,
+  onPromptContextMenu,
   stableDiffusionModels,
+  openRouterModels,
   onRefreshStableDiffusionModels,
   onChange,
   onBrowse,
   onOpenImage
 }: {
   type: string;
+  manifest?: NodeManifest;
   params: Record<string, unknown>;
   connectedInputPorts: Set<string>;
   promptLibrary: PromptLibraryData;
   onRefreshPromptLibrary?: () => void;
+  promptStatusFilter: PromptStatusFilter;
+  onPromptStatusFilterChange?: (filter: PromptStatusFilter) => void;
+  onPromptContextMenu?: (event: React.MouseEvent, prompt: PromptLibraryPrompt) => void;
   stableDiffusionModels: StableDiffusionModel[];
+  openRouterModels: OpenRouterModel[];
   onRefreshStableDiffusionModels?: (endpoint: string) => void;
   onChange: (patch: Record<string, unknown>) => void;
   onBrowse: (kind: AssetKind) => void;
   onOpenImage?: (image: ImageViewerState) => void;
 }) {
+  function updateTextParam(key: string, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>, transform: (value: string) => unknown = (value) => value) {
+    updateTextFieldPreservingCaret(event, (value) => onChange({ [key]: transform(value) }));
+  }
+
   if (type === "input.text") {
     return (
       <label className="nodeField">
         <span>value</span>
-        <textarea className="nodrag nopan nodeTextarea" value={String(params.value ?? "")} onChange={(event) => onChange({ value: event.target.value })} />
+        <textarea className="nodrag nopan nodeTextarea" value={String(params.value ?? "")} onChange={(event) => updateTextParam("value", event)} />
       </label>
     );
   }
@@ -761,13 +898,58 @@ function NodeInlineParams({
     return (
       <label className="nodeField">
         <span>template</span>
-        <textarea className="nodrag nopan nodeTextarea" value={String(params.template ?? "")} onChange={(event) => onChange({ template: event.target.value })} />
+        <textarea className="nodrag nopan nodeTextarea" value={String(params.template ?? "")} onChange={(event) => updateTextParam("template", event)} />
       </label>
     );
   }
 
+  if (type === "text.promptCompose") {
+    const separator = String(params.separator ?? "\n\n");
+    return (
+      <>
+        <label className="nodeField">
+          <span>separator</span>
+          <textarea className="nodrag nopan nodeTextarea compact" value={separator} onChange={(event) => updateTextParam("separator", event)} />
+        </label>
+        <div className="nodeGridFields">
+          <label className="nodeCheckField">
+            <input
+              className="nodrag nopan"
+              type="checkbox"
+              checked={params.trimParts !== false}
+              onChange={(event) => onChange({ trimParts: event.target.checked })}
+            />
+            <span>trimParts</span>
+          </label>
+          <label className="nodeCheckField">
+            <input
+              className="nodrag nopan"
+              type="checkbox"
+              checked={params.skipEmpty !== false}
+              onChange={(event) => onChange({ skipEmpty: event.target.checked })}
+            />
+            <span>skipEmpty</span>
+          </label>
+        </div>
+        <label className="nodeField">
+          <span>prefix</span>
+          <textarea className="nodrag nopan nodeTextarea compact" value={String(params.prefix ?? "")} onChange={(event) => updateTextParam("prefix", event)} />
+        </label>
+        <label className="nodeField">
+          <span>suffix</span>
+          <textarea className="nodrag nopan nodeTextarea compact" value={String(params.suffix ?? "")} onChange={(event) => updateTextParam("suffix", event)} />
+        </label>
+        <label className="nodeField">
+          <span>preview</span>
+          <textarea className="nodrag nopan nodeTextarea outputTextArea" value={composePromptPreview(params)} readOnly />
+          <small className="nodeConnectedHint">Connected inputs are composed when the node runs.</small>
+        </label>
+      </>
+    );
+  }
+
   if (type === "library.prompt") {
-    const categories = promptLibrary.categories;
+    const categories = filterPromptLibraryByStatus(promptLibrary, promptStatusFilter).categories;
     const selectedCategory = categories.find((category) => category.id === String(params.category ?? "")) ?? categories[0];
     const prompts = selectedCategory?.prompts ?? [];
     const selectedPromptId = String(params.promptId ?? "");
@@ -778,7 +960,17 @@ function NodeInlineParams({
     if (categories.length === 0) {
       return (
         <div className="assetParams">
-          <div className="nodeWarning">No prompts found. Add .prompt.md files to data/prompt-library/ and refresh.</div>
+          <div className="nodeWarning">{promptLibrary.categories.length === 0 ? "No prompts found. Add .prompt.md files to data/prompt-library/ and refresh." : "No prompts match the selected status filter."}</div>
+          <label className="nodeField">
+            <span>status</span>
+            <select
+              className="nodrag nopan nodeInput nodeSelect"
+              value={promptStatusFilter}
+              onChange={(event) => onPromptStatusFilterChange?.(event.target.value as PromptStatusFilter)}
+            >
+              {promptStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+            </select>
+          </label>
           <button className="nodeSmallButton nodrag nopan" type="button" onClick={onRefreshPromptLibrary}>Refresh Prompt Library</button>
         </div>
       );
@@ -786,6 +978,16 @@ function NodeInlineParams({
     return (
       <>
         <button className="nodeSmallButton nodrag nopan" type="button" onClick={onRefreshPromptLibrary}>Refresh Prompt Library</button>
+        <label className="nodeField">
+          <span>status</span>
+          <select
+            className="nodrag nopan nodeInput nodeSelect"
+            value={promptStatusFilter}
+            onChange={(event) => onPromptStatusFilterChange?.(event.target.value as PromptStatusFilter)}
+          >
+            {promptStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+          </select>
+        </label>
         <label className="nodeField">
           <span>category</span>
           <select
@@ -806,13 +1008,16 @@ function NodeInlineParams({
             <PromptLibraryPromptCard
               key={prompt.id}
               prompt={prompt}
-              selected={prompt.id === (displayPrompt?.id ?? "")}
+              selected={prompt.id === selectedPromptId && Boolean(selectedPrompt)}
               onSelect={() => onChange({ promptId: prompt.id, category: selectedCategory?.id ?? prompt.category ?? "", mode })}
+              onContextMenu={(event) => onPromptContextMenu?.(event, prompt)}
             />
           ))}
         </div>
         {displayPrompt?.description ? <div className="nodeHint">{displayPrompt.description}</div> : null}
-        {mode === "linked" && selectedPromptId && !selectedPrompt ? <div className="nodeWarning">Selected prompt was not found in the local library.</div> : null}
+        {mode === "linked" && selectedPromptId && !selectedPrompt ? (
+          <div className="nodeWarning">Linked prompt "{selectedCategory?.id ?? String(params.category ?? "")}/{selectedPromptId}" is not visible in this library view. Pick a prompt card to relink this node.</div>
+        ) : null}
         <label className="nodeField">
           <span>mode</span>
           <select className="nodrag nopan nodeInput nodeSelect" value={mode} onChange={(event) => onChange({ mode: event.target.value })}>
@@ -834,7 +1039,7 @@ function NodeInlineParams({
             className="nodrag nopan nodeTextarea outputTextArea"
             value={previewText}
             readOnly={mode === "linked"}
-            onChange={(event) => onChange({ embeddedText: event.target.value })}
+            onChange={(event) => updateTextParam("embeddedText", event)}
           />
         </label>
       </>
@@ -878,7 +1083,7 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span>model</span>
-          <input className="nodrag nopan nodeInput" value={String(params.model ?? "")} onChange={(event) => onChange({ model: event.target.value })} />
+        <input className="nodrag nopan nodeInput" value={String(params.model ?? "")} onChange={(event) => updateTextParam("model", event)} />
         </label>
         <label className="nodeField">
           <span>input</span>
@@ -886,11 +1091,13 @@ function NodeInlineParams({
             className="nodrag nopan nodeTextarea"
             value={JSON.stringify(params.input ?? {}, null, 2)}
             onChange={(event) => {
-              try {
-                onChange({ input: JSON.parse(event.target.value) });
-              } catch {
-                onChange({ input: event.target.value });
-              }
+              updateTextFieldPreservingCaret(event, (value) => {
+                try {
+                  onChange({ input: JSON.parse(value) });
+                } catch {
+                  onChange({ input: value });
+                }
+              });
             }}
           />
         </label>
@@ -908,13 +1115,13 @@ function NodeInlineParams({
             className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
             value={String(params.prompt ?? "")}
             disabled={promptConnected}
-            onChange={(event) => onChange({ prompt: event.target.value })}
+            onChange={(event) => updateTextParam("prompt", event)}
           />
           {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
         </label>
         <label className="nodeField">
           <span>negative</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={String(params.negative_prompt ?? "")} onChange={(event) => onChange({ negative_prompt: event.target.value })} />
+          <textarea className="nodrag nopan nodeTextarea compact" value={String(params.negative_prompt ?? "")} onChange={(event) => updateTextParam("negative_prompt", event)} />
         </label>
         <div className="nodeGridFields">
           {(["scale_factor", "dynamic", "creativity", "resemblance", "num_inference_steps", "seed"] as const).map((key) => (
@@ -924,11 +1131,117 @@ function NodeInlineParams({
                 className="nodrag nopan nodeInput"
                 inputMode="decimal"
                 value={String(params[key] ?? "").replace(".", ",")}
-                onChange={(event) => onChange({ [key]: event.target.value.replace(".", ",") })}
+                onChange={(event) => updateTextParam(key, event, (value) => value.replace(".", ","))}
               />
             </label>
           ))}
         </div>
+      </>
+    );
+  }
+
+  if (type === "ai.text") {
+    const systemPromptConnected = connectedInputPorts.has("systemPrompt");
+    const promptConnected = connectedInputPorts.has("prompt");
+    const model = String(params.model ?? "text.default");
+    return (
+      <>
+        <label className="nodeField">
+          <span>model</span>
+          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+            <option value="text.default">Auto / default text model</option>
+            {openRouterModels.filter((entry) => modelSupportsText(entry)).map((entry) => (
+              <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
+            ))}
+            {model && model !== "text.default" && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
+          </select>
+          <small className="nodeConnectedHint">{openRouterCostLabel(openRouterModels.find((entry) => entry.id === model))}</small>
+        </label>
+        <label className="nodeField">
+          <span>system prompt</span>
+          <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
+        </label>
+        <label className="nodeField">
+          <span>prompt</span>
+          <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
+        </label>
+        <details className="nodeAdvanced">
+          <summary>Advanced</summary>
+          <label className="nodeField">
+            <span>provider mode</span>
+            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.providerMode ?? "auto")} onChange={(event) => onChange({ providerMode: event.target.value })}>
+              <option value="auto">Auto</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="direct">Direct</option>
+            </select>
+          </label>
+          <div className="nodeGridFields">
+            <label className="nodeField"><span>temperature</span><input className="nodrag nopan nodeInput" inputMode="decimal" value={String(params.temperature ?? "")} onChange={(event) => updateTextParam("temperature", event, numericParam)} /></label>
+            <label className="nodeField"><span>max tokens</span><input className="nodrag nopan nodeInput" inputMode="numeric" value={String(params.max_tokens ?? "")} onChange={(event) => updateTextParam("max_tokens", event, numericParam)} /></label>
+          </div>
+        </details>
+      </>
+    );
+  }
+
+  if (type === "ai.image.generate") {
+    const promptConnected = connectedInputPorts.has("prompt");
+    const model = String(params.model ?? "image.nano-banana");
+    const connectionRoute = String(params.providerMode ?? "auto");
+    const modelOptions = imageGenerationModelOptions(openRouterModels, model);
+    const selectedModel = modelOptions.find((entry) => entry.id === model);
+    const routePreview = imageRoutePreview(selectedModel, connectionRoute);
+    return (
+      <>
+        <label className="nodeField">
+          <span>model</span>
+          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+            {modelOptions.map((entry) => (
+              <option key={entry.id} value={entry.id} disabled={entry.disabled}>{entry.disabled ? `${entry.label} (${entry.note})` : entry.label}</option>
+            ))}
+          </select>
+          <small className="nodeConnectedHint">{imageModelCostLabel(selectedModel)}</small>
+        </label>
+        <label className="nodeField">
+          <span>prompt</span>
+          <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
+        </label>
+        <div className="nodeGridFields">
+          <label className="nodeField">
+            <span>aspect ratio</span>
+            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.aspectRatio ?? "1:1")} onChange={(event) => onChange({ aspectRatio: event.target.value })}>
+              {["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label className="nodeField">
+            <span>quality</span>
+            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.imageSize ?? "2K")} onChange={(event) => onChange({ imageSize: event.target.value })}>
+              {["1K", "2K", "4K"].map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+        </div>
+        <details className="nodeAdvanced">
+          <summary>Advanced</summary>
+          <label className="nodeField">
+            <span>Connection route</span>
+            <select className="nodrag nopan nodeInput nodeSelect" value={connectionRoute} onChange={(event) => onChange({ providerMode: event.target.value })}>
+              <option value="auto">Auto</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="direct">Direct API</option>
+            </select>
+            <small className="nodeConnectedHint">{connectionRouteHelper(connectionRoute)}</small>
+          </label>
+          <div className="nodeRoutePreview">
+            <div><span>Selected model</span><strong>{routePreview.selectedModelLabel}</strong></div>
+            <div><span>Model slug</span><strong>{routePreview.selectedModelId}</strong></div>
+            <div><span>Connection route</span><strong>{routePreview.selectedConnectionRoute}</strong></div>
+            <div><span>Resolved provider</span><strong>{routePreview.resolvedProvider}</strong></div>
+            <div><span>Resolved route</span><strong>{routePreview.resolvedRoute}</strong></div>
+            <div><span>Image support</span><strong>{routePreview.supportsImageGeneration}</strong></div>
+            <div><span>Fallback</span><strong>{routePreview.fallbackUsed ? "yes" : "no"}</strong></div>
+            {routePreview.fallbackReason ? <div><span>Fallback reason</span><strong>{routePreview.fallbackReason}</strong></div> : null}
+          </div>
+        </details>
       </>
     );
   }
@@ -943,7 +1256,7 @@ function NodeInlineParams({
             className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
             value={String(params.prompt ?? "")}
             disabled={promptConnected}
-            onChange={(event) => onChange({ prompt: event.target.value })}
+            onChange={(event) => updateTextParam("prompt", event)}
           />
           {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
         </label>
@@ -988,7 +1301,7 @@ function NodeInlineParams({
             className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`}
             value={String(params.systemPrompt ?? "")}
             disabled={systemPromptConnected}
-            onChange={(event) => onChange({ systemPrompt: event.target.value })}
+            onChange={(event) => updateTextParam("systemPrompt", event)}
           />
           {systemPromptConnected ? <small className="nodeConnectedHint">System prompt comes from connected text input.</small> : null}
         </label>
@@ -998,7 +1311,7 @@ function NodeInlineParams({
             className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
             value={String(params.prompt ?? "")}
             disabled={promptConnected}
-            onChange={(event) => onChange({ prompt: event.target.value })}
+            onChange={(event) => updateTextParam("prompt", event)}
           />
           {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
         </label>
@@ -1030,7 +1343,7 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span>endpoint</span>
-          <input className="nodrag nopan nodeInput" value={endpoint} onChange={(event) => onChange({ endpoint: event.target.value })} />
+          <input className="nodrag nopan nodeInput" value={endpoint} onChange={(event) => updateTextParam("endpoint", event)} />
         </label>
         <label className="nodeField">
           <span>model</span>
@@ -1051,7 +1364,7 @@ function NodeInlineParams({
         {stableDiffusionModels.length === 0 ? (
           <label className="nodeField">
             <span>manual model</span>
-            <input className="nodrag nopan nodeInput" value={selectedModel} placeholder="Optional checkpoint title" onChange={(event) => onChange({ model: event.target.value })} />
+            <input className="nodrag nopan nodeInput" value={selectedModel} placeholder="Optional checkpoint title" onChange={(event) => updateTextParam("model", event)} />
           </label>
         ) : null}
         <label className="nodeField">
@@ -1060,7 +1373,7 @@ function NodeInlineParams({
             className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
             value={String(params.prompt ?? "")}
             disabled={promptConnected}
-            onChange={(event) => onChange({ prompt: event.target.value })}
+            onChange={(event) => updateTextParam("prompt", event)}
           />
           {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
         </label>
@@ -1070,20 +1383,20 @@ function NodeInlineParams({
             className={`nodrag nopan nodeTextarea compact ${negativeConnected ? "nodeParamDisabled" : ""}`}
             value={String(params.negativePrompt ?? "")}
             disabled={negativeConnected}
-            onChange={(event) => onChange({ negativePrompt: event.target.value })}
+            onChange={(event) => updateTextParam("negativePrompt", event)}
           />
         </label>
         <div className="nodeGridFields">
           {(["width", "height", "steps", "cfgScale", "batchSize", "seed"] as const).map((key) => (
             <label className="nodeField" key={key}>
               <span>{key}</span>
-              <input className="nodrag nopan nodeInput" inputMode="decimal" value={String(params[key] ?? "")} onChange={(event) => onChange({ [key]: event.target.value })} />
+              <input className="nodrag nopan nodeInput" inputMode="decimal" value={String(params[key] ?? "")} onChange={(event) => updateTextParam(key, event)} />
             </label>
           ))}
         </div>
         <label className="nodeField">
           <span>sampler</span>
-          <input className="nodrag nopan nodeInput" value={String(params.samplerName ?? "")} onChange={(event) => onChange({ samplerName: event.target.value })} />
+          <input className="nodrag nopan nodeInput" value={String(params.samplerName ?? "")} onChange={(event) => updateTextParam("samplerName", event)} />
         </label>
       </>
     );
@@ -1095,7 +1408,7 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span>url</span>
-          <input className="nodrag nopan nodeInput" value={String(params.url ?? "")} onChange={(event) => onChange({ url: event.target.value })} />
+          <input className="nodrag nopan nodeInput" value={String(params.url ?? "")} onChange={(event) => updateTextParam("url", event)} />
         </label>
         <div className="nodeGridFields">
           <label className="nodeField">
@@ -1113,11 +1426,11 @@ function NodeInlineParams({
         </div>
         <label className="nodeField">
           <span>headers JSON</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={formatJsonish(params.headers ?? {})} onChange={(event) => onChange({ headers: event.target.value })} />
+          <textarea className="nodrag nopan nodeTextarea compact" value={formatJsonish(params.headers ?? {})} onChange={(event) => updateTextParam("headers", event)} />
         </label>
         <label className="nodeField">
           <span>query JSON</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={formatJsonish(params.query ?? {})} onChange={(event) => onChange({ query: event.target.value })} />
+          <textarea className="nodrag nopan nodeTextarea compact" value={formatJsonish(params.query ?? {})} onChange={(event) => updateTextParam("query", event)} />
         </label>
         <label className="nodeField">
           <span>body mode</span>
@@ -1130,7 +1443,7 @@ function NodeInlineParams({
         {bodyMode !== "none" ? (
           <label className="nodeField">
             <span>body</span>
-            <textarea className="nodrag nopan nodeTextarea" value={String(params.body ?? "")} onChange={(event) => onChange({ body: event.target.value })} />
+            <textarea className="nodrag nopan nodeTextarea" value={String(params.body ?? "")} onChange={(event) => updateTextParam("body", event)} />
           </label>
         ) : null}
       </>
@@ -1141,7 +1454,7 @@ function NodeInlineParams({
     return (
       <label className="nodeField">
         <span>title</span>
-        <input className="nodrag nopan nodeInput" value={String(params.title ?? "Preview")} onChange={(event) => onChange({ title: event.target.value })} />
+        <input className="nodrag nopan nodeInput" value={String(params.title ?? "Preview")} onChange={(event) => updateTextParam("title", event)} />
       </label>
     );
   }
@@ -1155,11 +1468,11 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span>message</span>
-          <input className="nodrag nopan nodeInput" value={String(params.message ?? "")} onChange={(event) => onChange({ message: event.target.value })} />
+          <input className="nodrag nopan nodeInput" value={String(params.message ?? "")} onChange={(event) => updateTextParam("message", event)} />
         </label>
         <label className="nodeField">
           <span>value</span>
-          <textarea className="nodrag nopan nodeTextarea" value={String(params.value ?? "")} onChange={(event) => onChange({ value: event.target.value })} />
+          <textarea className="nodrag nopan nodeTextarea" value={String(params.value ?? "")} onChange={(event) => updateTextParam("value", event)} />
         </label>
       </>
     );
@@ -1170,20 +1483,153 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span>filename</span>
-          <input className="nodrag nopan nodeInput" value={String(params.filename ?? "")} onChange={(event) => onChange({ filename: event.target.value })} />
+          <input className="nodrag nopan nodeInput" value={String(params.filename ?? "")} onChange={(event) => updateTextParam("filename", event)} />
         </label>
         <label className="nodeField">
           <span>from</span>
-          <textarea className="nodrag nopan nodeTextarea" value={String(params.from ?? "")} onChange={(event) => onChange({ from: event.target.value })} />
+          <textarea className="nodrag nopan nodeTextarea" value={String(params.from ?? "")} onChange={(event) => updateTextParam("from", event)} />
         </label>
       </>
     );
   }
 
+  if (manifest?.params?.length) {
+    return <GenericManifestParams manifest={manifest} params={params} onChange={onChange} updateTextParam={updateTextParam} />;
+  }
+
   return null;
 }
 
-function PromptLibraryPromptCard({ prompt, selected, onSelect }: { prompt: PromptLibraryPrompt; selected: boolean; onSelect: () => void }) {
+function GenericManifestParams({
+  manifest,
+  params,
+  onChange,
+  updateTextParam
+}: {
+  manifest: NodeManifest;
+  params: Record<string, unknown>;
+  onChange: (patch: Record<string, unknown>) => void;
+  updateTextParam: (key: string, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>, transform?: (value: string) => unknown) => void;
+}) {
+  return (
+    <>
+      {manifest.permissions?.env?.length ? (
+        <div className="nodeHint">Requires env: {manifest.permissions.env.join(", ")}</div>
+      ) : null}
+      {manifest.params?.map((param) => {
+        const control = manifest.ui?.params?.[param.id] ?? {};
+        const value = params[param.id] ?? param.default ?? "";
+        const label = param.label ?? param.id;
+        const options = control.options ?? [];
+        if (options.length > 0 || control.control === "select") {
+          return (
+            <label className="nodeField" key={param.id}>
+              <span>{label}</span>
+              <select className="nodrag nopan nodeInput nodeSelect" value={String(value)} onChange={(event) => onChange({ [param.id]: event.target.value })}>
+                {options.map((option) => {
+                  const optionValue = typeof option === "string" ? option : option.value;
+                  const optionLabel = typeof option === "string" ? option : option.label ?? option.value;
+                  return <option key={optionValue} value={optionValue}>{optionLabel}</option>;
+                })}
+              </select>
+              {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
+            </label>
+          );
+        }
+        if (param.type === "boolean" || control.control === "checkbox") {
+          return (
+            <label className="nodeCheckField" key={param.id}>
+              <input className="nodrag nopan" type="checkbox" checked={Boolean(value)} onChange={(event) => onChange({ [param.id]: event.target.checked })} />
+              <span>{label}</span>
+            </label>
+          );
+        }
+        if (param.type === "number" || control.control === "number") {
+          return (
+            <label className="nodeField" key={param.id}>
+              <span>{label}</span>
+              <input className="nodrag nopan nodeInput" inputMode="decimal" value={String(value)} onChange={(event) => updateTextParam(param.id, event, numericParam)} />
+              {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
+            </label>
+          );
+        }
+        const multiline = control.multiline === true || control.control === "textarea" || param.type === "json" || String(value).length > 80;
+        return (
+          <label className="nodeField" key={param.id}>
+            <span>{label}</span>
+            {multiline ? (
+              <textarea
+                className="nodrag nopan nodeTextarea"
+                value={typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+                placeholder={control.placeholder}
+                onChange={(event) => updateTextParam(param.id, event)}
+              />
+            ) : (
+              <input className="nodrag nopan nodeInput" value={String(value)} placeholder={control.placeholder} onChange={(event) => updateTextParam(param.id, event)} />
+            )}
+            {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
+          </label>
+        );
+      })}
+    </>
+  );
+}
+
+function composePromptPreview(params: Record<string, unknown>): string {
+  const trimParts = params.trimParts !== false;
+  const skipEmpty = params.skipEmpty !== false;
+  const separator = String(params.separator ?? "\n\n");
+  const slotParts = promptComposeFixedSlots().flatMap((slot) => [1, 2, 3].map((index) => ({ slot, index, raw: params[`${slot.id}${index}`] })));
+  const legacyParts = [1, 2, 3, 4, 5, 6].map((index) => ({ slot: { id: `text${index}`, label: `Text ${index}` }, index: 1, raw: params[`text${index}`] }));
+  const hasSlotParts = slotParts.some((part) => part.raw !== undefined);
+  const values = hasSlotParts ? slotParts : legacyParts;
+  const parts = values
+    .map(({ slot, index, raw }) => {
+      const text = raw === undefined || raw === null ? "" : String(raw);
+      const value = trimParts ? text.trim() : text;
+      return { label: slot.label, index, value };
+    })
+    .filter((part) => !skipEmpty || part.value !== "");
+  const body = parts
+    .map((part) => hasSlotParts ? `${part.label}${part.index > 1 ? ` ${part.index}` : ""}:\n${part.value}` : part.value)
+    .join(separator);
+  return `${String(params.prefix ?? "")}${body}${String(params.suffix ?? "")}`;
+}
+
+function promptComposeFixedSlots(): Array<{ id: string; label: string }> {
+  return [
+    { id: "subject", label: "Subject" },
+    { id: "style", label: "Style" },
+    { id: "scene", label: "Scene" }
+  ];
+}
+
+function updateTextFieldPreservingCaret(
+  event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  commit: (value: string) => void
+) {
+  const target = event.currentTarget;
+  const selectionStart = target.selectionStart;
+  const selectionEnd = target.selectionEnd;
+  const selectionDirection = target.selectionDirection;
+  commit(target.value);
+  window.requestAnimationFrame(() => {
+    if (document.activeElement !== target || selectionStart === null || selectionEnd === null) return;
+    target.setSelectionRange(selectionStart, selectionEnd, selectionDirection ?? "none");
+  });
+}
+
+function PromptLibraryPromptCard({
+  prompt,
+  selected,
+  onSelect,
+  onContextMenu
+}: {
+  prompt: PromptLibraryPrompt;
+  selected: boolean;
+  onSelect: () => void;
+  onContextMenu?: (event: React.MouseEvent) => void;
+}) {
   const [previewFailed, setPreviewFailed] = useState(false);
   const previewSrc = prompt.previewImage && !previewFailed ? promptPreviewSrc(prompt) : "";
   return (
@@ -1191,9 +1637,18 @@ function PromptLibraryPromptCard({ prompt, selected, onSelect }: { prompt: Promp
       className={`nodePromptCard nodrag nopan ${previewSrc ? "withPreview" : ""} ${selected ? "selected" : ""}`}
       type="button"
       onClick={onSelect}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onContextMenu?.(event);
+      }}
+      title="Right-click for prompt actions"
     >
       {previewSrc ? <img src={previewSrc} alt="" onError={() => setPreviewFailed(true)} /> : null}
-      <strong>{prompt.title}</strong>
+      <div className="nodePromptCardHeader">
+        <strong>{prompt.title}</strong>
+        <span className={`promptStatusBadge ${prompt.status ?? "published"}`}>{prompt.status ?? "published"}</span>
+      </div>
       {prompt.description ? <span>{truncateText(prompt.description, 80)}</span> : null}
     </button>
   );
@@ -1333,6 +1788,7 @@ type PromptAssetDraft = {
   sourceNodeId: string;
   sourceRouteId: string;
   sourceRunId: string;
+  sourceOutputId: string;
   imageSrc: string;
   imagePath: string;
   generalize: boolean;
@@ -1358,11 +1814,34 @@ type ContextMenuState = {
   nodeId?: string;
 };
 
+type LibraryItemMenuState = {
+  clientX: number;
+  clientY: number;
+  type: string;
+  sectionId: string;
+  sectionTitle: string;
+  sectionTypes: string[];
+};
+
+type LibrarySectionMenuState = {
+  clientX: number;
+  clientY: number;
+  sectionId: string;
+  sectionTitle: string;
+  sectionTypes: string[];
+};
+
 type PromptAssetMenuState = {
   clientX: number;
   clientY: number;
   nodeId: string;
   result: NodeRunResult;
+};
+
+type PromptLibraryMenuState = {
+  clientX: number;
+  clientY: number;
+  prompt: PromptLibraryPrompt;
 };
 
 type PortSpec = {
@@ -1390,6 +1869,16 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
   if (type === "input.image") return { inputs: [], outputs: [{ id: "image", kind: "image" }] };
   if (type === "input.video") return { inputs: [], outputs: [{ id: "video", kind: "video" }] };
   if (type === "library.prompt") return { inputs: [], outputs: [{ id: "text", kind: "text" }] };
+  if (type === "text.promptCompose") {
+    return {
+      inputs: [
+        { id: "subject", kind: "text", label: "Subject", maxConnections: 24 },
+        { id: "style", kind: "text", label: "Style", maxConnections: 24 },
+        { id: "scene", kind: "text", label: "Scene", maxConnections: 24 }
+      ],
+      outputs: [{ id: "text", kind: "text" }]
+    };
+  }
   if (type === "compound.input") return { inputs: [], outputs: [{ id: "value", kind: portKindFromManifest(String(routeNode?.params?.kind ?? "data")), label: "value" }] };
   if (type === "compound.output") return { inputs: [{ id: "value", kind: portKindFromManifest(String(routeNode?.params?.kind ?? "data")), label: "value" }], outputs: [] };
   if (type === "utility.null") return { inputs: [{ id: "input", kind: "data", label: "Any" }], outputs: [] };
@@ -1456,6 +1945,30 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
     };
   }
   if (type === "preview.image") return { inputs: [{ id: "image", kind: "image" }], outputs: [{ id: "image", kind: "image" }] };
+  if (type === "ai.text") {
+    return {
+      inputs: [
+        { id: "systemPrompt", kind: "text", label: "system" },
+        { id: "prompt", kind: "text" }
+      ],
+      outputs: [
+        { id: "text", kind: "text" },
+        { id: "output", kind: "json", label: "JSON" }
+      ]
+    };
+  }
+  if (type === "ai.image.generate") {
+    return {
+      inputs: [
+        { id: "images", kind: "image", maxConnections: 14 },
+        { id: "prompt", kind: "text" }
+      ],
+      outputs: [
+        { id: "image", kind: "image" },
+        { id: "output", kind: "json", label: "JSON" }
+      ]
+    };
+  }
   if (type === "replicate.model") return { inputs: [{ id: "input", kind: "json", label: "JSON" }], outputs: [{ id: "output", kind: "json", label: "JSON" }] };
   if (type === "output.text") return { inputs: [{ id: "from", kind: "text" }], outputs: [{ id: "text", kind: "text" }] };
   if (type === "output.file") return { inputs: [{ id: "from", kind: "text" }], outputs: [] };
@@ -1494,22 +2007,28 @@ function catalogItemPorts(item: NodeCatalogItem | (typeof library)[number]): { i
   return getNodePorts(item.type, "manifest" in item ? item.manifest : undefined);
 }
 
-function groupNodeCatalog(items: NodeCatalogItem[]): Array<{ id: string; title: string; items: NodeCatalogItem[] }> {
-  const knownGroups = new Map(librarySections.map((section) => [section.id, { ...section, items: [] as NodeCatalogItem[] }]));
+function groupNodeCatalog(items: NodeCatalogItem[], layout: NodeLibraryLayout): Array<{ id: string; title: string; items: NodeCatalogItem[] }> {
+  const hiddenTypes = new Set(layout.hiddenTypes);
+  const visibleItems = items.filter((entry) => entry.enabled !== false && !hiddenTypes.has(entry.type));
+  const itemByType = new Map(visibleItems.map((item) => [item.type, item]));
+  const assignedTypes = new Set<string>();
+  const groups = layout.groups.map((group) => {
+    const groupItems = group.types.flatMap((type) => {
+      const item = itemByType.get(type);
+      if (!item) return [];
+      assignedTypes.add(type);
+      return [item];
+    });
+    return { id: group.id, title: group.title, items: sortCatalogItems(groupItems, group.types) };
+  });
   const extraGroups = new Map<string, NodeCatalogItem[]>();
-  for (const item of items.filter((entry) => entry.enabled !== false)) {
-    const section = librarySections.find((entry) => entry.types.includes(item.type));
-    if (section) {
-      knownGroups.get(section.id)?.items.push(item);
-      continue;
-    }
+  for (const item of visibleItems) {
+    if (assignedTypes.has(item.type)) continue;
     const title = item.manifest?.category ?? fallbackSectionTitle(item.type);
     extraGroups.set(title, [...(extraGroups.get(title) ?? []), item]);
   }
   return [
-    ...[...knownGroups.values()]
-      .map((section) => ({ id: section.id, title: section.title, items: sortCatalogItems(section.items, section.types) }))
-      .filter((section) => section.items.length > 0),
+    ...groups,
     ...[...extraGroups.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([title, sectionItems]) => ({ id: title.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "nodes", title, items: sortCatalogItems(sectionItems) }))
@@ -1533,6 +2052,62 @@ function sortCatalogItems(items: NodeCatalogItem[], orderedTypes: string[] = [])
     if (leftIndex !== -1 || rightIndex !== -1) return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) - (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex);
     return catalogItemTitle(left).localeCompare(catalogItemTitle(right));
   });
+}
+
+function catalogItemMatchesSearch(item: NodeCatalogItem, query: string): boolean {
+  if (!query) return true;
+  const manifest = item.manifest;
+  const searchable = [
+    item.title,
+    item.type,
+    item.description,
+    manifest?.title,
+    manifest?.id,
+    manifest?.description,
+    manifest?.category,
+    manifest?.author.name,
+    manifest?.origin,
+    manifest?.source,
+    ...(manifest?.tags ?? []),
+    ...(manifest?.inputs ?? []).flatMap((port) => [port.id, port.type, port.label]),
+    ...(manifest?.outputs ?? []).flatMap((port) => [port.id, port.type, port.label]),
+    ...(manifest?.params ?? []).flatMap((param) => [param.id, param.type, param.label])
+  ];
+  return searchable.some((value) => String(value ?? "").toLowerCase().includes(query));
+}
+
+function defaultNodeLibraryLayout(): NodeLibraryLayout {
+  return { groups: librarySections.map((section) => ({ id: section.id, title: section.title, types: [...section.types] })), hiddenTypes: [] };
+}
+
+function loadNodeLibraryLayout(): NodeLibraryLayout {
+  try {
+    const text = localStorage.getItem(NODE_LIBRARY_LAYOUT_STORAGE_KEY);
+    if (!text) return defaultNodeLibraryLayout();
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return defaultNodeLibraryLayout();
+    const record = parsed as { groups?: unknown; hiddenTypes?: unknown };
+    const groups = Array.isArray(record.groups)
+      ? record.groups.flatMap((group) => {
+          if (!group || typeof group !== "object" || Array.isArray(group)) return [];
+          const candidate = group as { id?: unknown; title?: unknown; types?: unknown };
+          if (typeof candidate.id !== "string" || typeof candidate.title !== "string" || !Array.isArray(candidate.types)) return [];
+          return [{ id: candidate.id, title: candidate.title, types: candidate.types.filter((type): type is string => typeof type === "string") }];
+        })
+      : [];
+    const hiddenTypes = Array.isArray(record.hiddenTypes) ? record.hiddenTypes.filter((type): type is string => typeof type === "string") : [];
+    return { groups: groups.length > 0 ? groups : defaultNodeLibraryLayout().groups, hiddenTypes };
+  } catch {
+    return defaultNodeLibraryLayout();
+  }
+}
+
+function saveNodeLibraryLayout(layout: NodeLibraryLayout): void {
+  try {
+    localStorage.setItem(NODE_LIBRARY_LAYOUT_STORAGE_KEY, JSON.stringify(layout));
+  } catch {
+    // Library layout is a local Studio preference; route editing can continue without it.
+  }
 }
 
 function withBuiltInCatalogItems(items: NodeCatalogItem[]): NodeCatalogItem[] {
@@ -1781,10 +2356,15 @@ function isGeminiNode(type: string): boolean {
   return type === "gemini.nano-banana-2" || type === "gemini.llm";
 }
 
+function isRemoteAiNode(type: string): boolean {
+  return type === "ai.text" || type === "ai.image.generate";
+}
+
 function executorKind(type: string, manifest?: NodeManifest): string {
   if (manifest?.origin && manifest.origin !== "bundled") return "custom";
   if (manifest?.executor.type === "plugin") return "custom";
   if (type.startsWith("local.")) return "local";
+  if (type.startsWith("ai.")) return "openrouter";
   if (type.startsWith("gemini.")) return "gemini";
   if (type.startsWith("replicate.")) return "replicate";
   if (type.startsWith("http.")) return "http";
@@ -1797,6 +2377,7 @@ function executorLabel(type: string, manifest?: NodeManifest): string {
   if (manifest?.executor.type === "declarative") return "declarative";
   const kind = executorKind(type, manifest);
   if (kind === "gemini") return "Gemini";
+  if (kind === "openrouter") return "OpenRouter";
   if (kind === "replicate") return "Replicate";
   if (kind === "http") return "HTTP";
   if (kind === "local") return "local";
@@ -1816,12 +2397,15 @@ function nodeIcon(type: string) {
   if (type === "input.image") return <ImageIcon size={15} />;
   if (type === "input.video") return <Video size={15} />;
   if (type === "library.prompt") return <BookOpen size={15} />;
+  if (type === "text.promptCompose") return <Braces size={15} />;
   if (type === "compound.input") return <ChevronRight size={15} />;
   if (type === "compound.output") return <ChevronLeft size={15} />;
   if (type === "transform.template") return <Braces size={15} />;
   if (type === "replicate.clarity-upscaler") return <Wand2 size={15} />;
   if (type === "replicate.model") return <span className="providerGlyph">R</span>;
   if (type === "gemini.llm") return <Type size={15} />;
+  if (type === "ai.text") return <Type size={15} />;
+  if (type === "ai.image.generate") return <ImageIcon size={15} />;
   if (type === "gemini.nano-banana-2") return <Sparkles size={15} />;
   if (type === "local.stableDiffusion.textToImage") return <Cpu size={15} />;
   if (type === "http.request") return <Globe size={15} />;
@@ -1836,8 +2420,10 @@ function nodeIcon(type: string) {
 
 function nodeIconClass(type: string): string {
   if (type.startsWith("input.")) return "input";
+  if (type.startsWith("ai.")) return "gemini";
   if (type === "compound.input") return "input";
   if (type.startsWith("library.")) return "transform";
+  if (type.startsWith("text.")) return "transform";
   if (type.startsWith("output.")) return "output";
   if (type === "compound.output") return "output";
   if (type.startsWith("replicate.")) return "replicate";
@@ -1931,6 +2517,54 @@ function loadInitialRoute(): { route: RouteDoc; loadedSavedProject: boolean } {
   }
 }
 
+function loadLibraryNodeMetadata(): LibraryNodeMetadata {
+  try {
+    const text = localStorage.getItem(LIBRARY_NODE_METADATA_STORAGE_KEY);
+    if (!text) return {};
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).flatMap(([id, value]) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+        const record = value as { status?: unknown; order?: unknown };
+        const status = isLibraryNodeStatus(record.status) ? record.status : undefined;
+        const order = typeof record.order === "number" && Number.isFinite(record.order) ? record.order : undefined;
+        return [[id, { status, order }]];
+      })
+    );
+  } catch {
+    return {};
+  }
+}
+
+function saveLibraryNodeMetadata(metadata: LibraryNodeMetadata): void {
+  try {
+    localStorage.setItem(LIBRARY_NODE_METADATA_STORAGE_KEY, JSON.stringify(metadata));
+  } catch {
+    // Metadata is a UI convenience; route editing should keep working if storage is unavailable.
+  }
+}
+
+function isLibraryNodeStatus(value: unknown): value is LibraryNodeStatus {
+  return typeof value === "string" && libraryNodeStatuses.some((status) => status.id === value);
+}
+
+function libraryNodeStatusLabel(status: LibraryNodeStatus): string {
+  return libraryNodeStatuses.find((item) => item.id === status)?.label ?? status;
+}
+
+function defaultLibraryNodeStatus(node: NodeManifest): LibraryNodeStatus {
+  return node.enabled === false ? "archived" : "candidate";
+}
+
+function libraryNodeStatus(node: NodeManifest, metadata: LibraryNodeMetadata): LibraryNodeStatus {
+  return metadata[node.id]?.status ?? defaultLibraryNodeStatus(node);
+}
+
+function libraryNodeOrder(node: NodeManifest, metadata: LibraryNodeMetadata, fallbackOrder: number): number {
+  return metadata[node.id]?.order ?? fallbackOrder;
+}
+
 function flowToNodeRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc, targetNodeId: string): RouteDoc {
   const included = new Set<string>([targetNodeId]);
   let changed = true;
@@ -1973,6 +2607,12 @@ function App() {
   const [replicateConfigured, setReplicateConfigured] = useState(false);
   const [geminiToken, setGeminiToken] = useState("");
   const [geminiConfigured, setGeminiConfigured] = useState(false);
+  const [openRouterToken, setOpenRouterToken] = useState("");
+  const [openRouterSettings, setOpenRouterSettings] = useState<OpenRouterSettings>({ configured: false });
+  const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
+  const [openRouterDefaultModel, setOpenRouterDefaultModel] = useState("text.default");
+  const [openRouterBudgetWarningUsd, setOpenRouterBudgetWarningUsd] = useState("");
+  const [providerLinks, setProviderLinks] = useState<ProviderLinks>({});
   const [apiConnected, setApiConnected] = useState(false);
   const [apiError, setApiError] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
@@ -1982,14 +2622,23 @@ function App() {
   const [bottomCollapsed, setBottomCollapsed] = useState(true);
   const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
   const [promptLibrary, setPromptLibrary] = useState<PromptLibraryData>(DEFAULT_PROMPT_LIBRARY);
+  const [promptLibraryStatusFilter, setPromptLibraryStatusFilter] = useState<PromptStatusFilter>("published");
   const [stableDiffusionModels, setStableDiffusionModels] = useState<StableDiffusionModel[]>([]);
   const [nodeCatalog, setNodeCatalog] = useState<NodeCatalogItem[]>(() => library.map((item) => ({ type: item.type, title: item.label, params: item.params })));
+  const [nodeSearch, setNodeSearch] = useState("");
+  const [showHiddenNodes, setShowHiddenNodes] = useState(false);
   const [installedNodes, setInstalledNodes] = useState<NodeManifest[]>([]);
   const [nodeUrl, setNodeUrl] = useState("");
   const [nodePackagePath, setNodePackagePath] = useState("");
   const [libraryUrl, setLibraryUrl] = useState("");
   const [libraryPreview, setLibraryPreview] = useState<NodeLibraryPreview | null>(null);
   const [selectedLibraryNodeIds, setSelectedLibraryNodeIds] = useState<Record<string, boolean>>({});
+  const [libraryInstallStatus, setLibraryInstallStatus] = useState<LibraryNodeStatus>("candidate");
+  const [libraryNodeMetadata, setLibraryNodeMetadata] = useState<LibraryNodeMetadata>(() => loadLibraryNodeMetadata());
+  const [libraryStatusFilter, setLibraryStatusFilter] = useState<LibraryStatusFilter>("all");
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [librarySortMode, setLibrarySortMode] = useState<LibrarySortMode>("status");
+  const [nodeLibraryLayout, setNodeLibraryLayout] = useState<NodeLibraryLayout>(() => loadNodeLibraryLayout());
   const [exampleMenuOpen, setExampleMenuOpen] = useState(false);
   const [docsMenuOpen, setDocsMenuOpen] = useState(false);
   const [activeDoc, setActiveDoc] = useState<StudioDocEntry | null>(null);
@@ -1997,12 +2646,15 @@ function App() {
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   const [collapsedLibrarySections, setCollapsedLibrarySections] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(librarySections.map((section) => [section.id, true]))
+    () => ({})
   );
   const [pendingConnectionStart, setPendingConnectionStart] = useState<PendingConnectionStart | null>(null);
   const [connectionNodeMenu, setConnectionNodeMenu] = useState<ConnectionNodeMenuState | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [libraryItemMenu, setLibraryItemMenu] = useState<LibraryItemMenuState | null>(null);
+  const [librarySectionMenu, setLibrarySectionMenu] = useState<LibrarySectionMenuState | null>(null);
   const [promptAssetMenu, setPromptAssetMenu] = useState<PromptAssetMenuState | null>(null);
+  const [promptLibraryMenu, setPromptLibraryMenu] = useState<PromptLibraryMenuState | null>(null);
   const [promptAssetDraft, setPromptAssetDraft] = useState<PromptAssetDraft | null>(null);
   const [promptAssetError, setPromptAssetError] = useState("");
   const [promptAssetSaving, setPromptAssetSaving] = useState(false);
@@ -2013,7 +2665,52 @@ function App() {
   const contextRouteNode = contextNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
   const selectedEdgeCount = edges.filter((edge) => edge.selected).length;
-  const catalogSections = useMemo(() => groupNodeCatalog(nodeCatalog), [nodeCatalog]);
+  const catalogSections = useMemo(() => groupNodeCatalog(nodeCatalog, nodeLibraryLayout), [nodeCatalog, nodeLibraryLayout]);
+  const nodeSearchQuery = nodeSearch.trim().toLowerCase();
+  const hiddenNodeTypes = useMemo(() => new Set(nodeLibraryLayout.hiddenTypes), [nodeLibraryLayout.hiddenTypes]);
+  const hiddenNodeCount = nodeCatalog.filter((item) => item.enabled !== false && hiddenNodeTypes.has(item.type)).length;
+  const visibleCatalogSections = useMemo(
+    () => {
+      const includeHidden = nodeSearchQuery || showHiddenNodes;
+      const sections = includeHidden ? groupNodeCatalog(nodeCatalog, { ...nodeLibraryLayout, hiddenTypes: [] }) : catalogSections;
+      return sections
+        .map((section) => {
+          const routeItems = routeStack.length > 0 ? section.items : section.items.filter((item) => !isCompoundInterfaceType(item.type));
+          const items = nodeSearchQuery ? routeItems.filter((item) => catalogItemMatchesSearch(item, nodeSearchQuery)) : routeItems;
+          return { ...section, items };
+        })
+        .filter((section) => !nodeSearchQuery || section.items.length > 0);
+    },
+    [catalogSections, nodeCatalog, nodeLibraryLayout, nodeSearchQuery, routeStack.length, showHiddenNodes]
+  );
+  const visibleCatalogItemCount = visibleCatalogSections.reduce((sum, section) => sum + section.items.length, 0);
+  const librarySelectedCount = Object.values(selectedLibraryNodeIds).filter(Boolean).length;
+  const libraryStatusCounts = useMemo(() => {
+    const counts: Record<LibraryNodeStatus, number> = { draft: 0, candidate: 0, approved: 0, published: 0, archived: 0 };
+    for (const node of installedNodes) counts[libraryNodeStatus(node, libraryNodeMetadata)] += 1;
+    return counts;
+  }, [installedNodes, libraryNodeMetadata]);
+  const visibleInstalledNodes = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase();
+    const withIndex = installedNodes.map((node, index) => ({
+      node,
+      status: libraryNodeStatus(node, libraryNodeMetadata),
+      order: libraryNodeOrder(node, libraryNodeMetadata, index)
+    }));
+    return withIndex
+      .filter(({ node, status }) => {
+        if (libraryStatusFilter !== "all" && status !== libraryStatusFilter) return false;
+        if (!query) return true;
+        return [node.title, node.id, node.description, node.category, node.author.name, node.source].some((value) => String(value ?? "").toLowerCase().includes(query));
+      })
+      .sort((left, right) => {
+        if (librarySortMode === "title") return left.node.title.localeCompare(right.node.title) || left.node.id.localeCompare(right.node.id);
+        if (librarySortMode === "manual") return left.order - right.order || left.node.title.localeCompare(right.node.title);
+        const leftStatus = libraryNodeStatuses.findIndex((status) => status.id === left.status);
+        const rightStatus = libraryNodeStatuses.findIndex((status) => status.id === right.status);
+        return leftStatus - rightStatus || left.order - right.order || left.node.title.localeCompare(right.node.title);
+      });
+  }, [installedNodes, libraryNodeMetadata, librarySearch, librarySortMode, libraryStatusFilter]);
   const routeBreadcrumbs = useMemo(
     () =>
       routeStack.map((frame) => {
@@ -2034,6 +2731,7 @@ function App() {
           onBrowseAsset: browseAsset,
           onConfigureReplicate: openReplicateSettings,
           onConfigureGemini: openGeminiSettings,
+          onConfigureOpenRouter: openOpenRouterSettings,
           onOpenImage: setImageViewer,
           onImageResultContextMenu: openPromptAssetMenu,
           onRunNodeOnly: runNodeOnly,
@@ -2041,26 +2739,40 @@ function App() {
           onOpenSubroute: openSubroute,
           onUncollapse: uncollapseCompoundNode,
           onRefreshPromptLibrary: refreshPromptLibraryData,
+          promptStatusFilter: promptLibraryStatusFilter,
+          onPromptStatusFilterChange: setPromptLibraryStatusFilter,
+          onPromptContextMenu: openPromptLibraryMenu,
           onRefreshStableDiffusionModels: refreshStableDiffusionModels,
           connectedInputPorts: edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle).filter((handle): handle is string => Boolean(handle)),
-          inputConnectionCounts: countInputConnections(edges, node.id),
           canRunNodeOnly: canRunNodeOnly(node.id),
           promptLibrary,
           stableDiffusionModels,
+          openRouterConfigured: openRouterSettings.configured,
+          openRouterModels,
           replicateConfigured,
           geminiConfigured,
           result: runResult?.nodeResults?.[node.id]
         }
       })),
-    [nodes, edges, runResult, promptLibrary, stableDiffusionModels, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, runResult, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
     void loadSettings();
+    void loadProviderLinks();
+    void loadOpenRouterModels();
     void loadNodeCatalog();
     void loadPromptLibraryData();
     void loadLedgerSummary();
   }, []);
+
+  useEffect(() => {
+    saveLibraryNodeMetadata(libraryNodeMetadata);
+  }, [libraryNodeMetadata]);
+
+  useEffect(() => {
+    saveNodeLibraryLayout(nodeLibraryLayout);
+  }, [nodeLibraryLayout]);
 
   async function loadNodeCatalog() {
     try {
@@ -2095,6 +2807,9 @@ function App() {
       const result = await response.json();
       setReplicateConfigured(Boolean(result.replicate?.configured ?? result.replicateConfigured));
       setGeminiConfigured(Boolean(result.gemini?.configured ?? result.geminiConfigured));
+      setOpenRouterSettings(result.openrouter ?? { configured: false });
+      setOpenRouterDefaultModel(String(result.openrouter?.defaultModel ?? "text.default"));
+      setOpenRouterBudgetWarningUsd(result.openrouter?.budgetWarningUsd == null ? "" : String(result.openrouter.budgetWarningUsd));
       setApiConnected(true);
       setApiError("");
     } catch {
@@ -2102,8 +2817,30 @@ function App() {
       setApiConnected(false);
       setReplicateConfigured(false);
       setGeminiConfigured(false);
+      setOpenRouterSettings({ configured: false });
       setApiError(message);
       setSettingsMessage(message);
+    }
+  }
+
+  async function loadProviderLinks() {
+    try {
+      const response = await fetch(`${apiBase}/api/providers/links`);
+      const result = await response.json();
+      if (response.ok) setProviderLinks(result);
+    } catch {
+      setProviderLinks({});
+    }
+  }
+
+  async function loadOpenRouterModels() {
+    try {
+      const response = await fetch(`${apiBase}/api/providers/openrouter/models`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "OpenRouter model cache unavailable.");
+      setOpenRouterModels(Array.isArray(result.models) ? result.models : []);
+    } catch {
+      setOpenRouterModels([]);
     }
   }
 
@@ -2149,13 +2886,90 @@ function App() {
 
   function openPromptAssetMenu(event: React.MouseEvent, nodeId: string, result: NodeRunResult) {
     setContextMenu(null);
+    setPromptLibraryMenu(null);
     setPromptAssetMenu({ clientX: event.clientX, clientY: event.clientY, nodeId, result });
+  }
+
+  function openPromptLibraryMenu(event: React.MouseEvent, prompt: PromptLibraryPrompt) {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu(null);
+    setPromptAssetMenu(null);
+    setPromptLibraryMenu({ clientX: event.clientX, clientY: event.clientY, prompt });
+  }
+
+  async function updatePromptLibraryPrompt(prompt: PromptLibraryPrompt, patch: { status?: string; category?: string }) {
+    if (!prompt.category || !prompt.id) return;
+    try {
+      const response = await fetch(`${apiBase}/api/prompt-library/${encodeURIComponent(prompt.category)}/${encodeURIComponent(prompt.id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch)
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Prompt update failed.");
+      if (result.library) setPromptLibrary(result.library);
+      if (patch.category && patch.category !== prompt.category) retargetPromptLibraryNodes(prompt.category, prompt.id, patch.category);
+      setLogs((current) => [`Updated prompt ${patch.category ?? prompt.category}/${prompt.id}.`, ...current]);
+    } catch (error) {
+      setLogs((current) => [`Prompt update failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  async function deletePromptLibraryPrompt(prompt: PromptLibraryPrompt) {
+    if (!prompt.category || !prompt.id) return;
+    const used = nodes.some((node) => {
+      const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
+      return routeNode.type === "library.prompt" && routeNode.params?.category === prompt.category && routeNode.params?.promptId === prompt.id;
+    });
+    const message = used
+      ? `Delete prompt "${prompt.category}/${prompt.id}"?\n\nIt is used by the current route and that node will become unresolved.`
+      : `Delete prompt "${prompt.category}/${prompt.id}"?`;
+    if (!window.confirm(message)) return;
+    try {
+      const response = await fetch(`${apiBase}/api/prompt-library/${encodeURIComponent(prompt.category)}/${encodeURIComponent(prompt.id)}`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Prompt delete failed.");
+      if (result.library) setPromptLibrary(result.library);
+      setLogs((current) => [`Deleted prompt ${prompt.category}/${prompt.id}.`, ...current]);
+    } catch (error) {
+      setLogs((current) => [`Prompt delete failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  function movePromptLibraryPrompt(prompt: PromptLibraryPrompt) {
+    const currentCategory = prompt.category ?? "";
+    const nextCategory = window.prompt("Move prompt to category", currentCategory)?.trim();
+    if (!nextCategory || nextCategory === currentCategory) return;
+    void updatePromptLibraryPrompt(prompt, { category: slugFromText(nextCategory) || nextCategory });
+  }
+
+  function retargetPromptLibraryNodes(previousCategory: string, promptId: string, nextCategory: string) {
+    setNodes((current) =>
+      current.map((node) => {
+        const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
+        if (routeNode.type !== "library.prompt" || routeNode.params?.category !== previousCategory || routeNode.params?.promptId !== promptId) return node;
+        const updated = { ...routeNode, params: { ...(routeNode.params ?? {}), category: nextCategory } };
+        return { ...node, data: { ...node.data, routeNode: updated } };
+      })
+    );
+  }
+
+  function promptAssetMenuWarning(menu: PromptAssetMenuState): string {
+    const draft = promptAssetDraftFromResult(menu.nodeId, menu.result);
+    if (!draft) return "This image output has no local preview file to save.";
+    if (!draft.prompt.trim()) return "This output has no stored prompt metadata.";
+    return "";
   }
 
   function openPromptAssetDialog(nodeId: string, result: NodeRunResult) {
     const draft = promptAssetDraftFromResult(nodeId, result);
     if (!draft) {
       setLogs((current) => ["Could not create prompt asset: image output has no local file path.", ...current]);
+      return;
+    }
+    if (!draft.prompt.trim()) {
+      setLogs((current) => ["This output has no stored prompt metadata.", ...current]);
       return;
     }
     setPromptAssetDraft(draft);
@@ -2169,11 +2983,16 @@ function App() {
     if (!imageSrc || !imagePath) return null;
     const sourceNode = sourceGeneratedImageNode(nodeId);
     const routeNode = sourceNode ?? (nodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined);
-    const prompt = promptTextForNode(routeNode?.id ?? nodeId) || stringParam(routeNode?.params, "prompt");
-    const negativePrompt = promptTextForNode(routeNode?.id ?? nodeId, "negativePrompt") || stringParam(routeNode?.params, "negativePrompt");
+    const prompt = promptTextForNode(routeNode?.id ?? nodeId) || stringParam(routeNode?.params, "prompt") || outputString(result.output, "prompt");
+    const negativePrompt =
+      promptTextForNode(routeNode?.id ?? nodeId, "negativePrompt") ||
+      stringParam(routeNode?.params, "negativePrompt") ||
+      stringParam(routeNode?.params, "negative_prompt") ||
+      outputString(result.output, "negativePrompt") ||
+      outputString(result.output, "negative_prompt");
     const title = routeNode?.title || routeNode?.id || imageLabel(result.output);
     const slug = slugFromText(title);
-    const modelHints = [stringParam(routeNode?.params, "model"), providerHintForNode(routeNode)].filter(Boolean);
+    const modelHints = [stringParam(routeNode?.params, "model"), outputString(result.output, "model"), providerHintForNode(routeNode)].filter(Boolean);
     return {
       title,
       slug,
@@ -2187,6 +3006,7 @@ function App() {
       sourceNodeId: routeNode?.id ?? nodeId,
       sourceRouteId: routeBase.route.id,
       sourceRunId: runResult?.runId ?? "",
+      sourceOutputId: imageOutputIdForResult(result),
       imageSrc,
       imagePath,
       generalize: false
@@ -2222,6 +3042,10 @@ function App() {
   async function savePromptAsset() {
     if (!promptAssetDraft || promptAssetSaving) return;
     setPromptAssetError("");
+    if (!promptAssetDraft.prompt.trim()) {
+      setPromptAssetError("Prompt body is required.");
+      return;
+    }
     setPromptAssetSaving(true);
     try {
       const imageDataBase64 = await imageUrlToPngBase64(promptAssetDraft.imageSrc);
@@ -2240,7 +3064,8 @@ function App() {
           source: {
             runId: promptAssetDraft.sourceRunId,
             routeId: promptAssetDraft.sourceRouteId,
-            nodeId: promptAssetDraft.sourceNodeId
+            nodeId: promptAssetDraft.sourceNodeId,
+            outputId: promptAssetDraft.sourceOutputId
           },
           imagePath: promptAssetDraft.imagePath,
           imageDataBase64
@@ -2250,6 +3075,7 @@ function App() {
       if (!response.ok) throw new Error(result.error ?? "Could not save prompt asset.");
       if (result.library?.categories) setPromptLibrary(result.library);
       else await refreshPromptLibraryData();
+      setPromptLibraryStatusFilter("all");
       setPromptAssetDraft(null);
       setLogs((current) => [`Created prompt asset ${promptAssetDraft.category}/${promptAssetDraft.slug}.`, ...current]);
     } catch (error) {
@@ -2324,6 +3150,67 @@ function App() {
     }
   }
 
+  async function saveOpenRouterSettings() {
+    const token = openRouterToken.trim();
+    if (!token && !openRouterDefaultModel.trim() && !openRouterBudgetWarningUsd.trim()) {
+      setSettingsMessage("OpenRouter API key is not set");
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBase}/api/settings/openrouter`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          openRouterApiKey: token || undefined,
+          defaultModel: openRouterDefaultModel.trim() || "text.default",
+          budgetWarningUsd: openRouterBudgetWarningUsd.trim() ? Number(openRouterBudgetWarningUsd) : null
+        })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to save OpenRouter settings.");
+      setOpenRouterSettings(result.openrouter ?? { configured: Boolean(token) });
+      setOpenRouterToken("");
+      setSettingsMessage("OpenRouter settings saved locally. Do not commit API keys to git.");
+      setLogs((current) => ["OpenRouter settings saved locally.", ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    }
+  }
+
+  async function testOpenRouterConnection() {
+    try {
+      const response = await fetch(`${apiBase}/api/providers/openrouter/test`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "OpenRouter connection test failed.");
+      setSettingsMessage("Connected");
+      setLogs((current) => [`OpenRouter connected. Catalog reports ${result.modelCount ?? 0} models.`, ...current]);
+      await loadSettings();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`OpenRouter test failed: ${message}`, ...current]);
+    }
+  }
+
+  async function refreshOpenRouterCatalog() {
+    try {
+      const response = await fetch(`${apiBase}/api/providers/openrouter/refresh-model-catalog`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "OpenRouter catalog refresh failed.");
+      setOpenRouterModels(Array.isArray(result.models) ? result.models : []);
+      setOpenRouterSettings((current) => ({ ...current, catalog: { refreshedAt: result.refreshedAt, modelCount: result.modelCount } }));
+      setSettingsMessage(`OpenRouter catalog refreshed: ${result.modelCount ?? 0} models.`);
+      setLogs((current) => [`OpenRouter catalog refreshed: ${result.modelCount ?? 0} models.`, ...current]);
+      await loadSettings();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`OpenRouter catalog refresh failed: ${message}`, ...current]);
+    }
+  }
+
   function openReplicateSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your Replicate token in Settings \u2192 Secrets \u2192 Replicate.");
@@ -2332,6 +3219,11 @@ function App() {
   function openGeminiSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your Gemini API key in Settings \u2192 Secrets \u2192 Gemini.");
+  }
+
+  function openOpenRouterSettings() {
+    setRightCollapsed(false);
+    setSettingsMessage("Paste your OpenRouter API key in Settings → AI Providers → OpenRouter.");
   }
 
   async function browseAsset(nodeId: string, kind: AssetKind) {
@@ -2531,10 +3423,19 @@ function App() {
     }
   }
 
+  function selectLibraryPreviewNodes(selected: boolean) {
+    if (!libraryPreview) return;
+    setSelectedLibraryNodeIds(Object.fromEntries(libraryPreview.nodes.map((node) => [node.id, selected])));
+  }
+
   async function installSelectedLibraryNodes() {
     try {
       if (!libraryPreview) return;
       const nodeIds = Object.entries(selectedLibraryNodeIds).filter(([, selected]) => selected).map(([id]) => id);
+      if (nodeIds.length === 0) {
+        setLogs((current) => ["Choose at least one library node before installing.", ...current]);
+        return;
+      }
       const response = await fetch(`${apiBase}/api/node-packages/install-library`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2543,10 +3444,44 @@ function App() {
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
       await loadNodeCatalog();
+      markInstalledLibraryNodes(nodeIds, libraryInstallStatus);
       setLogs((current) => [`Installed ${result.installed?.length ?? 0} node(s) from library.`, ...current]);
     } catch (error) {
       setLogs((current) => [`Library install failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
     }
+  }
+
+  function markInstalledLibraryNodes(nodeIds: string[], status: LibraryNodeStatus) {
+    setLibraryNodeMetadata((current) => {
+      const next = { ...current };
+      const maxOrder = Object.values(next).reduce((max, metadata) => Math.max(max, metadata.order ?? -1), -1);
+      nodeIds.forEach((id, index) => {
+        next[id] = { ...next[id], status, order: next[id]?.order ?? maxOrder + index + 1 };
+      });
+      return next;
+    });
+  }
+
+  function setLibraryNodeStatus(id: string, status: LibraryNodeStatus) {
+    setLibraryNodeMetadata((current) => ({ ...current, [id]: { ...current[id], status } }));
+  }
+
+  function moveInstalledNode(id: string, direction: -1 | 1) {
+    const ordered = installedNodes
+      .map((node, index) => ({ id: node.id, order: libraryNodeOrder(node, libraryNodeMetadata, index) }))
+      .sort((left, right) => left.order - right.order);
+    const index = ordered.findIndex((item) => item.id === id);
+    const swapIndex = index + direction;
+    if (index < 0 || swapIndex < 0 || swapIndex >= ordered.length) return;
+    const normalized = ordered.map((item, itemIndex) => ({ ...item, order: itemIndex }));
+    const currentItem = normalized[index];
+    const swapItem = normalized[swapIndex];
+    setLibraryNodeMetadata((current) => ({
+      ...current,
+      [currentItem.id]: { ...current[currentItem.id], order: swapItem.order },
+      [swapItem.id]: { ...current[swapItem.id], order: currentItem.order }
+    }));
+    setLibrarySortMode("manual");
   }
 
   async function setInstalledNodeState(id: string, enabled: boolean) {
@@ -2643,23 +3578,195 @@ function App() {
     setCollapsedLibrarySections((current) => ({ ...current, [id]: !(current[id] ?? true) }));
   }
 
-  function renderLibraryItem(item: NodeCatalogItem) {
+  function createLibraryGroup() {
+    const title = window.prompt("New group name")?.trim();
+    if (!title) return;
+    const idBase = title.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "group";
+    setNodeLibraryLayout((current) => {
+      const usedIds = new Set(current.groups.map((group) => group.id));
+      let id = idBase;
+      let suffix = 2;
+      while (usedIds.has(id)) {
+        id = `${idBase}-${suffix}`;
+        suffix += 1;
+      }
+      setCollapsedLibrarySections((sections) => ({ ...sections, [id]: true }));
+      return { ...current, groups: [...current.groups, { id, title, types: [] }] };
+    });
+  }
+
+  function deleteLibraryGroup(id: string, title: string, types: string[]) {
+    setLibrarySectionMenu(null);
+    const group = nodeLibraryLayout.groups.find((entry) => entry.id === id);
+    if (!group) {
+      if (!window.confirm(`Delete group "${title}"? Nodes in it will be removed from this list.`)) return;
+      setNodeLibraryLayout((current) => ({ ...current, hiddenTypes: [...new Set([...current.hiddenTypes, ...types])] }));
+      return;
+    }
+    if (!window.confirm(`Delete group "${group.title}"? Nodes in it will move to the first group.`)) return;
+    setNodeLibraryLayout((current) => {
+      const currentGroup = current.groups.find((entry) => entry.id === id);
+      const targetGroup = current.groups.find((entry) => entry.id !== id);
+      if (!currentGroup || !targetGroup) return current;
+      return {
+        ...current,
+        groups: current.groups
+          .filter((entry) => entry.id !== id)
+          .map((entry) => (entry.id === targetGroup.id ? { ...entry, types: [...entry.types, ...currentGroup.types.filter((type) => !entry.types.includes(type))] } : entry))
+      };
+    });
+  }
+
+  function moveLibraryItemToGroup(type: string, targetGroupId: string, targetTitle: string) {
+    setNodeLibraryLayout((current) => {
+      const hasTargetGroup = current.groups.some((group) => group.id === targetGroupId);
+      const baseGroups = hasTargetGroup ? current.groups : [...current.groups, { id: targetGroupId, title: targetTitle, types: [] }];
+      const groups = baseGroups.map((group) => {
+        const withoutType = group.types.filter((entry) => entry !== type);
+        return group.id === targetGroupId ? { ...group, types: [...withoutType, type] } : { ...group, types: withoutType };
+      });
+      return { ...current, groups, hiddenTypes: current.hiddenTypes.filter((entry) => entry !== type) };
+    });
+    setCollapsedLibrarySections((current) => ({ ...current, [targetGroupId]: false }));
+  }
+
+  function hideLibraryItem(type: string) {
+    setNodeLibraryLayout((current) => ({
+      ...current,
+      hiddenTypes: current.hiddenTypes.includes(type) ? current.hiddenTypes : [...current.hiddenTypes, type]
+    }));
+    setLibraryItemMenu(null);
+  }
+
+  function hideLibrarySection(types: string[]) {
+    setNodeLibraryLayout((current) => ({
+      ...current,
+      hiddenTypes: [...new Set([...current.hiddenTypes, ...types])]
+    }));
+    setLibrarySectionMenu(null);
+  }
+
+  function showLibraryItem(type: string) {
+    const item = nodeCatalog.find((candidate) => candidate.type === type);
+    moveLibraryItemToGroup(type, item?.manifest?.category ?? fallbackSectionTitle(type), item?.manifest?.category ?? fallbackSectionTitle(type));
+    setLibraryItemMenu(null);
+  }
+
+  function showLibrarySection(types: string[]) {
+    setNodeLibraryLayout((current) => ({
+      ...current,
+      hiddenTypes: current.hiddenTypes.filter((type) => !types.includes(type))
+    }));
+    setLibrarySectionMenu(null);
+  }
+
+  function openLibraryItemMenu(event: React.MouseEvent, item: NodeCatalogItem, section: { id: string; title: string; items: NodeCatalogItem[] }) {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu(null);
+    setPromptAssetMenu(null);
+    setPromptLibraryMenu(null);
+    setConnectionNodeMenu(null);
+    setLibrarySectionMenu(null);
+    setLibraryItemMenu({ clientX: event.clientX, clientY: event.clientY, type: item.type, sectionId: section.id, sectionTitle: section.title, sectionTypes: section.items.map((entry) => entry.type) });
+  }
+
+  function openLibrarySectionMenu(event: React.MouseEvent, section: { id: string; title: string; items: NodeCatalogItem[] }) {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu(null);
+    setPromptAssetMenu(null);
+    setPromptLibraryMenu(null);
+    setConnectionNodeMenu(null);
+    setLibraryItemMenu(null);
+    setLibrarySectionMenu({ clientX: event.clientX, clientY: event.clientY, sectionId: section.id, sectionTitle: section.title, sectionTypes: section.items.map((entry) => entry.type) });
+  }
+
+  async function deleteLibraryItem(type: string) {
+    setLibraryItemMenu(null);
+    const item = nodeCatalog.find((candidate) => candidate.type === type);
+    if (!item?.manifest || !canUninstallNodePackage(item.manifest)) {
+      window.alert("Bundled nodes cannot be deleted. Use Hide to remove it from the left panel.");
+      return;
+    }
+    await uninstallNode(type);
+  }
+
+  function ensureLibraryGroupForOrder(layout: NodeLibraryLayout, sectionId: string, sectionTitle: string, sectionTypes: string[]): NodeLibraryLayout {
+    if (layout.groups.some((group) => group.id === sectionId)) return layout;
+    return { ...layout, groups: [...layout.groups, { id: sectionId, title: sectionTitle, types: [...sectionTypes] }] };
+  }
+
+  function moveLibrarySection(sectionId: string, sectionTitle: string, sectionTypes: string[], direction: -1 | 1) {
+    setNodeLibraryLayout((current) => {
+      const layout = ensureLibraryGroupForOrder(current, sectionId, sectionTitle, sectionTypes);
+      const index = layout.groups.findIndex((group) => group.id === sectionId);
+      const swapIndex = index + direction;
+      if (index < 0 || swapIndex < 0 || swapIndex >= layout.groups.length) return layout;
+      const groups = [...layout.groups];
+      const currentGroup = groups[index];
+      groups[index] = groups[swapIndex];
+      groups[swapIndex] = currentGroup;
+      return { ...layout, groups };
+    });
+    setLibrarySectionMenu(null);
+  }
+
+  function moveLibraryItem(type: string, sectionId: string, sectionTitle: string, sectionTypes: string[], direction: -1 | 1) {
+    setNodeLibraryLayout((current) => {
+      const layout = ensureLibraryGroupForOrder(current, sectionId, sectionTitle, sectionTypes);
+      const targetIndex = layout.groups.findIndex((group) => group.id === sectionId);
+      if (targetIndex < 0) return layout;
+      const groups = layout.groups.map((group) => ({ ...group, types: group.types.filter((entry) => entry !== type) }));
+      const targetGroup = groups[targetIndex];
+      const visibleOrder = sectionTypes.filter((entry, index, source) => source.indexOf(entry) === index);
+      const targetTypes = targetGroup.types.length > 0 ? targetGroup.types : visibleOrder.filter((entry) => entry !== type);
+      const order = visibleOrder.includes(type)
+        ? visibleOrder
+        : [...targetTypes.filter((entry) => entry !== type), type];
+      const index = order.indexOf(type);
+      const swapIndex = index + direction;
+      if (index < 0 || swapIndex < 0 || swapIndex >= order.length) return layout;
+      const nextOrder = [...order];
+      const currentType = nextOrder[index];
+      nextOrder[index] = nextOrder[swapIndex];
+      nextOrder[swapIndex] = currentType;
+      const extraTypes = targetTypes.filter((entry) => !nextOrder.includes(entry));
+      groups[targetIndex] = { ...targetGroup, types: [...nextOrder, ...extraTypes] };
+      return { ...layout, groups };
+    });
+    setLibraryItemMenu(null);
+  }
+
+  function handleLibrarySectionDrop(event: React.DragEvent<HTMLElement>, sectionId: string, sectionTitle: string) {
+    const type = event.dataTransfer.getData(NODE_DRAG_MIME);
+    if (!type) return;
+    event.preventDefault();
+    event.stopPropagation();
+    moveLibraryItemToGroup(type, sectionId, sectionTitle);
+  }
+
+  function renderLibraryItem(item: NodeCatalogItem, section: { id: string; title: string; items: NodeCatalogItem[] }) {
+    const isHidden = hiddenNodeTypes.has(item.type);
     return (
-      <button
+      <div
         key={item.type}
-        className="libraryItem"
+        className={`libraryItem ${isHidden ? "hiddenLibraryItem" : ""}`}
         draggable
-        onClick={() => addNode(item.type)}
+        onContextMenu={(event) => openLibraryItemMenu(event, item, section)}
         onDragStart={(event) => {
           event.dataTransfer.setData(NODE_DRAG_MIME, item.type);
-          event.dataTransfer.effectAllowed = "copy";
+          event.dataTransfer.effectAllowed = "copyMove";
         }}
-        >
+      >
+        <button className="libraryItemMain" onClick={() => addNode(item.type)}>
           <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
           <strong>{catalogItemTitle(item)}</strong>
           <span>{item.type}</span>
           {item.manifest ? <small>{item.manifest.author.name} · {item.manifest.version} · {item.manifest.origin}</small> : null}
+          {isHidden ? <em>Hidden</em> : null}
         </button>
+      </div>
       );
     }
 
@@ -3493,7 +4600,27 @@ function App() {
           <button onClick={saveProject} title="Save current project"><Save size={16} /> Save</button>
           <button onClick={loadSavedProject} title="Load saved project"><FolderOpen size={16} /> Load</button>
         </div>
-        <h2>Nodes</h2>
+        <div className="nodesHeading">
+          <h2>Nodes</h2>
+          <div className="nodesHeadingActions">
+            <button
+              className={`nodeSmallButton ${showHiddenNodes ? "active" : ""}`}
+              title="Show hidden nodes"
+              onClick={() => setShowHiddenNodes((value) => !value)}
+              disabled={hiddenNodeCount === 0}
+            >
+              <Eye size={14} /> Hidden{hiddenNodeCount ? ` ${hiddenNodeCount}` : ""}
+            </button>
+            <button className="nodeSmallButton iconOnly" title="Create group" onClick={createLibraryGroup}><Plus size={14} /></button>
+          </div>
+        </div>
+        <label className="nodeSearch">
+          <Search size={14} />
+          <input value={nodeSearch} placeholder="Search nodes" onChange={(event) => setNodeSearch(event.target.value)} />
+          {nodeSearch ? (
+            <button className="nodeSearchClear" title="Clear search" onClick={() => setNodeSearch("")} type="button"><X size={13} /></button>
+          ) : null}
+        </label>
         <div className="portLegend">
           <span><i className="legendDot text" />Text</span>
           <span><i className="legendDot image" />Image</span>
@@ -3502,21 +4629,33 @@ function App() {
           <span><i className="legendDot file" />File</span>
         </div>
         <div className="librarySections">
-          {catalogSections.map((section) => {
-            const collapsed = collapsedLibrarySections[section.id] ?? true;
-            const items = routeStack.length > 0 ? section.items : section.items.filter((item) => !isCompoundInterfaceType(item.type));
-            if (items.length === 0) return null;
+          {visibleCatalogSections.map((section) => {
+            const collapsed = nodeSearchQuery ? false : collapsedLibrarySections[section.id] ?? true;
+            const items = section.items;
             return (
               <section className="librarySection" key={section.id}>
-                <button className="librarySectionHeader" onClick={() => toggleLibrarySection(section.id)}>
-                  {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
-                  <span>{section.title}</span>
-                  <small>{items.length}</small>
-                </button>
-                {!collapsed ? <div className="librarySectionItems">{items.map(renderLibraryItem)}</div> : null}
+                <div
+                  className="librarySectionHeader"
+                  onContextMenu={(event) => openLibrarySectionMenu(event, section)}
+                  onDragOver={(event) => {
+                    if (event.dataTransfer.types.includes(NODE_DRAG_MIME)) {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                    }
+                  }}
+                  onDrop={(event) => handleLibrarySectionDrop(event, section.id, section.title)}
+                >
+                  <button className="librarySectionToggle" onClick={() => toggleLibrarySection(section.id)}>
+                    {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+                    <span>{section.title}</span>
+                    <small>{items.length}</small>
+                  </button>
+                </div>
+                {!collapsed ? <div className="librarySectionItems">{items.map((item) => renderLibraryItem(item, section))}</div> : null}
               </section>
             );
           })}
+          {nodeSearchQuery && visibleCatalogItemCount === 0 ? <p className="muted nodeSearchEmpty">No nodes match "{nodeSearch.trim()}".</p> : null}
         </div>
         </>
         ) : null}
@@ -3596,6 +4735,8 @@ function App() {
           onNodeClick={(_event, node) => {
             if (isSubrouteInterfaceId(node.id)) return;
             setContextMenu(null);
+            setLibraryItemMenu(null);
+            setLibrarySectionMenu(null);
             setPromptAssetMenu(null);
             selectNode(node);
           }}
@@ -3603,30 +4744,45 @@ function App() {
             if (isSubrouteInterfaceId(node.id)) return;
             event.preventDefault();
             setPromptAssetMenu(null);
+            setPromptLibraryMenu(null);
+            setLibraryItemMenu(null);
+            setLibrarySectionMenu(null);
             setSelectedId(node.id);
             setContextMenu({ clientX: event.clientX, clientY: event.clientY, nodeId: node.id });
           }}
           onSelectionContextMenu={(event) => {
             event.preventDefault();
             setPromptAssetMenu(null);
+            setPromptLibraryMenu(null);
+            setLibraryItemMenu(null);
+            setLibrarySectionMenu(null);
             setContextMenu({ clientX: event.clientX, clientY: event.clientY });
           }}
           onPaneContextMenu={(event) => {
             event.preventDefault();
             setPromptAssetMenu(null);
+            setPromptLibraryMenu(null);
+            setLibraryItemMenu(null);
+            setLibrarySectionMenu(null);
             setSelectedId(null);
             setContextMenu({ clientX: event.clientX, clientY: event.clientY });
           }}
           onEdgeClick={() => {
             setContextMenu(null);
+            setLibraryItemMenu(null);
+            setLibrarySectionMenu(null);
             setPromptAssetMenu(null);
+            setPromptLibraryMenu(null);
             setSelectedId(null);
           }}
           onPaneClick={() => {
             selectNode(null);
             setConnectionNodeMenu(null);
             setContextMenu(null);
+            setLibraryItemMenu(null);
+            setLibrarySectionMenu(null);
             setPromptAssetMenu(null);
+            setPromptLibraryMenu(null);
           }}
           onKeyDown={(event) => {
             if ((event.key === "Delete" || event.key === "Backspace") && !isTextEditingTarget(event.target)) {
@@ -3663,9 +4819,90 @@ function App() {
             )}
           </div>
         ) : null}
+        {libraryItemMenu ? (
+          <div className="contextMenu" style={{ left: libraryItemMenu.clientX, top: libraryItemMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+            {(() => {
+              const item = nodeCatalog.find((candidate) => candidate.type === libraryItemMenu.type);
+              const isHidden = hiddenNodeTypes.has(libraryItemMenu.type);
+              const canDelete = Boolean(item?.manifest && canUninstallNodePackage(item.manifest));
+              return (
+                <>
+                  <strong>{item ? catalogItemTitle(item) : libraryItemMenu.type}</strong>
+                  <span className="contextMenuHint">{libraryItemMenu.type}</span>
+                  <button onClick={() => moveLibraryItem(libraryItemMenu.type, libraryItemMenu.sectionId, libraryItemMenu.sectionTitle, libraryItemMenu.sectionTypes, -1)}>Move Up</button>
+                  <button onClick={() => moveLibraryItem(libraryItemMenu.type, libraryItemMenu.sectionId, libraryItemMenu.sectionTitle, libraryItemMenu.sectionTypes, 1)}>Move Down</button>
+                  {isHidden ? (
+                    <button onClick={() => showLibraryItem(libraryItemMenu.type)}>Show in Nodes</button>
+                  ) : (
+                    <button onClick={() => hideLibraryItem(libraryItemMenu.type)}>Hide from Nodes</button>
+                  )}
+                  <button onClick={() => setShowHiddenNodes((value) => !value)}>
+                    {showHiddenNodes ? "Hide Hidden Nodes" : "Show Hidden Nodes"}
+                  </button>
+                  <button className="danger" disabled={!canDelete} title={canDelete ? "Delete installed node package" : "Bundled nodes cannot be deleted"} onClick={() => void deleteLibraryItem(libraryItemMenu.type)}>
+                    Delete Node Package
+                  </button>
+                  {!canDelete ? <span className="contextMenuHint">Bundled nodes can be hidden, but not deleted.</span> : null}
+                </>
+              );
+            })()}
+          </div>
+        ) : null}
+        {librarySectionMenu ? (
+          <div className="contextMenu" style={{ left: librarySectionMenu.clientX, top: librarySectionMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+            {(() => {
+              const hiddenInSection = librarySectionMenu.sectionTypes.filter((type) => hiddenNodeTypes.has(type));
+              const allHidden = librarySectionMenu.sectionTypes.length > 0 && hiddenInSection.length === librarySectionMenu.sectionTypes.length;
+              return (
+                <>
+                  <strong>{librarySectionMenu.sectionTitle}</strong>
+                  <span className="contextMenuHint">{librarySectionMenu.sectionTypes.length} node(s)</span>
+                  <button onClick={() => moveLibrarySection(librarySectionMenu.sectionId, librarySectionMenu.sectionTitle, librarySectionMenu.sectionTypes, -1)}>Move Section Up</button>
+                  <button onClick={() => moveLibrarySection(librarySectionMenu.sectionId, librarySectionMenu.sectionTitle, librarySectionMenu.sectionTypes, 1)}>Move Section Down</button>
+                  {allHidden ? (
+                    <button onClick={() => showLibrarySection(librarySectionMenu.sectionTypes)}>Show Section</button>
+                  ) : (
+                    <button onClick={() => hideLibrarySection(librarySectionMenu.sectionTypes)}>Hide Section</button>
+                  )}
+                  <button onClick={() => setShowHiddenNodes((value) => !value)}>
+                    {showHiddenNodes ? "Hide Hidden Nodes" : "Show Hidden Nodes"}
+                  </button>
+                  <button className="danger" onClick={() => deleteLibraryGroup(librarySectionMenu.sectionId, librarySectionMenu.sectionTitle, librarySectionMenu.sectionTypes)}>Delete Group</button>
+                </>
+              );
+            })()}
+          </div>
+        ) : null}
         {promptAssetMenu ? (
           <div className="contextMenu" style={{ left: promptAssetMenu.clientX, top: promptAssetMenu.clientY }} onClick={(event) => event.stopPropagation()}>
-            <button onClick={() => { openPromptAssetDialog(promptAssetMenu.nodeId, promptAssetMenu.result); setPromptAssetMenu(null); }}>Create Prompt Asset</button>
+            {(() => {
+              const warning = promptAssetMenuWarning(promptAssetMenu);
+              return (
+                <>
+                  <button
+                    disabled={Boolean(warning)}
+                    title={warning || "Save as Prompt Asset"}
+                    onClick={() => { openPromptAssetDialog(promptAssetMenu.nodeId, promptAssetMenu.result); setPromptAssetMenu(null); }}
+                  >
+                    Save as Prompt Asset
+                  </button>
+                  {warning ? <span className="contextMenuHint">{warning}</span> : null}
+                </>
+              );
+            })()}
+          </div>
+        ) : null}
+        {promptLibraryMenu ? (
+          <div className="contextMenu promptLibraryContextMenu" style={{ left: promptLibraryMenu.clientX, top: promptLibraryMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+            <strong>Prompt actions</strong>
+            <span className="contextMenuHint">{promptLibraryMenu.prompt.category}/{promptLibraryMenu.prompt.id}</span>
+            <button onClick={() => { movePromptLibraryPrompt(promptLibraryMenu.prompt); setPromptLibraryMenu(null); }}>Move to Category...</button>
+            <button onClick={() => { void updatePromptLibraryPrompt(promptLibraryMenu.prompt, { status: "draft" }); setPromptLibraryMenu(null); }}>Mark Draft</button>
+            <button onClick={() => { void updatePromptLibraryPrompt(promptLibraryMenu.prompt, { status: "candidate" }); setPromptLibraryMenu(null); }}>Mark Candidate</button>
+            <button onClick={() => { void updatePromptLibraryPrompt(promptLibraryMenu.prompt, { status: "approved" }); setPromptLibraryMenu(null); }}>Mark Approved</button>
+            <button onClick={() => { void updatePromptLibraryPrompt(promptLibraryMenu.prompt, { status: "published" }); setPromptLibraryMenu(null); }}>Mark Published</button>
+            <button onClick={() => { void updatePromptLibraryPrompt(promptLibraryMenu.prompt, { status: "archived" }); setPromptLibraryMenu(null); }}>Archive</button>
+            <button className="danger" onClick={() => { void deletePromptLibraryPrompt(promptLibraryMenu.prompt); setPromptLibraryMenu(null); }}>Delete Prompt Asset</button>
           </div>
         ) : null}
         {connectionNodeMenu ? (
@@ -3727,11 +4964,69 @@ function App() {
             <em>{apiConnected ? "connected" : "disconnected"}</em>
             {apiError ? <p>{apiError}</p> : null}
           </div>
-          <h3>Secrets</h3>
+          <h3>AI Providers</h3>
+          <div className="providerCard">
+            <div className="providerHeader">
+              <h4>OpenRouter</h4>
+              <span>Primary Remote Provider: OpenRouter</span>
+            </div>
+            <p className="muted">OpenRouter lets SnarkRoute use many remote AI models through one API key. Use this as the default setup. Direct provider keys are optional and hidden in Advanced settings.</p>
+            <p className="muted">OpenRouter позволяет SnarkRoute использовать множество удалённых AI-моделей через один API-ключ. Это основной рекомендуемый способ подключения. Прямые ключи провайдеров необязательны и находятся в Advanced.</p>
+            <div className={`settingsStatus ${openRouterSettings.configured ? "configured" : ""}`}>
+              <KeyRound size={14} />
+              OpenRouter: {openRouterSettings.configured ? `key configured (${openRouterSettings.maskedApiKey ?? "********"})` : "not configured"}
+            </div>
+            <div className="settingsLinks">
+              <a className="settingsLink" href={providerLinks.openrouter?.apiKeysUrl ?? "https://openrouter.ai/settings/keys"} target="_blank" rel="noreferrer">Get API Key</a>
+              <a className="settingsLink" href={providerLinks.openrouter?.creditsUrl ?? "https://openrouter.ai/settings/credits"} target="_blank" rel="noreferrer">Add Credits</a>
+              <a className="settingsLink" href={providerLinks.openrouter?.modelsUrl ?? "https://openrouter.ai/models"} target="_blank" rel="noreferrer">Browse Models</a>
+              <a className="settingsLink" href={providerLinks.openrouter?.docsUrl ?? "https://openrouter.ai/docs/quickstart"} target="_blank" rel="noreferrer">Docs</a>
+              <a className="settingsLink" href={providerLinks.openrouter?.pricingUrl ?? "https://openrouter.ai/pricing"} target="_blank" rel="noreferrer">Pricing</a>
+            </div>
+            <label className="settingsField">
+              <span>OpenRouter API Key</span>
+              <input type="password" value={openRouterToken} placeholder={openRouterSettings.configured ? "***************" : "Paste key"} onChange={(event) => setOpenRouterToken(event.target.value)} autoComplete="off" />
+            </label>
+            <label className="settingsField">
+              <span>Default Model</span>
+              <select value={openRouterDefaultModel} onChange={(event) => setOpenRouterDefaultModel(event.target.value)}>
+                <option value="text.default">Auto (default text model)</option>
+                {openRouterModels.filter((model) => modelSupportsText(model)).map((model) => (
+                  <option key={model.id} value={model.id}>{model.name ? `${model.name} (${model.id})` : model.id}</option>
+                ))}
+                {openRouterDefaultModel && openRouterDefaultModel !== "text.default" && !openRouterModels.some((model) => model.id === openRouterDefaultModel) ? (
+                  <option value={openRouterDefaultModel}>{openRouterDefaultModel}</option>
+                ) : null}
+              </select>
+              <small className="settingsHint">Auto uses SnarkRoute's default Text AI mapping. Today that maps to OpenRouter when available.</small>
+            </label>
+            <label className="settingsField">
+              <span>Budget Warning USD</span>
+              <input inputMode="decimal" value={openRouterBudgetWarningUsd} placeholder="optional" onChange={(event) => setOpenRouterBudgetWarningUsd(event.target.value)} />
+            </label>
+            <div className="settingsActions">
+              <button onClick={() => void saveOpenRouterSettings()}><Save size={16} /> Save</button>
+              <button onClick={() => void testOpenRouterConnection()}><KeyRound size={16} /> Test Connection</button>
+              <button onClick={() => void refreshOpenRouterCatalog()}><Globe size={16} /> Refresh Model Catalog</button>
+            </div>
+            <div className="providerStatus">
+              <span>Status: {openRouterSettings.configured ? "Key configured; use Test connection to verify network access" : "Not configured"}</span>
+              <span>Catalog last refreshed: {openRouterSettings.catalog?.refreshedAt ?? "never"}</span>
+              <span>Cached models: {openRouterSettings.catalog?.modelCount ?? openRouterModels.length}</span>
+              <span>Default model status: {openRouterSettings.defaultModelStatus ?? "unknown"}</span>
+            </div>
+            <small className="nodeWarning">Do not commit API keys to git.</small>
+          </div>
+          <h3>Advanced / Direct Secrets</h3>
           <h4>Replicate</h4>
           <div className={`settingsStatus ${replicateConfigured ? "configured" : ""}`}>
             <KeyRound size={14} />
             {replicateTokenStatusText(replicateConfigured)}
+          </div>
+          <div className="settingsLinks">
+            <a className="settingsLink" href={providerLinks.replicate?.apiKeysUrl ?? "https://replicate.com/account/api-tokens"} target="_blank" rel="noreferrer">Get Replicate token</a>
+            <a className="settingsLink" href={providerLinks.replicate?.docsUrl ?? "https://replicate.com/docs/topics/security/api-tokens"} target="_blank" rel="noreferrer">Token docs</a>
+            <a className="settingsLink" href={providerLinks.replicate?.apiReferenceUrl ?? "https://replicate.com/docs/reference/http"} target="_blank" rel="noreferrer">API reference</a>
           </div>
           <label className="settingsField">
             <span>REPLICATE_API_TOKEN</span>
@@ -3749,11 +5044,11 @@ function App() {
             <KeyRound size={14} />
             {geminiTokenStatusText(geminiConfigured)}
           </div>
-          {!geminiConfigured ? (
-            <a className="settingsLink" href={GEMINI_API_KEY_URL} target="_blank" rel="noreferrer">
-              Get Gemini API key in Google AI Studio
-            </a>
-          ) : null}
+          <div className="settingsLinks">
+            <a className="settingsLink" href={providerLinks.gemini?.apiKeysUrl ?? GEMINI_API_KEY_URL} target="_blank" rel="noreferrer">Get Gemini API key</a>
+            <a className="settingsLink" href={providerLinks.gemini?.docsUrl ?? "https://ai.google.dev/gemini-api/docs/api-key"} target="_blank" rel="noreferrer">API key docs</a>
+            <a className="settingsLink" href={providerLinks.gemini?.modelsUrl ?? "https://ai.google.dev/gemini-api/docs/models"} target="_blank" rel="noreferrer">Gemini models</a>
+          </div>
           <label className="settingsField">
             <span>GEMINI_API_KEY</span>
             <input
@@ -3787,28 +5082,72 @@ function App() {
           <button onClick={() => void previewLibraryFromUrl()}><BookOpen size={16} /> Preview Library</button>
           {libraryPreview ? (
             <div className="nodeLibraryPreview">
-              <strong>{libraryPreview.title}</strong>
-              <span>{libraryPreview.author.name} · {libraryPreview.version}</span>
-              {libraryPreview.nodes.map((node) => (
-                <label key={node.id}>
-                  <input type="checkbox" checked={Boolean(selectedLibraryNodeIds[node.id])} onChange={(event) => setSelectedLibraryNodeIds((current) => ({ ...current, [node.id]: event.target.checked }))} />
-                  <span>{node.title}</span>
-                </label>
-              ))}
-              <button onClick={() => void installSelectedLibraryNodes()}><Plus size={16} /> Install Selected</button>
+              <div className="nodeLibraryHeader">
+                <div>
+                  <strong>{libraryPreview.title}</strong>
+                  <span>{libraryPreview.author.name} · {libraryPreview.version}</span>
+                </div>
+                <span className="nodeLibraryCount">{librarySelectedCount}/{libraryPreview.nodes.length}</span>
+              </div>
+              <div className="nodeLibraryActions">
+                <button className="nodeSmallButton" onClick={() => selectLibraryPreviewNodes(true)}><CheckSquare size={14} /> All</button>
+                <button className="nodeSmallButton" onClick={() => selectLibraryPreviewNodes(false)}><X size={14} /> None</button>
+                <select value={libraryInstallStatus} onChange={(event) => setLibraryInstallStatus(event.target.value as LibraryNodeStatus)} title="Status for installed library nodes">
+                  {libraryNodeStatuses.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
+                </select>
+              </div>
+              <div className="nodeLibraryPreviewList">
+                {libraryPreview.nodes.map((node) => (
+                  <label key={node.id}>
+                    <input type="checkbox" checked={Boolean(selectedLibraryNodeIds[node.id])} onChange={(event) => setSelectedLibraryNodeIds((current) => ({ ...current, [node.id]: event.target.checked }))} />
+                    <span>
+                      <strong>{node.title}</strong>
+                      <small>{node.id}{node.version ? ` · ${node.version}` : ""}{node.status ? ` · ${node.status}` : ""}</small>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <button onClick={() => void installSelectedLibraryNodes()} disabled={librarySelectedCount === 0}><Plus size={16} /> Install Selected</button>
             </div>
           ) : null}
           <h4>Manage Installed Nodes</h4>
+          <div className="nodeLibraryToolbar">
+            <label className="nodeLibrarySearch">
+              <Search size={14} />
+              <input value={librarySearch} placeholder="Search installed nodes" onChange={(event) => setLibrarySearch(event.target.value)} />
+            </label>
+            <select value={librarySortMode} onChange={(event) => setLibrarySortMode(event.target.value as LibrarySortMode)} title="Sort installed nodes">
+              <option value="status">Status order</option>
+              <option value="manual">Manual order</option>
+              <option value="title">Title</option>
+            </select>
+          </div>
+          <div className="nodeStatusFilters">
+            <button className={libraryStatusFilter === "all" ? "active" : ""} onClick={() => setLibraryStatusFilter("all")}>All <span>{installedNodes.length}</span></button>
+            {libraryNodeStatuses.map((status) => (
+              <button key={status.id} className={libraryStatusFilter === status.id ? "active" : ""} onClick={() => setLibraryStatusFilter(status.id)}>
+                {status.label} <span>{libraryStatusCounts[status.id]}</span>
+              </button>
+            ))}
+          </div>
           <div className="installedNodeList">
-            {installedNodes.length === 0 ? <p className="muted">No installed nodes yet.</p> : installedNodes.map((node) => (
+            {installedNodes.length === 0 ? <p className="muted">No installed nodes yet.</p> : visibleInstalledNodes.length === 0 ? <p className="muted">No nodes match this library view.</p> : visibleInstalledNodes.map(({ node, status }) => (
               <div className="installedNodeItem" key={node.id}>
-                <strong>{node.title}</strong>
+                <div className="installedNodeHeader">
+                  <strong>{node.title}</strong>
+                  <span className={`nodeStatusBadge ${status}`}>{libraryNodeStatusLabel(status)}</span>
+                </div>
                 <span>{node.id}</span>
                 <span>{node.author.name} · {node.version} · {node.origin}</span>
                 <span>{node.source ?? "local install"}</span>
                 <span>executor: {node.executor.type}{node.executor.runtime ? `/${node.executor.runtime}` : ""} · executable: {node.executor.type === "plugin" ? "yes" : "no"}</span>
                 <span>permissions: {permissionsSummary(node)}</span>
-                <div>
+                <div className="installedNodeControls">
+                  <select value={status} onChange={(event) => setLibraryNodeStatus(node.id, event.target.value as LibraryNodeStatus)} title="Library status">
+                    {libraryNodeStatuses.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+                  </select>
+                  <button className="nodeSmallButton iconOnly" title="Move up" onClick={() => moveInstalledNode(node.id, -1)}><ArrowUp size={14} /></button>
+                  <button className="nodeSmallButton iconOnly" title="Move down" onClick={() => moveInstalledNode(node.id, 1)}><ArrowDown size={14} /></button>
                   <button className="nodeSmallButton" onClick={() => void setInstalledNodeState(node.id, node.enabled === false)}> {node.enabled === false ? "Enable" : "Disable"} </button>
                   <button className="nodeSmallButton" onClick={() => void viewInstalledNodeReadme(node.id)}>README</button>
                   {canUninstallNodePackage(node) ? (
@@ -3879,10 +5218,10 @@ function App() {
         </div>
       ) : null}
       {promptAssetDraft ? (
-        <div className="promptAssetOverlay" role="dialog" aria-modal="true" aria-label="Create Prompt Asset" onClick={() => setPromptAssetDraft(null)}>
+        <div className="promptAssetOverlay" role="dialog" aria-modal="true" aria-label="Save as Prompt Asset" onClick={() => setPromptAssetDraft(null)}>
           <div className="promptAssetWindow" onClick={(event) => event.stopPropagation()}>
             <div className="promptAssetHeader">
-              <span>Create Prompt Asset</span>
+              <span>Save as Prompt Asset</span>
               <button className="imageViewerButton" type="button" title="Close" onClick={() => setPromptAssetDraft(null)}><X size={16} /></button>
             </div>
             <div className="promptAssetBody">
@@ -3903,13 +5242,13 @@ function App() {
                       setPromptAssetDraft({ ...promptAssetDraft, categoryMode: mode, category: mode === "existing" ? fallbackCategory : promptAssetDraft.category });
                     }}
                   >
-                    <option value="existing">Choose existing rubric</option>
-                    <option value="custom">Create custom rubric</option>
+                    <option value="existing">Choose existing category</option>
+                    <option value="custom">Create custom category</option>
                   </select>
                 </label>
                 {promptAssetDraft.categoryMode === "existing" ? (
                   <label className="settingsField">
-                    <span>rubric</span>
+                    <span>category</span>
                     <select value={promptAssetDraft.category} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, category: event.target.value })}>
                       {promptLibrary.categories.map((category) => (
                         <option key={category.id} value={category.id}>{category.title}</option>
@@ -3918,7 +5257,7 @@ function App() {
                   </label>
                 ) : (
                   <label className="settingsField">
-                    <span>new rubric</span>
+                    <span>new category</span>
                     <input value={promptAssetDraft.category} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, category: slugFromText(event.target.value) || "image-generation" })} />
                   </label>
                 )}
@@ -3927,16 +5266,12 @@ function App() {
                 <label className="settingsField"><span>model hints</span><input value={promptAssetDraft.modelHintsText} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, modelHintsText: event.target.value })} /></label>
                 <label className="settingsField"><span>prompt body</span><textarea value={promptAssetDraft.prompt} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, prompt: event.target.value })} /></label>
                 <label className="settingsField"><span>negative prompt</span><textarea value={promptAssetDraft.negativePrompt} onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, negativePrompt: event.target.value })} /></label>
-                {geminiConfigured ? (
-                  <label className="promptAssetCheckbox">
-                    <input type="checkbox" checked={promptAssetDraft.generalize} disabled title="Template generalization is not wired for this MVP save path yet." onChange={(event) => setPromptAssetDraft({ ...promptAssetDraft, generalize: event.target.checked })} />
-                    <span>Generalize into reusable template</span>
-                  </label>
-                ) : null}
                 <div className="promptAssetSource">
+                  <span>status: candidate</span>
                   <span>runId: {promptAssetDraft.sourceRunId || "unknown"}</span>
                   <span>routeId: {promptAssetDraft.sourceRouteId}</span>
                   <span>nodeId: {promptAssetDraft.sourceNodeId}</span>
+                  <span>outputId: {promptAssetDraft.sourceOutputId || "image"}</span>
                 </div>
                 {promptAssetError ? <p className="errorText">{promptAssetError}</p> : null}
               </div>
@@ -3946,7 +5281,7 @@ function App() {
                 {promptAssetError || (promptAssetSaving ? "Saving..." : "")}
               </span>
               <button type="button" disabled={promptAssetSaving} onClick={() => setPromptAssetDraft(null)}>Cancel</button>
-              <button className="primary" type="button" disabled={promptAssetSaving} onClick={() => void savePromptAsset()}><Save size={16} /> {promptAssetSaving ? "Saving..." : "Save"}</button>
+              <button className="primary" type="button" disabled={promptAssetSaving || !promptAssetDraft.prompt.trim()} onClick={() => void savePromptAsset()}><Save size={16} /> {promptAssetSaving ? "Saving..." : "Save"}</button>
             </div>
           </div>
         </div>
@@ -4063,13 +5398,16 @@ function imagePreviewSrc(value: unknown): string | null {
   if (!value) return null;
   if (Array.isArray(value)) return imagePreviewSrc(value[0]);
   if (typeof value === "string") {
+    if (/^data:image\//i.test(value)) return value;
     if (/^https?:\/\//i.test(value)) return value;
     if (/\.(png|jpg|jpeg|webp)(\?.*)?$/i.test(value)) return `${apiBase}/api/assets/preview?path=${encodeURIComponent(value)}`;
     return null;
   }
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
-    return imagePreviewSrc(record.image ?? record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.output);
+    const imageUrl = record.image_url && typeof record.image_url === "object" ? (record.image_url as Record<string, unknown>).url : undefined;
+    const base64 = typeof record.b64_json === "string" ? `data:image/png;base64,${record.b64_json}` : undefined;
+    return imagePreviewSrc(record.image ?? imageUrl ?? base64 ?? record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.output);
   }
   return null;
 }
@@ -4089,9 +5427,32 @@ function imageLabel(value: unknown): string {
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     const image = (record.image && typeof record.image === "object" ? record.image : record) as Record<string, unknown>;
+    if (typeof record.image === "string" && /^data:image\//i.test(record.image)) return "generated image";
     return String(image.filename ?? image.localPath ?? image.path ?? image.originalUrl ?? "image");
   }
+  if (typeof value === "string" && /^data:image\//i.test(value)) return "generated image";
   return String(value ?? "image");
+}
+
+function imageOutputIdForResult(result: NodeRunResult): string {
+  if (result.output && typeof result.output === "object" && !Array.isArray(result.output)) {
+    const record = result.output as Record<string, unknown>;
+    if (record.image) return "image";
+    if (record.localPath || record.path || record.url || record.originalUrl) return "output";
+  }
+  return "image";
+}
+
+function outputString(value: unknown, key: string): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const direct = (value as Record<string, unknown>)[key];
+  if (typeof direct === "string") return direct.trim();
+  const metadata = (value as Record<string, unknown>).metadata;
+  if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
+    const nested = (metadata as Record<string, unknown>)[key];
+    if (typeof nested === "string") return nested.trim();
+  }
+  return "";
 }
 
 function outputText(value: unknown): string | null {
@@ -4103,6 +5464,151 @@ function outputText(value: unknown): string | null {
 function geminiLlmPricingLabel(modelValue: string): string {
   const model = GEMINI_LLM_MODEL_OPTIONS.find((entry) => entry.value === modelValue) ?? GEMINI_LLM_MODEL_OPTIONS[0];
   return `Paid tier: input $${model.inputUsdPerMillionTokens.toFixed(2)} / output $${model.outputUsdPerMillionTokens.toFixed(2)} per 1M tokens.`;
+}
+
+function modelSupportsText(model: OpenRouterModel): boolean {
+  const output = model.architecture?.output_modalities ?? [];
+  const modality = model.architecture?.modality ?? "";
+  return output.length === 0 || output.includes("text") || modality.includes("text");
+}
+
+function modelSupportsImage(model: OpenRouterModel): boolean {
+  if (isOpenRouterRoutingAlias(model.id)) return false;
+  const output = model.architecture?.output_modalities ?? [];
+  const modality = model.architecture?.modality ?? "";
+  return output.includes("image") || modalityOutputModalities(modality).includes("image");
+}
+
+function isOpenRouterRoutingAlias(modelId: string): boolean {
+  return modelId === "openrouter/auto";
+}
+
+function modalityOutputModalities(modality: string): string[] {
+  if (!modality) return [];
+  const outputSide = modality.includes("->") ? modality.split("->").pop() ?? "" : modality;
+  return outputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
+}
+
+function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], selectedModelId: string): ImageModelOption[] {
+  const directOptions: ImageModelOption[] = [{
+    id: "image.nano-banana",
+    slug: "image.nano-banana",
+    label: "Nano Banana",
+    provider: "Gemini",
+    capabilities: ["image-generation"],
+    supportsImageGeneration: "supported",
+    routeSupport: { openrouter: "unsupported", direct: "supported" }
+  }];
+  const openRouterImageOptions = openRouterModels
+    .filter((entry) => modelSupportsImage(entry))
+    .map((entry): ImageModelOption => ({
+      id: entry.id,
+      slug: entry.id,
+      label: entry.name ?? entry.id,
+      provider: providerFromSlug(entry.id),
+      capabilities: ["image-generation"],
+      supportsImageGeneration: "supported",
+      routeSupport: { openrouter: "supported", direct: "unknown" },
+      pricing: entry.pricing
+    }));
+  const options = [...directOptions, ...openRouterImageOptions];
+  if (selectedModelId && !options.some((entry) => entry.id === selectedModelId)) {
+    const selectedCatalogModel = openRouterModels.find((entry) => entry.id === selectedModelId);
+    options.push({
+      id: selectedModelId,
+      slug: selectedModelId,
+      label: selectedCatalogModel?.name ?? selectedModelId,
+      provider: selectedModelId.includes("/") ? providerFromSlug(selectedModelId) : "unknown",
+      capabilities: [],
+      supportsImageGeneration: selectedCatalogModel ? "unsupported" : "unknown",
+      routeSupport: { openrouter: selectedModelId.includes("/") ? "unknown" : "unsupported", direct: "unknown" },
+      disabled: true,
+      note: selectedCatalogModel ? "not available for image generation" : "image support unknown",
+      pricing: selectedCatalogModel?.pricing
+    });
+  }
+  return options;
+}
+
+function connectionRouteHelper(route: string): string {
+  if (route === "openrouter") return "Uses the selected OpenRouter model directly.";
+  if (route === "direct") return "Bypasses OpenRouter and uses the provider's direct API configuration.";
+  return "Automatically chooses a verified route. Unknown model support will not silently switch providers.";
+}
+
+function imageRoutePreview(model: ImageModelOption | undefined, connectionRoute: string) {
+  const selectedConnectionRoute = connectionRoute === "openrouter" ? "OpenRouter" : connectionRoute === "direct" ? "Direct API" : "Auto";
+  if (!model) {
+    return {
+      selectedModelLabel: "Unknown model",
+      selectedModelId: "",
+      selectedConnectionRoute,
+      resolvedProvider: "unresolved",
+      resolvedRoute: "unresolved",
+      supportsImageGeneration: "unknown",
+      fallbackUsed: false,
+      fallbackReason: ""
+    };
+  }
+  const supportsImageGeneration = model.supportsImageGeneration;
+  let resolvedProvider = "unresolved";
+  let resolvedRoute = "unresolved";
+  if (connectionRoute === "openrouter" && model.routeSupport.openrouter !== "unsupported") {
+    resolvedProvider = "OpenRouter";
+    resolvedRoute = model.routeSupport.openrouter === "unknown" ? "OpenRouter (manual, support unknown)" : "OpenRouter";
+  } else if (connectionRoute === "direct" && model.routeSupport.direct === "supported") {
+    resolvedProvider = model.provider;
+    resolvedRoute = "Direct API";
+  } else if (connectionRoute === "auto") {
+    if (model.routeSupport.openrouter === "supported") {
+      resolvedProvider = "OpenRouter";
+      resolvedRoute = "OpenRouter";
+    } else if (model.routeSupport.direct === "supported") {
+      resolvedProvider = model.provider;
+      resolvedRoute = "Direct API";
+    }
+  }
+  return {
+    selectedModelLabel: model.label,
+    selectedModelId: model.slug,
+    selectedConnectionRoute,
+    resolvedProvider,
+    resolvedRoute,
+    supportsImageGeneration,
+    fallbackUsed: false,
+    fallbackReason: ""
+  };
+}
+
+function providerFromSlug(slug: string): string {
+  const provider = slug.split("/")[0] || "unknown";
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
+function openRouterCostLabel(model: OpenRouterModel | undefined): string {
+  if (!model?.pricing) return "Estimated cost: unknown";
+  const prompt = model.pricing.prompt;
+  const completion = model.pricing.completion;
+  if (prompt !== undefined || completion !== undefined) return `Estimated cost: prompt ${pricingValue(prompt)} / completion ${pricingValue(completion)}`;
+  const request = model.pricing.request ?? model.pricing.image;
+  return request !== undefined ? `Estimated cost: ${pricingValue(request)} per request` : "Estimated cost: unknown";
+}
+
+function imageModelCostLabel(model: ImageModelOption | undefined): string {
+  if (!model?.pricing) return "Estimated cost: unknown unless provider pricing is verified.";
+  const request = model.pricing.image ?? model.pricing.request;
+  if (request !== undefined) return `Estimated image cost: ${pricingValue(request)} per request`;
+  return "Estimated image cost: unknown";
+}
+
+function pricingValue(value: unknown): string {
+  return typeof value === "string" || typeof value === "number" ? `$${value}` : "unknown";
+}
+
+function numericParam(value: string): unknown {
+  if (!value.trim()) return "";
+  const number = Number(value.replace(",", "."));
+  return Number.isFinite(number) ? number : value;
 }
 
 function downloadFilename(value: unknown): string {
@@ -4133,6 +5639,19 @@ function slugFromText(value: string): string {
 
 function splitCsv(value: string): string[] {
   return value.split(",").map((entry) => entry.trim()).filter(Boolean);
+}
+
+function filterPromptLibraryByStatus(library: PromptLibraryData, filter: PromptStatusFilter): PromptLibraryData {
+  if (filter === "all") return library;
+  return {
+    ...library,
+    categories: library.categories
+      .map((category) => ({
+        ...category,
+        prompts: category.prompts.filter((prompt) => (prompt.status ?? "published") === filter)
+      }))
+      .filter((category) => category.prompts.length > 0)
+  };
 }
 
 function promptPreviewSrc(prompt: PromptLibraryPrompt): string {

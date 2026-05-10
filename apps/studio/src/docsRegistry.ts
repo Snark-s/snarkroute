@@ -1,10 +1,12 @@
 import capabilitiesEn from "../../../docs/CAPABILITIES.md?raw";
 import capabilitiesRu from "../../../docs/CAPABILITIES_ru.md?raw";
 import promptLibraryRu from "../../../docs/prompt-library_ru.md?raw";
+import openRouterEn from "../../../docs/openrouter.md?raw";
+import openRouterRu from "../../../docs/openrouter_ru.md?raw";
 import newUserGuideEn from "../../../docs/SnarkRoute_for_new_user_en.md?raw";
 import newUserGuideRu from "../../../docs/SnarkRoute_for_new_user_ru.md?raw";
 
-export type StudioDocKind = "capabilities" | "new-user-guide" | "prompt-library";
+export type StudioDocKind = "capabilities" | "new-user-guide" | "prompt-library" | "openrouter";
 export type StudioDocLanguage = "en" | "ru";
 
 export type StudioDocEntry = {
@@ -16,6 +18,20 @@ export type StudioDocEntry = {
 };
 
 export const studioDocs: StudioDocEntry[] = [
+  {
+    id: "openrouter-en",
+    title: "OpenRouter setup",
+    language: "en",
+    kind: "openrouter",
+    content: openRouterEn
+  },
+  {
+    id: "openrouter-ru",
+    title: "OpenRouter",
+    language: "ru",
+    kind: "openrouter",
+    content: openRouterRu
+  },
   {
     id: "new-user-guide-ru",
     title: "Кратко для нового пользователя",

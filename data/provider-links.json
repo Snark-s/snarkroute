@@ -1,0 +1,28 @@
+{
+  "openrouter": {
+    "title": "OpenRouter",
+    "websiteUrl": "https://openrouter.ai/",
+    "signInUrl": "https://openrouter.ai/sign-in",
+    "apiKeysUrl": "https://openrouter.ai/settings/keys",
+    "creditsUrl": "https://openrouter.ai/settings/credits",
+    "modelsUrl": "https://openrouter.ai/models",
+    "docsUrl": "https://openrouter.ai/docs/quickstart",
+    "apiReferenceUrl": "https://openrouter.ai/docs/api/reference/overview",
+    "modelsApiDocsUrl": "https://openrouter.ai/docs/api/api-reference/models/get-models",
+    "pricingUrl": "https://openrouter.ai/pricing"
+  },
+  "gemini": {
+    "title": "Gemini / Google AI Studio",
+    "websiteUrl": "https://aistudio.google.com/",
+    "apiKeysUrl": "https://aistudio.google.com/app/apikey",
+    "docsUrl": "https://ai.google.dev/gemini-api/docs/api-key",
+    "modelsUrl": "https://ai.google.dev/gemini-api/docs/models"
+  },
+  "replicate": {
+    "title": "Replicate",
+    "websiteUrl": "https://replicate.com/",
+    "apiKeysUrl": "https://replicate.com/account/api-tokens",
+    "docsUrl": "https://replicate.com/docs/topics/security/api-tokens",
+    "apiReferenceUrl": "https://replicate.com/docs/reference/http"
+  }
+}

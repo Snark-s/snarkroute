@@ -65,6 +65,10 @@ The backend provides APIs for health checks, settings and API tokens, node catal
 | `data/installed-nodes` | Installed node packages |
 | `docs` | Project documentation |
 
+## How To Keep This Overview Current
+
+After notable project changes, update this English overview and the Russian version at `docs/SnarkRoute_for_new_user_ru.md` so both reflect the current state of SnarkRoute. Working replies do not need to duplicate the full overview; keep the files current instead.
+
 ## Good First Demos
 
 ### Basic Route

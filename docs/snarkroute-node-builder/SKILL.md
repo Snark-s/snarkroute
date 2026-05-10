@@ -9,11 +9,13 @@ Use this skill when the user asks to create a ready-to-import SnarkRoute node pa
 
 ## Ground Truth
 
-- Follow the current SnarkRoute node package model in `packages/nodes/src/package-system.ts`.
+- Follow the current SnarkRoute node package model in `packages/nodes/src/package-system.ts`: `kind`, `schemaVersion`, `id`, `title`, `version`, `author`, `license`, `origin`, `permissions`, `executor`, `inputs`, `outputs`, optional `params`, and optional metadata such as `capabilities`, `ui`, `icon`, `tags`, `homepage`, `repository`, `examples`, and `dependencies`.
 - A portable `<name>.snarknode` is a ZIP archive, not a JSON file with a renamed extension.
 - The ZIP root must contain `manifest.json`.
 - Plugin packages must include the file named by `executor.entry`.
-- Use existing validation and packing helpers: `validateNodeManifest`, `packNodePackage`, and `previewNodePackageArchive`.
+- Inside the SnarkRoute repository, use existing validation and packing helpers: `validateNodeManifest`, `packNodePackage`, and `previewNodePackageArchive`.
+- Outside the repository, use the bundled standalone generator. It mirrors the current manifest validation rules and creates ZIP-compatible `.snarknode` packages with no external dependencies.
+- A good node is not just valid. It should be Studio-ready: clear `category`, meaningful port labels, useful `params` with defaults, and `ui.params` controls for text areas, selects, checkboxes, and numeric fields.
 - Do not invent protocol fields or endpoint behavior.
 - Keep route/package files portable across SnarkRoute tools.
 
@@ -25,9 +27,15 @@ Use this skill when the user asks to create a ready-to-import SnarkRoute node pa
 4. Keep `author` as an object, usually `{ "name": "..." }`.
 5. Keep `permissions` as an object with `network`, `networkHosts`, `readFiles`, `writeOutputs`, `shell`, and `env`.
 6. Keep `inputs`, `outputs`, and `params` as arrays.
-7. For plugin nodes, generate `executor.ts` with `export async function runNode(context)`.
-8. For declarative nodes, do not add runtime code.
-9. Run the bundled standalone generator, which validates the manifest, zips the package contents, and writes `<slug>.snarknode`.
+7. Always create useful `params` for values users should edit in Studio. Do not hide normal controls only inside code.
+8. Use `ui.params.<paramId>` for better controls:
+   - `{ "control": "textarea", "multiline": true }` for prompts or JSON-like bodies.
+   - `{ "control": "select", "options": ["1:1", "16:9"] }` for known option sets.
+   - `{ "control": "number" }` for numeric values.
+   - `{ "control": "checkbox" }` for booleans.
+9. For plugin nodes, generate `executor.ts` with `export async function runNode(context)`.
+10. For declarative nodes, do not add runtime code.
+11. Run the bundled standalone generator, which validates the manifest, zips the package contents, and writes `<slug>.snarknode`.
 
 ## Standalone Generator
 
@@ -71,6 +79,15 @@ When this skill is installed in Codex, the script is normally available at:
 - `inputs`
 - `outputs`
 - `params`
+- `capabilities`
+- `ui`
+- `icon`
+- `tags`
+- `homepage`
+- `repository`
+- `examples`
+- `dependencies`
+- `studioProfile` or `profile`: optional helper preset, currently `image-generation`, `image-edit`, `openai-image`, `gemini-image`, `text-generation`, or `llm`
 - `permissions`
 - `executorType`: `declarative`, `declarative.http`, or `plugin`
 - `executor`
@@ -81,6 +98,15 @@ When this skill is installed in Codex, the script is normally available at:
 - `includeReadme`
 - `includeExamples`
 - `pluginCode`
+
+## Studio Quality Rules
+
+- Prefer labels users understand: `Prompt`, `Images`, `Aspect Ratio`, `Quality`, not only protocol ids.
+- Add editable params for common runtime choices. For image nodes, include `prompt`, `aspectRatio`, and `quality` unless the user asks otherwise.
+- For API/provider nodes, list required env keys in `permissions.env`; the Studio generic renderer will show them as required env hints.
+- For known option sets, use `ui.params` select controls so custom nodes feel closer to bundled nodes.
+- If behavior needs a secret token, never put it in params or README examples. Use `permissions.env`.
+- Do not generate fake API behavior. If official endpoint details are missing, generate a scaffold with honest TODOs.
 
 ## Minimal Declarative Example
 
@@ -108,6 +134,7 @@ This produces `my-cool-node.snarknode` as a real ZIP archive containing `manifes
   "category": "Text",
   "author": { "name": "Your Name" },
   "executorType": "plugin",
+  "studioProfile": "image-generation",
   "inputs": [{ "id": "prompt", "type": "text", "required": true, "label": "Prompt" }],
   "outputs": [{ "id": "result", "type": "json", "label": "Result" }],
   "params": [],
@@ -118,6 +145,12 @@ This produces `my-cool-node.snarknode` as a real ZIP archive containing `manifes
     "writeOutputs": false,
     "shell": false,
     "env": []
+  },
+  "ui": {
+    "params": {
+      "prompt": { "control": "textarea", "multiline": true },
+      "quality": { "control": "select", "options": ["low", "medium", "high", "auto"] }
+    }
   },
   "pluginCode": "export async function runNode(context) {\n  const prompt = String(context.inputs.prompt ?? \"\");\n  return { outputs: { result: { length: prompt.length } } };\n}\n",
   "includeExamples": true
