@@ -976,6 +976,7 @@ h2 {
   border-radius: 999px;
   content: "";
   inset: -5px;
+  pointer-events: none;
   position: absolute;
 }
 
@@ -993,6 +994,23 @@ h2 {
   100% {
     opacity: 0;
     transform: scale(1.95);
+  }
+}
+
+@keyframes pendingStatusPulseCollapsed {
+  0% {
+    opacity: 0.85;
+    transform: scale(0.8);
+  }
+
+  70% {
+    opacity: 0.14;
+    transform: scale(1.45);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
   }
 }
 
@@ -1143,6 +1161,23 @@ h2 {
   right: 38px;
   top: 50%;
   transform: translateY(-50%);
+}
+
+.routeNodeCard.paramsCollapsed .nodeStatus.pending {
+  right: 52px;
+}
+
+.routeNodeCard.paramsCollapsed .nodeStatus.pending::after {
+  animation-name: pendingStatusPulseCollapsed;
+  inset: -3px;
+}
+
+.routeNodeCard.paramsCollapsed:has(.nodeStatus.pending) .nodeHeader {
+  padding-right: 66px;
+}
+
+.routeNodeCard.paramsCollapsed:has(.nodeRunActions):has(.nodeStatus.pending) .nodeHeader {
+  margin-right: 70px;
 }
 
 .routeNodeCard.paramsCollapsed .nodeTitle {
@@ -2093,6 +2128,7 @@ h2 {
   font-size: 11px;
   height: auto;
   max-height: 96px;
+  overflow: auto;
   padding: 0;
 }
 

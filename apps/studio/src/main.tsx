@@ -21,7 +21,7 @@ import {
 } from "@xyflow/react";
 import { exportRouteToText, loadRouteFromText, normalizeRouteExportFilename, type OpenRoute } from "@snarkroute/protocol";
 import { ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, FolderOpen, Globe, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   NODE_PACKAGE_INSTALL_PATH,
@@ -632,9 +632,11 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onBrowseAsset = data.onBrowseAsset as ((nodeId: string, kind: AssetKind) => void) | undefined;
   const replicateConfigured = Boolean(data.replicateConfigured);
   const geminiConfigured = Boolean(data.geminiConfigured);
+  const openAiConfigured = Boolean(data.openAiConfigured);
   const openRouterConfigured = Boolean(data.openRouterConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
   const onConfigureGemini = data.onConfigureGemini as (() => void) | undefined;
+  const onConfigureOpenAi = data.onConfigureOpenAi as (() => void) | undefined;
   const onConfigureOpenRouter = data.onConfigureOpenRouter as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
   const onImageResultContextMenu = data.onImageResultContextMenu as ((event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void) | undefined;
@@ -797,6 +799,18 @@ function RouteNodeCard({ id, data }: NodeProps) {
           ) : null}
         </div>
       ) : null}
+      {!paramsCollapsed && requiresEnv(manifest, "OPENAI_API_KEY") ? (
+        <div className={`nodeTokenStatus ${openAiConfigured ? "configured" : "missing"}`}>
+          <span>OpenAI: {openAiConfigured ? "key configured" : "missing"}</span>
+          {!openAiConfigured ? (
+            <>
+              <strong>Requires OpenAI API key</strong>
+              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureOpenAi}>Configure OpenAI</button>
+              <small>Open Settings &gt; Advanced / Direct Secrets &gt; OpenAI</small>
+            </>
+          ) : null}
+        </div>
+      ) : null}
       {!paramsCollapsed && isRemoteAiNode(type) ? (
         <div className={`nodeTokenStatus ${openRouterConfigured ? "configured" : "missing"}`}>
           <span>OpenRouter: {openRouterConfigured ? "key configured" : "missing"}</span>
@@ -828,7 +842,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           onOpenImage={onOpenImage}
         />
       ) : null}
-      {result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} result={result} onOpenImage={onOpenImage} onImageResultContextMenu={onImageResultContextMenu} /> : null}
+      {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} result={result} onOpenImage={onOpenImage} onImageResultContextMenu={onImageResultContextMenu} /> : null}
       {ports.outputs.map((port, index) => (
         <React.Fragment key={port.id}>
           <span className="portLabel output" style={{ top: `${portLabelTop(index)}px` }}>
@@ -881,8 +895,14 @@ function NodeInlineParams({
   onBrowse: (kind: AssetKind) => void;
   onOpenImage?: (image: ImageViewerState) => void;
 }) {
+  const pendingTextSelectionRef = useRef<PendingTextSelection | null>(null);
+
+  useLayoutEffect(() => {
+    restorePendingTextSelection(pendingTextSelectionRef);
+  }, [params]);
+
   function updateTextParam(key: string, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>, transform: (value: string) => unknown = (value) => value) {
-    updateTextFieldPreservingCaret(event, (value) => onChange({ [key]: transform(value) }));
+    updateTextFieldPreservingCaret(event, pendingTextSelectionRef, (value) => onChange({ [key]: transform(value) }));
   }
 
   if (type === "input.text") {
@@ -1091,7 +1111,7 @@ function NodeInlineParams({
             className="nodrag nopan nodeTextarea"
             value={JSON.stringify(params.input ?? {}, null, 2)}
             onChange={(event) => {
-              updateTextFieldPreservingCaret(event, (value) => {
+              updateTextFieldPreservingCaret(event, pendingTextSelectionRef, (value) => {
                 try {
                   onChange({ input: JSON.parse(value) });
                 } catch {
@@ -1604,19 +1624,39 @@ function promptComposeFixedSlots(): Array<{ id: string; label: string }> {
   ];
 }
 
+type PendingTextSelection = {
+  target: HTMLInputElement | HTMLTextAreaElement;
+  selectionStart: number | null;
+  selectionEnd: number | null;
+  selectionDirection: "forward" | "backward" | "none" | null;
+};
+
 function updateTextFieldPreservingCaret(
   event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
+  pendingSelectionRef: React.MutableRefObject<PendingTextSelection | null>,
   commit: (value: string) => void
 ) {
   const target = event.currentTarget;
-  const selectionStart = target.selectionStart;
-  const selectionEnd = target.selectionEnd;
-  const selectionDirection = target.selectionDirection;
+  pendingSelectionRef.current = {
+    target,
+    selectionStart: target.selectionStart,
+    selectionEnd: target.selectionEnd,
+    selectionDirection: target.selectionDirection
+  };
   commit(target.value);
-  window.requestAnimationFrame(() => {
-    if (document.activeElement !== target || selectionStart === null || selectionEnd === null) return;
-    target.setSelectionRange(selectionStart, selectionEnd, selectionDirection ?? "none");
-  });
+}
+
+function restorePendingTextSelection(pendingSelectionRef: React.MutableRefObject<PendingTextSelection | null>) {
+  const pendingSelection = pendingSelectionRef.current;
+  pendingSelectionRef.current = null;
+  if (!pendingSelection) return;
+  const { target, selectionStart, selectionEnd, selectionDirection } = pendingSelection;
+  if (!target.isConnected || selectionStart === null || selectionEnd === null) return;
+  if (document.activeElement !== target) {
+    target.focus({ preventScroll: true });
+  }
+  const valueLength = target.value.length;
+  target.setSelectionRange(Math.min(selectionStart, valueLength), Math.min(selectionEnd, valueLength), selectionDirection ?? "none");
 }
 
 function PromptLibraryPromptCard({
@@ -2007,7 +2047,9 @@ function catalogItemPorts(item: NodeCatalogItem | (typeof library)[number]): { i
   return getNodePorts(item.type, "manifest" in item ? item.manifest : undefined);
 }
 
-function groupNodeCatalog(items: NodeCatalogItem[], layout: NodeLibraryLayout): Array<{ id: string; title: string; items: NodeCatalogItem[] }> {
+type NodeCatalogSection = { id: string; title: string; types: string[]; items: NodeCatalogItem[] };
+
+function groupNodeCatalog(items: NodeCatalogItem[], layout: NodeLibraryLayout): NodeCatalogSection[] {
   const hiddenTypes = new Set(layout.hiddenTypes);
   const visibleItems = items.filter((entry) => entry.enabled !== false && !hiddenTypes.has(entry.type));
   const itemByType = new Map(visibleItems.map((item) => [item.type, item]));
@@ -2019,7 +2061,7 @@ function groupNodeCatalog(items: NodeCatalogItem[], layout: NodeLibraryLayout): 
       assignedTypes.add(type);
       return [item];
     });
-    return { id: group.id, title: group.title, items: sortCatalogItems(groupItems, group.types) };
+    return { id: group.id, title: group.title, types: [...group.types], items: sortCatalogItems(groupItems, group.types) };
   });
   const extraGroups = new Map<string, NodeCatalogItem[]>();
   for (const item of visibleItems) {
@@ -2031,7 +2073,7 @@ function groupNodeCatalog(items: NodeCatalogItem[], layout: NodeLibraryLayout): 
     ...groups,
     ...[...extraGroups.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([title, sectionItems]) => ({ id: title.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "nodes", title, items: sortCatalogItems(sectionItems) }))
+      .map(([title, sectionItems]) => ({ id: title.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "nodes", title, types: sectionItems.map((item) => item.type), items: sortCatalogItems(sectionItems) }))
   ];
 }
 
@@ -2131,6 +2173,10 @@ function permissionsSummary(manifest: NodeManifest): string {
     permissions.shell ? "shell requested" : "no shell",
     permissions.env?.length ? `env: ${permissions.env.join(", ")}` : "no env"
   ].join("; ");
+}
+
+function requiresEnv(manifest: NodeManifest | undefined, key: string): boolean {
+  return Boolean(manifest?.permissions.env?.includes(key));
 }
 
 function formatApiIssues(value: unknown): string {
@@ -2594,6 +2640,7 @@ function flowToNodeRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc, targ
 function App() {
   const initialRouteState = useMemo(() => loadInitialRoute(), []);
   const initial = useMemo(() => routeToFlow(initialRouteState.route), [initialRouteState.route]);
+  const canvasRef = useRef<HTMLElement | null>(null);
   const [routeBase, setRouteBase] = useState<RouteDoc>(initialRouteState.route);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
@@ -2607,6 +2654,9 @@ function App() {
   const [replicateConfigured, setReplicateConfigured] = useState(false);
   const [geminiToken, setGeminiToken] = useState("");
   const [geminiConfigured, setGeminiConfigured] = useState(false);
+  const [openAiToken, setOpenAiToken] = useState("");
+  const [openAiConfigured, setOpenAiConfigured] = useState(false);
+  const [openAiMaskedKey, setOpenAiMaskedKey] = useState("");
   const [openRouterToken, setOpenRouterToken] = useState("");
   const [openRouterSettings, setOpenRouterSettings] = useState<OpenRouterSettings>({ configured: false });
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
@@ -2679,7 +2729,11 @@ function App() {
           const items = nodeSearchQuery ? routeItems.filter((item) => catalogItemMatchesSearch(item, nodeSearchQuery)) : routeItems;
           return { ...section, items };
         })
-        .filter((section) => !nodeSearchQuery || section.items.length > 0);
+        .filter((section) => {
+          if (nodeSearchQuery) return section.items.length > 0;
+          if (section.items.length > 0) return true;
+          return section.types.length === 0;
+        });
     },
     [catalogSections, nodeCatalog, nodeLibraryLayout, nodeSearchQuery, routeStack.length, showHiddenNodes]
   );
@@ -2731,6 +2785,7 @@ function App() {
           onBrowseAsset: browseAsset,
           onConfigureReplicate: openReplicateSettings,
           onConfigureGemini: openGeminiSettings,
+          onConfigureOpenAi: openOpenAiSettings,
           onConfigureOpenRouter: openOpenRouterSettings,
           onOpenImage: setImageViewer,
           onImageResultContextMenu: openPromptAssetMenu,
@@ -2749,12 +2804,13 @@ function App() {
           stableDiffusionModels,
           openRouterConfigured: openRouterSettings.configured,
           openRouterModels,
+          openAiConfigured,
           replicateConfigured,
           geminiConfigured,
           result: runResult?.nodeResults?.[node.id]
         }
       })),
-    [nodes, edges, runResult, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, runResult, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, openAiConfigured, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
@@ -2773,6 +2829,24 @@ function App() {
   useEffect(() => {
     saveNodeLibraryLayout(nodeLibraryLayout);
   }, [nodeLibraryLayout]);
+
+  useEffect(() => {
+    async function handlePaste(event: ClipboardEvent) {
+      if (isTextEditingTarget(event.target)) return;
+      const file = imageFileFromClipboard(event);
+      if (!file) return;
+      event.preventDefault();
+      try {
+        await addAssetNodeFromFile(file, "image", flowPositionFromViewportCenter(), "Pasted image");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setLogs((entries) => [`Paste import error: ${message}`, ...entries]);
+      }
+    }
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [nodeCatalog, reactFlowInstance]);
 
   async function loadNodeCatalog() {
     try {
@@ -2807,6 +2881,8 @@ function App() {
       const result = await response.json();
       setReplicateConfigured(Boolean(result.replicate?.configured ?? result.replicateConfigured));
       setGeminiConfigured(Boolean(result.gemini?.configured ?? result.geminiConfigured));
+      setOpenAiConfigured(Boolean(result.openai?.configured));
+      setOpenAiMaskedKey(String(result.openai?.maskedApiKey ?? ""));
       setOpenRouterSettings(result.openrouter ?? { configured: false });
       setOpenRouterDefaultModel(String(result.openrouter?.defaultModel ?? "text.default"));
       setOpenRouterBudgetWarningUsd(result.openrouter?.budgetWarningUsd == null ? "" : String(result.openrouter.budgetWarningUsd));
@@ -2817,6 +2893,8 @@ function App() {
       setApiConnected(false);
       setReplicateConfigured(false);
       setGeminiConfigured(false);
+      setOpenAiConfigured(false);
+      setOpenAiMaskedKey("");
       setOpenRouterSettings({ configured: false });
       setApiError(message);
       setSettingsMessage(message);
@@ -3150,6 +3228,32 @@ function App() {
     }
   }
 
+  async function saveOpenAiToken() {
+    const token = openAiToken.trim();
+    if (!token) {
+      setSettingsMessage("OpenAI key cannot be empty.");
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBase}/api/settings/openai-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ openAiApiKey: token })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to save OpenAI key.");
+      setOpenAiConfigured(Boolean(result.openai?.configured));
+      setOpenAiMaskedKey(String(result.openai?.maskedApiKey ?? ""));
+      setOpenAiToken("");
+      setSettingsMessage("OpenAI key saved locally.");
+      setLogs((current) => ["OpenAI key saved locally.", ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    }
+  }
+
   async function saveOpenRouterSettings() {
     const token = openRouterToken.trim();
     if (!token && !openRouterDefaultModel.trim() && !openRouterBudgetWarningUsd.trim()) {
@@ -3219,6 +3323,11 @@ function App() {
   function openGeminiSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your Gemini API key in Settings \u2192 Secrets \u2192 Gemini.");
+  }
+
+  function openOpenAiSettings() {
+    setRightCollapsed(false);
+    setSettingsMessage("Paste your OpenAI API key in Settings -> Advanced / Direct Secrets -> OpenAI.");
   }
 
   function openOpenRouterSettings() {
@@ -3532,6 +3641,12 @@ function App() {
     return reactFlowInstance?.screenToFlowPosition({ x: clientX, y: clientY }) ?? { x: 160 + nodes.length * 30, y: 120 + nodes.length * 24 };
   }
 
+  function flowPositionFromViewportCenter() {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (rect) return flowPositionFromClientPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    return { x: 160 + nodes.length * 30, y: 120 + nodes.length * 24 };
+  }
+
   function updateNodeParams(nodeId: string, params: Record<string, unknown>) {
     setNodes((current) =>
       current.map((node) => {
@@ -3572,6 +3687,35 @@ function App() {
       { id, type: isCompoundInterfaceType(type) ? "interface" : "route", position: position ?? { x: 120 + current.length * 36, y: 140 + current.length * 28 }, data: { label: `${itemTitle}\n${type}`, routeNode } }
     ]);
     return id;
+  }
+
+  async function addAssetNodeFromFile(file: File, kind: AssetKind, position: { x: number; y: number } | undefined, logPrefix: string) {
+    const type = `input.${kind}`;
+    const item = nodeCatalog.find((candidate) => candidate.type === type) ?? library.find((candidate) => candidate.type === type);
+    if (!item) throw new Error(`Cannot add missing node type: ${type}`);
+    const path = await importLocalAsset(file, kind);
+    const itemTitle = catalogItemTitle(item);
+    let createdId = "";
+    setNodes((current) => {
+      const usedIds = new Set(current.map((node) => node.id));
+      const id = uniqueFlowId(`${type.replace(/\W+/g, "_")}_${current.length + 1}`, usedIds);
+      createdId = id;
+      const routeNode = { id, type, title: itemTitle, params: { path }, ui: {} };
+      return [
+        ...current,
+        {
+          id,
+          type: "route",
+          position: position ?? { x: 120 + current.length * 36, y: 140 + current.length * 28 },
+          data: { label: `${itemTitle}\n${type}`, routeNode }
+        }
+      ];
+    });
+    setRunResult(null);
+    setOutputs(null);
+    if (createdId) selectNode(null);
+    setLogs((entries) => [`${logPrefix}: ${path}`, ...entries]);
+    return createdId;
   }
 
   function toggleLibrarySection(id: string) {
@@ -3660,7 +3804,7 @@ function App() {
     setLibrarySectionMenu(null);
   }
 
-  function openLibraryItemMenu(event: React.MouseEvent, item: NodeCatalogItem, section: { id: string; title: string; items: NodeCatalogItem[] }) {
+  function openLibraryItemMenu(event: React.MouseEvent, item: NodeCatalogItem, section: NodeCatalogSection) {
     event.preventDefault();
     event.stopPropagation();
     setContextMenu(null);
@@ -3668,10 +3812,10 @@ function App() {
     setPromptLibraryMenu(null);
     setConnectionNodeMenu(null);
     setLibrarySectionMenu(null);
-    setLibraryItemMenu({ clientX: event.clientX, clientY: event.clientY, type: item.type, sectionId: section.id, sectionTitle: section.title, sectionTypes: section.items.map((entry) => entry.type) });
+    setLibraryItemMenu({ clientX: event.clientX, clientY: event.clientY, type: item.type, sectionId: section.id, sectionTitle: section.title, sectionTypes: [...section.types] });
   }
 
-  function openLibrarySectionMenu(event: React.MouseEvent, section: { id: string; title: string; items: NodeCatalogItem[] }) {
+  function openLibrarySectionMenu(event: React.MouseEvent, section: NodeCatalogSection) {
     event.preventDefault();
     event.stopPropagation();
     setContextMenu(null);
@@ -3679,7 +3823,7 @@ function App() {
     setPromptLibraryMenu(null);
     setConnectionNodeMenu(null);
     setLibraryItemMenu(null);
-    setLibrarySectionMenu({ clientX: event.clientX, clientY: event.clientY, sectionId: section.id, sectionTitle: section.title, sectionTypes: section.items.map((entry) => entry.type) });
+    setLibrarySectionMenu({ clientX: event.clientX, clientY: event.clientY, sectionId: section.id, sectionTitle: section.title, sectionTypes: [...section.types] });
   }
 
   async function deleteLibraryItem(type: string) {
@@ -3746,7 +3890,7 @@ function App() {
     moveLibraryItemToGroup(type, sectionId, sectionTitle);
   }
 
-  function renderLibraryItem(item: NodeCatalogItem, section: { id: string; title: string; items: NodeCatalogItem[] }) {
+  function renderLibraryItem(item: NodeCatalogItem, section: NodeCatalogSection) {
     const isHidden = hiddenNodeTypes.has(item.type);
     return (
       <div
@@ -4662,6 +4806,7 @@ function App() {
       </aside>
 
       <main
+        ref={canvasRef}
         className="canvas"
         onDragOver={(event) => {
           event.preventDefault();
@@ -4719,6 +4864,7 @@ function App() {
             <strong>{apiConnected ? "connected" : "disconnected"}</strong>
             <em>{apiConnected ? (replicateConfigured ? "replicate: configured" : "replicate: missing") : "replicate: unknown"}</em>
             <em>{apiConnected ? (geminiConfigured ? "gemini: configured" : "gemini: missing") : "gemini: unknown"}</em>
+            <em>{apiConnected ? (openAiConfigured ? "openai: configured" : "openai: missing") : "openai: unknown"}</em>
           </div>
         </div>
         <ReactFlow
@@ -5060,6 +5206,28 @@ function App() {
             />
           </label>
           <button onClick={() => void saveGeminiToken()}><Save size={16} /> Save Key</button>
+          <h4>OpenAI</h4>
+          <div className={`settingsStatus ${openAiConfigured ? "configured" : ""}`}>
+            <KeyRound size={14} />
+            OpenAI: {openAiConfigured ? `key configured (${openAiMaskedKey || "********"})` : "not configured"}
+          </div>
+          <div className="settingsLinks">
+            <a className="settingsLink" href={providerLinks.openai?.apiKeysUrl ?? "https://platform.openai.com/api-keys"} target="_blank" rel="noreferrer">Get OpenAI API key</a>
+            <a className="settingsLink" href={providerLinks.openai?.docsUrl ?? "https://platform.openai.com/docs"} target="_blank" rel="noreferrer">Docs</a>
+            <a className="settingsLink" href={providerLinks.openai?.apiReferenceUrl ?? "https://platform.openai.com/docs/api-reference"} target="_blank" rel="noreferrer">API reference</a>
+            <a className="settingsLink" href={providerLinks.openai?.pricingUrl ?? "https://openai.com/api/pricing/"} target="_blank" rel="noreferrer">Pricing</a>
+          </div>
+          <label className="settingsField">
+            <span>OPENAI_API_KEY</span>
+            <input
+              type="password"
+              value={openAiToken}
+              placeholder={openAiConfigured ? "***************" : "Paste key"}
+              onChange={(event) => setOpenAiToken(event.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <button onClick={() => void saveOpenAiToken()}><Save size={16} /> Save Key</button>
           {settingsMessage ? <p className={settingsMessage.includes("error") || settingsMessage.includes("Failed") || settingsMessage.includes("empty") ? "errorText" : "muted"}>{settingsMessage}</p> : null}
         </div>
 
@@ -5407,7 +5575,9 @@ function imagePreviewSrc(value: unknown): string | null {
     const record = value as Record<string, unknown>;
     const imageUrl = record.image_url && typeof record.image_url === "object" ? (record.image_url as Record<string, unknown>).url : undefined;
     const base64 = typeof record.b64_json === "string" ? `data:image/png;base64,${record.b64_json}` : undefined;
-    return imagePreviewSrc(record.image ?? imageUrl ?? base64 ?? record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.output);
+    const portableMimeType = typeof record.mimeType === "string" && record.mimeType.trim() ? record.mimeType.trim() : "image/png";
+    const portableBase64 = typeof record.base64 === "string" ? `data:${portableMimeType};base64,${record.base64}` : undefined;
+    return imagePreviewSrc(record.image ?? imageUrl ?? base64 ?? portableBase64 ?? record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.output);
   }
   return null;
 }
@@ -5428,6 +5598,7 @@ function imageLabel(value: unknown): string {
     const record = value as Record<string, unknown>;
     const image = (record.image && typeof record.image === "object" ? record.image : record) as Record<string, unknown>;
     if (typeof record.image === "string" && /^data:image\//i.test(record.image)) return "generated image";
+    if (typeof image.base64 === "string") return String(image.filename ?? "generated image");
     return String(image.filename ?? image.localPath ?? image.path ?? image.originalUrl ?? "image");
   }
   if (typeof value === "string" && /^data:image\//i.test(value)) return "generated image";
@@ -5715,6 +5886,28 @@ async function importLocalAsset(file: File, kind: AssetKind): Promise<string> {
   if (!response.ok) throw new Error(result.error ?? "Local import failed.");
   if (!result.path) throw new Error("Local import did not return a path.");
   return result.path;
+}
+
+function imageFileFromClipboard(event: ClipboardEvent): File | null {
+  const items = Array.from(event.clipboardData?.items ?? []);
+  for (const item of items) {
+    if (item.kind !== "file" || !item.type.startsWith("image/")) continue;
+    const file = item.getAsFile();
+    if (!file) continue;
+    return file.name ? file : new File([file], `clipboard-image.${extensionForMimeType(file.type)}`, { type: file.type });
+  }
+
+  const files = Array.from(event.clipboardData?.files ?? []);
+  const file = files.find((candidate) => candidate.type.startsWith("image/"));
+  if (!file) return null;
+  return file.name ? file : new File([file], `clipboard-image.${extensionForMimeType(file.type)}`, { type: file.type });
+}
+
+function extensionForMimeType(mimeType: string): string {
+  if (mimeType === "image/jpeg") return "jpg";
+  if (mimeType === "image/webp") return "webp";
+  if (mimeType === "image/gif") return "gif";
+  return "png";
 }
 
 function fileToBase64(file: File): Promise<string> {

@@ -1,9 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const OPENROUTER_MISSING_KEY_MESSAGE = "OpenRouter API key is missing.";
+const LOCAL_FILE_DATA_URI_LIMIT_BYTES = 10 * 1024 * 1024;
 
 export interface OpenRouterClientOptions {
   apiKey?: string;
@@ -15,8 +16,10 @@ export interface OpenRouterClientOptions {
 
 export interface OpenRouterChatMessage {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | OpenRouterContentPart[];
 }
+
+export type OpenRouterContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
 export interface OpenRouterModelInfo {
   id: string;
@@ -139,7 +142,7 @@ export function createOpenRouterTextNodeRunner(options: OpenRouterClientOptions 
 
 export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions & { modelResolver?: ModelResolver } = {}): NodeRunner {
   const client = createOpenRouterClient(options);
-  return async ({ node, params, inputs }) => {
+  return async ({ node, params, inputs, context }) => {
     const selectedModelId = stringParam(params.model) ?? "image.nano-banana";
     const selectedConnectionRoute = providerModeParam(params.providerMode);
     const resolution = options.modelResolver?.({ task: "image", modelId: selectedModelId, providerMode: selectedConnectionRoute }) ?? {
@@ -159,9 +162,17 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
     if (resolution.provider !== "openrouter") throw new Error(resolution.reason || "This model is listed in the UI but has no executable image route.");
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     if (!prompt.trim()) throw new Error("Image Generation requires a prompt.");
-    const response = await client.chatCompletions(buildImageRequestBody(resolution.model, prompt, params));
+    const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
+    const imageUrls = await Promise.all(images.map((image) => prepareImageUrl(image, options.fetchImpl)));
+    const response = await client.chatCompletions(buildImageRequestBody(resolution.model, prompt, params, imageUrls));
     const image = firstOpenRouterImage(response);
     if (!image) throw new Error(`OpenRouter model "${resolution.model}" did not return an image.`);
+    const imageAsset = await writeOpenRouterImage(image, {
+      outputDirectory: context.outputDirectory,
+      sourceNodeId: node.id,
+      model: resolution.model,
+      fetchImpl: options.fetchImpl
+    });
     const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : undefined;
     const estimatedCost = estimateImageCostFromPricing(params.pricing);
     const metadata = resolutionMetadata(resolution, {
@@ -171,7 +182,7 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
     });
     return {
       output: {
-        image,
+        image: imageAsset,
         output: response,
         metadata,
         ...metadata,
@@ -179,10 +190,12 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
         actualUsage: usage,
         actualCost: actualCostFromUsage(usage),
         pricingSource: estimatedCost === null ? "unknown" : "openrouter_catalog",
+        inputImageCount: images.length,
+        localPath: imageAsset.localPath,
         status: "succeeded"
       },
       logs: [
-        `Generated image with OpenRouter ${resolution.model}`,
+        `Generated image with OpenRouter ${resolution.model} at ${imageAsset.localPath}`,
         `Resolved route: ${metadata.resolvedRoute}; fallback: ${metadata.fallbackUsed ? metadata.fallbackReason || "yes" : "no"}`
       ],
       provenance: metadata,
@@ -201,10 +214,16 @@ export function buildChatRequestBody(model: string, messages: OpenRouterChatMess
   return body;
 }
 
-export function buildImageRequestBody(model: string, prompt: string, params: Record<string, unknown>): Record<string, unknown> {
+export function buildImageRequestBody(model: string, prompt: string, params: Record<string, unknown>, imageUrls: string[] = []): Record<string, unknown> {
+  const content: string | OpenRouterContentPart[] = imageUrls.length > 0
+    ? [
+        { type: "text", text: prompt },
+        ...imageUrls.map((url) => ({ type: "image_url" as const, image_url: { url } }))
+      ]
+    : prompt;
   const body: Record<string, unknown> = {
     model,
-    messages: [{ role: "user", content: prompt }],
+    messages: [{ role: "user", content }],
     modalities: ["image", "text"]
   };
   if (params.aspectRatio !== undefined) body.aspect_ratio = params.aspectRatio;
@@ -436,6 +455,89 @@ function firstOpenRouterImage(response: unknown): unknown {
   return null;
 }
 
+function firstInputImage(inputs: Record<string, unknown>): unknown {
+  if ("image" in inputs) return inputs.image;
+  for (const value of Object.values(inputs)) {
+    if (value && typeof value === "object" && ("path" in value || "localPath" in value)) return value;
+    if (value && typeof value === "object" && "image" in value) return (value as { image: unknown }).image;
+  }
+  return undefined;
+}
+
+function collectInputImages(value: unknown): unknown[] {
+  if (value === undefined || value === null) return [];
+  if (Array.isArray(value)) return value.flatMap(collectInputImages);
+  return [value];
+}
+
+async function prepareImageUrl(value: unknown, fetchImpl: typeof fetch = fetch): Promise<string> {
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return prepareImageUrl(record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.image, fetchImpl);
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("OpenRouter image generation expected image input as a local path, image object, data URI, or remote URL.");
+  }
+  if (value.startsWith("data:")) return value;
+  if (/^https?:\/\//i.test(value)) return value;
+  const bytes = await readFile(value);
+  if (bytes.length > LOCAL_FILE_DATA_URI_LIMIT_BYTES) throw new Error(`OpenRouter local image input is too large (${bytes.length} bytes). Limit is ${LOCAL_FILE_DATA_URI_LIMIT_BYTES} bytes.`);
+  return `data:${mimeTypeFromPath(value)};base64,${bytes.toString("base64")}`;
+}
+
+async function writeOpenRouterImage(
+  image: unknown,
+  options: { outputDirectory: string; sourceNodeId: string; model: string; fetchImpl?: typeof fetch }
+) {
+  if (image && typeof image === "object") {
+    const record = image as Record<string, unknown>;
+    return writeOpenRouterImage(record.localPath ?? record.path ?? record.image_url ?? record.url ?? record.image, options);
+  }
+  if (typeof image !== "string" || !image.trim()) {
+    throw new Error("OpenRouter image response did not include a usable image URL or data URI.");
+  }
+
+  if (image.startsWith("data:")) {
+    const match = /^data:([^;,]+);base64,(.+)$/i.exec(image);
+    if (!match) throw new Error("OpenRouter image response returned an invalid data URI.");
+    return writeGeneratedImage(Buffer.from(match[2], "base64"), match[1], options);
+  }
+
+  if (/^https?:\/\//i.test(image)) {
+    const response = await (options.fetchImpl ?? fetch)(image);
+    if (!response.ok) throw new Error(`Could not download OpenRouter image output (${response.status}).`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const mimeType = response.headers.get("content-type")?.split(";")[0] ?? mimeTypeFromPath(new URL(image).pathname);
+    return writeGeneratedImage(bytes, mimeType, options);
+  }
+
+  return {
+    localPath: image,
+    path: image,
+    filename: basename(image),
+    mimeType: mimeTypeFromPath(image),
+    sourceNodeId: options.sourceNodeId,
+    model: options.model
+  };
+}
+
+async function writeGeneratedImage(bytes: Buffer, mimeType: string, options: { outputDirectory: string; sourceNodeId: string; model: string }) {
+  const assetsDirectory = join(options.outputDirectory, "assets");
+  await mkdir(assetsDirectory, { recursive: true });
+  const filename = `${sanitizeFilename(options.sourceNodeId)}-${Date.now()}${extensionFromMimeType(mimeType)}`;
+  const localPath = join(assetsDirectory, filename);
+  await writeFile(localPath, bytes);
+  return {
+    localPath,
+    path: localPath,
+    filename,
+    mimeType,
+    sizeBytes: bytes.length,
+    sourceNodeId: options.sourceNodeId,
+    model: options.model
+  };
+}
+
 function firstInputText(value: unknown): string | undefined {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return undefined;
@@ -444,6 +546,27 @@ function firstInputText(value: unknown): string | undefined {
     if (entry && typeof entry === "object" && typeof (entry as Record<string, unknown>).text === "string") return String((entry as Record<string, unknown>).text);
   }
   return undefined;
+}
+
+function sanitizeFilename(filename: string): string {
+  return basename(filename).replace(/[<>:"/\\|?*\x00-\x1F]/g, "_");
+}
+
+function mimeTypeFromPath(path: string): string {
+  const ext = extname(path).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp"
+  };
+  return mimeTypes[ext] ?? "image/png";
+}
+
+function extensionFromMimeType(mimeType: string): string {
+  if (mimeType === "image/jpeg") return ".jpg";
+  if (mimeType === "image/webp") return ".webp";
+  return ".png";
 }
 
 function openRouterUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown, estimatedCost: number | null): ProviderUsageEvent {

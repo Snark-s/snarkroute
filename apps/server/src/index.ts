@@ -69,11 +69,12 @@ export function buildServer() {
   app.register(cors, { origin: true });
   void refreshPromptLibraryCache();
 
-  app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled() }));
+  app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled() }));
 
   app.get("/api/settings", async () => ({
     replicate: { configured: isReplicateEnabled() },
     gemini: { configured: isGeminiEnabled() },
+    openai: { configured: isOpenAiEnabled(), maskedApiKey: isOpenAiEnabled() ? maskSecret(process.env.OPENAI_API_KEY) : "" },
     openrouter: await openRouterSettingsStatus()
   }));
 
@@ -96,6 +97,18 @@ export function buildServer() {
       await writeEnvValue("GEMINI_API_KEY", token);
       process.env.GEMINI_API_KEY = token;
       return { ok: true, gemini: { configured: true } };
+    } catch (error) {
+      return reply.code(500).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: { openAiApiKey?: string } }>("/api/settings/openai-token", async (request, reply) => {
+    const token = request.body?.openAiApiKey?.trim();
+    if (!token) return reply.code(400).send({ error: "OPENAI_API_KEY cannot be empty." });
+    try {
+      await writeEnvValue("OPENAI_API_KEY", token);
+      process.env.OPENAI_API_KEY = token;
+      return { ok: true, openai: { configured: true, maskedApiKey: maskSecret(token) } };
     } catch (error) {
       return reply.code(500).send({ error: errorMessage(error) });
     }
@@ -877,6 +890,10 @@ function isReplicateEnabled(): boolean {
 
 function isGeminiEnabled(): boolean {
   return Boolean(process.env.GEMINI_API_KEY?.trim());
+}
+
+function isOpenAiEnabled(): boolean {
+  return Boolean(process.env.OPENAI_API_KEY?.trim());
 }
 
 function isOpenRouterEnabled(): boolean {

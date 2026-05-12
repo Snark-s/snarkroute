@@ -18,6 +18,14 @@
     "docsUrl": "https://ai.google.dev/gemini-api/docs/api-key",
     "modelsUrl": "https://ai.google.dev/gemini-api/docs/models"
   },
+  "openai": {
+    "title": "OpenAI",
+    "websiteUrl": "https://platform.openai.com/",
+    "apiKeysUrl": "https://platform.openai.com/api-keys",
+    "docsUrl": "https://platform.openai.com/docs",
+    "apiReferenceUrl": "https://platform.openai.com/docs/api-reference",
+    "pricingUrl": "https://openai.com/api/pricing/"
+  },
   "replicate": {
     "title": "Replicate",
     "websiteUrl": "https://replicate.com/",

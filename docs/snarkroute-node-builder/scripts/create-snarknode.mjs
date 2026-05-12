@@ -76,7 +76,7 @@ function buildManifest(spec, slug, title) {
     params: requireArray(spec.params, "params"),
     capabilities: spec.capabilities,
     ui: spec.ui,
-    icon: spec.icon,
+    icon: spec.icon ?? defaultIconForSpec(spec),
     tags: spec.tags,
     homepage: spec.homepage,
     repository: spec.repository,
@@ -142,6 +142,31 @@ function applyStudioProfile(spec) {
     };
   }
   return spec;
+}
+
+function defaultIconForSpec(spec) {
+  const profile = String(spec.studioProfile ?? spec.profile ?? "").toLowerCase();
+  const text = [
+    profile,
+    spec.title,
+    spec.name,
+    spec.description,
+    spec.category,
+    spec.behavior,
+    ...(Array.isArray(spec.tags) ? spec.tags : [])
+  ].filter(Boolean).join(" ").toLowerCase();
+  const outputTypes = new Set(Array.isArray(spec.outputs) ? spec.outputs.map((output) => output?.type).filter(Boolean) : []);
+  const inputTypes = new Set(Array.isArray(spec.inputs) ? spec.inputs.map((input) => input?.type).filter(Boolean) : []);
+
+  if (profile.includes("image") || outputTypes.has("image") || /\b(image|photo|picture|visual|generate art|edit image)\b/.test(text)) return "image";
+  if (outputTypes.has("video") || inputTypes.has("video") || /\b(video|movie|animation|animate)\b/.test(text)) return "video";
+  if (/\b(upscale|enhance|restore|retouch|transform)\b/.test(text)) return "wand";
+  if (profile.includes("text") || profile === "llm" || outputTypes.has("text") || /\b(text|prompt|llm|chat|language|summarize|translate)\b/.test(text)) return "type";
+  if (/\b(http|api|webhook|request|endpoint|network|fetch)\b/.test(text)) return "globe";
+  if (outputTypes.has("file") || inputTypes.has("file") || /\b(file|document|pdf|csv|jsonl|export)\b/.test(text)) return "file";
+  if (outputTypes.has("json") || inputTypes.has("json") || /\b(json|data|schema|parse|extract)\b/.test(text)) return "braces";
+  if (/\b(code|script|plugin|developer)\b/.test(text)) return "code";
+  return "node";
 }
 
 function mergeUi(base, override) {
@@ -301,6 +326,7 @@ function validateFileSet(manifest, paths) {
 
 function pluginExecutorCode(spec) {
   if (typeof spec.pluginCode === "string" && spec.pluginCode.trim()) return spec.pluginCode.endsWith("\n") ? spec.pluginCode : `${spec.pluginCode}\n`;
+  if (isImageProfile(spec)) return imagePluginExecutorCode(spec);
   return `export async function runNode(context) {
   const { inputs, params, env, logger } = context;
   logger.info("Running generated node.");
@@ -314,6 +340,44 @@ function pluginExecutorCode(spec) {
     },
     metadata: {
       behavior: ${JSON.stringify(spec.behavior ?? "TODO: implement node behavior.")}
+    }
+  };
+}
+`;
+}
+
+function isImageProfile(spec) {
+  const profile = String(spec.studioProfile ?? spec.profile ?? "").toLowerCase();
+  if (["image-generation", "image-edit", "openai-image", "gemini-image"].includes(profile)) return true;
+  return Array.isArray(spec.outputs) && spec.outputs.some((output) => output && typeof output === "object" && output.id === "image");
+}
+
+function imagePluginExecutorCode(spec) {
+  return `export async function runNode(context) {
+  const { inputs, params, env, logger } = context;
+  logger.info("Running generated image node.");
+
+  // Replace this scaffold with the provider call. Keep the final image in this
+  // portable shape so SnarkRoute Studio can render an inline preview:
+  // { mimeType: "image/png", base64: "..." } OR { localPath: "..." } OR { url: "..." }.
+  const image = {
+    mimeType: "image/png",
+    base64: "",
+    filename: "generated.png"
+  };
+
+  return {
+    outputs: {
+      image,
+      output: {
+        image,
+        inputs,
+        params,
+        allowedEnvKeys: Object.keys(env)
+      }
+    },
+    metadata: {
+      behavior: ${JSON.stringify(spec.behavior ?? "TODO: call the image provider and fill image.base64, image.localPath, or image.url.")}
     }
   };
 }

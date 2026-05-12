@@ -34,6 +34,18 @@ describe("OpenRouter adapter", () => {
     });
   });
 
+  it("attaches input images to image requests", () => {
+    expect(buildImageRequestBody("openai/gpt-5.4-image-2", "edit", {}, ["data:image/png;base64,aaa"])).toMatchObject({
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "edit" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,aaa" } }
+        ]
+      }]
+    });
+  });
+
   it("returns a clear error when the API key is missing", async () => {
     const previous = process.env.OPENROUTER_API_KEY;
     delete process.env.OPENROUTER_API_KEY;
@@ -85,6 +97,7 @@ describe("OpenRouter adapter", () => {
   });
 
   it("runs image-capable OpenRouter slugs without a hardcoded local mapping", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-openrouter-image-"));
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { images: [{ image_url: { url: "data:image/png;base64,aaa" } }] } }] }), { status: 200 })) as unknown as typeof fetch;
     const runner = createOpenRouterImageNodeRunner({
       apiKey: "sk-test",
@@ -95,10 +108,12 @@ describe("OpenRouter adapter", () => {
       node: { id: "n1", type: "ai.image.generate" },
       params: { model: "openai/gpt-5.4-image-2", providerMode: "openrouter", prompt: "draw" },
       inputs: {},
-      context: { runId: "r1", route: { routeVersion: "0.1", route: { id: "r", title: "R", author: {} }, nodes: [], edges: [] }, outputDirectory: "", nodeOutputs: {}, log: () => undefined }
+      context: { runId: "r1", route: { routeVersion: "0.1", route: { id: "r", title: "R", author: {} }, nodes: [], edges: [] }, outputDirectory, nodeOutputs: {}, log: () => undefined }
     });
     expect((result.output as Record<string, unknown>).requestModelSlug).toBe("openai/gpt-5.4-image-2");
     expect((result.output as Record<string, unknown>).selectedModelLabel).not.toBe("OpenAI: GPT-5.4 Image 2");
+    const image = (result.output as { image: { localPath: string } }).image;
+    expect(await readFile(image.localPath)).toEqual(Buffer.from("aaa", "base64"));
   });
 });
 
