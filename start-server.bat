@@ -28,6 +28,10 @@ call corepack pnpm --filter @snarkroute/storage build
 if errorlevel 1 goto fail
 call corepack pnpm --filter @snarkroute/nodes build
 if errorlevel 1 goto fail
+call corepack pnpm --filter @snarkroute/openrouter build
+if errorlevel 1 goto fail
+call corepack pnpm --filter @snarkroute/gemini build
+if errorlevel 1 goto fail
 call corepack pnpm --filter @snarkroute/replicate build
 if errorlevel 1 goto fail
 

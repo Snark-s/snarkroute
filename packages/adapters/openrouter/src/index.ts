@@ -12,6 +12,7 @@ export interface OpenRouterClientOptions {
   fetchImpl?: typeof fetch;
   referer?: string;
   title?: string;
+  retryDelayMs?: number;
 }
 
 export interface OpenRouterChatMessage {
@@ -43,7 +44,8 @@ export interface OpenRouterCatalogCache {
 
 export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
   const fetcher = options.fetchImpl ?? fetch;
-  const baseUrl = trimTrailingSlash(options.baseUrl ?? OPENROUTER_BASE_URL);
+  const baseUrl = trimTrailingSlash(options.baseUrl ?? process.env.OPENROUTER_BASE_URL ?? OPENROUTER_BASE_URL);
+  const retryDelayMs = options.retryDelayMs ?? 500;
 
   async function request(path: string, init: RequestInit = {}, keyRequired = true): Promise<unknown> {
     const apiKey = options.apiKey ?? process.env.OPENROUTER_API_KEY;
@@ -56,11 +58,10 @@ export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
     const title = options.title ?? process.env.OPENROUTER_APP_TITLE ?? "SnarkRoute";
     if (title) headers.set("X-OpenRouter-Title", title);
     let response: Response;
+    const method = init.method?.toUpperCase() ?? "GET";
+    const maxAttempts = method === "GET" ? 2 : 1;
     try {
-      response = await fetcher(`${baseUrl}${path}`, {
-        ...init,
-        headers
-      });
+      response = await fetchWithNetworkRetry(fetcher, `${baseUrl}${path}`, { ...init, headers }, maxAttempts, retryDelayMs);
     } catch (error) {
       throw new Error(openRouterNetworkError(error, baseUrl));
     }
@@ -648,6 +649,24 @@ function openRouterNetworkError(error: unknown, baseUrl: string): string {
   const code = cause && "code" in cause ? String((cause as { code?: unknown }).code ?? "") : "";
   const detail = [code, causeMessage, message].filter(Boolean).join(": ");
   return `OpenRouter is unreachable. The API key is configured, but SnarkRoute cannot reach ${baseUrl}. Check internet access, proxy/VPN/firewall settings, DNS, or OPENROUTER_BASE_URL. Details: ${detail || "network request failed"}`;
+}
+
+async function fetchWithNetworkRetry(fetcher: typeof fetch, url: string, init: RequestInit, maxAttempts: number, retryDelayMs: number): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await fetcher(url, init);
+    } catch (error) {
+      lastError = error;
+      if (attempt === maxAttempts) break;
+      await delay(retryDelayMs);
+    }
+  }
+  throw lastError;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function providerModeParam(value: unknown): ProviderMode {

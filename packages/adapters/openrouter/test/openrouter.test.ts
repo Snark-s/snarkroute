@@ -59,6 +59,29 @@ describe("OpenRouter adapter", () => {
     await expect(createOpenRouterClient({ apiKey: "sk-test", fetchImpl }).testConnection()).resolves.toEqual({ ok: true, modelCount: 1 });
   });
 
+  it("retries transient catalog network failures once", async () => {
+    const fetchImpl = vi.fn()
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "openai/gpt-5.2" }] }), { status: 200 })) as unknown as typeof fetch;
+
+    await expect(createOpenRouterClient({ apiKey: "sk-test", fetchImpl, retryDelayMs: 0 }).testConnection()).resolves.toEqual({ ok: true, modelCount: 1 });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses OPENROUTER_BASE_URL when no explicit base URL is provided", async () => {
+    const previous = process.env.OPENROUTER_BASE_URL;
+    process.env.OPENROUTER_BASE_URL = "https://openrouter.local/api/v1/";
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })) as unknown as typeof fetch;
+
+    try {
+      await createOpenRouterClient({ apiKey: "sk-test", fetchImpl }).testConnection();
+      expect(fetchImpl).toHaveBeenCalledWith("https://openrouter.local/api/v1/models", expect.any(Object));
+    } finally {
+      if (previous === undefined) delete process.env.OPENROUTER_BASE_URL;
+      else process.env.OPENROUTER_BASE_URL = previous;
+    }
+  });
+
   it("handles invalid API keys with a human error", async () => {
     const fetchImpl = vi.fn(async () => new Response("bad key", { status: 401 })) as unknown as typeof fetch;
     await expect(createOpenRouterClient({ apiKey: "sk-bad", fetchImpl }).testConnection()).rejects.toThrow("OpenRouter API key seems invalid.");

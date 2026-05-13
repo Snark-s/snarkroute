@@ -1,6 +1,6 @@
-# Библиотека промптов
+# Библиотека промптов BoojumRoute Lab
 
-Библиотека промптов в SnarkRoute - это локальная папка с Markdown-файлами. Каждый файл хранит один переиспользуемый промпт, который можно выбрать в ноде `Prompt Library`.
+Библиотека промптов в BoojumRoute Lab — это локальная папка с Markdown-файлами. Каждый файл хранит один переиспользуемый промпт, который можно выбрать в ноде `Prompt Library` и подключить к AI-пайплайну как обычный узел графа.
 
 ## Где лежат файлы
 
@@ -29,13 +29,13 @@ data/prompt-library/<category>/<prompt-id>.prompt.md
 id: retro-futuristic-editor-joke
 title: Retro-futuristic editor joke
 category: image-generation
-description: Demo prompt for SnarkRoute
+description: Demo prompt for BoojumRoute Lab
 tags:
   - demo
   - easter-egg
 ---
 
-A retro-futuristic easter egg illustration about building our own visual AI editor with blackjack and courtesans, playful but not explicit, cinematic, detailed, humorous.
+A retro-futuristic easter egg illustration about building our own visual AI editor, playful but not explicit, cinematic, detailed, humorous.
 ```
 
 Обязательные поля:
@@ -69,7 +69,7 @@ image-generation/retro-futuristic-editor-joke
 
 После добавления или правки `.prompt.md` файла нажми `Refresh Prompt Library` в ноде `Prompt Library`.
 
-Можно сделать то же самое через API:
+То же самое можно сделать через API:
 
 ```text
 POST /api/prompt-library/refresh
@@ -108,7 +108,7 @@ POST /api/prompt-library/refresh
 }
 ```
 
-Нода не должна хранить прямые пути к файлам или прямые URL промптов.
+Нода не должна хранить прямые пути к файлам или прямые URL промптов. В route сохраняется ссылка на библиотечный промпт или embedded-текст.
 
 ## Что возвращает нода
 
@@ -120,7 +120,7 @@ POST /api/prompt-library/refresh
 }
 ```
 
-В будущей AssetRef-архитектуре это должно переехать в `params.assetRef`, чтобы один и тот же механизм мог резолвить локальные файлы, embedded assets, bundle и remote manifests.
+Так промпты можно соединять с моделями, текстовыми преобразованиями, генераторами изображений и другими нодами BoojumRoute Lab.
 
 ---
 

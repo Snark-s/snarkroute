@@ -58,6 +58,24 @@ Common optional fields:
 - `examples`
 - `dependencies`
 
+## Icon
+
+Use `icon` to give Studio and node libraries a compact visual hint. Keep it a simple lowercase id, not an emoji or SVG blob.
+
+Recommended ids:
+
+- `image`: image generation, image editing, visual synthesis
+- `wand`: enhancement, upscale, retouch, cleanup, transform
+- `video`: video generation, animation, frame tools
+- `type`: text, prompts, LLM, summarization, translation
+- `globe`: HTTP/API/network/provider calls
+- `file`: files, documents, import/export
+- `braces`: JSON, structured data, parsing, extraction
+- `code`: script, plugin, developer utility
+- `node`: generic custom node fallback
+
+If the user supplies an icon, preserve it. Otherwise choose the closest id from the node title, category, profile, ports, and behavior. For image profiles, default to `image`; for API-only utility nodes, default to `globe`.
+
 Allowed `origin` values:
 
 - `bundled`

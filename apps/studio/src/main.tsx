@@ -265,6 +265,8 @@ const ROUTE_FILE_ACCEPT = ".orp,.opt,.orp.json,.opt.json,.orp.yaml,.opt.yaml,.or
 const SAVED_PROJECT_STORAGE_KEY = "snarkroute-studio:saved-project";
 const LIBRARY_NODE_METADATA_STORAGE_KEY = "snarkroute-studio:node-library-metadata";
 const NODE_LIBRARY_LAYOUT_STORAGE_KEY = "snarkroute-studio:node-library-layout";
+// Compatibility note: storage keys and protocol fields keep the old node/studio names
+// so saved routes, installed node manifests, and local browser state continue to load.
 const GEMINI_API_KEY_URL = "https://aistudio.google.com/app/apikey";
 const libraryNodeStatuses: Array<{ id: LibraryNodeStatus; label: string }> = [
   { id: "draft", label: "Draft" },
@@ -400,6 +402,7 @@ const library = [
     }
   },
   { type: "preview.image", label: "Image Preview", params: { title: "Preview" } },
+  { type: "preview.panorama360", label: "360 Panorama Viewer", params: { title: "Panorama", fov: 55 } },
   {
     type: "http.request",
     label: "HTTP Request",
@@ -429,7 +432,7 @@ const librarySections = [
   { id: "inputs-assets", title: "Inputs & Assets", types: ["input.text", "library.prompt", "input.image", "input.video", "input.file", "compound.input", "compound.output"] },
   { id: "text-prompting", title: "Text & Prompting", types: ["text.promptCompose", "transform.template", "ai.text", "gemini.llm"] },
   { id: "image-generation", title: "Image Generation", types: ["ai.image.generate", "gemini.nano-banana-2", "local.stableDiffusion.textToImage"] },
-  { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image"] },
+  { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image", "preview.panorama360"] },
   { id: "api-integration", title: "API & Integration", types: ["http.request"] },
   { id: "outputs", title: "Outputs", types: ["output.text", "output.file"] },
   { id: "debug", title: "Debug", types: ["debug.log", "utility.null"] },
@@ -640,6 +643,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onConfigureOpenRouter = data.onConfigureOpenRouter as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
   const onImageResultContextMenu = data.onImageResultContextMenu as ((event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void) | undefined;
+  const onFixNodeOutput = data.onFixNodeOutput as ((nodeId: string, output: unknown) => void) | undefined;
   const onRunNodeOnly = data.onRunNodeOnly as ((nodeId: string) => void) | undefined;
   const onRunNodeWithDependencies = data.onRunNodeWithDependencies as ((nodeId: string) => void) | undefined;
   const onOpenSubroute = data.onOpenSubroute as ((nodeId: string) => void) | undefined;
@@ -680,7 +684,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   return (
     <div className={`routeNodeCard ${paramsCollapsed ? "paramsCollapsed" : ""}`} style={collapsedMinHeight ? { minHeight: `${collapsedMinHeight}px` } : undefined}>
       <span className={`nodeStatus ${statusClass(result?.status)}`} />
-      {isMissingNode ? <div className="nodeWarning">Missing node package. Install "{type}" or remove this node.</div> : null}
+      {isMissingNode ? <div className="nodeWarning">Missing block package. Install "{type}" or remove this block.</div> : null}
       {shouldShowNodeRunButton(type) ? (
         <div className="nodeRunActions">
           <button
@@ -732,7 +736,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
               <div className="nodeType" title={type}>{type}</div>
               <div className={`executorBadge ${executorKind(type, manifest)}`}>{executorLabel(type, manifest)}</div>
               {manifest ? <div className="nodeMetaLine">{manifest.author?.name} · {manifest.version} · {manifest.origin}{manifest.source ? ` · ${manifest.source}` : ""}</div> : null}
-              {routeNode?.type === "compound.subroute" ? <div className="nodeMetaLine">{routeNode.subroute?.nodes.length ?? 0} internal node(s)</div> : null}
+              {routeNode?.type === "compound.subroute" ? <div className="nodeMetaLine">{routeNode.subroute?.nodes.length ?? 0} internal block(s)</div> : null}
             </>
           ) : null}
         </div>
@@ -771,7 +775,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
               onOpenSubroute?.(id);
             }}
           >
-            Open Subroute
+            Open Internal Tool Route
           </button>
           <button
             className="nodeSmallButton nodrag nopan"
@@ -842,7 +846,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           onOpenImage={onOpenImage}
         />
       ) : null}
-      {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} result={result} onOpenImage={onOpenImage} onImageResultContextMenu={onImageResultContextMenu} /> : null}
+      {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} type={type} result={result} onOpenImage={onOpenImage} onImageResultContextMenu={onImageResultContextMenu} onFixNodeOutput={onFixNodeOutput} /> : null}
       {ports.outputs.map((port, index) => (
         <React.Fragment key={port.id}>
           <span className="portLabel output" style={{ top: `${portLabelTop(index)}px` }}>
@@ -1470,12 +1474,15 @@ function NodeInlineParams({
     );
   }
 
-  if (type === "preview.image") {
+  if (type === "preview.image" || type === "preview.panorama360") {
     return (
-      <label className="nodeField">
-        <span>title</span>
-        <input className="nodrag nopan nodeInput" value={String(params.title ?? "Preview")} onChange={(event) => updateTextParam("title", event)} />
-      </label>
+      <>
+        <label className="nodeField">
+          <span>title</span>
+          <input className="nodrag nopan nodeInput" value={String(params.title ?? (type === "preview.panorama360" ? "Panorama" : "Preview"))} onChange={(event) => updateTextParam("title", event)} />
+        </label>
+        {type === "preview.panorama360" ? <div className="nodeHint">Connect an equirectangular 360 image, run the block, then drag the preview to look around.</div> : null}
+      </>
     );
   }
 
@@ -1696,19 +1703,34 @@ function PromptLibraryPromptCard({
 
 function NodeInlineResult({
   nodeId,
+  type,
   result,
   onOpenImage,
-  onImageResultContextMenu
+  onImageResultContextMenu,
+  onFixNodeOutput
 }: {
   nodeId: string;
+  type: string;
   result: NodeRunResult;
   onOpenImage?: (image: ImageViewerState) => void;
   onImageResultContextMenu?: (event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void;
+  onFixNodeOutput?: (nodeId: string, output: unknown) => void;
 }) {
   const imageSrc = imagePreviewSrc(result.output);
   const cost = costLabel(result.output);
   const statusText = result.status && result.status !== "succeeded" ? result.status : null;
   const imageTitle = imageLabel(result.output);
+  const panoramaSrc = type === "preview.panorama360" ? panoramaSourceSrc(result.output) ?? imageSrc : null;
+  if (type === "preview.panorama360" && panoramaSrc) {
+    return (
+      <div className={`nodeResult panoramaResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
+        {statusText ? <div>{statusText}</div> : null}
+        {cost ? <span className="nodeCost">{cost}</span> : null}
+        <Panorama360Viewer src={panoramaSrc} title={imageTitle} filename={downloadFilename(result.output)} onFixFrame={(output) => onFixNodeOutput?.(nodeId, output)} />
+        <pre>{truncateText(imageTitle, 220)}</pre>
+      </div>
+    );
+  }
   if (imageSrc) {
     return (
       <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
@@ -1757,6 +1779,149 @@ function NodeInlineResult({
       {statusText ? <div>{statusText}</div> : null}
       {cost ? <span className="nodeCost">{cost}</span> : null}
       {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : <pre>{preview}</pre>}
+    </div>
+  );
+}
+
+function Panorama360Viewer({ src, title, filename, onFixFrame }: { src: string; title: string; filename: string; onFixFrame?: (output: unknown) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
+  const [view, setView] = useState({ yaw: 0, pitch: 0, fov: 55 });
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+  const [fixedAt, setFixedAt] = useState("");
+
+  useEffect(() => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    setLoaded(false);
+    setError("");
+    setFixedAt("");
+    image.onload = () => {
+      imageRef.current = image;
+      setLoaded(true);
+    };
+    image.onerror = () => setError("Could not load panorama image.");
+    image.src = src;
+  }, [src]);
+
+  useEffect(() => {
+    if (!loaded || !imageRef.current || !canvasRef.current) return;
+    renderPanoramaFrame(canvasRef.current, imageRef.current, view);
+  }, [loaded, view]);
+
+  function currentFramePayload(): { dataUrl: string; output: unknown } | null {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const dataUrl = canvas.toDataURL("image/png");
+    const base64 = dataUrl.split(",", 2)[1];
+    if (!base64) throw new Error("Could not encode current panorama view.");
+    const capturedAt = new Date().toISOString();
+    return {
+      dataUrl,
+      output: {
+        image: {
+          base64,
+          mimeType: "image/png",
+          filename: panoramaSnapshotFilename(filename)
+        },
+        panorama: {
+          projection: "equirectangular",
+          sourceUrl: src,
+          fixedFrame: {
+            projection: "perspective",
+            yaw: view.yaw,
+            pitch: view.pitch,
+            fov: view.fov,
+            capturedAt
+          }
+        }
+      }
+    };
+  }
+
+  function captureCurrentView() {
+    try {
+      const payload = currentFramePayload();
+      if (!payload) return;
+      const link = document.createElement("a");
+      link.href = payload.dataUrl;
+      link.download = panoramaSnapshotFilename(filename);
+      link.click();
+    } catch (captureError) {
+      setError(captureError instanceof Error ? captureError.message : "Could not capture current view.");
+    }
+  }
+
+  function fixCurrentFrame() {
+    try {
+      const payload = currentFramePayload();
+      if (!payload) return;
+      onFixFrame?.(payload.output);
+      setFixedAt(new Date().toLocaleTimeString());
+    } catch (captureError) {
+      setError(captureError instanceof Error ? captureError.message : "Could not fix current frame.");
+    }
+  }
+
+  return (
+    <div className="panoramaViewer nodrag nopan">
+      <canvas
+        ref={canvasRef}
+        className="panoramaCanvas nodrag nopan"
+        width={360}
+        height={190}
+        title={title}
+        onPointerDown={(event) => {
+          event.currentTarget.setPointerCapture(event.pointerId);
+          dragRef.current = { x: event.clientX, y: event.clientY, yaw: view.yaw, pitch: view.pitch };
+        }}
+        onPointerMove={(event) => {
+          const drag = dragRef.current;
+          if (!drag) return;
+          setView((current) => ({
+            ...current,
+            yaw: drag.yaw - (event.clientX - drag.x) * 0.006,
+            pitch: clamp(drag.pitch + (event.clientY - drag.y) * 0.0045, -1.25, 1.25)
+          }));
+        }}
+        onPointerUp={(event) => {
+          dragRef.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => {
+          dragRef.current = null;
+        }}
+        onWheel={(event) => {
+          event.preventDefault();
+          setView((current) => ({ ...current, fov: clamp(current.fov + Math.sign(event.deltaY) * 5, 35, 90) }));
+        }}
+      />
+      {!loaded && !error ? <div className="panoramaOverlay">Loading panorama...</div> : null}
+      {error ? <div className="panoramaOverlay error">{error}</div> : null}
+      <div className="panoramaControls">
+        <label className="panoramaZoomControl nodrag nopan" title="Zoom">
+          <input
+            className="nodrag nopan"
+            type="range"
+            min={35}
+            max={90}
+            step={1}
+            value={view.fov}
+            disabled={!loaded}
+            onChange={(event) => setView((current) => ({ ...current, fov: Number(event.target.value) }))}
+          />
+          <span>{view.fov}°</span>
+        </label>
+        <button className="nodeImageActionButton nodrag nopan" type="button" title="Fix current frame to node output" disabled={!loaded} onClick={fixCurrentFrame}>
+          <CheckSquare size={14} />
+        </button>
+        <button className="nodeImageActionButton nodrag nopan" type="button" title="Capture current view as PNG" disabled={!loaded} onClick={captureCurrentView}>
+          <Download size={14} />
+        </button>
+      </div>
+      {fixedAt ? <div className="panoramaFixedStatus">Fixed {fixedAt}</div> : null}
     </div>
   );
 }
@@ -1984,7 +2149,7 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
       ]
     };
   }
-  if (type === "preview.image") return { inputs: [{ id: "image", kind: "image" }], outputs: [{ id: "image", kind: "image" }] };
+  if (type === "preview.image" || type === "preview.panorama360") return { inputs: [{ id: "image", kind: "image" }], outputs: [{ id: "image", kind: "image" }] };
   if (type === "ai.text") {
     return {
       inputs: [
@@ -2455,7 +2620,7 @@ function nodeIcon(type: string) {
   if (type === "gemini.nano-banana-2") return <Sparkles size={15} />;
   if (type === "local.stableDiffusion.textToImage") return <Cpu size={15} />;
   if (type === "http.request") return <Globe size={15} />;
-  if (type === "preview.image") return <Eye size={15} />;
+  if (type === "preview.image" || type === "preview.panorama360") return <Eye size={15} />;
   if (type === "debug.log") return <Bug size={15} />;
   if (type === "utility.null") return <Eraser size={15} />;
   if (type === "compound.subroute") return <Braces size={15} />;
@@ -2647,7 +2812,7 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [paramsText, setParamsText] = useState("{}");
   const [paramsError, setParamsError] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>(initialRouteState.loadedSavedProject ? ["Loaded saved project.", "SnarkRoute Studio ready."] : ["SnarkRoute Studio ready."]);
+  const [logs, setLogs] = useState<string[]>(initialRouteState.loadedSavedProject ? ["Loaded saved project.", "BoojumRoute Lab ready."] : ["BoojumRoute Lab ready."]);
   const [outputs, setOutputs] = useState<unknown>(null);
   const [runResult, setRunResult] = useState<RunDisplayResult | null>(null);
   const [replicateToken, setReplicateToken] = useState("");
@@ -2789,6 +2954,7 @@ function App() {
           onConfigureOpenRouter: openOpenRouterSettings,
           onOpenImage: setImageViewer,
           onImageResultContextMenu: openPromptAssetMenu,
+          onFixNodeOutput: fixNodeOutput,
           onRunNodeOnly: runNodeOnly,
           onRunNodeWithDependencies: runNodeWithDependencies,
           onOpenSubroute: openSubroute,
@@ -3454,7 +3620,7 @@ function App() {
       if (!previewResponse.ok || !preview.ok) throw new Error(formatApiIssues(preview));
       const manifest = preview.manifest as NodeManifest;
       const warningText = Array.isArray(preview.warnings) && preview.warnings.length ? `\n\nWarnings:\n${preview.warnings.join("\n")}` : "";
-      const confirmed = window.confirm(`Install node package?\n\n${manifest.title}\nAuthor: ${manifest.author.name}\nVersion: ${manifest.version}\nOrigin/source: ${manifest.origin} / ${manifest.source ?? "local-file"}\nExecutor: ${manifest.executor.type} ${manifest.executor.runtime ?? ""}\nPermissions: ${permissionsSummary(manifest)}${warningText}`);
+      const confirmed = window.confirm(`Install block package?\n\n${manifest.title}\nAuthor: ${manifest.author.name}\nVersion: ${manifest.version}\nOrigin/source: ${manifest.origin} / ${manifest.source ?? "local-file"}\nExecutor: ${manifest.executor.type} ${manifest.executor.runtime ?? ""}\nPermissions: ${permissionsSummary(manifest)}${warningText}`);
       if (!confirmed) return;
       const installResponse = await fetch(`${apiBase}${NODE_PACKAGE_INSTALL_PATH}`, {
         method: "POST",
@@ -3484,7 +3650,7 @@ function App() {
       const preview = await previewResponse.json();
       if (!previewResponse.ok || !preview.ok || !preview.manifest) throw new Error(formatApiIssues(preview));
       const manifest = preview.manifest as NodeManifest;
-      const confirmed = window.confirm(`Install node from URL?\n\n${manifest.title}\nAuthor: ${manifest.author.name}\nVersion: ${manifest.version}\nSource: ${nodeUrl}\nExecutor: ${manifest.executor.type} ${manifest.executor.runtime ?? ""}\nPermissions: ${permissionsSummary(manifest)}`);
+      const confirmed = window.confirm(`Install block from URL?\n\n${manifest.title}\nAuthor: ${manifest.author.name}\nVersion: ${manifest.version}\nSource: ${nodeUrl}\nExecutor: ${manifest.executor.type} ${manifest.executor.runtime ?? ""}\nPermissions: ${permissionsSummary(manifest)}`);
       if (!confirmed) return;
       const response = await fetch(`${apiBase}/api/node-packages/install-url`, {
         method: "POST",
@@ -3510,7 +3676,7 @@ function App() {
       const result = await response.json();
       if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
       await loadNodeCatalog();
-      setLogs((current) => [`Installed node package from path: ${result.manifest?.id ?? nodePackagePath}`, ...current]);
+      setLogs((current) => [`Installed block package from path: ${result.manifest?.id ?? nodePackagePath}`, ...current]);
     } catch (error) {
       setLogs((current) => [`Path install failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
     }
@@ -3554,7 +3720,7 @@ function App() {
       if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
       await loadNodeCatalog();
       markInstalledLibraryNodes(nodeIds, libraryInstallStatus);
-      setLogs((current) => [`Installed ${result.installed?.length ?? 0} node(s) from library.`, ...current]);
+      setLogs((current) => [`Installed ${result.installed?.length ?? 0} block(s) from library.`, ...current]);
     } catch (error) {
       setLogs((current) => [`Library install failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
     }
@@ -3743,11 +3909,11 @@ function App() {
     setLibrarySectionMenu(null);
     const group = nodeLibraryLayout.groups.find((entry) => entry.id === id);
     if (!group) {
-      if (!window.confirm(`Delete group "${title}"? Nodes in it will be removed from this list.`)) return;
+      if (!window.confirm(`Delete group "${title}"? Blocks in it will be removed from this list.`)) return;
       setNodeLibraryLayout((current) => ({ ...current, hiddenTypes: [...new Set([...current.hiddenTypes, ...types])] }));
       return;
     }
-    if (!window.confirm(`Delete group "${group.title}"? Nodes in it will move to the first group.`)) return;
+    if (!window.confirm(`Delete group "${group.title}"? Blocks in it will move to the first group.`)) return;
     setNodeLibraryLayout((current) => {
       const currentGroup = current.groups.find((entry) => entry.id === id);
       const targetGroup = current.groups.find((entry) => entry.id !== id);
@@ -3830,7 +3996,7 @@ function App() {
     setLibraryItemMenu(null);
     const item = nodeCatalog.find((candidate) => candidate.type === type);
     if (!item?.manifest || !canUninstallNodePackage(item.manifest)) {
-      window.alert("Bundled nodes cannot be deleted. Use Hide to remove it from the left panel.");
+      window.alert("Bundled blocks cannot be deleted. Use Hide to remove it from the left panel.");
       return;
     }
     await uninstallNode(type);
@@ -3961,13 +4127,13 @@ function App() {
     setSelectedId(null);
     setRunResult(null);
     setOutputs(null);
-    setLogs((current) => [`Deleted ${selectedNodeIds.size} node(s), ${selectedEdgeIds.size} edge(s).`, ...current]);
+    setLogs((current) => [`Deleted ${selectedNodeIds.size} block(s), ${selectedEdgeIds.size} edge(s).`, ...current]);
   }
 
   function collapseSelectedNodes() {
     const selectedNodeIds = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
     if (selectedNodeIds.size < 2) {
-      setLogs((current) => ["Select at least two nodes to collapse.", ...current]);
+      setLogs((current) => ["Select at least two blocks to collapse.", ...current]);
       return;
     }
 
@@ -4035,7 +4201,7 @@ function App() {
     setSelectedId(null);
     setRunResult(null);
     setOutputs(null);
-    setLogs((current) => [`Collapsed ${selectedNodeIds.size} node(s) into ${compoundId}.`, ...current]);
+    setLogs((current) => [`Collapsed ${selectedNodeIds.size} block(s) into ${compoundId}.`, ...current]);
   }
 
   function deleteNodeFromContext(nodeId: string) {
@@ -4159,7 +4325,7 @@ function App() {
     setSelectedId(null);
     setRunResult(null);
     setOutputs(null);
-    setLogs((current) => [`Uncollapsed ${nodeId} into ${subflow.nodes.length} node(s).`, ...current]);
+    setLogs((current) => [`Uncollapsed ${nodeId} into ${subflow.nodes.length} block(s).`, ...current]);
   }
 
   function clearCanvas() {
@@ -4167,7 +4333,7 @@ function App() {
 
     const nodeCount = nodes.length;
     const edgeCount = edges.length;
-    if (!window.confirm(`Clear canvas and remove ${nodeCount} node(s), ${edgeCount} edge(s)?`)) return;
+    if (!window.confirm(`Clear canvas and remove ${nodeCount} block(s), ${edgeCount} edge(s)?`)) return;
 
     setNodes([]);
     setEdges([]);
@@ -4176,7 +4342,7 @@ function App() {
     setParamsError(null);
     setRunResult(null);
     setOutputs(null);
-    setLogs((current) => [`Cleared canvas: removed ${nodeCount} node(s), ${edgeCount} edge(s).`, ...current]);
+    setLogs((current) => [`Cleared canvas: removed ${nodeCount} block(s), ${edgeCount} edge(s).`, ...current]);
   }
 
   function isConnectionValid(connection: Connection | Edge): boolean {
@@ -4513,7 +4679,7 @@ function App() {
       status: "running",
       nodeResults: Object.fromEntries(route.nodes.map((node) => [node.id, { status: "pending" }]))
     });
-    setLogs((current) => [`Running ${nodeId} and ${Math.max(route.nodes.length - 1, 0)} upstream dependency node(s).`, ...current]);
+    setLogs((current) => [`Running ${nodeId} and ${Math.max(route.nodes.length - 1, 0)} upstream dependency block(s).`, ...current]);
     const response = await fetch(`${apiBase}/api/routes/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(route) });
     const result = await response.json();
     setOutputs(result);
@@ -4521,6 +4687,24 @@ function App() {
     void loadLedgerSummary();
     const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
     setLogs((current) => [...runLogs.reverse(), ...current]);
+  }
+
+  function fixNodeOutput(nodeId: string, output: unknown) {
+    const now = new Date().toISOString();
+    setRunResult((current) => ({
+      ...(current ?? { status: "succeeded" }),
+      nodeResults: {
+        ...(current?.nodeResults ?? {}),
+        [nodeId]: {
+          ...(current?.nodeResults?.[nodeId] ?? {}),
+          status: "succeeded",
+          output,
+          completedAt: now,
+          startedAt: current?.nodeResults?.[nodeId]?.startedAt ?? now
+        }
+      }
+    }));
+    setLogs((current) => [`Fixed current panorama frame to output for ${nodeId}.`, ...current]);
   }
 
   function canRunNodeOnly(nodeId: string): boolean {
@@ -4693,7 +4877,7 @@ function App() {
     <div className={`app ${leftCollapsed ? "leftCollapsed" : ""} ${rightCollapsed ? "rightCollapsed" : ""} ${bottomCollapsed ? "bottomCollapsed" : ""}`}>
       <aside className="sidebar left">
         <div className="sidebarHeader">
-          {!leftCollapsed ? <h1><img src="/snarkroute-icon.png" alt="" />SnarkRoute</h1> : null}
+          {!leftCollapsed ? <h1><img src="/boojumroute-icon.png" alt="" />BoojumRoute Lab</h1> : null}
           <button className="iconButton" title={leftCollapsed ? "Expand left panel" : "Collapse left panel"} onClick={() => setLeftCollapsed((value) => !value)}>
             {leftCollapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}
           </button>
@@ -4737,7 +4921,7 @@ function App() {
           ) : null}
           <button onClick={exportRoute} title="Export route"><Download size={16} /> Export</button>
           <label className="fileButton" title="Import route"><Upload size={16} /> Import<input type="file" accept={ROUTE_FILE_ACCEPT} onChange={(event) => void importRoute(event.target.files?.[0] ?? null)} /></label>
-          <label className="fileButton" title="Import node package"><Plus size={16} /> Node<input type="file" accept=".snarknode,.json,.node.json,application/json" onChange={(event) => {
+          <label className="fileButton" title="Import block package"><Plus size={16} /> Block<input type="file" accept=".snarknode,.json,.node.json,application/json" onChange={(event) => {
             const file = event.target.files?.[0] ?? null;
             if (file) void importNodePackageFile(file);
           }} /></label>
@@ -4745,11 +4929,11 @@ function App() {
           <button onClick={loadSavedProject} title="Load saved project"><FolderOpen size={16} /> Load</button>
         </div>
         <div className="nodesHeading">
-          <h2>Nodes</h2>
+          <h2>Blocks</h2>
           <div className="nodesHeadingActions">
             <button
               className={`nodeSmallButton ${showHiddenNodes ? "active" : ""}`}
-              title="Show hidden nodes"
+              title="Show hidden blocks"
               onClick={() => setShowHiddenNodes((value) => !value)}
               disabled={hiddenNodeCount === 0}
             >
@@ -4760,7 +4944,7 @@ function App() {
         </div>
         <label className="nodeSearch">
           <Search size={14} />
-          <input value={nodeSearch} placeholder="Search nodes" onChange={(event) => setNodeSearch(event.target.value)} />
+          <input value={nodeSearch} placeholder="Search blocks" onChange={(event) => setNodeSearch(event.target.value)} />
           {nodeSearch ? (
             <button className="nodeSearchClear" title="Clear search" onClick={() => setNodeSearch("")} type="button"><X size={13} /></button>
           ) : null}
@@ -4799,7 +4983,7 @@ function App() {
               </section>
             );
           })}
-          {nodeSearchQuery && visibleCatalogItemCount === 0 ? <p className="muted nodeSearchEmpty">No nodes match "{nodeSearch.trim()}".</p> : null}
+          {nodeSearchQuery && visibleCatalogItemCount === 0 ? <p className="muted nodeSearchEmpty">No blocks match "{nodeSearch.trim()}".</p> : null}
         </div>
         </>
         ) : null}
@@ -4816,8 +5000,8 @@ function App() {
       >
         <div className="topbar">
           {routeStack.length > 0 ? (
-            <div className="routeBreadcrumbs" aria-label="Subroute breadcrumbs">
-              <button className="breadcrumbBack" title="Back to parent subroute" onClick={closeSubroute}><ChevronLeft size={16} /></button>
+            <div className="routeBreadcrumbs" aria-label="Internal tool route breadcrumbs">
+              <button className="breadcrumbBack" title="Back to parent internal tool route" onClick={closeSubroute}><ChevronLeft size={16} /></button>
               <button className="breadcrumbRoot" title="Back to root route" onClick={() => closeSubrouteTo(0)}>Root</button>
               {routeBreadcrumbs.map((crumb, index) => {
                 const isCurrent = index === routeBreadcrumbs.length - 1;
@@ -4851,8 +5035,8 @@ function App() {
           ) : null}
           {routeStack.length > 0 ? (
             <>
-              <button onClick={() => addNode("compound.input")}><ChevronRight size={16} /> Input</button>
-              <button onClick={() => addNode("compound.output")}><ChevronLeft size={16} /> Output</button>
+              <button onClick={() => addNode("compound.input")}><ChevronRight size={16} /> Tool Input</button>
+              <button onClick={() => addNode("compound.output")}><ChevronLeft size={16} /> Tool Output</button>
             </>
           ) : null}
           <button className="primary" onClick={() => void run()}><Play size={16} /> Run</button>
@@ -4950,11 +5134,11 @@ function App() {
               <>
                 {contextRouteNode?.type === "compound.subroute" ? (
                   <>
-                    <button onClick={() => { openSubroute(contextMenu.nodeId!); setContextMenu(null); }}>Open Subroute</button>
+                    <button onClick={() => { openSubroute(contextMenu.nodeId!); setContextMenu(null); }}>Open Internal Tool Route</button>
                     <button onClick={() => { uncollapseCompoundNode(contextMenu.nodeId!); setContextMenu(null); }}>Uncollapse</button>
                   </>
                 ) : null}
-                <button onClick={() => deleteNodeFromContext(contextMenu.nodeId!)}>Delete Node</button>
+                <button onClick={() => deleteNodeFromContext(contextMenu.nodeId!)}>Delete Block</button>
               </>
             ) : (
               <>
@@ -4978,17 +5162,17 @@ function App() {
                   <button onClick={() => moveLibraryItem(libraryItemMenu.type, libraryItemMenu.sectionId, libraryItemMenu.sectionTitle, libraryItemMenu.sectionTypes, -1)}>Move Up</button>
                   <button onClick={() => moveLibraryItem(libraryItemMenu.type, libraryItemMenu.sectionId, libraryItemMenu.sectionTitle, libraryItemMenu.sectionTypes, 1)}>Move Down</button>
                   {isHidden ? (
-                    <button onClick={() => showLibraryItem(libraryItemMenu.type)}>Show in Nodes</button>
+                    <button onClick={() => showLibraryItem(libraryItemMenu.type)}>Show in Blocks</button>
                   ) : (
-                    <button onClick={() => hideLibraryItem(libraryItemMenu.type)}>Hide from Nodes</button>
+                    <button onClick={() => hideLibraryItem(libraryItemMenu.type)}>Hide from Blocks</button>
                   )}
                   <button onClick={() => setShowHiddenNodes((value) => !value)}>
-                    {showHiddenNodes ? "Hide Hidden Nodes" : "Show Hidden Nodes"}
+                    {showHiddenNodes ? "Hide Hidden Blocks" : "Show Hidden Blocks"}
                   </button>
-                  <button className="danger" disabled={!canDelete} title={canDelete ? "Delete installed node package" : "Bundled nodes cannot be deleted"} onClick={() => void deleteLibraryItem(libraryItemMenu.type)}>
-                    Delete Node Package
+                  <button className="danger" disabled={!canDelete} title={canDelete ? "Delete installed block package" : "Bundled blocks cannot be deleted"} onClick={() => void deleteLibraryItem(libraryItemMenu.type)}>
+                    Delete Block Package
                   </button>
-                  {!canDelete ? <span className="contextMenuHint">Bundled nodes can be hidden, but not deleted.</span> : null}
+                  {!canDelete ? <span className="contextMenuHint">Bundled blocks can be hidden, but not deleted.</span> : null}
                 </>
               );
             })()}
@@ -5002,7 +5186,7 @@ function App() {
               return (
                 <>
                   <strong>{librarySectionMenu.sectionTitle}</strong>
-                  <span className="contextMenuHint">{librarySectionMenu.sectionTypes.length} node(s)</span>
+                  <span className="contextMenuHint">{librarySectionMenu.sectionTypes.length} block(s)</span>
                   <button onClick={() => moveLibrarySection(librarySectionMenu.sectionId, librarySectionMenu.sectionTitle, librarySectionMenu.sectionTypes, -1)}>Move Section Up</button>
                   <button onClick={() => moveLibrarySection(librarySectionMenu.sectionId, librarySectionMenu.sectionTitle, librarySectionMenu.sectionTypes, 1)}>Move Section Down</button>
                   {allHidden ? (
@@ -5011,7 +5195,7 @@ function App() {
                     <button onClick={() => hideLibrarySection(librarySectionMenu.sectionTypes)}>Hide Section</button>
                   )}
                   <button onClick={() => setShowHiddenNodes((value) => !value)}>
-                    {showHiddenNodes ? "Hide Hidden Nodes" : "Show Hidden Nodes"}
+                    {showHiddenNodes ? "Hide Hidden Blocks" : "Show Hidden Blocks"}
                   </button>
                   <button className="danger" onClick={() => deleteLibraryGroup(librarySectionMenu.sectionId, librarySectionMenu.sectionTitle, librarySectionMenu.sectionTypes)}>Delete Group</button>
                 </>
@@ -5078,7 +5262,7 @@ function App() {
                 ))}
               </div>
             ) : (
-              <p>No compatible nodes.</p>
+              <p>No compatible blocks.</p>
             )}
           </div>
         ) : null}
@@ -5116,8 +5300,8 @@ function App() {
               <h4>OpenRouter</h4>
               <span>Primary Remote Provider: OpenRouter</span>
             </div>
-            <p className="muted">OpenRouter lets SnarkRoute use many remote AI models through one API key. Use this as the default setup. Direct provider keys are optional and hidden in Advanced settings.</p>
-            <p className="muted">OpenRouter позволяет SnarkRoute использовать множество удалённых AI-моделей через один API-ключ. Это основной рекомендуемый способ подключения. Прямые ключи провайдеров необязательны и находятся в Advanced.</p>
+            <p className="muted">OpenRouter lets BoojumRoute blocks use many remote AI models through one API key. Use this as the default setup. Direct provider keys are optional and hidden in Advanced settings.</p>
+            <p className="muted">OpenRouter позволяет блокам BoojumRoute использовать множество удалённых AI-моделей через один API-ключ. Это основной рекомендуемый способ подключения. Прямые ключи провайдеров необязательны и находятся в Advanced.</p>
             <div className={`settingsStatus ${openRouterSettings.configured ? "configured" : ""}`}>
               <KeyRound size={14} />
               OpenRouter: {openRouterSettings.configured ? `key configured (${openRouterSettings.maskedApiKey ?? "********"})` : "not configured"}
@@ -5144,7 +5328,7 @@ function App() {
                   <option value={openRouterDefaultModel}>{openRouterDefaultModel}</option>
                 ) : null}
               </select>
-              <small className="settingsHint">Auto uses SnarkRoute's default Text AI mapping. Today that maps to OpenRouter when available.</small>
+              <small className="settingsHint">Auto uses BoojumRoute's default Text AI mapping. Today that maps to OpenRouter when available.</small>
             </label>
             <label className="settingsField">
               <span>Budget Warning USD</span>
@@ -5232,19 +5416,19 @@ function App() {
         </div>
 
         <div className="settingsPanel nodePackagePanel">
-          <h3>Node Packages</h3>
+          <h3>Block / Tool Packages</h3>
           <label className="settingsField">
-            <span>Install local .snarknode folder or manifest path</span>
+            <span>Install local .snarknode folder or block manifest path</span>
             <input value={nodePackagePath} placeholder="Y:\\path\\my-node.snarknode" onChange={(event) => setNodePackagePath(event.target.value)} />
           </label>
           <button onClick={() => void installNodeFromPath()}><FolderOpen size={16} /> Install Local Path</button>
           <label className="settingsField">
-            <span>Add node from URL</span>
+            <span>Add block from URL</span>
             <input value={nodeUrl} placeholder="https://example.com/node.snarknode" onChange={(event) => setNodeUrl(event.target.value)} />
           </label>
-          <button onClick={() => void installNodeFromUrl()}><Plus size={16} /> Add Node URL</button>
+          <button onClick={() => void installNodeFromUrl()}><Plus size={16} /> Add Block URL</button>
           <label className="settingsField">
-            <span>Add node library</span>
+            <span>Add block library</span>
             <input value={libraryUrl} placeholder="https://example.com/library.json" onChange={(event) => setLibraryUrl(event.target.value)} />
           </label>
           <button onClick={() => void previewLibraryFromUrl()}><BookOpen size={16} /> Preview Library</button>
@@ -5260,7 +5444,7 @@ function App() {
               <div className="nodeLibraryActions">
                 <button className="nodeSmallButton" onClick={() => selectLibraryPreviewNodes(true)}><CheckSquare size={14} /> All</button>
                 <button className="nodeSmallButton" onClick={() => selectLibraryPreviewNodes(false)}><X size={14} /> None</button>
-                <select value={libraryInstallStatus} onChange={(event) => setLibraryInstallStatus(event.target.value as LibraryNodeStatus)} title="Status for installed library nodes">
+                <select value={libraryInstallStatus} onChange={(event) => setLibraryInstallStatus(event.target.value as LibraryNodeStatus)} title="Status for installed library blocks">
                   {libraryNodeStatuses.map((status) => <option key={status.id} value={status.id}>{status.label}</option>)}
                 </select>
               </div>
@@ -5278,13 +5462,13 @@ function App() {
               <button onClick={() => void installSelectedLibraryNodes()} disabled={librarySelectedCount === 0}><Plus size={16} /> Install Selected</button>
             </div>
           ) : null}
-          <h4>Manage Installed Nodes</h4>
+          <h4>Manage Installed Blocks</h4>
           <div className="nodeLibraryToolbar">
             <label className="nodeLibrarySearch">
               <Search size={14} />
-              <input value={librarySearch} placeholder="Search installed nodes" onChange={(event) => setLibrarySearch(event.target.value)} />
+              <input value={librarySearch} placeholder="Search installed blocks" onChange={(event) => setLibrarySearch(event.target.value)} />
             </label>
-            <select value={librarySortMode} onChange={(event) => setLibrarySortMode(event.target.value as LibrarySortMode)} title="Sort installed nodes">
+            <select value={librarySortMode} onChange={(event) => setLibrarySortMode(event.target.value as LibrarySortMode)} title="Sort installed blocks">
               <option value="status">Status order</option>
               <option value="manual">Manual order</option>
               <option value="title">Title</option>
@@ -5299,7 +5483,7 @@ function App() {
             ))}
           </div>
           <div className="installedNodeList">
-            {installedNodes.length === 0 ? <p className="muted">No installed nodes yet.</p> : visibleInstalledNodes.length === 0 ? <p className="muted">No nodes match this library view.</p> : visibleInstalledNodes.map(({ node, status }) => (
+            {installedNodes.length === 0 ? <p className="muted">No installed blocks yet.</p> : visibleInstalledNodes.length === 0 ? <p className="muted">No blocks match this library view.</p> : visibleInstalledNodes.map(({ node, status }) => (
               <div className="installedNodeItem" key={node.id}>
                 <div className="installedNodeHeader">
                   <strong>{node.title}</strong>
@@ -5328,7 +5512,7 @@ function App() {
         </div>
 
         <h2>Inspector</h2>
-        <p className="selectionHint">{selectedNodeCount} node(s), {selectedEdgeCount} edge(s) selected</p>
+        <p className="selectionHint">{selectedNodeCount} block(s), {selectedEdgeCount} edge(s) selected</p>
         {selectedNode ? (
           <>
             <p className="muted">{selectedNode.id}</p>
@@ -5337,7 +5521,7 @@ function App() {
             <button onClick={saveParams}>Save Params</button>
           </>
         ) : (
-          <p className="muted">Select a node.</p>
+          <p className="muted">Select a block.</p>
         )}
 
         <h2>Economics</h2>
@@ -5582,6 +5766,15 @@ function imagePreviewSrc(value: unknown): string | null {
   return null;
 }
 
+function panoramaSourceSrc(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const panorama = record.panorama;
+  if (!panorama || typeof panorama !== "object" || Array.isArray(panorama)) return null;
+  const source = panorama as Record<string, unknown>;
+  return imagePreviewSrc(source.sourceImage ?? source.sourceUrl ?? source.url ?? source.path);
+}
+
 function imageLocalPath(value: unknown): string | null {
   if (!value) return null;
   if (Array.isArray(value)) return imageLocalPath(value[0]);
@@ -5612,6 +5805,72 @@ function imageOutputIdForResult(result: NodeRunResult): string {
     if (record.localPath || record.path || record.url || record.originalUrl) return "output";
   }
   return "image";
+}
+
+function renderPanoramaFrame(canvas: HTMLCanvasElement, image: HTMLImageElement, view: { yaw: number; pitch: number; fov: number }) {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = image.naturalWidth;
+  sourceCanvas.height = image.naturalHeight;
+  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  if (!sourceContext) return;
+  sourceContext.drawImage(image, 0, 0);
+
+  const source = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+  const frame = context.createImageData(canvas.width, canvas.height);
+  const sourceData = source.data;
+  const frameData = frame.data;
+  const sourceWidth = source.width;
+  const sourceHeight = source.height;
+  const fov = (view.fov * Math.PI) / 180;
+  const tanHalfVertical = Math.tan(fov / 2);
+  const tanHalfHorizontal = tanHalfVertical * (canvas.width / canvas.height);
+  const cosYaw = Math.cos(view.yaw);
+  const sinYaw = Math.sin(view.yaw);
+  const cosPitch = Math.cos(view.pitch);
+  const sinPitch = Math.sin(view.pitch);
+
+  for (let y = 0; y < canvas.height; y += 1) {
+    const ny = (1 - ((y + 0.5) / canvas.height) * 2) * tanHalfVertical;
+    for (let x = 0; x < canvas.width; x += 1) {
+      const nx = (((x + 0.5) / canvas.width) * 2 - 1) * tanHalfHorizontal;
+      const length = Math.hypot(nx, ny, 1);
+      const cameraX = nx / length;
+      const cameraY = ny / length;
+      const cameraZ = 1 / length;
+      const pitchedY = cameraY * cosPitch - cameraZ * sinPitch;
+      const pitchedZ = cameraY * sinPitch + cameraZ * cosPitch;
+      const worldX = cameraX * cosYaw + pitchedZ * sinYaw;
+      const worldY = pitchedY;
+      const worldZ = -cameraX * sinYaw + pitchedZ * cosYaw;
+      const longitude = Math.atan2(worldX, worldZ);
+      const latitude = Math.asin(clamp(worldY, -1, 1));
+      const sourceX = positiveModulo(Math.floor((longitude / (Math.PI * 2) + 0.5) * sourceWidth), sourceWidth);
+      const sourceY = clamp(Math.floor((0.5 - latitude / Math.PI) * sourceHeight), 0, sourceHeight - 1);
+      const sourceIndex = (sourceY * sourceWidth + sourceX) * 4;
+      const frameIndex = (y * canvas.width + x) * 4;
+      frameData[frameIndex] = sourceData[sourceIndex];
+      frameData[frameIndex + 1] = sourceData[sourceIndex + 1];
+      frameData[frameIndex + 2] = sourceData[sourceIndex + 2];
+      frameData[frameIndex + 3] = 255;
+    }
+  }
+  context.putImageData(frame, 0, 0);
+}
+
+function panoramaSnapshotFilename(filename: string): string {
+  const base = filename.replace(/\.[a-z0-9]+$/i, "") || "panorama";
+  return `${base}-view.png`;
+}
+
+function positiveModulo(value: number, modulo: number): number {
+  return ((value % modulo) + modulo) % modulo;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function outputString(value: unknown, key: string): string {

@@ -93,6 +93,7 @@ export const builtInNodeDefinitions: NodeDefinition[] = [
   { type: "library.prompt", title: "Prompt Library", description: "Outputs a saved local prompt or embedded text snippet.", economics: { license: "AGPL-3.0-or-later", notes: "Local library only; no marketplace or payment execution." } },
   { type: "text.promptCompose", title: "Prompt Compose", description: "Combines multiple text inputs into one prompt.", economics: { license: "AGPL-3.0-or-later", notes: "Local text transform only; no payment execution." } },
   { type: "preview.image", title: "Image Preview", description: "Passes through an image value for Studio preview.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "preview.panorama360", title: "360 Panorama Viewer", description: "Passes through an equirectangular panorama image for interactive Studio viewing.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "transform.template", title: "Template Transform", description: "Produces text from params.template after route template resolution.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "debug.log", title: "Debug Log", description: "Logs a message or value and passes the value through.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "utility.null", title: "Null", description: "Accepts any input and intentionally produces no output.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
@@ -166,6 +167,13 @@ export const previewImageRunner: NodeRunner = ({ params, inputs }) => {
   const image = normalizePreviewImage(params.image ?? firstInputValue(inputs));
   return {
     output: { image }
+  };
+};
+
+export const previewPanorama360Runner: NodeRunner = ({ params, inputs }) => {
+  const image = normalizePreviewImage(params.image ?? firstInputValue(inputs));
+  return {
+    output: { image, panorama: { projection: "equirectangular" } }
   };
 };
 
@@ -383,6 +391,7 @@ export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("library.prompt", promptLibraryRunner);
   executor.registerNodeRunner("text.promptCompose", promptComposeRunner);
   executor.registerNodeRunner("preview.image", previewImageRunner);
+  executor.registerNodeRunner("preview.panorama360", previewPanorama360Runner);
   executor.registerNodeRunner("transform.template", transformTemplateRunner);
   executor.registerNodeRunner("debug.log", debugLogRunner);
   executor.registerNodeRunner("utility.null", nullRunner);
@@ -426,7 +435,7 @@ function builtInInputs(type: string) {
       { id: "scene", type: "text", required: false, label: "Scene" }
     ];
   }
-  if (type === "preview.image") return [{ id: "image", type: "image", required: true, label: "Image" }];
+  if (type === "preview.image" || type === "preview.panorama360") return [{ id: "image", type: "image", required: true, label: "Image" }];
   if (type === "debug.log") return [{ id: "value", type: "data", required: false, label: "Value" }];
   if (type === "utility.null") return [{ id: "input", type: "data", required: false, label: "Any" }];
   if (type === "output.text") return [{ id: "from", type: "data", required: false, label: "From" }];
@@ -440,7 +449,7 @@ function builtInInputs(type: string) {
 function builtInOutputs(type: string) {
   if (type === "input.text" || type === "library.prompt" || type === "text.promptCompose" || type === "transform.template" || type === "output.text") return [{ id: "text", type: "text", label: "Text" }];
   if (type === "input.file" || type === "output.file") return [{ id: "file", type: "file", label: "File" }];
-  if (type === "input.image" || type === "preview.image" || type === "local.stableDiffusion.textToImage") return [{ id: "image", type: "image", label: "Image" }];
+  if (type === "input.image" || type === "preview.image" || type === "preview.panorama360" || type === "local.stableDiffusion.textToImage") return [{ id: "image", type: "image", label: "Image" }];
   if (type === "capability.image.create" || type === "capability.image.edit" || type === "capability.image.upscale") return [{ id: "image", type: "image", label: "Image" }];
   if (type === "capability.video.animate") return [{ id: "video", type: "video", label: "Video" }];
   if (type === "capability.character.create" || type === "capability.location.create") return [{ id: "resource", type: "json", label: "Resource" }];
@@ -517,6 +526,8 @@ function inputTextParts(value: unknown): unknown[] {
 export function normalizePreviewImage(value: unknown): unknown {
   if (Array.isArray(value)) return normalizePreviewImage(value[0]);
   if (typeof value === "string") {
+    const dataUrlMatch = value.match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
+    if (dataUrlMatch) return { base64: dataUrlMatch[2], mimeType: dataUrlMatch[1], filename: "image.png" };
     if (/^https?:\/\//i.test(value)) return { originalUrl: value };
     if (/\.(png|jpg|jpeg|webp)(\?.*)?$/i.test(value)) return { localPath: value, path: value };
     throw new Error("preview.image expected an image URL or image file path.");
@@ -525,6 +536,11 @@ export function normalizePreviewImage(value: unknown): unknown {
     const record = value as Record<string, unknown>;
     const image = record.image ? normalizePreviewImage(record.image) : record;
     const candidate = image as Record<string, unknown>;
+    if (typeof candidate.base64 === "string") {
+      const mimeType = typeof candidate.mimeType === "string" ? candidate.mimeType : "image/png";
+      if (!mimeType.startsWith("image/")) throw new Error(`preview.image expected image input, got ${mimeType}.`);
+      return image;
+    }
     const path = candidate.localPath ?? candidate.path ?? candidate.originalUrl ?? candidate.url;
     if (typeof path !== "string") throw new Error("preview.image expected an image object with localPath, path, originalUrl, or url.");
     const mimeType = typeof candidate.mimeType === "string" ? candidate.mimeType : path.startsWith("http") ? "image/remote" : getMimeType(path);

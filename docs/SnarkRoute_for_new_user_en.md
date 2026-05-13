@@ -1,12 +1,12 @@
-# SnarkRoute: Brief Guide For New Users
+# BoojumRoute Lab: Brief Guide For New Users
 
-## What SnarkRoute Is
+## What It Is
 
-SnarkRoute is a visual studio for building AI and workflow routes from nodes.
+BoojumRoute Lab is an experimental graph environment for building AI pipelines from nodes. You can connect models, prompts, images, text transforms, and external services into routes that can be run, saved, and extended with custom nodes.
 
-Instead of manually wiring API calls and scripts, you assemble a process on a canvas: nodes produce inputs, transform data, call providers, preview media, and save outputs. Connections show how data moves through the route.
+Instead of manually wiring API calls, scripts, and one-off steps, you assemble a process on a canvas. Nodes produce inputs, transform data, call providers, preview media, and save outputs. Connections show how data moves through the route.
 
-The project is local-first. You can build, save, restore, run, import, export, and extend routes with installed node packages.
+BoojumRoute Lab is local-first. You can build, save, restore, run, import, export, and extend routes with installed node packages.
 
 ## What You Can Do Now
 
@@ -16,7 +16,7 @@ You can add nodes, move them around the canvas, connect outputs to compatible in
 
 ### Node Palette
 
-The Studio has a node palette grouped by categories. Nodes can be added by clicking or dragging. SnarkRoute includes bundled nodes and can also use installed local nodes.
+The Studio has a node palette grouped by categories. Nodes can be added by clicking or dragging. BoojumRoute Lab includes bundled nodes and can also use installed local nodes.
 
 ### Compatible Node Insertion
 
@@ -59,15 +59,9 @@ The backend provides APIs for health checks, settings and API tokens, node catal
 | `packages/protocol` | Route format, import/export, validation |
 | `packages/executor` | Execution engine |
 | `packages/nodes` | Built-in nodes and node package system |
-| `packages/adapters` | External provider adapters such as Gemini and Replicate |
-| `packages/storage` | Local run result storage |
+| `packages/adapters` | External provider adapters |
 | `examples` | Example routes and custom nodes |
-| `data/installed-nodes` | Installed node packages |
 | `docs` | Project documentation |
-
-## How To Keep This Overview Current
-
-After notable project changes, update this English overview and the Russian version at `docs/SnarkRoute_for_new_user_ru.md` so both reflect the current state of SnarkRoute. Working replies do not need to duplicate the full overview; keep the files current instead.
 
 ## Good First Demos
 
@@ -89,10 +83,10 @@ Build a small chain, select part of it, collapse it into a compound node, open t
 - Dirty state is tracked, but there is no persistent visible dirty indicator.
 - Compound port editing is still rough and uses browser prompts.
 - Generic `declarative` executor support is unclear; `declarative.http` is implemented.
-- Provider demos require Gemini/Replicate tokens or a local Stable Diffusion endpoint.
+- Provider demos require external provider tokens or a local Stable Diffusion endpoint.
 - Studio save/load currently uses browser localStorage rather than server-side project storage.
 - Visual clarity should still be checked in a live browser before demos.
 
 ## Short Version
 
-SnarkRoute is a route workshop: build a process from nodes, run it, inspect what happened, extend it with your own nodes, and gradually turn scattered AI tools and local processes into a manageable visual workflow.
+BoojumRoute Lab is a route laboratory: build a process from nodes, run it, inspect what happened, extend it with your own nodes, and gradually turn scattered AI tools and local processes into a manageable visual pipeline.

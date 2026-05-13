@@ -7,9 +7,9 @@ if "%STUDIO_PORT%"=="" set "STUDIO_PORT=5173"
 if "%VITE_API_BASE_URL%"=="" set "VITE_API_BASE_URL=http://127.0.0.1:4317"
 
 echo.
-echo SnarkRoute Studio
-echo =================
-echo Studio: http://127.0.0.1:%STUDIO_PORT%
+echo BoojumRoute Lab
+echo ===============
+echo Lab:    http://127.0.0.1:%STUDIO_PORT%
 echo API:    %VITE_API_BASE_URL%
 echo.
 
@@ -23,11 +23,11 @@ if errorlevel 1 (
 call corepack pnpm dev:studio
 if errorlevel 1 (
   echo.
-  echo Studio failed to start or exited with an error.
+  echo BoojumRoute Lab failed to start or exited with an error.
   pause
   exit /b 1
 )
 
 echo.
-echo Studio stopped.
+echo BoojumRoute Lab stopped.
 pause
