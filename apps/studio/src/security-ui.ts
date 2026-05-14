@@ -7,7 +7,7 @@ export function geminiTokenStatusText(configured: boolean): string {
 }
 
 export function localApiUnavailableMessage(apiBaseUrl: string): string {
-  return `Local API server is not reachable at ${apiBaseUrl}. Run start-snarkroute.bat or start the server manually. Check VITE_API_BASE_URL if needed.`;
+  return `Local API server is not reachable at ${apiBaseUrl}. Run start-boojumroute.bat or start the server manually. Check VITE_API_BASE_URL if needed.`;
 }
 
 export function serializeRouteJson(route: unknown): string {

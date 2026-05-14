@@ -30,8 +30,7 @@ if errorlevel 1 (
 where corepack >nul 2>nul
 if errorlevel 1 (
   echo ERROR: Corepack is not available.
-  echo Install a recent Node.js version, then run:
-  echo   corepack enable
+  echo Install a recent Node.js version and run this file again.
   pause
   exit /b 1
 )
@@ -39,8 +38,9 @@ if errorlevel 1 (
 call corepack pnpm --version >nul 2>nul
 if errorlevel 1 (
   echo ERROR: pnpm is not available through Corepack.
-  echo Run this once, then try again:
-  echo   corepack enable
+  echo Run this from the project folder and check the error:
+  echo   corepack pnpm --version
+  echo This launcher uses "corepack pnpm" directly and does not require global pnpm.
   pause
   exit /b 1
 )
@@ -56,6 +56,16 @@ if not exist "node_modules" (
   )
 ) else (
   echo Dependencies already installed.
+)
+
+echo Preparing workspace packages for BoojumRoute Lab...
+call corepack pnpm build:boojumroute-deps
+if errorlevel 1 (
+  echo.
+  echo ERROR: Workspace dependency build failed.
+  echo The server needs built package outputs such as packages\nodes\dist\index.js.
+  pause
+  exit /b 1
 )
 
 call :check_port "%API_PORT%"

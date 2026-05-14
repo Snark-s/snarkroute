@@ -24,6 +24,7 @@ data/settings/secrets.json
 **/data/runs/
 **/data/assets/
 *.log
+_tmp_*
 .env
 .env.local
 .env.*

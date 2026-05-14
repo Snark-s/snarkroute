@@ -22,7 +22,7 @@ describe("Replicate token UX helpers", () => {
 
   it("formats unreachable local API message with target URL", () => {
     expect(localApiUnavailableMessage("http://127.0.0.1:4318")).toBe(
-      "Local API server is not reachable at http://127.0.0.1:4318. Run start-snarkroute.bat or start the server manually. Check VITE_API_BASE_URL if needed."
+      "Local API server is not reachable at http://127.0.0.1:4318. Run start-boojumroute.bat or start the server manually. Check VITE_API_BASE_URL if needed."
     );
   });
 });

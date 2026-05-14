@@ -14,10 +14,22 @@ Open Route Protocol is a portable route format for describing AI/model/API workf
 
 ## Windows Quick Start
 
-1. Download the GitHub repository archive.
-2. Unzip the archive to a local folder.
-3. Run `setup.bat`.
-4. Start BoojumRoute Lab with `STARTBoojum.lnk` or `start-boojumroute.bat`.
+Recommended path for the public preview:
+
+```bat
+corepack pnpm install
+start-boojumroute.bat
+```
+
+`start-boojumroute.bat` prepares the required workspace package builds, starts the local API server, waits for `/api/health`, starts BoojumRoute Lab, and opens `http://127.0.0.1:5173`. It uses `corepack pnpm` directly and does not require global `pnpm` or a `.lnk` shortcut.
+
+If you downloaded the GitHub archive instead of cloning with Git:
+
+1. Unzip the archive to a local folder.
+2. Open that folder in a terminal.
+3. Run the commands above.
+
+Optional: run `setup.bat` to create local Windows shortcuts for the launchers.
 
 ## Codex Skill
 
@@ -129,15 +141,13 @@ Early/experimental:
 - Import/export Open Route Protocol documents, preferring `.orp`
 - Local provider settings through `.env` or Studio Settings where supported
 
-`start-boojumroute.bat` starts the local API server, waits for `/api/health`, starts BoojumRoute Lab, and opens `http://127.0.0.1:5173`. If dependencies are missing, the launcher attempts `corepack pnpm install` first.
-
 For the early SnarkRoute Living Canvas shell, run:
 
 ```bat
 start-snarkroute.bat
 ```
 
-It starts the experimental shell directly through the real pnpm script and opens `http://127.0.0.1:5174`.
+It starts the experimental shell and opens `http://127.0.0.1:5174`.
 
 Default one-click ports:
 
@@ -159,6 +169,7 @@ If BoojumRoute Lab says the API is disconnected, check that the server window is
 
 ```bash
 corepack pnpm install
+corepack pnpm -r build
 corepack pnpm start:boojumroute
 ```
 
