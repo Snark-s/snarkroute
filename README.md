@@ -19,6 +19,18 @@ Open Route Protocol is a portable route format for describing AI/model/API workf
 3. Run `setup.bat`.
 4. Start BoojumRoute Lab with `STARTBoojum.lnk` or `start-boojumroute.bat`.
 
+## Codex Skill
+
+The Codex skill for creating Boojum `.snarknode` packages is included in this repository at `docs/boojum-node-builder/`.
+
+To install it in Codex on Windows:
+
+1. Download this repository as a GitHub archive or clone it.
+2. Copy the `docs/boojum-node-builder` folder to `%USERPROFILE%\.codex\skills\boojum-node-builder`.
+3. Restart Codex.
+
+The skill entry file is `docs/boojum-node-builder/SKILL.md`.
+
 ## Why This Exists
 
 AI tools are becoming the new creative infrastructure. But most of that infrastructure is being built inside closed platforms: models, workflows, prompts, assets, APIs, billing systems, and execution environments are locked into separate services.
