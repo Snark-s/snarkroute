@@ -1,5 +1,6 @@
 ﻿import "@xyflow/react/dist/style.css";
 import "./styles.css";
+import defaultRouteDocument from "./default-route.orp.json";
 import {
   Background,
   Handle,
@@ -276,6 +277,7 @@ const ROUTE_FILE_ACCEPT = ".orp,.opt,.orp.json,.opt.json,.orp.yaml,.opt.yaml,.or
 const SAVED_PROJECT_STORAGE_KEY = "snarkroute-studio:saved-project";
 const LIBRARY_NODE_METADATA_STORAGE_KEY = "snarkroute-studio:node-library-metadata";
 const NODE_LIBRARY_LAYOUT_STORAGE_KEY = "snarkroute-studio:node-library-layout";
+const DEFAULT_ROUTE_FILENAME = "default-route.orp.json";
 // Compatibility note: storage keys and protocol fields keep the old node/studio names
 // so saved routes, installed node manifests, and local browser state continue to load.
 const GEMINI_API_KEY_URL = "https://aistudio.google.com/app/apikey";
@@ -2907,10 +2909,18 @@ function compactBreadcrumbTitle(title: string): string {
 function loadInitialRoute(): { route: RouteDoc; loadedSavedProject: boolean } {
   try {
     const text = localStorage.getItem(SAVED_PROJECT_STORAGE_KEY);
-    if (!text) return { route: blankRoute, loadedSavedProject: false };
+    if (!text) return { route: parseBundledDefaultRoute(), loadedSavedProject: false };
     return { route: loadRouteFromText(text, "saved-project.orp.json") as RouteDoc, loadedSavedProject: true };
   } catch {
-    return { route: blankRoute, loadedSavedProject: false };
+    return { route: parseBundledDefaultRoute(), loadedSavedProject: false };
+  }
+}
+
+function parseBundledDefaultRoute(): RouteDoc {
+  try {
+    return loadRouteFromText(JSON.stringify(defaultRouteDocument), DEFAULT_ROUTE_FILENAME) as RouteDoc;
+  } catch {
+    return blankRoute;
   }
 }
 
@@ -5088,8 +5098,24 @@ function App() {
       localStorage.setItem(SAVED_PROJECT_STORAGE_KEY, text);
       setLoadedRouteSnapshot(routeSnapshot(loadRouteFromText(text, filename) as RouteDoc));
       setLogs((current) => ["Saved current project locally.", ...current]);
+      void saveStartupRoute(text, filename);
     } catch (error) {
       setLogs((current) => [`Save failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  async function saveStartupRoute(text: string, filename: string) {
+    try {
+      const response = await fetch(`${apiBase}/api/routes/startup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, filename })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(result.error ?? "Failed to save startup route."));
+      setLogs((current) => ["Saved startup route to repository default.", ...current]);
+    } catch (error) {
+      setLogs((current) => [`Startup route file save skipped: ${error instanceof Error ? error.message : String(error)}`, ...current]);
     }
   }
 

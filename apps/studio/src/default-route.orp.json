@@ -1,0 +1,128 @@
+{
+  "routeVersion": "0.1",
+  "route": {
+    "id": "m31-api-prompt-to-image",
+    "title": "M3.1 Prompt to Image via API",
+    "description": "Text prompt through Gemini API image generation.",
+    "author": {
+      "name": "SnarkRoute"
+    },
+    "tags": [
+      "milestone-3.1",
+      "gemini",
+      "api",
+      "image"
+    ]
+  },
+  "economics": {
+    "enabled": false,
+    "mode": "disabled",
+    "currency": "USD",
+    "providerCosts": [
+      {
+        "provider": "gemini",
+        "model": "gemini-2.5-flash",
+        "nodeType": "gemini.llm",
+        "pricingHint": "external-provider-billing",
+        "estimatedCost": null,
+        "actualCost": null
+      },
+      {
+        "provider": "gemini",
+        "model": "gemini-3.1-flash-image-preview",
+        "nodeType": "gemini.nano-banana-2",
+        "pricingHint": "external-provider-billing",
+        "estimatedCost": null,
+        "actualCost": null
+      }
+    ],
+    "notes": "Economics metadata is preserved. No payment execution in v0.1."
+  },
+  "nodes": [
+    {
+      "id": "prompt_library",
+      "type": "library.prompt",
+      "title": "Prompt Library",
+      "params": {
+        "category": "image-generation",
+        "promptId": "adapt-user-idea-for-image-generator",
+        "mode": "linked"
+      },
+      "ui": {
+        "x": -25.045900229677898,
+        "y": 33.08022337982149
+      }
+    },
+    {
+      "id": "input_prompt",
+      "type": "input.text",
+      "title": "Text Input",
+      "params": {
+        "value": "А мы сделаем свой нодовый редактор с преферансом и куртизанками"
+      },
+      "ui": {
+        "x": -333.13390604443896,
+        "y": 367.82019769851956
+      }
+    },
+    {
+      "id": "polza_text_6",
+      "type": "polza.text",
+      "title": "Polza Text",
+      "params": {
+        "model": "openai/gpt-4o",
+        "prompt": "",
+        "systemPrompt": "",
+        "temperature": 1
+      },
+      "ui": {
+        "x": 330.2304678160703,
+        "y": 131.4792139320247
+      }
+    },
+    {
+      "id": "polza_image_generate_4",
+      "type": "polza.image.generate",
+      "title": "Polza Image",
+      "params": {
+        "model": "openai/gpt-5.4-image-2",
+        "prompt": "Create a polished image.",
+        "aspectRatio": "16:9",
+        "imageResolution": "2K",
+        "quality": "high",
+        "outputFormat": "png"
+      },
+      "ui": {
+        "x": 721.3082813195166,
+        "y": 163.2741581192967
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "xy-edge__prompt_librarytext-polza_text_6systemPrompt",
+      "from": "prompt_library",
+      "to": "polza_text_6",
+      "fromPort": "text",
+      "toPort": "systemPrompt"
+    },
+    {
+      "id": "xy-edge__input_prompttext-polza_text_6prompt",
+      "from": "input_prompt",
+      "to": "polza_text_6",
+      "fromPort": "text",
+      "toPort": "prompt"
+    },
+    {
+      "id": "xy-edge__polza_text_6text-polza_image_generate_4prompt",
+      "from": "polza_text_6",
+      "to": "polza_image_generate_4",
+      "fromPort": "text",
+      "toPort": "prompt"
+    }
+  ],
+  "provenance": {
+    "updatedAt": "2026-05-14T14:48:27.536Z",
+    "tool": "snarkroute-studio"
+  }
+}

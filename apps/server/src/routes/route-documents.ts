@@ -1,7 +1,8 @@
+import { writeFile } from "node:fs/promises";
 import type { FastifyInstance } from "fastify";
 import { basename, resolve } from "node:path";
-import { parseRoute } from "@snarkroute/protocol";
-import { assetsDirectory, examplesDirectory } from "../server-paths";
+import { exportRouteToText, loadRouteFromText, parseRoute } from "@snarkroute/protocol";
+import { assetsDirectory, examplesDirectory, startupRoutePath } from "../server-paths";
 import { errorMessage } from "../services/errors";
 import { listRouteFiles, loadExampleRoute } from "./route-files";
 
@@ -31,5 +32,19 @@ app.get<{ Params: { filename: string } }>("/api/routes/examples/:filename", asyn
 app.get("/api/routes/saved", async () => {
   const files = await listRouteFiles(assetsDirectory);
   return { routes: files.map((file) => ({ filename: basename(file), path: file })) };
+});
+
+app.post<{ Body: { text?: string; filename?: string } }>("/api/routes/startup", async (request, reply) => {
+  try {
+    const text = request.body?.text;
+    const filename = request.body?.filename ?? "startup-route.orp.json";
+    if (typeof text !== "string" || !text.trim()) return reply.code(400).send({ error: "Route text is required." });
+    const route = loadRouteFromText(text, filename);
+    const serialized = exportRouteToText(route, "default-route.orp.json");
+    await writeFile(startupRoutePath, serialized, "utf8");
+    return { ok: true, path: startupRoutePath, route: parseRoute(route).route };
+  } catch (error) {
+    return reply.code(400).send({ error: errorMessage(error) });
+  }
 });
 }

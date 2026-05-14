@@ -26,5 +26,6 @@ export const assetsDirectory = join(process.cwd(), "data", "assets");
 export const providerLinksPath = findExistingFile("data", "provider-links.json");
 export const openRouterMappingsPath = findExistingFile("data", "model-registry", "openrouter-mappings.json");
 export const openRouterCatalogCachePath = join(process.cwd(), "data", "cache", "openrouter-models.json");
+export const startupRoutePath = findExistingFile("apps", "studio", "src", "default-route.orp.json");
 export const examplesDirectory = findExistingDirectory("examples", "routes");
 export const getLedgerPath = () => process.env.SNARKROUTE_LEDGER_PATH ?? join(process.cwd(), "data", "ledger", "runs.jsonl");
