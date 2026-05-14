@@ -1,6 +1,6 @@
-# SnarkRoute Node Package Format
+﻿# Boojum Node Package Format
 
-This reference is bundled so the skill can create `.snarknode` packages without a SnarkRoute repository checkout.
+This reference is bundled so the skill can create `.snarknode` packages without a Boojum/SnarkRoute repository checkout.
 
 ## Package
 
@@ -234,3 +234,4 @@ return {
 Do not return only `{ output: { image: { base64: "..." } } }` if the manifest declares an `image` output port. Fill the `image` output port directly so Studio can show an inline preview and connected image nodes receive the right value.
 
 If exact provider endpoint details are unknown, create a valid scaffold with honest TODO comments instead of inventing behavior.
+

@@ -1223,6 +1223,11 @@ h2 {
   color: #f6d365;
 }
 
+.nodeIcon.polza,
+.libraryNodeIcon.polza {
+  color: #67e8f9;
+}
+
 .nodeIcon.local,
 .libraryNodeIcon.local {
   color: #7ee0bd;

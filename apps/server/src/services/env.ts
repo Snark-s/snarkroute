@@ -17,6 +17,10 @@ export function isOpenRouterEnabled(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY?.trim());
 }
 
+export function isPolzaEnabled(): boolean {
+  return Boolean(process.env.POLZA_AI_API_KEY?.trim());
+}
+
 export function stringValue(value: unknown): string | undefined {
   return typeof value === "string" ? value.trim() : undefined;
 }

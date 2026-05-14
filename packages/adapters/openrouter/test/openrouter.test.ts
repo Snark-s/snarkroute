@@ -24,13 +24,26 @@ describe("OpenRouter adapter", () => {
     });
   });
 
-  it("builds an image request with the selected slug, not the display label", () => {
-    expect(buildImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "16:9", imageSize: "2K" })).toMatchObject({
+  it("passes OpenAI image aspect ratio and maps it to size", () => {
+    expect(buildImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "3:2", imageSize: "low" })).toMatchObject({
       model: "openai/gpt-5.4-image-2",
       messages: [{ role: "user", content: "draw" }],
       modalities: ["image", "text"],
-      aspect_ratio: "16:9",
-      size: "2K"
+      aspect_ratio: "3:2",
+      size: "1536x1024",
+      quality: "low"
+    });
+  });
+
+  it("builds a Gemini-compatible image request with image_config", () => {
+    expect(buildImageRequestBody("google/gemini-3.1-flash-image-preview", "draw", { aspectRatio: "16:9", imageSize: "2K" })).toMatchObject({
+      model: "google/gemini-3.1-flash-image-preview",
+      messages: [{ role: "user", content: "draw" }],
+      modalities: ["image", "text"],
+      image_config: {
+        aspect_ratio: "16:9",
+        image_size: "2K"
+      }
     });
   });
 

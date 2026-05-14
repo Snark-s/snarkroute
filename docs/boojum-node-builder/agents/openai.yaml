@@ -1,0 +1,7 @@
+interface:
+  display_name: "Boojum Node Builder"
+  short_description: "Create portable .snarknode node packages"
+  default_prompt: "Use $boojum-node-builder to create a ready-to-import Boojum .snarknode package from my node description."
+
+policy:
+  allow_implicit_invocation: true

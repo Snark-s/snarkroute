@@ -123,6 +123,57 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
       executor: { type: "builtin", runtime: "builtin", builtinRunner: "gemini.nano-banana-2" },
       inputs: [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "images", type: "image", required: false, label: "Images" }],
       outputs: [{ id: "image", type: "image", label: "Image" }]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "polza.text",
+      title: "Polza Text",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Text",
+      description: "Runs Polza.ai OpenAI-compatible chat models.",
+      enabled: true,
+      permissions: { network: true, networkHosts: ["polza.ai"], readFiles: false, writeOutputs: false, shell: false, env: ["POLZA_AI_API_KEY"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "polza.text" },
+      inputs: [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "systemPrompt", type: "text", required: false, label: "System" }],
+      outputs: [{ id: "text", type: "text", label: "Text" }, { id: "output", type: "json", label: "JSON" }],
+      params: [
+        { id: "model", type: "text", label: "Model", default: "openai/gpt-4o" },
+        { id: "prompt", type: "text", label: "Prompt", default: "" },
+        { id: "systemPrompt", type: "text", label: "System Prompt", default: "" },
+        { id: "temperature", type: "number", label: "Temperature", default: 1 },
+        { id: "max_tokens", type: "number", label: "Max Tokens", default: 1000 }
+      ]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "polza.image.generate",
+      title: "Polza Image",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Image Processing",
+      description: "Runs Polza.ai OpenAI-compatible image generation models.",
+      enabled: true,
+      permissions: { network: true, networkHosts: ["polza.ai", "cdn.polza.ai"], readFiles: false, writeOutputs: true, shell: false, env: ["POLZA_AI_API_KEY"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "polza.image.generate" },
+      inputs: [{ id: "prompt", type: "text", required: false, label: "Prompt" }],
+      outputs: [{ id: "image", type: "image", label: "Image" }, { id: "output", type: "json", label: "JSON" }],
+      params: [
+        { id: "model", type: "text", label: "Model", default: "openai/gpt-5.4-image-2" },
+        { id: "prompt", type: "text", label: "Prompt", default: "Create a polished image." },
+        { id: "aspectRatio", type: "text", label: "Aspect Ratio", default: "1:1" },
+        { id: "imageResolution", type: "text", label: "Resolution", default: "2K" },
+        { id: "quality", type: "text", label: "Quality", default: "high" },
+        { id: "outputFormat", type: "text", label: "Output Format", default: "png" }
+      ]
     }
   ];
 }

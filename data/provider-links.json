@@ -26,6 +26,15 @@
     "apiReferenceUrl": "https://platform.openai.com/docs/api-reference",
     "pricingUrl": "https://openai.com/api/pricing/"
   },
+  "polza": {
+    "title": "Polza.ai",
+    "websiteUrl": "https://polza.ai/",
+    "apiKeysUrl": "https://polza.ai/dashboard",
+    "modelsUrl": "https://polza.ai/models",
+    "docsUrl": "https://polza.ai/docs",
+    "apiReferenceUrl": "https://polza.ai/docs/api-reference/introduction",
+    "pricingUrl": "https://polza.ai/models"
+  },
   "replicate": {
     "title": "Replicate",
     "websiteUrl": "https://replicate.com/",

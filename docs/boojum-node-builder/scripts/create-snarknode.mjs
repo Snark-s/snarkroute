@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+﻿#!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,10 +65,10 @@ function buildManifest(spec, slug, title) {
     author: normalizeAuthor(spec.author),
     license: stringOr(spec.license, "private"),
     origin: "local",
-    source: stringOr(spec.source, "generated-by-snarkroute-node-builder"),
+    source: stringOr(spec.source, "generated-by-boojum-node-builder"),
     category: stringOr(spec.category, "Custom"),
-    description: stringOr(spec.description, spec.behavior ?? `Generated SnarkRoute node package for ${title}.`),
-    generatedWith: { tool: "Codex", skill: "snarkroute-node-builder" },
+    description: stringOr(spec.description, spec.behavior ?? `Generated Boojum node package for ${title}.`),
+    generatedWith: { tool: "Codex", skill: "boojum-node-builder" },
     permissions: normalizePermissions(spec.permissions, executor),
     executor,
     inputs: requireArray(spec.inputs, "inputs"),
@@ -234,7 +234,7 @@ function validateManifest(manifest) {
   validatePorts(manifest.outputs, "outputs", issues);
   if (manifest.params !== undefined) validatePorts(manifest.params, "params", issues);
   if (manifest.capabilities !== undefined) validateCapabilities(manifest.capabilities, issues);
-  if (issues.length) throw new Error(`Invalid SnarkRoute node manifest:\n${issues.join("\n")}`);
+  if (issues.length) throw new Error(`Invalid Boojum-compatible node manifest:\n${issues.join("\n")}`);
 }
 
 function validatePermissions(value, issues) {
@@ -358,7 +358,7 @@ function imagePluginExecutorCode(spec) {
   logger.info("Running generated image node.");
 
   // Replace this scaffold with the provider call. Keep the final image in this
-  // portable shape so SnarkRoute Studio can render an inline preview:
+  // portable shape so Boojum Studio can render an inline preview:
   // { mimeType: "image/png", base64: "..." } OR { localPath: "..." } OR { url: "..." }.
   const image = {
     mimeType: "image/png",
@@ -559,3 +559,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
     process.exit(1);
   });
 }
+

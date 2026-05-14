@@ -2,8 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 import { createReplicateClient } from "@snarkroute/replicate";
 import { createOpenRouterClient, readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
+import { createPolzaClient } from "@snarkroute/polza";
 import { openRouterCatalogCachePath, providerLinksPath } from "../server-paths";
-import { isOpenRouterEnabled, isReplicateEnabled } from "../services/env";
+import { isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterPublicError, openRouterSettingsStatus } from "../providers/openrouter";
 
@@ -40,6 +41,16 @@ app.post("/api/providers/openrouter/refresh-model-catalog", async (request, repl
 app.get("/api/providers/openrouter/models", async () => {
   const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
   return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: cache?.models.length ?? 0, models: cache?.models ?? [] };
+});
+
+app.get<{ Querystring: { type?: "chat" | "image" | "embedding" } }>("/api/providers/polza/models", async (request, reply) => {
+  try {
+    if (!isPolzaEnabled()) return { ok: true, configured: false, modelCount: 0, models: [] };
+    const models = await createPolzaClient().getModels(request.query.type);
+    return { ok: true, configured: true, modelCount: models.length, models };
+  } catch (error) {
+    return reply.code(400).send({ ok: false, error: errorMessage(error) });
+  }
 });
 
 app.get<{ Querystring: { model?: string } }>("/api/replicate/schema", async (request, reply) => {

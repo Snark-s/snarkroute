@@ -1,10 +1,10 @@
-# SnarkRoute Provider Connections
+﻿# Boojum Provider Connections
 
 This reference is bundled so the skill can reason about API connections before creating API-backed nodes.
 
 ## Current Known Connections
 
-SnarkRoute's right Settings column commonly exposes:
+Boojum's right Settings column commonly exposes:
 
 - OpenRouter
   - Env key: `OPENROUTER_API_KEY`
@@ -34,8 +34,8 @@ If a node must call `api.openai.com` directly, it needs the direct OpenAI connec
 For API-backed nodes:
 
 1. Identify the exact provider endpoint and auth scheme from official docs or from the user's explicit spec.
-2. Check whether the provider can use an existing SnarkRoute connection.
-3. If editing a SnarkRoute checkout, inspect:
+2. Check whether the provider can use an existing Boojum connection.
+3. If editing a Boojum/SnarkRoute checkout, inspect:
    - `apps/studio/src/main.tsx`
    - `apps/server/src/index.ts`
    - `data/provider-links.json` if present
@@ -96,3 +96,4 @@ Use this only when direct OpenAI access is required:
 ```
 
 If the task specifically names ChatGPT Image / GPT Image through OpenAI, prefer direct OpenAI only when OpenRouter support is absent or not verified.
+

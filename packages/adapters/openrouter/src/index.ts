@@ -227,9 +227,48 @@ export function buildImageRequestBody(model: string, prompt: string, params: Rec
     messages: [{ role: "user", content }],
     modalities: ["image", "text"]
   };
-  if (params.aspectRatio !== undefined) body.aspect_ratio = params.aspectRatio;
-  if (params.imageSize !== undefined) body.size = params.imageSize;
+  if (isOpenAiImageModel(model)) {
+    const aspectRatio = typeof params.aspectRatio === "string" && params.aspectRatio.trim() ? params.aspectRatio.trim() : "1:1";
+    body.aspect_ratio = aspectRatio;
+    const size = openAiImageSize(aspectRatio);
+    if (size) body.size = size;
+    const quality = openAiImageQuality(params.imageSize);
+    if (quality) body.quality = quality;
+    return body;
+  }
+  const imageConfig: Record<string, unknown> = {};
+  if (params.aspectRatio !== undefined) imageConfig.aspect_ratio = params.aspectRatio;
+  if (params.imageSize !== undefined) imageConfig.image_size = params.imageSize;
+  if (Object.keys(imageConfig).length > 0) body.image_config = imageConfig;
   return body;
+}
+
+function isOpenAiImageModel(model: string): boolean {
+  return model.startsWith("openai/") && /image/i.test(model);
+}
+
+function openAiImageSize(aspectRatio: unknown): string | null {
+  const ratio = typeof aspectRatio === "string" ? aspectRatio : "1:1";
+  if (ratio === "16:9") return "1792x1024";
+  if (ratio === "9:16") return "1024x1792";
+  if (ratio === "3:2") return "1536x1024";
+  if (ratio === "2:3") return "1024x1536";
+  const match = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(ratio);
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  if (width === height) return "1024x1024";
+  return width > height ? "1536x1024" : "1024x1536";
+}
+
+function openAiImageQuality(imageSize: unknown): string | null {
+  if (typeof imageSize !== "string") return null;
+  if (["low", "medium", "high", "auto"].includes(imageSize)) return imageSize;
+  if (imageSize === "1K") return "low";
+  if (imageSize === "2K") return "medium";
+  if (imageSize === "4K") return "high";
+  return null;
 }
 
 export async function refreshOpenRouterModelCatalog(options: OpenRouterClientOptions & { cachePath?: string } = {}): Promise<OpenRouterCatalogCache> {

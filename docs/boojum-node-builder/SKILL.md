@@ -1,33 +1,33 @@
----
-name: snarkroute-node-builder
-description: Create ready-to-import SnarkRoute .snarknode ZIP packages from text descriptions, including manifest validation, filesystem-safe names, protocol-safe ids, plugin executor files, declarative nodes, permissions, README/examples, and a bundled standalone Node.js generator that works outside the SnarkRoute repository.
+﻿---
+name: boojum-node-builder
+description: Use when creating Boojum node packages as ready-to-import snarknode ZIP files.
 ---
 
-# SnarkRoute Node Builder
+# Boojum Node Builder
 
-Use this skill when the user asks to create a ready-to-import SnarkRoute node package from a text description.
+Use this skill when the user asks to create a ready-to-import Boojum node package compatible with the `.snarknode` format from a text description.
 
 ## Ground Truth
 
-- This skill must work for any user, including users who do not have the SnarkRoute repository checked out. Treat the bundled files in this skill as the primary fallback source of truth.
-- Follow the SnarkRoute node package model summarized in `references/node-package-format.md`: `kind`, `schemaVersion`, `id`, `title`, `version`, `author`, `license`, `origin`, `permissions`, `executor`, `inputs`, `outputs`, optional `params`, and optional metadata such as `capabilities`, `ui`, `icon`, `tags`, `homepage`, `repository`, `examples`, and `dependencies`.
+- This skill must work for any user, including users who do not have the Boojum/SnarkRoute repository checked out. Treat the bundled files in this skill as the primary fallback source of truth.
+- Follow the Boojum-compatible node package model summarized in `references/node-package-format.md`: `kind`, `schemaVersion`, `id`, `title`, `version`, `author`, `license`, `origin`, `permissions`, `executor`, `inputs`, `outputs`, optional `params`, and optional metadata such as `capabilities`, `ui`, `icon`, `tags`, `homepage`, `repository`, `examples`, and `dependencies`.
 - A portable `<name>.snarknode` is a ZIP archive, not a JSON file with a renamed extension.
 - The ZIP root must contain `manifest.json`.
 - Plugin packages must include the file named by `executor.entry`.
-- Inside a SnarkRoute repository, prefer existing validation and packing helpers if they are present: `validateNodeManifest`, `packNodePackage`, and `previewNodePackageArchive`.
+- Inside a Boojum/SnarkRoute repository, prefer existing validation and packing helpers if they are present: `validateNodeManifest`, `packNodePackage`, and `previewNodePackageArchive`.
 - Outside the repository, use the bundled standalone generator. It mirrors the current manifest validation rules and creates ZIP-compatible `.snarknode` packages with no external dependencies.
 - A good node is not just valid. It should be Studio-ready: clear `category`, meaningful port labels, useful `params` with defaults, and `ui.params` controls for text areas, selects, checkboxes, and numeric fields.
 - Do not invent protocol fields or endpoint behavior.
-- Keep route/package files portable across SnarkRoute tools.
+- Keep route/package files portable across Boojum and SnarkRoute-compatible tools.
 
 ## Context Discovery
 
 Use this order. Stop as soon as you have enough information to generate and validate the package.
 
 1. Read this skill's bundled reference at `references/node-package-format.md`.
-2. For API/provider nodes, read `references/provider-connections.md` and decide whether the needed provider connection already exists in the user's SnarkRoute checkout.
+2. For API/provider nodes, read `references/provider-connections.md` and decide whether the needed provider connection already exists in the user's Boojum/SnarkRoute checkout.
 3. Use the bundled generator at `scripts/create-snarknode.mjs`; it is the portable implementation and should work without a repo checkout.
-4. If the current workspace looks like SnarkRoute, inspect only the smallest relevant package files:
+4. If the current workspace looks like Boojum/SnarkRoute, inspect only the smallest relevant package files:
    - `packages/nodes/src/package-system.ts`
    - `scripts/create-snarknode.ts`
    - `examples/custom-nodes/*/manifest.json` or `examples/custom-nodes/*.snarknode/manifest.json` when an example is directly relevant
@@ -41,7 +41,7 @@ Use this order. Stop as soon as you have enough information to generate and vali
 When a node calls an external API, handle the connection before packaging the node.
 
 1. Identify the provider, host, env key, and whether the node can route through an existing provider connection.
-2. In a SnarkRoute checkout, inspect only the local provider/settings surface:
+2. In a Boojum/SnarkRoute checkout, inspect only the local provider/settings surface:
    - `apps/studio/src/main.tsx` for the right-column Settings UI and configured-state checks.
    - `apps/server/src/index.ts` for `/api/settings` and provider key endpoints.
    - `data/provider-links.json` when provider help links are needed and the file exists.
@@ -49,7 +49,7 @@ When a node calls an external API, handle the connection before packaging the no
    - OpenRouter: `OPENROUTER_API_KEY`, `openrouter.ai`, primary remote provider.
    - Gemini: `GEMINI_API_KEY`, `generativelanguage.googleapis.com`, direct advanced provider.
    - Replicate: `REPLICATE_API_TOKEN`, `api.replicate.com`, direct advanced provider.
-4. If the provider is missing and the user asked for a working SnarkRoute integration, add the provider connection using the same local pattern:
+4. If the provider is missing and the user asked for a working Boojum integration, add the provider connection using the same local pattern:
    - server status in `GET /api/settings`;
    - server save endpoint under `/api/settings/<provider>`;
    - env persistence through the existing env writer;
@@ -62,7 +62,7 @@ When a node calls an external API, handle the connection before packaging the no
 
 ## Workflow
 
-1. Convert the user's description into a `CreateSnarkNodeSpec`.
+1. Convert the user's description into a `CreateBoojumNodeSpec`.
 2. Choose a filesystem-safe slug. Example: `My Cool Node` -> `my-cool-node.snarknode`.
 3. Choose a protocol-safe node id. Prefer the user-provided id; otherwise use `custom.<slug>`.
 4. Keep `author` as an object, usually `{ "name": "..." }`.
@@ -84,7 +84,7 @@ When a node calls an external API, handle the connection before packaging the no
 Create a JSON spec and run:
 
 ```bash
-node path/to/snarkroute-node-builder/scripts/create-snarknode.mjs path/to/spec.json path/to/output-folder
+node path/to/boojum-node-builder/scripts/create-snarknode.mjs path/to/spec.json path/to/output-folder
 ```
 
 The generated artifact appears at:
@@ -99,12 +99,12 @@ The helper script is:
 scripts/create-snarknode.mjs
 ```
 
-The generator is bundled with this skill and uses only built-in Node.js modules. It does not require a SnarkRoute repository checkout, pnpm, or `@snarkroute/nodes`.
+The generator is bundled with this skill and uses only built-in Node.js modules. It does not require a Boojum/SnarkRoute repository checkout, pnpm, or `@snarkroute/nodes`.
 
 When this skill is installed in Codex, the script is normally available at:
 
 ```text
-~/.codex/skills/snarkroute-node-builder/scripts/create-snarknode.mjs
+~/.codex/skills/boojum-node-builder/scripts/create-snarknode.mjs
 ```
 
 ## Spec Fields
@@ -243,7 +243,7 @@ Use honest placeholders for user-provided endpoints or tokens. Do not pretend an
 Run:
 
 ```bash
-node ~/.codex/skills/snarkroute-node-builder/scripts/create-snarknode.mjs spec.json ./out
+node ~/.codex/skills/boojum-node-builder/scripts/create-snarknode.mjs spec.json ./out
 ```
 
 Inside the SnarkRoute repository, also run:
@@ -252,3 +252,5 @@ Inside the SnarkRoute repository, also run:
 pnpm create-snarknode:test
 pnpm --filter @snarkroute/nodes test
 ```
+
+

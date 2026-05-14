@@ -2,46 +2,79 @@ routeVersion: "0.1"
 route:
   id: m31-api-prompt-to-image
   title: M3.1 Prompt To Image Via API
-  description: Text prompt to Gemini/Nano Banana image API to preview.
+  description: User text adapted by a prompt-library system prompt through Gemini LLM, then sent to Nano Banana image generation.
   author:
     name: SnarkRoute
-  tags: [milestone-3.1, gemini, api, image]
+  tags: [milestone-3.1, prompt-library, gemini, llm, api, image]
 economics:
   enabled: false
   mode: disabled
+  currency: USD
   providerCosts:
+    - provider: gemini
+      model: gemini-2.5-flash
+      nodeType: gemini.llm
+      pricingHint: external-provider-billing
+      estimatedCost: null
+      actualCost: null
     - provider: gemini
       model: gemini-3.1-flash-image-preview
       nodeType: gemini.nano-banana-2
       pricingHint: external-provider-billing
       estimatedCost: null
       actualCost: null
+  notes: Economics metadata is preserved. No payment execution in v0.1.
 nodes:
-  - id: prompt
+  - id: input_prompt
     type: input.text
-    title: Prompt
+    title: Text Input
     params:
-      value: A tiny stained glass dragon icon, art nouveau, clean simple composition
-  - id: generate
+      value: А мы сделаем свой нодовый редактор с преферансом и куртизанками
+    ui:
+      x: 40
+      y: 540
+  - id: prompt_library
+    type: library.prompt
+    title: Prompt Library
+    params:
+      category: image-generation
+      promptId: adapt-user-idea-for-image-generator
+      mode: linked
+    ui:
+      x: 300
+      y: 40
+  - id: gemini_llm
+    type: gemini.llm
+    title: Gemini LLM
+    params:
+      systemPrompt: ""
+      prompt: ""
+      model: gemini-2.5-flash
+    ui:
+      x: 600
+      y: 220
+  - id: gemini_nano-banana-2
     type: gemini.nano-banana-2
     title: Nano Banana 2
     params:
-      prompt: Create a polished image.
-      aspectRatio: "1:1"
-      imageSize: 1K
-  - id: preview
-    type: preview.image
-    title: Image Preview
-    params:
-      title: API image output
+      prompt: Transform this into a polished, high-detail image.
+      aspectRatio: "16:9"
+      imageSize: "1K"
+    ui:
+      x: 1040
+      y: 220
 edges:
-  - from: prompt
-    to: generate
+  - from: prompt_library
+    to: gemini_llm
+    fromPort: text
+    toPort: systemPrompt
+  - from: input_prompt
+    to: gemini_llm
     fromPort: text
     toPort: prompt
-  - from: generate
-    to: preview
-    fromPort: image
-    toPort: image
+  - from: gemini_llm
+    to: gemini_nano-banana-2
+    fromPort: text
+    toPort: prompt
 provenance:
   tool: snarkroute

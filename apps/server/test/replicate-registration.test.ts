@@ -33,3 +33,37 @@ describe("Replicate runner registration", () => {
     }
   });
 });
+
+describe("Polza runner registration", () => {
+  it("registers Polza runners even when token is missing", async () => {
+    process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previousToken = process.env.POLZA_AI_API_KEY;
+    const { buildServer } = await import("../src/index");
+    process.env.POLZA_AI_API_KEY = "";
+    const app = buildServer();
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/routes/run",
+        payload: {
+          routeVersion: "0.1",
+          route: { id: "polza-no-token", title: "Polza No Token", author: {} },
+          nodes: [
+            { id: "text", type: "polza.text", params: { model: "openai/gpt-4o", prompt: "hi" } }
+          ],
+          edges: []
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).toContain("POLZA_AI_API_KEY is not configured");
+      expect(response.body).not.toContain("No runner registered");
+    } finally {
+      await app.close();
+      if (previousToken === undefined) delete process.env.POLZA_AI_API_KEY;
+      else process.env.POLZA_AI_API_KEY = previousToken;
+      delete process.env.SNARKROUTE_NO_LISTEN;
+    }
+  });
+});

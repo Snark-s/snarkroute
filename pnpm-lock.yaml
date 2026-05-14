@@ -20,6 +20,9 @@ importers:
       '@snarkroute/openrouter':
         specifier: workspace:*
         version: link:packages/adapters/openrouter
+      '@snarkroute/polza':
+        specifier: workspace:*
+        version: link:packages/adapters/polza
       '@snarkroute/protocol':
         specifier: workspace:*
         version: link:packages/protocol
@@ -60,6 +63,9 @@ importers:
       '@snarkroute/openrouter':
         specifier: workspace:*
         version: link:../../packages/adapters/openrouter
+      '@snarkroute/polza':
+        specifier: workspace:*
+        version: link:../../packages/adapters/polza
       '@snarkroute/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -165,6 +171,16 @@ importers:
         version: 1.6.1(@types/node@20.19.39)
 
   packages/adapters/openrouter:
+    dependencies:
+      '@snarkroute/executor':
+        specifier: workspace:*
+        version: link:../../executor
+    devDependencies:
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.39)
+
+  packages/adapters/polza:
     dependencies:
       '@snarkroute/executor':
         specifier: workspace:*

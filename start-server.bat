@@ -34,6 +34,8 @@ call corepack pnpm --filter @snarkroute/gemini build
 if errorlevel 1 goto fail
 call corepack pnpm --filter @snarkroute/replicate build
 if errorlevel 1 goto fail
+call corepack pnpm --filter @snarkroute/polza build
+if errorlevel 1 goto fail
 
 call corepack pnpm dev:server
 if errorlevel 1 (

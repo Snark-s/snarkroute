@@ -8,7 +8,7 @@ tags:
 - image
 - generated
 previewImage: facs-style-facial-expression-reference-grid.preview.png
-status: candidate
+status: published
 source:
   type: generated-image
   runId: run_1778613199962

@@ -168,12 +168,23 @@ type OpenRouterModel = {
   architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
 };
 
+type PolzaModel = {
+  id: string;
+  name?: string;
+  type?: string;
+  short_description?: string;
+  pricing?: Record<string, unknown>;
+  architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
+};
+
 type ImageModelOption = {
   id: string;
   slug: string;
   label: string;
   provider: string;
   capabilities: string[];
+  aspectRatios?: string[];
+  imageSizes?: string[];
   supportsImageGeneration: "supported" | "unsupported" | "unknown";
   routeSupport: {
     openrouter: "supported" | "unsupported" | "unknown";
@@ -275,7 +286,7 @@ const libraryNodeStatuses: Array<{ id: LibraryNodeStatus; label: string }> = [
   { id: "published", label: "Published" },
   { id: "archived", label: "Archived" }
 ];
-const promptStatusOptions: PromptStatusFilter[] = ["published", "approved", "candidate", "draft", "archived", "all"];
+const promptStatusOptions: PromptStatusFilter[] = ["all", "published", "approved", "candidate", "draft", "archived"];
 const GEMINI_LLM_DEFAULT_SYSTEM_PROMPT = `Convert the user's rough idea into a clean image-generation prompt.
 Preserve the humor and core idea.
 Make risky wording safe and non-erotic.
@@ -309,7 +320,7 @@ const DEFAULT_PROMPT_LIBRARY: PromptLibraryData = {
 
 const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
-  { type: "library.prompt", label: "Prompt Library", params: { category: "image-generation", promptId: "image-generation-demo", mode: "linked" } },
+  { type: "library.prompt", label: "Prompt Library", params: { category: "image-generation", promptId: "adapt-user-idea-for-image-generator", mode: "linked" } },
   { type: "text.promptCompose", label: "Prompt Compose", params: { separator: "\n\n", trimParts: true, skipEmpty: true, prefix: "", suffix: "" } },
   { type: "input.image", label: "Input Image", params: { path: "" } },
   { type: "input.video", label: "Input Video", params: { path: "" } },
@@ -324,7 +335,7 @@ const library = [
     params: {
       systemPrompt: "",
       prompt: "",
-      model: "gemini-2.5-flash-lite"
+      model: "gemini-2.5-flash"
     }
   },
   {
@@ -467,7 +478,7 @@ const exampleRoute: RouteDoc = {
     mode: "disabled",
     currency: "USD",
     providerCosts: [
-      { provider: "gemini", model: "gemini-2.5-flash-lite", nodeType: "gemini.llm", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null },
+      { provider: "gemini", model: "gemini-2.5-flash", nodeType: "gemini.llm", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null },
       { provider: "gemini", model: "gemini-3.1-flash-image-preview", nodeType: "gemini.nano-banana-2", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null }
     ],
     notes: "Economics metadata is preserved. No payment execution in v0.1."
@@ -479,7 +490,7 @@ const exampleRoute: RouteDoc = {
       title: "Prompt Library",
       params: {
         category: "image-generation",
-        promptId: "image-generation-demo",
+        promptId: "adapt-user-idea-for-image-generator",
         mode: "linked"
       },
       ui: { x: 40, y: 40 }
@@ -498,7 +509,7 @@ const exampleRoute: RouteDoc = {
       params: {
         systemPrompt: "",
         prompt: "",
-        model: "gemini-2.5-flash-lite"
+        model: "gemini-2.5-flash"
       },
       ui: { x: 560, y: 220 }
     },
@@ -636,10 +647,12 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const replicateConfigured = Boolean(data.replicateConfigured);
   const geminiConfigured = Boolean(data.geminiConfigured);
   const openAiConfigured = Boolean(data.openAiConfigured);
+  const polzaConfigured = Boolean(data.polzaConfigured);
   const openRouterConfigured = Boolean(data.openRouterConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
   const onConfigureGemini = data.onConfigureGemini as (() => void) | undefined;
   const onConfigureOpenAi = data.onConfigureOpenAi as (() => void) | undefined;
+  const onConfigurePolza = data.onConfigurePolza as (() => void) | undefined;
   const onConfigureOpenRouter = data.onConfigureOpenRouter as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
   const onImageResultContextMenu = data.onImageResultContextMenu as ((event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void) | undefined;
@@ -650,11 +663,13 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onUncollapse = data.onUncollapse as ((nodeId: string) => void) | undefined;
   const promptLibrary = data.promptLibrary as PromptLibraryData | undefined;
   const onRefreshPromptLibrary = data.onRefreshPromptLibrary as (() => void) | undefined;
-  const promptStatusFilter = (data.promptStatusFilter as PromptStatusFilter | undefined) ?? "published";
+  const promptStatusFilter = (data.promptStatusFilter as PromptStatusFilter | undefined) ?? "all";
   const onPromptStatusFilterChange = data.onPromptStatusFilterChange as ((filter: PromptStatusFilter) => void) | undefined;
   const onPromptContextMenu = data.onPromptContextMenu as ((event: React.MouseEvent, prompt: PromptLibraryPrompt) => void) | undefined;
   const stableDiffusionModels = (data.stableDiffusionModels as StableDiffusionModel[] | undefined) ?? [];
   const openRouterModels = (data.openRouterModels as OpenRouterModel[] | undefined) ?? [];
+  const polzaTextModels = (data.polzaTextModels as PolzaModel[] | undefined) ?? [];
+  const polzaImageModels = (data.polzaImageModels as PolzaModel[] | undefined) ?? [];
   const manifest = data.manifest as NodeManifest | undefined;
   const isMissingNode = Boolean(data.isMissingNode);
   const onRefreshStableDiffusionModels = data.onRefreshStableDiffusionModels as ((endpoint: string) => void) | undefined;
@@ -827,6 +842,18 @@ function RouteNodeCard({ id, data }: NodeProps) {
           ) : null}
         </div>
       ) : null}
+      {!paramsCollapsed && isPolzaNode(type) ? (
+        <div className={`nodeTokenStatus ${polzaConfigured ? "configured" : "missing"}`}>
+          <span>Polza.ai: {polzaConfigured ? "key configured" : "missing"}</span>
+          {!polzaConfigured ? (
+            <>
+              <strong>Requires Polza.ai API key</strong>
+              <button className="nodeSmallButton nodrag nopan" onClick={onConfigurePolza}>Configure Polza.ai</button>
+              <small>Open Settings &gt; AI Providers &gt; Polza.ai</small>
+            </>
+          ) : null}
+        </div>
+      ) : null}
       {!paramsCollapsed ? (
         <NodeInlineParams
           type={type}
@@ -840,6 +867,8 @@ function RouteNodeCard({ id, data }: NodeProps) {
           onPromptContextMenu={onPromptContextMenu}
           stableDiffusionModels={stableDiffusionModels}
           openRouterModels={openRouterModels}
+          polzaTextModels={polzaTextModels}
+          polzaImageModels={polzaImageModels}
           onRefreshStableDiffusionModels={onRefreshStableDiffusionModels}
           onChange={patchParams}
           onBrowse={(kind) => onBrowseAsset?.(id, kind)}
@@ -878,6 +907,8 @@ function NodeInlineParams({
   onPromptContextMenu,
   stableDiffusionModels,
   openRouterModels,
+  polzaTextModels,
+  polzaImageModels,
   onRefreshStableDiffusionModels,
   onChange,
   onBrowse,
@@ -894,6 +925,8 @@ function NodeInlineParams({
   onPromptContextMenu?: (event: React.MouseEvent, prompt: PromptLibraryPrompt) => void;
   stableDiffusionModels: StableDiffusionModel[];
   openRouterModels: OpenRouterModel[];
+  polzaTextModels: PolzaModel[];
+  polzaImageModels: PolzaModel[];
   onRefreshStableDiffusionModels?: (endpoint: string) => void;
   onChange: (patch: Record<string, unknown>) => void;
   onBrowse: (kind: AssetKind) => void;
@@ -1214,14 +1247,31 @@ function NodeInlineParams({
     const connectionRoute = String(params.providerMode ?? "auto");
     const modelOptions = imageGenerationModelOptions(openRouterModels, model);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
+    const aspectRatioOptions = imageAspectRatioOptions(selectedModel);
+    const imageSizeOptions = imageSizeOptionsForModel(selectedModel);
+    const aspectRatio = supportedOptionValue(params.aspectRatio, aspectRatioOptions);
+    const imageSize = supportedOptionValue(params.imageSize, imageSizeOptions);
     const routePreview = imageRoutePreview(selectedModel, connectionRoute);
     return (
       <>
         <label className="nodeField">
           <span>model</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+          <select
+            className="nodrag nopan nodeInput nodeSelect"
+            value={model}
+            onChange={(event) => {
+              const nextModel = modelOptions.find((entry) => entry.id === event.target.value);
+              const nextAspectRatios = imageAspectRatioOptions(nextModel);
+              const nextImageSizes = imageSizeOptionsForModel(nextModel);
+              onChange({
+                model: event.target.value,
+                aspectRatio: supportedOptionValue(params.aspectRatio, nextAspectRatios),
+                imageSize: supportedOptionValue(params.imageSize, nextImageSizes)
+              });
+            }}
+          >
             {modelOptions.map((entry) => (
-              <option key={entry.id} value={entry.id} disabled={entry.disabled}>{entry.disabled ? `${entry.label} (${entry.note})` : entry.label}</option>
+              <option key={entry.id} value={entry.id} disabled={entry.disabled}>{imageModelOptionLabel(entry)}</option>
             ))}
           </select>
           <small className="nodeConnectedHint">{imageModelCostLabel(selectedModel)}</small>
@@ -1233,14 +1283,14 @@ function NodeInlineParams({
         <div className="nodeGridFields">
           <label className="nodeField">
             <span>aspect ratio</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.aspectRatio ?? "1:1")} onChange={(event) => onChange({ aspectRatio: event.target.value })}>
-              {["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"].map((value) => <option key={value} value={value}>{value}</option>)}
+            <select className="nodrag nopan nodeInput nodeSelect" value={aspectRatio} onChange={(event) => onChange({ aspectRatio: event.target.value })}>
+              {aspectRatioOptions.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
           <label className="nodeField">
             <span>quality</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.imageSize ?? "2K")} onChange={(event) => onChange({ imageSize: event.target.value })}>
-              {["1K", "2K", "4K"].map((value) => <option key={value} value={value}>{value}</option>)}
+            <select className="nodrag nopan nodeInput nodeSelect" value={imageSize} onChange={(event) => onChange({ imageSize: event.target.value })}>
+              {imageSizeOptions.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
         </div>
@@ -1264,6 +1314,104 @@ function NodeInlineParams({
             <div><span>Image support</span><strong>{routePreview.supportsImageGeneration}</strong></div>
             <div><span>Fallback</span><strong>{routePreview.fallbackUsed ? "yes" : "no"}</strong></div>
             {routePreview.fallbackReason ? <div><span>Fallback reason</span><strong>{routePreview.fallbackReason}</strong></div> : null}
+          </div>
+        </details>
+      </>
+    );
+  }
+
+  if (type === "polza.text") {
+    const systemPromptConnected = connectedInputPorts.has("systemPrompt");
+    const promptConnected = connectedInputPorts.has("prompt");
+    const model = String(params.model ?? POLZA_TEXT_MODEL_OPTIONS[0].id);
+    const modelOptions = polzaModelOptions(polzaTextModels, POLZA_TEXT_MODEL_OPTIONS, model);
+    const selectedModel = modelOptions.find((entry) => entry.id === model);
+    return (
+      <>
+        <label className="nodeField">
+          <span>model</span>
+          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+            {modelOptions.map((entry) => (
+              <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
+            ))}
+          </select>
+          <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Text model via Polza.ai")}</small>
+        </label>
+        <label className="nodeField">
+          <span>system prompt</span>
+          <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
+          {systemPromptConnected ? <small className="nodeConnectedHint">System prompt comes from connected text input.</small> : null}
+        </label>
+        <label className="nodeField">
+          <span>prompt</span>
+          <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
+          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
+        </label>
+        <details className="nodeAdvanced">
+          <summary>Advanced</summary>
+          <div className="nodeGridFields">
+            <label className="nodeField"><span>temperature</span><input className="nodrag nopan nodeInput" inputMode="decimal" value={String(params.temperature ?? "")} onChange={(event) => updateTextParam("temperature", event, numericParam)} /></label>
+            <label className="nodeField"><span>max tokens</span><input className="nodrag nopan nodeInput" inputMode="numeric" value={String(params.max_tokens ?? "")} onChange={(event) => updateTextParam("max_tokens", event, numericParam)} /></label>
+          </div>
+        </details>
+      </>
+    );
+  }
+
+  if (type === "polza.image.generate") {
+    const promptConnected = connectedInputPorts.has("prompt");
+    const model = String(params.model ?? POLZA_IMAGE_MODEL_OPTIONS[0].id);
+    const modelOptions = polzaModelOptions(polzaImageModels, POLZA_IMAGE_MODEL_OPTIONS, model);
+    const selectedModel = modelOptions.find((entry) => entry.id === model);
+    const aspectRatio = supportedOptionValue(params.aspectRatio, POLZA_IMAGE_ASPECT_RATIOS);
+    const imageResolution = supportedOptionValue(params.imageResolution ?? params.imageSize, POLZA_IMAGE_RESOLUTIONS);
+    const quality = supportedOptionValue(params.quality, POLZA_IMAGE_QUALITIES);
+    const outputFormat = supportedOptionValue(params.outputFormat, POLZA_IMAGE_FORMATS);
+    return (
+      <>
+        <label className="nodeField">
+          <span>model</span>
+          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+            {modelOptions.map((entry) => (
+              <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
+            ))}
+          </select>
+          <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Image model via Polza.ai")}</small>
+        </label>
+        <label className="nodeField">
+          <span>prompt</span>
+          <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
+          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
+        </label>
+        <div className="nodeGridFields">
+          <label className="nodeField">
+            <span>aspect ratio</span>
+            <select className="nodrag nopan nodeInput nodeSelect" value={aspectRatio} onChange={(event) => onChange({ aspectRatio: event.target.value })}>
+              {POLZA_IMAGE_ASPECT_RATIOS.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label className="nodeField">
+            <span>resolution</span>
+            <select className="nodrag nopan nodeInput nodeSelect" value={imageResolution} onChange={(event) => onChange({ imageResolution: event.target.value })}>
+              {POLZA_IMAGE_RESOLUTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+        </div>
+        <details className="nodeAdvanced">
+          <summary>Advanced</summary>
+          <div className="nodeGridFields">
+            <label className="nodeField">
+              <span>quality</span>
+              <select className="nodrag nopan nodeInput nodeSelect" value={quality} onChange={(event) => onChange({ quality: event.target.value })}>
+                {POLZA_IMAGE_QUALITIES.map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+            <label className="nodeField">
+              <span>format</span>
+              <select className="nodrag nopan nodeInput nodeSelect" value={outputFormat} onChange={(event) => onChange({ outputFormat: event.target.value })}>
+                {POLZA_IMAGE_FORMATS.map((value) => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
           </div>
         </details>
       </>
@@ -2571,11 +2719,16 @@ function isRemoteAiNode(type: string): boolean {
   return type === "ai.text" || type === "ai.image.generate";
 }
 
+function isPolzaNode(type: string): boolean {
+  return type === "polza.text" || type === "polza.image.generate";
+}
+
 function executorKind(type: string, manifest?: NodeManifest): string {
   if (manifest?.origin && manifest.origin !== "bundled") return "custom";
   if (manifest?.executor.type === "plugin") return "custom";
   if (type.startsWith("local.")) return "local";
   if (type.startsWith("ai.")) return "openrouter";
+  if (type.startsWith("polza.")) return "polza";
   if (type.startsWith("gemini.")) return "gemini";
   if (type.startsWith("replicate.")) return "replicate";
   if (type.startsWith("http.")) return "http";
@@ -2588,6 +2741,7 @@ function executorLabel(type: string, manifest?: NodeManifest): string {
   if (manifest?.executor.type === "declarative") return "declarative";
   const kind = executorKind(type, manifest);
   if (kind === "gemini") return "Gemini";
+  if (kind === "polza") return "Polza.ai";
   if (kind === "openrouter") return "OpenRouter";
   if (kind === "replicate") return "Replicate";
   if (kind === "http") return "HTTP";
@@ -2615,6 +2769,8 @@ function nodeIcon(type: string) {
   if (type === "replicate.clarity-upscaler") return <Wand2 size={15} />;
   if (type === "replicate.model") return <span className="providerGlyph">R</span>;
   if (type === "gemini.llm") return <Type size={15} />;
+  if (type === "polza.text") return <span className="providerGlyph">P</span>;
+  if (type === "polza.image.generate") return <ImageIcon size={15} />;
   if (type === "ai.text") return <Type size={15} />;
   if (type === "ai.image.generate") return <ImageIcon size={15} />;
   if (type === "gemini.nano-banana-2") return <Sparkles size={15} />;
@@ -2632,6 +2788,7 @@ function nodeIcon(type: string) {
 function nodeIconClass(type: string): string {
   if (type.startsWith("input.")) return "input";
   if (type.startsWith("ai.")) return "gemini";
+  if (type.startsWith("polza.")) return "polza";
   if (type === "compound.input") return "input";
   if (type.startsWith("library.")) return "transform";
   if (type.startsWith("text.")) return "transform";
@@ -2822,9 +2979,14 @@ function App() {
   const [openAiToken, setOpenAiToken] = useState("");
   const [openAiConfigured, setOpenAiConfigured] = useState(false);
   const [openAiMaskedKey, setOpenAiMaskedKey] = useState("");
+  const [polzaToken, setPolzaToken] = useState("");
+  const [polzaConfigured, setPolzaConfigured] = useState(false);
+  const [polzaMaskedKey, setPolzaMaskedKey] = useState("");
   const [openRouterToken, setOpenRouterToken] = useState("");
   const [openRouterSettings, setOpenRouterSettings] = useState<OpenRouterSettings>({ configured: false });
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
+  const [polzaTextModels, setPolzaTextModels] = useState<PolzaModel[]>([]);
+  const [polzaImageModels, setPolzaImageModels] = useState<PolzaModel[]>([]);
   const [openRouterDefaultModel, setOpenRouterDefaultModel] = useState("text.default");
   const [openRouterBudgetWarningUsd, setOpenRouterBudgetWarningUsd] = useState("");
   const [providerLinks, setProviderLinks] = useState<ProviderLinks>({});
@@ -2837,7 +2999,7 @@ function App() {
   const [bottomCollapsed, setBottomCollapsed] = useState(true);
   const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
   const [promptLibrary, setPromptLibrary] = useState<PromptLibraryData>(DEFAULT_PROMPT_LIBRARY);
-  const [promptLibraryStatusFilter, setPromptLibraryStatusFilter] = useState<PromptStatusFilter>("published");
+  const [promptLibraryStatusFilter, setPromptLibraryStatusFilter] = useState<PromptStatusFilter>("all");
   const [stableDiffusionModels, setStableDiffusionModels] = useState<StableDiffusionModel[]>([]);
   const [nodeCatalog, setNodeCatalog] = useState<NodeCatalogItem[]>(() => library.map((item) => ({ type: item.type, title: item.label, params: item.params })));
   const [nodeSearch, setNodeSearch] = useState("");
@@ -2951,6 +3113,7 @@ function App() {
           onConfigureReplicate: openReplicateSettings,
           onConfigureGemini: openGeminiSettings,
           onConfigureOpenAi: openOpenAiSettings,
+          onConfigurePolza: openPolzaSettings,
           onConfigureOpenRouter: openOpenRouterSettings,
           onOpenImage: setImageViewer,
           onImageResultContextMenu: openPromptAssetMenu,
@@ -2970,19 +3133,23 @@ function App() {
           stableDiffusionModels,
           openRouterConfigured: openRouterSettings.configured,
           openRouterModels,
+          polzaConfigured,
+          polzaTextModels,
+          polzaImageModels,
           openAiConfigured,
           replicateConfigured,
           geminiConfigured,
           result: runResult?.nodeResults?.[node.id]
         }
       })),
-    [nodes, edges, runResult, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, openAiConfigured, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, runResult, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, polzaConfigured, polzaTextModels, polzaImageModels, openAiConfigured, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
     void loadSettings();
     void loadProviderLinks();
     void loadOpenRouterModels();
+    void loadPolzaModels();
     void loadNodeCatalog();
     void loadPromptLibraryData();
     void loadLedgerSummary();
@@ -3049,6 +3216,8 @@ function App() {
       setGeminiConfigured(Boolean(result.gemini?.configured ?? result.geminiConfigured));
       setOpenAiConfigured(Boolean(result.openai?.configured));
       setOpenAiMaskedKey(String(result.openai?.maskedApiKey ?? ""));
+      setPolzaConfigured(Boolean(result.polza?.configured));
+      setPolzaMaskedKey(String(result.polza?.maskedApiKey ?? ""));
       setOpenRouterSettings(result.openrouter ?? { configured: false });
       setOpenRouterDefaultModel(String(result.openrouter?.defaultModel ?? "text.default"));
       setOpenRouterBudgetWarningUsd(result.openrouter?.budgetWarningUsd == null ? "" : String(result.openrouter.budgetWarningUsd));
@@ -3061,6 +3230,8 @@ function App() {
       setGeminiConfigured(false);
       setOpenAiConfigured(false);
       setOpenAiMaskedKey("");
+      setPolzaConfigured(false);
+      setPolzaMaskedKey("");
       setOpenRouterSettings({ configured: false });
       setApiError(message);
       setSettingsMessage(message);
@@ -3085,6 +3256,21 @@ function App() {
       setOpenRouterModels(Array.isArray(result.models) ? result.models : []);
     } catch {
       setOpenRouterModels([]);
+    }
+  }
+
+  async function loadPolzaModels() {
+    try {
+      const [textResponse, imageResponse] = await Promise.all([
+        fetch(`${apiBase}/api/providers/polza/models?type=chat`),
+        fetch(`${apiBase}/api/providers/polza/models?type=image`)
+      ]);
+      const [textResult, imageResult] = await Promise.all([textResponse.json(), imageResponse.json()]);
+      setPolzaTextModels(textResponse.ok && Array.isArray(textResult.models) ? textResult.models : []);
+      setPolzaImageModels(imageResponse.ok && Array.isArray(imageResult.models) ? imageResult.models : []);
+    } catch {
+      setPolzaTextModels([]);
+      setPolzaImageModels([]);
     }
   }
 
@@ -3420,6 +3606,33 @@ function App() {
     }
   }
 
+  async function savePolzaToken() {
+    const token = polzaToken.trim();
+    if (!token) {
+      setSettingsMessage("Polza.ai key cannot be empty.");
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBase}/api/settings/polza-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ polzaAiApiKey: token })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to save Polza.ai key.");
+      setPolzaConfigured(Boolean(result.polza?.configured));
+      setPolzaMaskedKey(String(result.polza?.maskedApiKey ?? ""));
+      setPolzaToken("");
+      setSettingsMessage("Polza.ai key saved locally.");
+      setLogs((current) => ["Polza.ai key saved locally.", ...current]);
+      await loadPolzaModels();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    }
+  }
+
   async function saveOpenRouterSettings() {
     const token = openRouterToken.trim();
     if (!token && !openRouterDefaultModel.trim() && !openRouterBudgetWarningUsd.trim()) {
@@ -3494,6 +3707,11 @@ function App() {
   function openOpenAiSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your OpenAI API key in Settings -> Advanced / Direct Secrets -> OpenAI.");
+  }
+
+  function openPolzaSettings() {
+    setRightCollapsed(false);
+    setSettingsMessage("Paste your Polza.ai API key in Settings -> AI Providers -> Polza.ai.");
   }
 
   function openOpenRouterSettings() {
@@ -5049,6 +5267,7 @@ function App() {
             <em>{apiConnected ? (replicateConfigured ? "replicate: configured" : "replicate: missing") : "replicate: unknown"}</em>
             <em>{apiConnected ? (geminiConfigured ? "gemini: configured" : "gemini: missing") : "gemini: unknown"}</em>
             <em>{apiConnected ? (openAiConfigured ? "openai: configured" : "openai: missing") : "openai: unknown"}</em>
+            <em>{apiConnected ? (polzaConfigured ? "polza: configured" : "polza: missing") : "polza: unknown"}</em>
           </div>
         </div>
         <ReactFlow
@@ -5295,6 +5514,40 @@ function App() {
             {apiError ? <p>{apiError}</p> : null}
           </div>
           <h3>AI Providers</h3>
+          <div className="providerCard">
+            <div className="providerHeader">
+              <h4>Polza.ai</h4>
+              <span>Text and image models through Polza.ai</span>
+            </div>
+            <div className={`settingsStatus ${polzaConfigured ? "configured" : ""}`}>
+              <KeyRound size={14} />
+              Polza.ai: {polzaConfigured ? `key configured (${polzaMaskedKey || "********"})` : "not configured"}
+            </div>
+            <div className="settingsLinks">
+              <a className="settingsLink" href={providerLinks.polza?.apiKeysUrl ?? "https://polza.ai/dashboard"} target="_blank" rel="noreferrer">Get API Key</a>
+              <a className="settingsLink" href={providerLinks.polza?.modelsUrl ?? "https://polza.ai/models"} target="_blank" rel="noreferrer">Browse Models</a>
+              <a className="settingsLink" href={providerLinks.polza?.docsUrl ?? "https://polza.ai/docs"} target="_blank" rel="noreferrer">Docs</a>
+              <a className="settingsLink" href={providerLinks.polza?.pricingUrl ?? "https://polza.ai/models"} target="_blank" rel="noreferrer">Pricing</a>
+            </div>
+            <label className="settingsField">
+              <span>POLZA_AI_API_KEY</span>
+              <input
+                type="password"
+                value={polzaToken}
+                placeholder={polzaConfigured ? "***************" : "Paste key"}
+                onChange={(event) => setPolzaToken(event.target.value)}
+                autoComplete="off"
+              />
+            </label>
+            <div className="settingsActions">
+              <button onClick={() => void savePolzaToken()}><Save size={16} /> Save Key</button>
+              <button onClick={() => void loadPolzaModels()}><Globe size={16} /> Refresh Models</button>
+            </div>
+            <div className="providerStatus">
+              <span>Text models: {polzaTextModels.length || POLZA_TEXT_MODEL_OPTIONS.length}</span>
+              <span>Image models: {polzaImageModels.length || POLZA_IMAGE_MODEL_OPTIONS.length}</span>
+            </div>
+          </div>
           <div className="providerCard">
             <div className="providerHeader">
               <h4>OpenRouter</h4>
@@ -5919,6 +6172,58 @@ function modalityOutputModalities(modality: string): string[] {
   return outputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
 }
 
+const GEMINI_IMAGE_ASPECT_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
+const GEMINI_IMAGE_SIZES = ["1K", "2K", "4K"];
+const OPENAI_IMAGE_ASPECT_RATIOS = ["1:1", "3:2", "2:3", "16:9", "9:16"];
+const OPENAI_IMAGE_QUALITIES = ["low", "medium", "high"];
+const POLZA_TEXT_MODEL_OPTIONS: PolzaModel[] = [
+  { id: "openai/gpt-4o", name: "GPT-4o", type: "chat" },
+  { id: "anthropic/claude-3-5-sonnet", name: "Claude 3.5 Sonnet", type: "chat" },
+  { id: "google/gemini-2.5-pro-preview", name: "Gemini 2.5 Pro", type: "chat" },
+  { id: "meta-llama/llama-3.3-70b", name: "Llama 3.3 70B", type: "chat" }
+];
+const POLZA_IMAGE_MODEL_OPTIONS: PolzaModel[] = [
+  { id: "openai/gpt-5.4-image-2", name: "GPT-5.4 Image 2", type: "image", short_description: "Supports aspect_ratio: auto, 1:1, 5:4, 9:16, 21:9, 16:9, 4:3, 3:2, 4:5, 3:4, 2:3" },
+  { id: "openai/gpt-5-image-mini", name: "GPT-5 Image Mini", type: "image" },
+  { id: "openai/gpt-image-1.5", name: "GPT Image 1.5", type: "image", short_description: "Supports aspect_ratio: 1:1, 2:3, 3:2" },
+  { id: "openai/gpt-image-1", name: "GPT Image 1", type: "image" },
+  { id: "dall-e-3", name: "DALL-E 3", type: "image" },
+  { id: "x-ai/grok-imagine-image", name: "Grok Imagine", type: "image" }
+];
+const POLZA_IMAGE_ASPECT_RATIOS = ["auto", "1:1", "5:4", "4:5", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9"];
+const POLZA_IMAGE_RESOLUTIONS = ["1K", "2K"];
+const POLZA_IMAGE_QUALITIES = ["auto", "low", "medium", "high"];
+const POLZA_IMAGE_FORMATS = ["png", "jpeg", "webp"];
+
+function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaModel[], selectedModelId: string): PolzaModel[] {
+  const byId = new Map<string, PolzaModel>();
+  for (const model of fallbackModels) byId.set(model.id, model);
+  for (const model of catalogModels) byId.set(model.id, { ...byId.get(model.id), ...model });
+  if (selectedModelId && !byId.has(selectedModelId)) byId.set(selectedModelId, { id: selectedModelId, name: selectedModelId });
+  return [...byId.values()].sort((left, right) => {
+    const leftFallback = fallbackModels.some((model) => model.id === left.id) ? 0 : 1;
+    const rightFallback = fallbackModels.some((model) => model.id === right.id) ? 0 : 1;
+    return leftFallback - rightFallback || (left.name ?? left.id).localeCompare(right.name ?? right.id);
+  });
+}
+
+function polzaModelHint(model: PolzaModel | undefined, fallback: string): string {
+  return model?.short_description || modelCostLabel(model?.pricing) || fallback;
+}
+
+function modelCostLabel(pricing: Record<string, unknown> | undefined): string {
+  if (!pricing) return "";
+  const tokenPrice = pricing.input_per_million ?? pricing.prompt ?? pricing.input;
+  const outputPrice = pricing.output_per_million ?? pricing.completion ?? pricing.output;
+  if (tokenPrice !== undefined || outputPrice !== undefined) return `Pricing: input ${rubPricingValue(tokenPrice)} / output ${rubPricingValue(outputPrice)}`;
+  const request = pricing.per_request ?? pricing.image ?? pricing.request;
+  return request !== undefined ? `Pricing: ${rubPricingValue(request)} per request` : "";
+}
+
+function rubPricingValue(value: unknown): string {
+  return typeof value === "string" || typeof value === "number" ? `${value} RUB` : "unknown";
+}
+
 function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], selectedModelId: string): ImageModelOption[] {
   const directOptions: ImageModelOption[] = [{
     id: "image.nano-banana",
@@ -5926,6 +6231,8 @@ function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], select
     label: "Nano Banana",
     provider: "Gemini",
     capabilities: ["image-generation"],
+    aspectRatios: GEMINI_IMAGE_ASPECT_RATIOS,
+    imageSizes: GEMINI_IMAGE_SIZES,
     supportsImageGeneration: "supported",
     routeSupport: { openrouter: "unsupported", direct: "supported" }
   }];
@@ -5937,6 +6244,8 @@ function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], select
       label: entry.name ?? entry.id,
       provider: providerFromSlug(entry.id),
       capabilities: ["image-generation"],
+      aspectRatios: imageAspectRatiosForSlug(entry.id),
+      imageSizes: imageSizesForSlug(entry.id),
       supportsImageGeneration: "supported",
       routeSupport: { openrouter: "supported", direct: "unknown" },
       pricing: entry.pricing
@@ -5950,6 +6259,8 @@ function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], select
       label: selectedCatalogModel?.name ?? selectedModelId,
       provider: selectedModelId.includes("/") ? providerFromSlug(selectedModelId) : "unknown",
       capabilities: [],
+      aspectRatios: imageAspectRatiosForSlug(selectedModelId),
+      imageSizes: imageSizesForSlug(selectedModelId),
       supportsImageGeneration: selectedCatalogModel ? "unsupported" : "unknown",
       routeSupport: { openrouter: selectedModelId.includes("/") ? "unknown" : "unsupported", direct: "unknown" },
       disabled: true,
@@ -5958,6 +6269,37 @@ function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], select
     });
   }
   return options;
+}
+
+function imageModelOptionLabel(model: ImageModelOption): string {
+  const formatNote = isOpenAiImageSlug(model.id) ? "square only" : "";
+  const notes = [formatNote, model.disabled ? model.note : ""].filter(Boolean);
+  return notes.length > 0 ? `${model.label} (${notes.join(", ")})` : model.label;
+}
+
+function imageAspectRatioOptions(model: ImageModelOption | undefined): string[] {
+  return model?.aspectRatios?.length ? model.aspectRatios : GEMINI_IMAGE_ASPECT_RATIOS;
+}
+
+function imageSizeOptionsForModel(model: ImageModelOption | undefined): string[] {
+  return model?.imageSizes?.length ? model.imageSizes : GEMINI_IMAGE_SIZES;
+}
+
+function supportedOptionValue(value: unknown, options: string[]): string {
+  const stringValue = typeof value === "string" ? value : "";
+  return options.includes(stringValue) ? stringValue : options[0] ?? "";
+}
+
+function imageAspectRatiosForSlug(slug: string): string[] {
+  return isOpenAiImageSlug(slug) ? OPENAI_IMAGE_ASPECT_RATIOS : GEMINI_IMAGE_ASPECT_RATIOS;
+}
+
+function imageSizesForSlug(slug: string): string[] {
+  return isOpenAiImageSlug(slug) ? OPENAI_IMAGE_QUALITIES : GEMINI_IMAGE_SIZES;
+}
+
+function isOpenAiImageSlug(slug: string): boolean {
+  return slug.startsWith("openai/") && /image/i.test(slug);
 }
 
 function connectionRouteHelper(route: string): string {

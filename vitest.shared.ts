@@ -9,5 +9,6 @@ export const snarkrouteAliases = {
   "@snarkroute/storage": resolve(rootDirectory, "packages/storage/src/index.ts"),
   "@snarkroute/nodes": resolve(rootDirectory, "packages/nodes/src/index.ts"),
   "@snarkroute/replicate": resolve(rootDirectory, "packages/adapters/replicate/src/index.ts"),
-  "@snarkroute/gemini": resolve(rootDirectory, "packages/adapters/gemini/src/index.ts")
+  "@snarkroute/gemini": resolve(rootDirectory, "packages/adapters/gemini/src/index.ts"),
+  "@snarkroute/polza": resolve(rootDirectory, "packages/adapters/polza/src/index.ts")
 };
