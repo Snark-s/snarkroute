@@ -3,17 +3,12 @@ setlocal
 
 set "SR_ROOT=%~dp0"
 
-set "SNARK_TARGET=%SR_ROOT%start-snarkroute.bat"
-set "SNARK_ICON=%SR_ROOT%docs\images\SnarkRoute.ico"
-set "SNARK_SHORTCUT=%SR_ROOT%STARTSnark.lnk"
-
 set "BOOJUM_TARGET=%SR_ROOT%start-boojumroute.bat"
 set "BOOJUM_ICON=%SR_ROOT%docs\images\BoojumRoute.ico"
 set "BOOJUM_SHORTCUT=%SR_ROOT%STARTBoojum.lnk"
 
 set "SETUP_FAILED=0"
 
-call :create_shortcut "STARTSnark" "%SNARK_TARGET%" "%SNARK_ICON%" "%SNARK_SHORTCUT%"
 call :create_shortcut "STARTBoojum" "%BOOJUM_TARGET%" "%BOOJUM_ICON%" "%BOOJUM_SHORTCUT%"
 
 if "%SETUP_FAILED%"=="1" (
