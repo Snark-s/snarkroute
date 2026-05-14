@@ -29,7 +29,7 @@ If you downloaded the GitHub archive instead of cloning with Git:
 2. Open that folder in a terminal.
 3. Run the commands above.
 
-Optional: run `setup.bat` to create local Windows shortcuts for the launchers.
+Optional: run `setup.bat` to create a local Windows shortcut for BoojumRoute Lab.
 
 ## Codex Skill
 
@@ -141,13 +141,15 @@ Early/experimental:
 - Import/export Open Route Protocol documents, preferring `.orp`
 - Local provider settings through `.env` or Studio Settings where supported
 
-For the early SnarkRoute Living Canvas shell, run:
+The early SnarkRoute Living Canvas shell does not have a public one-click launcher. To try it manually:
 
 ```bat
-start-snarkroute.bat
+corepack pnpm install
+corepack pnpm -r build
+corepack pnpm start:snarkroute
 ```
 
-It starts the experimental shell and opens `http://127.0.0.1:5174`.
+It runs at `http://127.0.0.1:5174`.
 
 Default one-click ports:
 
