@@ -12,13 +12,12 @@ It allows users to create, inspect, remix, validate, and execute portable AI/mod
 
 Open Route Protocol is a portable route format for describing AI/model/API workflows as graphs. Routes can reference external assets, but only through the AssetRef system. The host application controls how asset references are resolved, validated, cached, embedded, bundled, or blocked.
 
-## Installation
-
-### Windows
+## Windows Quick Start
 
 1. Download the GitHub repository archive.
 2. Unzip the archive to a local folder.
 3. Run `setup.bat`.
+4. Start BoojumRoute Lab with `STARTBoojum.lnk` or `start-boojumroute.bat`.
 
 ## Why This Exists
 
@@ -117,16 +116,6 @@ Early/experimental:
 - Vite + React + React Flow BoojumRoute Lab
 - Import/export Open Route Protocol documents, preferring `.orp`
 - Local provider settings through `.env` or Studio Settings where supported
-
-## Windows Quick Start
-
-Recommended path for the public preview:
-
-```bat
-corepack enable
-corepack pnpm install
-start-boojumroute.bat
-```
 
 `start-boojumroute.bat` starts the local API server, waits for `/api/health`, starts BoojumRoute Lab, and opens `http://127.0.0.1:5173`. If dependencies are missing, the launcher attempts `corepack pnpm install` first.
 
