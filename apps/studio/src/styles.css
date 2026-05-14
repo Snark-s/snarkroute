@@ -2649,14 +2649,14 @@ textarea {
 }
 
 .providerSupportNote {
-  color: #9da8ba;
+  color: #f4f7fb;
   font-size: 11px;
   line-height: 1.45;
   margin: 0;
 }
 
 .providerSupportNote a {
-  color: #b9c7dc;
+  color: #ffffff;
   text-decoration: underline;
   text-underline-offset: 2px;
 }

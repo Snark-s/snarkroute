@@ -5610,6 +5610,13 @@ function App() {
               <KeyRound size={14} />
               Polza.ai: {polzaConfigured ? `key configured (${polzaMaskedKey || "********"})` : "not configured"}
             </div>
+            <p className="providerSupportNote">
+              Want to make Snark happy?<br />
+              If you plan to use Polza.ai, you can sign up through Snark&apos;s referral link:{" "}
+              <a href="https://polza.ai/?referral=TnNw99j1MP" target="_blank" rel="noreferrer noopener">https://polza.ai/?referral=TnNw99j1MP</a>
+              <br />
+              It costs you nothing extra and helps support the project.
+            </p>
             <div className="settingsLinks">
               <a className="settingsLink" href={providerLinks.polza?.apiKeysUrl ?? "https://polza.ai/dashboard"} target="_blank" rel="noreferrer">Get API Key</a>
               <a className="settingsLink" href={providerLinks.polza?.modelsUrl ?? "https://polza.ai/models"} target="_blank" rel="noreferrer">Browse Models</a>
@@ -5630,13 +5637,6 @@ function App() {
               <button onClick={() => void savePolzaToken()}><Save size={16} /> Save Key</button>
               <button onClick={() => void loadPolzaModels()}><Globe size={16} /> Refresh Models</button>
             </div>
-            <p className="providerSupportNote">
-              Want to make Snark happy?<br />
-              If you plan to use Polza.ai, you can sign up through Snark&apos;s referral link:{" "}
-              <a href="https://polza.ai/?referral=TnNw99j1MP" target="_blank" rel="noreferrer noopener">https://polza.ai/?referral=TnNw99j1MP</a>
-              <br />
-              It costs you nothing extra and helps support the project.
-            </p>
             <div className="providerStatus">
               <span>Text models: {polzaTextModels.length || POLZA_TEXT_MODEL_OPTIONS.length}</span>
               <span>Image models: {polzaImageModels.length || POLZA_IMAGE_MODEL_OPTIONS.length}</span>
