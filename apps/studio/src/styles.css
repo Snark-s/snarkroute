@@ -2648,6 +2648,19 @@ textarea {
   gap: 3px;
 }
 
+.providerSupportNote {
+  color: #9da8ba;
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.providerSupportNote a {
+  color: #b9c7dc;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .settingsPanel h3 {
   color: #dbe4f2;
   font-size: 14px;
