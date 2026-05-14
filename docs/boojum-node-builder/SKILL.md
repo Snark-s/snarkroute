@@ -1,4 +1,4 @@
-﻿---
+---
 name: boojum-node-builder
 description: Use when creating Boojum node packages as ready-to-import snarknode ZIP files.
 ---

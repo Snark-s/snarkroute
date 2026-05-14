@@ -1,16 +1,24 @@
 # SnarkRoute
 
-SnarkRoute is now the creative Living Canvas: the future user-facing interface for working with nodes as ideas/entities, candidate card stacks, active variants, inherited style/context, inputs, and branching.
+SnarkRoute is the larger project: a local-first reference implementation for portable Open Route Protocol workflows.
 
-BoojumRoute is the Tool Lab: the preserved low-level graph interface for building tools from blocks, routes, providers, executors, schemas, and prompt/library assets.
+BoojumRoute Lab is the working node editor and tool lab you can try today. It is the low-level graph interface for building tools from blocks, routes, providers, executors, schemas, and prompt/library assets.
 
-Both interfaces share the same Open Route Protocol engine/runtime. BoojumRoute preserves the old working graph interface; SnarkRoute is currently an intentionally minimal empty canvas shell.
+SnarkRoute Living Canvas is an early experimental shell for the future higher-level creative interface. It is not the main public preview yet.
 
-SnarkRoute began as a local-first visual editor and executor for Open Route Protocol. That working system now lives conceptually under BoojumRoute Lab while the SnarkRoute name is reserved for the higher-level creative canvas.
+Both interfaces share the same Open Route Protocol engine/runtime. The current working system lives in BoojumRoute Lab while the SnarkRoute name covers the broader project and the experimental Living Canvas direction.
 
 It allows users to create, inspect, remix, validate, and execute portable AI/model/API routes. Routes describe graphs of operations. Reusable external resources are referenced through AssetRef and resolved by the host through configured AssetSources. This keeps routes portable, auditable, and safer than directly loading arbitrary files or URLs.
 
 Open Route Protocol is a portable route format for describing AI/model/API workflows as graphs. Routes can reference external assets, but only through the AssetRef system. The host application controls how asset references are resolved, validated, cached, embedded, bundled, or blocked.
+
+## Installation
+
+### Windows
+
+1. Download the GitHub repository archive.
+2. Unzip the archive to a local folder.
+3. Run `setup.bat`.
 
 ## Why This Exists
 
@@ -28,7 +36,7 @@ The long-term goal is to support a freer ecosystem of neural tools: not one cent
 
 We think of Open Route Protocol as infrastructure for a "free city" of AI tools: many providers, many creators, many routes, no single owner of the road.
 
-SnarkRoute/BoojumRoute is the first reference implementation of this idea.
+SnarkRoute, including BoojumRoute Lab, is the first reference implementation of this idea.
 
 ## Demo
 
@@ -52,7 +60,7 @@ Route files contain node instances, edges, params, provenance, economics metadat
 
 Node definition files such as `.node.json` describe reusable low-level BoojumRoute block types. Future Node Definition Assets may also describe interfaces and execution adapters through AssetRef, but they must not inject arbitrary executable code into the shared runtime.
 
-SnarkRoute is not just a Replicate wrapper. Replicate is the first external provider inside routes; the route/workflow is the primary unit of value.
+SnarkRoute is not a wrapper for any single provider. Replicate, Gemini, OpenRouter, Polza.ai, and future providers are provider layers inside routes; the route/workflow is the primary unit of value.
 
 ## Commons Principle
 
@@ -80,6 +88,24 @@ AssetSources can be local folders, embedded route assets, bundles, remote manife
 
 See `docs/assets.md`.
 
+## Current Status
+
+Ready to try:
+
+- BoojumRoute Lab
+- route creation and execution
+- prompt library nodes
+- installable `.snarknode` packages
+- drag-and-drop node import
+- missing-node placeholders
+- provider-backed nodes when local provider settings are configured
+
+Early/experimental:
+
+- SnarkRoute Living Canvas
+- installer polish
+- provider setup UX
+
 ## Current MVP Features
 
 - Open Route Protocol v0.1 schema, parsing, validation, YAML and JSON support
@@ -87,35 +113,30 @@ See `docs/assets.md`.
 - Local filesystem run storage under `data/runs/`
 - Local ledger accounting under `data/ledger/runs.jsonl`
 - Built-in nodes for text, files, images, videos, templates, debug logs, text output, image preview, and file output
-- Replicate provider adapter and model-specific Clarity Upscaler node
+- Provider adapters for local server-side execution
 - Vite + React + React Flow BoojumRoute Lab
 - Import/export Open Route Protocol documents, preferring `.orp`
-- Local settings for Replicate token through `.env` or Studio Settings
+- Local provider settings through `.env` or Studio Settings where supported
 
 ## Windows Quick Start
 
-For the new SnarkRoute Living Canvas shell on Windows:
+Recommended path for the public preview:
 
-1. Double-click `start-snarkroute.bat`.
-2. Wait until the browser opens.
-
-It opens:
-
-```text
-http://127.0.0.1:5174
-```
-
-For the preserved old graph interface, use:
-
-```text
+```bat
+corepack enable
+corepack pnpm install
 start-boojumroute.bat
 ```
 
-That launcher installs dependencies if `node_modules/` is missing, starts the shared local API server, waits for `/api/health`, starts BoojumRoute Lab, and opens:
+`start-boojumroute.bat` starts the local API server, waits for `/api/health`, starts BoojumRoute Lab, and opens `http://127.0.0.1:5173`. If dependencies are missing, the launcher attempts `corepack pnpm install` first.
 
-```text
-http://127.0.0.1:5173
+For the early SnarkRoute Living Canvas shell, run:
+
+```bat
+start-snarkroute.bat
 ```
+
+It starts the experimental shell directly through the real pnpm script and opens `http://127.0.0.1:5174`.
 
 Default one-click ports:
 
@@ -133,23 +154,22 @@ Close the other SnarkRoute windows or run `stop-snarkroute.bat`, then start agai
 
 If BoojumRoute Lab says the API is disconnected, check that the server window is running. The message will include the exact API URL the Lab is trying to reach.
 
-## Developer Quick Start
+## Manual Start
 
 ```bash
 corepack pnpm install
-corepack pnpm test
-corepack pnpm build
-corepack pnpm dev
-```
-
-`corepack pnpm dev` runs the local Fastify server and BoojumRoute Lab in parallel for compatibility. For day-to-day Windows use, prefer the explicit launchers:
-
-```bash
-corepack pnpm start:snarkroute
 corepack pnpm start:boojumroute
 ```
 
-You can also run them separately:
+`corepack pnpm start:boojumroute` runs the local Fastify server and BoojumRoute Lab in parallel.
+
+For Living Canvas:
+
+```bash
+corepack pnpm start:snarkroute
+```
+
+You can also run workspaces separately:
 
 ```bash
 corepack pnpm dev:server
@@ -158,6 +178,13 @@ corepack pnpm dev:snarkroute
 ```
 
 The API listens on `http://127.0.0.1:4317` by default. BoojumRoute Lab runs on `http://127.0.0.1:5173` and connects to `VITE_API_BASE_URL`, defaulting to `http://127.0.0.1:4317`. SnarkRoute Living Canvas runs on `http://127.0.0.1:5174`.
+
+For checks:
+
+```bash
+corepack pnpm test
+corepack pnpm build
+```
 
 ## Dev Ports
 
@@ -194,25 +221,28 @@ $env:API_PORT="4318"; corepack pnpm dev:server
 $env:VITE_API_BASE_URL="http://127.0.0.1:4318"; corepack pnpm dev:studio
 ```
 
-Studio shows the active API URL, connection status, and Replicate token status in the top bar. If the API is not reachable, it shows: `Local API server is not reachable at <url>. Run start-snarkroute.bat or start the server manually. Check VITE_API_BASE_URL if needed.`
+Studio shows the active API URL, connection status, and provider token status in the UI. If the API is not reachable, it shows the API URL the Lab is trying to reach.
 
 ## Configuring API Tokens
 
-Replicate nodes require a local Replicate API token.
+The app should start without API keys. Provider-backed nodes will ask for the relevant local settings before they can execute against external services.
 
 In Studio:
 
 1. Open `Settings`.
 2. Open `Secrets`.
-3. Open `Replicate`.
-4. Paste the token and click `Save Token`.
+3. Choose the provider.
+4. Paste the token and save it.
 
 Studio shows only whether the token is `configured` or `missing`. It never reads the token value back from the server.
 
-Fallback: copy `.env.example` to `.env` and add your token:
+Fallback: copy `.env.example` to `.env` and add only the keys you use:
 
 ```env
 REPLICATE_API_TOKEN=your_token_here
+GEMINI_API_KEY=your_token_here
+OPENROUTER_API_KEY=your_token_here
+POLZA_AI_API_KEY=your_token_here
 ```
 
 Tokens are stored locally and used only by the server. They are not exported with routes or bundles. Do not commit `.env`.

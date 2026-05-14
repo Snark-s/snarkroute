@@ -82,6 +82,41 @@ describe("Polza adapter", () => {
     expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 1.5 });
   });
 
+  it("routes OpenAI-compatible Polza image models through image generations", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-imagegen-"));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
+    const runner = createPolzaImageNodeRunner({ apiKey: "pza-test", fetchImpl });
+
+    const result = await runner({
+      node: { id: "image", type: "polza.image.generate", params: {} },
+      params: { model: "openai/gpt-image-1", prompt: "draw", aspectRatio: "1:1", imageSize: "high" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith("https://polza.ai/api/v2/images/generations", expect.objectContaining({
+      body: expect.stringContaining("\"model\":\"gpt-image-1\"")
+    }));
+    expect(result.output).toMatchObject({ provider: "polza", model: "openai/gpt-image-1", image: { mimeType: "image/png" } });
+  });
+
+  it("routes DALL-E 3 through image generations", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-dalle-"));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
+    const runner = createPolzaImageNodeRunner({ apiKey: "pza-test", fetchImpl });
+
+    await runner({
+      node: { id: "image", type: "polza.image.generate", params: {} },
+      params: { model: "dall-e-3", prompt: "draw", aspectRatio: "9:16", size: "auto" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith("https://polza.ai/api/v2/images/generations", expect.objectContaining({
+      body: expect.stringContaining("\"model\":\"dall-e-3\"")
+    }));
+  });
+
   it("retries transient Polza upstream failures", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-retry-"));
     const fetchImpl = vi.fn()

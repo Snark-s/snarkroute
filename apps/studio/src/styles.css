@@ -89,9 +89,9 @@ button:disabled {
 }
 
 .sidebarHeader {
-  align-items: center;
+  align-items: flex-start;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   justify-content: space-between;
   min-height: 34px;
 }
@@ -126,6 +126,43 @@ h1 img {
   height: 28px;
   object-fit: contain;
   width: 28px;
+}
+
+.appBrand {
+  align-items: center;
+  flex: 1 1 auto;
+  gap: 10px;
+  min-width: 0;
+}
+
+.appBrandIcon {
+  background: transparent;
+  border-radius: 0;
+  filter: drop-shadow(0 1px 4px rgba(232, 181, 70, 0.3));
+  flex: 0 0 auto;
+  height: 38px;
+  width: 38px;
+}
+
+.appBrandText {
+  display: flex;
+  flex-direction: column;
+  font-weight: 800;
+  gap: 2px;
+  line-height: 1;
+  min-width: 0;
+}
+
+.appBrandText span:first-child {
+  color: #f7f8fc;
+  font-size: 20px;
+}
+
+.appBrandText span:last-child {
+  color: #f4c95f;
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 h2 {
@@ -646,6 +683,26 @@ h2 {
 
 .connectionNodeMenuHeader strong {
   font-size: 12px;
+}
+
+.connectionNodeSearch {
+  align-items: center;
+  background: #0c111a;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  display: flex;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.connectionNodeSearch input {
+  background: transparent;
+  border: 0;
+  color: #edf4ff;
+  min-width: 0;
+  outline: 0;
+  width: 100%;
 }
 
 .connectionNodeMenuItems {
@@ -1184,6 +1241,46 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.routeNodeCard.paramsCollapsed:has(.collapsedImagePreviewButton) {
+  padding-right: 118px;
+}
+
+.routeNodeCard.paramsCollapsed:has(.collapsedImagePreviewButton) .nodeHeader {
+  padding-right: 142px;
+}
+
+.routeNodeCard.paramsCollapsed:has(.nodeRunActions):has(.collapsedImagePreviewButton) .nodeHeader {
+  margin-right: 148px;
+}
+
+.collapsedImagePreviewButton {
+  align-items: center;
+  background: #101720;
+  border: 1px solid #4a586c;
+  border-radius: 6px;
+  display: inline-flex;
+  height: 34px;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  right: 72px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 42px;
+  z-index: 2;
+}
+
+.collapsedImagePreviewButton:hover {
+  border-color: #7dd3c0;
+}
+
+.collapsedImagePreview {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
 }
 
 .nodeHeader > div {

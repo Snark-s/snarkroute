@@ -11,7 +11,7 @@
     "dev:server": "corepack pnpm --filter @snarkroute/server dev",
     "dev:studio": "corepack pnpm --filter @snarkroute/studio dev",
     "dev:snarkroute": "corepack pnpm --filter @snarkroute/snarkroute dev",
-    "dev:boojumroute": "corepack pnpm --filter @snarkroute/studio dev",
+    "dev:boojumroute": "corepack pnpm -r --parallel --filter @snarkroute/server --filter @snarkroute/studio run dev",
     "start:snarkroute": "corepack pnpm --filter @snarkroute/snarkroute dev",
     "start:boojumroute": "corepack pnpm -r --parallel --filter @snarkroute/server --filter @snarkroute/studio run dev",
     "lint": "corepack pnpm -r lint",

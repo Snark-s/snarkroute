@@ -3,31 +3,16 @@ setlocal
 
 cd /d "%~dp0"
 
-if "%STUDIO_PORT%"=="" set "STUDIO_PORT=5173"
-if "%VITE_API_BASE_URL%"=="" set "VITE_API_BASE_URL=http://127.0.0.1:4317"
-
 echo.
 echo BoojumRoute Lab
 echo ===============
-echo Lab:    http://127.0.0.1:%STUDIO_PORT%
-echo API:    %VITE_API_BASE_URL%
+echo This compatibility launcher now delegates to start-boojumroute.bat.
 echo.
 
-where corepack >nul 2>nul
-if errorlevel 1 (
-  echo ERROR: Corepack is not available.
+if not exist "%~dp0start-boojumroute.bat" (
+  echo ERROR: start-boojumroute.bat is missing.
   pause
   exit /b 1
 )
 
-call corepack pnpm dev:studio
-if errorlevel 1 (
-  echo.
-  echo BoojumRoute Lab failed to start or exited with an error.
-  pause
-  exit /b 1
-)
-
-echo.
-echo BoojumRoute Lab stopped.
-pause
+call "%~dp0start-boojumroute.bat"

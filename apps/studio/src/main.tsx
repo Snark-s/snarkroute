@@ -676,6 +676,8 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
   const ports = getNodePorts(type, manifest, routeNode);
+  const collapsedImageSrc = paramsCollapsed && result ? imagePreviewSrc(lastImageValue(result.output)) : null;
+  const collapsedImageTitle = collapsedImageSrc ? imageLabel(lastImageValue(result?.output)) : "";
   const portTopBase = paramsCollapsed ? 14 : 34;
   const collapsedPortSpacing = 20;
   const collapsedPortCount = Math.max(ports.inputs.length, ports.outputs.length);
@@ -876,6 +878,19 @@ function RouteNodeCard({ id, data }: NodeProps) {
         />
       ) : null}
       {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} type={type} result={result} onOpenImage={onOpenImage} onImageResultContextMenu={onImageResultContextMenu} onFixNodeOutput={onFixNodeOutput} /> : null}
+      {paramsCollapsed && collapsedImageSrc ? (
+        <button
+          className="collapsedImagePreviewButton nodrag nopan"
+          type="button"
+          title="View output image"
+          onClick={(event) => {
+            event.stopPropagation();
+            onOpenImage?.({ src: collapsedImageSrc, title: collapsedImageTitle, filename: downloadFilename(lastImageValue(result?.output)) });
+          }}
+        >
+          <img className="collapsedImagePreview" src={collapsedImageSrc} alt="" />
+        </button>
+      ) : null}
       {ports.outputs.map((port, index) => (
         <React.Fragment key={port.id}>
           <span className="portLabel output" style={{ top: `${portLabelTop(index)}px` }}>
@@ -2161,6 +2176,10 @@ type ConnectionNodeMenuState = {
   sourceHandle: string;
 };
 
+type ConnectionNodeEntry =
+  | { kind: "output"; inputPort: PortSpec }
+  | { kind: "catalog"; item: NodeCatalogItem; inputPort: PortSpec };
+
 type ContextMenuState = {
   clientX: number;
   clientY: number;
@@ -2234,7 +2253,7 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
   }
   if (type === "compound.input") return { inputs: [], outputs: [{ id: "value", kind: portKindFromManifest(String(routeNode?.params?.kind ?? "data")), label: "value" }] };
   if (type === "compound.output") return { inputs: [{ id: "value", kind: portKindFromManifest(String(routeNode?.params?.kind ?? "data")), label: "value" }], outputs: [] };
-  if (type === "utility.null") return { inputs: [{ id: "input", kind: "data", label: "Any" }], outputs: [] };
+  if (type === "utility.null") return { inputs: [{ id: "input", kind: "data", label: "Any" }], outputs: [{ id: "output", kind: "data", label: "Output" }] };
   if (type === "replicate.clarity-upscaler") {
     return {
       inputs: [
@@ -2429,6 +2448,16 @@ function catalogItemMatchesSearch(item: NodeCatalogItem, query: string): boolean
     ...(manifest?.params ?? []).flatMap((param) => [param.id, param.type, param.label])
   ];
   return searchable.some((value) => String(value ?? "").toLowerCase().includes(query));
+}
+
+function connectionNodeEntryMatchesSearch(entry: ConnectionNodeEntry, query: string): boolean {
+  if (!query) return true;
+  if (entry.kind === "output") {
+    return ["output", "compound output", entry.inputPort.id, entry.inputPort.kind, entry.inputPort.label]
+      .some((value) => String(value ?? "").toLowerCase().includes(query));
+  }
+  return catalogItemMatchesSearch(entry.item, query)
+    || [entry.inputPort.id, entry.inputPort.kind, entry.inputPort.label].some((value) => String(value ?? "").toLowerCase().includes(query));
 }
 
 function defaultNodeLibraryLayout(): NodeLibraryLayout {
@@ -3027,6 +3056,7 @@ function App() {
   );
   const [pendingConnectionStart, setPendingConnectionStart] = useState<PendingConnectionStart | null>(null);
   const [connectionNodeMenu, setConnectionNodeMenu] = useState<ConnectionNodeMenuState | null>(null);
+  const [connectionNodeSearch, setConnectionNodeSearch] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [libraryItemMenu, setLibraryItemMenu] = useState<LibraryItemMenuState | null>(null);
   const [librarySectionMenu, setLibrarySectionMenu] = useState<LibrarySectionMenuState | null>(null);
@@ -4582,6 +4612,7 @@ function App() {
 
   function connectNodes(connection: Connection) {
     setConnectionNodeMenu(null);
+    setConnectionNodeSearch("");
     setPendingConnectionStart(null);
     if (!isConnectionValid(connection)) {
       setLogs((current) => [`Invalid connection: ${describeConnection(connection)}`, ...current]);
@@ -4760,11 +4791,17 @@ function App() {
     const outputEntry = routeStack.length > 0 && sourcePort
       ? [{ kind: "output" as const, inputPort: { id: "output", kind: sourcePort.kind, label: "Compound Output" } satisfies PortSpec }]
       : [];
-    return [...outputEntry, ...catalogEntries];
+    return [...outputEntry, ...catalogEntries] satisfies ConnectionNodeEntry[];
   }, [connectionNodeMenu, nodeCatalog, nodes, routeStack]);
+  const connectionNodeSearchQuery = connectionNodeSearch.trim().toLowerCase();
+  const filteredConnectionNodes = useMemo(
+    () => possibleConnectionNodes.filter((entry) => connectionNodeEntryMatchesSearch(entry, connectionNodeSearchQuery)),
+    [connectionNodeSearchQuery, possibleConnectionNodes]
+  );
 
   const handleConnectStart: OnConnectStart = (_event, params) => {
     setConnectionNodeMenu(null);
+    setConnectionNodeSearch("");
     if (!params.nodeId || !params.handleId || params.handleType !== "source") {
       setPendingConnectionStart(null);
       return;
@@ -4789,6 +4826,7 @@ function App() {
       sourceNodeId: start.nodeId,
       sourceHandle: start.handleId
     });
+    setConnectionNodeSearch("");
   };
 
   function addConnectedNode(item: NodeCatalogItem, targetHandle: string) {
@@ -4806,6 +4844,7 @@ function App() {
       )
     );
     setConnectionNodeMenu(null);
+    setConnectionNodeSearch("");
   }
 
   function addConnectedOutput() {
@@ -4831,6 +4870,7 @@ function App() {
       )
     );
     setConnectionNodeMenu(null);
+    setConnectionNodeSearch("");
   }
 
   function selectNode(node: Node | null) {
@@ -5095,7 +5135,15 @@ function App() {
     <div className={`app ${leftCollapsed ? "leftCollapsed" : ""} ${rightCollapsed ? "rightCollapsed" : ""} ${bottomCollapsed ? "bottomCollapsed" : ""}`}>
       <aside className="sidebar left">
         <div className="sidebarHeader">
-          {!leftCollapsed ? <h1><img src="/boojumroute-icon.png" alt="" />BoojumRoute Lab</h1> : null}
+          {!leftCollapsed ? (
+            <h1 className="appBrand">
+              <img className="appBrandIcon" src="/boojumroute-icon.png" alt="" />
+              <span className="appBrandText">
+                <span>BoojumRoute</span>
+                <span>Lab</span>
+              </span>
+            </h1>
+          ) : null}
           <button className="iconButton" title={leftCollapsed ? "Expand left panel" : "Collapse left panel"} onClick={() => setLeftCollapsed((value) => !value)}>
             {leftCollapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}
           </button>
@@ -5327,6 +5375,7 @@ function App() {
           onPaneClick={() => {
             selectNode(null);
             setConnectionNodeMenu(null);
+            setConnectionNodeSearch("");
             setContextMenu(null);
             setLibraryItemMenu(null);
             setLibrarySectionMenu(null);
@@ -5462,11 +5511,23 @@ function App() {
           >
             <div className="connectionNodeMenuHeader">
               <strong>Add connected node</strong>
-              <button className="iconButton" title="Close" onClick={() => setConnectionNodeMenu(null)}><X size={14} /></button>
+              <button className="iconButton" title="Close" onClick={() => { setConnectionNodeMenu(null); setConnectionNodeSearch(""); }}><X size={14} /></button>
             </div>
-            {possibleConnectionNodes.length ? (
+            <label className="connectionNodeSearch">
+              <Search size={14} />
+              <input
+                value={connectionNodeSearch}
+                placeholder="Search compatible blocks"
+                onChange={(event) => setConnectionNodeSearch(event.target.value)}
+                autoFocus
+              />
+              {connectionNodeSearch ? (
+                <button className="nodeSearchClear" title="Clear search" onClick={() => setConnectionNodeSearch("")} type="button"><X size={13} /></button>
+              ) : null}
+            </label>
+            {filteredConnectionNodes.length ? (
               <div className="connectionNodeMenuItems">
-                {possibleConnectionNodes.map((entry) => (
+                {filteredConnectionNodes.map((entry) => (
                   <button
                     key={entry.kind === "output" ? "compound-output" : `${entry.item.type}:${entry.inputPort.id}`}
                     className="connectionNodeMenuItem"
@@ -5481,7 +5542,7 @@ function App() {
                 ))}
               </div>
             ) : (
-              <p>No compatible blocks.</p>
+              <p>{possibleConnectionNodes.length ? `No compatible blocks match "${connectionNodeSearch.trim()}".` : "No compatible blocks."}</p>
             )}
           </div>
         ) : null}
@@ -6019,6 +6080,28 @@ function imagePreviewSrc(value: unknown): string | null {
   return null;
 }
 
+function lastImageValue(value: unknown): unknown {
+  const matches: unknown[] = [];
+  collectImageValues(value, matches, new Set());
+  return matches[matches.length - 1] ?? value;
+}
+
+function collectImageValues(value: unknown, matches: unknown[], seen: Set<object>): void {
+  if (!value) return;
+  if (typeof value === "object") {
+    if (seen.has(value)) return;
+    seen.add(value);
+  }
+  if (imagePreviewSrc(value)) matches.push(value);
+  if (Array.isArray(value)) {
+    for (const item of value) collectImageValues(item, matches, seen);
+    return;
+  }
+  if (typeof value === "object") {
+    for (const item of Object.values(value as Record<string, unknown>)) collectImageValues(item, matches, seen);
+  }
+}
+
 function panoramaSourceSrc(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -6186,7 +6269,7 @@ const POLZA_IMAGE_MODEL_OPTIONS: PolzaModel[] = [
   { id: "openai/gpt-5.4-image-2", name: "GPT-5.4 Image 2", type: "image", short_description: "Supports aspect_ratio: auto, 1:1, 5:4, 9:16, 21:9, 16:9, 4:3, 3:2, 4:5, 3:4, 2:3" },
   { id: "openai/gpt-5-image-mini", name: "GPT-5 Image Mini", type: "image" },
   { id: "openai/gpt-image-1.5", name: "GPT Image 1.5", type: "image", short_description: "Supports aspect_ratio: 1:1, 2:3, 3:2" },
-  { id: "openai/gpt-image-1", name: "GPT Image 1", type: "image" },
+  { id: "gpt-image-1", name: "GPT Image 1", type: "image" },
   { id: "dall-e-3", name: "DALL-E 3", type: "image" },
   { id: "x-ai/grok-imagine-image", name: "Grok Imagine", type: "image" }
 ];

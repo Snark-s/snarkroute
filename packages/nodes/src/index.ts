@@ -96,7 +96,7 @@ export const builtInNodeDefinitions: NodeDefinition[] = [
   { type: "preview.panorama360", title: "360 Panorama Viewer", description: "Passes through an equirectangular panorama image for interactive Studio viewing.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "transform.template", title: "Template Transform", description: "Produces text from params.template after route template resolution.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "debug.log", title: "Debug Log", description: "Logs a message or value and passes the value through.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
-  { type: "utility.null", title: "Null", description: "Accepts any input and intentionally produces no output.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "utility.null", title: "Null", description: "Passes any input through unchanged.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "http.request", title: "HTTP Request", description: "Calls an arbitrary HTTP API through the backend.", economics: { license: "AGPL-3.0-or-later", notes: "Generic API executor; no tokens are stored by this node." } },
   {
     type: "local.stableDiffusion.textToImage",
@@ -193,8 +193,8 @@ export const debugLogRunner: NodeRunner = ({ params, context }) => {
   };
 };
 
-export const nullRunner: NodeRunner = () => ({
-  output: {}
+export const nullRunner: NodeRunner = ({ inputs }) => ({
+  output: firstInputValue(inputs) ?? {}
 });
 
 export const createResourceCapabilityRunner: NodeRunner = async ({ node, params }) => {
@@ -456,7 +456,7 @@ function builtInOutputs(type: string) {
   if (type === "input.video") return [{ id: "video", type: "video", label: "Video" }];
   if (type === "http.request") return [{ id: "responseJson", type: "json", label: "JSON" }, { id: "responseText", type: "text", label: "Text" }];
   if (type === "debug.log") return [{ id: "value", type: "data", label: "Value" }];
-  if (type === "utility.null") return [];
+  if (type === "utility.null") return [{ id: "output", type: "data", label: "Output" }];
   return [{ id: "output", type: "data", label: "Output" }];
 }
 

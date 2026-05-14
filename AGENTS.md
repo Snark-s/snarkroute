@@ -25,10 +25,15 @@ docs/skills/context-budget.md
 
 Use this map to choose the smallest relevant area before reading files.
 
-- `apps/web`: visual editor UI, React Flow studio, node panels, previews, client-side route editing.
-- `apps/api`: API server, execution endpoints, settings, local asset previews.
-- `packages/route-core`: route schema, validation, interpolation, dependency graph, execution logic.
-- `packages/adapters`: external model/API adapters.
+- `apps/server`: local API server, execution endpoints, settings, provider routes, local asset previews.
+- `apps/studio`: BoojumRoute Lab, React Flow node editor, node panels, previews, route editing.
+- `apps/snarkroute`: SnarkRoute Living Canvas experimental shell.
+- `packages/core`: shared app/domain primitives used by the Living Canvas.
+- `packages/executor`: route execution engine and runtime orchestration.
+- `packages/nodes`: built-in node manifests, node execution helpers, `.snarknode` package system.
+- `packages/protocol`: Open Route Protocol schema, validation, parsing, route compatibility surface.
+- `packages/storage`: local storage helpers and run/asset persistence primitives.
+- `packages/adapters`: provider-specific external model/API adapters.
 - `examples`: example route documents and smoke-test routes.
 - `docs`: protocol notes, architecture notes, project documentation.
 
@@ -72,3 +77,7 @@ SnarkRoute is the reference implementation. Open Route Protocol is the portable 
 - Future community nodes must be declarative manifests with explicit permissions.
 - Write tests before complex behavioral changes.
 - Prefer a simple working implementation over a broad platform-shaped skeleton.
+- Do not mix UI, API, provider, execution, and filesystem logic without a clear boundary reason.
+- Keep provider-specific behavior in the adapter/provider layer.
+- Do not change protocol compatibility, storage keys, route formats, or `.snarknode` behavior without an explicit migration decision.
+- After changes, run focused builds/tests for the touched workspace packages; use broader checks only when the change warrants it.

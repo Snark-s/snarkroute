@@ -5,6 +5,8 @@ build/
 .codex/
 **/.cache/
 data/*
+data/runs/
+data/assets/
 !data/provider-links.json
 !data/model-registry/
 !data/model-registry/**
@@ -23,8 +25,12 @@ data/settings/secrets.json
 **/data/assets/
 *.log
 .env
+.env.local
 .env.*
 !.env.example
+*.local
+*.secret
+*.secrets
 .DS_Store
 Thumbs.db
 desktop.ini

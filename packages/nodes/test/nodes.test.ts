@@ -471,12 +471,12 @@ A reusable image prompt.
     expect(result.nodeResults.output.output).toEqual({ text: "hello text" });
   });
 
-  it("utility.null accepts any input and produces no output ports", async () => {
+  it("utility.null accepts any input and passes it through", async () => {
     const executor = createExecutor();
     registerBuiltInNodeRunners(executor);
     const manifest = builtInNodeManifests.find((entry) => entry.id === "utility.null");
     expect(manifest?.inputs).toEqual([{ id: "input", type: "data", required: false, label: "Any" }]);
-    expect(manifest?.outputs).toEqual([]);
+    expect(manifest?.outputs).toEqual([{ id: "output", type: "data", label: "Output" }]);
 
     const result = await executor.executeRoute(
       {
@@ -493,7 +493,7 @@ A reusable image prompt.
     );
 
     expect(result.status).toBe("succeeded");
-    expect(result.nodeResults.null.output).toEqual({});
+    expect(result.nodeResults.null.output).toBe("ignored");
   });
 
   it("output.file writes to the run folder", async () => {

@@ -160,8 +160,9 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
     const model = stringParam(params.model) ?? POLZA_IMAGE_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     if (!prompt.trim()) throw new Error("Polza Image requires a prompt.");
-    const request = buildMediaImageRequestBody(model, prompt, params);
-    const response = await client.media(request);
+    const usesImageGenerations = usesPolzaImageGenerationsEndpoint(model);
+    const request = usesImageGenerations ? buildImageRequestBody(polzaImageGenerationsModel(model), prompt, params) : buildMediaImageRequestBody(model, prompt, params);
+    const response = usesImageGenerations ? await client.imageGenerations(request) : await client.media(request);
     const image = firstGeneratedImage(response);
     if (!image) {
       const pendingId = stringField(response, "id");
@@ -261,6 +262,14 @@ function isPolzaGptImage15(model: string): boolean {
 
 function isPolzaOpenAiImageWithoutAspectRatio(model: string): boolean {
   return model === "openai/gpt-5-image" || model === "openai/gpt-5-image-mini";
+}
+
+function usesPolzaImageGenerationsEndpoint(model: string): boolean {
+  return model === "dall-e-3" || model === "dall-e-2" || model === "gpt-image-1" || model === "openai/gpt-image-1";
+}
+
+function polzaImageGenerationsModel(model: string): string {
+  return model === "openai/gpt-image-1" ? "gpt-image-1" : model;
 }
 
 function supportedPolzaAspectRatio(value: unknown, allowed: string[], fallback: string): string {

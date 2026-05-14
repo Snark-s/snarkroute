@@ -100,7 +100,7 @@ describe("create-snarknode skill generator", () => {
     }), "utf8");
 
     await execFileAsync(process.execPath, [
-      resolve("../../docs/snarkroute-node-builder/scripts/create-snarknode.mjs"),
+      resolve("../../docs/boojum-node-builder/scripts/create-snarknode.mjs"),
       specPath,
       outputDirectory
     ]);
@@ -131,7 +131,7 @@ describe("create-snarknode skill generator", () => {
     }), "utf8");
 
     await execFileAsync(process.execPath, [
-      resolve("../../docs/snarkroute-node-builder/scripts/create-snarknode.mjs"),
+      resolve("../../docs/boojum-node-builder/scripts/create-snarknode.mjs"),
       specPath,
       outputDirectory
     ]);
