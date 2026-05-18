@@ -586,6 +586,430 @@ h2 {
   margin: 0 0 12px;
 }
 
+.dialogueInlineSummary {
+  background: #171d27;
+  border: 1px solid #303746;
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px;
+}
+
+.dialogueInlineSummary div {
+  display: flex;
+  font-size: 12px;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.dialogueModalBackdrop {
+  align-items: stretch;
+  background: rgba(9, 11, 15, 0.72);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 28px;
+  position: fixed;
+  z-index: 30;
+}
+
+.dialogueModal {
+  background: #131821;
+  border: 1px solid #384151;
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: min(860px, calc(100vh - 56px));
+  max-width: 1480px;
+  width: min(1480px, calc(100vw - 56px));
+  overflow: hidden;
+}
+
+.dialogueModalHeader {
+  align-items: center;
+  border-bottom: 1px solid #2b313d;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.dialogueHeaderActions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.dialogueModalHeader h2 {
+  color: #f4f6fb;
+  font-size: 16px;
+  margin: 0 0 4px;
+  text-transform: none;
+}
+
+.dialogueModalHeader span,
+.dialogueModelPanel span,
+.modelProfileSummary span,
+.dialogueMessage header span,
+.dialogueMessage header em,
+.dialogueOutputItem small {
+  color: #aeb6c5;
+  font-size: 12px;
+}
+
+.dialogueModelPanel label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dialogueModelPanel input,
+.dialogueModelPanel select,
+.dialogueComposer select,
+.dialogueComposer textarea,
+.dialogueOutputItem input,
+.dialogueOutputItem textarea,
+.dialogueOutputItem select,
+.dialogueManualOutput input,
+.dialogueManualOutput textarea,
+.dialogueManualOutput select {
+  background: #0f131b;
+  border: 1px solid #343c4b;
+  border-radius: 6px;
+  color: #f4f6fb;
+  font: inherit;
+  min-height: 32px;
+  min-width: 0;
+  padding: 7px 8px;
+  width: 100%;
+}
+
+.dialogueModelOption small {
+  color: #aeb6c5;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.dialogueModelList {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.dialogueModelPickerToggle {
+  align-items: center;
+  background: #111722;
+  border: 1px solid #303746;
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  justify-content: stretch;
+  min-height: 58px;
+  padding: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.dialogueModelPickerToggle strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.dialogueModelPickerToggle small {
+  color: #aeb6c5;
+  display: block;
+  font-size: 11px;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.dialogueModelOption {
+  align-items: start;
+  background: #111722;
+  border: 1px solid #303746;
+  border-radius: 6px;
+  display: grid;
+  gap: 7px;
+  justify-content: stretch;
+  min-height: 74px;
+  padding: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.dialogueModelOption.selected {
+  background: #172334;
+  border-color: #70a0c8;
+  box-shadow: inset 3px 0 0 #70a0c8;
+}
+
+.dialogueModelOption strong {
+  display: block;
+  font-size: 12px;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.modelBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.modelBadges em {
+  border: 1px solid #4a5364;
+  border-radius: 999px;
+  color: #cbd5e1;
+  font-size: 10px;
+  font-style: normal;
+  line-height: 1;
+  padding: 4px 6px;
+}
+
+.modelBadges em.vision {
+  border-color: #5aa2bc;
+  color: #a8e8ff;
+}
+
+.modelProfileSummary {
+  background: #1a202b;
+  border: 1px solid #303746;
+  border-radius: 6px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+}
+
+.dialogueWarning {
+  background: #3a2d18;
+  border: 1px solid #695022;
+  border-radius: 6px;
+  color: #ffd98a;
+  padding: 8px 10px;
+}
+
+.dialogueWorkbenchGrid {
+  display: grid;
+  grid-template-columns: 300px minmax(620px, 1fr) 370px;
+  min-height: 0;
+}
+
+.dialogueInputsPane,
+.dialogueMessagesPane,
+.dialogueOutputsPane {
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.dialogueInputsPane,
+.dialogueMessagesPane {
+  border-right: 1px solid #2b313d;
+}
+
+.dialogueInputsPane h3,
+.dialogueOutputsPane h3 {
+  color: #aeb6c5;
+  font-size: 12px;
+  margin: 4px 0 8px;
+  text-transform: uppercase;
+}
+
+.dialogueInputItem,
+.dialogueOutputItem,
+.dialogueManualOutput,
+.dialogueSystemOutputs,
+.dialogueModelPanel {
+  background: #171d27;
+  border: 1px solid #303746;
+  border-radius: 6px;
+  display: grid;
+  gap: 7px;
+  margin-bottom: 10px;
+  padding: 9px;
+}
+
+.dialogueInputItem.selected {
+  border-color: #5c7ca8;
+  box-shadow: inset 0 0 0 1px rgba(92, 124, 168, 0.45);
+}
+
+.dialogueInputActions {
+  display: flex;
+  gap: 6px;
+}
+
+.dialogueInputImage {
+  background: #0d1118;
+  border: 1px solid #303746;
+  border-radius: 6px;
+  max-height: 220px;
+  object-fit: contain;
+  width: 100%;
+}
+
+.dialogueInputItem pre,
+.dialogueSystemOutputs pre,
+.dialogueMessage pre {
+  background: #0d1118;
+  border-radius: 6px;
+  color: #dbe1ea;
+  font-size: 12px;
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.dialogueMessagesPane {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 12px;
+}
+
+.dialogueMessages {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  overflow: auto;
+}
+
+.dialogueInsertHere {
+  background: transparent;
+  border: 1px dashed #3a4150;
+  color: #aeb6c5;
+  min-height: 30px;
+}
+
+.dialogueMessage {
+  background: #171d27;
+  border: 1px solid #303746;
+  border-radius: 8px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.dialogueMessage.assistant {
+  border-color: #3d5a72;
+}
+
+.dialogueMessage header,
+.dialogueMessage footer,
+.dialogueOutputControls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dialogueMessageBody p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.dialogueMessageImage {
+  background: #0d1118;
+  border: 1px solid #303746;
+  border-radius: 8px;
+  display: block;
+  max-height: 520px;
+  object-fit: contain;
+  width: min(100%, 760px);
+}
+
+.dialogueMessageImage.compact {
+  display: inline-block;
+  max-height: 86px;
+  max-width: 120px;
+  vertical-align: top;
+  width: auto;
+}
+
+.dialogueComposer,
+.dialogueManualOutput {
+  display: grid;
+  gap: 8px;
+}
+
+.dialogueComposer {
+  background: #171d27;
+  border: 1px solid #303746;
+  border-radius: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 10px;
+}
+
+.dialogueOutputItem textarea,
+.dialogueManualOutput textarea {
+  min-height: 86px;
+  resize: vertical;
+}
+
+.dialogueComposer textarea {
+  height: 72px;
+  max-height: 120px;
+  min-height: 72px;
+  resize: vertical;
+}
+
+.dialogueComposerAttachments {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dialogueAttachmentThumb {
+  align-items: start;
+  background: #111722;
+  border: 1px solid #303746;
+  border-radius: 6px;
+  display: flex;
+  gap: 6px;
+  max-width: 170px;
+  padding: 6px;
+}
+
+.dialogueAttachmentThumb p,
+.dialogueAttachmentThumb pre {
+  font-size: 11px;
+  margin: 0;
+  max-height: 72px;
+  overflow: auto;
+}
+
+.dialogueComposerActions {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.dialogueComposerActions select {
+  max-width: 160px;
+}
+
+.dialogueError {
+  background: #3a2028;
+  border: 1px solid #784252;
+  border-radius: 6px;
+  color: #ffd1d8;
+  padding: 8px 10px;
+}
+
+.dialogueSystemOutputs {
+  max-height: 480px;
+  overflow: auto;
+}
+
 .portLegend span {
   align-items: center;
   color: #aeb6c5;
@@ -1325,6 +1749,13 @@ h2 {
   color: #67e8f9;
 }
 
+.nodeIcon.seedance,
+.libraryNodeIcon.seedance {
+  background: linear-gradient(135deg, rgba(125, 211, 252, 0.16), rgba(244, 114, 182, 0.14));
+  border-color: #6ba6cf;
+  color: #93e7ff;
+}
+
 .nodeIcon.local,
 .libraryNodeIcon.local {
   color: #7ee0bd;
@@ -1438,9 +1869,31 @@ h2 {
   cursor: pointer;
 }
 
+.nodeAdvanced.compact .nodeField,
+.nodeAdvanced.compact .nodeCheckField {
+  margin-top: 7px;
+}
+
+.nodePackageMetaLine {
+  margin-top: 7px;
+}
+
 .nodeField span {
   color: #9da8ba;
   font-size: 11px;
+}
+
+.nodeInlineFields {
+  align-items: end;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  margin-top: 10px;
+}
+
+.nodeInlineFields .nodeField,
+.nodeInlineFields .nodeCheckField {
+  margin-top: 0;
 }
 
 .nodeCheckField {
@@ -1507,6 +1960,11 @@ h2 {
 .nodeTextarea.compact {
   height: 44px;
   min-height: 36px;
+}
+
+.nodeTextarea.large {
+  height: 112px;
+  min-height: 92px;
 }
 
 .nodeTextarea.outputTextArea {

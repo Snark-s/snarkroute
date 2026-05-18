@@ -31,10 +31,11 @@ describe("Polza adapter", () => {
   });
 
   it("builds native media image payload with aspect ratio", () => {
-    expect(buildMediaImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "16:9", imageSize: "2K", quality: "high", outputFormat: "png" })).toMatchObject({
+    expect(buildMediaImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "16:9", imageSize: "2K", quality: "high", outputFormat: "png" }, [{ type: "base64", data: "data:image/png;base64,aaa" }])).toMatchObject({
       model: "openai/gpt-5.4-image-2",
       input: {
         prompt: "draw",
+        images: [{ type: "base64", data: "data:image/png;base64,aaa" }],
         aspect_ratio: "16:9",
         n: 1
       },
@@ -65,6 +66,43 @@ describe("Polza adapter", () => {
     expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 0.1 });
   });
 
+  it("passes image inputs to Polza chat completions", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: "image described" } }] }));
+    const runner = createPolzaTextNodeRunner({ apiKey: "pza-test", fetchImpl });
+
+    await runner({
+      node: { id: "text", type: "polza.text", params: {} },
+      params: { model: "openai/gpt-4o", prompt: "describe" },
+      inputs: { images: "data:image/png;base64,aaa" },
+      context: { runId: "r", route: {} as never, outputDirectory: tmpdir(), nodeOutputs: {}, log: () => undefined }
+    });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(body.messages[0].content).toEqual([
+      { type: "text", text: "describe" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,aaa" } }
+    ]);
+  });
+
+  it("passes multiple image inputs to Polza chat completions", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: "two images described" } }] }));
+    const runner = createPolzaTextNodeRunner({ apiKey: "pza-test", fetchImpl });
+
+    await runner({
+      node: { id: "text", type: "polza.text", params: {} },
+      params: { model: "openai/gpt-4o", prompt: "compare" },
+      inputs: { images: [{ image: "data:image/png;base64,aaa" }, { image: "data:image/jpeg;base64,bbb" }] },
+      context: { runId: "r", route: {} as never, outputDirectory: tmpdir(), nodeOutputs: {}, log: () => undefined }
+    });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(body.messages[0].content).toEqual([
+      { type: "text", text: "compare" },
+      { type: "image_url", image_url: { url: "data:image/png;base64,aaa" } },
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,bbb" } }
+    ]);
+  });
+
   it("writes generated base64 image output", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-image-"));
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ b64_json: Buffer.from("image").toString("base64") }], usage: { cost_rub: 1.5 } }));
@@ -80,6 +118,45 @@ describe("Polza adapter", () => {
     expect(fetchImpl).toHaveBeenCalledWith("https://polza.ai/api/v1/media", expect.any(Object));
     expect(result.output).toMatchObject({ provider: "polza", image: { mimeType: "image/png", sizeBytes: 5 } });
     expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 1.5 });
+  });
+
+  it("passes input images to Polza media image models", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-image-input-"));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ b64_json: Buffer.from("image").toString("base64") }] }));
+    const runner = createPolzaImageNodeRunner({ apiKey: "pza-test", fetchImpl });
+
+    const result = await runner({
+      node: { id: "image", type: "polza.image.generate", params: {} },
+      params: { model: "openai/gpt-5.4-image-2", prompt: "edit" },
+      inputs: { images: [{ image: "data:image/png;base64,aaa" }] },
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith("https://polza.ai/api/v1/media", expect.objectContaining({
+      body: expect.stringContaining("\"images\":[{\"type\":\"base64\",\"data\":\"data:image/png;base64,aaa\"}]")
+    }));
+    expect(result.output).toMatchObject({ provider: "polza", inputImageCount: 1 });
+  });
+
+  it("polls pending Polza media generations until image output is ready", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-poll-"));
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ id: "aig_123", status: "pending", model: "google/gemini-3.1-flash-image-preview" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "aig_123", status: "processing" }))
+      .mockResolvedValueOnce(jsonResponse({ id: "aig_123", status: "completed", data: { url: "https://cdn.polza.ai/out.png" } }))
+      .mockResolvedValueOnce(new Response(Buffer.from("image"), { status: 200, headers: { "content-type": "image/png" } }));
+    const runner = createPolzaImageNodeRunner({ apiKey: "pza-test", fetchImpl, mediaPollIntervalMs: 1 });
+
+    const result = await runner({
+      node: { id: "image", type: "polza.image.generate", params: {} },
+      params: { model: "google/gemini-3.1-flash-image-preview", prompt: "draw" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, "https://polza.ai/api/v1/media/aig_123", expect.any(Object));
+    expect(fetchImpl).toHaveBeenNthCalledWith(3, "https://polza.ai/api/v1/media/aig_123", expect.any(Object));
+    expect(result.output).toMatchObject({ provider: "polza", image: { originalUrl: "https://cdn.polza.ai/out.png" } });
   });
 
   it("routes OpenAI-compatible Polza image models through image generations", async () => {

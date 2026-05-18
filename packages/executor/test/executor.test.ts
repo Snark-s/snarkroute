@@ -349,6 +349,36 @@ describe("executor", () => {
     expect(result.nodeResults["compound/inner"].status).toBe("succeeded");
   });
 
+  it("fans one compound input out to multiple internal targets", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("input.text", ({ params }) => ({ output: { text: params.value } }));
+    executor.registerNodeRunner("debug.log", ({ inputs }) => ({ output: { value: inputs } }));
+    const result = await executor.executeRoute(
+      route({
+        nodes: [
+          { id: "prefix", type: "input.text", params: { value: "hello" } },
+          {
+            id: "compound",
+            type: "compound.subroute",
+            compound: {
+              inputs: [{ id: "text", nodeId: "left", port: "value", targets: [{ nodeId: "left", port: "value" }, { nodeId: "right", port: "value" }] }],
+              outputs: [{ id: "left", nodeId: "left", port: "value" }, { id: "right", nodeId: "right", port: "value" }]
+            },
+            subroute: route({
+              route: { id: "sub", title: "Sub", author: {} },
+              nodes: [{ id: "left", type: "debug.log" }, { id: "right", type: "debug.log" }],
+              edges: []
+            })
+          }
+        ],
+        edges: [{ from: "prefix", to: "compound", fromPort: "text", toPort: "text" }]
+      }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.compound.output).toEqual({ left: { value: "hello" }, right: { value: "hello" } });
+  });
+
   it("identifies the failed internal node for compound subroutes", async () => {
     const executor = createExecutor();
     executor.registerNodeRunner("explode", () => {

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   builtInNodeManifests,
@@ -9,6 +10,7 @@ import {
   installNodePackageFromManifest,
   isSupportedRemoteUrl,
   loadInstalledNodeManifests,
+  packNodePackage,
   previewNodePackageArchive,
   setInstalledNodeEnabled,
   uninstallInstalledNode,
@@ -63,6 +65,21 @@ app.post<{ Body: { manifest?: unknown; text?: string; dataBase64?: string; filen
   } catch (error) {
     const filename = request.body?.source ?? request.body?.filename ?? request.body?.fileName ?? "<upload>";
     return reply.code(400).send({ ok: false, issues: [{ path: filename, message: nodePackagePreviewErrorMessage(filename, error) }] });
+  }
+});
+
+app.post<{ Body: { manifest?: unknown } }>("/api/node-packages/install-generated", async (request, reply) => {
+  try {
+    const validation = validateNodeManifest({ ...(request.body?.manifest as object), origin: "generated", source: "snarkroute-studio" });
+    if (!validation.ok || !validation.manifest) return reply.code(400).send(validation);
+    const installed = await installNodePackageFromManifest(validation.manifest, {
+      source: "snarkroute-studio",
+      origin: "generated",
+      overwrite: true
+    });
+    return { ok: true, manifest: installed };
+  } catch (error) {
+    return reply.code(400).send({ ok: false, error: errorMessage(error) });
   }
 });
 
@@ -162,6 +179,40 @@ app.delete<{ Params: { id: string } }>("/api/node-packages/:id", async (request,
       return reply.code(uninstallError.statusCode).send({ ok: false, code: uninstallError.code, error: uninstallError.message });
     }
     return reply.code(500).send({ ok: false, code: "NODE_PACKAGE_DELETE_FAILED", error: errorMessage(error) });
+  }
+});
+
+app.get<{ Params: { id: string } }>("/api/node-packages/:id/export", async (request, reply) => {
+  try {
+    const installed = await loadInstalledNodeManifests();
+    const manifest = [...builtInNodeManifests, ...providerNodeManifests(), ...installed].find((candidate) => candidate.id === request.params.id);
+    if (!manifest) return reply.code(404).send({ ok: false, error: `Node package "${request.params.id}" was not found.` });
+
+    if (manifest.origin !== "bundled") {
+      const sourceDirectory = join(getInstalledNodesDirectory(), request.params.id.replace(/[^a-z0-9._-]/gi, "_"));
+      const outputDirectory = await mkdtemp(join(tmpdir(), "snarknode-export-"));
+      const outputPath = join(outputDirectory, `${request.params.id.replace(/[^a-z0-9._-]/gi, "_")}.snarknode`);
+      try {
+        const packed = await packNodePackage(sourceDirectory, outputPath);
+        return {
+          ok: true,
+          filename: `${packed.manifest.id}.snarknode`,
+          contentType: "application/octet-stream",
+          dataBase64: (await readFile(packed.outputPath)).toString("base64")
+        };
+      } finally {
+        await rm(outputDirectory, { recursive: true, force: true });
+      }
+    }
+
+    return {
+      ok: true,
+      filename: `${manifest.id}.node.json`,
+      contentType: "application/json",
+      text: `${JSON.stringify(manifest, null, 2)}\n`
+    };
+  } catch (error) {
+    return reply.code(400).send({ ok: false, error: errorMessage(error) });
   }
 });
 

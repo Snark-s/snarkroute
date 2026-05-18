@@ -4,7 +4,7 @@ import { basename, dirname, extname, join, normalize, parse, relative, resolve }
 import { pathToFileURL } from "node:url";
 import JSZip from "jszip";
 import type { NodeRunner, RouteExecutor } from "@snarkroute/executor";
-import type { RouteNode, ValidationIssue } from "@snarkroute/protocol";
+import type { OpenRoute, RouteEdge, RouteNode, ValidationIssue } from "@snarkroute/protocol";
 
 export type SnarkNodeOrigin = "bundled" | "local" | "installed" | "linked" | "remote" | "generated";
 export type SnarkNodeRuntime = "builtin" | "node" | "javascript" | "typescript";
@@ -477,12 +477,66 @@ export async function registerInstalledNodeRunners(executor: RouteExecutor, dire
   const manifests = await loadInstalledNodeManifests(directory);
   for (const manifest of manifests) {
     if (manifest.enabled === false) continue;
+    if (manifest.executor.type === "declarative" && isCompoundTemplateManifest(manifest)) executor.registerNodeRunner(manifest.id, createCompoundTemplateNodeRunner(manifest, executor));
     if (manifest.executor.type === "plugin") executor.registerNodeRunner(manifest.id, createPluginNodeRunner(manifest, join(directory, sanitizePackageDirectory(manifest.id))));
     if (manifest.executor.type === "declarative.http") executor.registerNodeRunner(manifest.id, createDeclarativeHttpNodeRunner(manifest));
     for (const capability of manifest.capabilities ?? []) {
       executor.registerCapabilityProvider(capability.id, manifest.id, { defaultParams: capability.defaultParams, priority: capability.priority });
     }
   }
+}
+
+function isCompoundTemplateManifest(manifest: SnarkNodeManifest): boolean {
+  const generated = manifest.generatedWith as { kind?: unknown; subroute?: unknown; compound?: unknown } | undefined;
+  return generated?.kind === "compound.subroute" && Boolean(generated.subroute);
+}
+
+function createCompoundTemplateNodeRunner(manifest: SnarkNodeManifest, executor: RouteExecutor): NodeRunner {
+  return async ({ node, inputs, context }) => {
+    const generated = manifest.generatedWith as {
+      compound?: { title?: string; inputs?: Array<{ id: string; nodeId: string; port?: string; targets?: Array<{ nodeId: string; port?: string }> }>; outputs?: Array<{ id: string; nodeId: string; port?: string }> };
+      subroute?: OpenRoute;
+    };
+    if (!generated.subroute) throw new Error(`Generated node "${manifest.id}" has no subroute template.`);
+    const syntheticNodes: RouteNode[] = [];
+    const syntheticEdges: RouteEdge[] = [];
+    const initialNodeOutputs: Record<string, unknown> = {};
+
+    for (const port of generated.compound?.inputs ?? []) {
+      const syntheticId = `${node.id}__input__${port.id}`;
+      syntheticNodes.push({ id: syntheticId, type: "compound.input" });
+      const targets = port.targets && port.targets.length > 0 ? port.targets : [{ nodeId: port.nodeId, port: port.port }];
+      for (const target of targets) {
+        syntheticEdges.push({ from: syntheticId, to: target.nodeId, fromPort: "value", toPort: target.port ?? port.id });
+      }
+      initialNodeOutputs[syntheticId] = { value: inputs[port.id] };
+    }
+
+    const subroute: OpenRoute = {
+      ...generated.subroute,
+      route: {
+        ...generated.subroute.route,
+        id: `${context.route.route.id}.${node.id}`,
+        title: generated.compound?.title ?? node.title ?? manifest.title
+      },
+      nodes: [...syntheticNodes, ...generated.subroute.nodes],
+      edges: [...syntheticEdges, ...generated.subroute.edges]
+    };
+    const result = await executor.executeRoute(subroute, {
+      runId: `${context.runId}_${node.id}`,
+      outputDirectory: join(context.outputDirectory, node.id),
+      initialNodeOutputs
+    });
+    if (result.status !== "succeeded") {
+      const failed = Object.values(result.nodeResults).find((entry) => entry.status === "failed");
+      throw new Error(`Generated node "${manifest.id}" failed inside "${failed?.nodeId ?? "subroute"}": ${failed?.error ?? "subroute failed"}`);
+    }
+    return {
+      output: Object.fromEntries((generated.compound?.outputs ?? []).map((port) => [port.id, readOutputPort(result.nodeResults[port.nodeId]?.output, port.port ?? port.id)])),
+      logs: [`Generated subroute node completed with ${Object.keys(result.nodeResults).length} internal node(s).`],
+      provenance: { nodePackage: manifest.id, version: manifest.version, origin: manifest.origin, generatedWith: "compound.subroute" }
+    };
+  };
 }
 
 export function createDeclarativeHttpNodeRunner(manifest: SnarkNodeManifest): NodeRunner {
@@ -915,6 +969,13 @@ function mapDeclarativeResponse(mappings: Record<string, string> | undefined, mo
     else outputs[outputId] = readObjectPath(json, path.replace(/^\$\./, ""));
   }
   return outputs;
+}
+
+function readOutputPort(output: unknown, port?: string): unknown {
+  if (!port || port === "output") return output;
+  if (output && typeof output === "object" && port in output) return (output as Record<string, unknown>)[port];
+  if (port === "image" || port === "file" || port === "video") return output;
+  return readObjectPath(output, port);
 }
 
 function readObjectPath(source: unknown, path: string): unknown {

@@ -68,6 +68,7 @@ export interface ExecuteOptions {
   activeProfile?: string;
   ledgerPath?: string;
   initialNodeOutputs?: Record<string, unknown>;
+  onNodeResult?: (result: NodeResult) => void;
 }
 
 export interface ProviderUsageEvent {
@@ -202,6 +203,7 @@ export function createExecutor(): RouteExecutor {
               startedAt: now,
               completedAt: now
             };
+            options.onNodeResult?.(nodeResults[node.id]);
             log(`Using existing output for ${node.id}`, node.id);
             continue;
           }
@@ -217,6 +219,7 @@ export function createExecutor(): RouteExecutor {
               startedAt: new Date().toISOString(),
               completedAt: new Date().toISOString()
             };
+            options.onNodeResult?.(nodeResults[node.id]);
             throw new Error(`No runner registered for node type "${node.type}" (${node.id})`);
           }
 
@@ -229,6 +232,7 @@ export function createExecutor(): RouteExecutor {
             startedAt: nodeStartedAt,
             completedAt: ""
           };
+          options.onNodeResult?.(nodeResults[node.id]);
           log(`Starting ${node.id}`, node.id);
           try {
             const params = resolveTemplates(node.params ?? {}, nodeOutputs) as Record<string, unknown>;
@@ -243,6 +247,7 @@ export function createExecutor(): RouteExecutor {
                 nodeId: `${node.id}/${internalNodeId}`,
                 type: internalResult.type
               };
+              options.onNodeResult?.(nodeResults[`${node.id}/${internalNodeId}`]);
             }
             for (const entry of result.internalLogs ?? []) {
               logs.push({ ...entry, nodeId: entry.nodeId ? `${node.id}/${entry.nodeId}` : node.id });
@@ -258,6 +263,7 @@ export function createExecutor(): RouteExecutor {
               startedAt: nodeStartedAt,
               completedAt: new Date().toISOString()
             };
+            options.onNodeResult?.(nodeResults[node.id]);
             for (const entry of result.logs ?? []) log(entry, node.id);
             log(`Completed ${node.id}`, node.id);
           } catch (error) {
@@ -270,6 +276,7 @@ export function createExecutor(): RouteExecutor {
                   nodeId: `${node.id}/${internalNodeId}`,
                   type: internalResult.type
                 };
+                options.onNodeResult?.(nodeResults[`${node.id}/${internalNodeId}`]);
               }
               for (const entry of error.internalLogs) {
                 logs.push({ ...entry, nodeId: entry.nodeId ? `${node.id}/${entry.nodeId}` : node.id });
@@ -284,6 +291,7 @@ export function createExecutor(): RouteExecutor {
               startedAt: nodeStartedAt,
               completedAt: new Date().toISOString()
             };
+            options.onNodeResult?.(nodeResults[node.id]);
             throw error;
           }
         }
@@ -320,11 +328,15 @@ class CompoundExecutionError extends Error {
 function createCompoundRunner(getExecutor: () => RouteExecutor): NodeRunner {
   return async ({ node, inputs, context }) => {
     const compoundNode = node as RouteNode & {
-      compound?: { title?: string; inputs?: Array<{ id: string; nodeId: string; port?: string }>; outputs?: Array<{ id: string; nodeId: string; port?: string }> };
+      compound?: {
+        title?: string;
+        inputs?: Array<{ id: string; nodeId: string; port?: string; targets?: Array<{ nodeId: string; port?: string }> }>;
+        outputs?: Array<{ id: string; nodeId: string; port?: string }>;
+      };
       subroute?: OpenRoute;
     };
     if (!compoundNode.subroute) throw new Error(`Compound node "${node.id}" has no subroute.`);
-    const interfaceInputs: Array<{ id: string; nodeId: string; port?: string }> = compoundNode.compound?.inputs ?? [];
+    const interfaceInputs: Array<{ id: string; nodeId: string; port?: string; targets?: Array<{ nodeId: string; port?: string }> }> = compoundNode.compound?.inputs ?? [];
     const interfaceOutputs: Array<{ id: string; nodeId: string; port?: string }> = compoundNode.compound?.outputs ?? [];
     const syntheticNodes: RouteNode[] = [];
     const syntheticEdges: RouteEdge[] = [];
@@ -333,7 +345,10 @@ function createCompoundRunner(getExecutor: () => RouteExecutor): NodeRunner {
     for (const port of interfaceInputs) {
       const syntheticId = `${node.id}__input__${port.id}`;
       syntheticNodes.push({ id: syntheticId, type: "compound.input" });
-      syntheticEdges.push({ from: syntheticId, to: port.nodeId, fromPort: "value", toPort: port.port ?? port.id });
+      const targets = port.targets && port.targets.length > 0 ? port.targets : [{ nodeId: port.nodeId, port: port.port }];
+      for (const target of targets) {
+        syntheticEdges.push({ from: syntheticId, to: target.nodeId, fromPort: "value", toPort: target.port ?? port.id });
+      }
       initialNodeOutputs[syntheticId] = { value: inputs[port.id] };
     }
 

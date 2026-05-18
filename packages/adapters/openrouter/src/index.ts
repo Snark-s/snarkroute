@@ -112,9 +112,17 @@ export function createOpenRouterTextNodeRunner(options: OpenRouterClientOptions 
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     if (!prompt.trim()) throw new Error("Text AI requires a prompt.");
     const systemPrompt = firstInputText(inputs.systemPrompt) ?? stringParam(params.systemPrompt);
+    const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
+    const imageUrls = await Promise.all(images.map((image) => prepareImageUrl(image, options.fetchImpl)));
+    const userContent: string | OpenRouterContentPart[] = imageUrls.length > 0
+      ? [
+          { type: "text", text: prompt },
+          ...imageUrls.map((url) => ({ type: "image_url" as const, image_url: { url } }))
+        ]
+      : prompt;
     const messages: OpenRouterChatMessage[] = [
       ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
-      { role: "user", content: prompt }
+      { role: "user", content: userContent }
     ];
     const response = await client.chatCompletions(buildChatRequestBody(resolution.model, messages, params));
     const text = firstOpenRouterText(response);

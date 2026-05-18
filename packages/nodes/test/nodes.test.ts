@@ -169,6 +169,59 @@ describe("built-in nodes", () => {
     expect(manifests[0]).toMatchObject({ id: "example.plugin.envEcho", origin: "installed" });
   });
 
+  it("runs generated compound node packages", async () => {
+    const installedDirectory = await mkdtemp(join(tmpdir(), "sr-generated-nodes-"));
+    await installNodePackageFromManifest(
+      {
+        kind: "snarkroute.node",
+        schemaVersion: "0.1",
+        id: "generated.echoPair",
+        title: "Echo Pair",
+        version: "0.1.0",
+        author: { name: "Test Author" },
+        license: "UNLICENSED",
+        origin: "generated",
+        permissions: { network: false, readFiles: false, writeOutputs: false, shell: false, env: [] },
+        executor: { type: "declarative" },
+        inputs: [{ id: "text", type: "text" }],
+        outputs: [{ id: "left", type: "json" }, { id: "right", type: "json" }],
+        generatedWith: {
+          kind: "compound.subroute",
+          compound: {
+            inputs: [{ id: "text", nodeId: "left", port: "input", targets: [{ nodeId: "left", port: "input" }, { nodeId: "right", port: "input" }] }],
+            outputs: [{ id: "left", nodeId: "left", port: "output" }, { id: "right", nodeId: "right", port: "output" }]
+          },
+          subroute: {
+            routeVersion: "0.1",
+            route: { id: "sub", title: "Sub", author: {} },
+            economics: { enabled: false },
+            nodes: [{ id: "left", type: "utility.null" }, { id: "right", type: "utility.null" }],
+            edges: []
+          }
+        }
+      },
+      { installedDirectory }
+    );
+    const executor = createExecutor();
+    registerBuiltInNodeRunners(executor);
+    await registerInstalledNodeRunners(executor, installedDirectory);
+    const result = await executor.executeRoute(
+      {
+        routeVersion: "0.1",
+        route: { id: "r", title: "R", author: {} },
+        economics: { enabled: false },
+        nodes: [
+          { id: "source", type: "input.text", params: { value: "hello" } },
+          { id: "pair", type: "generated.echoPair" }
+        ],
+        edges: [{ from: "source", to: "pair", fromPort: "text", toPort: "text" }]
+      },
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-run-")) }
+    );
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.pair.output).toEqual({ left: "hello", right: "hello" });
+  });
+
   it("uninstalls local node packages from the installed directory", async () => {
     const installedDirectory = await mkdtemp(join(tmpdir(), "sr-installed-delete-"));
     await installNodePackageFromManifest(examplePluginManifest(), { installedDirectory, files: [{ path: "executor.ts", text: "export async function runNode(){ return { outputs: {} }; }\n" }] });

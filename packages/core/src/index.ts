@@ -1,6 +1,7 @@
 import type { SnarkNodeManifest } from "@snarkroute/nodes";
 
 export * from "./living-canvas";
+export * from "@snarkroute/protocol";
 
 export type { SnarkNodeManifest };
 

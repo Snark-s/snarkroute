@@ -91,12 +91,12 @@ export function createGeminiClient(options: GeminiClientOptions = {}) {
         text: firstText(output)
       };
     },
-    async generateText(model: string, prompt: string, systemPrompt?: string): Promise<GeminiGenerateResult> {
+    async generateText(model: string, parts: unknown[], systemPrompt?: string): Promise<GeminiGenerateResult> {
       const output = await request(`/models/${encodeURIComponent(model)}:generateContent`, {
         method: "POST",
         body: JSON.stringify({
           systemInstruction: stringParam(systemPrompt) ? { parts: [{ text: String(systemPrompt) }] } : undefined,
-          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          contents: [{ role: "user", parts }],
           generationConfig: { responseModalities: ["TEXT"] }
         })
       });
@@ -165,7 +165,10 @@ export function createGeminiLlmNodeRunner(options: GeminiClientOptions = {}): No
     const model = stringParam(params.model) ?? GEMINI_LLM_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     const systemPrompt = firstInputText(inputs.systemPrompt) ?? String(params.systemPrompt ?? GEMINI_LLM_DEFAULT_SYSTEM_PROMPT);
-    const result = await client.generateText(model, prompt, systemPrompt);
+    const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
+    if (images.length > 14) throw new Error(`gemini.llm accepts at most 14 input images, got ${images.length}.`);
+    const parts = await buildNanoBanana2Parts({ prompt, images, fetchImpl: options.fetchImpl });
+    const result = await client.generateText(model, parts, systemPrompt);
     const text = result.text?.trim();
     if (!text) {
       throw new Error(`Gemini LLM (${model}) did not return text.`);
@@ -229,7 +232,7 @@ export async function prepareImageInlineData(value: unknown, fetchImpl: typeof f
     return prepareImageInlineData(record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.image, fetchImpl);
   }
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error("gemini.nano-banana-2 expected image input as a local path, image object, data URI, or remote URL.");
+    throw new Error("Gemini expected image input as a local path, image object, data URI, or remote URL.");
   }
 
   if (value.startsWith("data:")) {

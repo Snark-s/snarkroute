@@ -1,0 +1,343 @@
+{
+  "kind": "snarkroute.node",
+  "schemaVersion": "0.1",
+  "id": "custom.seedance-2.video",
+  "title": "Seedance 2 Video",
+  "version": "0.1.0",
+  "author": {
+    "name": "SnarkRoute maintainers"
+  },
+  "generatedWith": {
+    "tool": "Codex",
+    "skill": "snarkroute-node-builder"
+  },
+  "origin": "local",
+  "source": "examples/custom-nodes/seedance-2-video.snarknode",
+  "license": "AGPL-3.0-or-later",
+  "category": "Video",
+  "description": "Generates a video through the direct Seedance API from text plus optional image, video, audio, and end-frame references.",
+  "permissions": {
+    "network": true,
+    "networkHosts": [
+      "api.seedance.ai"
+    ],
+    "readFiles": false,
+    "writeOutputs": true,
+    "shell": false,
+    "env": [
+      "SEEDANCE_API_KEY",
+      "SEEDANCE_API_BASE_URL"
+    ]
+  },
+  "executor": {
+    "type": "plugin",
+    "runtime": "node",
+    "entry": "executor.ts"
+  },
+  "inputs": [
+    {
+      "id": "prompt",
+      "type": "text",
+      "required": false,
+      "label": "Prompt"
+    },
+    {
+      "id": "firstFrame",
+      "type": "image",
+      "required": false,
+      "label": "First Frame",
+      "description": "Optional first-frame image URL for image-to-video."
+    },
+    {
+      "id": "endImage",
+      "type": "image",
+      "required": false,
+      "label": "End Frame",
+      "description": "Optional end-frame image URL for image-to-video."
+    },
+    {
+      "id": "images",
+      "type": "image",
+      "required": false,
+      "label": "Reference Images",
+      "description": "Up to 9 additional image URLs or upstream image assets with URL fields."
+    },
+    {
+      "id": "videos",
+      "type": "video",
+      "required": false,
+      "label": "Reference Videos",
+      "description": "Up to 3 reference video URLs or upstream video assets with URL fields."
+    },
+    {
+      "id": "audio",
+      "type": "audio",
+      "required": false,
+      "label": "Reference Audio",
+      "description": "Up to 3 reference audio URLs or upstream audio assets with URL fields."
+    }
+  ],
+  "outputs": [
+    {
+      "id": "video",
+      "type": "video",
+      "label": "Video"
+    },
+    {
+      "id": "output",
+      "type": "json",
+      "label": "Raw Response"
+    }
+  ],
+  "params": [
+    {
+      "id": "prompt",
+      "type": "text",
+      "label": "Prompt",
+      "default": "A cinematic 5 second shot with natural motion and synchronized audio."
+    },
+    {
+      "id": "endpointMode",
+      "type": "text",
+      "label": "Endpoint Mode",
+      "default": "auto"
+    },
+    {
+      "id": "baseUrl",
+      "type": "text",
+      "label": "API URL",
+      "default": "https://api.seedance.ai/v1"
+    },
+    {
+      "id": "model",
+      "type": "text",
+      "label": "Model",
+      "default": "seedance-2.0"
+    },
+    {
+      "id": "duration",
+      "type": "text",
+      "label": "Duration",
+      "default": "5"
+    },
+    {
+      "id": "resolution",
+      "type": "text",
+      "label": "Resolution",
+      "default": "720p"
+    },
+    {
+      "id": "aspectRatio",
+      "type": "text",
+      "label": "Aspect Ratio",
+      "default": "16:9"
+    },
+    {
+      "id": "style",
+      "type": "text",
+      "label": "Style",
+      "default": ""
+    },
+    {
+      "id": "motionPrompt",
+      "type": "text",
+      "label": "Motion Prompt",
+      "default": ""
+    },
+    {
+      "id": "generateAudio",
+      "type": "boolean",
+      "label": "Generate Audio",
+      "default": true
+    },
+    {
+      "id": "seed",
+      "type": "number",
+      "label": "Seed"
+    },
+    {
+      "id": "pollIntervalMs",
+      "type": "number",
+      "label": "Poll Interval",
+      "default": 5000
+    },
+    {
+      "id": "timeoutMs",
+      "type": "number",
+      "label": "Timeout",
+      "default": 600000
+    }
+  ],
+  "ui": {
+    "params": {
+      "endpointMode": {
+        "advanced": true,
+        "control": "select",
+        "options": [
+          {
+            "value": "auto",
+            "label": "Auto"
+          },
+          {
+            "value": "text-to-video",
+            "label": "Text to Video"
+          },
+          {
+            "value": "image-to-video",
+            "label": "Image to Video"
+          },
+          {
+            "value": "reference-to-video",
+            "label": "Reference to Video"
+          }
+        ]
+      },
+      "baseUrl": {
+        "advanced": true
+      },
+      "model": {
+        "advanced": true,
+        "control": "select",
+        "options": [
+          "seedance-2.0",
+          "seedance-2.0-fast",
+          "seedance-2.0-text-to-video",
+          "seedance-2.0-fast-text-to-video",
+          "seedance-2.0-image-to-video",
+          "seedance-2.0-fast-image-to-video"
+        ]
+      },
+      "duration": {
+        "layout": "inline",
+        "control": "select",
+        "options": [
+          {
+            "value": "auto",
+            "label": "Auto"
+          },
+          "4",
+          "5",
+          "6",
+          "8",
+          "10",
+          "12",
+          "15"
+        ]
+      },
+      "resolution": {
+        "layout": "inline",
+        "control": "select",
+        "options": [
+          "480p",
+          "720p",
+          "1080p",
+          "2K"
+        ]
+      },
+      "aspectRatio": {
+        "control": "select",
+        "options": [
+          {
+            "value": "auto",
+            "label": "Auto"
+          },
+          "16:9",
+          "9:16",
+          "1:1",
+          "4:3",
+          "3:4",
+          "21:9"
+        ]
+      },
+      "motionPrompt": {
+        "control": "textarea",
+        "size": "compact"
+      },
+      "generateAudio": {
+        "layout": "inline",
+        "control": "checkbox"
+      },
+      "seed": {
+        "layout": "inline"
+      },
+      "pollIntervalMs": {
+        "advanced": true,
+        "control": "select",
+        "options": [
+          {
+            "value": "2000",
+            "label": "2 seconds"
+          },
+          {
+            "value": "5000",
+            "label": "5 seconds"
+          },
+          {
+            "value": "10000",
+            "label": "10 seconds"
+          }
+        ]
+      },
+      "timeoutMs": {
+        "advanced": true,
+        "control": "select",
+        "options": [
+          {
+            "value": "300000",
+            "label": "5 minutes"
+          },
+          {
+            "value": "600000",
+            "label": "10 minutes"
+          },
+          {
+            "value": "900000",
+            "label": "15 minutes"
+          },
+          {
+            "value": "1200000",
+            "label": "20 minutes"
+          }
+        ]
+      },
+      "prompt": {
+        "control": "textarea",
+        "size": "large"
+      }
+    }
+  },
+  "capabilities": [
+    {
+      "id": "video.create",
+      "title": "Create Video",
+      "priority": 20
+    }
+  ],
+  "tags": [
+    "seedance",
+    "seedance-2",
+    "video-generation",
+    "text-to-video",
+    "image-to-video",
+    "reference-to-video"
+  ],
+  "examples": [
+    {
+      "title": "Text to Video",
+      "params": {
+        "prompt": "A maple leaf falls into a rain puddle, cinematic close-up, slow motion.",
+        "duration": "5",
+        "resolution": "720p",
+        "aspectRatio": "16:9"
+      }
+    },
+    {
+      "title": "Reference to Video",
+      "params": {
+        "prompt": "Use [Image1] as the character reference and [Video1] as motion reference. Create a polished product reveal.",
+        "endpointMode": "reference-to-video",
+        "duration": "8"
+      }
+    }
+  ]
+}

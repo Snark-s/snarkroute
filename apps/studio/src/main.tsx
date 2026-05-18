@@ -20,8 +20,26 @@ import {
   type OnConnectStart,
   type ReactFlowInstance
 } from "@xyflow/react";
-import { exportRouteToText, loadRouteFromText, normalizeRouteExportFilename, type OpenRoute } from "@snarkroute/protocol";
-import { ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, FolderOpen, Globe, ImageIcon, KeyRound, PanelLeftClose, PanelRightClose, Play, Plus, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import {
+  DEFAULT_AGENT_PRESETS,
+  DEFAULT_MODEL_PROFILES,
+  buildDialogueWorkbenchOutputs,
+  createDialogueWorkbenchState,
+  loadRouteFromText,
+  normalizeDialogueWorkbenchState,
+  normalizeRouteExportFilename,
+  exportRouteToText,
+  type AgentPreset,
+  type DialogueContentPart,
+  type DialogueMessage,
+  type DialogueOutputStatus,
+  type DialogueOutputType,
+  type DialogueSelectedOutput,
+  type DialogueWorkbenchState,
+  type ModelProfile,
+  type OpenRoute
+} from "@snarkroute/protocol";
+import { ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -37,12 +55,15 @@ import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatus
 import { studioDocs, type StudioDocEntry } from "./docsRegistry";
 import { MarkdownDocument } from "./MarkdownDocument";
 
+const STUDIO_FAVICON_HREF = "/boojumroute-icon.png";
+
 type CompoundPortMapping = {
   id: string;
   label?: string;
   kind?: string;
   nodeId: string;
   port?: string;
+  targets?: Array<{ nodeId: string; port?: string }>;
 };
 
 type CompoundInterface = {
@@ -95,6 +116,7 @@ type NodeRunResult = {
   status?: string;
   output?: unknown;
   error?: string;
+  logs?: string[];
   startedAt?: string;
   completedAt?: string;
 };
@@ -109,6 +131,17 @@ type RunDisplayResult = {
   economics?: unknown;
   error?: string;
 };
+
+type FixNodeOutputOptions = {
+  persist?: boolean;
+  logMessage?: string;
+};
+
+type RunStreamEvent =
+  | { type: "runStarted"; runId?: string; startedAt?: string }
+  | { type: "nodeResult"; nodeResult?: NodeRunResult & { nodeId?: string } }
+  | { type: "runCompleted"; result?: RunDisplayResult }
+  | { type: "runFailed"; error?: string };
 
 type LedgerSummary = {
   totalRuns: number;
@@ -206,6 +239,8 @@ type OpenRouterSettings = {
 };
 
 type NodeManifest = {
+  kind?: "snarkroute.node";
+  schemaVersion?: string;
   id: string;
   title: string;
   version: string;
@@ -221,11 +256,15 @@ type NodeManifest = {
   inputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
   outputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
   params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown }>;
+  generatedWith?: unknown;
   ui?: {
     params?: Record<string, {
       control?: string;
       options?: Array<string | { value: string; label?: string }>;
       multiline?: boolean;
+      advanced?: boolean;
+      size?: "compact" | "large";
+      layout?: "inline";
       placeholder?: string;
       helperText?: string;
     }>;
@@ -295,10 +334,10 @@ Make risky wording safe and non-erotic.
 Do not include copyrighted characters, logos, or text.
 Output only the final image prompt.`;
 const GEMINI_LLM_MODEL_OPTIONS = [
-  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4 },
-  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5 },
-  { value: "gemini-2.5-flash-preview-09-2025", label: "Gemini 2.5 Flash Preview", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5 },
-  { value: "gemini-2.5-flash-lite-preview-09-2025", label: "Gemini 2.5 Flash-Lite Preview", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4 }
+  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4, supportsVision: true },
+  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5, supportsVision: true },
+  { value: "gemini-2.5-flash-preview-09-2025", label: "Gemini 2.5 Flash Preview", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5, supportsVision: true },
+  { value: "gemini-2.5-flash-lite-preview-09-2025", label: "Gemini 2.5 Flash-Lite Preview", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4, supportsVision: true }
 ];
 const DEFAULT_PROMPT_LIBRARY: PromptLibraryData = {
   categories: [
@@ -323,6 +362,7 @@ const DEFAULT_PROMPT_LIBRARY: PromptLibraryData = {
 const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
   { type: "library.prompt", label: "Prompt Library", params: { category: "image-generation", promptId: "adapt-user-idea-for-image-generator", mode: "linked" } },
+  { type: "dialogue.workbench", label: "Dialogue Workbench", params: { defaultModelProfileId: "text.default", agentPresetId: "plain-collaborator", state: createDialogueWorkbenchState({ nodeId: "dialogue_workbench", defaultModelProfileId: "text.default" }) } },
   { type: "text.promptCompose", label: "Prompt Compose", params: { separator: "\n\n", trimParts: true, skipEmpty: true, prefix: "", suffix: "" } },
   { type: "input.image", label: "Input Image", params: { path: "" } },
   { type: "input.video", label: "Input Video", params: { path: "" } },
@@ -443,7 +483,7 @@ const library = [
 
 const librarySections = [
   { id: "inputs-assets", title: "Inputs & Assets", types: ["input.text", "library.prompt", "input.image", "input.video", "input.file", "compound.input", "compound.output"] },
-  { id: "text-prompting", title: "Text & Prompting", types: ["text.promptCompose", "transform.template", "ai.text", "gemini.llm"] },
+  { id: "text-prompting", title: "Text & Prompting", types: ["dialogue.workbench", "text.promptCompose", "transform.template", "ai.text", "gemini.llm"] },
   { id: "image-generation", title: "Image Generation", types: ["ai.image.generate", "gemini.nano-banana-2", "local.stableDiffusion.textToImage"] },
   { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image", "preview.panorama360"] },
   { id: "api-integration", title: "API & Integration", types: ["http.request"] },
@@ -649,19 +689,22 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const replicateConfigured = Boolean(data.replicateConfigured);
   const geminiConfigured = Boolean(data.geminiConfigured);
   const openAiConfigured = Boolean(data.openAiConfigured);
+  const seedanceConfigured = Boolean(data.seedanceConfigured);
   const polzaConfigured = Boolean(data.polzaConfigured);
   const openRouterConfigured = Boolean(data.openRouterConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
   const onConfigureGemini = data.onConfigureGemini as (() => void) | undefined;
   const onConfigureOpenAi = data.onConfigureOpenAi as (() => void) | undefined;
+  const onConfigureSeedance = data.onConfigureSeedance as (() => void) | undefined;
   const onConfigurePolza = data.onConfigurePolza as (() => void) | undefined;
   const onConfigureOpenRouter = data.onConfigureOpenRouter as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
   const onImageResultContextMenu = data.onImageResultContextMenu as ((event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void) | undefined;
-  const onFixNodeOutput = data.onFixNodeOutput as ((nodeId: string, output: unknown) => void) | undefined;
+  const onFixNodeOutput = data.onFixNodeOutput as ((nodeId: string, output: unknown, options?: FixNodeOutputOptions) => void) | undefined;
   const onRunNodeOnly = data.onRunNodeOnly as ((nodeId: string) => void) | undefined;
   const onRunNodeWithDependencies = data.onRunNodeWithDependencies as ((nodeId: string) => void) | undefined;
   const onOpenSubroute = data.onOpenSubroute as ((nodeId: string) => void) | undefined;
+  const onOpenDialogueWorkbench = data.onOpenDialogueWorkbench as ((nodeId: string) => void) | undefined;
   const onUncollapse = data.onUncollapse as ((nodeId: string) => void) | undefined;
   const promptLibrary = data.promptLibrary as PromptLibraryData | undefined;
   const onRefreshPromptLibrary = data.onRefreshPromptLibrary as (() => void) | undefined;
@@ -670,6 +713,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onPromptContextMenu = data.onPromptContextMenu as ((event: React.MouseEvent, prompt: PromptLibraryPrompt) => void) | undefined;
   const stableDiffusionModels = (data.stableDiffusionModels as StableDiffusionModel[] | undefined) ?? [];
   const openRouterModels = (data.openRouterModels as OpenRouterModel[] | undefined) ?? [];
+  const modelProfiles = (data.modelProfiles as ModelProfile[] | undefined) ?? DEFAULT_MODEL_PROFILES;
   const polzaTextModels = (data.polzaTextModels as PolzaModel[] | undefined) ?? [];
   const polzaImageModels = (data.polzaImageModels as PolzaModel[] | undefined) ?? [];
   const manifest = data.manifest as NodeManifest | undefined;
@@ -678,8 +722,19 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
   const ports = getNodePorts(type, manifest, routeNode);
-  const collapsedImageSrc = paramsCollapsed && result ? imagePreviewSrc(lastImageValue(result.output)) : null;
-  const collapsedImageTitle = collapsedImageSrc ? imageLabel(lastImageValue(result?.output)) : "";
+  const collapsedInputImagePath = type === "input.image" ? String(params.path ?? "").trim() : "";
+  const collapsedResultImage = result ? lastImageValue(result.output) : null;
+  const collapsedImageSrc = paramsCollapsed
+    ? collapsedInputImagePath
+      ? localImagePreviewSrc(collapsedInputImagePath)
+      : imagePreviewSrc(collapsedResultImage)
+    : null;
+  const collapsedImageTitle = collapsedImageSrc
+    ? collapsedInputImagePath
+      ? filenameFromPath(collapsedInputImagePath)
+      : imageLabel(collapsedResultImage)
+    : "";
+  const collapsedImageFilename = collapsedInputImagePath ? filenameFromPath(collapsedInputImagePath) : downloadFilename(collapsedResultImage);
   const portTopBase = paramsCollapsed ? 14 : 34;
   const collapsedPortSpacing = 20;
   const collapsedPortCount = Math.max(ports.inputs.length, ports.outputs.length);
@@ -699,6 +754,14 @@ function RouteNodeCard({ id, data }: NodeProps) {
   function patchParams(patch: Record<string, unknown>) {
     onParamsChange?.(id, { ...params, ...patch });
   }
+
+  const configureMissingSecret = configureHandlerForError(result?.error, {
+    REPLICATE_API_TOKEN: onConfigureReplicate,
+    GEMINI_API_KEY: onConfigureGemini,
+    OPENAI_API_KEY: onConfigureOpenAi,
+    POLZA_AI_API_KEY: onConfigurePolza,
+    SEEDANCE_API_KEY: onConfigureSeedance
+  });
 
   return (
     <div className={`routeNodeCard ${paramsCollapsed ? "paramsCollapsed" : ""}`} style={collapsedMinHeight ? { minHeight: `${collapsedMinHeight}px` } : undefined}>
@@ -754,8 +817,8 @@ function RouteNodeCard({ id, data }: NodeProps) {
             <>
               <div className="nodeType" title={type}>{type}</div>
               <div className={`executorBadge ${executorKind(type, manifest)}`}>{executorLabel(type, manifest)}</div>
-              {manifest ? <div className="nodeMetaLine">{manifest.author?.name} · {manifest.version} · {manifest.origin}{manifest.source ? ` · ${manifest.source}` : ""}</div> : null}
               {routeNode?.type === "compound.subroute" ? <div className="nodeMetaLine">{routeNode.subroute?.nodes.length ?? 0} internal block(s)</div> : null}
+              {routeNode?.type === "dialogue.workbench" ? <DialogueNodeMeta routeNode={routeNode} modelProfiles={modelProfiles} /> : null}
             </>
           ) : null}
         </div>
@@ -809,6 +872,21 @@ function RouteNodeCard({ id, data }: NodeProps) {
           </button>
         </div>
       ) : null}
+      {!paramsCollapsed && routeNode?.type === "dialogue.workbench" ? (
+        <div className="compoundActions">
+          <button
+            className="nodeSmallButton nodrag nopan"
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenDialogueWorkbench?.(id);
+            }}
+          >
+            Open Workbench
+          </button>
+        </div>
+      ) : null}
       {!paramsCollapsed && isGeminiNode(type) ? (
         <div className={`nodeTokenStatus ${geminiConfigured ? "configured" : "missing"}`}>
           <span>{geminiTokenStatusText(geminiConfigured)}</span>
@@ -830,6 +908,18 @@ function RouteNodeCard({ id, data }: NodeProps) {
               <strong>Requires OpenAI API key</strong>
               <button className="nodeSmallButton nodrag nopan" onClick={onConfigureOpenAi}>Configure OpenAI</button>
               <small>Open Settings &gt; Advanced / Direct Secrets &gt; OpenAI</small>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {!paramsCollapsed && requiresEnv(manifest, "SEEDANCE_API_KEY") ? (
+        <div className={`nodeTokenStatus ${seedanceConfigured ? "configured" : "missing"}`}>
+          <span>Seedance: {seedanceConfigured ? "key configured" : "missing"}</span>
+          {!seedanceConfigured ? (
+            <>
+              <strong>Requires Seedance API key</strong>
+              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureSeedance}>Configure Seedance</button>
+              <small>Open Settings &gt; Advanced / Direct Secrets &gt; Seedance</small>
             </>
           ) : null}
         </div>
@@ -871,6 +961,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           onPromptContextMenu={onPromptContextMenu}
           stableDiffusionModels={stableDiffusionModels}
           openRouterModels={openRouterModels}
+          modelProfiles={modelProfiles}
           polzaTextModels={polzaTextModels}
           polzaImageModels={polzaImageModels}
           onRefreshStableDiffusionModels={onRefreshStableDiffusionModels}
@@ -879,7 +970,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           onOpenImage={onOpenImage}
         />
       ) : null}
-      {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} type={type} result={result} onOpenImage={onOpenImage} onImageResultContextMenu={onImageResultContextMenu} onFixNodeOutput={onFixNodeOutput} /> : null}
+      {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} type={type} result={result} onOpenImage={onOpenImage} onImageResultContextMenu={onImageResultContextMenu} onFixNodeOutput={onFixNodeOutput} onConfigureMissingSecret={configureMissingSecret} /> : null}
       {paramsCollapsed && collapsedImageSrc ? (
         <button
           className="collapsedImagePreviewButton nodrag nopan"
@@ -887,7 +978,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           title="View output image"
           onClick={(event) => {
             event.stopPropagation();
-            onOpenImage?.({ src: collapsedImageSrc, title: collapsedImageTitle, filename: downloadFilename(lastImageValue(result?.output)) });
+            onOpenImage?.({ src: collapsedImageSrc, title: collapsedImageTitle, filename: collapsedImageFilename });
           }}
         >
           <img className="collapsedImagePreview" src={collapsedImageSrc} alt="" />
@@ -912,6 +1003,615 @@ function RouteNodeCard({ id, data }: NodeProps) {
   );
 }
 
+function DialogueNodeMeta({ routeNode, modelProfiles }: { routeNode: RouteDoc["nodes"][number]; modelProfiles: ModelProfile[] }) {
+  const state = normalizeDialogueWorkbenchState(routeNode.params?.state, {
+    nodeId: routeNode.id,
+    defaultModelProfileId: String(routeNode.params?.defaultModelProfileId ?? "text.default")
+  });
+  const profile = modelProfiles.find((entry) => entry.id === (state.defaultModelProfileId ?? routeNode.params?.defaultModelProfileId));
+  return (
+    <>
+      <div className="nodeMetaLine">{profile?.displayName ?? state.defaultModelProfileId ?? "No model profile"} · {state.messages.length} message(s)</div>
+      <div className="nodeMetaLine">{state.selectedOutputs.length} selected output(s)</div>
+    </>
+  );
+}
+
+function DialogueWorkbenchEditor({
+  routeNode,
+  inputs,
+  modelProfiles,
+  agentPresets,
+  onClose,
+  onSave
+}: {
+  routeNode: RouteDoc["nodes"][number];
+  inputs: DialogueConnectedInput[];
+  modelProfiles: ModelProfile[];
+  agentPresets: AgentPreset[];
+  onClose: () => void;
+  onSave: (state: DialogueWorkbenchState, patch?: Record<string, unknown>) => void;
+}) {
+  const initialState = normalizeDialogueWorkbenchState(routeNode.params?.state, {
+    nodeId: routeNode.id,
+    defaultModelProfileId: String(routeNode.params?.defaultModelProfileId ?? "text.default")
+  });
+  const [state, setState] = useState<DialogueWorkbenchState>(initialState);
+  const [draftText, setDraftText] = useState("");
+  const [draftRole, setDraftRole] = useState<DialogueMessage["role"]>("user");
+  const [draftAttachments, setDraftAttachments] = useState<DialogueContentPart[]>([]);
+  const dialogueModelProfiles = useMemo(() => modelProfiles.filter(isDialogueModelProfile), [modelProfiles]);
+  const initialModelProfileId = dialogueModelProfiles.some((profile) => profile.id === state.defaultModelProfileId)
+    ? state.defaultModelProfileId ?? "text.default"
+    : dialogueModelProfiles[0]?.id ?? "text.default";
+  const [selectedModelProfileId, setSelectedModelProfileId] = useState(initialModelProfileId);
+  const [modelSearch, setModelSearch] = useState("");
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [selectedInputId, setSelectedInputId] = useState("");
+  const [modelSavedMessage, setModelSavedMessage] = useState("");
+  const [outputDraft, setOutputDraft] = useState({ name: "final_prompt", type: "text" as DialogueOutputType, value: "" });
+  const [assistantBusy, setAssistantBusy] = useState(false);
+  const [assistantError, setAssistantError] = useState("");
+  const selectedProfile = dialogueModelProfiles.find((profile) => profile.id === selectedModelProfileId) ?? dialogueModelProfiles[0];
+  const visibleModelProfiles = useMemo(
+    () => filterDialogueModelProfiles(dialogueModelProfiles, modelSearch).slice(0, 60),
+    [dialogueModelProfiles, modelSearch]
+  );
+  const hasImageInputs = inputs.some((input) => input.type === "image");
+  const modelVisionWarning = hasImageInputs && selectedProfile && !selectedProfile.capabilities.includes("vision");
+  const previewOutputs = buildDialogueWorkbenchOutputs({
+    nodeId: routeNode.id,
+    nodeTitle: routeNode.title,
+    state,
+    inputs: Object.fromEntries(inputs.map((input) => [input.id, input.value])),
+    modelProfiles
+  });
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  function persist(next: DialogueWorkbenchState, patch: Record<string, unknown> = {}) {
+    setState(next);
+    onSave(next, { defaultModelProfileId: next.defaultModelProfileId, agentPresetId: next.agentPresetId, ...patch });
+  }
+
+  function chooseModelProfile(profileId: string) {
+    setSelectedModelProfileId(profileId);
+    setModelSavedMessage("");
+  }
+
+  function saveCurrentModelAsDefault() {
+    persist({ ...state, defaultModelProfileId: selectedModelProfileId }, { persistProject: true });
+    setModelSavedMessage("Saved as default");
+  }
+
+  function addMessage(role: DialogueMessage["role"] = draftRole, text = draftText) {
+    const content = dialogueMessageContent(text, role === "user" ? draftAttachments : []);
+    if (content.length === 0) return;
+    const now = new Date().toISOString();
+    const profile = modelProfiles.find((entry) => entry.id === selectedModelProfileId);
+    const message: DialogueMessage = {
+      id: `message_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`,
+      role,
+      content,
+      createdAt: now,
+      modelProfileId: role === "assistant" ? selectedModelProfileId : undefined,
+      actualProviderId: role === "assistant" ? profile?.providerId : undefined,
+      actualModelId: role === "assistant" ? profile?.modelId : undefined,
+      params: role === "assistant" ? profile?.defaultParams : undefined,
+      costEstimate: undefined
+    };
+    persist({ ...state, messages: [...state.messages, message] });
+    setDraftText("");
+    if (role === "user") setDraftAttachments([]);
+  }
+
+  function insertInput(input: DialogueConnectedInput, afterMessageId?: string) {
+    const message: DialogueMessage = {
+      id: `message_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`,
+      role: "user",
+      content: [dialogueContentPartFromInput(input)],
+      createdAt: new Date().toISOString()
+    };
+    const index = afterMessageId ? state.messages.findIndex((entry) => entry.id === afterMessageId) : -1;
+    const messages = index >= 0
+      ? [...state.messages.slice(0, index + 1), message, ...state.messages.slice(index + 1)]
+      : [message, ...state.messages];
+    persist({ ...state, messages });
+  }
+
+  function attachInputToDraft(input: DialogueConnectedInput) {
+    setDraftAttachments((current) => [...current, dialogueContentPartFromInput(input)]);
+    setSelectedInputId(input.id);
+  }
+
+  function removeDraftAttachment(index: number) {
+    setDraftAttachments((current) => current.filter((_, entryIndex) => entryIndex !== index));
+  }
+
+  function insertSelectedInput(afterMessageId?: string) {
+    const input = inputs.find((entry) => entry.id === selectedInputId) ?? inputs.find((entry) => entry.type === "image") ?? inputs[0];
+    if (input) insertInput(input, afterMessageId);
+  }
+
+  async function askModel() {
+    if ((!draftText.trim() && draftAttachments.length === 0) || assistantBusy) return;
+    const profile = modelProfiles.find((entry) => entry.id === selectedModelProfileId);
+    if (!profile) {
+      setAssistantError("Choose a model profile first.");
+      return;
+    }
+    if (profile.costClass === "dangerous" || profile.costClass === "expensive") {
+      const confirmed = window.confirm(`This profile is marked ${profile.costClass}. Send one explicit request?`);
+      if (!confirmed) return;
+    }
+
+    setAssistantBusy(true);
+    setAssistantError("");
+    const userText = draftText;
+    const attachments = draftAttachments.length > 0 ? draftAttachments : autoAttachImagesForModel(inputs, profile);
+    const userContent = dialogueMessageContent(userText, attachments);
+    const userMessage = createDialogueTextMessage({
+      role: "user",
+      text: userText,
+      modelProfileId: undefined,
+      profile: undefined,
+      content: userContent
+    });
+    const nextState = { ...state, messages: [...state.messages, userMessage] };
+    persist(nextState);
+    setDraftText("");
+    setDraftAttachments([]);
+
+    try {
+      const images = profile.capabilities.includes("vision") ? imageRefsFromContent(userContent) : [];
+      const response = await fetch(`${apiBase}/api/routes/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          routeVersion: "0.1",
+          route: { id: `dialogue-call-${routeNode.id}`, title: "Dialogue Workbench Model Call", author: { name: "BoojumRoute Lab" } },
+          economics: { enabled: false, mode: "disabled" },
+          nodes: [
+            {
+              id: "assistant",
+              type: "ai.text",
+              params: {
+                model: modelIdForProfile(profile),
+                providerMode: providerModeForProfile(profile),
+                systemPrompt: agentPresets.find((preset) => preset.id === state.agentPresetId)?.systemPrompt ?? "",
+                prompt: dialoguePromptForModel({ state: nextState, inputs, userText }),
+                images
+              }
+            }
+          ],
+          edges: []
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || result.status !== "succeeded") {
+        throw new Error(result.error ?? firstRunError(result) ?? "Model call failed.");
+      }
+      const assistantOutput = result.nodeResults?.assistant?.output;
+      const assistantText = outputText(assistantOutput) ?? previewValue(assistantOutput);
+      const providerUsage = Array.isArray(result.economics?.providersUsed) ? result.economics.providersUsed[0] : null;
+      const assistantMessage = createDialogueTextMessage({
+        role: "assistant",
+        text: assistantText,
+        modelProfileId: profile.id,
+        profile,
+        providerUsage,
+        params: { model: modelIdForProfile(profile), providerMode: providerModeForProfile(profile) }
+      });
+      persist({ ...nextState, messages: [...nextState.messages, assistantMessage] });
+      setTimeout(() => scrollDialogueMessageIntoView(assistantMessage.id), 0);
+    } catch (error) {
+      setAssistantError(error instanceof Error ? error.message : String(error));
+      persist(nextState);
+    } finally {
+      setAssistantBusy(false);
+    }
+  }
+
+  function patchMessage(messageId: string, patch: Partial<DialogueMessage>) {
+    persist({ ...state, messages: state.messages.map((message) => message.id === messageId ? { ...message, ...patch } : message) });
+  }
+
+  function addOutputFromMessage(message: DialogueMessage) {
+    const text = message.content.map(partText).filter(Boolean).join("\n").trim();
+    const output: DialogueSelectedOutput = {
+      id: uniqueOutputId(state.selectedOutputs, "output"),
+      name: "selected_output",
+      type: "text",
+      sourceMessageId: message.id,
+      value: text,
+      status: "selected"
+    };
+    persist({ ...state, messages: state.messages.map((entry) => entry.id === message.id ? { ...entry, selectedAsOutput: true } : entry), selectedOutputs: [...state.selectedOutputs, output] });
+  }
+
+  function addOutputFromSelection(message: DialogueMessage) {
+    const selectedText = window.getSelection()?.toString().trim();
+    if (!selectedText) {
+      setAssistantError("Select a text fragment in the message first.");
+      return;
+    }
+    const output: DialogueSelectedOutput = {
+      id: uniqueOutputId(state.selectedOutputs, "selected_text"),
+      name: "selected_text",
+      type: "text",
+      sourceMessageId: message.id,
+      value: selectedText,
+      status: "selected"
+    };
+    setAssistantError("");
+    persist({ ...state, messages: state.messages.map((entry) => entry.id === message.id ? { ...entry, selectedAsOutput: true } : entry), selectedOutputs: [...state.selectedOutputs, output] });
+  }
+
+  function addManualOutput() {
+    if (!outputDraft.name.trim()) return;
+    const output: DialogueSelectedOutput = {
+      id: uniqueOutputId(state.selectedOutputs, outputDraft.name),
+      name: outputDraft.name.trim(),
+      type: outputDraft.type,
+      value: outputDraft.type === "json" ? parseJsonOrText(outputDraft.value) : outputDraft.value,
+      status: "draft"
+    };
+    persist({ ...state, selectedOutputs: [...state.selectedOutputs, output] });
+    setOutputDraft({ name: "final_prompt", type: "text", value: "" });
+  }
+
+  function patchOutput(outputId: string, patch: Partial<DialogueSelectedOutput>) {
+    persist({ ...state, selectedOutputs: state.selectedOutputs.map((output) => output.id === outputId ? { ...output, ...patch } : output) });
+  }
+
+  function updateCapsuleSummary() {
+    const capsule = previewOutputs.conversation_capsule;
+    persist({ ...state, parentConversationCapsules: state.parentConversationCapsules, selectedOutputs: state.selectedOutputs });
+    setOutputDraft((current) => ({ ...current, value: capsule.compactSummary }));
+  }
+
+  return (
+    <div className="dialogueModalBackdrop" role="dialog" aria-modal="true" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <div className="dialogueModal" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="dialogueModalHeader">
+          <div>
+            <h2>{routeNode.title ?? "Dialogue Workbench"}</h2>
+            <span>{routeNode.id} · {state.conversationId}</span>
+          </div>
+          <div className="dialogueHeaderActions">
+            <button className="iconButton" title="Close" onClick={onClose}><X size={16} /></button>
+          </div>
+        </header>
+        <div className="dialogueWorkbenchGrid">
+          <aside className="dialogueInputsPane">
+            <h3>Inputs</h3>
+            {inputs.filter((input) => input.type !== "conversation_context").map((input) => (
+              <div className={`dialogueInputItem ${selectedInputId === input.id ? "selected" : ""}`} key={`${input.sourceNodeId}-${input.sourcePort}-${input.id}`}>
+                <strong>{input.type}: {input.id}</strong>
+                <span>{input.sourceNodeId}.{input.sourcePort ?? "output"}</span>
+                <DialogueInputPreview input={input} />
+                <div className="dialogueInputActions">
+                  <button className="nodeSmallButton" type="button" onClick={() => setSelectedInputId(input.id)}>Select</button>
+                  <button className="nodeSmallButton" type="button" onClick={() => attachInputToDraft(input)}>Attach</button>
+                  <button className="nodeSmallButton" type="button" onClick={() => insertInput(input)}>Insert at Top</button>
+                </div>
+              </div>
+            ))}
+            <h3>Conversation Context</h3>
+            {inputs.filter((input) => input.type === "conversation_context").length === 0 ? <p className="muted">No capsules connected.</p> : null}
+            {inputs.filter((input) => input.type === "conversation_context").map((input) => (
+              <div className="dialogueInputItem context" key={`${input.sourceNodeId}-${input.sourcePort}-${input.id}`}>
+                <strong>{input.id}</strong>
+                <pre>{input.preview}</pre>
+              </div>
+            ))}
+          </aside>
+          <section className="dialogueMessagesPane">
+            <div className="dialogueMessages">
+              {state.messages.length === 0 ? <p className="muted">No messages yet. Add manual user, assistant, system, or tool notes.</p> : null}
+              {inputs.length > 0 ? (
+                <button className="dialogueInsertHere" type="button" onClick={() => insertSelectedInput()}>
+                  Insert selected input here
+                </button>
+              ) : null}
+              {state.messages.map((message) => (
+                <article className={`dialogueMessage ${message.role}`} id={`dialogue-message-${message.id}`} key={message.id}>
+                  <header>
+                    <strong>{message.role}</strong>
+                    <span>{message.createdAt}</span>
+                    {message.modelProfileId ? <em>{modelLabel(message.modelProfileId, modelProfiles, message)}</em> : null}
+                  </header>
+                  <div className="dialogueMessageBody">{message.content.map((part, index) => <DialoguePartView key={index} part={part} compact={message.role === "user"} renderMarkdown={message.role === "assistant"} />)}</div>
+                  <footer>
+                    <button className="nodeSmallButton" onClick={() => patchMessage(message.id, { pinned: !message.pinned })}>{message.pinned ? <Pin size={13} /> : <Pin size={13} />} Pin</button>
+                    <button className="nodeSmallButton" onClick={() => addOutputFromMessage(message)}><CheckSquare size={13} /> Output</button>
+                    <button className="nodeSmallButton" onMouseDown={(event) => event.preventDefault()} onClick={() => addOutputFromSelection(message)}><CheckSquare size={13} /> Selection Output</button>
+                    {inputs.length > 0 ? <button className="nodeSmallButton" onClick={() => insertSelectedInput(message.id)}>Insert Input After</button> : null}
+                  </footer>
+                </article>
+              ))}
+            </div>
+            <div className="dialogueComposer">
+              {draftAttachments.length > 0 ? (
+                <div className="dialogueComposerAttachments">
+                  {draftAttachments.map((part, index) => (
+                    <div className="dialogueAttachmentThumb" key={`${part.type}-${index}`}>
+                      <DialoguePartView part={part} compact />
+                      <button className="iconButton" type="button" title="Remove attachment" onClick={() => removeDraftAttachment(index)}><X size={12} /></button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <textarea value={draftText} onChange={(event) => setDraftText(event.target.value)} placeholder="Write a message" />
+              <div className="dialogueComposerActions">
+                <select value={draftRole} onChange={(event) => setDraftRole(event.target.value as DialogueMessage["role"])}>
+                  <option value="user">user note</option>
+                  <option value="assistant">assistant note</option>
+                  <option value="system">system note</option>
+                  <option value="tool">tool note</option>
+                </select>
+                <button onClick={() => addMessage()} disabled={!draftText.trim() && draftAttachments.length === 0}>Add Manual Note</button>
+                <button className="primary" onClick={() => void askModel()} disabled={(!draftText.trim() && draftAttachments.length === 0) || assistantBusy}>
+                  {assistantBusy ? "Sending..." : "Send to Model"}
+                </button>
+              </div>
+              {assistantError ? <div className="dialogueError">{assistantError}</div> : null}
+            </div>
+          </section>
+          <aside className="dialogueOutputsPane">
+            <h3>Model</h3>
+            <div className="dialogueModelPanel">
+              <label>
+                <span>Model</span>
+                <button className="dialogueModelPickerToggle" type="button" onClick={() => setModelPickerOpen((value) => !value)}>
+                  <span>
+                    <strong>{selectedProfile?.displayName ?? "No model selected"}</strong>
+                    {selectedProfile ? <small>{selectedProfile.providerId}/{selectedProfile.modelId}</small> : null}
+                  </span>
+                  {selectedProfile ? <ModelCapabilityBadges profile={selectedProfile} /> : null}
+                  {modelPickerOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+              </label>
+              <button className="nodeSmallButton" type="button" onClick={saveCurrentModelAsDefault}>Save as Default</button>
+              {modelSavedMessage ? <small>{modelSavedMessage}</small> : null}
+              {modelPickerOpen ? (
+                <>
+                  <label>
+                    <span>Search models</span>
+                    <input value={modelSearch} onChange={(event) => setModelSearch(event.target.value)} placeholder="provider, model, capability" />
+                  </label>
+                  <div className="dialogueModelList">
+                    {visibleModelProfiles.map((profile) => (
+                      <button
+                        className={`dialogueModelOption ${profile.id === selectedModelProfileId ? "selected" : ""}`}
+                        key={profile.id}
+                        type="button"
+                        onClick={() => {
+                          chooseModelProfile(profile.id);
+                          setModelPickerOpen(false);
+                        }}
+                      >
+                        <span>
+                          <strong>{profile.displayName}</strong>
+                          <small>{profile.providerId}/{profile.modelId}</small>
+                        </span>
+                        <ModelCapabilityBadges profile={profile} />
+                      </button>
+                    ))}
+                    {visibleModelProfiles.length === 0 ? <p className="muted">No dialogue models match this search.</p> : null}
+                  </div>
+                </>
+              ) : null}
+              <label>
+                <span>Agent preset</span>
+                <select value={state.agentPresetId ?? ""} onChange={(event) => persist({ ...state, agentPresetId: event.target.value || undefined })}>
+                  <option value="">none</option>
+                  {agentPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.displayName}</option>)}
+                </select>
+              </label>
+              {selectedProfile ? (
+                <div className="modelProfileSummary">
+                  <strong>{selectedProfile.costClass ?? "unknown"} · {selectedProfile.privacyClass ?? "unknown"}</strong>
+                  <span>{selectedProfile.capabilities.join(", ") || "no declared capabilities"}</span>
+                </div>
+              ) : null}
+              {modelVisionWarning ? <div className="dialogueWarning">Эта модель не поддерживает изображения. Она получит только текстовые части/refs.</div> : null}
+            </div>
+            <h3>Selected Outputs</h3>
+            {state.selectedOutputs.map((output) => (
+              <div className="dialogueOutputItem" key={output.id}>
+                <input value={output.name} onChange={(event) => patchOutput(output.id, { name: event.target.value })} />
+                <div className="dialogueOutputControls">
+                  <select value={output.type} onChange={(event) => patchOutput(output.id, { type: event.target.value as DialogueOutputType })}>
+                    {(["text", "image", "json", "file"] as DialogueOutputType[]).map((type) => <option key={type} value={type}>{type}</option>)}
+                  </select>
+                  <select value={output.status} onChange={(event) => patchOutput(output.id, { status: event.target.value as DialogueOutputStatus })}>
+                    {(["draft", "selected", "locked"] as DialogueOutputStatus[]).map((status) => <option key={status} value={status}>{status}</option>)}
+                  </select>
+                </div>
+                <textarea value={typeof output.value === "string" ? output.value : JSON.stringify(output.value ?? output.assetRef ?? "", null, 2)} onChange={(event) => patchOutput(output.id, { value: event.target.value })} />
+                {output.status === "locked" ? <small><Lock size={12} /> Locked value is used by the graph.</small> : <small>{output.status} value is saved and visible as a port.</small>}
+              </div>
+            ))}
+            <div className="dialogueManualOutput">
+              <input value={outputDraft.name} onChange={(event) => setOutputDraft({ ...outputDraft, name: event.target.value })} placeholder="output name" />
+              <select value={outputDraft.type} onChange={(event) => setOutputDraft({ ...outputDraft, type: event.target.value as DialogueOutputType })}>
+                {(["text", "image", "json", "file"] as DialogueOutputType[]).map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+              <textarea value={outputDraft.value} onChange={(event) => setOutputDraft({ ...outputDraft, value: event.target.value })} placeholder="output value" />
+              <button onClick={addManualOutput}><Plus size={14} /> Add Output</button>
+            </div>
+            <h3>System Outputs</h3>
+            <div className="dialogueSystemOutputs">
+              <strong>conversation_text</strong>
+              <pre>{previewOutputs.conversation_text}</pre>
+              <strong>conversation_json</strong>
+              <pre>{JSON.stringify(previewOutputs.conversation_json, null, 2)}</pre>
+              <strong>conversation_capsule</strong>
+              <pre>{JSON.stringify(previewOutputs.conversation_capsule, null, 2)}</pre>
+              <button onClick={updateCapsuleSummary}>Generate/Update Capsule Summary</button>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DialoguePartView({ part, compact = false, renderMarkdown = false }: { part: DialogueContentPart; compact?: boolean; renderMarkdown?: boolean }) {
+  if (part.type === "text") return renderMarkdown ? <MarkdownDocument content={part.text} /> : <p>{part.text}</p>;
+  if (part.type === "image") {
+    const src = imagePreviewSrc(part.assetRef);
+    return src ? <img className={`dialogueMessageImage ${compact ? "compact" : ""}`} src={src} alt={part.alt ?? "dialogue image"} /> : <p>image: {part.assetRef}</p>;
+  }
+  if (part.type === "file") return <p>file: {part.filename ?? part.assetRef}</p>;
+  return <pre>{JSON.stringify(part.value, null, 2)}</pre>;
+}
+
+function DialogueInputPreview({ input }: { input: DialogueConnectedInput }) {
+  const src = input.type === "image" ? imagePreviewSrc(input.value) ?? imagePreviewSrc(input.preview) : null;
+  if (src) return <img className="dialogueInputImage" src={src} alt={input.id} />;
+  return <pre>{input.preview}</pre>;
+}
+
+function ModelCapabilityBadges({ profile }: { profile: ModelProfile }) {
+  const badges = [
+    profile.capabilities.includes("vision") ? "Vision" : "",
+    profile.capabilities.includes("tool_calling") ? "Tools" : "",
+    profile.capabilities.includes("json_output") ? "JSON" : "",
+    profile.costClass && profile.costClass !== "unknown" ? profile.costClass : "",
+    profile.privacyClass && profile.privacyClass !== "unknown" ? profile.privacyClass : ""
+  ].filter(Boolean);
+  return (
+    <span className="modelBadges">
+      {badges.map((badge) => <em className={badge === "Vision" ? "vision" : ""} key={badge}>{badge}</em>)}
+    </span>
+  );
+}
+
+function dialogueContentPartFromInput(input: DialogueConnectedInput): DialogueContentPart {
+  if (input.type === "image") return { type: "image", assetRef: imageAssetRef(input.value) ?? input.preview, alt: input.id };
+  if (input.type === "file") return { type: "file", assetRef: imageAssetRef(input.value) ?? input.preview, filename: input.id };
+  if (input.type === "text") return { type: "text", text: input.preview };
+  return { type: "json", value: input.value };
+}
+
+function dialogueMessageContent(text: string, attachments: DialogueContentPart[] = []): DialogueContentPart[] {
+  return [
+    ...(text.trim() ? [{ type: "text" as const, text }] : []),
+    ...attachments
+  ];
+}
+
+function autoAttachImagesForModel(inputs: DialogueConnectedInput[], profile: ModelProfile): DialogueContentPart[] {
+  if (!profile.capabilities.includes("vision")) return [];
+  const imageInput = inputs.find((input) => input.type === "image");
+  return imageInput ? [dialogueContentPartFromInput(imageInput)] : [];
+}
+
+function imageRefsFromContent(content: DialogueContentPart[]): string[] {
+  return content
+    .filter((part): part is Extract<DialogueContentPart, { type: "image" }> => part.type === "image")
+    .map((part) => part.assetRef)
+    .filter((assetRef) => assetRef.trim().length > 0);
+}
+
+function scrollDialogueMessageIntoView(messageId: string) {
+  const element = document.getElementById(`dialogue-message-${messageId}`);
+  element?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function imageAssetRef(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return imageAssetRef(record.image ?? record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.output);
+  }
+  return null;
+}
+
+function createDialogueTextMessage(options: {
+  role: DialogueMessage["role"];
+  text: string;
+  content?: DialogueContentPart[];
+  modelProfileId?: string;
+  profile?: ModelProfile;
+  providerUsage?: Record<string, unknown> | null;
+  params?: Record<string, unknown>;
+}): DialogueMessage {
+  return {
+    id: `message_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`,
+    role: options.role,
+    content: options.content ?? [{ type: "text", text: options.text }],
+    createdAt: new Date().toISOString(),
+    modelProfileId: options.modelProfileId,
+    actualProviderId: stringFromRecord(options.providerUsage, "provider") ?? options.profile?.providerId,
+    actualModelId: stringFromRecord(options.providerUsage, "model") ?? options.profile?.modelId,
+    params: options.params,
+    costEstimate: numberFromRecord(options.providerUsage, "estimatedCost") ?? undefined
+  };
+}
+
+function dialoguePromptForModel(options: {
+  state: DialogueWorkbenchState;
+  inputs: Array<{ id: string; type: PortKind; sourceNodeId: string; sourcePort?: string; preview: string }>;
+  userText: string;
+}): string {
+  const inputText = options.inputs
+    .filter((input) => input.type !== "conversation_context")
+    .map((input) => `[${input.type}:${input.id}] ${input.preview}`)
+    .join("\n\n");
+  const capsules = options.inputs
+    .filter((input) => input.type === "conversation_context")
+    .map((input) => `[context:${input.id}] ${input.preview}`)
+    .join("\n\n");
+  const recentMessages = options.state.messages.slice(-12).map((message) => `${message.role}: ${message.content.map(partText).join(" ")}`).join("\n");
+  return [
+    capsules ? `Conversation context:\n${capsules}` : "",
+    inputText ? `Connected inputs:\n${inputText}` : "",
+    recentMessages ? `Recent dialogue:\n${recentMessages}` : "",
+    `User message:\n${options.userText}`
+  ].filter(Boolean).join("\n\n");
+}
+
+function modelIdForProfile(profile: ModelProfile): string {
+  if (profile.id.startsWith("openrouter:")) return profile.modelId;
+  if (profile.providerId === "openrouter") return profile.modelId;
+  return profile.id === "text.default" ? "text.default" : profile.modelId;
+}
+
+function providerModeForProfile(profile: ModelProfile): string {
+  if (profile.providerId === "openrouter") return "openrouter";
+  if (profile.providerId === "gemini") return "direct";
+  return "auto";
+}
+
+function firstRunError(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const nodeResults = (result as Record<string, unknown>).nodeResults;
+  if (!nodeResults || typeof nodeResults !== "object") return null;
+  const failed = Object.values(nodeResults as Record<string, unknown>).find((entry) => entry && typeof entry === "object" && (entry as Record<string, unknown>).error);
+  return failed && typeof failed === "object" ? String((failed as Record<string, unknown>).error ?? "") : null;
+}
+
+function stringFromRecord(record: Record<string, unknown> | null | undefined, key: string): string | undefined {
+  const value = record?.[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function numberFromRecord(record: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = record?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function NodeInlineParams({
   type,
   manifest,
@@ -926,6 +1626,7 @@ function NodeInlineParams({
   openRouterModels,
   polzaTextModels,
   polzaImageModels,
+  modelProfiles,
   onRefreshStableDiffusionModels,
   onChange,
   onBrowse,
@@ -944,6 +1645,7 @@ function NodeInlineParams({
   openRouterModels: OpenRouterModel[];
   polzaTextModels: PolzaModel[];
   polzaImageModels: PolzaModel[];
+  modelProfiles: ModelProfile[];
   onRefreshStableDiffusionModels?: (endpoint: string) => void;
   onChange: (patch: Record<string, unknown>) => void;
   onBrowse: (kind: AssetKind) => void;
@@ -1214,6 +1916,22 @@ function NodeInlineParams({
     );
   }
 
+  if (type === "dialogue.workbench") {
+    const state = normalizeDialogueWorkbenchState(params.state, {
+      nodeId: "dialogue",
+      defaultModelProfileId: String(params.defaultModelProfileId ?? "text.default")
+    });
+    const profile = modelProfiles.find((entry) => entry.id === (state.defaultModelProfileId ?? params.defaultModelProfileId));
+    return (
+      <div className="dialogueInlineSummary">
+        <div><span>default model</span><strong>{profile?.displayName ?? String(params.defaultModelProfileId ?? "text.default")}</strong></div>
+        <div><span>messages</span><strong>{state.messages.length}</strong></div>
+        <div><span>selected outputs</span><strong>{state.selectedOutputs.length}</strong></div>
+        <div className="nodeHint">Open the Workbench for messages, pins, outputs, and transcript exports.</div>
+      </div>
+    );
+  }
+
   if (type === "ai.text") {
     const systemPromptConnected = connectedInputPorts.has("systemPrompt");
     const promptConnected = connectedInputPorts.has("prompt");
@@ -1225,7 +1943,7 @@ function NodeInlineParams({
           <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
             <option value="text.default">Auto / default text model</option>
             {openRouterModels.filter((entry) => modelSupportsText(entry)).map((entry) => (
-              <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
+              <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, openRouterModelSupportsVisionInput(entry))}</option>
             ))}
             {model && model !== "text.default" && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
           </select>
@@ -1349,7 +2067,7 @@ function NodeInlineParams({
           <span>model</span>
           <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
             {modelOptions.map((entry) => (
-              <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
+              <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, polzaModelSupportsVisionInput(entry))}</option>
             ))}
           </select>
           <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Text model via Polza.ai")}</small>
@@ -1513,7 +2231,7 @@ function NodeInlineParams({
           >
             {GEMINI_LLM_MODEL_OPTIONS.map((model) => (
               <option key={model.value} value={model.value}>
-                {model.label}
+                {llmModelOptionLabel(model.label, model.value, model.supportsVision)}
               </option>
             ))}
           </select>
@@ -1703,66 +2421,96 @@ function GenericManifestParams({
   onChange: (patch: Record<string, unknown>) => void;
   updateTextParam: (key: string, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>, transform?: (value: string) => unknown) => void;
 }) {
+  const renderParam = (param: NonNullable<NodeManifest["params"]>[number]) => {
+    const control = manifest.ui?.params?.[param.id] ?? {};
+    const value = params[param.id] ?? param.default ?? "";
+    const label = param.label ?? param.id;
+    const options = control.options ?? [];
+    if (options.length > 0 || control.control === "select") {
+      return (
+        <label className="nodeField" key={param.id}>
+          <span>{label}</span>
+          <select className="nodrag nopan nodeInput nodeSelect" value={String(value)} onChange={(event) => onChange({ [param.id]: event.target.value })}>
+            {options.map((option) => {
+              const optionValue = typeof option === "string" ? option : option.value;
+              const optionLabel = typeof option === "string" ? option : option.label ?? option.value;
+              return <option key={optionValue} value={optionValue}>{optionLabel}</option>;
+            })}
+          </select>
+          {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
+        </label>
+      );
+    }
+    if (param.type === "boolean" || control.control === "checkbox") {
+      return (
+        <label className="nodeCheckField" key={param.id}>
+          <input className="nodrag nopan" type="checkbox" checked={Boolean(value)} onChange={(event) => onChange({ [param.id]: event.target.checked })} />
+          <span>{label}</span>
+        </label>
+      );
+    }
+    if (param.type === "number" || control.control === "number") {
+      return (
+        <label className="nodeField" key={param.id}>
+          <span>{label}</span>
+          <input className="nodrag nopan nodeInput" inputMode="decimal" value={String(value)} onChange={(event) => updateTextParam(param.id, event, numericParam)} />
+          {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
+        </label>
+      );
+    }
+    const multiline = control.multiline === true || control.control === "textarea" || param.type === "json" || String(value).length > 80;
+    const textareaSizeClass = control.size === "large" ? "large" : control.size === "compact" ? "compact" : "";
+    return (
+      <label className="nodeField" key={param.id}>
+        <span>{label}</span>
+        {multiline ? (
+          <textarea
+            className={`nodrag nopan nodeTextarea ${textareaSizeClass}`.trim()}
+            value={typeof value === "string" ? value : JSON.stringify(value, null, 2)}
+            placeholder={control.placeholder}
+            onChange={(event) => updateTextParam(param.id, event)}
+          />
+        ) : (
+          <input className="nodrag nopan nodeInput" value={String(value)} placeholder={control.placeholder} onChange={(event) => updateTextParam(param.id, event)} />
+        )}
+        {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
+      </label>
+    );
+  };
+  const visibleParams = (manifest.params ?? []).filter((param) => manifest.ui?.params?.[param.id]?.advanced !== true);
+  const advancedParams = (manifest.params ?? []).filter((param) => manifest.ui?.params?.[param.id]?.advanced === true);
+  const packageMeta = [manifest.author?.name, manifest.version, manifest.origin, manifest.source].filter(Boolean).join(" · ");
+  const renderParamList = (items: NonNullable<NodeManifest["params"]>) => {
+    const rendered: React.ReactNode[] = [];
+    for (let index = 0; index < items.length; index += 1) {
+      const param = items[index];
+      if (manifest.ui?.params?.[param.id]?.layout === "inline" && manifest.ui?.params?.[items[index + 1]?.id ?? ""]?.layout === "inline") {
+        rendered.push(
+          <div className="nodeInlineFields" key={`${param.id}-${items[index + 1].id}`}>
+            {renderParam(param)}
+            {renderParam(items[index + 1])}
+          </div>
+        );
+        index += 1;
+        continue;
+      }
+      rendered.push(renderParam(param));
+    }
+    return rendered;
+  };
   return (
     <>
       {manifest.permissions?.env?.length ? (
         <div className="nodeHint">Requires env: {manifest.permissions.env.join(", ")}</div>
       ) : null}
-      {manifest.params?.map((param) => {
-        const control = manifest.ui?.params?.[param.id] ?? {};
-        const value = params[param.id] ?? param.default ?? "";
-        const label = param.label ?? param.id;
-        const options = control.options ?? [];
-        if (options.length > 0 || control.control === "select") {
-          return (
-            <label className="nodeField" key={param.id}>
-              <span>{label}</span>
-              <select className="nodrag nopan nodeInput nodeSelect" value={String(value)} onChange={(event) => onChange({ [param.id]: event.target.value })}>
-                {options.map((option) => {
-                  const optionValue = typeof option === "string" ? option : option.value;
-                  const optionLabel = typeof option === "string" ? option : option.label ?? option.value;
-                  return <option key={optionValue} value={optionValue}>{optionLabel}</option>;
-                })}
-              </select>
-              {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
-            </label>
-          );
-        }
-        if (param.type === "boolean" || control.control === "checkbox") {
-          return (
-            <label className="nodeCheckField" key={param.id}>
-              <input className="nodrag nopan" type="checkbox" checked={Boolean(value)} onChange={(event) => onChange({ [param.id]: event.target.checked })} />
-              <span>{label}</span>
-            </label>
-          );
-        }
-        if (param.type === "number" || control.control === "number") {
-          return (
-            <label className="nodeField" key={param.id}>
-              <span>{label}</span>
-              <input className="nodrag nopan nodeInput" inputMode="decimal" value={String(value)} onChange={(event) => updateTextParam(param.id, event, numericParam)} />
-              {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
-            </label>
-          );
-        }
-        const multiline = control.multiline === true || control.control === "textarea" || param.type === "json" || String(value).length > 80;
-        return (
-          <label className="nodeField" key={param.id}>
-            <span>{label}</span>
-            {multiline ? (
-              <textarea
-                className="nodrag nopan nodeTextarea"
-                value={typeof value === "string" ? value : JSON.stringify(value, null, 2)}
-                placeholder={control.placeholder}
-                onChange={(event) => updateTextParam(param.id, event)}
-              />
-            ) : (
-              <input className="nodrag nopan nodeInput" value={String(value)} placeholder={control.placeholder} onChange={(event) => updateTextParam(param.id, event)} />
-            )}
-            {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
-          </label>
-        );
-      })}
+      {renderParamList(visibleParams)}
+      {advancedParams.length > 0 || packageMeta ? (
+        <details className="nodeAdvanced compact">
+          <summary>Advanced</summary>
+          {packageMeta ? <div className="nodeMetaLine nodePackageMetaLine">{packageMeta}</div> : null}
+          {renderParamList(advancedParams)}
+        </details>
+      ) : null}
     </>
   );
 }
@@ -1872,26 +2620,34 @@ function NodeInlineResult({
   result,
   onOpenImage,
   onImageResultContextMenu,
-  onFixNodeOutput
+  onFixNodeOutput,
+  onConfigureMissingSecret
 }: {
   nodeId: string;
   type: string;
   result: NodeRunResult;
   onOpenImage?: (image: ImageViewerState) => void;
   onImageResultContextMenu?: (event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void;
-  onFixNodeOutput?: (nodeId: string, output: unknown) => void;
+  onFixNodeOutput?: (nodeId: string, output: unknown, options?: FixNodeOutputOptions) => void;
+  onConfigureMissingSecret?: () => void;
 }) {
-  const imageSrc = imagePreviewSrc(result.output);
+  const previewVersion = result.completedAt ?? result.startedAt ?? "";
+  const imageSrc = versionedAssetPreviewSrc(imagePreviewSrc(result.output), previewVersion);
   const cost = costLabel(result.output);
   const statusText = result.status && result.status !== "succeeded" ? result.status : null;
   const imageTitle = imageLabel(result.output);
-  const panoramaSrc = type === "preview.panorama360" ? panoramaSourceSrc(result.output) ?? imageSrc : null;
+  const panoramaSrc = type === "preview.panorama360" ? versionedAssetPreviewSrc(panoramaSourceSrc(result.output), previewVersion) ?? imageSrc : null;
   if (type === "preview.panorama360" && panoramaSrc) {
     return (
       <div className={`nodeResult panoramaResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
         {cost ? <span className="nodeCost">{cost}</span> : null}
-        <Panorama360Viewer src={panoramaSrc} title={imageTitle} filename={downloadFilename(result.output)} onFixFrame={(output) => onFixNodeOutput?.(nodeId, output)} />
+        <Panorama360Viewer
+          src={panoramaSrc}
+          title={imageTitle}
+          filename={downloadFilename(result.output)}
+          onFixFrame={(output) => onFixNodeOutput?.(nodeId, output, { persist: false, logMessage: `Fixed current panorama frame for ${nodeId}.` })}
+        />
         <pre>{truncateText(imageTitle, 220)}</pre>
       </div>
     );
@@ -1916,6 +2672,9 @@ function NodeInlineResult({
           <a className="nodeImageActionButton nodrag nopan" href={imageSrc} download={downloadFilename(result.output)} title="Download image">
             <Download size={14} />
           </a>
+          <button className="nodeImageActionButton nodrag nopan" type="button" title="Pin output for this project" onClick={(event) => { event.stopPropagation(); onFixNodeOutput?.(nodeId, result.output); }}>
+            <Pin size={14} />
+          </button>
         </div>
         <button
           className="nodeImagePreviewButton nodrag nopan"
@@ -1944,6 +2703,8 @@ function NodeInlineResult({
       {statusText ? <div>{statusText}</div> : null}
       {cost ? <span className="nodeCost">{cost}</span> : null}
       {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : <pre>{preview}</pre>}
+      {result.status === "failed" && onConfigureMissingSecret ? <button className="nodeSmallButton nodrag nopan" onClick={onConfigureMissingSecret}><KeyRound size={14} /> Configure key</button> : null}
+      {result.status === "succeeded" && result.output !== undefined ? <button className="nodeSmallButton nodrag nopan" onClick={() => onFixNodeOutput?.(nodeId, result.output)}><Pin size={14} /> Pin output</button> : null}
     </div>
   );
 }
@@ -2099,6 +2860,111 @@ function statusClass(status?: string): string {
   return "";
 }
 
+function readyInputNodeResult(routeNode: RouteDoc["nodes"][number], current?: NodeRunResult): NodeRunResult | undefined {
+  if (current?.status === "failed") return current;
+  const pinnedOutput = pinnedOutputFromParams(routeNode.params);
+  if (pinnedOutput !== undefined) {
+    return {
+      ...current,
+      status: "succeeded",
+      output: pinnedOutput,
+      logs: ["Using pinned output"]
+    };
+  }
+  if (routeNode.type === "input.text") return { ...current, status: "succeeded" };
+  if (routeNode.type === "library.prompt") {
+    const mode = String(routeNode.params?.mode ?? "linked");
+    if (mode === "embedded") return String(routeNode.params?.embeddedText ?? "").trim() ? { ...current, status: "succeeded" } : current;
+    return String(routeNode.params?.category ?? "").trim() && String(routeNode.params?.promptId ?? "").trim() ? { ...current, status: "succeeded" } : current;
+  }
+  if (routeNode.type === "input.file" || routeNode.type === "input.image" || routeNode.type === "input.video") {
+    return String(routeNode.params?.path ?? "").trim() ? { ...current, status: "succeeded" } : current;
+  }
+  return current;
+}
+
+function readyNodeResult(
+  routeNode: RouteDoc["nodes"][number],
+  current: NodeRunResult | undefined,
+  nodes: Node[],
+  edges: Edge[],
+  runResult: RunDisplayResult | null
+): NodeRunResult | undefined {
+  if (routeNode.type === "preview.image" || routeNode.type === "preview.panorama360") {
+    return readyPreviewNodeResult(routeNode, current, nodes, edges, runResult);
+  }
+  return readyInputNodeResult(routeNode, current);
+}
+
+function readyPreviewNodeResult(
+  routeNode: RouteDoc["nodes"][number],
+  current: NodeRunResult | undefined,
+  nodes: Node[],
+  edges: Edge[],
+  runResult: RunDisplayResult | null
+): NodeRunResult | undefined {
+  const input = readyPreviewImageInput(routeNode, nodes, edges, runResult);
+  if (input === undefined) return current;
+  const inputSrc = imagePreviewSrc(input.value);
+  const currentPanoramaSource = panoramaSourceSrc(current?.output);
+  const inputMatchesFixedSource = Boolean(inputSrc && currentPanoramaSource && inputSrc === currentPanoramaSource);
+  if (routeNode.type === "preview.panorama360" && inputMatchesFixedSource && hasFixedPanoramaFrame(current?.output) && (!input.completedAt || !current?.completedAt || input.completedAt <= current.completedAt)) {
+    return current;
+  }
+  const completedAt = input.completedAt ?? current?.completedAt ?? current?.startedAt;
+  return {
+    ...current,
+    status: "succeeded",
+    output: routeNode.type === "preview.panorama360" ? { image: input.value, panorama: { projection: "equirectangular" } } : { image: input.value },
+    startedAt: input.startedAt ?? current?.startedAt ?? completedAt,
+    completedAt
+  };
+}
+
+function readyPreviewImageInput(
+  routeNode: RouteDoc["nodes"][number],
+  nodes: Node[],
+  edges: Edge[],
+  runResult: RunDisplayResult | null
+): { value: unknown; startedAt?: string; completedAt?: string } | undefined {
+  const paramImage = routeNode.params?.image;
+  if (imagePreviewSrc(paramImage)) return { value: paramImage };
+  const incoming = edges.find((edge) => edge.target === routeNode.id && (!edge.targetHandle || edge.targetHandle === "image"));
+  if (!incoming) return undefined;
+  const sourceNode = nodes.find((node) => node.id === incoming.source)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+  const sourceResult = runResult?.nodeResults?.[incoming.source];
+  const pinnedOutput = pinnedOutputFromParams(sourceNode?.params);
+  const sourceOutput = sourceResult?.output !== undefined ? sourceResult.output : pinnedOutput;
+  const value = readPreviewPort(sourceOutput, incoming.sourceHandle) ?? sourceParamPreview(sourceNode, incoming.sourceHandle);
+  return imagePreviewSrc(value) ? { value, startedAt: sourceResult?.startedAt, completedAt: sourceResult?.completedAt } : undefined;
+}
+
+function hasFixedPanoramaFrame(output: unknown): boolean {
+  if (!output || typeof output !== "object" || Array.isArray(output)) return false;
+  const panorama = (output as Record<string, unknown>).panorama;
+  return Boolean(panorama && typeof panorama === "object" && !Array.isArray(panorama) && (panorama as Record<string, unknown>).fixedFrame);
+}
+
+function pinnedOutputFromParams(params: Record<string, unknown> | undefined): unknown {
+  if (!params || !Object.prototype.hasOwnProperty.call(params, "pinnedOutput")) return undefined;
+  return params.pinnedOutput;
+}
+
+function pinnedInitialNodeOutputs(nodes: RouteDoc["nodes"]): Record<string, unknown> {
+  return Object.fromEntries(
+    nodes.flatMap((node) => {
+      const output = pinnedOutputFromParams(node.params);
+      return output === undefined ? [] : [[node.id, output]];
+    })
+  );
+}
+
+function configureHandlerForError(message: string | undefined, handlers: Record<string, (() => void) | undefined>): (() => void) | undefined {
+  if (!message) return undefined;
+  const key = Object.keys(handlers).find((candidate) => message.includes(candidate));
+  return key ? handlers[key] : undefined;
+}
+
 const nodeTypes = {
   interface: InterfaceNodeCard,
   route: RouteNodeCard
@@ -2137,7 +3003,7 @@ function InterfaceNodeCard({ data }: NodeProps) {
   );
 }
 
-type PortKind = "text" | "image" | "video" | "file" | "json" | "data";
+type PortKind = "text" | "image" | "video" | "file" | "json" | "data" | "conversation_context";
 
 type ImageViewerState = {
   src: string;
@@ -2225,6 +3091,15 @@ type PortSpec = {
   maxConnections?: number;
 };
 
+type DialogueConnectedInput = {
+  id: string;
+  type: PortKind;
+  sourceNodeId: string;
+  sourcePort?: string;
+  preview: string;
+  value: unknown;
+};
+
 function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDoc["nodes"][number]): { inputs: PortSpec[]; outputs: PortSpec[] } {
   if (type === "compound.subroute") {
     return {
@@ -2234,7 +3109,7 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
   }
   if (manifest && !isKnownBuiltInPortType(type)) {
     return {
-      inputs: manifest.inputs.map((port) => ({ id: port.id, kind: portKindFromManifest(port.type), label: port.label })),
+      inputs: manifest.inputs.map((port) => manifestInputPortSpec(port)),
       outputs: manifest.outputs.map((port) => ({ id: port.id, kind: portKindFromManifest(port.type), label: port.label }))
     };
   }
@@ -2243,6 +3118,26 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
   if (type === "input.image") return { inputs: [], outputs: [{ id: "image", kind: "image" }] };
   if (type === "input.video") return { inputs: [], outputs: [{ id: "video", kind: "video" }] };
   if (type === "library.prompt") return { inputs: [], outputs: [{ id: "text", kind: "text" }] };
+  if (type === "dialogue.workbench") {
+    const selectedOutputs = normalizeDialogueWorkbenchState(routeNode?.params?.state, {
+      nodeId: routeNode?.id ?? "dialogue",
+      defaultModelProfileId: String(routeNode?.params?.defaultModelProfileId ?? "text.default")
+    }).selectedOutputs;
+    return {
+      inputs: [
+        { id: "text", kind: "text", label: "Text", maxConnections: 12 },
+        { id: "image", kind: "image", label: "Image", maxConnections: 12 },
+        { id: "json", kind: "json", label: "JSON", maxConnections: 12 },
+        { id: "context", kind: "conversation_context", label: "Context", maxConnections: 12 }
+      ],
+      outputs: [
+        { id: "conversation_text", kind: "text", label: "conversation_text" },
+        { id: "conversation_json", kind: "json", label: "conversation_json" },
+        { id: "conversation_capsule", kind: "conversation_context", label: "conversation_capsule" },
+        ...selectedOutputs.map((output) => ({ id: output.id, kind: portKindFromDialogueOutput(output.type), label: `${output.name}${output.status === "locked" ? " locked" : ""}` }))
+      ]
+    };
+  }
   if (type === "text.promptCompose") {
     return {
       inputs: [
@@ -2284,7 +3179,8 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
     return {
       inputs: [
         { id: "systemPrompt", kind: "text", label: "system" },
-        { id: "prompt", kind: "text" }
+        { id: "prompt", kind: "text" },
+        { id: "images", kind: "image", label: "Images", maxConnections: 14 }
       ],
       outputs: [
         { id: "text", kind: "text" },
@@ -2323,7 +3219,8 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
     return {
       inputs: [
         { id: "systemPrompt", kind: "text", label: "system" },
-        { id: "prompt", kind: "text" }
+        { id: "prompt", kind: "text" },
+        { id: "images", kind: "image", label: "Images", maxConnections: 14 }
       ],
       outputs: [
         { id: "text", kind: "text" },
@@ -2343,12 +3240,47 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
       ]
     };
   }
+  if (type === "polza.image.generate") {
+    return {
+      inputs: [
+        { id: "images", kind: "image", maxConnections: 14 },
+        { id: "prompt", kind: "text" }
+      ],
+      outputs: [
+        { id: "image", kind: "image" },
+        { id: "output", kind: "json", label: "JSON" }
+      ]
+    };
+  }
+  if (type === "polza.text") {
+    return {
+      inputs: [
+        { id: "systemPrompt", kind: "text", label: "system" },
+        { id: "prompt", kind: "text" },
+        { id: "images", kind: "image", label: "Images", maxConnections: 14 }
+      ],
+      outputs: [
+        { id: "text", kind: "text" },
+        { id: "output", kind: "json", label: "JSON" }
+      ]
+    };
+  }
   if (type === "replicate.model") return { inputs: [{ id: "input", kind: "json", label: "JSON" }], outputs: [{ id: "output", kind: "json", label: "JSON" }] };
   if (type === "output.text") return { inputs: [{ id: "from", kind: "text" }], outputs: [{ id: "text", kind: "text" }] };
   if (type === "output.file") return { inputs: [{ id: "from", kind: "text" }], outputs: [] };
   if (type === "transform.template") return { inputs: [{ id: "template", kind: "text" }], outputs: [{ id: "text", kind: "text" }] };
   if (type === "debug.log") return { inputs: [{ id: "value", kind: "json", label: "JSON" }], outputs: [{ id: "value", kind: "json", label: "JSON" }] };
   return { inputs: [{ id: "input", kind: "json", label: "JSON" }], outputs: [{ id: "output", kind: "json", label: "JSON" }] };
+}
+
+function manifestInputPortSpec(port: NodeManifest["inputs"][number]): PortSpec {
+  const kind = portKindFromManifest(port.type);
+  return {
+    id: port.id,
+    kind,
+    label: port.label,
+    maxConnections: port.id === "images" && kind === "image" ? 14 : undefined
+  };
 }
 
 function isKnownBuiltInPortType(type: string): boolean {
@@ -2364,9 +3296,163 @@ function isCompoundInterfaceNode(node: Node): boolean {
 }
 
 function portKindFromManifest(value: string): PortKind {
-  if (value === "text" || value === "image" || value === "video" || value === "file" || value === "json" || value === "data") return value;
+  if (value === "text" || value === "image" || value === "video" || value === "file" || value === "json" || value === "data" || value === "conversation_context") return value;
   if (value === "number" || value === "boolean") return "data";
   return "json";
+}
+
+function portKindFromDialogueOutput(type: DialogueOutputType): PortKind {
+  if (type === "text" || type === "image" || type === "file" || type === "json") return type;
+  return "json";
+}
+
+function uniqueOutputId(outputs: DialogueSelectedOutput[], name: string): string {
+  const base = (name.trim() || "output").replace(/[^A-Za-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "output";
+  const used = new Set(outputs.map((output) => output.id));
+  if (!used.has(base)) return base;
+  let index = 2;
+  while (used.has(`${base}_${index}`)) index += 1;
+  return `${base}_${index}`;
+}
+
+function partText(part: DialogueContentPart): string {
+  if (part.type === "text") return part.text;
+  if (part.type === "image") return part.assetRef;
+  if (part.type === "file") return part.assetRef;
+  return JSON.stringify(part.value);
+}
+
+function parseJsonOrText(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function modelLabel(profileId: string, profiles: ModelProfile[], message: DialogueMessage): string {
+  const profile = profiles.find((entry) => entry.id === profileId);
+  if (profile) return `${profile.displayName} · ${profile.providerId}/${profile.modelId}`;
+  return [profileId, message.actualProviderId, message.actualModelId].filter(Boolean).join(" · ");
+}
+
+function buildStudioModelProfiles(openRouterModels: OpenRouterModel[], polzaTextModels: PolzaModel[], polzaImageModels: PolzaModel[]): ModelProfile[] {
+  const dynamicOpenRouter = openRouterModels.slice(0, 80).map((model): ModelProfile => ({
+    id: `openrouter:${model.id}`,
+    displayName: model.name ? `${model.name} (OpenRouter)` : model.id,
+    providerId: "openrouter",
+    modelId: model.id,
+    capabilities: openRouterModelCapabilities(model),
+    costClass: "unknown",
+    privacyClass: "external"
+  }));
+  const dynamicPolza = [...polzaTextModels, ...polzaImageModels].slice(0, 80).map((model): ModelProfile => ({
+    id: `polza:${model.id}`,
+    displayName: model.name ? `${model.name} (Polza)` : model.id,
+    providerId: "polza",
+    modelId: model.id,
+    capabilities: [...new Set<ModelProfile["capabilities"][number]>([
+      "text",
+      ...(polzaModelSupportsVisionInput(model) ? ["vision" as const] : []),
+      ...(model.type === "image" ? ["image_generation" as const] : ["json_output" as const])
+    ])],
+    costClass: "unknown",
+    privacyClass: "external"
+  }));
+  const byId = new Map([...DEFAULT_MODEL_PROFILES, ...dynamicOpenRouter, ...dynamicPolza].map((profile) => [profile.id, profile]));
+  return [...byId.values()];
+}
+
+function isDialogueModelProfile(profile: ModelProfile): boolean {
+  const capabilities = new Set(profile.capabilities);
+  if (capabilities.has("text") || capabilities.has("vision") || capabilities.has("json_output") || capabilities.has("tool_calling")) return true;
+  return !capabilities.has("image_generation") && !capabilities.has("video_generation") && !capabilities.has("audio");
+}
+
+function filterDialogueModelProfiles(profiles: ModelProfile[], query: string): ModelProfile[] {
+  const normalized = query.trim().toLowerCase();
+  const selected = normalized
+    ? profiles.filter((profile) =>
+        [
+          profile.displayName,
+          profile.id,
+          profile.providerId,
+          profile.modelId,
+          profile.costClass,
+          profile.privacyClass,
+          ...(profile.capabilities ?? [])
+        ].some((value) => String(value ?? "").toLowerCase().includes(normalized))
+      )
+    : profiles;
+  return [...selected].sort((left, right) => modelSortScore(right) - modelSortScore(left) || left.displayName.localeCompare(right.displayName));
+}
+
+function modelSortScore(profile: ModelProfile): number {
+  let score = 0;
+  if (profile.capabilities.includes("vision")) score += 8;
+  if (profile.capabilities.includes("text")) score += 4;
+  if (profile.providerId === "openrouter") score += 2;
+  if (profile.id === "text.default") score += 20;
+  return score;
+}
+
+function openRouterModelCapabilities(model: OpenRouterModel): ModelProfile["capabilities"] {
+  const input = model.architecture?.input_modalities ?? [];
+  const output = model.architecture?.output_modalities ?? [];
+  const capabilities: ModelProfile["capabilities"] = ["text"];
+  if (input.includes("image")) capabilities.push("vision");
+  if (output.includes("image")) capabilities.push("image_generation");
+  if (model.supported_parameters?.includes("tools")) capabilities.push("tool_calling");
+  if (model.supported_parameters?.includes("response_format")) capabilities.push("json_output");
+  return [...new Set(capabilities)];
+}
+
+function connectedInputSummaries(
+  nodeId: string,
+  nodes: Node[],
+  edges: Edge[],
+  runResult: RunDisplayResult | null,
+  nodeCatalog: NodeCatalogItem[]
+): DialogueConnectedInput[] {
+  return edges
+    .filter((edge) => edge.target === nodeId)
+    .map((edge) => {
+      const sourceNode = nodes.find((node) => node.id === edge.source);
+      const sourceRouteNode = sourceNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+      const sourceManifest = sourceRouteNode ? nodeCatalog.find((entry) => entry.type === sourceRouteNode.type)?.manifest : undefined;
+      const sourcePort = sourceRouteNode ? getNodePorts(sourceRouteNode.type, sourceManifest, sourceRouteNode).outputs.find((port) => port.id === edge.sourceHandle) : undefined;
+      const value = readPreviewPort(runResult?.nodeResults?.[edge.source]?.output, edge.sourceHandle) ?? sourceParamPreview(sourceRouteNode, edge.sourceHandle);
+      return {
+        id: edge.targetHandle ?? edge.source,
+        type: edge.targetHandle === "context" ? "conversation_context" : sourcePort?.kind ?? "json",
+        sourceNodeId: edge.source,
+        sourcePort: edge.sourceHandle ?? undefined,
+        preview: previewValue(value),
+        value
+      };
+    });
+}
+
+function readPreviewPort(output: unknown, port?: string | null): unknown {
+  if (!output || !port) return output;
+  if (output && typeof output === "object" && port in output) return (output as Record<string, unknown>)[port];
+  return output;
+}
+
+function sourceParamPreview(node: RouteDoc["nodes"][number] | undefined, port?: string | null): unknown {
+  if (!node) return "";
+  if (node.type === "input.text") return node.params?.value ?? "";
+  if (node.type === "input.image" || node.type === "input.file" || node.type === "input.video") return node.params?.path ?? "";
+  if (node.type === "dialogue.workbench" && port === "conversation_capsule") {
+    const state = normalizeDialogueWorkbenchState(node.params?.state, { nodeId: node.id, defaultModelProfileId: String(node.params?.defaultModelProfileId ?? "text.default") });
+    return buildDialogueWorkbenchOutputs({ nodeId: node.id, nodeTitle: node.title, state }).conversation_capsule;
+  }
+  return node.params ?? "";
+}
+
+function previewValue(value: unknown): string {
+  if (typeof value === "string") return value.length > 700 ? `${value.slice(0, 697)}...` : value;
+  return JSON.stringify(value ?? "", null, 2).slice(0, 900);
 }
 
 function defaultParamsFromManifest(manifest?: NodeManifest): Record<string, unknown> {
@@ -2578,6 +3664,9 @@ function routeToEditableSubrouteFlow(route: RouteDoc, compound: RouteDoc["nodes"
   const flow = routeToFlow(route);
   const usedNodeIds = new Set(flow.nodes.map((node) => node.id));
   const usedEdgeIds = new Set(flow.edges.map((edge) => edge.id));
+  const xPositions = flow.nodes.map((node) => node.position.x);
+  const minX = xPositions.length ? Math.min(...xPositions) : 80;
+  const maxX = xPositions.length ? Math.max(...xPositions) : 480;
   const inputNodes = (compound.compound?.inputs ?? []).map((port, index) => {
     const id = uniqueFlowId(`input_${port.id}`, usedNodeIds);
     const routeNode: RouteDoc["nodes"][number] = {
@@ -2585,7 +3674,7 @@ function routeToEditableSubrouteFlow(route: RouteDoc, compound: RouteDoc["nodes"
       type: "compound.input",
       title: port.label ?? port.id,
       params: { portId: port.id, kind: port.kind ?? "data" },
-      ui: { x: -260, y: 80 + index * 120 }
+      ui: { x: minX - 340, y: 80 + index * 120 }
     };
     return { id, type: "interface", position: { x: Number(routeNode.ui?.x), y: Number(routeNode.ui?.y) }, data: { label: `${routeNode.title}\n${routeNode.type}`, routeNode } } as Node;
   });
@@ -2596,7 +3685,7 @@ function routeToEditableSubrouteFlow(route: RouteDoc, compound: RouteDoc["nodes"
       type: "compound.output",
       title: port.label ?? port.id,
       params: { portId: port.id, kind: port.kind ?? "data" },
-      ui: { x: 760, y: 80 + index * 120 }
+      ui: { x: maxX + 340, y: 80 + index * 120 }
     };
     return { id, type: "interface", position: { x: Number(routeNode.ui?.x), y: Number(routeNode.ui?.y) }, data: { label: `${routeNode.title}\n${routeNode.type}`, routeNode } } as Node;
   });
@@ -2604,13 +3693,13 @@ function routeToEditableSubrouteFlow(route: RouteDoc, compound: RouteDoc["nodes"
     const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
     const port = (compound.compound?.inputs ?? []).find((entry) => entry.id === routeNode.params?.portId);
     if (!port) return [];
-    return [{
-      id: uniqueFlowId(`${node.id}-${port.nodeId}-${port.port ?? "input"}`, usedEdgeIds),
+    return compoundMappingTargets(port).map((target) => ({
+      id: uniqueFlowId(`${node.id}-${target.nodeId}-${target.port ?? "input"}`, usedEdgeIds),
       source: node.id,
       sourceHandle: "value",
-      target: port.nodeId,
-      targetHandle: port.port ?? null
-    } as Edge];
+      target: target.nodeId,
+      targetHandle: target.port ?? null
+    } as Edge));
   });
   const outputEdges = outputNodes.flatMap((node) => {
     const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
@@ -2730,6 +3819,53 @@ function uniqueCompoundMappings(mappings: CompoundPortMapping[]): CompoundPortMa
   });
 }
 
+function compoundMappingTargets(mapping: CompoundPortMapping): Array<{ nodeId: string; port?: string }> {
+  const targets = mapping.targets && mapping.targets.length > 0 ? mapping.targets : [{ nodeId: mapping.nodeId, port: mapping.port }];
+  const seen = new Set<string>();
+  return targets.filter((target) => {
+    const key = `${target.nodeId}:${target.port ?? "input"}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function mergeCompoundInputMappings(mappings: CompoundPortMapping[], keyOf: (mapping: CompoundPortMapping, index: number) => string): CompoundPortMapping[] {
+  const usedIds = new Set<string>();
+  const merged: CompoundPortMapping[] = [];
+  const indexByKey = new Map<string, number>();
+
+  for (const [index, mapping] of mappings.entries()) {
+    const key = keyOf(mapping, index);
+    const existingIndex = indexByKey.get(key);
+    if (existingIndex === undefined) {
+      const id = uniqueFlowId(String(mapping.id || mapping.nodeId).replace(/\W+/g, "_") || "input", usedIds);
+      const targets = compoundMappingTargets(mapping);
+      indexByKey.set(key, merged.length);
+      merged.push({ ...mapping, id, nodeId: targets[0]?.nodeId ?? mapping.nodeId, port: targets[0]?.port ?? mapping.port, targets: targets.length > 1 ? targets : undefined });
+      continue;
+    }
+
+    const existing = merged[existingIndex];
+    const targets = compoundMappingTargets({ ...existing, targets: [...compoundMappingTargets(existing), ...compoundMappingTargets(mapping)] });
+    merged[existingIndex] = { ...existing, nodeId: targets[0]?.nodeId ?? existing.nodeId, port: targets[0]?.port ?? existing.port, targets: targets.length > 1 ? targets : undefined };
+  }
+
+  return merged;
+}
+
+function uniqueCompoundMappingsByKey(mappings: CompoundPortMapping[], keyOf: (mapping: CompoundPortMapping) => string): CompoundPortMapping[] {
+  const usedIds = new Set<string>();
+  const seenKeys = new Set<string>();
+  return mappings.flatMap((mapping) => {
+    const key = keyOf(mapping);
+    if (seenKeys.has(key)) return [];
+    seenKeys.add(key);
+    const id = uniqueFlowId(String(mapping.id || mapping.nodeId).replace(/\W+/g, "_") || "port", usedIds);
+    return [{ ...mapping, id }];
+  });
+}
+
 function chooseCompoundPorts(label: string, defaults: CompoundPortMapping[]): CompoundPortMapping[] | null {
   if (defaults.length === 0) return [];
   const value = window.prompt(label, defaults.map((port) => port.id).join(", "));
@@ -2793,6 +3929,7 @@ function nodeIcon(type: string) {
   if (type === "input.image") return <ImageIcon size={15} />;
   if (type === "input.video") return <Video size={15} />;
   if (type === "library.prompt") return <BookOpen size={15} />;
+  if (type === "dialogue.workbench") return <MessageSquareText size={15} />;
   if (type === "text.promptCompose") return <Braces size={15} />;
   if (type === "compound.input") return <ChevronRight size={15} />;
   if (type === "compound.output") return <ChevronLeft size={15} />;
@@ -2804,6 +3941,7 @@ function nodeIcon(type: string) {
   if (type === "polza.image.generate") return <ImageIcon size={15} />;
   if (type === "ai.text") return <Type size={15} />;
   if (type === "ai.image.generate") return <ImageIcon size={15} />;
+  if (type.includes("seedance")) return <Film size={15} />;
   if (type === "gemini.nano-banana-2") return <Sparkles size={15} />;
   if (type === "local.stableDiffusion.textToImage") return <Cpu size={15} />;
   if (type === "http.request") return <Globe size={15} />;
@@ -2817,11 +3955,13 @@ function nodeIcon(type: string) {
 }
 
 function nodeIconClass(type: string): string {
+  if (type.includes("seedance")) return "seedance";
   if (type.startsWith("input.")) return "input";
   if (type.startsWith("ai.")) return "gemini";
   if (type.startsWith("polza.")) return "polza";
   if (type === "compound.input") return "input";
   if (type.startsWith("library.")) return "transform";
+  if (type.startsWith("dialogue.")) return "dialogue";
   if (type.startsWith("text.")) return "transform";
   if (type.startsWith("output.")) return "output";
   if (type === "compound.output") return "output";
@@ -2886,7 +4026,7 @@ function flowToCompoundInterface(nodes: Node[], edges: Edge[], nodeCatalog: Node
     const id = String(targetRouteNode.params?.portId ?? targetRouteNode.id);
     return [{ id, label: targetRouteNode.title ?? id, kind: sourcePort?.kind ?? String(targetRouteNode.params?.kind ?? "data"), nodeId: edge.source, port: edge.sourceHandle ?? "output" }];
   });
-  return { inputs: uniqueCompoundMappings(inputMappings), outputs: uniqueCompoundMappings(outputMappings) };
+  return { inputs: mergeCompoundInputMappings(inputMappings, (mapping) => mapping.id), outputs: uniqueCompoundMappings(outputMappings) };
 }
 
 function routeSnapshot(route: RouteDoc): string {
@@ -2998,6 +4138,77 @@ function flowToNodeRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc, targ
   );
 }
 
+function useBlinkingFavicon(active: boolean) {
+  useEffect(() => {
+    const favicon = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+    if (!favicon) return undefined;
+
+    if (!active) {
+      favicon.href = STUDIO_FAVICON_HREF;
+      return undefined;
+    }
+
+    const image = new Image();
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    let intervalId = 0;
+    let stopped = false;
+
+    canvas.width = 64;
+    canvas.height = 64;
+
+    const drawFrame = (lit: boolean) => {
+      if (stopped || !context) return;
+      const glowAlpha = lit ? 0.9 : 0.12;
+      const lampAlpha = lit ? 1 : 0.22;
+
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      context.save();
+      context.globalAlpha = glowAlpha;
+      context.fillStyle = "#f59e0b";
+      context.beginPath();
+      context.arc(50, 14, 14, 0, Math.PI * 2);
+      context.fill();
+      context.restore();
+
+      context.save();
+      context.globalAlpha = lampAlpha;
+      context.fillStyle = "#fde047";
+      context.strokeStyle = "#92400e";
+      context.lineWidth = 3;
+      context.beginPath();
+      context.arc(50, 14, 9, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+      context.restore();
+
+      favicon.href = canvas.toDataURL("image/png");
+    };
+
+    image.onload = () => {
+      if (stopped) return;
+      let lit = true;
+      drawFrame(lit);
+      intervalId = window.setInterval(() => {
+        lit = !lit;
+        drawFrame(lit);
+      }, 650);
+    };
+    image.onerror = () => {
+      favicon.href = STUDIO_FAVICON_HREF;
+    };
+    image.src = STUDIO_FAVICON_HREF;
+
+    return () => {
+      stopped = true;
+      if (intervalId) window.clearInterval(intervalId);
+      favicon.href = STUDIO_FAVICON_HREF;
+    };
+  }, [active]);
+}
+
 function App() {
   const initialRouteState = useMemo(() => loadInitialRoute(), []);
   const initial = useMemo(() => routeToFlow(initialRouteState.route), [initialRouteState.route]);
@@ -3018,6 +4229,9 @@ function App() {
   const [openAiToken, setOpenAiToken] = useState("");
   const [openAiConfigured, setOpenAiConfigured] = useState(false);
   const [openAiMaskedKey, setOpenAiMaskedKey] = useState("");
+  const [seedanceToken, setSeedanceToken] = useState("");
+  const [seedanceConfigured, setSeedanceConfigured] = useState(false);
+  const [seedanceMaskedKey, setSeedanceMaskedKey] = useState("");
   const [polzaToken, setPolzaToken] = useState("");
   const [polzaConfigured, setPolzaConfigured] = useState(false);
   const [polzaMaskedKey, setPolzaMaskedKey] = useState("");
@@ -3058,6 +4272,7 @@ function App() {
   const [exampleMenuOpen, setExampleMenuOpen] = useState(false);
   const [docsMenuOpen, setDocsMenuOpen] = useState(false);
   const [activeDoc, setActiveDoc] = useState<StudioDocEntry | null>(null);
+  const [activeDialogueWorkbenchId, setActiveDialogueWorkbenchId] = useState<string | null>(null);
   const [loadedRouteSnapshot, setLoadedRouteSnapshot] = useState(() => routeSnapshot(initialRouteState.route));
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
@@ -3077,7 +4292,12 @@ function App() {
   const [promptAssetSaving, setPromptAssetSaving] = useState(false);
   const [routeStack, setRouteStack] = useState<SubrouteFrame[]>([]);
 
+  useBlinkingFavicon(runResult?.status === "running");
+
   const selectedNode = nodes.find((node) => node.id === selectedId);
+  const activeDialogueRouteNode = activeDialogueWorkbenchId
+    ? nodes.find((node) => node.id === activeDialogueWorkbenchId)?.data.routeNode as RouteDoc["nodes"][number] | undefined
+    : undefined;
   const contextNode = contextMenu?.nodeId ? nodes.find((node) => node.id === contextMenu.nodeId) : null;
   const contextRouteNode = contextNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
@@ -3132,6 +4352,12 @@ function App() {
         return leftStatus - rightStatus || left.order - right.order || left.node.title.localeCompare(right.node.title);
       });
   }, [installedNodes, libraryNodeMetadata, librarySearch, librarySortMode, libraryStatusFilter]);
+  const modelProfiles = useMemo(() => buildStudioModelProfiles(openRouterModels, polzaTextModels, polzaImageModels), [openRouterModels, polzaTextModels, polzaImageModels]);
+  const agentPresets = DEFAULT_AGENT_PRESETS;
+  const activeDialogueInputs = useMemo(
+    () => activeDialogueWorkbenchId ? connectedInputSummaries(activeDialogueWorkbenchId, nodes, edges, runResult, nodeCatalog) : [],
+    [activeDialogueWorkbenchId, nodes, edges, runResult, nodeCatalog]
+  );
   const routeBreadcrumbs = useMemo(
     () =>
       routeStack.map((frame) => {
@@ -3153,6 +4379,7 @@ function App() {
           onConfigureReplicate: openReplicateSettings,
           onConfigureGemini: openGeminiSettings,
           onConfigureOpenAi: openOpenAiSettings,
+          onConfigureSeedance: openSeedanceSettings,
           onConfigurePolza: openPolzaSettings,
           onConfigureOpenRouter: openOpenRouterSettings,
           onOpenImage: setImageViewer,
@@ -3161,6 +4388,7 @@ function App() {
           onRunNodeOnly: runNodeOnly,
           onRunNodeWithDependencies: runNodeWithDependencies,
           onOpenSubroute: openSubroute,
+          onOpenDialogueWorkbench: openDialogueWorkbench,
           onUncollapse: uncollapseCompoundNode,
           onRefreshPromptLibrary: refreshPromptLibraryData,
           promptStatusFilter: promptLibraryStatusFilter,
@@ -3173,16 +4401,18 @@ function App() {
           stableDiffusionModels,
           openRouterConfigured: openRouterSettings.configured,
           openRouterModels,
+          modelProfiles,
           polzaConfigured,
           polzaTextModels,
           polzaImageModels,
           openAiConfigured,
+          seedanceConfigured,
           replicateConfigured,
           geminiConfigured,
-          result: runResult?.nodeResults?.[node.id]
+          result: readyNodeResult(node.data.routeNode as RouteDoc["nodes"][number], runResult?.nodeResults?.[node.id], nodes, edges, runResult)
         }
       })),
-    [nodes, edges, runResult, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, polzaConfigured, polzaTextModels, polzaImageModels, openAiConfigured, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, runResult, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, openAiConfigured, seedanceConfigured, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
@@ -3256,6 +4486,8 @@ function App() {
       setGeminiConfigured(Boolean(result.gemini?.configured ?? result.geminiConfigured));
       setOpenAiConfigured(Boolean(result.openai?.configured));
       setOpenAiMaskedKey(String(result.openai?.maskedApiKey ?? ""));
+      setSeedanceConfigured(Boolean(result.seedance?.configured));
+      setSeedanceMaskedKey(String(result.seedance?.maskedApiKey ?? ""));
       setPolzaConfigured(Boolean(result.polza?.configured));
       setPolzaMaskedKey(String(result.polza?.maskedApiKey ?? ""));
       setOpenRouterSettings(result.openrouter ?? { configured: false });
@@ -3270,6 +4502,8 @@ function App() {
       setGeminiConfigured(false);
       setOpenAiConfigured(false);
       setOpenAiMaskedKey("");
+      setSeedanceConfigured(false);
+      setSeedanceMaskedKey("");
       setPolzaConfigured(false);
       setPolzaMaskedKey("");
       setOpenRouterSettings({ configured: false });
@@ -3646,6 +4880,32 @@ function App() {
     }
   }
 
+  async function saveSeedanceToken() {
+    const token = seedanceToken.trim();
+    if (!token) {
+      setSettingsMessage("Seedance key cannot be empty.");
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBase}/api/settings/seedance-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ seedanceApiKey: token })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to save Seedance key.");
+      setSeedanceConfigured(Boolean(result.seedance?.configured));
+      setSeedanceMaskedKey(String(result.seedance?.maskedApiKey ?? ""));
+      setSeedanceToken("");
+      setSettingsMessage("Seedance key saved locally.");
+      setLogs((current) => ["Seedance key saved locally.", ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    }
+  }
+
   async function savePolzaToken() {
     const token = polzaToken.trim();
     if (!token) {
@@ -3737,26 +4997,37 @@ function App() {
   function openReplicateSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your Replicate token in Settings \u2192 Secrets \u2192 Replicate.");
+    setTimeout(() => document.getElementById("replicate-api-token-input")?.focus(), 0);
   }
 
   function openGeminiSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your Gemini API key in Settings \u2192 Secrets \u2192 Gemini.");
+    setTimeout(() => document.getElementById("gemini-api-key-input")?.focus(), 0);
   }
 
   function openOpenAiSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your OpenAI API key in Settings -> Advanced / Direct Secrets -> OpenAI.");
+    setTimeout(() => document.getElementById("openai-api-key-input")?.focus(), 0);
+  }
+
+  function openSeedanceSettings() {
+    setRightCollapsed(false);
+    setSettingsMessage("Paste your Seedance API key in Settings -> Advanced / Direct Secrets -> Seedance.");
+    setTimeout(() => document.getElementById("seedance-api-key-input")?.focus(), 0);
   }
 
   function openPolzaSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your Polza.ai API key in Settings -> AI Providers -> Polza.ai.");
+    setTimeout(() => document.getElementById("polza-api-key-input")?.focus(), 0);
   }
 
   function openOpenRouterSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your OpenRouter API key in Settings → AI Providers → OpenRouter.");
+    setTimeout(() => document.getElementById("openrouter-api-key-input")?.focus(), 0);
   }
 
   async function browseAsset(nodeId: string, kind: AssetKind) {
@@ -4071,15 +5342,50 @@ function App() {
     return { x: 160 + nodes.length * 30, y: 120 + nodes.length * 24 };
   }
 
-  function updateNodeParams(nodeId: string, params: Record<string, unknown>) {
-    setNodes((current) =>
-      current.map((node) => {
-        if (node.id !== nodeId) return node;
-        const routeNode = { ...(node.data.routeNode as RouteDoc["nodes"][number]), params };
-        return { ...node, data: { ...node.data, routeNode } };
-      })
-    );
+  function updateNodeParams(nodeId: string, params: Record<string, unknown>, options: { persistProject?: boolean; persistLog?: string } = {}) {
+    const nextNodes = nodes.map((node) => {
+      if (node.id !== nodeId) return node;
+      const routeNode = { ...(node.data.routeNode as RouteDoc["nodes"][number]), params };
+      return { ...node, data: { ...node.data, routeNode } };
+    });
+    setNodes(nextNodes);
+    clearNodeRunResult(nodeId);
     if (selectedId === nodeId) setParamsText(JSON.stringify(params, null, 2));
+    if (options.persistProject) {
+      saveRouteDocument(buildRouteDocumentFrom(nextNodes, edges), { saveStartup: true, logMessage: options.persistLog });
+    }
+  }
+
+  function updateDialogueWorkbenchState(nodeId: string, state: DialogueWorkbenchState, patch: Record<string, unknown> = {}) {
+    const currentNode = nodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    const persistProject = patch.persistProject === true;
+    const { persistProject: _persistProject, ...routePatch } = patch;
+    updateNodeParams(nodeId, {
+      ...(currentNode?.params ?? {}),
+      ...routePatch,
+      defaultModelProfileId: state.defaultModelProfileId ?? routePatch.defaultModelProfileId ?? currentNode?.params?.defaultModelProfileId ?? "text.default",
+      agentPresetId: state.agentPresetId ?? routePatch.agentPresetId ?? currentNode?.params?.agentPresetId ?? "",
+      state
+    }, {
+      persistProject,
+      persistLog: persistProject ? "Saved Dialogue Workbench default model to startup route." : undefined
+    });
+  }
+
+  function openDialogueWorkbench(nodeId: string) {
+    setActiveDialogueWorkbenchId(nodeId);
+  }
+
+  function clearNodeRunResult(nodeId: string) {
+    setRunResult((current) => {
+      if (!current?.nodeResults?.[nodeId]) return current;
+      const nodeResults = { ...current.nodeResults };
+      delete nodeResults[nodeId];
+      for (const resultId of Object.keys(nodeResults)) {
+        if (resultId.startsWith(`${nodeId}/`)) delete nodeResults[resultId];
+      }
+      return { ...current, nodeResults };
+    });
   }
 
   function addNode(type: string, position?: { x: number; y: number }) {
@@ -4096,6 +5402,11 @@ function App() {
     const idBase = type.replace(/\W+/g, "_");
     const id = `${idBase}_${nodes.length + 1}`;
     const params = structuredClone(item.params ?? {});
+    if (type === "dialogue.workbench") {
+      params.defaultModelProfileId = params.defaultModelProfileId ?? "text.default";
+      params.agentPresetId = params.agentPresetId ?? "plain-collaborator";
+      params.state = createDialogueWorkbenchState({ nodeId: id, defaultModelProfileId: String(params.defaultModelProfileId) });
+    }
     const itemTitle = catalogItemTitle(item);
     const manifest = "manifest" in item ? item.manifest : undefined;
     const routeNode = {
@@ -4400,19 +5711,24 @@ function App() {
     const incomingEdges = edges.filter((edge) => !selectedNodeIds.has(edge.source) && selectedNodeIds.has(edge.target));
     const outgoingEdges = edges.filter((edge) => selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target));
     const title = window.prompt("Compound node title", "Compound Node")?.trim() || "Compound Node";
-    const defaultInputs = uniqueCompoundMappings(
+    const defaultInputs = mergeCompoundInputMappings(
       incomingEdges.map((edge) => {
+        const source = nodes.find((node) => node.id === edge.source)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
         const target = selectedNodes.find((node) => node.id === edge.target)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
-        const kind = getNodePorts(target?.type ?? "", undefined, target).inputs.find((port) => port.id === edge.targetHandle)?.kind ?? "json";
-        return { id: edge.targetHandle ?? edge.target, label: edge.targetHandle ?? edge.target, kind, nodeId: edge.target, port: edge.targetHandle ?? "input" };
-      })
+        const sourceKind = getNodePorts(source?.type ?? "", undefined, source).outputs.find((port) => port.id === edge.sourceHandle)?.kind;
+        const targetKind = getNodePorts(target?.type ?? "", undefined, target).inputs.find((port) => port.id === edge.targetHandle)?.kind;
+        const id = edge.sourceHandle ?? edge.source;
+        return { id, label: id, kind: sourceKind ?? targetKind ?? "json", nodeId: edge.target, port: edge.targetHandle ?? "input" };
+      }),
+      (mapping, index) => `${incomingEdges[index]?.source ?? mapping.nodeId}:${incomingEdges[index]?.sourceHandle ?? "output"}`
     );
-    const defaultOutputs = uniqueCompoundMappings(
+    const defaultOutputs = uniqueCompoundMappingsByKey(
       outgoingEdges.map((edge) => {
         const source = selectedNodes.find((node) => node.id === edge.source)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
         const kind = getNodePorts(source?.type ?? "", undefined, source).outputs.find((port) => port.id === edge.sourceHandle)?.kind ?? "json";
         return { id: edge.sourceHandle ?? edge.source, label: edge.sourceHandle ?? edge.source, kind, nodeId: edge.source, port: edge.sourceHandle ?? "output" };
-      })
+      }),
+      (mapping) => `${mapping.nodeId}:${mapping.port ?? "output"}`
     );
     const chosenInputs = chooseCompoundPorts("Exposed input ports (comma-separated)", defaultInputs);
     const chosenOutputs = chooseCompoundPorts("Exposed output ports (comma-separated)", defaultOutputs);
@@ -4438,11 +5754,16 @@ function App() {
       subroute,
       ui: {}
     };
-    const inputPortByTarget = new Map(chosenInputs.map((port) => [`${port.nodeId}:${port.port ?? "input"}`, port.id]));
+    const inputPortByTarget = new Map(chosenInputs.flatMap((port) => compoundMappingTargets(port).map((target) => [`${target.nodeId}:${target.port ?? "input"}`, port.id])));
     const outputPortBySource = new Map(chosenOutputs.map((port) => [`${port.nodeId}:${port.port ?? "output"}`, port.id]));
     const rewiredIncoming = incomingEdges
       .map((edge) => ({ ...edge, target: compoundId, targetHandle: inputPortByTarget.get(`${edge.target}:${edge.targetHandle ?? "input"}`) }))
-      .filter((edge) => Boolean(edge.targetHandle));
+      .filter((edge, index, allEdges) => Boolean(edge.targetHandle) && allEdges.findIndex((candidate) =>
+        candidate.source === edge.source &&
+        candidate.sourceHandle === edge.sourceHandle &&
+        candidate.target === edge.target &&
+        candidate.targetHandle === edge.targetHandle
+      ) === index);
     const rewiredOutgoing = outgoingEdges
       .map((edge) => ({ ...edge, source: compoundId, sourceHandle: outputPortBySource.get(`${edge.source}:${edge.sourceHandle ?? "output"}`) }))
       .filter((edge) => Boolean(edge.sourceHandle));
@@ -4530,11 +5851,11 @@ function App() {
     setLogs((current) => [`Saved subroute edits for ${frame.compoundId}.`, ...current]);
   }
 
-  function buildCurrentRouteDocument(): RouteDoc {
-    let savedRoute = flowToRoute(nodes, edges, routeBase);
+  function buildRouteDocumentFrom(flowNodes: Node[], flowEdges: Edge[]): RouteDoc {
+    let savedRoute = flowToRoute(flowNodes, flowEdges, routeBase);
     if (routeStack.length === 0) return savedRoute;
 
-    const currentInterface = flowToCompoundInterface(nodes, edges, nodeCatalog);
+    const currentInterface = flowToCompoundInterface(flowNodes, flowEdges, nodeCatalog);
     for (let index = routeStack.length - 1; index >= 0; index -= 1) {
       const stackFrame = routeStack[index];
       savedRoute = {
@@ -4558,6 +5879,10 @@ function App() {
     return savedRoute;
   }
 
+  function buildCurrentRouteDocument(): RouteDoc {
+    return buildRouteDocumentFrom(nodes, edges);
+  }
+
   function uncollapseCompoundNode(nodeId: string) {
     const compoundFlowNode = nodes.find((node) => node.id === nodeId);
     const compoundNode = compoundFlowNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
@@ -4565,17 +5890,35 @@ function App() {
     const subflow = routeToFlow(compoundNode.subroute);
     const inputMappings = new Map((compoundNode.compound?.inputs ?? []).map((port) => [port.id, port]));
     const outputMappings = new Map((compoundNode.compound?.outputs ?? []).map((port) => [port.id, port]));
+    const usedEdgeIds = new Set([
+      ...edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId).map((edge) => edge.id),
+      ...subflow.edges.map((edge) => edge.id)
+    ]);
     const incoming: Edge[] = edges
       .filter((edge) => edge.target === nodeId)
       .flatMap((edge) => {
         const port = inputMappings.get(edge.targetHandle ?? "");
-        return port ? [{ ...edge, target: port.nodeId, targetHandle: port.port ?? null }] : [];
+        return port
+          ? compoundMappingTargets(port).map((target) => ({
+              ...edge,
+              id: uniqueFlowId(`${edge.source}-${edge.sourceHandle ?? "output"}-${target.nodeId}-${target.port ?? "input"}`, usedEdgeIds),
+              target: target.nodeId,
+              targetHandle: target.port ?? null
+            }))
+          : [];
       });
     const outgoing: Edge[] = edges
       .filter((edge) => edge.source === nodeId)
       .flatMap((edge) => {
         const port = outputMappings.get(edge.sourceHandle ?? "");
-        return port ? [{ ...edge, source: port.nodeId, sourceHandle: port.port ?? null }] : [];
+        return port
+          ? [{
+              ...edge,
+              id: uniqueFlowId(`${port.nodeId}-${port.port ?? "output"}-${edge.target}-${edge.targetHandle ?? "input"}`, usedEdgeIds),
+              source: port.nodeId,
+              sourceHandle: port.port ?? null
+            }]
+          : [];
       });
 
     setNodes((current) => [...current.filter((node) => node.id !== nodeId), ...subflow.nodes.map((node) => ({ ...node, selected: true }))]);
@@ -4924,19 +6267,146 @@ function App() {
     setLogs((current) => [...validationMessages, ...current]);
   }
 
+  async function runRouteWithProgress(route: RouteDoc, initialNodeOutputs?: Record<string, unknown>) {
+    try {
+      const response = await fetch(`${apiBase}/api/routes/run/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(initialNodeOutputs ? { route, initialNodeOutputs } : route)
+      });
+      if (!response.ok || !response.body) throw new Error(`Run request failed: ${response.status} ${response.statusText}`.trim());
+
+      const decoder = new TextDecoder();
+      const reader = response.body.getReader();
+      let buffer = "";
+      let completedResult: RunDisplayResult | null = null;
+
+      const handleEvent = (event: RunStreamEvent) => {
+        if (event.type === "runStarted") {
+          setRunResult((current) => ({ ...(current ?? {}), status: "running", runId: event.runId, startedAt: event.startedAt }));
+          return;
+        }
+        if (event.type === "nodeResult" && event.nodeResult?.nodeId) {
+          const { nodeId, ...nodeResult } = event.nodeResult;
+          setRunResult((current) => ({
+            ...(current ?? { status: "running" }),
+            nodeResults: {
+              ...(current?.nodeResults ?? {}),
+              [nodeId]: nodeResult
+            }
+          }));
+          return;
+        }
+        if (event.type === "runCompleted" && event.result) {
+          completedResult = event.result;
+          return;
+        }
+        if (event.type === "runFailed") {
+          throw new Error(event.error ?? "Run failed.");
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          handleEvent(JSON.parse(line) as RunStreamEvent);
+        }
+      }
+
+      buffer += decoder.decode();
+      if (buffer.trim()) handleEvent(JSON.parse(buffer) as RunStreamEvent);
+      if (!completedResult) throw new Error("Run stream ended without a result.");
+      const finalResult = completedResult as RunDisplayResult;
+
+      setOutputs(finalResult);
+      setRunResult((current) => ({
+        ...finalResult,
+        nodeResults: {
+          ...(current?.nodeResults ?? {}),
+          ...(finalResult.nodeResults ?? {})
+        }
+      }));
+      void loadLedgerSummary();
+      const runLogs = Array.isArray(finalResult.logs) ? finalResult.logs.map((entry: { message: string }) => entry.message) : [finalResult.error ?? "Run failed."];
+      setLogs((current) => [...runLogs.reverse(), ...current]);
+      return finalResult;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isFetchNetworkError(message)) {
+        setLogs((current) => [`Progress stream unavailable: ${message}. Retrying without live progress.`, ...current]);
+        return runRouteWithoutProgress(route, initialNodeOutputs);
+      }
+      const failedResult = failCurrentRun(message);
+      setOutputs(failedResult);
+      setLogs((current) => [message, ...current]);
+      return failedResult;
+    }
+  }
+
+  async function runRouteWithoutProgress(route: RouteDoc, initialNodeOutputs?: Record<string, unknown>) {
+    try {
+      const response = await fetch(`${apiBase}/api/routes/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(initialNodeOutputs ? { route, initialNodeOutputs } : route)
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(String(result.error ?? `Run request failed: ${response.status} ${response.statusText}`.trim()));
+      setOutputs(result);
+      setRunResult((current) => ({
+        ...result,
+        nodeResults: {
+          ...(current?.nodeResults ?? {}),
+          ...(result.nodeResults ?? {})
+        }
+      }));
+      void loadLedgerSummary();
+      const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
+      setLogs((current) => [...runLogs.reverse(), ...current]);
+      return result as RunDisplayResult;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const failedResult = failCurrentRun(message);
+      setOutputs(failedResult);
+      setLogs((current) => [message, ...current]);
+      return failedResult;
+    }
+  }
+
+  function failCurrentRun(message: string): RunDisplayResult {
+    const completedAt = new Date().toISOString();
+    let failedResult: RunDisplayResult = { status: "failed", error: message, completedAt };
+    setRunResult((current) => {
+      const nodeResults = Object.fromEntries(
+        Object.entries(current?.nodeResults ?? {}).map(([nodeId, result]) => [
+          nodeId,
+          result.status === "pending" || result.status === "running"
+            ? { ...result, status: "failed", error: result.error ?? message, completedAt }
+            : result
+        ])
+      );
+      failedResult = { ...(current ?? {}), status: "failed", error: message, completedAt, nodeResults };
+      return failedResult;
+    });
+    return failedResult;
+  }
+
+  function isFetchNetworkError(message: string): boolean {
+    return /failed to fetch|networkerror|load failed/i.test(message);
+  }
+
   async function run() {
     const route = flowToRoute(nodes, edges, routeBase);
     setRunResult({
       status: "running",
       nodeResults: Object.fromEntries(nodes.map((node) => [node.id, { status: "pending" }]))
     });
-    const response = await fetch(`${apiBase}/api/routes/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(route) });
-    const result = await response.json();
-    setOutputs(result);
-    setRunResult(result);
-    void loadLedgerSummary();
-    const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
-    setLogs((current) => [...runLogs.reverse(), ...current]);
+    await runRouteWithProgress(route, pinnedInitialNodeOutputs(route.nodes));
   }
 
   async function runNodeWithDependencies(nodeId: string) {
@@ -4948,17 +6418,21 @@ function App() {
       nodeResults: Object.fromEntries(route.nodes.map((node) => [node.id, { status: "pending" }]))
     });
     setLogs((current) => [`Running ${nodeId} and ${Math.max(route.nodes.length - 1, 0)} upstream dependency block(s).`, ...current]);
-    const response = await fetch(`${apiBase}/api/routes/run`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(route) });
-    const result = await response.json();
-    setOutputs(result);
-    setRunResult(result);
-    void loadLedgerSummary();
-    const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
-    setLogs((current) => [...runLogs.reverse(), ...current]);
+    await runRouteWithProgress(route, pinnedInitialNodeOutputs(route.nodes));
   }
 
-  function fixNodeOutput(nodeId: string, output: unknown) {
+  function fixNodeOutput(nodeId: string, output: unknown, options: FixNodeOutputOptions = {}) {
     const now = new Date().toISOString();
+    const shouldPersist = options.persist ?? true;
+    const nextNodes = shouldPersist
+      ? nodes.map((node) => {
+          if (node.id !== nodeId) return node;
+          const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
+          const params = { ...(routeNode.params ?? {}), pinnedOutput: output, pinnedOutputAt: now };
+          return { ...node, data: { ...node.data, routeNode: { ...routeNode, params } } };
+        })
+      : nodes;
+    if (shouldPersist) setNodes(nextNodes);
     setRunResult((current) => ({
       ...(current ?? { status: "succeeded" }),
       nodeResults: {
@@ -4972,7 +6446,15 @@ function App() {
         }
       }
     }));
-    setLogs((current) => [`Fixed current panorama frame to output for ${nodeId}.`, ...current]);
+    if (shouldPersist && selectedId === nodeId) {
+      const selectedRouteNode = nextNodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+      setParamsText(JSON.stringify(selectedRouteNode?.params ?? {}, null, 2));
+    }
+    if (shouldPersist) {
+      saveRouteDocument(buildRouteDocumentFrom(nextNodes, edges), { saveStartup: true, logMessage: options.logMessage ?? `Pinned output for ${nodeId}.` });
+    } else if (options.logMessage) {
+      setLogs((current) => [options.logMessage!, ...current]);
+    }
   }
 
   function canRunNodeOnly(nodeId: string): boolean {
@@ -5021,6 +6503,7 @@ function App() {
       ...routeBase,
       route: { ...routeBase.route, id: `${routeBase.route.id}-${nodeId}-only`, title: `${routeBase.route.title}: ${nodeId} only` }
     });
+    Object.assign(initialNodeOutputs, { ...pinnedInitialNodeOutputs(route.nodes), ...initialNodeOutputs });
     setRunResult((current) => ({
       ...(current ?? {}),
       status: "running",
@@ -5030,28 +6513,13 @@ function App() {
       }
     }));
     setLogs((current) => [`Running ${routeNode.id} only.`, ...current]);
-    const response = await fetch(`${apiBase}/api/routes/run`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ route, initialNodeOutputs })
-    });
-    const result = await response.json();
-    setOutputs(result);
-    setRunResult((current) => ({
-      ...result,
-      nodeResults: {
-        ...(current?.nodeResults ?? {}),
-        ...(result.nodeResults ?? {})
-      }
-    }));
-    void loadLedgerSummary();
-    const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
-    setLogs((current) => [...runLogs.reverse(), ...current]);
+    await runRouteWithProgress(route, initialNodeOutputs);
   }
 
   function isReadySourceForNodeOnlyRun(sourceNodeId: string): boolean {
     const previous = runResult?.nodeResults?.[sourceNodeId];
-    return (previous?.status === "succeeded" && previous.output !== undefined) || isImmediateInputSource(sourceNodeId);
+    const routeNode = nodes.find((node) => node.id === sourceNodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    return Boolean(routeNode && pinnedOutputFromParams(routeNode.params) !== undefined) || (previous?.status === "succeeded" && previous.output !== undefined) || isImmediateInputSource(sourceNodeId);
   }
 
   function isImmediateInputSource(sourceNodeId: string): boolean {
@@ -5070,12 +6538,87 @@ function App() {
     const route = buildCurrentRouteDocument();
     const filename = normalizeRouteExportFilename(`${route.route.id || "studio-route"}`);
     const blob = new Blob([exportRouteToText(route as OpenRoute, filename)], { type: "application/json" });
+    downloadBlob(blob, filename);
+  }
+
+  function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = filename;
     anchor.click();
     URL.revokeObjectURL(url);
+  }
+
+  function makeNodePackageId(title: string): string {
+    return title.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, ".").replace(/^[._-]+|[._-]+$/g, "") || "custom.compound";
+  }
+
+  function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string): NodeManifest {
+    const compound = compoundNode.compound ?? {};
+    return {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id,
+      title,
+      version: "0.1.0",
+      author: { name: "SnarkRoute Studio" },
+      license: "UNLICENSED",
+      origin: "generated",
+      source: "snarkroute-studio",
+      category: "Compound",
+      description: `Generated from compound route "${compound.title ?? compoundNode.title ?? compoundNode.id}".`,
+      permissions: { network: false, networkHosts: [], readFiles: false, writeOutputs: false, shell: false, env: [] },
+      executor: { type: "declarative" },
+      inputs: (compound.inputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id })),
+      outputs: (compound.outputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id })),
+      generatedWith: {
+        tool: "snarkroute-studio",
+        kind: "compound.subroute",
+        compound: { ...compound, title },
+        subroute: compoundNode.subroute
+      }
+    };
+  }
+
+  async function saveCompoundNodeAsPackage(nodeId: string) {
+    setContextMenu(null);
+    const flowNode = nodes.find((node) => node.id === nodeId);
+    const compoundNode = flowNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute) return;
+    const title = window.prompt("Node package title", compoundNode.compound?.title ?? compoundNode.title ?? "Compound Node")?.trim();
+    if (!title) return;
+    const id = window.prompt("Node package id", makeNodePackageId(title))?.trim();
+    if (!id) return;
+    const manifest = nodeManifestFromCompoundNode(compoundNode, id, title);
+    try {
+      const response = await fetch(`${apiBase}/api/node-packages/install-generated`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manifest })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
+      await loadNodeCatalog();
+      downloadBlob(new Blob([`${JSON.stringify(manifest, null, 2)}\n`], { type: "application/json" }), `${id}.node.json`);
+      setLogs((current) => [`Saved compound as node package ${id}.`, ...current]);
+    } catch (error) {
+      setLogs((current) => [`Save node package failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  async function exportNodePackageFile(type: string) {
+    setLibraryItemMenu(null);
+    try {
+      const response = await fetch(`${apiBase}/api/node-packages/${encodeURIComponent(type)}/export`);
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
+      const bytes = result.dataBase64 ? Uint8Array.from(atob(String(result.dataBase64)), (char) => char.charCodeAt(0)) : String(result.text ?? "");
+      downloadBlob(new Blob([bytes], { type: String(result.contentType ?? "application/json") }), String(result.filename ?? `${type}.node.json`));
+      setLogs((current) => [`Exported node package ${type}.`, ...current]);
+    } catch (error) {
+      setLogs((current) => [`Export node package failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
   }
 
   function applyRoute(route: RouteDoc, logMessage: string) {
@@ -5091,14 +6634,17 @@ function App() {
   }
 
   function saveProject() {
+    saveRouteDocument(buildCurrentRouteDocument(), { saveStartup: true, logMessage: "Saved current project locally and as startup route." });
+  }
+
+  function saveRouteDocument(route: RouteDoc, options: { saveStartup?: boolean; logMessage?: string } = {}) {
     try {
-      const route = buildCurrentRouteDocument();
       const filename = normalizeRouteExportFilename(`${route.route.id || "studio-route"}`);
       const text = exportRouteToText(route as OpenRoute, filename);
       localStorage.setItem(SAVED_PROJECT_STORAGE_KEY, text);
       setLoadedRouteSnapshot(routeSnapshot(loadRouteFromText(text, filename) as RouteDoc));
-      setLogs((current) => ["Saved current project locally.", ...current]);
-      void saveStartupRoute(text, filename);
+      setLogs((current) => [options.logMessage ?? "Saved current project locally.", ...current]);
+      if (options.saveStartup) void saveStartupRoute(text, filename);
     } catch (error) {
       setLogs((current) => [`Save failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
     }
@@ -5217,7 +6763,7 @@ function App() {
             const file = event.target.files?.[0] ?? null;
             if (file) void importNodePackageFile(file);
           }} /></label>
-          <button onClick={saveProject} title="Save current project"><Save size={16} /> Save</button>
+          <button type="button" onClick={saveProject} title="Save current project"><Save size={16} /> Save</button>
           <button onClick={loadSavedProject} title="Load saved project"><FolderOpen size={16} /> Load</button>
         </div>
         <div className="nodesHeading">
@@ -5341,6 +6887,7 @@ function App() {
             <em>{apiConnected ? (replicateConfigured ? "replicate: configured" : "replicate: missing") : "replicate: unknown"}</em>
             <em>{apiConnected ? (geminiConfigured ? "gemini: configured" : "gemini: missing") : "gemini: unknown"}</em>
             <em>{apiConnected ? (openAiConfigured ? "openai: configured" : "openai: missing") : "openai: unknown"}</em>
+            <em>{apiConnected ? (seedanceConfigured ? "seedance: configured" : "seedance: missing") : "seedance: unknown"}</em>
             <em>{apiConnected ? (polzaConfigured ? "polza: configured" : "polza: missing") : "polza: unknown"}</em>
           </div>
         </div>
@@ -5422,6 +6969,16 @@ function App() {
         >
           <Background />
         </ReactFlow>
+        {activeDialogueRouteNode?.type === "dialogue.workbench" ? (
+          <DialogueWorkbenchEditor
+            routeNode={activeDialogueRouteNode}
+            inputs={activeDialogueInputs}
+            modelProfiles={modelProfiles}
+            agentPresets={agentPresets}
+            onClose={() => setActiveDialogueWorkbenchId(null)}
+            onSave={(state, patch) => updateDialogueWorkbenchState(activeDialogueRouteNode.id, state, patch)}
+          />
+        ) : null}
         {contextMenu ? (
           <div className="contextMenu" style={{ left: contextMenu.clientX, top: contextMenu.clientY }} onClick={(event) => event.stopPropagation()}>
             {contextMenu.nodeId ? (
@@ -5430,6 +6987,7 @@ function App() {
                   <>
                     <button onClick={() => { openSubroute(contextMenu.nodeId!); setContextMenu(null); }}>Open Internal Tool Route</button>
                     <button onClick={() => { uncollapseCompoundNode(contextMenu.nodeId!); setContextMenu(null); }}>Uncollapse</button>
+                    <button onClick={() => void saveCompoundNodeAsPackage(contextMenu.nodeId!)}>Save as Node Package</button>
                   </>
                 ) : null}
                 <button onClick={() => deleteNodeFromContext(contextMenu.nodeId!)}>Delete Block</button>
@@ -5463,6 +7021,7 @@ function App() {
                   <button onClick={() => setShowHiddenNodes((value) => !value)}>
                     {showHiddenNodes ? "Hide Hidden Blocks" : "Show Hidden Blocks"}
                   </button>
+                  <button onClick={() => void exportNodePackageFile(libraryItemMenu.type)}>Export Block Package</button>
                   <button className="danger" disabled={!canDelete} title={canDelete ? "Delete installed block package" : "Bundled blocks cannot be deleted"} onClick={() => void deleteLibraryItem(libraryItemMenu.type)}>
                     Delete Block Package
                   </button>
@@ -5626,6 +7185,7 @@ function App() {
             <label className="settingsField">
               <span>POLZA_AI_API_KEY</span>
               <input
+                id="polza-api-key-input"
                 type="password"
                 value={polzaToken}
                 placeholder={polzaConfigured ? "***************" : "Paste key"}
@@ -5662,7 +7222,7 @@ function App() {
             </div>
             <label className="settingsField">
               <span>OpenRouter API Key</span>
-              <input type="password" value={openRouterToken} placeholder={openRouterSettings.configured ? "***************" : "Paste key"} onChange={(event) => setOpenRouterToken(event.target.value)} autoComplete="off" />
+              <input id="openrouter-api-key-input" type="password" value={openRouterToken} placeholder={openRouterSettings.configured ? "***************" : "Paste key"} onChange={(event) => setOpenRouterToken(event.target.value)} autoComplete="off" />
             </label>
             <label className="settingsField">
               <span>Default Model</span>
@@ -5708,6 +7268,7 @@ function App() {
           <label className="settingsField">
             <span>REPLICATE_API_TOKEN</span>
             <input
+              id="replicate-api-token-input"
               type="password"
               value={replicateToken}
               placeholder="Paste token"
@@ -5729,6 +7290,7 @@ function App() {
           <label className="settingsField">
             <span>GEMINI_API_KEY</span>
             <input
+              id="gemini-api-key-input"
               type="password"
               value={geminiToken}
               placeholder="Paste key"
@@ -5751,6 +7313,7 @@ function App() {
           <label className="settingsField">
             <span>OPENAI_API_KEY</span>
             <input
+              id="openai-api-key-input"
               type="password"
               value={openAiToken}
               placeholder={openAiConfigured ? "***************" : "Paste key"}
@@ -5759,6 +7322,23 @@ function App() {
             />
           </label>
           <button onClick={() => void saveOpenAiToken()}><Save size={16} /> Save Key</button>
+          <h4>Seedance</h4>
+          <div className={`settingsStatus ${seedanceConfigured ? "configured" : ""}`}>
+            <KeyRound size={14} />
+            Seedance: {seedanceConfigured ? `key configured (${seedanceMaskedKey || "********"})` : "not configured"}
+          </div>
+          <label className="settingsField">
+            <span>SEEDANCE_API_KEY</span>
+            <input
+              id="seedance-api-key-input"
+              type="password"
+              value={seedanceToken}
+              placeholder={seedanceConfigured ? "***************" : "Paste key"}
+              onChange={(event) => setSeedanceToken(event.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <button onClick={() => void saveSeedanceToken()}><Save size={16} /> Save Key</button>
           {settingsMessage ? <p className={settingsMessage.includes("error") || settingsMessage.includes("Failed") || settingsMessage.includes("empty") ? "errorText" : "muted"}>{settingsMessage}</p> : null}
         </div>
 
@@ -6113,6 +7693,16 @@ function imagePreviewSrc(value: unknown): string | null {
   return null;
 }
 
+function localImagePreviewSrc(path: string): string {
+  return `${apiBase}/api/assets/preview?path=${encodeURIComponent(path)}`;
+}
+
+function versionedAssetPreviewSrc(src: string | null, version: string): string | null {
+  if (!src || !version || !src.includes("/api/assets/preview?")) return src;
+  const separator = src.includes("?") ? "&" : "?";
+  return `${src}${separator}_v=${encodeURIComponent(version)}`;
+}
+
 function lastImageValue(value: unknown): unknown {
   const matches: unknown[] = [];
   collectImageValues(value, matches, new Set());
@@ -6278,8 +7868,33 @@ function modelSupportsImage(model: OpenRouterModel): boolean {
   return output.includes("image") || modalityOutputModalities(modality).includes("image");
 }
 
+function openRouterModelSupportsVisionInput(model: OpenRouterModel): boolean {
+  if (isOpenRouterRoutingAlias(model.id)) return false;
+  const input = model.architecture?.input_modalities ?? [];
+  const modality = model.architecture?.modality ?? "";
+  return input.includes("image") || modalityInputModalities(modality).includes("image");
+}
+
+function polzaModelSupportsVisionInput(model: PolzaModel): boolean {
+  const input = model.architecture?.input_modalities ?? [];
+  const modality = model.architecture?.modality ?? "";
+  if (input.includes("image") || modalityInputModalities(modality).includes("image")) return true;
+  return /(^|[/.-])(gpt-4o|gpt-4\.1|gemini|claude-3|pixtral|llava|vision)([/.-]|$)/i.test(model.id);
+}
+
+function llmModelOptionLabel(label: string, id: string, supportsVision: boolean): string {
+  const base = label === id ? id : `${label} (${id})`;
+  return supportsVision ? `${base} - images` : base;
+}
+
 function isOpenRouterRoutingAlias(modelId: string): boolean {
   return modelId === "openrouter/auto";
+}
+
+function modalityInputModalities(modality: string): string[] {
+  if (!modality) return [];
+  const inputSide = modality.includes("->") ? modality.split("->")[0] ?? "" : modality;
+  return inputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
 }
 
 function modalityOutputModalities(modality: string): string[] {
@@ -6555,7 +8170,7 @@ function hasRequiredNodeOnlyInputs(node: RouteDoc["nodes"][number], incomingEdge
   if (node.type === "replicate.clarity-upscaler") {
     return Boolean(node.params?.image) || incomingEdges.some((edge) => !edge.targetHandle || edge.targetHandle === "image");
   }
-  if (node.type === "preview.image") {
+  if (node.type === "preview.image" || node.type === "preview.panorama360") {
     return Boolean(node.params?.image) || incomingEdges.some((edge) => !edge.targetHandle || edge.targetHandle === "image");
   }
   return true;

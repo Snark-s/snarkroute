@@ -46,6 +46,12 @@
 
 Provider adapter packages already exist and are the correct boundary for API calls. Server-side provider routing glue now lives outside the root bootstrap: `routes/providers.ts` owns HTTP endpoints, while `providers/openrouter.ts` owns OpenRouter catalog/status/resolution glue and `providers/provider-node-manifests.ts` owns bundled provider node manifests.
 
+### 2026-05-15: Model Registry and Dialogue Workbench
+
+Model Registry phase 1 keeps provider APIs outside core. Portable profile and agent-preset types live in `packages/protocol/src/model-registry.ts` and are re-exported by `packages/core` for future SnarkRoute use. Profiles describe intent and metadata; credentials remain in local settings.
+
+Dialogue Workbench phase 1 adds `packages/protocol/src/dialogue-workbench.ts` for state and system output generation, `packages/nodes/src/index.ts` for the no-hidden-spend runner, and `apps/studio/src/main.tsx` for the BoojumRoute Lab editor. Execution emits saved transcript/capsule/selected outputs and performs no automatic model calls.
+
 ## Runtime / Execution Audit
 
 `packages/executor` is a reasonable shared runtime package. It still uses `NodeRunner`, `NodeResult`, and related names because the Open Route Protocol compatibility surface is node-based. For BoojumRoute, these are now conceptually block runners.

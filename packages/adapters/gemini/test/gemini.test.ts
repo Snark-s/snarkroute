@@ -132,6 +132,34 @@ describe("Gemini adapter", () => {
     expect(JSON.stringify(result.providerUsage)).not.toContain("token");
   });
 
+  it("Gemini LLM runner sends image inputs to vision-capable text models", async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: "The image shows a route sketch." }]
+            }
+          }
+        ]
+      })
+    );
+    const runner = createGeminiLlmNodeRunner({ token: "token", fetchImpl });
+
+    await runner({
+      node: { id: "llm", type: "gemini.llm", params: {} },
+      params: { prompt: "Describe it", model: "gemini-test" },
+      inputs: { images: "data:image/png;base64,aaa" },
+      context: { runId: "r", route: {} as never, outputDirectory: "", nodeOutputs: {}, log: () => undefined }
+    });
+
+    const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
+    expect(body.contents[0].parts).toEqual([
+      { text: "Describe it" },
+      { inlineData: { mimeType: "image/png", data: "aaa" } }
+    ]);
+  });
+
   it("Gemini LLM runner estimates known model cost from usage metadata", async () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(
       jsonResponse({

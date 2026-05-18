@@ -1,17 +1,20 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, extname, join } from "node:path";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
 export const POLZA_TEXT_DEFAULT_MODEL = "openai/gpt-4o";
 export const POLZA_IMAGE_DEFAULT_MODEL = "openai/gpt-5.4-image-2";
 export const POLZA_MISSING_KEY_MESSAGE = "POLZA_AI_API_KEY is not configured.\nAdd POLZA_AI_API_KEY to .env with your Polza.ai API key.";
+const LOCAL_FILE_DATA_URI_LIMIT_BYTES = 20 * 1024 * 1024;
 
 export interface PolzaClientOptions {
   apiKey?: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
   retryDelayMs?: number;
+  mediaPollIntervalMs?: number;
+  mediaPollMaxAttempts?: number;
 }
 
 export interface PolzaImageAsset {
@@ -39,6 +42,9 @@ export interface PolzaModelInfo {
   pricing?: Record<string, unknown>;
   top_provider?: Record<string, unknown>;
 }
+
+type PolzaChatContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
+type PolzaChatMessage = { role: string; content: string | PolzaChatContentPart[] };
 
 export function createPolzaClient(options: PolzaClientOptions = {}) {
   const fetcher = options.fetchImpl ?? fetch;
@@ -86,6 +92,9 @@ export function createPolzaClient(options: PolzaClientOptions = {}) {
     async media(body: Record<string, unknown>): Promise<unknown> {
       return request("/v1/media", { method: "POST", body: JSON.stringify(body) });
     },
+    async mediaStatus(id: string): Promise<unknown> {
+      return request(`/v1/media/${encodeURIComponent(id)}`, { method: "GET" });
+    },
     async getModels(type?: "chat" | "image" | "embedding"): Promise<PolzaModelInfo[]> {
       const query = type ? `?type=${encodeURIComponent(type)}` : "";
       return parsePolzaModelCatalog(await request(`/v1/models${query}`, { method: "GET" }));
@@ -128,9 +137,18 @@ export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): Nod
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     if (!prompt.trim()) throw new Error("Polza Text requires a prompt.");
     const systemPrompt = firstInputText(inputs.systemPrompt) ?? stringParam(params.systemPrompt);
-    const messages = [
+    const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
+    if (images.length > 14) throw new Error(`Polza Text accepts at most 14 input images, got ${images.length}.`);
+    const imageUrls = await Promise.all(images.map((image) => prepareImageUrl(image, options.fetchImpl)));
+    const userContent: string | PolzaChatContentPart[] = imageUrls.length > 0
+      ? [
+          { type: "text", text: prompt },
+          ...imageUrls.map((url) => ({ type: "image_url" as const, image_url: { url } }))
+        ]
+      : prompt;
+    const messages: PolzaChatMessage[] = [
       ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
-      { role: "user", content: prompt }
+      { role: "user", content: userContent }
     ];
     const response = await client.chatCompletions(buildChatRequestBody(model, messages, params));
     const text = firstChatText(response);
@@ -160,14 +178,14 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
     const model = stringParam(params.model) ?? POLZA_IMAGE_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     if (!prompt.trim()) throw new Error("Polza Image requires a prompt.");
+    const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
+    if (images.length > 14) throw new Error(`Polza Image accepts at most 14 input images, got ${images.length}.`);
+    const imageInputs = await Promise.all(images.map((image) => prepareMediaImageInput(image, options.fetchImpl)));
     const usesImageGenerations = usesPolzaImageGenerationsEndpoint(model);
-    const request = usesImageGenerations ? buildImageRequestBody(polzaImageGenerationsModel(model), prompt, params) : buildMediaImageRequestBody(model, prompt, params);
-    const response = usesImageGenerations ? await client.imageGenerations(request) : await client.media(request);
+    const request = usesImageGenerations ? buildImageRequestBody(polzaImageGenerationsModel(model), prompt, params) : buildMediaImageRequestBody(model, prompt, params, imageInputs);
+    const response = usesImageGenerations ? await client.imageGenerations(request) : await waitForPolzaMediaResult(await client.media(request), client, options);
     const image = firstGeneratedImage(response);
     if (!image) {
-      const pendingId = stringField(response, "id");
-      const status = stringField(response, "status");
-      if (pendingId) throw new Error(`Polza image generation is ${status || "pending"} (${pendingId}). Async polling is not supported by this node yet.`);
       throw new Error(`Polza image model "${model}" did not return an image.`);
     }
     const imageAsset = await writePolzaImage(image, {
@@ -187,6 +205,7 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
         actualUsage: usage,
         actualCost: actualCostFromUsage(usage),
         pricingSource: "polza_usage",
+        inputImageCount: images.length,
         localPath: imageAsset.localPath,
         originalUrl: imageAsset.originalUrl,
         warning: imageAsset.warning,
@@ -199,7 +218,7 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
   };
 }
 
-export function buildChatRequestBody(model: string, messages: Array<{ role: string; content: string }>, params: Record<string, unknown>): Record<string, unknown> {
+export function buildChatRequestBody(model: string, messages: PolzaChatMessage[], params: Record<string, unknown>): Record<string, unknown> {
   const body: Record<string, unknown> = { model, messages };
   for (const key of ["temperature", "max_tokens", "max_completion_tokens", "top_p", "frequency_penalty", "presence_penalty"] as const) {
     if (params[key] !== undefined) body[key] = params[key];
@@ -229,8 +248,9 @@ export function buildImageRequestBody(model: string, prompt: string, params: Rec
   return body;
 }
 
-export function buildMediaImageRequestBody(model: string, prompt: string, params: Record<string, unknown>): Record<string, unknown> {
+export function buildMediaImageRequestBody(model: string, prompt: string, params: Record<string, unknown>, imageInputs: Array<{ type: "url" | "base64"; data: string }> = []): Record<string, unknown> {
   const input: Record<string, unknown> = { prompt };
+  if (imageInputs.length > 0) input.images = imageInputs;
   if (isPolzaGpt54Image2(model)) {
     input.aspect_ratio = stringParam(params.aspectRatio) ?? "auto";
     input.n = numberParam(params.n) ?? 1;
@@ -297,6 +317,28 @@ function firstGeneratedImage(response: unknown): unknown {
   return record.b64_json ?? record.url ?? null;
 }
 
+async function waitForPolzaMediaResult(
+  initialResponse: unknown,
+  client: { mediaStatus: (id: string) => Promise<unknown> },
+  options: PolzaClientOptions
+): Promise<unknown> {
+  if (firstGeneratedImage(initialResponse)) return initialResponse;
+  const id = stringField(initialResponse, "id");
+  const status = stringField(initialResponse, "status");
+  if (!id || (status !== "pending" && status !== "processing")) return initialResponse;
+
+  const intervalMs = options.mediaPollIntervalMs ?? 3000;
+  const maxAttempts = options.mediaPollMaxAttempts ?? 100;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    await delay(intervalMs);
+    const response = await client.mediaStatus(id);
+    const nextStatus = stringField(response, "status");
+    if (nextStatus === "completed" || firstGeneratedImage(response)) return response;
+    if (nextStatus === "failed") throw new Error(`Polza image generation failed (${id}). ${JSON.stringify(objectField(response, "error") ?? response)}`);
+  }
+  throw new Error(`Polza image generation is still ${status} (${id}) after ${Math.round((intervalMs * maxAttempts) / 1000)} seconds.`);
+}
+
 function firstMediaImage(value: unknown): unknown {
   if (!value) return null;
   if (typeof value === "string") return looksLikeImageReference(value) ? value : null;
@@ -318,6 +360,41 @@ function firstMediaImage(value: unknown): unknown {
     if (image) return image;
   }
   return null;
+}
+
+function firstInputImage(inputs: Record<string, unknown>): unknown {
+  if ("image" in inputs) return inputs.image;
+  for (const value of Object.values(inputs)) {
+    if (value && typeof value === "object" && ("path" in value || "localPath" in value)) return value;
+    if (value && typeof value === "object" && "image" in value) return (value as { image: unknown }).image;
+  }
+  return undefined;
+}
+
+function collectInputImages(value: unknown): unknown[] {
+  if (value === undefined || value === null) return [];
+  if (Array.isArray(value)) return value.flatMap(collectInputImages);
+  return [value];
+}
+
+async function prepareMediaImageInput(value: unknown, fetchImpl: typeof fetch = fetch): Promise<{ type: "url" | "base64"; data: string }> {
+  const data = await prepareImageUrl(value, fetchImpl);
+  return { type: /^https?:\/\//i.test(data) ? "url" : "base64", data };
+}
+
+async function prepareImageUrl(value: unknown, fetchImpl: typeof fetch = fetch): Promise<string> {
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return prepareImageUrl(record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.image, fetchImpl);
+  }
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("Polza Image expected image input as a local path, image object, data URI, or remote URL.");
+  }
+  if (value.startsWith("data:")) return value;
+  if (/^https?:\/\//i.test(value)) return value;
+  const bytes = await readFile(value);
+  if (bytes.length > LOCAL_FILE_DATA_URI_LIMIT_BYTES) throw new Error(`Polza local image input is too large (${bytes.length} bytes). Limit is ${LOCAL_FILE_DATA_URI_LIMIT_BYTES} bytes.`);
+  return `data:${mimeTypeFromPath(value)};base64,${bytes.toString("base64")}`;
 }
 
 function looksLikeImageReference(value: string): boolean {
@@ -459,6 +536,17 @@ function mimeTypeFromUrl(url: string): string {
     return "image/png";
   }
   return "image/png";
+}
+
+function mimeTypeFromPath(path: string): string {
+  const ext = extname(path).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp"
+  };
+  return mimeTypes[ext] ?? "image/png";
 }
 
 function filenameFromUrl(url: string): string {

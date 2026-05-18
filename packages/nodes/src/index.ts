@@ -3,6 +3,11 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, resolve, join, parse } from "node:path";
 import type { NodeRunner, RouteExecutor } from "@snarkroute/executor";
 import type { RouteNode, ValidationIssue } from "@snarkroute/protocol";
+import {
+  buildDialogueWorkbenchOutputs,
+  normalizeDialogueWorkbenchState,
+  type DialogueWorkbenchState
+} from "@snarkroute/protocol";
 export * from "./package-system";
 import type { SnarkNodeManifest } from "./package-system";
 
@@ -91,6 +96,7 @@ export const builtInNodeDefinitions: NodeDefinition[] = [
   { type: "capability.character.create", title: "Create Character", description: "Creates or resolves a reusable character resource for routes.", economics: { license: "AGPL-3.0-or-later", notes: "Local resource metadata only; no marketplace or payment execution." } },
   { type: "capability.location.create", title: "Create Location", description: "Creates or resolves a reusable location resource for routes.", economics: { license: "AGPL-3.0-or-later", notes: "Local resource metadata only; no marketplace or payment execution." } },
   { type: "library.prompt", title: "Prompt Library", description: "Outputs a saved local prompt or embedded text snippet.", economics: { license: "AGPL-3.0-or-later", notes: "Local library only; no marketplace or payment execution." } },
+  { type: "dialogue.workbench", title: "Dialogue Workbench", description: "Stores a large manual/model-assisted conversation and exposes transcript, capsule, and selected outputs.", economics: { license: "AGPL-3.0-or-later", notes: "Manual artifact node by default; no hidden model calls during graph execution." } },
   { type: "text.promptCompose", title: "Prompt Compose", description: "Combines multiple text inputs into one prompt.", economics: { license: "AGPL-3.0-or-later", notes: "Local text transform only; no payment execution." } },
   { type: "preview.image", title: "Image Preview", description: "Passes through an image value for Studio preview.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "preview.panorama360", title: "360 Panorama Viewer", description: "Passes through an equirectangular panorama image for interactive Studio viewing.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
@@ -162,6 +168,32 @@ export const promptComposeRunner: NodeRunner = ({ params, inputs }) => ({
     text: composePromptText(params, inputs)
   }
 });
+
+export const dialogueWorkbenchRunner: NodeRunner = ({ node, params, inputs }) => {
+  const state = normalizeDialogueWorkbenchState(params.state, {
+    nodeId: node.id,
+    defaultModelProfileId: stringParam(params.defaultModelProfileId)
+  });
+  const parentConversationCapsules = [
+    ...(state.parentConversationCapsules ?? []),
+    ...inputTextParts(inputs.context).flatMap((value) => {
+      if (value && typeof value === "object" && "compactSummary" in value && "conversationId" in value) return [value];
+      return [];
+    })
+  ] as DialogueWorkbenchState["parentConversationCapsules"];
+  const outputState: DialogueWorkbenchState = parentConversationCapsules?.length ? { ...state, parentConversationCapsules } : state;
+  const outputs = buildDialogueWorkbenchOutputs({
+    nodeId: node.id,
+    nodeTitle: node.title,
+    state: outputState,
+    inputs
+  });
+  return {
+    output: outputs,
+    logs: ["Dialogue Workbench emitted saved transcript, capsule, and selected outputs. No model calls were made during route execution."],
+    provenance: { dialogueWorkbench: true, conversationId: outputState.conversationId }
+  };
+};
 
 export const previewImageRunner: NodeRunner = ({ params, inputs }) => {
   const image = normalizePreviewImage(params.image ?? firstInputValue(inputs));
@@ -389,6 +421,7 @@ export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("capability.character.create", createResourceCapabilityRunner);
   executor.registerNodeRunner("capability.location.create", createResourceCapabilityRunner);
   executor.registerNodeRunner("library.prompt", promptLibraryRunner);
+  executor.registerNodeRunner("dialogue.workbench", dialogueWorkbenchRunner);
   executor.registerNodeRunner("text.promptCompose", promptComposeRunner);
   executor.registerNodeRunner("preview.image", previewImageRunner);
   executor.registerNodeRunner("preview.panorama360", previewPanorama360Runner);
@@ -409,6 +442,7 @@ function builtInNodeCategory(type: string): string {
   if (type.startsWith("capability.")) return "Capability";
   if (type.startsWith("http.")) return "API / HTTP";
   if (type.startsWith("local.")) return "Local";
+  if (type.startsWith("dialogue.")) return "Dialogue";
   if (type.startsWith("text.")) return "Text / Prompt";
   if (type.startsWith("debug.")) return "Debug";
   if (type.startsWith("utility.")) return "Debug";
@@ -435,6 +469,14 @@ function builtInInputs(type: string) {
       { id: "scene", type: "text", required: false, label: "Scene" }
     ];
   }
+  if (type === "dialogue.workbench") {
+    return [
+      { id: "text", type: "text", required: false, label: "Text" },
+      { id: "image", type: "image", required: false, label: "Image" },
+      { id: "json", type: "json", required: false, label: "JSON" },
+      { id: "context", type: "conversation_context", required: false, label: "Context" }
+    ];
+  }
   if (type === "preview.image" || type === "preview.panorama360") return [{ id: "image", type: "image", required: true, label: "Image" }];
   if (type === "debug.log") return [{ id: "value", type: "data", required: false, label: "Value" }];
   if (type === "utility.null") return [{ id: "input", type: "data", required: false, label: "Any" }];
@@ -448,6 +490,11 @@ function builtInInputs(type: string) {
 
 function builtInOutputs(type: string) {
   if (type === "input.text" || type === "library.prompt" || type === "text.promptCompose" || type === "transform.template" || type === "output.text") return [{ id: "text", type: "text", label: "Text" }];
+  if (type === "dialogue.workbench") return [
+    { id: "conversation_text", type: "text", label: "conversation_text" },
+    { id: "conversation_json", type: "json", label: "conversation_json" },
+    { id: "conversation_capsule", type: "conversation_context", label: "conversation_capsule" }
+  ];
   if (type === "input.file" || type === "output.file") return [{ id: "file", type: "file", label: "File" }];
   if (type === "input.image" || type === "preview.image" || type === "preview.panorama360" || type === "local.stableDiffusion.textToImage") return [{ id: "image", type: "image", label: "Image" }];
   if (type === "capability.image.create" || type === "capability.image.edit" || type === "capability.image.upscale") return [{ id: "image", type: "image", label: "Image" }];
@@ -469,6 +516,13 @@ function builtInParams(type: string) {
       { id: "skipEmpty", type: "boolean", label: "Skip empty", default: true, description: "Do not include empty blocks." },
       { id: "prefix", type: "text", label: "Prefix", default: "", description: "Text added to the beginning of the result." },
       { id: "suffix", type: "text", label: "Suffix", default: "", description: "Text added to the end of the result." }
+    ];
+  }
+  if (type === "dialogue.workbench") {
+    return [
+      { id: "defaultModelProfileId", type: "text", label: "Default Model Profile", default: "text.default" },
+      { id: "agentPresetId", type: "text", label: "Agent Preset", default: "" },
+      { id: "state", type: "json", label: "Workbench State", default: { conversationId: "", messages: [], selectedOutputs: [] } }
     ];
   }
   if (type === "input.file" || type === "input.image" || type === "input.video") return [{ id: "path", type: "file", label: "Path", default: "" }];

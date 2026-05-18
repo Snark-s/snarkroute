@@ -1,17 +1,30 @@
 import type { FastifyInstance } from "fastify";
-import { isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
+import { isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterSettingsStatus } from "../providers/openrouter";
 export async function registerSettingsRoutes(app: FastifyInstance) {
-app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), polzaEnabled: isPolzaEnabled() }));
+app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), polzaEnabled: isPolzaEnabled(), seedanceEnabled: isSeedanceEnabled() }));
 
 app.get("/api/settings", async () => ({
   replicate: { configured: isReplicateEnabled() },
   gemini: { configured: isGeminiEnabled() },
   polza: { configured: isPolzaEnabled(), maskedApiKey: isPolzaEnabled() ? maskSecret(process.env.POLZA_AI_API_KEY) : "" },
   openai: { configured: isOpenAiEnabled(), maskedApiKey: isOpenAiEnabled() ? maskSecret(process.env.OPENAI_API_KEY) : "" },
+  seedance: { configured: isSeedanceEnabled(), maskedApiKey: isSeedanceEnabled() ? maskSecret(process.env.SEEDANCE_API_KEY) : "" },
   openrouter: await openRouterSettingsStatus()
 }));
+
+app.post<{ Body: { seedanceApiKey?: string } }>("/api/settings/seedance-token", async (request, reply) => {
+  const token = request.body?.seedanceApiKey?.trim();
+  if (!token) return reply.code(400).send({ error: "SEEDANCE_API_KEY cannot be empty." });
+  try {
+    await writeEnvValue("SEEDANCE_API_KEY", token);
+    process.env.SEEDANCE_API_KEY = token;
+    return { ok: true, seedance: { configured: true, maskedApiKey: maskSecret(token) } };
+  } catch (error) {
+    return reply.code(500).send({ error: errorMessage(error) });
+  }
+});
 
 app.post<{ Body: { polzaAiApiKey?: string } }>("/api/settings/polza-token", async (request, reply) => {
   const token = request.body?.polzaAiApiKey?.trim();

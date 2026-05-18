@@ -4,6 +4,8 @@ SnarkRoute is the larger project: a local-first reference implementation for por
 
 BoojumRoute Lab is the working node editor and tool lab you can try today. It is the low-level graph interface for building tools from blocks, routes, providers, executors, schemas, and prompt/library assets.
 
+BoojumRoute Lab now includes a first Dialogue Workbench block for conversation-heavy route steps. It opens as a large editor, stores manual/model-assisted messages, exposes selected outputs as graph ports, and emits `conversation_text`, `conversation_json`, and `conversation_capsule`. The first Model Registry layer defines portable Model Profiles and Agent Presets while provider credentials stay in local settings. See `docs/model-registry-principles.md` and `docs/dialogue-workbench.md`.
+
 SnarkRoute Living Canvas is an early experimental shell for the future higher-level creative interface. It is not the main public preview yet.
 
 Both interfaces share the same Open Route Protocol engine/runtime. The current working system lives in BoojumRoute Lab while the SnarkRoute name covers the broader project and the experimental Living Canvas direction.

@@ -1,5 +1,7 @@
 import YAML from "yaml";
 import { z } from "zod";
+export * from "./dialogue-workbench";
+export * from "./model-registry";
 
 const JsonLikeSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([
@@ -98,7 +100,8 @@ export const CompoundPortSchema = z
     label: z.string().optional(),
     kind: z.enum(["text", "image", "video", "file", "json", "data"]).or(z.string()).optional(),
     nodeId: z.string().min(1),
-    port: z.string().min(1).optional()
+    port: z.string().min(1).optional(),
+    targets: z.array(z.object({ nodeId: z.string().min(1), port: z.string().min(1).optional() })).optional()
   })
   .catchall(z.unknown());
 
