@@ -455,7 +455,7 @@ const library = [
     }
   },
   { type: "preview.image", label: "Image Preview", params: { title: "Preview" } },
-  { type: "preview.panorama360", label: "360 Panorama Viewer", params: { title: "Panorama", fov: 55 } },
+  { type: "preview.panorama360", label: "360 Panorama Viewer", params: { fov: 55 } },
   {
     type: "http.request",
     label: "HTTP Request",
@@ -699,6 +699,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onConfigurePolza = data.onConfigurePolza as (() => void) | undefined;
   const onConfigureOpenRouter = data.onConfigureOpenRouter as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
+  const onDownloadImage = data.onDownloadImage as ((src: string, filename: string) => void) | undefined;
   const onImageResultContextMenu = data.onImageResultContextMenu as ((event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void) | undefined;
   const onFixNodeOutput = data.onFixNodeOutput as ((nodeId: string, output: unknown, options?: FixNodeOutputOptions) => void) | undefined;
   const onRunNodeOnly = data.onRunNodeOnly as ((nodeId: string) => void) | undefined;
@@ -833,6 +834,20 @@ function RouteNodeCard({ id, data }: NodeProps) {
         >
           {paramsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </button>
+        {paramsCollapsed && routeNode?.type === "compound.subroute" ? (
+          <button
+            className="collapsedCompoundOpenButton nodrag nopan"
+            type="button"
+            title="Open Internal Tool Route"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenSubroute?.(id);
+            }}
+          >
+            <Braces size={13} />
+          </button>
+        ) : null}
       </div>
       {!paramsCollapsed && isReplicateNode(type) ? (
         <div className={`nodeTokenStatus ${replicateConfigured ? "configured" : "missing"}`}>
@@ -970,7 +985,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           onOpenImage={onOpenImage}
         />
       ) : null}
-      {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} type={type} result={result} onOpenImage={onOpenImage} onImageResultContextMenu={onImageResultContextMenu} onFixNodeOutput={onFixNodeOutput} onConfigureMissingSecret={configureMissingSecret} /> : null}
+      {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} type={type} result={result} onOpenImage={onOpenImage} onDownloadImage={onDownloadImage} onImageResultContextMenu={onImageResultContextMenu} onFixNodeOutput={onFixNodeOutput} onConfigureMissingSecret={configureMissingSecret} /> : null}
       {paramsCollapsed && collapsedImageSrc ? (
         <button
           className="collapsedImagePreviewButton nodrag nopan"
@@ -2357,16 +2372,19 @@ function NodeInlineParams({
     );
   }
 
-  if (type === "preview.image" || type === "preview.panorama360") {
+  if (type === "preview.image") {
     return (
       <>
         <label className="nodeField">
           <span>title</span>
-          <input className="nodrag nopan nodeInput" value={String(params.title ?? (type === "preview.panorama360" ? "Panorama" : "Preview"))} onChange={(event) => updateTextParam("title", event)} />
+          <input className="nodrag nopan nodeInput" value={String(params.title ?? "Preview")} onChange={(event) => updateTextParam("title", event)} />
         </label>
-        {type === "preview.panorama360" ? <div className="nodeHint">Connect an equirectangular 360 image, run the block, then drag the preview to look around.</div> : null}
       </>
     );
+  }
+
+  if (type === "preview.panorama360") {
+    return <div className="nodeHint">Connect an equirectangular 360 image, run the block, then drag the preview to look around.</div>;
   }
 
   if (type === "output.text") {
@@ -2619,6 +2637,7 @@ function NodeInlineResult({
   type,
   result,
   onOpenImage,
+  onDownloadImage,
   onImageResultContextMenu,
   onFixNodeOutput,
   onConfigureMissingSecret
@@ -2627,6 +2646,7 @@ function NodeInlineResult({
   type: string;
   result: NodeRunResult;
   onOpenImage?: (image: ImageViewerState) => void;
+  onDownloadImage?: (src: string, filename: string) => void;
   onImageResultContextMenu?: (event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void;
   onFixNodeOutput?: (nodeId: string, output: unknown, options?: FixNodeOutputOptions) => void;
   onConfigureMissingSecret?: () => void;
@@ -2648,7 +2668,6 @@ function NodeInlineResult({
           filename={downloadFilename(result.output)}
           onFixFrame={(output) => onFixNodeOutput?.(nodeId, output, { persist: false, logMessage: `Fixed current panorama frame for ${nodeId}.` })}
         />
-        <pre>{truncateText(imageTitle, 220)}</pre>
       </div>
     );
   }
@@ -2669,9 +2688,17 @@ function NodeInlineResult({
           >
             <Eye size={16} strokeWidth={2.2} />
           </button>
-          <a className="nodeImageActionButton nodrag nopan" href={imageSrc} download={downloadFilename(result.output)} title="Download image">
+          <button
+            className="nodeImageActionButton nodrag nopan"
+            type="button"
+            title="Download image"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDownloadImage?.(imageSrc, downloadFilename(result.output));
+            }}
+          >
             <Download size={14} />
-          </a>
+          </button>
           <button className="nodeImageActionButton nodrag nopan" type="button" title="Pin output for this project" onClick={(event) => { event.stopPropagation(); onFixNodeOutput?.(nodeId, result.output); }}>
             <Pin size={14} />
           </button>
@@ -2692,7 +2719,6 @@ function NodeInlineResult({
         >
           <img className="nodeImagePreview" src={imageSrc} alt="" />
         </button>
-        <pre>{truncateText(imageTitle, 220)}</pre>
       </div>
     );
   }
@@ -3932,7 +3958,7 @@ function nodeIcon(type: string) {
   if (type === "dialogue.workbench") return <MessageSquareText size={15} />;
   if (type === "text.promptCompose") return <Braces size={15} />;
   if (type === "compound.input") return <ChevronRight size={15} />;
-  if (type === "compound.output") return <ChevronLeft size={15} />;
+  if (type === "compound.output") return <ChevronRight size={15} />;
   if (type === "transform.template") return <Braces size={15} />;
   if (type === "replicate.clarity-upscaler") return <Wand2 size={15} />;
   if (type === "replicate.model") return <span className="providerGlyph">R</span>;
@@ -4383,6 +4409,7 @@ function App() {
           onConfigurePolza: openPolzaSettings,
           onConfigureOpenRouter: openOpenRouterSettings,
           onOpenImage: setImageViewer,
+          onDownloadImage: downloadImageSrc,
           onImageResultContextMenu: openPromptAssetMenu,
           onFixNodeOutput: fixNodeOutput,
           onRunNodeOnly: runNodeOnly,
@@ -5342,6 +5369,13 @@ function App() {
     return { x: 160 + nodes.length * 30, y: 120 + nodes.length * 24 };
   }
 
+  function positionRightOfAllNodes(preferredY?: number) {
+    if (nodes.length === 0) return { x: 160, y: preferredY ?? 140 };
+    const maxX = Math.max(...nodes.map((node) => node.position.x));
+    const averageY = nodes.reduce((sum, node) => sum + node.position.y, 0) / nodes.length;
+    return { x: maxX + 320, y: preferredY ?? averageY };
+  }
+
   function updateNodeParams(nodeId: string, params: Record<string, unknown>, options: { persistProject?: boolean; persistLog?: string } = {}) {
     const nextNodes = nodes.map((node) => {
       if (node.id !== nodeId) return node;
@@ -5972,6 +6006,11 @@ function App() {
       return;
     }
     patchInterfaceNodeFromConnection(connection);
+    const targetNode = nodes.find((node) => node.id === connection.target);
+    const targetRouteNode = targetNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (targetRouteNode?.type === "compound.output" && connection.source && connection.sourceHandle) {
+      exposeSubrouteOutput(connection.source, connection.sourceHandle, String(targetRouteNode.params?.portId ?? connection.sourceHandle));
+    }
     setEdges((current) => addEdge(connection, current));
   }
 
@@ -6203,14 +6242,17 @@ function App() {
   function addConnectedOutput() {
     if (!connectionNodeMenu) return;
     const sourcePort = sourcePortForConnection(connectionNodeMenu.sourceNodeId, connectionNodeMenu.sourceHandle);
+    const sourceNode = nodes.find((node) => node.id === connectionNodeMenu.sourceNodeId);
+    const preferredId = String(sourcePort?.id ?? connectionNodeMenu.sourceHandle);
     const nodeId = addNodeFromCatalogItem(
       {
         type: "compound.output",
         label: "Compound Output",
-        params: { portId: connectionNodeMenu.sourceHandle, kind: sourcePort?.kind ?? "data" }
+        params: { portId: preferredId, kind: sourcePort?.kind ?? "data" }
       },
-      connectionNodeMenu.flowPosition
+      positionRightOfAllNodes(sourceNode?.position.y ?? connectionNodeMenu.flowPosition.y)
     );
+    exposeSubrouteOutput(connectionNodeMenu.sourceNodeId, connectionNodeMenu.sourceHandle, preferredId);
     setEdges((current) =>
       addEdge(
         {
@@ -6550,6 +6592,17 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
+  async function downloadImageSrc(src: string, filename: string) {
+    try {
+      const response = await fetch(src);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      downloadBlob(blob, filename || "snarkroute-image.png");
+    } catch (error) {
+      setLogs((current) => [`Could not download image: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
   function makeNodePackageId(title: string): string {
     return title.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, ".").replace(/^[._-]+|[._-]+$/g, "") || "custom.compound";
   }
@@ -6874,7 +6927,7 @@ function App() {
           {routeStack.length > 0 ? (
             <>
               <button onClick={() => addNode("compound.input")}><ChevronRight size={16} /> Tool Input</button>
-              <button onClick={() => addNode("compound.output")}><ChevronLeft size={16} /> Tool Output</button>
+              <button onClick={() => addNode("compound.output", positionRightOfAllNodes())}>Tool Output <ChevronRight size={16} /></button>
             </>
           ) : null}
           <button className="primary" onClick={() => void run()}><Play size={16} /> Run</button>
@@ -7484,9 +7537,14 @@ function App() {
             <div className="imageViewerHeader">
               <span title={imageViewer.title}>{truncateText(imageViewer.title, 96)}</span>
               <div className="imageViewerActions">
-                <a className="imageViewerButton" href={imageViewer.src} download={imageViewer.filename} title="Download image">
+                <button
+                  className="imageViewerButton"
+                  type="button"
+                  title="Download image"
+                  onClick={() => downloadImageSrc(imageViewer.src, imageViewer.filename)}
+                >
                   <Download size={15} />
-                </a>
+                </button>
                 <button className="imageViewerButton" type="button" title="Close" onClick={() => setImageViewer(null)}>
                   <X size={15} />
                 </button>
