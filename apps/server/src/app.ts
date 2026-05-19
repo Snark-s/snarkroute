@@ -10,11 +10,13 @@ import { registerPromptLibraryRoutes, refreshPromptLibraryCache } from "./routes
 import { registerProviderRoutes } from "./routes/providers";
 import { registerRouteDocumentRoutes } from "./routes/route-documents";
 import { registerSettingsRoutes } from "./routes/settings";
+import { registerSystemRoutes } from "./routes/system";
 export function buildServer() {
   const app = Fastify({ logger: true, bodyLimit: 250 * 1024 * 1024 });
   app.register(cors, { origin: true });
   void refreshPromptLibraryCache();
   void registerSettingsRoutes(app);
+  void registerSystemRoutes(app);
   void registerProviderRoutes(app);
   void registerNodeCatalogRoutes(app);
   void registerNodePackageRoutes(app);

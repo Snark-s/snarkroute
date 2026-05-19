@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterSettingsStatus } from "../providers/openrouter";
+import { normalizeSeedanceBackend, seedanceSettingsStatus, SEEDANCE_BACKENDS } from "../providers/seedance";
 export async function registerSettingsRoutes(app: FastifyInstance) {
 app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), polzaEnabled: isPolzaEnabled(), seedanceEnabled: isSeedanceEnabled() }));
 
@@ -10,17 +11,33 @@ app.get("/api/settings", async () => ({
   gemini: { configured: isGeminiEnabled() },
   polza: { configured: isPolzaEnabled(), maskedApiKey: isPolzaEnabled() ? maskSecret(process.env.POLZA_AI_API_KEY) : "" },
   openai: { configured: isOpenAiEnabled(), maskedApiKey: isOpenAiEnabled() ? maskSecret(process.env.OPENAI_API_KEY) : "" },
-  seedance: { configured: isSeedanceEnabled(), maskedApiKey: isSeedanceEnabled() ? maskSecret(process.env.SEEDANCE_API_KEY) : "" },
+  seedance: seedanceSettingsStatus(),
   openrouter: await openRouterSettingsStatus()
 }));
 
-app.post<{ Body: { seedanceApiKey?: string } }>("/api/settings/seedance-token", async (request, reply) => {
+app.post<{ Body: { seedanceApiKey?: string; seedanceApiBaseUrl?: string; backend?: string } }>("/api/settings/seedance-token", async (request, reply) => {
   const token = request.body?.seedanceApiKey?.trim();
-  if (!token) return reply.code(400).send({ error: "SEEDANCE_API_KEY cannot be empty." });
+  const backend = normalizeSeedanceBackend(request.body?.backend);
+  const baseUrl = stringValue(request.body?.seedanceApiBaseUrl);
+  if (request.body?.backend !== undefined && !backend) return reply.code(400).send({ error: "Seedance provider backend is not selected" });
+  if (token && !/^[\x21-\x7E]+$/.test(token)) return reply.code(400).send({ error: "Seedance API key is invalid. Paste the real provider key, not masked text or help text." });
+  if (!token && !backend && request.body?.seedanceApiBaseUrl === undefined) return reply.code(400).send({ error: "Seedance settings payload is empty." });
   try {
-    await writeEnvValue("SEEDANCE_API_KEY", token);
-    process.env.SEEDANCE_API_KEY = token;
-    return { ok: true, seedance: { configured: true, maskedApiKey: maskSecret(token) } };
+    if (backend) {
+      await writeEnvValue("SEEDANCE_PROVIDER_BACKEND", backend);
+      process.env.SEEDANCE_PROVIDER_BACKEND = backend;
+    }
+    if (token) {
+      const key = backend ? SEEDANCE_BACKENDS[backend].apiKeyEnvKeys[0] : "SEEDANCE_API_KEY";
+      await writeEnvValue(key, token);
+      process.env[key] = token;
+      process.env.SEEDANCE_API_KEY = token;
+    }
+    if (request.body?.seedanceApiBaseUrl !== undefined) {
+      await writeEnvValue("SEEDANCE_API_BASE_URL", baseUrl ?? "");
+      process.env.SEEDANCE_API_BASE_URL = baseUrl ?? "";
+    }
+    return { ok: true, seedance: seedanceSettingsStatus() };
   } catch (error) {
     return reply.code(500).send({ error: errorMessage(error) });
   }

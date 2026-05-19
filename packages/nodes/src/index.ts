@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, resolve, join, parse } from "node:path";
+import { deflateSync, inflateSync } from "node:zlib";
 import type { NodeRunner, RouteExecutor } from "@snarkroute/executor";
 import type { RouteNode, ValidationIssue } from "@snarkroute/protocol";
 import {
@@ -100,6 +101,7 @@ export const builtInNodeDefinitions: NodeDefinition[] = [
   { type: "text.promptCompose", title: "Prompt Compose", description: "Combines multiple text inputs into one prompt.", economics: { license: "AGPL-3.0-or-later", notes: "Local text transform only; no payment execution." } },
   { type: "preview.image", title: "Image Preview", description: "Passes through an image value for Studio preview.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "preview.panorama360", title: "360 Panorama Viewer", description: "Passes through an equirectangular panorama image for interactive Studio viewing.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "transform.panorama360ToFisheye", title: "360 Panorama to Fisheye", description: "Projects a local equirectangular 360 panorama PNG into a circular fisheye image with a configurable field of view.", economics: { license: "AGPL-3.0-or-later", notes: "Local image transform only; no payment execution." } },
   { type: "transform.template", title: "Template Transform", description: "Produces text from params.template after route template resolution.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "debug.log", title: "Debug Log", description: "Logs a message or value and passes the value through.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "utility.null", title: "Null", description: "Passes any input through unchanged.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
@@ -206,6 +208,62 @@ export const previewPanorama360Runner: NodeRunner = ({ params, inputs }) => {
   const image = normalizePreviewImage(params.image ?? firstInputValue(inputs));
   return {
     output: { image, panorama: { projection: "equirectangular" } }
+  };
+};
+
+export const panorama360ToFisheyeRunner: NodeRunner = async ({ node, params, inputs, context }) => {
+  const source = await readLocalPngImage(params.image ?? inputs.image ?? firstInputValue(inputs), "transform.panorama360ToFisheye");
+  if (source.width < 2 || source.height < 1) throw new Error("transform.panorama360ToFisheye requires a valid equirectangular panorama image.");
+  const fovDegrees = clampedNumberParam(params.fovDegrees ?? params.angleDegrees ?? params.angle, 200, 1, 360, "fovDegrees");
+  const outputSize = integerParam(params.outputSize ?? params.size, Math.max(1, source.height), "outputSize");
+  const yawDegrees = numberParam(params.yawDegrees ?? params.yaw, 0);
+  const pitchDegrees = clampedNumberParam(params.pitchDegrees ?? params.pitch, -90, -90, 90, "pitchDegrees");
+  const background = parseRgbaParam(params.background, [0, 0, 0, 0]);
+  const fisheye = projectEquirectangularToFisheye(source, {
+    outputSize,
+    fovDegrees,
+    yawDegrees,
+    pitchDegrees,
+    background
+  });
+  const bytes = encodeRgbaPng(fisheye.width, fisheye.height, fisheye.data);
+  const assetsDirectory = join(context.outputDirectory, "assets");
+  await mkdir(assetsDirectory, { recursive: true });
+  const filename = `${sanitizeFilename(node.id)}-fisheye-${Date.now()}.png`;
+  const localPath = join(assetsDirectory, filename);
+  await writeFile(localPath, bytes);
+  const image = {
+    localPath,
+    path: localPath,
+    filename,
+    mimeType: "image/png",
+    sizeBytes: bytes.length,
+    width: fisheye.width,
+    height: fisheye.height,
+    sourceNodeId: node.id,
+    transform: "panorama360ToFisheye",
+    projection: "fisheye",
+    fovDegrees,
+    yawDegrees,
+    pitchDegrees
+  };
+  await writeFile(join(assetsDirectory, `${filename}.json`), JSON.stringify(image, null, 2), "utf8");
+  return {
+    output: {
+      image,
+      localPath,
+      metadata: {
+        sourceProjection: "equirectangular",
+        outputProjection: "fisheye",
+        fovDegrees,
+        yawDegrees,
+        pitchDegrees,
+        outputSize
+      },
+      status: "succeeded"
+    },
+    logs: [`Projected 360 panorama to fisheye PNG at ${localPath}`],
+    provenance: { transform: "panorama360ToFisheye", sourceProjection: "equirectangular", outputProjection: "fisheye" }
   };
 };
 
@@ -425,6 +483,7 @@ export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("text.promptCompose", promptComposeRunner);
   executor.registerNodeRunner("preview.image", previewImageRunner);
   executor.registerNodeRunner("preview.panorama360", previewPanorama360Runner);
+  executor.registerNodeRunner("transform.panorama360ToFisheye", panorama360ToFisheyeRunner);
   executor.registerNodeRunner("transform.template", transformTemplateRunner);
   executor.registerNodeRunner("debug.log", debugLogRunner);
   executor.registerNodeRunner("utility.null", nullRunner);
@@ -454,8 +513,8 @@ function builtInPermissions(type: string) {
   return {
     network: type === "http.request" || type === "local.stableDiffusion.textToImage",
     networkHosts: type === "local.stableDiffusion.textToImage" ? ["127.0.0.1", "localhost"] : [],
-    readFiles: type === "input.file" || type === "input.image" || type === "input.video",
-    writeOutputs: type === "output.file" || type === "local.stableDiffusion.textToImage",
+    readFiles: type === "input.file" || type === "input.image" || type === "input.video" || type === "transform.panorama360ToFisheye",
+    writeOutputs: type === "output.file" || type === "local.stableDiffusion.textToImage" || type === "transform.panorama360ToFisheye",
     shell: false,
     env: []
   };
@@ -477,7 +536,7 @@ function builtInInputs(type: string) {
       { id: "context", type: "conversation_context", required: false, label: "Context" }
     ];
   }
-  if (type === "preview.image" || type === "preview.panorama360") return [{ id: "image", type: "image", required: true, label: "Image" }];
+  if (type === "preview.image" || type === "preview.panorama360" || type === "transform.panorama360ToFisheye") return [{ id: "image", type: "image", required: true, label: "Image" }];
   if (type === "debug.log") return [{ id: "value", type: "data", required: false, label: "Value" }];
   if (type === "utility.null") return [{ id: "input", type: "data", required: false, label: "Any" }];
   if (type === "output.text") return [{ id: "from", type: "data", required: false, label: "From" }];
@@ -496,7 +555,7 @@ function builtInOutputs(type: string) {
     { id: "conversation_capsule", type: "conversation_context", label: "conversation_capsule" }
   ];
   if (type === "input.file" || type === "output.file") return [{ id: "file", type: "file", label: "File" }];
-  if (type === "input.image" || type === "preview.image" || type === "preview.panorama360" || type === "local.stableDiffusion.textToImage") return [{ id: "image", type: "image", label: "Image" }];
+  if (type === "input.image" || type === "preview.image" || type === "preview.panorama360" || type === "transform.panorama360ToFisheye" || type === "local.stableDiffusion.textToImage") return [{ id: "image", type: "image", label: "Image" }];
   if (type === "capability.image.create" || type === "capability.image.edit" || type === "capability.image.upscale") return [{ id: "image", type: "image", label: "Image" }];
   if (type === "capability.video.animate") return [{ id: "video", type: "video", label: "Video" }];
   if (type === "capability.character.create" || type === "capability.location.create") return [{ id: "resource", type: "json", label: "Resource" }];
@@ -526,6 +585,13 @@ function builtInParams(type: string) {
     ];
   }
   if (type === "input.file" || type === "input.image" || type === "input.video") return [{ id: "path", type: "file", label: "Path", default: "" }];
+  if (type === "transform.panorama360ToFisheye") {
+    return [
+      { id: "fovDegrees", type: "number", label: "Angle", default: 200, description: "Fisheye field of view in degrees, from 1 to 360." },
+      { id: "yawDegrees", type: "number", label: "Yaw", default: 0, description: "Horizontal view direction in degrees." },
+      { id: "pitchDegrees", type: "number", label: "Pitch", default: -90, description: "Vertical view direction in degrees." }
+    ];
+  }
   if (type.startsWith("capability.")) return [{ id: "prompt", type: "text", label: "Prompt", default: "" }, { id: "provider", type: "text", label: "Provider", default: "" }];
   if (type === "transform.template") return [{ id: "template", type: "text", label: "Template", default: "" }];
   if (type === "http.request") {
@@ -1163,15 +1229,224 @@ async function writeBase64Image(data: string, options: { outputDirectory: string
   return metadata;
 }
 
+interface RgbaImage {
+  width: number;
+  height: number;
+  data: Uint8Array;
+}
+
+async function readLocalPngImage(value: unknown, nodeType: string): Promise<RgbaImage> {
+  const image = normalizePreviewImage(value) as Record<string, unknown>;
+  const mimeType = typeof image.mimeType === "string" ? image.mimeType : "image/png";
+  let bytes: Buffer;
+  if (typeof image.base64 === "string") {
+    if (mimeType !== "image/png") throw new Error(`${nodeType} currently supports PNG image data only.`);
+    bytes = Buffer.from(image.base64, "base64");
+  } else {
+    const path = image.localPath ?? image.path;
+    if (typeof path !== "string" || /^https?:\/\//i.test(path)) throw new Error(`${nodeType} requires a local PNG image path or base64 PNG image.`);
+    if (getMimeType(path) !== "image/png") throw new Error(`${nodeType} currently supports PNG files only.`);
+    bytes = await readFile(resolve(path));
+  }
+  return decodePngToRgba(bytes);
+}
+
+function projectEquirectangularToFisheye(source: RgbaImage, options: { outputSize: number; fovDegrees: number; yawDegrees: number; pitchDegrees: number; background: [number, number, number, number] }): RgbaImage {
+  const outputSize = options.outputSize;
+  const output = new Uint8Array(outputSize * outputSize * 4);
+  const [backgroundR, backgroundG, backgroundB, backgroundA] = options.background;
+  const radius = outputSize / 2;
+  const maxTheta = (options.fovDegrees * Math.PI) / 360;
+  const yaw = (options.yawDegrees * Math.PI) / 180;
+  const pitch = (options.pitchDegrees * Math.PI) / 180;
+  const cosYaw = Math.cos(yaw);
+  const sinYaw = Math.sin(yaw);
+  const cosPitch = Math.cos(pitch);
+  const sinPitch = Math.sin(pitch);
+
+  for (let y = 0; y < outputSize; y += 1) {
+    const normalizedY = ((y + 0.5) - radius) / radius;
+    for (let x = 0; x < outputSize; x += 1) {
+      const normalizedX = ((x + 0.5) - radius) / radius;
+      const distance = Math.hypot(normalizedX, normalizedY);
+      const outputIndex = (y * outputSize + x) * 4;
+      if (distance > 1) {
+        output[outputIndex] = backgroundR;
+        output[outputIndex + 1] = backgroundG;
+        output[outputIndex + 2] = backgroundB;
+        output[outputIndex + 3] = backgroundA;
+        continue;
+      }
+      const theta = distance * maxTheta;
+      const phi = Math.atan2(normalizedY, normalizedX);
+      const sinTheta = Math.sin(theta);
+      const cameraX = sinTheta * Math.cos(phi);
+      const cameraY = -sinTheta * Math.sin(phi);
+      const cameraZ = Math.cos(theta);
+      const pitchedY = cameraY * cosPitch - cameraZ * sinPitch;
+      const pitchedZ = cameraY * sinPitch + cameraZ * cosPitch;
+      const worldX = cameraX * cosYaw + pitchedZ * sinYaw;
+      const worldY = pitchedY;
+      const worldZ = -cameraX * sinYaw + pitchedZ * cosYaw;
+      const longitude = Math.atan2(worldX, worldZ);
+      const latitude = Math.asin(clamp(worldY, -1, 1));
+      const sourceX = positiveModulo(Math.floor((longitude / (Math.PI * 2) + 0.5) * source.width), source.width);
+      const sourceY = clamp(Math.floor((0.5 - latitude / Math.PI) * source.height), 0, source.height - 1);
+      const sourceIndex = (sourceY * source.width + sourceX) * 4;
+      output[outputIndex] = source.data[sourceIndex];
+      output[outputIndex + 1] = source.data[sourceIndex + 1];
+      output[outputIndex + 2] = source.data[sourceIndex + 2];
+      output[outputIndex + 3] = source.data[sourceIndex + 3];
+    }
+  }
+
+  return { width: outputSize, height: outputSize, data: output };
+}
+
+function decodePngToRgba(buffer: Buffer): RgbaImage {
+  assertPng(buffer);
+  let width = 0;
+  let height = 0;
+  let bitDepth = 0;
+  let colorType = 0;
+  const idatChunks: Buffer[] = [];
+  let offset = 8;
+  while (offset + 12 <= buffer.length) {
+    const length = buffer.readUInt32BE(offset);
+    const type = buffer.toString("ascii", offset + 4, offset + 8);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + length;
+    if (dataEnd + 4 > buffer.length) throw new Error("Invalid PNG chunk length.");
+    const data = buffer.subarray(dataStart, dataEnd);
+    if (type === "IHDR") {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      bitDepth = data[8];
+      colorType = data[9];
+      if (data[10] !== 0 || data[11] !== 0 || data[12] !== 0) throw new Error("Unsupported PNG compression, filter, or interlace method.");
+    } else if (type === "IDAT") {
+      idatChunks.push(data);
+    } else if (type === "IEND") {
+      break;
+    }
+    offset = dataEnd + 4;
+  }
+  if (!width || !height || bitDepth !== 8) throw new Error("Only 8-bit PNG images are supported.");
+  const channels = colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 0 ? 1 : 0;
+  if (!channels) throw new Error("Only grayscale, RGB, and RGBA PNG images are supported.");
+  const raw = inflateSync(Buffer.concat(idatChunks));
+  const stride = width * channels;
+  const unfiltered = new Uint8Array(width * height * channels);
+  let rawOffset = 0;
+  for (let y = 0; y < height; y += 1) {
+    const filter = raw[rawOffset++];
+    const rowOffset = y * stride;
+    for (let x = 0; x < stride; x += 1) {
+      const left = x >= channels ? unfiltered[rowOffset + x - channels] : 0;
+      const up = y > 0 ? unfiltered[rowOffset + x - stride] : 0;
+      const upLeft = y > 0 && x >= channels ? unfiltered[rowOffset + x - stride - channels] : 0;
+      const value = raw[rawOffset++];
+      if (filter === 0) unfiltered[rowOffset + x] = value;
+      else if (filter === 1) unfiltered[rowOffset + x] = (value + left) & 0xff;
+      else if (filter === 2) unfiltered[rowOffset + x] = (value + up) & 0xff;
+      else if (filter === 3) unfiltered[rowOffset + x] = (value + Math.floor((left + up) / 2)) & 0xff;
+      else if (filter === 4) unfiltered[rowOffset + x] = (value + paethPredictor(left, up, upLeft)) & 0xff;
+      else throw new Error(`Unsupported PNG filter: ${filter}.`);
+    }
+  }
+  const rgba = new Uint8Array(width * height * 4);
+  for (let pixel = 0; pixel < width * height; pixel += 1) {
+    const sourceIndex = pixel * channels;
+    const targetIndex = pixel * 4;
+    if (channels === 1) {
+      rgba[targetIndex] = unfiltered[sourceIndex];
+      rgba[targetIndex + 1] = unfiltered[sourceIndex];
+      rgba[targetIndex + 2] = unfiltered[sourceIndex];
+      rgba[targetIndex + 3] = 255;
+    } else {
+      rgba[targetIndex] = unfiltered[sourceIndex];
+      rgba[targetIndex + 1] = unfiltered[sourceIndex + 1];
+      rgba[targetIndex + 2] = unfiltered[sourceIndex + 2];
+      rgba[targetIndex + 3] = channels === 4 ? unfiltered[sourceIndex + 3] : 255;
+    }
+  }
+  return { width, height, data: rgba };
+}
+
+function encodeRgbaPng(width: number, height: number, data: Uint8Array): Buffer {
+  const stride = width * 4;
+  const raw = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * (stride + 1);
+    raw[rowStart] = 0;
+    Buffer.from(data.buffer, data.byteOffset + y * stride, stride).copy(raw, rowStart + 1);
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  header[10] = 0;
+  header[11] = 0;
+  header[12] = 0;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    createPngChunk("IHDR", header),
+    createPngChunk("IDAT", deflateSync(raw)),
+    createPngChunk("IEND", Buffer.alloc(0))
+  ]);
+}
+
+function paethPredictor(left: number, up: number, upLeft: number): number {
+  const estimate = left + up - upLeft;
+  const leftDistance = Math.abs(estimate - left);
+  const upDistance = Math.abs(estimate - up);
+  const upLeftDistance = Math.abs(estimate - upLeft);
+  if (leftDistance <= upDistance && leftDistance <= upLeftDistance) return left;
+  return upDistance <= upLeftDistance ? up : upLeft;
+}
+
 function numberParam(value: unknown, fallback: number): number {
   const number = Number(typeof value === "string" ? value.replace(",", ".") : value ?? fallback);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function integerParam(value: unknown, fallback: number, label: string): number {
+  const number = Math.round(numberParam(value, fallback));
+  if (number <= 0) throw new Error(`params.${label} must be a positive number.`);
+  return number;
+}
+
+function clampedNumberParam(value: unknown, fallback: number, min: number, max: number, label: string): number {
+  const number = numberParam(value, fallback);
+  if (number < min || number > max) throw new Error(`params.${label} must be between ${min} and ${max}.`);
+  return number;
 }
 
 function positiveNumberParam(value: unknown, fallback: number, label: string): number {
   const number = numberParam(value, fallback);
   if (number <= 0) throw new Error(`local.stableDiffusion.textToImage params.${label} must be a positive number.`);
   return number;
+}
+
+function parseRgbaParam(value: unknown, fallback: [number, number, number, number]): [number, number, number, number] {
+  if (value === undefined || value === null || value === "") return fallback;
+  if (Array.isArray(value)) {
+    const channels = value.map((channel) => clamp(Math.round(numberParam(channel, 0)), 0, 255));
+    return [channels[0] ?? fallback[0], channels[1] ?? fallback[1], channels[2] ?? fallback[2], channels[3] ?? fallback[3]];
+  }
+  if (typeof value === "string") {
+    const match = /^#?([a-f0-9]{6})([a-f0-9]{2})?$/i.exec(value.trim());
+    if (!match) throw new Error("params.background must be an RGBA array or #RRGGBB/#RRGGBBAA color.");
+    const hex = match[1];
+    return [
+      Number.parseInt(hex.slice(0, 2), 16),
+      Number.parseInt(hex.slice(2, 4), 16),
+      Number.parseInt(hex.slice(4, 6), 16),
+      match[2] ? Number.parseInt(match[2], 16) : 255
+    ];
+  }
+  throw new Error("params.background must be an RGBA array or #RRGGBB/#RRGGBBAA color.");
 }
 
 function optionalBoolean(value: unknown): boolean | undefined {
@@ -1185,6 +1460,14 @@ function filterDefined(value: Record<string, unknown>): Record<string, unknown> 
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
+}
+
+function positiveModulo(value: number, modulo: number): number {
+  return ((value % modulo) + modulo) % modulo;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function extensionForMime(mimeType: string): string {

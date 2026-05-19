@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { deflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { createExecutor } from "@snarkroute/executor";
 import {
@@ -38,6 +39,10 @@ describe("built-in nodes", () => {
       { id: "image.create", title: "Create Image", priority: 10 }
     ]);
     expect(builtInNodeManifests.find((manifest) => manifest.id === "capability.image.create")).toBeTruthy();
+    expect(builtInNodeManifests.find((manifest) => manifest.id === "transform.panorama360ToFisheye")).toMatchObject({
+      inputs: [{ id: "image", type: "image", required: true, label: "Image" }],
+      outputs: [{ id: "image", type: "image", label: "Image" }]
+    });
   });
 
   it("validates node manifests with required author and permissions", () => {
@@ -671,6 +676,23 @@ A reusable image prompt.
     expect(result.nodeResults.preview.error).toContain("expected an image");
   });
 
+  it("projects a local equirectangular panorama PNG to fisheye with a configurable angle", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sr-panorama-fisheye-"));
+    const panoramaPath = join(directory, "panorama.png");
+    await writeFile(panoramaPath, testRgbaPng(4, 2));
+
+    const result = await executeRoute({
+      nodes: [{ id: "fisheye", type: "transform.panorama360ToFisheye", params: { image: panoramaPath, fovDegrees: 220, yawDegrees: 15 } }],
+      edges: []
+    });
+
+    expect(result.status).toBe("succeeded");
+    const output = result.nodeResults.fisheye.output as { image?: { localPath?: string; width?: number; height?: number }; metadata?: { fovDegrees?: number; outputSize?: number } };
+    expect(output.image).toMatchObject({ width: 2, height: 2 });
+    expect(output.metadata).toMatchObject({ fovDegrees: 220, outputSize: 2, pitchDegrees: -90 });
+    expect((await readFile(output.image!.localPath!)).subarray(0, 4)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  });
+
   it("http.request calls JSON endpoints through the runner", async () => {
     const server = createServer((request, response) => {
       response.setHeader("Content-Type", "application/json");
@@ -873,6 +895,51 @@ function tinyPng(): Buffer {
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
     "base64"
   );
+}
+
+function testRgbaPng(width: number, height: number): Buffer {
+  const stride = width * 4;
+  const raw = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y += 1) {
+    const rowStart = y * (stride + 1);
+    raw[rowStart] = 0;
+    for (let x = 0; x < width; x += 1) {
+      const index = rowStart + 1 + x * 4;
+      raw[index] = x * 50;
+      raw[index + 1] = y * 100;
+      raw[index + 2] = 200;
+      raw[index + 3] = 255;
+    }
+  }
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    testPngChunk("IHDR", header),
+    testPngChunk("IDAT", deflateSync(raw)),
+    testPngChunk("IEND", Buffer.alloc(0))
+  ]);
+}
+
+function testPngChunk(type: string, data: Buffer): Buffer {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length, 0);
+  const typeBuffer = Buffer.from(type, "ascii");
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(testCrc32(Buffer.concat([typeBuffer, data])), 0);
+  return Buffer.concat([length, typeBuffer, data, crc]);
+}
+
+function testCrc32(buffer: Buffer): number {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+  }
+  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function listen(server: ReturnType<typeof createServer>): Promise<string> {

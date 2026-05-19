@@ -1,6 +1,6 @@
 # Seedance 2 Video
 
-Generates a video through the direct Seedance API.
+Generates a video through official ByteDance cloud products: BytePlus ModelArk for international access or Volcengine LAS for China-region access. A custom Seedance-compatible endpoint can still be used for existing local workflows.
 
 ## Inputs
 
@@ -15,7 +15,8 @@ Generates a video through the direct Seedance API.
 
 - `prompt`: prompt stored directly on the node.
 - `endpointMode`: `auto`, `text-to-video`, `image-to-video`, or `reference-to-video`.
-- `baseUrl`: defaults to `https://api.seedance.ai/v1`; can be overridden by `SEEDANCE_API_BASE_URL`.
+- `providerBackend`: optional node override for `SEEDANCE_PROVIDER_BACKEND`. Supported values are `byteplus-modelark`, `volcengine-las`, and `seedance-compatible`.
+- `baseUrl`: advanced custom API base URL. Required only for `seedance-compatible`; official backends use their default base URLs unless `SEEDANCE_API_BASE_URL` overrides them.
 - `model`: defaults to `seedance-2.0`.
 - `duration`: `auto` or seconds supported by the provider, usually `4` to `15`.
 - `resolution`: provider resolution such as `720p` or `1080p`.
@@ -36,7 +37,13 @@ Studio renders fixed-choice parameters as dropdowns: endpoint mode, model, durat
 
 ## Secrets
 
-Set `SEEDANCE_API_KEY` before running this node.
+Choose the backend in Studio settings and set one matching key:
+
+- BytePlus ModelArk: `ARK_API_KEY` or `BYTEPLUS_ARK_API_KEY`. Key console: https://console.byteplus.com/ark/region:ark+ap-southeast-1/apiKey
+- Volcengine LAS: `LAS_API_KEY` or `VOLCENGINE_LAS_API_KEY`. Key docs: https://www.volcengine.com/docs/6492/1799875
+- Custom compatible endpoint: `SEEDANCE_API_KEY` plus `SEEDANCE_API_BASE_URL`.
+
+`SEEDANCE_API_KEY` is still accepted as a legacy fallback so older local setups do not break. Third-party aggregators are not treated as official Seedance API key sources.
 
 ## Notes
 

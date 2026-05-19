@@ -19,14 +19,21 @@
   "permissions": {
     "network": true,
     "networkHosts": [
-      "api.seedance.ai"
+      "ark.ap-southeast.bytepluses.com",
+      "ark.eu-west.bytepluses.com",
+      "operator.las.cn-beijing.volces.com"
     ],
     "readFiles": false,
     "writeOutputs": true,
     "shell": false,
     "env": [
       "SEEDANCE_API_KEY",
-      "SEEDANCE_API_BASE_URL"
+      "SEEDANCE_API_BASE_URL",
+      "SEEDANCE_PROVIDER_BACKEND",
+      "ARK_API_KEY",
+      "BYTEPLUS_ARK_API_KEY",
+      "LAS_API_KEY",
+      "VOLCENGINE_LAS_API_KEY"
     ]
   },
   "executor": {
@@ -105,8 +112,14 @@
     {
       "id": "baseUrl",
       "type": "text",
-      "label": "API URL",
-      "default": "https://api.seedance.ai/v1"
+      "label": "Custom API Base URL",
+      "default": ""
+    },
+    {
+      "id": "providerBackend",
+      "type": "text",
+      "label": "Provider Backend",
+      "default": ""
     },
     {
       "id": "model",
@@ -193,7 +206,30 @@
         ]
       },
       "baseUrl": {
-        "advanced": true
+        "advanced": true,
+        "description": "Required if using a custom Seedance-compatible endpoint."
+      },
+      "providerBackend": {
+        "advanced": true,
+        "control": "select",
+        "options": [
+          {
+            "value": "",
+            "label": "Use Settings"
+          },
+          {
+            "value": "byteplus-modelark",
+            "label": "BytePlus ModelArk"
+          },
+          {
+            "value": "volcengine-las",
+            "label": "Volcengine LAS"
+          },
+          {
+            "value": "seedance-compatible",
+            "label": "Custom compatible endpoint"
+          }
+        ]
       },
       "model": {
         "advanced": true,

@@ -1,4 +1,19 @@
-const DEFAULT_BASE_URL = "https://api.seedance.ai/v1";
+const BACKENDS = {
+  "byteplus-modelark": {
+    label: "BytePlus ModelArk",
+    keyEnvKeys: ["ARK_API_KEY", "BYTEPLUS_ARK_API_KEY", "SEEDANCE_API_KEY"],
+    defaultBaseUrl: "https://ark.ap-southeast.bytepluses.com/api/v3"
+  },
+  "volcengine-las": {
+    label: "Volcengine LAS",
+    keyEnvKeys: ["LAS_API_KEY", "VOLCENGINE_LAS_API_KEY", "SEEDANCE_API_KEY"],
+    defaultBaseUrl: "https://operator.las.cn-beijing.volces.com/api/v1"
+  },
+  "seedance-compatible": {
+    label: "Custom Seedance-compatible endpoint",
+    keyEnvKeys: ["SEEDANCE_API_KEY"]
+  }
+};
 const DEFAULT_POLL_INTERVAL_MS = 5000;
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_IMAGES = 9;
@@ -6,10 +21,14 @@ const MAX_VIDEOS = 3;
 const MAX_AUDIO = 3;
 
 export async function runNode(context) {
-  const token = String(context.env.SEEDANCE_API_KEY ?? "").trim();
-  if (!token) {
-    throw new Error("SEEDANCE_API_KEY is not configured. Add a direct Seedance API key to the server environment.");
-  }
+  const inferredBackend = inferBackendFromEnv(context.env);
+  const selectedBackend = normalizeBackend(context.params.providerBackend ?? context.env.SEEDANCE_PROVIDER_BACKEND);
+  const hasCustomBaseUrl = Boolean(stringParam(context.params.baseUrl) ?? context.env.SEEDANCE_API_BASE_URL);
+  const backend = selectedBackend === "seedance-compatible" && !hasCustomBaseUrl && inferredBackend ? inferredBackend : selectedBackend ?? inferredBackend;
+  if (!backend) throw new Error("Seedance provider backend is not selected");
+  const backendConfig = BACKENDS[backend];
+  const token = firstEnvValue(context.env, backendConfig.keyEnvKeys);
+  if (!token) throw new Error("Seedance API key is missing");
 
   const prompt = firstInputText(context.inputs.prompt) ?? stringParam(context.params.prompt);
   if (!prompt) throw new Error("Seedance 2 Video requires a prompt input or prompt parameter.");
@@ -25,7 +44,8 @@ export async function runNode(context) {
   if (videos.length > MAX_VIDEOS) throw new Error(`Seedance 2 accepts at most ${MAX_VIDEOS} video references, got ${videos.length}.`);
   if (audio.length > MAX_AUDIO) throw new Error(`Seedance 2 accepts at most ${MAX_AUDIO} audio references, got ${audio.length}.`);
 
-  const baseUrl = trimTrailingSlash(stringParam(context.params.baseUrl) ?? context.env.SEEDANCE_API_BASE_URL ?? DEFAULT_BASE_URL);
+  const baseUrl = trimTrailingSlash(stringParam(context.params.baseUrl) ?? stringParam(context.env.SEEDANCE_API_BASE_URL) ?? backendConfig.defaultBaseUrl ?? "");
+  if (!baseUrl) throw new Error("Seedance API base URL is missing");
   const endpointMode = normalizeEndpointMode(context.params.endpointMode, { images, videos, audio, endImage });
   const body = buildRequestBody({ prompt, images, videos, audio, endImage, endpointMode, params: context.params });
   const createPath = stringParam(context.params.createPath) ?? pathForMode(endpointMode);
@@ -59,7 +79,7 @@ export async function runNode(context) {
       video,
       output: completed
     },
-    logs: [`Generated Seedance 2 video through ${endpointMode} in ${Date.now() - started}ms at ${video.localPath}`]
+    logs: [`Generated Seedance 2 video through ${backendConfig.label} ${endpointMode} in ${Date.now() - started}ms at ${video.localPath}`]
   };
 }
 
@@ -122,13 +142,12 @@ async function seedanceJson(url, init) {
   try {
     response = await fetch(url, init);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Seedance API is unreachable: ${message}`);
+    throw new Error(`Seedance API request failed: network error${networkErrorDetail(error) ? ` (${networkErrorDetail(error)})` : ""}`);
   }
 
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`Seedance request failed (${response.status}): ${truncate(text, 1500)}`);
+    throw new Error(seedanceHttpError(response.status, text));
   }
   return text.trim() ? JSON.parse(text) : {};
 }
@@ -275,6 +294,53 @@ function filterDefined(value) {
 
 function trimTrailingSlash(value) {
   return String(value).replace(/\/+$/, "");
+}
+
+function normalizeBackend(value) {
+  const text = stringParam(value)?.toLowerCase().replace(/[_\s]+/g, "-");
+  if (text === "byteplus-modelark" || text === "byteplus" || text === "modelark" || text === "seedance-byteplus") return "byteplus-modelark";
+  if (text === "volcengine-las" || text === "volcengine" || text === "las" || text === "seedance-volcengine") return "volcengine-las";
+  if (text === "seedance-compatible" || text === "custom-seedance-compatible-endpoint" || text === "seedance" || text === "custom") return "seedance-compatible";
+  return undefined;
+}
+
+function inferBackendFromEnv(env) {
+  if (stringParam(env.ARK_API_KEY) || stringParam(env.BYTEPLUS_ARK_API_KEY)) return "byteplus-modelark";
+  if (stringParam(env.LAS_API_KEY) || stringParam(env.VOLCENGINE_LAS_API_KEY)) return "volcengine-las";
+  const legacyKey = stringParam(env.SEEDANCE_API_KEY);
+  const baseUrl = stringParam(env.SEEDANCE_API_BASE_URL);
+  if (legacyKey?.startsWith("ark-")) return "byteplus-modelark";
+  if (legacyKey && baseUrl) return "seedance-compatible";
+  return undefined;
+}
+
+function firstEnvValue(env, keys) {
+  let invalidKey;
+  for (const key of keys) {
+    const value = stringParam(env[key]);
+    if (value && isHeaderSafeSecret(value)) return value;
+    if (value && !invalidKey) invalidKey = key;
+  }
+  if (invalidKey) throw new Error(`Seedance API key in ${invalidKey} is invalid`);
+  return undefined;
+}
+
+function isHeaderSafeSecret(value) {
+  return /^[\x21-\x7E]+$/.test(value);
+}
+
+function seedanceHttpError(status, body) {
+  if (status === 401 || status === 403) return "Seedance API returned 401/403: check API key";
+  if (status === 404) return "Seedance API returned 404: check base URL / endpoint";
+  if (status === 429) return "Seedance API returned 429: rate limit or quota exceeded";
+  return `Seedance API request failed (${status}): ${truncate(body, 1500)}`;
+}
+
+function networkErrorDetail(error) {
+  if (!error) return "";
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : "";
+  return [message, cause].filter(Boolean).join(": ");
 }
 
 function extensionForMimeType(mimeType, url) {

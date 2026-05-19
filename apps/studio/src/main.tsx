@@ -39,7 +39,7 @@ import {
   type ModelProfile,
   type OpenRoute
 } from "@snarkroute/protocol";
-import { ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -236,6 +236,33 @@ type OpenRouterSettings = {
   budgetWarningUsd?: number | null;
   catalog?: { refreshedAt?: string | null; modelCount?: number };
   defaultModelStatus?: string;
+};
+
+type SeedanceSettings = {
+  configured: boolean;
+  backend?: string;
+  backendLabel?: string;
+  maskedApiKey?: string;
+  apiKeyEnvKey?: string;
+  hasApiKey?: boolean;
+  baseUrl?: string;
+  baseUrlSource?: string;
+  diagnostics?: string[];
+  statusText?: string;
+};
+
+type SystemUpdateStatus = {
+  ok: boolean;
+  repoRoot?: string;
+  branch?: string | null;
+  commit?: string | null;
+  remote?: string | null;
+  upstream?: string | null;
+  ahead?: number | null;
+  behind?: number | null;
+  dirty?: boolean;
+  changes?: string[];
+  error?: string;
 };
 
 type NodeManifest = {
@@ -456,6 +483,7 @@ const library = [
   },
   { type: "preview.image", label: "Image Preview", params: { title: "Preview" } },
   { type: "preview.panorama360", label: "360 Panorama Viewer", params: { fov: 55 } },
+  { type: "transform.panorama360ToFisheye", label: "360 Panorama to Fisheye", params: { fovDegrees: 200, yawDegrees: 0, pitchDegrees: -90 } },
   {
     type: "http.request",
     label: "HTTP Request",
@@ -485,7 +513,7 @@ const librarySections = [
   { id: "inputs-assets", title: "Inputs & Assets", types: ["input.text", "library.prompt", "input.image", "input.video", "input.file", "compound.input", "compound.output"] },
   { id: "text-prompting", title: "Text & Prompting", types: ["dialogue.workbench", "text.promptCompose", "transform.template", "ai.text", "gemini.llm"] },
   { id: "image-generation", title: "Image Generation", types: ["ai.image.generate", "gemini.nano-banana-2", "local.stableDiffusion.textToImage"] },
-  { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image", "preview.panorama360"] },
+  { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image", "preview.panorama360", "transform.panorama360ToFisheye"] },
   { id: "api-integration", title: "API & Integration", types: ["http.request"] },
   { id: "outputs", title: "Outputs", types: ["output.text", "output.file"] },
   { id: "debug", title: "Debug", types: ["debug.log", "utility.null"] },
@@ -690,6 +718,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const geminiConfigured = Boolean(data.geminiConfigured);
   const openAiConfigured = Boolean(data.openAiConfigured);
   const seedanceConfigured = Boolean(data.seedanceConfigured);
+  const seedanceStatusText = String(data.seedanceStatusText ?? "");
   const polzaConfigured = Boolean(data.polzaConfigured);
   const openRouterConfigured = Boolean(data.openRouterConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
@@ -765,7 +794,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   });
 
   return (
-    <div className={`routeNodeCard ${paramsCollapsed ? "paramsCollapsed" : ""}`} style={collapsedMinHeight ? { minHeight: `${collapsedMinHeight}px` } : undefined}>
+    <div className={`routeNodeCard ${compactNodeClass(type)} ${paramsCollapsed ? "paramsCollapsed" : ""}`.trim()} style={collapsedMinHeight ? { minHeight: `${collapsedMinHeight}px` } : undefined}>
       <span className={`nodeStatus ${statusClass(result?.status)}`} />
       {isMissingNode ? <div className="nodeWarning">Missing block package. Install "{type}" or remove this block.</div> : null}
       {shouldShowNodeRunButton(type) ? (
@@ -929,10 +958,10 @@ function RouteNodeCard({ id, data }: NodeProps) {
       ) : null}
       {!paramsCollapsed && requiresEnv(manifest, "SEEDANCE_API_KEY") ? (
         <div className={`nodeTokenStatus ${seedanceConfigured ? "configured" : "missing"}`}>
-          <span>Seedance: {seedanceConfigured ? "key configured" : "missing"}</span>
+          <span>Seedance: {seedanceConfigured ? "configured" : (seedanceStatusText || "missing")}</span>
           {!seedanceConfigured ? (
             <>
-              <strong>Requires Seedance API key</strong>
+              <strong>Requires Seedance backend and API key</strong>
               <button className="nodeSmallButton nodrag nopan" onClick={onConfigureSeedance}>Configure Seedance</button>
               <small>Open Settings &gt; Advanced / Direct Secrets &gt; Seedance</small>
             </>
@@ -1739,6 +1768,40 @@ function NodeInlineParams({
     );
   }
 
+  if (type === "transform.panorama360ToFisheye") {
+    return (
+      <div className="fisheyeParams">
+        <NodeSliderParam
+          id="fovDegrees"
+          label="angle"
+          min={1}
+          max={360}
+          step={1}
+          value={numberParamValue(params.fovDegrees, 200)}
+          onChange={onChange}
+        />
+        <NodeSliderParam
+          id="yawDegrees"
+          label="yaw"
+          min={-180}
+          max={180}
+          step={1}
+          value={numberParamValue(params.yawDegrees, 0)}
+          onChange={onChange}
+        />
+        <NodeSliderParam
+          id="pitchDegrees"
+          label="pitch"
+          min={-90}
+          max={90}
+          step={1}
+          value={numberParamValue(params.pitchDegrees, -90)}
+          onChange={onChange}
+        />
+      </div>
+    );
+  }
+
   if (type === "library.prompt") {
     const categories = filterPromptLibraryByStatus(promptLibrary, promptStatusFilter).categories;
     const selectedCategory = categories.find((category) => category.id === String(params.category ?? "")) ?? categories[0];
@@ -2428,6 +2491,40 @@ function NodeInlineParams({
   return null;
 }
 
+function NodeSliderParam({
+  id,
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange
+}: {
+  id: string;
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (patch: Record<string, unknown>) => void;
+}) {
+  return (
+    <label className="nodeSliderField">
+      <span>{label}</span>
+      <input
+        className="nodrag nopan"
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(event) => onChange({ [id]: numericParam(event.target.value) })}
+      />
+      <output>{value}°</output>
+    </label>
+  );
+}
+
 function GenericManifestParams({
   manifest,
   params,
@@ -2652,6 +2749,19 @@ function NodeInlineResult({
   onConfigureMissingSecret?: () => void;
 }) {
   const previewVersion = result.completedAt ?? result.startedAt ?? "";
+  const liveFisheye = type === "transform.panorama360ToFisheye" ? liveFisheyeOutput(result.output) : null;
+  if (liveFisheye) {
+    return (
+      <LiveFisheyePreview
+        source={liveFisheye.source}
+        fovDegrees={liveFisheye.fovDegrees}
+        yawDegrees={liveFisheye.yawDegrees}
+        pitchDegrees={liveFisheye.pitchDegrees}
+        onOpenImage={onOpenImage}
+        onDownloadImage={onDownloadImage}
+      />
+    );
+  }
   const imageSrc = versionedAssetPreviewSrc(imagePreviewSrc(result.output), previewVersion);
   const cost = costLabel(result.output);
   const statusText = result.status && result.status !== "succeeded" ? result.status : null;
@@ -2731,6 +2841,96 @@ function NodeInlineResult({
       {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : <pre>{preview}</pre>}
       {result.status === "failed" && onConfigureMissingSecret ? <button className="nodeSmallButton nodrag nopan" onClick={onConfigureMissingSecret}><KeyRound size={14} /> Configure key</button> : null}
       {result.status === "succeeded" && result.output !== undefined ? <button className="nodeSmallButton nodrag nopan" onClick={() => onFixNodeOutput?.(nodeId, result.output)}><Pin size={14} /> Pin output</button> : null}
+    </div>
+  );
+}
+
+function LiveFisheyePreview({
+  source,
+  fovDegrees,
+  yawDegrees,
+  pitchDegrees,
+  onOpenImage,
+  onDownloadImage
+}: {
+  source: unknown;
+  fovDegrees: number;
+  yawDegrees: number;
+  pitchDegrees: number;
+  onOpenImage?: (image: ImageViewerState) => void;
+  onDownloadImage?: (src: string, filename: string) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+  const src = imagePreviewSrc(source);
+  const title = imageLabel(source) || "Live fisheye preview";
+
+  useEffect(() => {
+    if (!src) return;
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    setLoaded(false);
+    setError("");
+    image.onload = () => {
+      imageRef.current = image;
+      setLoaded(true);
+    };
+    image.onerror = () => setError("Could not load input image.");
+    image.src = src;
+  }, [src]);
+
+  useEffect(() => {
+    if (!loaded || !imageRef.current || !canvasRef.current) return;
+    renderFisheyeFrame(canvasRef.current, imageRef.current, { fovDegrees, yawDegrees, pitchDegrees });
+  }, [loaded, fovDegrees, yawDegrees, pitchDegrees]);
+
+  function currentDataUrl(size = 640): string | null {
+    const image = imageRef.current;
+    if (!image) return null;
+    const canvas = document.createElement("canvas");
+    const outputSize = Math.max(1, Math.min(size, image.naturalHeight || size));
+    canvas.width = outputSize;
+    canvas.height = outputSize;
+    renderFisheyeFrame(canvas, image, { fovDegrees, yawDegrees, pitchDegrees });
+    return canvas.toDataURL("image/png");
+  }
+
+  if (!src) return null;
+  return (
+    <div className="nodeResult succeeded liveFisheyeResult">
+      <div className="nodeImageActions">
+        <button
+          className="nodeImageActionButton nodrag nopan"
+          type="button"
+          title="View image"
+          disabled={!loaded}
+          onClick={(event) => {
+            event.stopPropagation();
+            const dataUrl = currentDataUrl();
+            if (dataUrl) onOpenImage?.({ src: dataUrl, title, filename: "fisheye-preview.png" });
+          }}
+        >
+          <Eye size={16} strokeWidth={2.2} />
+        </button>
+        <button
+          className="nodeImageActionButton nodrag nopan"
+          type="button"
+          title="Download image"
+          disabled={!loaded}
+          onClick={(event) => {
+            event.stopPropagation();
+            const dataUrl = currentDataUrl();
+            if (dataUrl) onDownloadImage?.(dataUrl, "fisheye-preview.png");
+          }}
+        >
+          <Download size={14} />
+        </button>
+      </div>
+      <canvas ref={canvasRef} className="nodeImagePreview liveFisheyeCanvas" width={180} height={180} title={title} />
+      {!loaded && !error ? <small className="nodeConnectedHint">loading input...</small> : null}
+      {error ? <div className="nodeWarning">{error}</div> : null}
     </div>
   );
 }
@@ -2919,7 +3119,36 @@ function readyNodeResult(
   if (routeNode.type === "preview.image" || routeNode.type === "preview.panorama360") {
     return readyPreviewNodeResult(routeNode, current, nodes, edges, runResult);
   }
+  if (routeNode.type === "transform.panorama360ToFisheye") {
+    return readyFisheyeNodeResult(routeNode, current, nodes, edges, runResult);
+  }
   return readyInputNodeResult(routeNode, current);
+}
+
+function readyFisheyeNodeResult(
+  routeNode: RouteDoc["nodes"][number],
+  current: NodeRunResult | undefined,
+  nodes: Node[],
+  edges: Edge[],
+  runResult: RunDisplayResult | null
+): NodeRunResult | undefined {
+  const input = readyPreviewImageInput(routeNode, nodes, edges, runResult);
+  if (input === undefined) return current;
+  const completedAt = input.completedAt ?? current?.completedAt ?? current?.startedAt;
+  return {
+    ...current,
+    status: "succeeded",
+    output: {
+      liveFisheye: {
+        source: input.value,
+        fovDegrees: numberParamValue(routeNode.params?.fovDegrees ?? routeNode.params?.angleDegrees ?? routeNode.params?.angle, 200),
+        yawDegrees: numberParamValue(routeNode.params?.yawDegrees ?? routeNode.params?.yaw, 0),
+        pitchDegrees: numberParamValue(routeNode.params?.pitchDegrees ?? routeNode.params?.pitch, -90)
+      }
+    },
+    startedAt: input.startedAt ?? current?.startedAt ?? completedAt,
+    completedAt
+  };
 }
 
 function readyPreviewNodeResult(
@@ -3240,7 +3469,7 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
       ]
     };
   }
-  if (type === "preview.image" || type === "preview.panorama360") return { inputs: [{ id: "image", kind: "image" }], outputs: [{ id: "image", kind: "image" }] };
+  if (type === "preview.image" || type === "preview.panorama360" || type === "transform.panorama360ToFisheye") return { inputs: [{ id: "image", kind: "image", label: "Image" }], outputs: [{ id: "image", kind: "image", label: "Image" }] };
   if (type === "ai.text") {
     return {
       inputs: [
@@ -3960,6 +4189,7 @@ function nodeIcon(type: string) {
   if (type === "compound.input") return <ChevronRight size={15} />;
   if (type === "compound.output") return <ChevronRight size={15} />;
   if (type === "transform.template") return <Braces size={15} />;
+  if (type === "transform.panorama360ToFisheye") return <Aperture size={15} />;
   if (type === "replicate.clarity-upscaler") return <Wand2 size={15} />;
   if (type === "replicate.model") return <span className="providerGlyph">R</span>;
   if (type === "gemini.llm") return <Type size={15} />;
@@ -3978,6 +4208,10 @@ function nodeIcon(type: string) {
   if (type === "output.text") return <FileText size={15} />;
   if (type === "output.file") return <Save size={15} />;
   return <FileJson size={15} />;
+}
+
+function compactNodeClass(type: string): string {
+  return type === "transform.panorama360ToFisheye" ? "compactRouteNode" : "";
 }
 
 function nodeIconClass(type: string): string {
@@ -4258,6 +4492,9 @@ function App() {
   const [seedanceToken, setSeedanceToken] = useState("");
   const [seedanceConfigured, setSeedanceConfigured] = useState(false);
   const [seedanceMaskedKey, setSeedanceMaskedKey] = useState("");
+  const [seedanceSettings, setSeedanceSettings] = useState<SeedanceSettings>({ configured: false });
+  const [seedanceBackend, setSeedanceBackend] = useState("");
+  const [seedanceBaseUrl, setSeedanceBaseUrl] = useState("");
   const [polzaToken, setPolzaToken] = useState("");
   const [polzaConfigured, setPolzaConfigured] = useState(false);
   const [polzaMaskedKey, setPolzaMaskedKey] = useState("");
@@ -4272,6 +4509,8 @@ function App() {
   const [apiConnected, setApiConnected] = useState(false);
   const [apiError, setApiError] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
+  const [systemUpdateStatus, setSystemUpdateStatus] = useState<SystemUpdateStatus | null>(null);
+  const [systemUpdating, setSystemUpdating] = useState(false);
   const [pendingBrowse, setPendingBrowse] = useState<{ nodeId: string; kind: AssetKind } | null>(null);
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(true);
@@ -4434,16 +4673,18 @@ function App() {
           polzaImageModels,
           openAiConfigured,
           seedanceConfigured,
+          seedanceStatusText: seedanceSettings.statusText,
           replicateConfigured,
           geminiConfigured,
           result: readyNodeResult(node.data.routeNode as RouteDoc["nodes"][number], runResult?.nodeResults?.[node.id], nodes, edges, runResult)
         }
       })),
-    [nodes, edges, runResult, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, openAiConfigured, seedanceConfigured, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, runResult, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
     void loadSettings();
+    void loadSystemUpdateStatus();
     void loadProviderLinks();
     void loadOpenRouterModels();
     void loadPolzaModels();
@@ -4513,8 +4754,12 @@ function App() {
       setGeminiConfigured(Boolean(result.gemini?.configured ?? result.geminiConfigured));
       setOpenAiConfigured(Boolean(result.openai?.configured));
       setOpenAiMaskedKey(String(result.openai?.maskedApiKey ?? ""));
-      setSeedanceConfigured(Boolean(result.seedance?.configured));
-      setSeedanceMaskedKey(String(result.seedance?.maskedApiKey ?? ""));
+      const nextSeedance = result.seedance ?? { configured: false };
+      setSeedanceSettings(nextSeedance);
+      setSeedanceConfigured(Boolean(nextSeedance.configured));
+      setSeedanceMaskedKey(String(nextSeedance.maskedApiKey ?? ""));
+      setSeedanceBackend(String(nextSeedance.backend ?? ""));
+      setSeedanceBaseUrl(nextSeedance.baseUrlSource === "custom" ? String(nextSeedance.baseUrl ?? "") : "");
       setPolzaConfigured(Boolean(result.polza?.configured));
       setPolzaMaskedKey(String(result.polza?.maskedApiKey ?? ""));
       setOpenRouterSettings(result.openrouter ?? { configured: false });
@@ -4531,11 +4776,54 @@ function App() {
       setOpenAiMaskedKey("");
       setSeedanceConfigured(false);
       setSeedanceMaskedKey("");
+      setSeedanceSettings({ configured: false });
+      setSeedanceBackend("");
+      setSeedanceBaseUrl("");
       setPolzaConfigured(false);
       setPolzaMaskedKey("");
       setOpenRouterSettings({ configured: false });
       setApiError(message);
       setSettingsMessage(message);
+    }
+  }
+
+  async function loadSystemUpdateStatus() {
+    try {
+      const response = await fetch(`${apiBase}/api/system/update/status`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Update status unavailable.");
+      setSystemUpdateStatus(result);
+    } catch (error) {
+      setSystemUpdateStatus({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  async function updateAppFromGitHub() {
+    if (systemUpdating) return;
+    const confirmed = window.confirm("Update BoojumRoute from GitHub now? Local changes must be clean. Restart the app after a successful update.");
+    if (!confirmed) return;
+    setSystemUpdating(true);
+    setSettingsMessage("Updating from GitHub...");
+    try {
+      const response = await fetch(`${apiBase}/api/system/update`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "GitHub update failed.");
+      setSystemUpdateStatus(result.after ?? null);
+      const before = result.before?.commit ? String(result.before.commit) : "previous";
+      const after = result.after?.commit ? String(result.after.commit) : "latest";
+      const changed = before !== after;
+      setSettingsMessage(changed ? `Updated from ${before} to ${after}. Restart the app to use the new version.` : "Already up to date. Restart only if you expect newly installed dependencies.");
+      setLogs((current) => [`GitHub update: ${changed ? `${before} -> ${after}` : "already up to date"}`, ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`GitHub update failed: ${message}`, ...current]);
+      void loadSystemUpdateStatus();
+    } finally {
+      setSystemUpdating(false);
     }
   }
 
@@ -4909,27 +5197,54 @@ function App() {
 
   async function saveSeedanceToken() {
     const token = seedanceToken.trim();
-    if (!token) {
-      setSettingsMessage("Seedance key cannot be empty.");
+    if (!token && !seedanceBackend && !seedanceBaseUrl.trim()) {
+      setSettingsMessage("Seedance provider backend is not selected");
       return;
     }
     try {
       const response = await fetch(`${apiBase}/api/settings/seedance-token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ seedanceApiKey: token })
+        body: JSON.stringify({
+          seedanceApiKey: token || undefined,
+          backend: seedanceBackend || undefined,
+          seedanceApiBaseUrl: seedanceBaseUrl
+        })
       });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Failed to save Seedance key.");
-      setSeedanceConfigured(Boolean(result.seedance?.configured));
-      setSeedanceMaskedKey(String(result.seedance?.maskedApiKey ?? ""));
+      if (!response.ok) throw new Error(result.error ?? "Failed to save Seedance settings.");
+      const nextSeedance = result.seedance ?? { configured: false };
+      setSeedanceSettings(nextSeedance);
+      setSeedanceConfigured(Boolean(nextSeedance.configured));
+      setSeedanceMaskedKey(String(nextSeedance.maskedApiKey ?? ""));
+      setSeedanceBackend(String(nextSeedance.backend ?? seedanceBackend));
+      setSeedanceBaseUrl(nextSeedance.baseUrlSource === "custom" ? String(nextSeedance.baseUrl ?? "") : "");
       setSeedanceToken("");
-      setSettingsMessage("Seedance key saved locally.");
-      setLogs((current) => ["Seedance key saved locally.", ...current]);
+      setSettingsMessage(nextSeedance.configured ? "Seedance settings saved locally." : String(nextSeedance.statusText ?? "Seedance settings saved locally."));
+      setLogs((current) => ["Seedance settings saved locally.", ...current]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSettingsMessage(message);
       setLogs((current) => [`Settings error: ${message}`, ...current]);
+    }
+  }
+
+  async function testSeedanceConfiguration() {
+    try {
+      const response = await fetch(`${apiBase}/api/providers/seedance/test`, { method: "POST" });
+      const result = await response.json();
+      if (result.seedance) {
+        setSeedanceSettings(result.seedance);
+        setSeedanceConfigured(Boolean(result.seedance.configured));
+        setSeedanceMaskedKey(String(result.seedance.maskedApiKey ?? ""));
+      }
+      if (!response.ok) throw new Error(result.error ?? "Seedance configuration test failed.");
+      setSettingsMessage("Seedance configuration has the required local settings.");
+      setLogs((current) => ["Seedance configuration check passed.", ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Seedance configuration check failed: ${message}`, ...current]);
     }
   }
 
@@ -5041,7 +5356,7 @@ function App() {
 
   function openSeedanceSettings() {
     setRightCollapsed(false);
-    setSettingsMessage("Paste your Seedance API key in Settings -> Advanced / Direct Secrets -> Seedance.");
+    setSettingsMessage("Choose a Seedance backend, then add the matching API key in Settings -> Advanced / Direct Secrets -> Seedance.");
     setTimeout(() => document.getElementById("seedance-api-key-input")?.focus(), 0);
   }
 
@@ -5412,6 +5727,7 @@ function App() {
 
   function clearNodeRunResult(nodeId: string) {
     setRunResult((current) => {
+      if (current?.status === "running") return current;
       if (!current?.nodeResults?.[nodeId]) return current;
       const nodeResults = { ...current.nodeResults };
       delete nodeResults[nodeId];
@@ -5825,6 +6141,57 @@ function App() {
     setRunResult(null);
     setOutputs(null);
     setLogs((current) => [`Deleted ${nodeId}.`, ...current]);
+  }
+
+  function renameNodeFromContext(nodeId: string) {
+    const currentNode = nodes.find((node) => node.id === nodeId);
+    const routeNode = currentNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (!currentNode || !routeNode) return;
+    const title = window.prompt("Block title", routeNode.title ?? routeNode.id)?.trim();
+    if (!title) {
+      setContextMenu(null);
+      return;
+    }
+    setNodes((current) =>
+      current.map((node) => {
+        if (node.id !== nodeId) return node;
+        const updatedRouteNode = { ...(node.data.routeNode as RouteDoc["nodes"][number]), title };
+        return { ...node, data: { ...node.data, label: `${title}\n${updatedRouteNode.type}`, routeNode: updatedRouteNode } };
+      })
+    );
+    setContextMenu(null);
+    setLogs((current) => [`Renamed ${nodeId} to "${title}".`, ...current]);
+  }
+
+  function duplicateNodeFromContext(nodeId: string) {
+    const sourceNode = nodes.find((node) => node.id === nodeId);
+    const sourceRouteNode = sourceNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (!sourceNode || !sourceRouteNode) return;
+    let duplicatedId = "";
+    setNodes((current) => {
+      const usedIds = new Set(current.map((node) => node.id));
+      const id = uniqueFlowId(`${sourceRouteNode.id}_copy`, usedIds);
+      duplicatedId = id;
+      const routeNode = structuredClone({ ...sourceRouteNode, id });
+      const title = routeNode.title ?? sourceRouteNode.title ?? id;
+      return [
+        ...current,
+        {
+          ...sourceNode,
+          id,
+          selected: true,
+          position: { x: sourceNode.position.x + 32, y: sourceNode.position.y + 32 },
+          data: { ...sourceNode.data, label: `${title}\n${routeNode.type}`, routeNode }
+        }
+      ];
+    });
+    if (duplicatedId) {
+      setSelectedId(duplicatedId);
+      setLogs((current) => [`Duplicated ${nodeId} as ${duplicatedId}.`, ...current]);
+    }
+    setContextMenu(null);
+    setRunResult(null);
+    setOutputs(null);
   }
 
   function openSubroute(nodeId: string) {
@@ -6661,6 +7028,7 @@ function App() {
   }
 
   async function exportNodePackageFile(type: string) {
+    setContextMenu(null);
     setLibraryItemMenu(null);
     try {
       const response = await fetch(`${apiBase}/api/node-packages/${encodeURIComponent(type)}/export`);
@@ -6668,9 +7036,9 @@ function App() {
       if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
       const bytes = result.dataBase64 ? Uint8Array.from(atob(String(result.dataBase64)), (char) => char.charCodeAt(0)) : String(result.text ?? "");
       downloadBlob(new Blob([bytes], { type: String(result.contentType ?? "application/json") }), String(result.filename ?? `${type}.node.json`));
-      setLogs((current) => [`Exported node package ${type}.`, ...current]);
+      setLogs((current) => [`Exported block package ${type}.`, ...current]);
     } catch (error) {
-      setLogs((current) => [`Export node package failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+      setLogs((current) => [`Export block package failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
     }
   }
 
@@ -6768,6 +7136,11 @@ function App() {
                 <span>Lab</span>
               </span>
             </h1>
+          ) : null}
+          {!leftCollapsed ? (
+            <a className="iconButton githubLink" href="https://github.com/Snark-s/snarkroute" target="_blank" rel="noreferrer" title="Open SnarkRoute on GitHub" aria-label="Open SnarkRoute on GitHub">
+              <Github size={17} />
+            </a>
           ) : null}
           <button className="iconButton" title={leftCollapsed ? "Expand left panel" : "Collapse left panel"} onClick={() => setLeftCollapsed((value) => !value)}>
             {leftCollapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}
@@ -6940,7 +7313,7 @@ function App() {
             <em>{apiConnected ? (replicateConfigured ? "replicate: configured" : "replicate: missing") : "replicate: unknown"}</em>
             <em>{apiConnected ? (geminiConfigured ? "gemini: configured" : "gemini: missing") : "gemini: unknown"}</em>
             <em>{apiConnected ? (openAiConfigured ? "openai: configured" : "openai: missing") : "openai: unknown"}</em>
-            <em>{apiConnected ? (seedanceConfigured ? "seedance: configured" : "seedance: missing") : "seedance: unknown"}</em>
+            <em>{apiConnected ? (seedanceConfigured ? "seedance: configured" : `seedance: ${seedanceSettings.statusText ?? "missing"}`) : "seedance: unknown"}</em>
             <em>{apiConnected ? (polzaConfigured ? "polza: configured" : "polza: missing") : "polza: unknown"}</em>
           </div>
         </div>
@@ -7036,12 +7409,34 @@ function App() {
           <div className="contextMenu" style={{ left: contextMenu.clientX, top: contextMenu.clientY }} onClick={(event) => event.stopPropagation()}>
             {contextMenu.nodeId ? (
               <>
+                {contextRouteNode && shouldShowNodeRunButton(contextRouteNode.type) ? (
+                  <>
+                    <button
+                      disabled={!canRunNodeOnly(contextMenu.nodeId)}
+                      title={canRunNodeOnly(contextMenu.nodeId) ? "Run this block only" : "Run dependencies first to prepare upstream outputs"}
+                      onClick={() => { void runNodeOnly(contextMenu.nodeId!); setContextMenu(null); }}
+                    >
+                      Run Block Only
+                    </button>
+                    <button onClick={() => { void runNodeWithDependencies(contextMenu.nodeId!); setContextMenu(null); }}>
+                      Run With Dependencies
+                    </button>
+                  </>
+                ) : null}
+                <button onClick={() => renameNodeFromContext(contextMenu.nodeId!)}>Rename Block</button>
+                <button onClick={() => duplicateNodeFromContext(contextMenu.nodeId!)}>Duplicate Block</button>
+                {contextRouteNode ? (
+                  <button onClick={() => void exportNodePackageFile(contextRouteNode.type)}>Export Block Package</button>
+                ) : null}
                 {contextRouteNode?.type === "compound.subroute" ? (
                   <>
                     <button onClick={() => { openSubroute(contextMenu.nodeId!); setContextMenu(null); }}>Open Internal Tool Route</button>
                     <button onClick={() => { uncollapseCompoundNode(contextMenu.nodeId!); setContextMenu(null); }}>Uncollapse</button>
-                    <button onClick={() => void saveCompoundNodeAsPackage(contextMenu.nodeId!)}>Save as Node Package</button>
+                    <button onClick={() => void saveCompoundNodeAsPackage(contextMenu.nodeId!)}>Save as Block Package</button>
                   </>
+                ) : null}
+                {contextRouteNode?.type === "dialogue.workbench" ? (
+                  <button onClick={() => { openDialogueWorkbench(contextMenu.nodeId!); setContextMenu(null); }}>Open Workbench</button>
                 ) : null}
                 <button onClick={() => deleteNodeFromContext(contextMenu.nodeId!)}>Delete Block</button>
               </>
@@ -7212,6 +7607,35 @@ function App() {
             <em>{apiConnected ? "connected" : "disconnected"}</em>
             {apiError ? <p>{apiError}</p> : null}
           </div>
+          <div className="providerCard">
+            <div className="providerHeader">
+              <h4>App Update</h4>
+              <span>Pull the latest version from GitHub</span>
+            </div>
+            <div className={`settingsStatus ${systemUpdateStatus?.dirty ? "" : "configured"}`}>
+              <RefreshCw size={14} />
+              {systemUpdateStatus?.error
+                ? `Update status unavailable: ${systemUpdateStatus.error}`
+                : `${systemUpdateStatus?.branch ?? "unknown branch"} @ ${systemUpdateStatus?.commit ?? "unknown commit"}`}
+            </div>
+            <div className="providerStatus">
+              <span>Remote: {systemUpdateStatus?.remote ?? "not configured"}</span>
+              <span>Upstream: {systemUpdateStatus?.upstream ?? "current branch on origin"}</span>
+              <span>{systemUpdateComparisonText(systemUpdateStatus)}</span>
+              <span>Local changes: {systemUpdateStatus?.dirty ? `${systemUpdateStatus.changes?.length ?? 0} pending` : "clean"}</span>
+            </div>
+            <div className="settingsActions">
+              <button
+                onClick={() => void updateAppFromGitHub()}
+                disabled={systemUpdating || !apiConnected || Boolean(systemUpdateStatus?.dirty) || Boolean(systemUpdateStatus?.error) || !systemUpdateStatus?.remote}
+              >
+                <RefreshCw size={16} /> {systemUpdating ? "Updating..." : "Update from GitHub"}
+              </button>
+              <button onClick={() => void loadSystemUpdateStatus()} disabled={systemUpdating || !apiConnected}><Globe size={16} /> Check Status</button>
+            </div>
+            {systemUpdateStatus?.dirty ? <small className="nodeWarning">Update is disabled because these are uncommitted local files. It will not reset or overwrite them.</small> : null}
+            <small className="settingsHint">Uses a fast-forward-only git pull. Restart BoojumRoute after a successful update.</small>
+          </div>
           <h3>AI Providers</h3>
           <div className="providerCard">
             <div className="providerHeader">
@@ -7378,20 +7802,52 @@ function App() {
           <h4>Seedance</h4>
           <div className={`settingsStatus ${seedanceConfigured ? "configured" : ""}`}>
             <KeyRound size={14} />
-            Seedance: {seedanceConfigured ? `key configured (${seedanceMaskedKey || "********"})` : "not configured"}
+            Seedance: {seedanceConfigured ? `configured (${seedanceMaskedKey || "********"})` : (seedanceSettings.statusText ?? "not configured")}
+          </div>
+          <div className="settingsLinks">
+            <a className="settingsLink" href={providerLinks.seedance?.byteplusApiKeysUrl ?? "https://console.byteplus.com/ark/region:ark+ap-southeast-1/apiKey"} target="_blank" rel="noreferrer">BytePlus key</a>
+            <a className="settingsLink" href={providerLinks.seedance?.byteplusProductUrl ?? "https://www.byteplus.com/product/modelark"} target="_blank" rel="noreferrer">ModelArk</a>
+            <a className="settingsLink" href={providerLinks.seedance?.volcengineApiKeysUrl ?? "https://www.volcengine.com/docs/6492/1799875"} target="_blank" rel="noreferrer">Volcengine key docs</a>
+            <a className="settingsLink" href={providerLinks.seedance?.volcengineDocsUrl ?? "https://www.volcengine.com/docs/6492/2165104"} target="_blank" rel="noreferrer">LAS Seedance docs</a>
           </div>
           <label className="settingsField">
-            <span>SEEDANCE_API_KEY</span>
+            <span>Provider backend</span>
+            <select value={seedanceBackend} onChange={(event) => setSeedanceBackend(event.target.value)}>
+              <option value="">Select backend</option>
+              <option value="byteplus-modelark">BytePlus ModelArk</option>
+              <option value="volcengine-las">Volcengine LAS</option>
+              <option value="seedance-compatible">Custom Seedance-compatible endpoint</option>
+            </select>
+          </label>
+          <div className={`settingsDetails ${seedanceConfigured ? "configured" : ""}`}>
+            <span>Backend: {seedanceSettings.backendLabel ?? "Not selected"}</span>
+            <span>Base URL: {seedanceSettings.baseUrlSource === "default" ? `${seedanceSettings.baseUrl} (default)` : seedanceSettings.baseUrlSource === "custom" ? `${seedanceSettings.baseUrl} (custom)` : "missing"}</span>
+          </div>
+          <label className="settingsField">
+            <span>{seedanceSettings.apiKeyEnvKey ?? "SEEDANCE_API_KEY"}</span>
             <input
               id="seedance-api-key-input"
               type="password"
               value={seedanceToken}
-              placeholder={seedanceConfigured ? "***************" : "Paste key"}
+              placeholder={seedanceMaskedKey || (seedanceConfigured ? "***************" : "Paste key")}
               onChange={(event) => setSeedanceToken(event.target.value)}
               autoComplete="off"
             />
           </label>
-          <button onClick={() => void saveSeedanceToken()}><Save size={16} /> Save Key</button>
+          <label className="settingsField">
+            <span>Advanced: Custom API Base URL</span>
+            <input
+              value={seedanceBaseUrl}
+              placeholder="Required if using a custom Seedance-compatible endpoint"
+              onChange={(event) => setSeedanceBaseUrl(event.target.value)}
+            />
+            <small>Required if using a custom Seedance-compatible endpoint</small>
+          </label>
+          <div className="settingsActions">
+            <button onClick={() => void saveSeedanceToken()}><Save size={16} /> Save Settings</button>
+            <button onClick={() => void testSeedanceConfiguration()}><RefreshCw size={16} /> Check Config</button>
+          </div>
+          <p className="muted">Official Seedance access uses ByteDance cloud products: BytePlus ModelArk for international access, or Volcengine LAS for China-region access. Third-party aggregators are not official API key sources.</p>
           {settingsMessage ? <p className={settingsMessage.includes("error") || settingsMessage.includes("Failed") || settingsMessage.includes("empty") ? "errorText" : "muted"}>{settingsMessage}</p> : null}
         </div>
 
@@ -7783,6 +8239,20 @@ function collectImageValues(value: unknown, matches: unknown[], seen: Set<object
   }
 }
 
+function liveFisheyeOutput(value: unknown): { source: unknown; fovDegrees: number; yawDegrees: number; pitchDegrees: number } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const liveFisheye = (value as Record<string, unknown>).liveFisheye;
+  if (!liveFisheye || typeof liveFisheye !== "object" || Array.isArray(liveFisheye)) return null;
+  const record = liveFisheye as Record<string, unknown>;
+  if (!imagePreviewSrc(record.source)) return null;
+  return {
+    source: record.source,
+    fovDegrees: numberParamValue(record.fovDegrees, 200),
+    yawDegrees: numberParamValue(record.yawDegrees, 0),
+    pitchDegrees: numberParamValue(record.pitchDegrees, -90)
+  };
+}
+
 function panoramaSourceSrc(value: unknown): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -7872,6 +8342,69 @@ function renderPanoramaFrame(canvas: HTMLCanvasElement, image: HTMLImageElement,
       frameData[frameIndex + 1] = sourceData[sourceIndex + 1];
       frameData[frameIndex + 2] = sourceData[sourceIndex + 2];
       frameData[frameIndex + 3] = 255;
+    }
+  }
+  context.putImageData(frame, 0, 0);
+}
+
+function renderFisheyeFrame(canvas: HTMLCanvasElement, image: HTMLImageElement, view: { fovDegrees: number; yawDegrees: number; pitchDegrees: number }) {
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
+
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = image.naturalWidth;
+  sourceCanvas.height = image.naturalHeight;
+  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  if (!sourceContext) return;
+  sourceContext.drawImage(image, 0, 0);
+
+  const source = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+  const frame = context.createImageData(canvas.width, canvas.height);
+  const sourceData = source.data;
+  const frameData = frame.data;
+  const sourceWidth = source.width;
+  const sourceHeight = source.height;
+  const radius = Math.min(canvas.width, canvas.height) / 2;
+  const centerX = canvas.width / 2;
+  const centerY = canvas.height / 2;
+  const maxTheta = (view.fovDegrees * Math.PI) / 360;
+  const yaw = (view.yawDegrees * Math.PI) / 180;
+  const pitch = (view.pitchDegrees * Math.PI) / 180;
+  const cosYaw = Math.cos(yaw);
+  const sinYaw = Math.sin(yaw);
+  const cosPitch = Math.cos(pitch);
+  const sinPitch = Math.sin(pitch);
+
+  for (let y = 0; y < canvas.height; y += 1) {
+    const normalizedY = ((y + 0.5) - centerY) / radius;
+    for (let x = 0; x < canvas.width; x += 1) {
+      const normalizedX = ((x + 0.5) - centerX) / radius;
+      const distance = Math.hypot(normalizedX, normalizedY);
+      const frameIndex = (y * canvas.width + x) * 4;
+      if (distance > 1) {
+        frameData[frameIndex + 3] = 0;
+        continue;
+      }
+      const theta = distance * maxTheta;
+      const phi = Math.atan2(normalizedY, normalizedX);
+      const sinTheta = Math.sin(theta);
+      const cameraX = sinTheta * Math.cos(phi);
+      const cameraY = -sinTheta * Math.sin(phi);
+      const cameraZ = Math.cos(theta);
+      const pitchedY = cameraY * cosPitch - cameraZ * sinPitch;
+      const pitchedZ = cameraY * sinPitch + cameraZ * cosPitch;
+      const worldX = cameraX * cosYaw + pitchedZ * sinYaw;
+      const worldY = pitchedY;
+      const worldZ = -cameraX * sinYaw + pitchedZ * cosYaw;
+      const longitude = Math.atan2(worldX, worldZ);
+      const latitude = Math.asin(clamp(worldY, -1, 1));
+      const sourceX = positiveModulo(Math.floor((longitude / (Math.PI * 2) + 0.5) * sourceWidth), sourceWidth);
+      const sourceY = clamp(Math.floor((0.5 - latitude / Math.PI) * sourceHeight), 0, sourceHeight - 1);
+      const sourceIndex = (sourceY * sourceWidth + sourceX) * 4;
+      frameData[frameIndex] = sourceData[sourceIndex];
+      frameData[frameIndex + 1] = sourceData[sourceIndex + 1];
+      frameData[frameIndex + 2] = sourceData[sourceIndex + 2];
+      frameData[frameIndex + 3] = sourceData[sourceIndex + 3];
     }
   }
   context.putImageData(frame, 0, 0);
@@ -8170,6 +8703,20 @@ function numericParam(value: string): unknown {
   if (!value.trim()) return "";
   const number = Number(value.replace(",", "."));
   return Number.isFinite(number) ? number : value;
+}
+
+function numberParamValue(value: unknown, fallback: number): number {
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value.replace(",", ".")) : fallback;
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function systemUpdateComparisonText(status: SystemUpdateStatus | null): string {
+  if (!status || status.error) return "Git comparison: unavailable";
+  if (status.ahead == null || status.behind == null) return "Git comparison: no upstream comparison";
+  if (status.ahead > 0 && status.behind > 0) return `Git comparison: ${status.ahead} ahead, ${status.behind} behind`;
+  if (status.ahead > 0) return `Git comparison: ${status.ahead} ahead of GitHub`;
+  if (status.behind > 0) return `Git comparison: ${status.behind} behind GitHub`;
+  return "Git comparison: matches GitHub";
 }
 
 function downloadFilename(value: unknown): string {

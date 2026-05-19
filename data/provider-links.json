@@ -41,5 +41,13 @@
     "apiKeysUrl": "https://replicate.com/account/api-tokens",
     "docsUrl": "https://replicate.com/docs/topics/security/api-tokens",
     "apiReferenceUrl": "https://replicate.com/docs/reference/http"
+  },
+  "seedance": {
+    "title": "Seedance",
+    "byteplusProductUrl": "https://www.byteplus.com/product/modelark",
+    "byteplusApiKeysUrl": "https://console.byteplus.com/ark/region:ark+ap-southeast-1/apiKey",
+    "byteplusDocsUrl": "https://docs.byteplus.com/en/docs/modelark/2191806",
+    "volcengineApiKeysUrl": "https://www.volcengine.com/docs/6492/1799875",
+    "volcengineDocsUrl": "https://www.volcengine.com/docs/6492/2165104"
   }
 }

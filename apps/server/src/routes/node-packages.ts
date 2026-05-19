@@ -49,6 +49,7 @@ app.post<{ Body: { manifest?: unknown; text?: string; dataBase64?: string; filen
   try {
     const upload = normalizeNodePackageUpload(request.body, request.body?.source);
     if (upload.mode === "archive") {
+      await previewNodePackageArchive(upload.data, { source: request.body.source ?? upload.filename, origin: "installed", existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
       const installed = await installNodePackageFromArchive(upload.data, { source: request.body.source ?? upload.filename, origin: "installed", overwrite: true });
       return { ok: true, manifest: installed };
     }
@@ -120,7 +121,9 @@ app.post<{ Body: { url?: string } }>("/api/node-packages/install-url", async (re
     const url = request.body?.url?.trim() ?? "";
     if (!isSupportedRemoteUrl(url)) return reply.code(400).send({ ok: false, error: "URL must be http or https." });
     if (isSnarkNodeArchiveFilename(url)) {
-      const installed = await installNodePackageFromArchive(await fetchRemoteBytes(url), { source: url, origin: "installed", overwrite: true });
+      const bytes = await fetchRemoteBytes(url);
+      await previewNodePackageArchive(bytes, { source: url, origin: "installed", existingIds: allReservedNodeIds(await loadInstalledNodeManifests()) });
+      const installed = await installNodePackageFromArchive(bytes, { source: url, origin: "installed", overwrite: true });
       return { ok: true, manifest: installed };
     }
     const json = await fetchRemoteJson(url);
@@ -168,9 +171,15 @@ app.post<{ Params: { id: string }; Body: { enabled?: boolean } }>("/api/node-pac
 
 app.delete<{ Params: { id: string } }>("/api/node-packages/:id", async (request, reply) => {
   const id = request.params.id;
-  const bundled = [...builtInNodeManifests, ...providerNodeManifests()].find((manifest) => manifest.id === id && manifest.origin === "bundled");
-  if (bundled) return reply.code(400).send({ ok: false, code: "NODE_PACKAGE_NOT_UNINSTALLABLE", error: `Bundled node "${id}" cannot be deleted.` });
   try {
+    const installed = await loadInstalledNodeManifests();
+    const installedManifest = installed.find((manifest) => manifest.id === id);
+    if (installedManifest) {
+      await uninstallInstalledNode(id);
+      return { ok: true, id, message: `Uninstalled node package "${id}".` };
+    }
+    const bundled = [...builtInNodeManifests, ...providerNodeManifests()].find((manifest) => manifest.id === id && manifest.origin === "bundled");
+    if (bundled) return reply.code(400).send({ ok: false, code: "NODE_PACKAGE_NOT_UNINSTALLABLE", error: `Bundled node "${id}" cannot be deleted.` });
     await uninstallInstalledNode(id);
     return { ok: true, id, message: `Uninstalled node package "${id}".` };
   } catch (error) {

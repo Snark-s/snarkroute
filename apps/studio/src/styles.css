@@ -14,7 +14,8 @@ body {
 }
 
 button,
-.fileButton {
+.fileButton,
+.githubLink {
   align-items: center;
   background: #252a34;
   border: 1px solid #3a4150;
@@ -106,6 +107,16 @@ button:disabled {
   min-height: 32px;
   padding: 6px;
   width: 32px;
+}
+
+.githubLink {
+  color: #f4f6fb;
+  text-decoration: none;
+}
+
+.githubLink:hover {
+  border-color: #67c5ad;
+  color: #ffffff;
 }
 
 .leftCollapsed .left,
@@ -1400,6 +1411,11 @@ h2 {
   width: 260px;
 }
 
+.routeNodeCard.compactRouteNode {
+  padding: 10px;
+  width: 224px;
+}
+
 .routeNodeCard.paramsCollapsed {
   min-height: 44px;
   padding: 9px 12px;
@@ -1949,6 +1965,52 @@ h2 {
 .nodeCheckField span {
   color: #9da8ba;
   font-size: 11px;
+}
+
+.fisheyeParams {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.nodeSliderField {
+  align-items: center;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 36px minmax(0, 1fr) 38px;
+  text-align: left;
+}
+
+.nodeSliderField span,
+.nodeSliderField output {
+  color: #9da8ba;
+  font-size: 10px;
+}
+
+.nodeSliderField output {
+  color: #eef4ff;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.nodeSliderField input[type="range"] {
+  accent-color: #67c5ad;
+  min-width: 0;
+}
+
+.liveFisheyeResult {
+  display: grid;
+  justify-items: center;
+}
+
+.liveFisheyeCanvas {
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.05) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.05) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.05) 75%);
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  background-size: 16px 16px;
 }
 
 .nodeHint {
@@ -3255,6 +3317,23 @@ textarea {
 
 .settingsStatus.configured {
   color: #87e7c1;
+}
+
+.settingsDetails {
+  background: #111722;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  color: #aeb6c5;
+  display: grid;
+  font-size: 12px;
+  gap: 4px;
+  line-height: 1.4;
+  padding: 8px;
+}
+
+.settingsDetails.configured {
+  border-color: #315d4d;
+  color: #cfeee0;
 }
 
 .settingsField {

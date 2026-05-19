@@ -22,7 +22,10 @@ export function isPolzaEnabled(): boolean {
 }
 
 export function isSeedanceEnabled(): boolean {
-  return Boolean(process.env.SEEDANCE_API_KEY?.trim());
+  const backend = process.env.SEEDANCE_PROVIDER_BACKEND?.trim();
+  const apiKey = process.env.SEEDANCE_API_KEY?.trim() || process.env.ARK_API_KEY?.trim() || process.env.BYTEPLUS_ARK_API_KEY?.trim() || process.env.LAS_API_KEY?.trim() || process.env.VOLCENGINE_LAS_API_KEY?.trim();
+  const hasOfficialDefault = backend === "byteplus-modelark" || backend === "seedance-byteplus" || backend === "volcengine-las" || backend === "seedance-volcengine";
+  return Boolean(backend && apiKey && (hasOfficialDefault || process.env.SEEDANCE_API_BASE_URL?.trim()));
 }
 
 export function stringValue(value: unknown): string | undefined {

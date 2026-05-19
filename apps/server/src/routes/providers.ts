@@ -7,6 +7,7 @@ import { openRouterCatalogCachePath, providerLinksPath } from "../server-paths";
 import { isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterPublicError, openRouterSettingsStatus } from "../providers/openrouter";
+import { seedanceSettingsStatus, validateSeedanceConfiguration } from "../providers/seedance";
 
 export async function registerProviderRoutes(app: FastifyInstance) {
 app.get("/api/providers/links", async (request, reply) => {
@@ -18,6 +19,13 @@ app.get("/api/providers/links", async (request, reply) => {
 });
 
 app.get("/api/providers/openrouter/status", async () => ({ openrouter: await openRouterSettingsStatus() }));
+app.get("/api/providers/seedance/status", async () => ({ seedance: seedanceSettingsStatus() }));
+
+app.post("/api/providers/seedance/test", async (request, reply) => {
+  const result = validateSeedanceConfiguration();
+  if (!result.ok) return reply.code(400).send({ ok: false, error: result.error, seedance: result.status });
+  return { ok: true, status: "configured", message: "Seedance configuration has the required local settings.", seedance: result.status };
+});
 
 app.post("/api/providers/openrouter/test", async (request, reply) => {
   try {
