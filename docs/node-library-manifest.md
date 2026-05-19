@@ -1,6 +1,10 @@
 # Node Library Manifest
 
-A node library lists installable node package URLs. SnarkRoute previews the library and installs only the nodes selected by the user.
+A node library manifest lists installable block package URLs. The serialized manifest keeps legacy `nodeLibrary` and `nodes` names for compatibility with existing `.snarknode` packages and APIs.
+
+Conceptually, a Library is a portable reusable collection. Libraries may contain or reference artifacts, blocks, routes, boards, prompt chips, styles, model presets, and assets. Imports are dependency/reference links, not necessarily physically nested folders, and circular imports are invalid.
+
+SnarkRoute previews the library and installs only the block packages selected by the user.
 
 ```json
 {
@@ -24,4 +28,4 @@ A node library lists installable node package URLs. SnarkRoute previews the libr
 }
 ```
 
-Node URLs may point to manifest JSON files or portable `.snarknode` archives.
+Node URLs may point to manifest JSON files or portable `.snarknode` archives. In BoojumRoute product language these installed items are Blocks or tools.

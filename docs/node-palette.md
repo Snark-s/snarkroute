@@ -1,6 +1,8 @@
 # Node Palette
 
-Studio groups nodes by the route-building flow rather than by implementation package. The palette should help users assemble a route from left to right: sources, prompting, generation, tooling, integration, outputs, and debugging.
+Studio groups BoojumRoute blocks by the route-building flow rather than by implementation package. The palette should help users assemble a route from left to right: sources, prompting, generation, tooling, integration, outputs, and debugging.
+
+The UI and compatibility formats may still say "node", but this palette is for executable BlockNodes. It is not the SnarkRoute Artifact model.
 
 ## Section Order
 

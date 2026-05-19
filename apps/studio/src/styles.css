@@ -119,6 +119,10 @@ button:disabled {
   color: #ffffff;
 }
 
+.settingsActionLink {
+  min-height: 34px;
+}
+
 .leftCollapsed .left,
 .rightCollapsed .right {
   padding: 10px;

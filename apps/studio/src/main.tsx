@@ -481,7 +481,7 @@ const library = [
       timeoutMs: 120000
     }
   },
-  { type: "preview.image", label: "Image Preview", params: { title: "Preview" } },
+  { type: "preview.image", label: "Image Preview", params: {} },
   { type: "preview.panorama360", label: "360 Panorama Viewer", params: { fov: 55 } },
   { type: "transform.panorama360ToFisheye", label: "360 Panorama to Fisheye", params: { fovDegrees: 200, yawDegrees: 0, pitchDegrees: -90 } },
   {
@@ -863,7 +863,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
         >
           {paramsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
         </button>
-        {paramsCollapsed && routeNode?.type === "compound.subroute" ? (
+        {paramsCollapsed && routeNode?.type === "compound.subroute" && (routeNode.subroute?.nodes.length ?? 0) > 0 ? (
           <button
             className="collapsedCompoundOpenButton nodrag nopan"
             type="button"
@@ -874,7 +874,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
               onOpenSubroute?.(id);
             }}
           >
-            <Braces size={13} />
+            <FolderOpen size={13} />
           </button>
         ) : null}
       </div>
@@ -2435,16 +2435,7 @@ function NodeInlineParams({
     );
   }
 
-  if (type === "preview.image") {
-    return (
-      <>
-        <label className="nodeField">
-          <span>title</span>
-          <input className="nodrag nopan nodeInput" value={String(params.title ?? "Preview")} onChange={(event) => updateTextParam("title", event)} />
-        </label>
-      </>
-    );
-  }
+  if (type === "preview.image") return null;
 
   if (type === "preview.panorama360") {
     return <div className="nodeHint">Connect an equirectangular 360 image, run the block, then drag the preview to look around.</div>;
@@ -2840,9 +2831,15 @@ function NodeInlineResult({
       {cost ? <span className="nodeCost">{cost}</span> : null}
       {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : <pre>{preview}</pre>}
       {result.status === "failed" && onConfigureMissingSecret ? <button className="nodeSmallButton nodrag nopan" onClick={onConfigureMissingSecret}><KeyRound size={14} /> Configure key</button> : null}
-      {result.status === "succeeded" && result.output !== undefined ? <button className="nodeSmallButton nodrag nopan" onClick={() => onFixNodeOutput?.(nodeId, result.output)}><Pin size={14} /> Pin output</button> : null}
+      {result.status === "succeeded" && hasPinnableOutput(result.output) ? <button className="nodeSmallButton nodrag nopan" onClick={() => onFixNodeOutput?.(nodeId, result.output)}><Pin size={14} /> Pin output</button> : null}
     </div>
   );
+}
+
+function hasPinnableOutput(output: unknown): boolean {
+  if (output === undefined || output === null) return false;
+  if (typeof output === "object" && !Array.isArray(output)) return Object.keys(output as Record<string, unknown>).length > 0;
+  return true;
 }
 
 function LiveFisheyePreview({
@@ -4204,7 +4201,7 @@ function nodeIcon(type: string) {
   if (type === "preview.image" || type === "preview.panorama360") return <Eye size={15} />;
   if (type === "debug.log") return <Bug size={15} />;
   if (type === "utility.null") return <Eraser size={15} />;
-  if (type === "compound.subroute") return <Braces size={15} />;
+  if (type === "compound.subroute") return <FolderOpen size={15} />;
   if (type === "output.text") return <FileText size={15} />;
   if (type === "output.file") return <Save size={15} />;
   return <FileJson size={15} />;
@@ -5426,8 +5423,6 @@ function App() {
 
     setNodes((current) => [...current, ...importedNodes]);
     setEdges((current) => [...current, ...importedEdges]);
-    setRunResult(null);
-    setOutputs(null);
     setLogs((current) => [`Imported ${file.name} onto canvas.`, ...current]);
   }
 
@@ -5698,7 +5693,6 @@ function App() {
       return { ...node, data: { ...node.data, routeNode } };
     });
     setNodes(nextNodes);
-    clearNodeRunResult(nodeId);
     if (selectedId === nodeId) setParamsText(JSON.stringify(params, null, 2));
     if (options.persistProject) {
       saveRouteDocument(buildRouteDocumentFrom(nextNodes, edges), { saveStartup: true, logMessage: options.persistLog });
@@ -5726,13 +5720,18 @@ function App() {
   }
 
   function clearNodeRunResult(nodeId: string) {
+    clearNodeRunResults([nodeId]);
+  }
+
+  function clearNodeRunResults(nodeIds: string[]) {
+    const ids = new Set(nodeIds);
     setRunResult((current) => {
       if (current?.status === "running") return current;
-      if (!current?.nodeResults?.[nodeId]) return current;
+      if (!current?.nodeResults || !nodeIds.some((nodeId) => current.nodeResults?.[nodeId])) return current;
       const nodeResults = { ...current.nodeResults };
-      delete nodeResults[nodeId];
+      for (const nodeId of ids) delete nodeResults[nodeId];
       for (const resultId of Object.keys(nodeResults)) {
-        if (resultId.startsWith(`${nodeId}/`)) delete nodeResults[resultId];
+        if (nodeIds.some((nodeId) => resultId.startsWith(`${nodeId}/`))) delete nodeResults[resultId];
       }
       return { ...current, nodeResults };
     });
@@ -5796,8 +5795,6 @@ function App() {
         }
       ];
     });
-    setRunResult(null);
-    setOutputs(null);
     if (createdId) selectNode(null);
     setLogs((entries) => [`${logPrefix}: ${path}`, ...entries]);
     return createdId;
@@ -6044,8 +6041,7 @@ function App() {
       current.filter((edge) => !selectedEdgeIds.has(edge.id) && !selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target))
     );
     setSelectedId(null);
-    setRunResult(null);
-    setOutputs(null);
+    clearNodeRunResults([...selectedNodeIds]);
     setLogs((current) => [`Deleted ${selectedNodeIds.size} block(s), ${selectedEdgeIds.size} edge(s).`, ...current]);
   }
 
@@ -6138,8 +6134,7 @@ function App() {
     setEdges((current) => current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
     setSelectedId(null);
     setContextMenu(null);
-    setRunResult(null);
-    setOutputs(null);
+    clearNodeRunResult(nodeId);
     setLogs((current) => [`Deleted ${nodeId}.`, ...current]);
   }
 
@@ -6190,8 +6185,6 @@ function App() {
       setLogs((current) => [`Duplicated ${nodeId} as ${duplicatedId}.`, ...current]);
     }
     setContextMenu(null);
-    setRunResult(null);
-    setOutputs(null);
   }
 
   function openSubroute(nodeId: string) {
@@ -7137,11 +7130,6 @@ function App() {
               </span>
             </h1>
           ) : null}
-          {!leftCollapsed ? (
-            <a className="iconButton githubLink" href="https://github.com/Snark-s/snarkroute" target="_blank" rel="noreferrer" title="Open SnarkRoute on GitHub" aria-label="Open SnarkRoute on GitHub">
-              <Github size={17} />
-            </a>
-          ) : null}
           <button className="iconButton" title={leftCollapsed ? "Expand left panel" : "Collapse left panel"} onClick={() => setLeftCollapsed((value) => !value)}>
             {leftCollapsed ? <ChevronRight size={17} /> : <PanelLeftClose size={17} />}
           </button>
@@ -7625,6 +7613,9 @@ function App() {
               <span>Local changes: {systemUpdateStatus?.dirty ? `${systemUpdateStatus.changes?.length ?? 0} pending` : "clean"}</span>
             </div>
             <div className="settingsActions">
+              <a className="githubLink settingsActionLink" href="https://github.com/Snark-s/snarkroute" target="_blank" rel="noreferrer" title="Open SnarkRoute on GitHub">
+                <Github size={16} /> GitHub
+              </a>
               <button
                 onClick={() => void updateAppFromGitHub()}
                 disabled={systemUpdating || !apiConnected || Boolean(systemUpdateStatus?.dirty) || Boolean(systemUpdateStatus?.error) || !systemUpdateStatus?.remote}

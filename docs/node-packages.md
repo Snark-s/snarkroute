@@ -1,8 +1,8 @@
 # SnarkRoute Node Packages
 
-SnarkRoute nodes use one package model for bundled, local, installed, linked, remote, generated, and shared nodes.
+SnarkRoute keeps the `.snarknode` package name and manifest fields for compatibility. Conceptually, these packages install BoojumRoute Blocks: executable BlockNodes or tools that can be used inside routes.
 
-Bundled nodes are not a special technical caste. They are node manifests with:
+Bundled blocks are not a special technical caste. They are node manifests with:
 
 - `origin: "bundled"`
 - `source: "snarkroute-core"`
@@ -23,6 +23,8 @@ my-node.snarknode/
 ```
 
 Portable `.snarknode` files are zip-compatible archives with the same root structure. They can be imported from the file picker, dropped onto the canvas, installed from URL, or referenced by node-library manifests.
+
+Node is an umbrella term in the broader product model. This document is about executable BlockNodes and the legacy package format; it does not describe SnarkRoute Artifacts such as images, prompts, masks, references, or generated outputs.
 
 ## Manifest
 
@@ -91,7 +93,7 @@ export async function runNode(context) {
 }
 ```
 
-Plugin nodes do not receive all environment variables. Shell execution is refused in this build even if requested.
+Plugin blocks do not receive all environment variables. Shell execution is refused in this build even if requested.
 
 ## Packing
 
@@ -103,7 +105,7 @@ The packer validates the manifest, checks executor files, skips `.env` and `node
 
 ## Local Installation
 
-Installed nodes live in:
+Installed block packages live in:
 
 ```text
 data/installed-nodes/
@@ -112,13 +114,13 @@ data/installed-nodes/
     executor.ts
 ```
 
-Routes reference node ids and params. They do not embed executor code or secrets.
+Routes reference node ids and params for compatibility. They do not embed executor code or secrets.
 
 ## Uninstalling
 
-Studio's Manage Installed Nodes area can remove imported local node packages from `data/installed-nodes/`.
+Studio's Manage Installed Nodes area can remove imported local block/node packages from `data/installed-nodes/`.
 
-Bundled/core nodes have `origin: "bundled"` and cannot be removed.
+Bundled/core blocks have `origin: "bundled"` and cannot be removed.
 
 If the current route uses a node being deleted, Studio warns first. Confirming the uninstall removes the package but preserves route and canvas data. Existing instances are then shown as missing-node placeholders by the normal missing-node validation path.
 
@@ -130,8 +132,8 @@ If a route references a node id that is neither bundled nor installed, validatio
 This route uses node "X", but it is not installed. Install the node package or remove this node.
 ```
 
-Studio preserves the missing node and its connections.
+Studio preserves the missing block node and its connections.
 
 ## Libraries
 
-A node library manifest lists installable node URLs. Loading a library previews the list; SnarkRoute installs only the nodes selected by the user.
+A node library manifest lists installable block/node URLs. Loading a library previews the list; SnarkRoute installs only the blocks selected by the user. In the broader terminology, libraries may also contain or reference artifacts, routes, boards, prompt chips, styles, model presets, and assets.

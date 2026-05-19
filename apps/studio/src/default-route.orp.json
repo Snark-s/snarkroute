@@ -23,14 +23,14 @@
       "type": "transform.panorama360ToFisheye",
       "title": "360 Panorama to Fisheye",
       "params": {
-        "fovDegrees": 204,
+        "fovDegrees": 73,
         "outputSize": 1024,
         "yawDegrees": -87,
         "pitchDegrees": -90
       },
       "ui": {
-        "x": 243.79457885042234,
-        "y": 119.5043563338665
+        "x": 258.8748938110523,
+        "y": 176.59412011339407
       }
     },
     {
@@ -119,7 +119,7 @@
     }
   ],
   "provenance": {
-    "updatedAt": "2026-05-19T11:21:19.693Z",
+    "updatedAt": "2026-05-19T14:43:19.721Z",
     "tool": "snarkroute-studio"
   }
 }

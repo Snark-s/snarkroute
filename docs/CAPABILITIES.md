@@ -2,9 +2,11 @@
 
 ## Executive Summary
 
-BoojumRoute Lab is an experimental graph environment for building AI pipelines from nodes. You can connect models, prompts, images, text transforms, and external services into routes that can be run, saved, and extended with custom nodes.
+BoojumRoute Lab is an experimental graph environment for building AI pipelines from Blocks / BlockNodes. You can connect models, prompts, images, text transforms, and external services into routes that can be run, saved, and extended with custom block packages.
 
-The current implementation is a local-first visual workflow editor plus an execution backend for Open Route Protocol style route documents. The main working capabilities are React Flow canvas editing, typed node connections, route import/export, localStorage save/restore, bundled node execution, installed node package management, prompt library support, local asset handling, and execution metadata.
+The current implementation is a local-first visual workflow editor plus an execution backend for Open Route Protocol style route documents. The main working capabilities are React Flow canvas editing, typed block/node connections, route import/export, localStorage save/restore, bundled block execution, installed node package management, prompt library support, local asset handling, and execution metadata.
+
+Node is an umbrella term in the broader SnarkRoute model. This capabilities document describes BoojumRoute executable blocks, not SnarkRoute ArtifactNodes.
 
 ## User-Facing Studio Capabilities
 
@@ -33,15 +35,15 @@ The current implementation is a local-first visual workflow editor plus an execu
 - Validation covers schema, duplicate IDs, missing endpoints, selected built-in types, and node-package availability.
 - Compound nodes use `type: "compound.subroute"` with an embedded `subroute`.
 
-## Node System
+## Block / Node System
 
-- Built-in bundled nodes include text/file/image/video inputs, capability nodes, prompt library, image preview, template transform, debug log, HTTP request, local Stable Diffusion, and text/file outputs.
-- Provider bundled nodes run server-side through adapters.
-- Installed local nodes live under `data/installed-nodes`.
+- Built-in bundled blocks include text/file/image/video inputs, capability nodes, prompt library, image preview, template transform, debug log, HTTP request, local Stable Diffusion, and text/file outputs.
+- Provider bundled blocks run server-side through adapters.
+- Installed local block packages live under `data/installed-nodes`.
 - Node manifests use the `snarkroute.node` format with permissions, executor, ports, params, and metadata.
 - Node library import supports `snarkroute.nodeLibrary`.
-- Plugin nodes call an executor module through `runNode(context)`.
-- Declarative HTTP nodes run through `declarative.http`; generic `declarative` still needs clarification.
+- Plugin blocks call an executor module through `runNode(context)`.
+- Declarative HTTP blocks run through `declarative.http`; generic `declarative` still needs clarification.
 
 ## Execution
 

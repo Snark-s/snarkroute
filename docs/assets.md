@@ -6,7 +6,7 @@ SnarkRoute routes store references to reusable assets, not raw external files. A
 
 Level 1: Route level
 
-Routes contain nodes, edges, params, and AssetRefs. Routes do not directly load files, URLs, JSON, Markdown, node definitions, or executable resources.
+Routes contain nodes, edges, params, and AssetRefs. In Open Route Protocol v0.1, route nodes are executable BlockNodes unless a later documented protocol extension says otherwise. Routes do not directly load files, URLs, JSON, Markdown, node definitions, or executable resources.
 
 Level 2: Asset resolution level
 

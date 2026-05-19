@@ -2,6 +2,16 @@
 
 Prompt Library is the first user-facing example of SnarkRoute's Asset System. It is a Text Asset source, not a special standalone route feature.
 
+In BoojumRoute, `library.prompt` is an executable BlockNode that resolves a prompt asset for a route. In SnarkRoute, prompt content may also appear as an Artifact or as Prompt Chips inside a prompt editor.
+
+Prompt Chips are reusable prompt fragments shown as visual chips. A prompt may be assembled from library prompt chips, inline text, inherited style/context, and references from the current artifact. Prompt chips should be treated as references to reusable prompt fragments, not merely copied text.
+
+Example:
+
+```text
+[Style: dark children room] [Task: replace faces] [Negative: no glow] + inline text
+```
+
 ## Local Files
 
 The default folder is:
@@ -64,7 +74,7 @@ The refresh rescans `.prompt.md` files, so a server restart is not required.
 
 These files are for human editing. Internally, discovered files should be normalized into JSON-compatible asset metadata or manifest structures. Prompt files should not be manually registered in code, and `prompt-library.json` should not be the primary editing surface.
 
-## Node Shape
+## Block Node Shape
 
 Current MVP routes use linked prompt params:
 
@@ -97,13 +107,13 @@ Embedded prompt text is supported for local fallback and route portability exper
 
 Target architecture still moves this to `params.assetRef` so exported routes can resolve local files, embedded route assets, bundles, and remote manifests through the same resolver.
 
-The node must not store direct file paths or direct prompt URLs.
+The block node must not store direct file paths or direct prompt URLs.
 
 ## Execution
 
 `library.prompt` resolves the linked prompt from the local prompt library or returns `embeddedText` when `mode` is `embedded`.
 
-The node outputs:
+The block node outputs:
 
 ```json
 {
@@ -111,7 +121,7 @@ The node outputs:
 }
 ```
 
-In the target AssetRef architecture, the node should not know whether the prompt came from a local `.prompt.md` file, generated manifest, remote manifest, embedded route asset, exported bundle, or future provider.
+In the target AssetRef architecture, the block node should not know whether the prompt came from a local `.prompt.md` file, generated manifest, remote manifest, embedded route asset, exported bundle, or future provider.
 
 ---
 

@@ -6,21 +6,23 @@ The central promise is simple: users must be able to take a route with them. A r
 
 ## Core Idea
 
-A route is a portable document. It can describe inputs, nodes, edges, parameters, AssetRefs, provenance, and economics metadata without depending on one application, registry, marketplace, executor, or host.
+A route is a portable document. It can describe inputs, block nodes, edges, parameters, AssetRefs, provenance, and economics metadata without depending on one application, registry, marketplace, executor, or host.
 
 Reusable external resources are assets. A route stores references to assets, not raw external files or arbitrary URLs. The host decides how AssetRefs are resolved, validated, cached, embedded, bundled, or blocked.
 
-Nodes are free protocol components, not rent-bearing assets. A node is a portable operation definition. It says what kind of operation exists, what it accepts, what it returns, and what permissions or dependencies it may need.
+Node is an umbrella product term for a generic graph item. This commons principle is about executable protocol block nodes, not SnarkRoute ArtifactNodes.
 
-A node is not the implementation. An implementation or provider is how that operation is executed: a local runner, hosted API, model provider, GPU server, media tool, or custom integration.
+Block nodes are free protocol components, not rent-bearing assets. A block node is a portable operation definition. It says what kind of operation exists, what it accepts, what it returns, and what permissions or dependencies it may need.
 
-A node also does not decide whether an asset is linked or embedded. Linked, embedded, and bundle are export modes.
+A block node is not the implementation. An implementation or provider is how that operation is executed: a local runner, hosted API, model provider, GPU server, media tool, or custom integration.
 
-## What Nodes Must Not Contain
+A block node also does not decide whether an asset is linked or embedded. Linked, embedded, and bundle are export modes.
 
-A node definition must not include pricing, royalties, DRM, license checks, mandatory payment services, exclusive ownership claims, or arbitrary executable code downloaded from a remote source.
+## What Block Nodes Must Not Contain
 
-Those things may exist around execution or business relationships, but they are not part of the canonical protocol node.
+A block node definition must not include pricing, royalties, DRM, license checks, mandatory payment services, exclusive ownership claims, or arbitrary executable code downloaded from a remote source.
+
+Those things may exist around execution or business relationships, but they are not part of the canonical protocol block node.
 
 ## Where Paid Value Can Exist
 
@@ -40,7 +42,7 @@ This keeps the protocol commons open while leaving room for people to build usef
 
 ## Separations
 
-- Node is not implementation.
+- Block node is not implementation.
 - Route is not database.
 - Executor is not protocol.
 - Registry is not truth.

@@ -10,9 +10,19 @@ Open Route Protocol uses explicit file extensions:
 - `.route.json`, `.route.yaml`, and `.route.yml` remain supported compatibility aliases.
 - `.node.json` describes reusable node type definitions.
 
-Route files contain node instances, edges, params, provenance, economics metadata, and AssetRefs. They do not directly load files, URLs, JSON, Markdown, node definitions, or executable resources.
+Route files contain node instances, edges, params, provenance, economics metadata, and AssetRefs. In Open Route Protocol v0.1 these route nodes are executable BlockNodes unless a later documented protocol extension says otherwise. They do not directly load files, URLs, JSON, Markdown, node definitions, or executable resources.
 
-Node definition files describe reusable node types. Do not use `.node.json` for node instances inside a route. Future Node Definition Assets may be referenced through AssetRef, but remote node definitions must describe interfaces and execution adapters, not arbitrary executable code.
+Node definition files describe reusable block node types. Do not use `.node.json` for node instances inside a route. Future Node Definition Assets may be referenced through AssetRef, but remote node definitions must describe interfaces and execution adapters, not arbitrary executable code.
+
+## Conceptual Terms
+
+Node is an umbrella term for a generic graph item, not only an executable process block. Node kinds include ArtifactNode and BlockNode.
+
+Open Route Protocol v0.1 route documents focus on Routes: executable graph/process documents. Their serialized `nodes` are the compatibility representation of executable BlockNodes. SnarkRoute Boards are a separate workspace/composition concept and may contain ArtifactNodes, artifact cards, explicit BlockNodes, relations, layout, versions/stacks, provenance, action history, and selected libraries/imports.
+
+An ArtifactNode is a creative content/media object on a SnarkRoute board, such as an image, video, audio clip, text, prompt, mask, reference, or generated output. It is not an executable operation by itself.
+
+An Action is a user-facing invocation of a BlockNode or Boojum route. Boojum compound routes can be exposed in SnarkRoute as Actions, usually as buttons on an Artifact card.
 
 For v0.1, `.orp` and `.route` serialize as JSON. `.orp.yaml`, `.orp.yml`, `.route.yaml`, and `.route.yml` serialize as YAML.
 
@@ -53,7 +63,7 @@ provenance:
 
 ## Nodes
 
-Every node has:
+In v0.1 route documents, every serialized route node has:
 
 - `id`: unique string
 - `type`: node type, such as `input.text` or `replicate.model`
@@ -61,7 +71,7 @@ Every node has:
 - `params`: declarative node parameters
 - `inputs`, `outputs`, `ui`: optional metadata
 
-Unknown node types are valid at the protocol level. Executors may fail if no runner is registered.
+Unknown node types are valid at the protocol level. Executors may fail if no runner is registered. This is route/execution terminology; it should not be read as saying every SnarkRoute-visible object is executable.
 
 ## Edges
 

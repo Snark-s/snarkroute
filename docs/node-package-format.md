@@ -2,6 +2,8 @@
 
 A portable SnarkRoute node package is a zip-compatible archive with extension `.snarknode`.
 
+The package format keeps node terminology for compatibility. Conceptually, `.snarknode` packages describe executable BoojumRoute Blocks / BlockNodes, not SnarkRoute creative Artifacts.
+
 Required root file:
 
 ```text

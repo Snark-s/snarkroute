@@ -2,7 +2,9 @@
 
 SnarkRoute is the larger project: a local-first reference implementation for portable Open Route Protocol workflows.
 
-BoojumRoute Lab is the working node editor and tool lab you can try today. It is the low-level graph interface for building tools from blocks, routes, providers, executors, schemas, and prompt/library assets.
+SnarkRoute is the object/workspace layer: artifacts, boards, versions, relations, libraries, and user-facing actions. BoojumRoute is the process-authoring layer: blocks, routes, ports, execution, compound nodes, and model/API orchestration.
+
+BoojumRoute Lab is the working block editor and tool lab you can try today. It is the low-level graph interface for building tools from blocks, routes, providers, executors, schemas, and prompt/library assets.
 
 BoojumRoute Lab now includes a first Dialogue Workbench block for conversation-heavy route steps. It opens as a large editor, stores manual/model-assisted messages, exposes selected outputs as graph ports, and emits `conversation_text`, `conversation_json`, and `conversation_capsule`. The first Model Registry layer defines portable Model Profiles and Agent Presets while provider credentials stay in local settings. See `docs/model-registry-principles.md` and `docs/dialogue-workbench.md`.
 
@@ -13,6 +15,23 @@ Both interfaces share the same Open Route Protocol engine/runtime. The current w
 It allows users to create, inspect, remix, validate, and execute portable AI/model/API routes. Routes describe graphs of operations. Reusable external resources are referenced through AssetRef and resolved by the host through configured AssetSources. This keeps routes portable, auditable, and safer than directly loading arbitrary files or URLs.
 
 Open Route Protocol is a portable route format for describing AI/model/API workflows as graphs. Routes can reference external assets, but only through the AssetRef system. The host application controls how asset references are resolved, validated, cached, embedded, bundled, or blocked.
+
+## Terminology
+
+Node is an umbrella term for a generic graph item, not only an executable process block. Current and future node kinds include:
+
+- ArtifactNode: a creative content/media object on a SnarkRoute board, such as an image, video, audio clip, text, prompt, mask, reference, or generated output. ArtifactNodes can carry versions/stacks, a current version, provenance, prompt/model/style context, and attached input or reference materials. In the SnarkRoute UI, visible creative objects should preferably be called Artifacts.
+- BlockNode: an executable operation or process block, such as generate image, edit image, upscale, crop, animate, extract frame, transcribe audio, call model, or call API. In BoojumRoute, most traditional route nodes are BlockNodes.
+
+An Action is a user-facing invocation of a BlockNode or Boojum route. In SnarkRoute, Actions usually appear as contextual buttons on an Artifact card: Edit, Animate, Upscale, Crop, and similar commands. A Boojum compound route/block maps naturally to a SnarkRoute action button, and its result can become a new ArtifactNode or a new version in the source Artifact stack.
+
+A Board is an editable visual workspace/composition containing nodes, artifact cards, optional block nodes, relations, layout, groups/comments, versions/stacks, provenance, action history, and selected libraries/imports. A Route is an executable graph/process. Do not collapse Board and Route into the same concept.
+
+A Library is a portable reusable collection that may contain or reference artifacts, blocks, routes, boards, prompt chips, styles, model presets, and assets. Library imports are dependency/reference links rather than only nested folders; circular imports are invalid.
+
+Prompt Chips are reusable prompt fragments shown as visual chips in the prompt editor. A prompt may combine library prompt chips, inline text, inherited style/context, and references from the current artifact. Prompt chips are references to reusable prompt fragments, not just copied text.
+
+See `docs/terminology.md` for the full conceptual model.
 
 ## Windows Quick Start
 
@@ -81,7 +100,7 @@ See `docs/demo-script.md` for a short recording plan.
 
 Open Route Protocol uses explicit file extensions for portable route documents. `.orp` is the canonical user-facing extension for complete Open Route Protocol route documents; `.orp.json` and `.orp.yaml` are explicit developer-friendly variants; `.route` remains supported as a human-readable compatibility alias.
 
-Route files contain node instances, edges, params, provenance, economics metadata, and AssetRefs. Reusable external resources are assets resolved by the host, not raw files or URLs loaded directly by the route.
+Route files contain node instances, edges, params, provenance, economics metadata, and AssetRefs. In Open Route Protocol v0.1 these route nodes are executable BlockNodes unless a later documented protocol extension says otherwise. Reusable external resources are assets resolved by the host, not raw files or URLs loaded directly by the route.
 
 Node definition files such as `.node.json` describe reusable low-level BoojumRoute block types. Future Node Definition Assets may also describe interfaces and execution adapters through AssetRef, but they must not inject arbitrary executable code into the shared runtime.
 
@@ -89,7 +108,7 @@ SnarkRoute is not a wrapper for any single provider. Replicate, Gemini, OpenRout
 
 ## Commons Principle
 
-SnarkRoute is designed as a portable route language, not a closed platform. Nodes are free protocol components; paid value belongs to execution, services, APIs, support, route authorship, and final products. See `docs/commons-principle.md`.
+SnarkRoute is designed as a portable route language, not a closed platform. Protocol block nodes are free components; paid value belongs to execution, services, APIs, support, route authorship, and final products. See `docs/commons-principle.md`.
 
 ## Asset System
 
@@ -303,7 +322,7 @@ Absolute local paths are an MVP limitation for direct input nodes: they work wel
 
 `library.prompt` is the first user-facing example of the Asset System. It outputs a saved prompt or text snippet as `{ "text": "..." }`, so other nodes can use it through normal text ports or template references such as `{{prompt1.output.text}}`.
 
-Prompt Library is a Text Asset source. The node stores only `params.assetRef`; it does not store linked or embedded modes.
+Prompt Library is a Text Asset source. The `library.prompt` BlockNode stores only `params.assetRef`; it does not store linked or embedded modes.
 
 Prompt files live under `data/prompt-library/`. The backend should discover files matching `data/prompt-library/**/*.prompt.md` on startup and when Studio's `Refresh Prompt Library` button is clicked.
 

@@ -60,20 +60,22 @@ export async function updatePromptAsset(category: string, id: string, body: Upda
 }
 
 export async function deletePromptAsset(category: string, id: string) {
-  const prompt = await loadPromptAssetForMutation(category, id);
+  const prompt = await loadPromptAssetForMutation(category, id, { allowPng: true });
   await rm(prompt.path, { force: true });
-  await deletePromptPreview(prompt.previewImage, dirname(prompt.path));
+  if (prompt.path.endsWith(".prompt.md")) await deletePromptPreview(prompt.previewImage, dirname(prompt.path));
   return { category: prompt.category, id };
 }
 
-async function loadPromptAssetForMutation(category: string, id: string) {
+async function loadPromptAssetForMutation(category: string, id: string, options: { allowPng?: boolean } = {}) {
   const library = await loadPromptLibrary();
   const prompt = getPromptLibraryPrompt(library, category, id);
   if (!prompt) throw new Error(`Prompt "${category}/${id}" was not found.`);
   const root = resolve(getPromptLibraryPath());
   const promptPath = resolve(prompt.path);
   if (!promptPath.startsWith(root)) throw new Error("Prompt path is outside the prompt library.");
-  if (!promptPath.endsWith(".prompt.md")) throw new Error("Only markdown prompt assets can be edited from Studio.");
+  if (!promptPath.endsWith(".prompt.md") && !(options.allowPng && promptPath.endsWith(".prompt.png"))) {
+    throw new Error("Only local prompt assets can be edited from Studio.");
+  }
   return { ...prompt, path: promptPath };
 }
 

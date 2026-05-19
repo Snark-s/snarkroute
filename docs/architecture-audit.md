@@ -10,6 +10,12 @@
 - `packages/nodes`: built-in manifests, installed package handling, node library validation, prompt library loading, and package utilities.
 - `packages/storage`: local run storage.
 
+## Terminology Note
+
+Node is now documented as an umbrella term for a generic graph item, not only an executable operation. ArtifactNode and BlockNode are distinct node kinds. SnarkRoute is the object/workspace layer for Artifacts, Boards, versions, relations, libraries, and Actions. BoojumRoute is the process-authoring layer for BlockNodes, routes, ports, execution, compound nodes, and model/API orchestration.
+
+Legacy code, route files, APIs, and package formats still use `node` names for compatibility. In this audit, references to executor/runtime nodes should be read as BlockNodes unless the text explicitly discusses SnarkRoute Living Canvas artifacts.
+
 ## Large Files Found
 
 - `apps/studio/src/main.tsx`: about 5,600 lines. It mixes UI components, catalog data, example routes, API clients, provider settings, route transformations, prompt asset workflows, local asset handling, execution controls, React Flow integration, and formatting helpers.
@@ -66,7 +72,7 @@ Prompt library loading lives in `packages/nodes`, but prompt asset mutation and 
 
 ## Installed Nodes / Tools Audit
 
-Installed node package utilities live in `packages/nodes`; UI and API still use node terminology because package filenames, manifests, and endpoints are compatibility surfaces. BoojumRoute docs/UI now describe them as blocks/tools conceptually.
+Installed node package utilities live in `packages/nodes`; UI and API still use node terminology because package filenames, manifests, and endpoints are compatibility surfaces. BoojumRoute docs/UI now describe them as blocks/tools conceptually. This does not mean every SnarkRoute-visible object is a Boojum process node; creative canvas objects are Artifacts.
 
 ## Storage / Data Audit
 
@@ -77,4 +83,4 @@ Run storage is isolated in `packages/storage`. Asset import/preview, prompt asse
 1. Add focused tests around server route modules and service boundaries as future behavior changes happen.
 2. Split `apps/studio/src/main.tsx` into route conversion helpers, API client helpers, block catalog components, inspector panels, settings panels, prompt library panels, and React Flow canvas components.
 3. Continue moving provider-specific behavior toward provider packages when it becomes reusable across server surfaces.
-4. Keep "blocks" as UI/product language and "nodes" as protocol/API/storage language until a documented protocol migration exists.
+4. Keep "blocks" as BoojumRoute UI/product language and "nodes" as protocol/API/storage compatibility language until a documented protocol migration exists. Keep SnarkRoute creative objects labeled as Artifacts in user-facing UI.
