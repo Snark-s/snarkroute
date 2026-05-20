@@ -58,6 +58,14 @@ Model Registry phase 1 keeps provider APIs outside core. Portable profile and ag
 
 Dialogue Workbench phase 1 adds `packages/protocol/src/dialogue-workbench.ts` for state and system output generation, `packages/nodes/src/index.ts` for the no-hidden-spend runner, and `apps/studio/src/main.tsx` for the BoojumRoute Lab editor. Execution emits saved transcript/capsule/selected outputs and performs no automatic model calls.
 
+### 2026-05-20: Model Resolution Extraction and Gateway v0
+
+OpenRouter-specific model resolution has been split from the OpenRouter adapter. Neutral mapping/resolution types and helpers now live in `packages/model-registry` as `@snarkroute/model-registry`; `@snarkroute/openrouter` re-exports them so older imports such as `createModelResolver` remain valid.
+
+The OpenRouter adapter remains a provider adapter boundary for OpenRouter HTTP behavior. The new registry package does not do smart model selection, cost-based routing, benchmark routing, or remote registry lookup; it only preserves the existing mapping/resolution behavior as a reusable data layer.
+
+Model Gateway v0 lives in `packages/core/src/model-gateway`. It builds on the registry/resolver direction by accepting capability-based requests, resolving a local model, finding a provider adapter and provider connection, and returning a normalized invoke result. The first migrated node is `replicate.model`, wrapped through a Replicate provider adapter without changing public route format or output behavior.
+
 ## Runtime / Execution Audit
 
 `packages/executor` is a reasonable shared runtime package. It still uses `NodeRunner`, `NodeResult`, and related names because the Open Route Protocol compatibility surface is node-based. For BoojumRoute, these are now conceptually block runners.

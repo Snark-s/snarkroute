@@ -1,5 +1,5 @@
 {
-  "name": "@snarkroute/openrouter",
+  "name": "@snarkroute/model-registry",
   "version": "0.1.0",
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -8,10 +8,6 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run"
-  },
-  "dependencies": {
-    "@snarkroute/executor": "workspace:*",
-    "@snarkroute/model-registry": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^1.6.0"

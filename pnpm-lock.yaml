@@ -14,6 +14,9 @@ importers:
       '@snarkroute/gemini':
         specifier: workspace:*
         version: link:packages/adapters/gemini
+      '@snarkroute/model-registry':
+        specifier: workspace:*
+        version: link:packages/model-registry
       '@snarkroute/nodes':
         specifier: workspace:*
         version: link:packages/nodes
@@ -175,6 +178,9 @@ importers:
       '@snarkroute/executor':
         specifier: workspace:*
         version: link:../../executor
+      '@snarkroute/model-registry':
+        specifier: workspace:*
+        version: link:../../model-registry
     devDependencies:
       vitest:
         specifier: ^1.6.0
@@ -192,6 +198,9 @@ importers:
 
   packages/adapters/replicate:
     dependencies:
+      '@snarkroute/core':
+        specifier: workspace:*
+        version: link:../../core
       '@snarkroute/executor':
         specifier: workspace:*
         version: link:../../executor
@@ -205,6 +214,9 @@ importers:
       '@snarkroute/nodes':
         specifier: workspace:*
         version: link:../nodes
+      '@snarkroute/protocol':
+        specifier: workspace:*
+        version: link:../protocol
     devDependencies:
       vitest:
         specifier: ^1.6.0
@@ -215,6 +227,12 @@ importers:
       '@snarkroute/protocol':
         specifier: workspace:*
         version: link:../protocol
+    devDependencies:
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.39)
+
+  packages/model-registry:
     devDependencies:
       vitest:
         specifier: ^1.6.0

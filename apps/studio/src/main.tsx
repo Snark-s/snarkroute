@@ -3,6 +3,7 @@ import "./styles.css";
 import defaultRouteDocument from "./default-route.orp.json";
 import {
   Background,
+  BackgroundVariant,
   Handle,
   Position,
   ReactFlow,
@@ -39,7 +40,7 @@ import {
   type ModelProfile,
   type OpenRoute
 } from "@snarkroute/protocol";
-import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -54,6 +55,12 @@ import {
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
 import { studioDocs, type StudioDocEntry } from "./docsRegistry";
 import { MarkdownDocument } from "./MarkdownDocument";
+import {
+  availableCanvasThemes,
+  loadCanvasBackgroundTheme,
+  saveCanvasBackgroundTheme,
+  type CanvasBackgroundTheme
+} from "./canvasBackground";
 
 const STUDIO_FAVICON_HREF = "/boojumroute-icon.png";
 
@@ -390,7 +397,7 @@ const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
   { type: "library.prompt", label: "Prompt Library", params: { category: "image-generation", promptId: "adapt-user-idea-for-image-generator", mode: "linked" } },
   { type: "dialogue.workbench", label: "Dialogue Workbench", params: { defaultModelProfileId: "text.default", agentPresetId: "plain-collaborator", state: createDialogueWorkbenchState({ nodeId: "dialogue_workbench", defaultModelProfileId: "text.default" }) } },
-  { type: "text.promptCompose", label: "Prompt Compose", params: { separator: "\n\n", trimParts: true, skipEmpty: true, prefix: "", suffix: "" } },
+  { type: "text.promptCompose", label: "Prompt Compose", params: { manualText: "", separator: "\n\n", trimParts: true, skipEmpty: true, prefix: "", suffix: "" } },
   { type: "input.image", label: "Input Image", params: { path: "" } },
   { type: "input.video", label: "Input Video", params: { path: "" } },
   { type: "input.file", label: "Input File", params: { path: "" } },
@@ -752,6 +759,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
   const ports = getNodePorts(type, manifest, routeNode);
+  const outputPinned = pinnedOutputFromParams(params) !== undefined;
   const collapsedInputImagePath = type === "input.image" ? String(params.path ?? "").trim() : "";
   const collapsedResultImage = result ? lastImageValue(result.output) : null;
   const collapsedImageSrc = paramsCollapsed
@@ -1014,7 +1022,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           onOpenImage={onOpenImage}
         />
       ) : null}
-      {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} type={type} result={result} onOpenImage={onOpenImage} onDownloadImage={onDownloadImage} onImageResultContextMenu={onImageResultContextMenu} onFixNodeOutput={onFixNodeOutput} onConfigureMissingSecret={configureMissingSecret} /> : null}
+      {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} type={type} result={result} outputPinned={outputPinned} onOpenImage={onOpenImage} onDownloadImage={onDownloadImage} onImageResultContextMenu={onImageResultContextMenu} onFixNodeOutput={onFixNodeOutput} onConfigureMissingSecret={configureMissingSecret} /> : null}
       {paramsCollapsed && collapsedImageSrc ? (
         <button
           className="collapsedImagePreviewButton nodrag nopan"
@@ -1727,6 +1735,10 @@ function NodeInlineParams({
     const separator = String(params.separator ?? "\n\n");
     return (
       <>
+        <label className="nodeField">
+          <span>prompt</span>
+          <textarea className="nodrag nopan nodeTextarea" value={String(params.manualText ?? "")} onChange={(event) => updateTextParam("manualText", event)} />
+        </label>
         <label className="nodeField">
           <span>separator</span>
           <textarea className="nodrag nopan nodeTextarea compact" value={separator} onChange={(event) => updateTextParam("separator", event)} />
@@ -2625,19 +2637,23 @@ function composePromptPreview(params: Record<string, unknown>): string {
   const trimParts = params.trimParts !== false;
   const skipEmpty = params.skipEmpty !== false;
   const separator = String(params.separator ?? "\n\n");
+  const manualText = params.manualText === undefined || params.manualText === null ? "" : String(params.manualText);
   const slotParts = promptComposeFixedSlots().flatMap((slot) => [1, 2, 3].map((index) => ({ slot, index, raw: params[`${slot.id}${index}`] })));
   const legacyParts = [1, 2, 3, 4, 5, 6].map((index) => ({ slot: { id: `text${index}`, label: `Text ${index}` }, index: 1, raw: params[`text${index}`] }));
   const hasSlotParts = slotParts.some((part) => part.raw !== undefined);
   const values = hasSlotParts ? slotParts : legacyParts;
-  const parts = values
+  const parts = [
+    { label: "Prompt", index: 1, value: trimParts ? manualText.trim() : manualText },
+    ...values
     .map(({ slot, index, raw }) => {
       const text = raw === undefined || raw === null ? "" : String(raw);
       const value = trimParts ? text.trim() : text;
       return { label: slot.label, index, value };
     })
+  ]
     .filter((part) => !skipEmpty || part.value !== "");
   const body = parts
-    .map((part) => hasSlotParts ? `${part.label}${part.index > 1 ? ` ${part.index}` : ""}:\n${part.value}` : part.value)
+    .map((part) => hasSlotParts && part.label !== "Prompt" ? `${part.label}${part.index > 1 ? ` ${part.index}` : ""}:\n${part.value}` : part.value)
     .join(separator);
   return `${String(params.prefix ?? "")}${body}${String(params.suffix ?? "")}`;
 }
@@ -2724,6 +2740,7 @@ function NodeInlineResult({
   nodeId,
   type,
   result,
+  outputPinned,
   onOpenImage,
   onDownloadImage,
   onImageResultContextMenu,
@@ -2733,6 +2750,7 @@ function NodeInlineResult({
   nodeId: string;
   type: string;
   result: NodeRunResult;
+  outputPinned?: boolean;
   onOpenImage?: (image: ImageViewerState) => void;
   onDownloadImage?: (src: string, filename: string) => void;
   onImageResultContextMenu?: (event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void;
@@ -2740,7 +2758,7 @@ function NodeInlineResult({
   onConfigureMissingSecret?: () => void;
 }) {
   const previewVersion = result.completedAt ?? result.startedAt ?? "";
-  const liveFisheye = type === "transform.panorama360ToFisheye" ? liveFisheyeOutput(result.output) : null;
+  const liveFisheye = liveFisheyeOutput(result.output);
   if (liveFisheye) {
     return (
       <LiveFisheyePreview
@@ -2800,7 +2818,13 @@ function NodeInlineResult({
           >
             <Download size={14} />
           </button>
-          <button className="nodeImageActionButton nodrag nopan" type="button" title="Pin output for this project" onClick={(event) => { event.stopPropagation(); onFixNodeOutput?.(nodeId, result.output); }}>
+          <button
+            className={`nodeImageActionButton nodrag nopan ${outputPinned ? "pinned" : ""}`}
+            type="button"
+            title={outputPinned ? "Output is pinned for this project" : "Pin output for this project"}
+            aria-pressed={outputPinned}
+            onClick={(event) => { event.stopPropagation(); onFixNodeOutput?.(nodeId, result.output); }}
+          >
             <Pin size={14} />
           </button>
         </div>
@@ -2824,14 +2848,14 @@ function NodeInlineResult({
     );
   }
   const textOutput = result.status !== "failed" ? outputText(result.output) : null;
-  const preview = truncateText(result.error ?? JSON.stringify(result.output ?? {}, null, 2), 420);
+  const preview = result.error ? truncateText(result.error, 420) : result.output === undefined ? "" : truncateText(JSON.stringify(result.output, null, 2), 420);
   return (
     <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
       {statusText ? <div>{statusText}</div> : null}
       {cost ? <span className="nodeCost">{cost}</span> : null}
-      {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : <pre>{preview}</pre>}
+      {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : preview ? <pre>{preview}</pre> : null}
       {result.status === "failed" && onConfigureMissingSecret ? <button className="nodeSmallButton nodrag nopan" onClick={onConfigureMissingSecret}><KeyRound size={14} /> Configure key</button> : null}
-      {result.status === "succeeded" && hasPinnableOutput(result.output) ? <button className="nodeSmallButton nodrag nopan" onClick={() => onFixNodeOutput?.(nodeId, result.output)}><Pin size={14} /> Pin output</button> : null}
+      {result.status === "succeeded" && hasPinnableOutput(result.output) ? <button className={`nodeSmallButton nodrag nopan ${outputPinned ? "pinned" : ""}`} aria-pressed={outputPinned} onClick={() => onFixNodeOutput?.(nodeId, result.output)}><Pin size={14} /> {outputPinned ? "Pinned output" : "Pin output"}</button> : null}
     </div>
   );
 }
@@ -3185,10 +3209,11 @@ function readyPreviewImageInput(
   if (!incoming) return undefined;
   const sourceNode = nodes.find((node) => node.id === incoming.source)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
   const sourceResult = runResult?.nodeResults?.[incoming.source];
+  const liveSourceResult = sourceNode?.type === "transform.panorama360ToFisheye" ? readyFisheyeNodeResult(sourceNode, sourceResult, nodes, edges, runResult) : undefined;
   const pinnedOutput = pinnedOutputFromParams(sourceNode?.params);
-  const sourceOutput = sourceResult?.output !== undefined ? sourceResult.output : pinnedOutput;
-  const value = readPreviewPort(sourceOutput, incoming.sourceHandle) ?? sourceParamPreview(sourceNode, incoming.sourceHandle);
-  return imagePreviewSrc(value) ? { value, startedAt: sourceResult?.startedAt, completedAt: sourceResult?.completedAt } : undefined;
+  const sourceOutput = liveSourceResult?.output ?? (sourceResult?.output !== undefined ? sourceResult.output : pinnedOutput);
+  const value = readPreviewPort(sourceOutput, incoming.sourceHandle) ?? sourceAssetParamPreview(sourceNode);
+  return imagePreviewSrc(value) || liveFisheyeOutput(value) ? { value, startedAt: liveSourceResult?.startedAt ?? sourceResult?.startedAt, completedAt: liveSourceResult?.completedAt ?? sourceResult?.completedAt } : undefined;
 }
 
 function hasFixedPanoramaFrame(output: unknown): boolean {
@@ -3700,6 +3725,12 @@ function sourceParamPreview(node: RouteDoc["nodes"][number] | undefined, port?: 
     return buildDialogueWorkbenchOutputs({ nodeId: node.id, nodeTitle: node.title, state }).conversation_capsule;
   }
   return node.params ?? "";
+}
+
+function sourceAssetParamPreview(node: RouteDoc["nodes"][number] | undefined): unknown {
+  if (!node) return "";
+  if (node.type === "input.image" || node.type === "input.file" || node.type === "input.video") return node.params?.path ?? "";
+  return "";
 }
 
 function previewValue(value: unknown): string {
@@ -4473,12 +4504,16 @@ function App() {
   const [routeBase, setRouteBase] = useState<RouteDoc>(initialRouteState.route);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
+  const nodesRef = useRef<Node[]>(initial.nodes);
+  const edgesRef = useRef<Edge[]>(initial.edges);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [paramsText, setParamsText] = useState("{}");
   const [paramsError, setParamsError] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>(initialRouteState.loadedSavedProject ? ["Loaded saved project.", "BoojumRoute Lab ready."] : ["BoojumRoute Lab ready."]);
   const [outputs, setOutputs] = useState<unknown>(null);
   const [runResult, setRunResult] = useState<RunDisplayResult | null>(null);
+  const [staleResultNodeIds, setStaleResultNodeIds] = useState<Set<string>>(() => new Set());
+  const undoStackRef = useRef<Array<{ nodes: Node[]; edges: Edge[]; selectedId: string | null; label: string }>>([]);
   const [replicateToken, setReplicateToken] = useState("");
   const [replicateConfigured, setReplicateConfigured] = useState(false);
   const [geminiToken, setGeminiToken] = useState("");
@@ -4505,7 +4540,9 @@ function App() {
   const [providerLinks, setProviderLinks] = useState<ProviderLinks>({});
   const [apiConnected, setApiConnected] = useState(false);
   const [apiError, setApiError] = useState("");
+  const [shuttingDown, setShuttingDown] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
+  const [canvasBackgroundTheme, setCanvasBackgroundTheme] = useState<CanvasBackgroundTheme>(() => loadCanvasBackgroundTheme());
   const [systemUpdateStatus, setSystemUpdateStatus] = useState<SystemUpdateStatus | null>(null);
   const [systemUpdating, setSystemUpdating] = useState(false);
   const [pendingBrowse, setPendingBrowse] = useState<{ nodeId: string; kind: AssetKind } | null>(null);
@@ -4554,6 +4591,28 @@ function App() {
   const [promptAssetSaving, setPromptAssetSaving] = useState(false);
   const [routeStack, setRouteStack] = useState<SubrouteFrame[]>([]);
 
+  useEffect(() => {
+    nodesRef.current = nodes;
+  }, [nodes]);
+
+  useEffect(() => {
+    edgesRef.current = edges;
+  }, [edges]);
+
+  useEffect(() => {
+    saveCanvasBackgroundTheme(canvasBackgroundTheme);
+  }, [canvasBackgroundTheme]);
+
+  useEffect(() => {
+    function handleUndoKey(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey || event.key.toLowerCase() !== "z" || isTextEditingTarget(event.target)) return;
+      event.preventDefault();
+      undoLastAction();
+    }
+    window.addEventListener("keydown", handleUndoKey);
+    return () => window.removeEventListener("keydown", handleUndoKey);
+  }, []);
+
   useBlinkingFavicon(runResult?.status === "running");
 
   const selectedNode = nodes.find((node) => node.id === selectedId);
@@ -4564,6 +4623,26 @@ function App() {
   const contextRouteNode = contextNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
   const selectedEdgeCount = edges.filter((edge) => edge.selected).length;
+  const highlightedNodeIds = useMemo(() => new Set(nodes.filter((node) => node.selected || node.id === selectedId).map((node) => node.id)), [nodes, selectedId]);
+  const displayEdges = useMemo(
+    () => edges.map((edge) => {
+      const selected = Boolean(edge.selected);
+      const highlighted = selected || highlightedNodeIds.has(edge.source) || highlightedNodeIds.has(edge.target);
+      if (!highlighted) return edge;
+      return {
+        ...edge,
+        className: [edge.className, "highlightedRouteEdge", selected ? "selectedRouteEdge" : ""].filter(Boolean).join(" "),
+        style: {
+          ...edge.style,
+          stroke: selected ? "#9ef5df" : "#7dd3c0",
+          strokeWidth: selected ? 3.5 : 2.5
+        },
+        zIndex: selected ? 1001 : 1000
+      };
+    }),
+    [edges, highlightedNodeIds]
+  );
+  const canvasThemeConfig = availableCanvasThemes.find((theme) => theme.id === canvasBackgroundTheme) ?? availableCanvasThemes[0];
   const catalogSections = useMemo(() => groupNodeCatalog(nodeCatalog, nodeLibraryLayout), [nodeCatalog, nodeLibraryLayout]);
   const nodeSearchQuery = nodeSearch.trim().toLowerCase();
   const hiddenNodeTypes = useMemo(() => new Set(nodeLibraryLayout.hiddenTypes), [nodeLibraryLayout.hiddenTypes]);
@@ -4673,10 +4752,10 @@ function App() {
           seedanceStatusText: seedanceSettings.statusText,
           replicateConfigured,
           geminiConfigured,
-          result: readyNodeResult(node.data.routeNode as RouteDoc["nodes"][number], runResult?.nodeResults?.[node.id], nodes, edges, runResult)
+          result: staleResultNodeIds.has(node.id) ? undefined : readyNodeResult(node.data.routeNode as RouteDoc["nodes"][number], runResult?.nodeResults?.[node.id], nodes, edges, runResult)
         }
       })),
-    [nodes, edges, runResult, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
@@ -4821,6 +4900,29 @@ function App() {
       void loadSystemUpdateStatus();
     } finally {
       setSystemUpdating(false);
+    }
+  }
+
+  async function shutdownServices() {
+    if (shuttingDown) return;
+    const confirmed = window.confirm("Close BoojumRoute Lab and stop local services?");
+    if (!confirmed) return;
+    setShuttingDown(true);
+    setLogs((current) => ["Stopping local services...", ...current]);
+    try {
+      const response = await fetch(`${apiBase}/api/system/shutdown`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ studioPort: window.location.port })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(String(result.error ?? "Shutdown request failed."));
+      setLogs((current) => ["Shutdown requested. Local windows and services should close shortly.", ...current]);
+      window.setTimeout(() => window.close(), 700);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setShuttingDown(false);
+      setLogs((current) => [`Shutdown failed: ${message}`, ...current]);
     }
   }
 
@@ -5421,8 +5523,17 @@ function App() {
       target: nodeIdMap.get(edge.target) ?? edge.target
     }));
 
-    setNodes((current) => [...current, ...importedNodes]);
-    setEdges((current) => [...current, ...importedEdges]);
+    pushUndoSnapshot(`Import ${file.name}`);
+    setNodes((current) => {
+      const nextNodes = [...current, ...importedNodes];
+      nodesRef.current = nextNodes;
+      return nextNodes;
+    });
+    setEdges((current) => {
+      const nextEdges = [...current, ...importedEdges];
+      edgesRef.current = nextEdges;
+      return nextEdges;
+    });
     setLogs((current) => [`Imported ${file.name} onto canvas.`, ...current]);
   }
 
@@ -5452,22 +5563,8 @@ function App() {
     }
 
     const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
-    const type = `input.${kind}`;
-    const item = nodeCatalog.find((candidate) => candidate.type === type) ?? library.find((candidate) => candidate.type === type);
-    if (!item) {
-      setLogs((entries) => [`Cannot add missing node type: ${type}`, ...entries]);
-      return;
-    }
-    const id = `${type.replace(".", "_")}_${nodes.length + 1}`;
     try {
-      const path = await importLocalAsset(file, kind);
-      const itemTitle = catalogItemTitle(item);
-      const routeNode = { id, type, title: itemTitle, params: { path }, ui: {} };
-      setNodes((current) => [
-        ...current,
-        { id, type: "route", position: { x: 160 + current.length * 30, y: 120 + current.length * 24 }, data: { label: `${itemTitle}\n${type}`, routeNode } }
-      ]);
-      setLogs((entries) => [`Dropped ${kind}: ${path}`, ...entries]);
+      await addAssetNodeFromFile(file, kind, flowPositionFromEvent(event), `Dropped ${kind}`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setLogs((entries) => [`Drop import error: ${message}`, ...entries]);
@@ -5687,12 +5784,28 @@ function App() {
   }
 
   function updateNodeParams(nodeId: string, params: Record<string, unknown>, options: { persistProject?: boolean; persistLog?: string } = {}) {
-    const nextNodes = nodes.map((node) => {
-      if (node.id !== nodeId) return node;
-      const routeNode = { ...(node.data.routeNode as RouteDoc["nodes"][number]), params };
+    const currentNodes = nodesRef.current;
+    const currentParams = currentNodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    const paramsChanged = JSON.stringify(currentParams?.params ?? {}) !== JSON.stringify(params);
+    if (paramsChanged) pushUndoSnapshot(`Edit ${nodeId}`);
+    const changedNodeType = currentParams?.type ?? "";
+    const affectedNodeIds = paramsChanged ? [nodeId, ...downstreamNodeIds(nodeId)] : [];
+    const staleResultNodeIds = affectedNodeIds.filter((affectedNodeId) => {
+      const affectedType = currentNodes.find((node) => node.id === affectedNodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+      return !shouldKeepLiveResultOnParamChange(changedNodeType, affectedType?.type ?? "");
+    });
+    const nextNodes = currentNodes.map((node) => {
+      if (node.id !== nodeId && !affectedNodeIds.includes(node.id)) return node;
+      const currentRouteNode = node.data.routeNode as RouteDoc["nodes"][number];
+      const routeNode = { ...currentRouteNode, params: node.id === nodeId && !paramsChanged ? params : unpinParams(node.id === nodeId ? params : currentRouteNode.params) };
       return { ...node, data: { ...node.data, routeNode } };
     });
+    nodesRef.current = nextNodes;
     setNodes(nextNodes);
+    if (paramsChanged) {
+      markNodeResultsStale(staleResultNodeIds);
+      clearNodeRunResults(affectedNodeIds);
+    }
     if (selectedId === nodeId) setParamsText(JSON.stringify(params, null, 2));
     if (options.persistProject) {
       saveRouteDocument(buildRouteDocumentFrom(nextNodes, edges), { saveStartup: true, logMessage: options.persistLog });
@@ -5726,7 +5839,6 @@ function App() {
   function clearNodeRunResults(nodeIds: string[]) {
     const ids = new Set(nodeIds);
     setRunResult((current) => {
-      if (current?.status === "running") return current;
       if (!current?.nodeResults || !nodeIds.some((nodeId) => current.nodeResults?.[nodeId])) return current;
       const nodeResults = { ...current.nodeResults };
       for (const nodeId of ids) delete nodeResults[nodeId];
@@ -5735,6 +5847,80 @@ function App() {
       }
       return { ...current, nodeResults };
     });
+  }
+
+  function markNodeResultsStale(nodeIds: string[]) {
+    if (nodeIds.length === 0) return;
+    setStaleResultNodeIds((current) => new Set([...current, ...nodeIds]));
+  }
+
+  function markNodeResultsFresh(nodeIds: string[]) {
+    if (nodeIds.length === 0) return;
+    setStaleResultNodeIds((current) => {
+      if (nodeIds.every((nodeId) => !current.has(nodeId))) return current;
+      const next = new Set(current);
+      for (const nodeId of nodeIds) next.delete(nodeId);
+      return next;
+    });
+  }
+
+  function downstreamNodeIds(nodeId: string): string[] {
+    const visited = new Set<string>();
+    const queue = [nodeId];
+    while (queue.length > 0) {
+      const source = queue.shift()!;
+      for (const edge of edgesRef.current) {
+        if (edge.source !== source || visited.has(edge.target)) continue;
+        visited.add(edge.target);
+        queue.push(edge.target);
+      }
+    }
+    visited.delete(nodeId);
+    return [...visited];
+  }
+
+  function unpinParams(params: Record<string, unknown> | undefined): Record<string, unknown> {
+    if (!params || (!Object.prototype.hasOwnProperty.call(params, "pinnedOutput") && !Object.prototype.hasOwnProperty.call(params, "pinnedOutputAt"))) return params ?? {};
+    const { pinnedOutput: _pinnedOutput, pinnedOutputAt: _pinnedOutputAt, ...rest } = params;
+    return rest;
+  }
+
+  function shouldKeepLiveResultOnParamChange(changedType: string, affectedType: string): boolean {
+    return changedType === "transform.panorama360ToFisheye" && (affectedType === "transform.panorama360ToFisheye" || affectedType === "preview.image");
+  }
+
+  function cloneFlowNodesForUndo(flowNodes: Node[]): Node[] {
+    return flowNodes.map((node) => ({
+      ...node,
+      data: {
+        ...node.data,
+        routeNode: structuredClone(node.data.routeNode)
+      }
+    }));
+  }
+
+  function cloneFlowEdgesForUndo(flowEdges: Edge[]): Edge[] {
+    return flowEdges.map((edge) => ({ ...edge, data: edge.data ? structuredClone(edge.data) : edge.data }));
+  }
+
+  function pushUndoSnapshot(label: string) {
+    undoStackRef.current = [
+      ...undoStackRef.current.slice(-49),
+      { nodes: cloneFlowNodesForUndo(nodesRef.current), edges: cloneFlowEdgesForUndo(edgesRef.current), selectedId, label }
+    ];
+  }
+
+  function undoLastAction() {
+    const snapshot = undoStackRef.current.at(-1);
+    if (!snapshot) return;
+    undoStackRef.current = undoStackRef.current.slice(0, -1);
+    nodesRef.current = cloneFlowNodesForUndo(snapshot.nodes);
+    edgesRef.current = cloneFlowEdgesForUndo(snapshot.edges);
+    setNodes(nodesRef.current);
+    setEdges(edgesRef.current);
+    setSelectedId(snapshot.selectedId);
+    setStaleResultNodeIds(new Set());
+    setLogs((current) => [`Undid: ${snapshot.label}.`, ...current]);
   }
 
   function addNode(type: string, position?: { x: number; y: number }) {
@@ -5748,29 +5934,36 @@ function App() {
 
   function addNodeFromCatalogItem(item: NodeCatalogItem | (typeof library)[number], position?: { x: number; y: number }) {
     const type = item.type;
-    const idBase = type.replace(/\W+/g, "_");
-    const id = `${idBase}_${nodes.length + 1}`;
-    const params = structuredClone(item.params ?? {});
-    if (type === "dialogue.workbench") {
-      params.defaultModelProfileId = params.defaultModelProfileId ?? "text.default";
-      params.agentPresetId = params.agentPresetId ?? "plain-collaborator";
-      params.state = createDialogueWorkbenchState({ nodeId: id, defaultModelProfileId: String(params.defaultModelProfileId) });
-    }
     const itemTitle = catalogItemTitle(item);
     const manifest = "manifest" in item ? item.manifest : undefined;
-    const routeNode = {
-      id,
-      type,
-      title: itemTitle,
-      params,
-      nodePackage: manifest && manifest.origin !== "bundled" ? { id: manifest.id, version: manifest.version, origin: manifest.origin, source: manifest.source } : undefined,
-      ui: {}
-    };
-    setNodes((current) => [
-      ...current,
-      { id, type: isCompoundInterfaceType(type) ? "interface" : "route", position: position ?? { x: 120 + current.length * 36, y: 140 + current.length * 28 }, data: { label: `${itemTitle}\n${type}`, routeNode } }
-    ]);
-    return id;
+    let createdId = "";
+    pushUndoSnapshot(`Add ${itemTitle}`);
+    setNodes((current) => {
+      const usedIds = new Set(current.map((node) => node.id));
+      const id = uniqueFlowId(`${type.replace(/\W+/g, "_")}_${current.length + 1}`, usedIds);
+      createdId = id;
+      const params = structuredClone(item.params ?? {});
+      if (type === "dialogue.workbench") {
+        params.defaultModelProfileId = params.defaultModelProfileId ?? "text.default";
+        params.agentPresetId = params.agentPresetId ?? "plain-collaborator";
+        params.state = createDialogueWorkbenchState({ nodeId: id, defaultModelProfileId: String(params.defaultModelProfileId) });
+      }
+      const routeNode = {
+        id,
+        type,
+        title: itemTitle,
+        params,
+        nodePackage: manifest && manifest.origin !== "bundled" ? { id: manifest.id, version: manifest.version, origin: manifest.origin, source: manifest.source } : undefined,
+        ui: {}
+      };
+      const nextNodes = [
+        ...current,
+        { id, type: isCompoundInterfaceType(type) ? "interface" : "route", position: position ?? { x: 120 + current.length * 36, y: 140 + current.length * 28 }, data: { label: `${itemTitle}\n${type}`, routeNode } }
+      ];
+      nodesRef.current = nextNodes;
+      return nextNodes;
+    });
+    return createdId;
   }
 
   async function addAssetNodeFromFile(file: File, kind: AssetKind, position: { x: number; y: number } | undefined, logPrefix: string) {
@@ -5780,12 +5973,13 @@ function App() {
     const path = await importLocalAsset(file, kind);
     const itemTitle = catalogItemTitle(item);
     let createdId = "";
+    pushUndoSnapshot(`Add ${itemTitle}`);
     setNodes((current) => {
       const usedIds = new Set(current.map((node) => node.id));
       const id = uniqueFlowId(`${type.replace(/\W+/g, "_")}_${current.length + 1}`, usedIds);
       createdId = id;
       const routeNode = { id, type, title: itemTitle, params: { path }, ui: {} };
-      return [
+      const nextNodes = [
         ...current,
         {
           id,
@@ -5794,6 +5988,8 @@ function App() {
           data: { label: `${itemTitle}\n${type}`, routeNode }
         }
       ];
+      nodesRef.current = nextNodes;
+      return nextNodes;
     });
     if (createdId) selectNode(null);
     setLogs((entries) => [`${logPrefix}: ${path}`, ...entries]);
@@ -6016,14 +6212,20 @@ function App() {
       });
     }
     const routeNodeChanges = changes.filter((change) => !("id" in change) || !isSubrouteInterfaceId(change.id));
-    if (routeNodeChanges.length > 0) onNodesChange(routeNodeChanges);
+    if (routeNodeChanges.length > 0) {
+      if (routeNodeChanges.some((change) => change.type !== "select")) pushUndoSnapshot("Canvas node change");
+      onNodesChange(routeNodeChanges);
+    }
     const selected = changes.find((change) => change.type === "select" && change.selected);
     if (selected && "id" in selected && !isSubrouteInterfaceId(selected.id)) setSelectedId(selected.id);
   }
 
   function handleEdgesChange(changes: EdgeChange[]) {
     const routeEdgeChanges = changes.filter((change) => !("id" in change) || !isSubrouteInterfaceId(change.id));
-    if (routeEdgeChanges.length > 0) onEdgesChange(routeEdgeChanges);
+    if (routeEdgeChanges.length > 0) {
+      if (routeEdgeChanges.some((change) => change.type !== "select")) pushUndoSnapshot("Canvas edge change");
+      onEdgesChange(routeEdgeChanges);
+    }
   }
 
   function deleteSelection() {
@@ -6036,10 +6238,17 @@ function App() {
 
     if (selectedNodeIds.size === 0 && selectedEdgeIds.size === 0) return;
 
-    setNodes((current) => current.filter((node) => !selectedNodeIds.has(node.id)));
-    setEdges((current) =>
-      current.filter((edge) => !selectedEdgeIds.has(edge.id) && !selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target))
-    );
+    pushUndoSnapshot("Delete selection");
+    setNodes((current) => {
+      const nextNodes = current.filter((node) => !selectedNodeIds.has(node.id));
+      nodesRef.current = nextNodes;
+      return nextNodes;
+    });
+    setEdges((current) => {
+      const nextEdges = current.filter((edge) => !selectedEdgeIds.has(edge.id) && !selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target));
+      edgesRef.current = nextEdges;
+      return nextEdges;
+    });
     setSelectedId(null);
     clearNodeRunResults([...selectedNodeIds]);
     setLogs((current) => [`Deleted ${selectedNodeIds.size} block(s), ${selectedEdgeIds.size} edge(s).`, ...current]);
@@ -6114,15 +6323,24 @@ function App() {
       .map((edge) => ({ ...edge, source: compoundId, sourceHandle: outputPortBySource.get(`${edge.source}:${edge.sourceHandle ?? "output"}`) }))
       .filter((edge) => Boolean(edge.sourceHandle));
 
-    setNodes((current) => [
-      ...current.filter((node) => !selectedNodeIds.has(node.id)),
-      { id: compoundId, type: "route", position, selected: false, data: { label: `${title}\ncompound.subroute`, routeNode } }
-    ]);
-    setEdges((current) => [
-      ...current.filter((edge) => !selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target)),
-      ...rewiredIncoming,
-      ...rewiredOutgoing
-    ]);
+    pushUndoSnapshot("Collapse nodes");
+    setNodes((current) => {
+      const nextNodes = [
+        ...current.filter((node) => !selectedNodeIds.has(node.id)),
+        { id: compoundId, type: "route", position, selected: false, data: { label: `${title}\ncompound.subroute`, routeNode } }
+      ];
+      nodesRef.current = nextNodes;
+      return nextNodes;
+    });
+    setEdges((current) => {
+      const nextEdges = [
+        ...current.filter((edge) => !selectedNodeIds.has(edge.source) && !selectedNodeIds.has(edge.target)),
+        ...rewiredIncoming,
+        ...rewiredOutgoing
+      ];
+      edgesRef.current = nextEdges;
+      return nextEdges;
+    });
     setSelectedId(null);
     setRunResult(null);
     setOutputs(null);
@@ -6130,8 +6348,17 @@ function App() {
   }
 
   function deleteNodeFromContext(nodeId: string) {
-    setNodes((current) => current.filter((node) => node.id !== nodeId));
-    setEdges((current) => current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
+    pushUndoSnapshot(`Delete ${nodeId}`);
+    setNodes((current) => {
+      const nextNodes = current.filter((node) => node.id !== nodeId);
+      nodesRef.current = nextNodes;
+      return nextNodes;
+    });
+    setEdges((current) => {
+      const nextEdges = current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId);
+      edgesRef.current = nextEdges;
+      return nextEdges;
+    });
     setSelectedId(null);
     setContextMenu(null);
     clearNodeRunResult(nodeId);
@@ -6147,13 +6374,16 @@ function App() {
       setContextMenu(null);
       return;
     }
-    setNodes((current) =>
-      current.map((node) => {
+    pushUndoSnapshot(`Rename ${nodeId}`);
+    setNodes((current) => {
+      const nextNodes = current.map((node) => {
         if (node.id !== nodeId) return node;
         const updatedRouteNode = { ...(node.data.routeNode as RouteDoc["nodes"][number]), title };
         return { ...node, data: { ...node.data, label: `${title}\n${updatedRouteNode.type}`, routeNode: updatedRouteNode } };
-      })
-    );
+      });
+      nodesRef.current = nextNodes;
+      return nextNodes;
+    });
     setContextMenu(null);
     setLogs((current) => [`Renamed ${nodeId} to "${title}".`, ...current]);
   }
@@ -6163,13 +6393,14 @@ function App() {
     const sourceRouteNode = sourceNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
     if (!sourceNode || !sourceRouteNode) return;
     let duplicatedId = "";
+    pushUndoSnapshot(`Duplicate ${nodeId}`);
     setNodes((current) => {
       const usedIds = new Set(current.map((node) => node.id));
       const id = uniqueFlowId(`${sourceRouteNode.id}_copy`, usedIds);
       duplicatedId = id;
       const routeNode = structuredClone({ ...sourceRouteNode, id });
       const title = routeNode.title ?? sourceRouteNode.title ?? id;
-      return [
+      const nextNodes = [
         ...current,
         {
           ...sourceNode,
@@ -6179,6 +6410,8 @@ function App() {
           data: { ...sourceNode.data, label: `${title}\n${routeNode.type}`, routeNode }
         }
       ];
+      nodesRef.current = nextNodes;
+      return nextNodes;
     });
     if (duplicatedId) {
       setSelectedId(duplicatedId);
@@ -6315,8 +6548,17 @@ function App() {
           : [];
       });
 
-    setNodes((current) => [...current.filter((node) => node.id !== nodeId), ...subflow.nodes.map((node) => ({ ...node, selected: true }))]);
-    setEdges((current) => [...current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId), ...subflow.edges, ...incoming, ...outgoing]);
+    pushUndoSnapshot(`Uncollapse ${nodeId}`);
+    setNodes((current) => {
+      const nextNodes = [...current.filter((node) => node.id !== nodeId), ...subflow.nodes.map((node) => ({ ...node, selected: true }))];
+      nodesRef.current = nextNodes;
+      return nextNodes;
+    });
+    setEdges((current) => {
+      const nextEdges = [...current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId), ...subflow.edges, ...incoming, ...outgoing];
+      edgesRef.current = nextEdges;
+      return nextEdges;
+    });
     setSelectedId(null);
     setRunResult(null);
     setOutputs(null);
@@ -6330,6 +6572,9 @@ function App() {
     const edgeCount = edges.length;
     if (!window.confirm(`Clear canvas and remove ${nodeCount} block(s), ${edgeCount} edge(s)?`)) return;
 
+    pushUndoSnapshot("Clear canvas");
+    nodesRef.current = [];
+    edgesRef.current = [];
     setNodes([]);
     setEdges([]);
     setSelectedId(null);
@@ -6353,7 +6598,8 @@ function App() {
     const targetPort = getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === connection.targetHandle);
     if (!sourcePort || !targetPort) return false;
     const existingCount = edges.filter((edge) => edge.target === connection.target && edge.targetHandle === connection.targetHandle).length;
-    if (existingCount >= (targetPort.maxConnections ?? 1)) return false;
+    const maxConnections = targetPort.maxConnections ?? 1;
+    if (existingCount >= maxConnections && maxConnections !== 1) return false;
     return arePortsCompatible(sourcePort.kind, targetPort.kind);
   }
 
@@ -6371,7 +6617,19 @@ function App() {
     if (targetRouteNode?.type === "compound.output" && connection.source && connection.sourceHandle) {
       exposeSubrouteOutput(connection.source, connection.sourceHandle, String(targetRouteNode.params?.portId ?? connection.sourceHandle));
     }
-    setEdges((current) => addEdge(connection, current));
+    pushUndoSnapshot(`Connect ${describeConnection(connection)}`);
+    setEdges((current) => {
+      const targetNode = nodesRef.current.find((node) => node.id === connection.target);
+      const targetRouteNode = targetNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+      const targetManifest = targetRouteNode ? nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest : undefined;
+      const targetPort = targetRouteNode ? getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === connection.targetHandle) : undefined;
+      const baseEdges = (targetPort?.maxConnections ?? 1) === 1
+        ? current.filter((edge) => edge.target !== connection.target || edge.targetHandle !== connection.targetHandle)
+        : current;
+      const nextEdges = addEdge(connection, baseEdges);
+      edgesRef.current = nextEdges;
+      return nextEdges;
+    });
   }
 
   function patchInterfaceNodeFromConnection(connection: Connection) {
@@ -6584,8 +6842,8 @@ function App() {
   function addConnectedNode(item: NodeCatalogItem, targetHandle: string) {
     if (!connectionNodeMenu) return;
     const nodeId = addNodeFromCatalogItem(item, connectionNodeMenu.flowPosition);
-    setEdges((current) =>
-      addEdge(
+    setEdges((current) => {
+      const nextEdges = addEdge(
         {
           source: connectionNodeMenu.sourceNodeId,
           sourceHandle: connectionNodeMenu.sourceHandle,
@@ -6593,8 +6851,10 @@ function App() {
           targetHandle
         },
         current
-      )
-    );
+      );
+      edgesRef.current = nextEdges;
+      return nextEdges;
+    });
     setConnectionNodeMenu(null);
     setConnectionNodeSearch("");
   }
@@ -6613,8 +6873,8 @@ function App() {
       positionRightOfAllNodes(sourceNode?.position.y ?? connectionNodeMenu.flowPosition.y)
     );
     exposeSubrouteOutput(connectionNodeMenu.sourceNodeId, connectionNodeMenu.sourceHandle, preferredId);
-    setEdges((current) =>
-      addEdge(
+    setEdges((current) => {
+      const nextEdges = addEdge(
         {
           source: connectionNodeMenu.sourceNodeId,
           sourceHandle: connectionNodeMenu.sourceHandle,
@@ -6622,8 +6882,10 @@ function App() {
           targetHandle: "value"
         },
         current
-      )
-    );
+      );
+      edgesRef.current = nextEdges;
+      return nextEdges;
+    });
     setConnectionNodeMenu(null);
     setConnectionNodeSearch("");
   }
@@ -6690,6 +6952,7 @@ function App() {
         }
         if (event.type === "nodeResult" && event.nodeResult?.nodeId) {
           const { nodeId, ...nodeResult } = event.nodeResult;
+          markNodeResultsFresh([nodeId]);
           setRunResult((current) => ({
             ...(current ?? { status: "running" }),
             nodeResults: {
@@ -6733,6 +6996,7 @@ function App() {
           ...(finalResult.nodeResults ?? {})
         }
       }));
+      markNodeResultsFresh(Object.keys(finalResult.nodeResults ?? {}));
       void loadLedgerSummary();
       const runLogs = Array.isArray(finalResult.logs) ? finalResult.logs.map((entry: { message: string }) => entry.message) : [finalResult.error ?? "Run failed."];
       setLogs((current) => [...runLogs.reverse(), ...current]);
@@ -6767,6 +7031,7 @@ function App() {
           ...(result.nodeResults ?? {})
         }
       }));
+      markNodeResultsFresh(Object.keys(result.nodeResults ?? {}));
       void loadLedgerSummary();
       const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
       setLogs((current) => [...runLogs.reverse(), ...current]);
@@ -6804,6 +7069,7 @@ function App() {
 
   async function run() {
     const route = flowToRoute(nodes, edges, routeBase);
+    markNodeResultsFresh(nodes.map((node) => node.id));
     setRunResult({
       status: "running",
       nodeResults: Object.fromEntries(nodes.map((node) => [node.id, { status: "pending" }]))
@@ -6815,6 +7081,7 @@ function App() {
     const target = nodes.find((node) => node.id === nodeId);
     if (!target) return;
     const route = flowToNodeRoute(nodes, edges, routeBase, nodeId);
+    markNodeResultsFresh(route.nodes.map((node) => node.id));
     setRunResult({
       status: "running",
       nodeResults: Object.fromEntries(route.nodes.map((node) => [node.id, { status: "pending" }]))
@@ -6826,15 +7093,36 @@ function App() {
   function fixNodeOutput(nodeId: string, output: unknown, options: FixNodeOutputOptions = {}) {
     const now = new Date().toISOString();
     const shouldPersist = options.persist ?? true;
+    const currentNode = nodesRef.current.find((node) => node.id === nodeId);
+    const currentRouteNode = currentNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (shouldPersist && pinnedOutputFromParams(currentRouteNode?.params) !== undefined) {
+      const nextNodes = nodesRef.current.map((node) => {
+        if (node.id !== nodeId) return node;
+        const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
+        return { ...node, data: { ...node.data, routeNode: { ...routeNode, params: unpinParams(routeNode.params) } } };
+      });
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+      if (selectedId === nodeId) {
+        const selectedRouteNode = nextNodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+        setParamsText(JSON.stringify(selectedRouteNode?.params ?? {}, null, 2));
+      }
+      saveRouteDocument(buildRouteDocumentFrom(nextNodes, edgesRef.current), { saveStartup: true, logMessage: options.logMessage ?? `Unpinned output for ${nodeId}.` });
+      return;
+    }
     const nextNodes = shouldPersist
-      ? nodes.map((node) => {
+      ? nodesRef.current.map((node) => {
           if (node.id !== nodeId) return node;
           const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
           const params = { ...(routeNode.params ?? {}), pinnedOutput: output, pinnedOutputAt: now };
           return { ...node, data: { ...node.data, routeNode: { ...routeNode, params } } };
         })
       : nodes;
-    if (shouldPersist) setNodes(nextNodes);
+    if (shouldPersist) {
+      nodesRef.current = nextNodes;
+      setNodes(nextNodes);
+    }
+    markNodeResultsFresh([nodeId]);
     setRunResult((current) => ({
       ...(current ?? { status: "succeeded" }),
       nodeResults: {
@@ -6853,7 +7141,7 @@ function App() {
       setParamsText(JSON.stringify(selectedRouteNode?.params ?? {}, null, 2));
     }
     if (shouldPersist) {
-      saveRouteDocument(buildRouteDocumentFrom(nextNodes, edges), { saveStartup: true, logMessage: options.logMessage ?? `Pinned output for ${nodeId}.` });
+      saveRouteDocument(buildRouteDocumentFrom(nextNodes, edgesRef.current), { saveStartup: true, logMessage: options.logMessage ?? `Pinned output for ${nodeId}.` });
     } else if (options.logMessage) {
       setLogs((current) => [options.logMessage!, ...current]);
     }
@@ -6877,7 +7165,7 @@ function App() {
     const missing = new Set<string>();
 
     for (const edge of incomingEdges) {
-      const previous = runResult?.nodeResults?.[edge.source];
+      const previous = nodeOnlySourceResult(edge.source);
       if (previous?.status !== "succeeded" || previous.output === undefined) {
         if (!isImmediateInputSource(edge.source)) missing.add(edge.source);
       } else {
@@ -6906,6 +7194,7 @@ function App() {
       route: { ...routeBase.route, id: `${routeBase.route.id}-${nodeId}-only`, title: `${routeBase.route.title}: ${nodeId} only` }
     });
     Object.assign(initialNodeOutputs, { ...pinnedInitialNodeOutputs(route.nodes), ...initialNodeOutputs });
+    markNodeResultsFresh([nodeId]);
     setRunResult((current) => ({
       ...(current ?? {}),
       status: "running",
@@ -6919,9 +7208,16 @@ function App() {
   }
 
   function isReadySourceForNodeOnlyRun(sourceNodeId: string): boolean {
-    const previous = runResult?.nodeResults?.[sourceNodeId];
+    const previous = nodeOnlySourceResult(sourceNodeId);
     const routeNode = nodes.find((node) => node.id === sourceNodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
     return Boolean(routeNode && pinnedOutputFromParams(routeNode.params) !== undefined) || (previous?.status === "succeeded" && previous.output !== undefined) || isImmediateInputSource(sourceNodeId);
+  }
+
+  function nodeOnlySourceResult(sourceNodeId: string): NodeRunResult | undefined {
+    const sourceNode = nodes.find((node) => node.id === sourceNodeId);
+    const routeNode = sourceNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (!routeNode) return undefined;
+    return readyNodeResult(routeNode, runResult?.nodeResults?.[sourceNodeId], nodes, edges, runResult);
   }
 
   function isImmediateInputSource(sourceNodeId: string): boolean {
@@ -7244,6 +7540,7 @@ function App() {
       <main
         ref={canvasRef}
         className="canvas"
+        data-canvas-theme={canvasBackgroundTheme}
         onDragOver={(event) => {
           event.preventDefault();
           event.dataTransfer.dropEffect = event.dataTransfer.types.includes(NODE_DRAG_MIME) || event.dataTransfer.types.includes("Files") ? "copy" : "none";
@@ -7295,6 +7592,7 @@ function App() {
           <button onClick={collapseSelectedNodes} disabled={selectedNodeCount < 2}><Braces size={16} /> Collapse</button>
           <button className="danger" onClick={deleteSelection} disabled={selectedNodeCount === 0 && selectedEdgeCount === 0 && !selectedId}><Trash2 size={16} /> Delete</button>
           <button className="danger" onClick={clearCanvas} disabled={nodes.length === 0 && edges.length === 0}><Eraser size={16} /> Clear</button>
+          <button className="danger" onClick={() => void shutdownServices()} disabled={!apiConnected || shuttingDown} title="Close BoojumRoute Lab and stop local services"><Power size={16} /> {shuttingDown ? "Closing" : "Close"}</button>
           <div className={`apiStatus ${apiConnected ? "connected" : "disconnected"}`} title={apiError || `API: ${apiBase}`}>
             <span>API: {apiBase}</span>
             <strong>{apiConnected ? "connected" : "disconnected"}</strong>
@@ -7307,7 +7605,7 @@ function App() {
         </div>
         <ReactFlow
           nodes={displayNodes}
-          edges={edges}
+          edges={displayEdges}
           nodeTypes={nodeTypes}
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
@@ -7381,7 +7679,12 @@ function App() {
           proOptions={{ hideAttribution: true }}
           fitView
         >
-          <Background />
+          {canvasThemeConfig.reactFlowBackground === "lines" ? (
+            <Background id="canvas-grid" variant={BackgroundVariant.Lines} color="rgba(124, 139, 162, 0.2)" bgColor="transparent" gap={32} lineWidth={1} />
+          ) : null}
+          {canvasThemeConfig.reactFlowBackground === "dots" ? (
+            <Background id="canvas-dots" variant={BackgroundVariant.Dots} color="rgba(130, 146, 170, 0.34)" bgColor="transparent" gap={24} size={2.5} />
+          ) : null}
         </ReactFlow>
         {activeDialogueRouteNode?.type === "dialogue.workbench" ? (
           <DialogueWorkbenchEditor
@@ -7594,6 +7897,21 @@ function App() {
             <strong>{apiBase}</strong>
             <em>{apiConnected ? "connected" : "disconnected"}</em>
             {apiError ? <p>{apiError}</p> : null}
+          </div>
+          <div className="providerCard">
+            <div className="providerHeader">
+              <h4>Appearance</h4>
+              <span>Canvas background</span>
+            </div>
+            <label className="settingsField">
+              <span>Canvas Background</span>
+              <select value={canvasBackgroundTheme} onChange={(event) => setCanvasBackgroundTheme(event.target.value as CanvasBackgroundTheme)}>
+                {availableCanvasThemes.map((theme) => (
+                  <option key={theme.id} value={theme.id}>{theme.label}</option>
+                ))}
+              </select>
+              <small className="settingsHint">{canvasThemeConfig.description}</small>
+            </label>
           </div>
           <div className="providerCard">
             <div className="providerHeader">
@@ -8232,7 +8550,12 @@ function collectImageValues(value: unknown, matches: unknown[], seen: Set<object
 
 function liveFisheyeOutput(value: unknown): { source: unknown; fovDegrees: number; yawDegrees: number; pitchDegrees: number } | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const liveFisheye = (value as Record<string, unknown>).liveFisheye;
+  const valueRecord = value as Record<string, unknown>;
+  if (valueRecord.image) {
+    const nested = liveFisheyeOutput(valueRecord.image);
+    if (nested) return nested;
+  }
+  const liveFisheye = valueRecord.liveFisheye;
   if (!liveFisheye || typeof liveFisheye !== "object" || Array.isArray(liveFisheye)) return null;
   const record = liveFisheye as Record<string, unknown>;
   if (!imagePreviewSrc(record.source)) return null;

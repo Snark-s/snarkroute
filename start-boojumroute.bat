@@ -82,7 +82,7 @@ if errorlevel 1 (
   echo Existing SnarkRoute API detected.
 ) else (
   echo Starting local API server...
-  start "SnarkRoute API" /D "%CD%" cmd /k "set API_PORT=%API_PORT%&& set HOST=%HOST%&& corepack pnpm dev:server"
+  start "SnarkRoute API" /D "%CD%" cmd /c "set API_PORT=%API_PORT%&& set HOST=%HOST%&& corepack pnpm dev:server"
   echo Waiting for API health at %API_URL%/api/health ...
   powershell -NoProfile -ExecutionPolicy Bypass -Command "$url='%API_URL%/api/health'; for($i=0; $i -lt 60; $i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 1; if($r.StatusCode -ge 200 -and $r.StatusCode -lt 500){ exit 0 } } catch {} Start-Sleep -Seconds 1 }; exit 1"
   if errorlevel 1 (
@@ -108,7 +108,7 @@ if errorlevel 1 (
   echo BoojumRoute Lab appears to be already running.
 ) else (
   echo Starting BoojumRoute Lab...
-  start "BoojumRoute Lab" /D "%CD%" cmd /k "set STUDIO_PORT=%STUDIO_PORT%&& set VITE_API_BASE_URL=%VITE_API_BASE_URL%&& corepack pnpm dev:studio"
+  start "BoojumRoute Lab" /D "%CD%" cmd /c "set STUDIO_PORT=%STUDIO_PORT%&& set VITE_API_BASE_URL=%VITE_API_BASE_URL%&& corepack pnpm dev:studio"
   echo Waiting for BoojumRoute Lab at %STUDIO_URL% ...
   powershell -NoProfile -ExecutionPolicy Bypass -Command "$url='%STUDIO_URL%'; for($i=0; $i -lt 60; $i++){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 1; if($r.StatusCode -ge 200 -and $r.StatusCode -lt 500){ exit 0 } } catch {} Start-Sleep -Seconds 1 }; exit 1"
   if errorlevel 1 (

@@ -1041,8 +1041,92 @@ h2 {
 }
 
 .canvas {
+  --canvas-bg-color: #080b10;
+  --canvas-pattern-opacity: 0;
+  --canvas-pattern-size: 680px auto;
+  --canvas-overlay-opacity: 0.14;
+  background: var(--canvas-bg-color);
   min-width: 0;
+  overflow: hidden;
   position: relative;
+}
+
+.canvas[data-canvas-theme="gear-dark"] {
+  --canvas-bg-color: #05070a;
+  --canvas-pattern-opacity: 0.28;
+  --canvas-pattern-size: 760px auto;
+  --canvas-overlay-opacity: 0.28;
+}
+
+.canvas[data-canvas-theme="plain-dark"] {
+  --canvas-bg-color: #0a0e15;
+  --canvas-overlay-opacity: 0.06;
+}
+
+.canvas[data-canvas-theme="grid"],
+.canvas[data-canvas-theme="dots"] {
+  --canvas-bg-color: #0b1018;
+  --canvas-overlay-opacity: 0.05;
+}
+
+.canvas[data-canvas-theme="hex"] {
+  --canvas-bg-color: #080d13;
+  --canvas-pattern-opacity: 0.22;
+  --canvas-overlay-opacity: 0.12;
+}
+
+.canvas[data-canvas-theme="honeycomb"] {
+  --canvas-bg-color: #090d10;
+  --canvas-pattern-opacity: 0.38;
+  --canvas-overlay-opacity: 0.14;
+}
+
+.canvas::before,
+.canvas::after {
+  content: "";
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.canvas::before {
+  background-image: url("/assets/canvas/gear-dark.png");
+  background-repeat: repeat;
+  background-size: var(--canvas-pattern-size);
+  opacity: var(--canvas-pattern-opacity);
+  z-index: 0;
+}
+
+.canvas[data-canvas-theme="hex"]::before {
+  background-image:
+    linear-gradient(30deg, rgba(126, 148, 174, 0.34) 12%, transparent 12.5%, transparent 87%, rgba(126, 148, 174, 0.34) 87.5%, rgba(126, 148, 174, 0.34)),
+    linear-gradient(150deg, rgba(126, 148, 174, 0.34) 12%, transparent 12.5%, transparent 87%, rgba(126, 148, 174, 0.34) 87.5%, rgba(126, 148, 174, 0.34)),
+    linear-gradient(30deg, rgba(126, 148, 174, 0.34) 12%, transparent 12.5%, transparent 87%, rgba(126, 148, 174, 0.34) 87.5%, rgba(126, 148, 174, 0.34)),
+    linear-gradient(150deg, rgba(126, 148, 174, 0.34) 12%, transparent 12.5%, transparent 87%, rgba(126, 148, 174, 0.34) 87.5%, rgba(126, 148, 174, 0.34));
+  background-position: 0 0, 0 0, 36px 62px, 36px 62px;
+  background-size: 72px 124px;
+}
+
+.canvas[data-canvas-theme="honeycomb"]::before {
+  background-image: url("data:image/svg+xml,%3Csvg width='156' height='180' viewBox='0 0 156 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%239aa3ad' stroke-width='3' stroke-linecap='square' stroke-linejoin='miter' opacity='0.72'%3E%3Cpath d='M78 0 130 30 130 90 78 120 26 90 26 30Z'/%3E%3Cpath d='M0 45 26 30M0 105 26 90M156 45 130 30M156 105 130 90M78 120 78 180'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 156px 180px;
+}
+
+.canvas::after {
+  background:
+    radial-gradient(circle at 50% 42%, transparent 0, rgb(0 0 0 / calc(var(--canvas-overlay-opacity) * 0.55)) 56%, rgb(0 0 0 / var(--canvas-overlay-opacity)) 100%),
+    linear-gradient(rgb(0 0 0 / calc(var(--canvas-overlay-opacity) * 0.4)), rgb(0 0 0 / calc(var(--canvas-overlay-opacity) * 0.4)));
+  z-index: 1;
+}
+
+.canvas > .react-flow {
+  background: transparent;
+  position: relative;
+  z-index: 2;
+}
+
+.canvas .react-flow__pane {
+  background: transparent;
 }
 
 .connectionNodeMenu {
@@ -1433,6 +1517,19 @@ h2 {
 .react-flow__edge.selected .react-flow__edge-path {
   stroke: #7dd3c0;
   stroke-width: 2.5;
+}
+
+.react-flow__edge.highlightedRouteEdge .react-flow__edge-path {
+  filter: drop-shadow(0 0 6px rgba(125, 211, 192, 0.55));
+}
+
+.react-flow__edge.selectedRouteEdge .react-flow__edge-path {
+  stroke: #9ef5df;
+  stroke-width: 3.5;
+}
+
+.react-flow__edge.selectedRouteEdge .react-flow__edge-interaction {
+  stroke-width: 18;
 }
 
 .nodeStatus {
@@ -2289,6 +2386,13 @@ h2 {
 .nodeImageActionButton:hover {
   border-color: #7dd3c0;
   color: #ffffff;
+}
+
+.nodeImageActionButton.pinned,
+.nodeSmallButton.pinned {
+  background: #234a3f;
+  border-color: #7dd3c0;
+  color: #b8fff1;
 }
 
 .panoramaResult {

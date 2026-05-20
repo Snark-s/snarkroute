@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { extname, join } from "node:path";
+import { ModelGateway, type ModelInvokeResult, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 const API_BASE = "https://api.replicate.com/v1";
@@ -10,6 +11,7 @@ const MISSING_TOKEN_MESSAGE = "REPLICATE_API_TOKEN is not configured.\nOpen Sett
 export interface ReplicateClientOptions {
   token?: string;
   fetchImpl?: typeof fetch;
+  modelGateway?: Pick<ModelGateway, "invoke">;
 }
 
 export interface RunPredictionOptions {
@@ -123,15 +125,22 @@ export function createReplicateClient(options: ReplicateClientOptions = {}) {
 }
 
 export function createReplicateNodeRunner(options: ReplicateClientOptions = {}): NodeRunner {
-  const client = createReplicateClient(options);
   return async ({ node, params }) => {
     const model = String(params.model ?? "");
     if (!model) throw new Error("replicate.model requires params.model.");
-    const input = (await prepareReplicateInputs(asObject(params.input ?? {}))) as object;
-    const result = await client.runPrediction(model, input, {
-      pollingIntervalMs: Number(params.pollingIntervalMs ?? 1000),
-      timeoutMs: Number(params.timeoutMs ?? 120000)
+    const input = (await prepareReplicateInputs(asObject(params.input ?? {}))) as Record<string, unknown>;
+    const gateway = options.modelGateway ?? createReplicateModelGateway(options, model);
+    const gatewayResult = await gateway.invoke({
+      capability: "image.generate",
+      modelRef: `model://replicate/${model}`,
+      input,
+      parameters: {
+        pollingIntervalMs: Number(params.pollingIntervalMs ?? 1000),
+        timeoutMs: Number(params.timeoutMs ?? 120000)
+      },
+      metadata: { nodeId: node.id, nodeType: node.type }
     });
+    const result = replicatePredictionFromGateway(gatewayResult, model, input);
     if (result.status !== "succeeded") {
       throw new Error(`Replicate prediction ${result.status}: ${result.error ?? "unknown error"}`);
     }
@@ -148,6 +157,74 @@ export function createReplicateNodeRunner(options: ReplicateClientOptions = {}):
       provenance: { provider: "replicate", model },
       providerUsage: replicateProviderUsage(result, node.id, node.type)
     };
+  };
+}
+
+export function createReplicateProviderAdapter(options: ReplicateClientOptions = {}): ProviderAdapter {
+  const client = createReplicateClient(options);
+  return {
+    id: "replicate",
+    title: "Replicate",
+    capabilities: ["image.generate", "image.upscale"],
+    async invoke(request) {
+      const input = asObject(request.input);
+      const result = await client.runPrediction(request.model.id, input, {
+        pollingIntervalMs: Number(request.parameters?.pollingIntervalMs ?? 1000),
+        timeoutMs: Number(request.parameters?.timeoutMs ?? 120000)
+      });
+      if (result.status !== "succeeded") {
+        throw new Error(`Replicate prediction ${result.status}: ${result.error ?? "unknown error"}`);
+      }
+      return {
+        modelId: request.model.id,
+        providerId: "replicate",
+        capability: request.capability,
+        output: {
+          predictionId: result.predictionId,
+          output: result.output,
+          status: result.status,
+          metrics: result.metrics,
+          webUrl: result.webUrl
+        },
+        usage: result.metrics,
+        raw: result
+      };
+    }
+  };
+}
+
+function createReplicateModelGateway(options: ReplicateClientOptions, model: string): ModelGateway {
+  return new ModelGateway({
+    models: [{
+      id: model,
+      providerId: "replicate",
+      title: model,
+      capabilities: ["image.generate"],
+      inputTypes: ["object"],
+      outputTypes: ["prediction"],
+      pricingHint: "external-provider-billing"
+    }],
+    adapters: [createReplicateProviderAdapter(options)],
+    connections: [{
+      providerId: "replicate",
+      enabled: true,
+      credentialRef: "provider.replicate.default",
+      baseUrl: API_BASE
+    }]
+  });
+}
+
+function replicatePredictionFromGateway(gatewayResult: ModelInvokeResult, model: string, input: object): ReplicatePredictionResult {
+  const raw = gatewayResult.raw;
+  if (raw && typeof raw === "object" && "predictionId" in raw) return raw as ReplicatePredictionResult;
+  return {
+    predictionId: String(gatewayResult.output.predictionId ?? ""),
+    model,
+    input,
+    output: gatewayResult.output.output,
+    status: String(gatewayResult.output.status ?? "succeeded"),
+    metrics: gatewayResult.output.metrics && typeof gatewayResult.output.metrics === "object" ? gatewayResult.output.metrics as Record<string, unknown> : undefined,
+    webUrl: typeof gatewayResult.output.webUrl === "string" ? gatewayResult.output.webUrl : undefined
   };
 }
 

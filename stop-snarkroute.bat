@@ -7,15 +7,14 @@ echo.
 echo Stop SnarkRoute
 echo ===============
 echo.
-echo Safe MVP stop:
-echo   Close the "SnarkRoute Living Canvas", "SnarkRoute Server",
-echo   and "BoojumRoute Lab" windows.
+
+if "%API_PORT%"=="" set "API_PORT=4317"
+if "%STUDIO_PORT%"=="" set "STUDIO_PORT=5173"
+if "%SNARKROUTE_PORT%"=="" set "SNARKROUTE_PORT=5174"
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0stop-snarkroute.ps1"
+taskkill /T /F /FI "IMAGENAME eq cmd.exe" /FI "WINDOWTITLE eq SnarkRoute API*" >nul 2>nul
+taskkill /T /F /FI "IMAGENAME eq cmd.exe" /FI "WINDOWTITLE eq BoojumRoute Lab*" >nul 2>nul
+
 echo.
-echo This script will not kill all node.exe processes because that could close
-echo other projects running on your machine.
-echo.
-echo If port 4317, 5173, or 5174 is still busy after closing the windows,
-echo check Task Manager for node.exe processes launched from this folder:
-echo   %CD%
-echo.
-pause
+echo Stop request sent.

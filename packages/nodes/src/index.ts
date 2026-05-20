@@ -570,6 +570,7 @@ function builtInParams(type: string) {
   if (type === "input.text") return [{ id: "value", type: "text", label: "Value", default: "" }];
   if (type === "text.promptCompose") {
     return [
+      { id: "manualText", type: "text", label: "Prompt", default: "", description: "Manual prompt text included before connected or slot text." },
       { id: "separator", type: "text", label: "Separator", default: "\n\n", description: "String used to separate non-empty text blocks." },
       { id: "trimParts", type: "boolean", label: "Trim parts", default: true, description: "Trim whitespace and empty lines from the start/end of each block." },
       { id: "skipEmpty", type: "boolean", label: "Skip empty", default: true, description: "Do not include empty blocks." },
@@ -607,6 +608,7 @@ export function composePromptText(params: Record<string, unknown>, inputs: Recor
   const trimParts = params.trimParts !== false;
   const skipEmpty = params.skipEmpty !== false;
   const separator = String(params.separator ?? "\n\n");
+  const manualText = params.manualText === undefined || params.manualText === null ? "" : String(params.manualText);
   const slotParts = promptComposeFixedSlots().flatMap((slot) =>
     inputTextParts(inputs[slot.id]).map((raw, index) => ({ slot, raw, index }))
   );
@@ -617,15 +619,18 @@ export function composePromptText(params: Record<string, unknown>, inputs: Recor
   });
   const hasSlotInputs = slotParts.length > 0;
   const values = hasSlotInputs ? slotParts : legacyInputParts.length > 0 ? legacyInputParts : paramParts;
-  const parts = values
+  const parts = [
+    { label: "Prompt", index: 1, value: trimParts ? manualText.trim() : manualText },
+    ...values
     .map(({ slot, raw, index }) => {
       const text = raw === undefined || raw === null ? "" : String(raw);
       const value = trimParts ? text.trim() : text;
       return { label: slot.label || titleFromId(slot.id), index: index + 1, value };
     })
+  ]
     .filter((part) => !skipEmpty || part.value !== "");
   const body = parts
-    .map((part) => hasSlotInputs ? `${part.label}${part.index > 1 ? ` ${part.index}` : ""}:\n${part.value}` : part.value)
+    .map((part) => hasSlotInputs && part.label !== "Prompt" ? `${part.label}${part.index > 1 ? ` ${part.index}` : ""}:\n${part.value}` : part.value)
     .join(separator);
   return `${String(params.prefix ?? "")}${body}${String(params.suffix ?? "")}`;
 }

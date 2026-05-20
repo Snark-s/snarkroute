@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createExecutor } from "@snarkroute/executor";
 import { describe, expect, it, vi } from "vitest";
-import { buildClarityInput, createClarityUpscalerNodeRunner, createReplicateClient, createReplicateNodeRunner, estimateReplicateCost, prepareImageValue } from "../src/index";
+import { buildClarityInput, createClarityUpscalerNodeRunner, createReplicateClient, createReplicateNodeRunner, createReplicateProviderAdapter, estimateReplicateCost, prepareImageValue } from "../src/index";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return {
@@ -152,6 +152,64 @@ describe("Replicate client", () => {
     expect(result.status).toBe("failed");
     expect(result.nodeResults.generate.error).toContain("REPLICATE_API_TOKEN is not configured.\nOpen Settings \u2192 Secrets \u2192 Replicate and paste your token.");
     expect(result.nodeResults.generate.error).not.toContain("No runner registered");
+  });
+
+  it("replicate.model calls Model Gateway instead of invoking the provider directly", async () => {
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: "owner/model",
+        providerId: "replicate",
+        capability: "image.generate",
+        output: {
+          predictionId: "p1",
+          output: ["ok"],
+          status: "succeeded",
+          metrics: { predict_time: 1 },
+          webUrl: "https://replicate.com/p/p1"
+        },
+        raw: {
+          predictionId: "p1",
+          model: "owner/model",
+          input: { prompt: "hi" },
+          output: ["ok"],
+          status: "succeeded",
+          metrics: { predict_time: 1 },
+          webUrl: "https://replicate.com/p/p1"
+        }
+      }))
+    };
+    const runner = createReplicateNodeRunner({ modelGateway });
+    const result = await runner({
+      node: { id: "generate", type: "replicate.model", params: {} },
+      params: { model: "owner/model", input: { prompt: "hi" } },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: tmpdir(), nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "image.generate",
+      modelRef: "model://replicate/owner/model",
+      input: { prompt: "hi" },
+      metadata: { nodeId: "generate", nodeType: "replicate.model" }
+    }));
+    expect(result.providerUsage).toMatchObject({ provider: "replicate", model: "owner/model", externalId: "p1", status: "succeeded" });
+  });
+
+  it("Replicate provider adapter does not require raw API keys in node settings", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ latest_version: { id: "version-1" } }))
+      .mockResolvedValueOnce(jsonResponse({ id: "p1", status: "succeeded", output: ["ok"], metrics: { predict_time: 1 } }));
+    const adapter = createReplicateProviderAdapter({ token: "token", fetchImpl });
+    await expect(adapter.invoke({
+      capability: "image.generate",
+      modelRef: "model://replicate/owner/model",
+      model: { id: "owner/model", providerId: "replicate", title: "owner/model", capabilities: ["image.generate"] },
+      input: { prompt: "hi" }
+    }, { providerId: "replicate", enabled: true, credentialRef: "provider.replicate.default" })).resolves.toMatchObject({
+      providerId: "replicate",
+      modelId: "owner/model"
+    });
   });
 
   it("estimates cost from prediction metrics", () => {

@@ -448,6 +448,15 @@ A reusable image prompt.
     expect(result.nodeResults.compose.output).toEqual({ text: "First|Third" });
   });
 
+  it("text.promptCompose includes manual prompt text before other parts", async () => {
+    const result = await executeRoute({
+      nodes: [{ id: "compose", type: "text.promptCompose", params: { manualText: "Manual", text1: "Connected-ish", separator: " | " } }],
+      edges: []
+    });
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.compose.output).toEqual({ text: "Manual | Connected-ish" });
+  });
+
   it("text.promptCompose trims parts by default", async () => {
     const result = await executeRoute({
       nodes: [{ id: "compose", type: "text.promptCompose", params: { text1: "  First\n", text2: "\nSecond  ", separator: " " } }],
