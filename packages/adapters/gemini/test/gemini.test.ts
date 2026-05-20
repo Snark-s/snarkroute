@@ -192,6 +192,85 @@ describe("Gemini adapter", () => {
     });
   });
 
+  it("Gemini LLM runner calls Model Gateway", async () => {
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: "gemini-test",
+        providerId: "gemini",
+        capability: "text.generate",
+        output: {
+          text: "Gateway text",
+          output: { candidates: [{ content: { parts: [{ text: "Gateway text" }] } }] },
+          model: "gemini-test"
+        },
+        raw: {
+          model: "gemini-test",
+          output: { candidates: [{ content: { parts: [{ text: "Gateway text" }] } }] },
+          text: "Gateway text"
+        }
+      }))
+    };
+    const runner = createGeminiLlmNodeRunner({ modelGateway });
+    const result = await runner({
+      node: { id: "llm", type: "gemini.llm", params: {} },
+      params: { prompt: "hi", model: "gemini-test" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: "", nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "text.generate",
+      modelRef: "model://gemini/gemini-test",
+      input: expect.objectContaining({ prompt: "hi" }),
+      metadata: { nodeId: "llm", nodeType: "gemini.llm" }
+    }));
+    expect(result.output).toMatchObject({ text: "Gateway text", model: "gemini-test", status: "succeeded" });
+  });
+
+  it("Nano Banana 2 runner calls Model Gateway", async () => {
+    const image = {
+      localPath: join(tmpdir(), "gateway-banana.png"),
+      path: join(tmpdir(), "gateway-banana.png"),
+      filename: "gateway-banana.png",
+      mimeType: "image/png",
+      sizeBytes: 5,
+      sourceNodeId: "banana",
+      model: "gemini-3.1-flash-image-preview"
+    };
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: "gemini-3.1-flash-image-preview",
+        providerId: "gemini",
+        capability: "image.generate",
+        output: {
+          image,
+          output: { candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "aaa" } }] } }] },
+          model: "gemini-3.1-flash-image-preview"
+        },
+        raw: {
+          model: "gemini-3.1-flash-image-preview",
+          output: { candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "aaa" } }] } }] },
+          image: { mimeType: "image/png", dataBase64: "aaa" }
+        }
+      }))
+    };
+    const runner = createNanoBanana2NodeRunner({ modelGateway });
+    const result = await runner({
+      node: { id: "banana", type: "gemini.nano-banana-2", params: {} },
+      params: { prompt: "draw" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: tmpdir(), nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "image.generate",
+      modelRef: "model://gemini/gemini-3.1-flash-image-preview",
+      input: { prompt: "draw", images: [] },
+      metadata: expect.objectContaining({ nodeId: "banana", nodeType: "gemini.nano-banana-2" })
+    }));
+    expect(result.output).toMatchObject({ image, model: "gemini-3.1-flash-image-preview", status: "succeeded" });
+  });
+
   it("Nano Banana 2 runner reports provider text when no image is returned", async () => {
     const fetchImpl = vi.fn().mockResolvedValueOnce(
       jsonResponse({

@@ -193,13 +193,13 @@ export function createReplicateProviderAdapter(options: ReplicateClientOptions =
   };
 }
 
-function createReplicateModelGateway(options: ReplicateClientOptions, model: string): ModelGateway {
+function createReplicateModelGateway(options: ReplicateClientOptions, model: string, capability: "image.generate" | "image.upscale" = "image.generate"): ModelGateway {
   return new ModelGateway({
     models: [{
       id: model,
       providerId: "replicate",
       title: model,
-      capabilities: ["image.generate"],
+      capabilities: [capability],
       inputTypes: ["object"],
       outputTypes: ["prediction"],
       pricingHint: "external-provider-billing"
@@ -229,16 +229,23 @@ function replicatePredictionFromGateway(gatewayResult: ModelInvokeResult, model:
 }
 
 export function createClarityUpscalerNodeRunner(options: ReplicateClientOptions = {}): NodeRunner {
-  const client = createReplicateClient(options);
   return async ({ node, params, inputs, context }) => {
     const image = params.image ?? firstInputImage(inputs);
     if (!image) throw new Error("replicate.clarity-upscaler requires an image input. Use params.image or connect input.image.");
     const prompt = firstInputText(inputs.prompt);
     const input = await buildClarityInput(prompt === undefined ? params : { ...params, prompt }, image);
-    const result = await client.runPrediction(CLARITY_MODEL, input, {
-      pollingIntervalMs: Number(params.pollingIntervalMs ?? 1000),
-      timeoutMs: Number(params.timeoutMs ?? 120000)
+    const gateway = options.modelGateway ?? createReplicateModelGateway(options, CLARITY_MODEL, "image.upscale");
+    const gatewayResult = await gateway.invoke({
+      capability: "image.upscale",
+      modelRef: `model://replicate/${CLARITY_MODEL}`,
+      input,
+      parameters: {
+        pollingIntervalMs: Number(params.pollingIntervalMs ?? 1000),
+        timeoutMs: Number(params.timeoutMs ?? 120000)
+      },
+      metadata: { nodeId: node.id, nodeType: node.type }
     });
+    const result = replicatePredictionFromGateway(gatewayResult, CLARITY_MODEL, input);
     if (result.status !== "succeeded") {
       throw new Error(`Clarity Upscaler prediction ${result.status} (predictionId: ${result.predictionId}): ${result.error ?? "unknown error"}${result.logs ? `\n${result.logs}` : ""}`);
     }

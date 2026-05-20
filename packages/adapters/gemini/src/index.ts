@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
+import { ModelGateway, type ModelInvokeResult, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -22,6 +23,7 @@ const MISSING_TOKEN_MESSAGE = "GEMINI_API_KEY is not configured.\nOpen Settings 
 export interface GeminiClientOptions {
   token?: string;
   fetchImpl?: typeof fetch;
+  modelGateway?: Pick<ModelGateway, "invoke">;
 }
 
 export interface GeminiImageConfig {
@@ -110,28 +112,30 @@ export function createGeminiClient(options: GeminiClientOptions = {}) {
 }
 
 export function createNanoBanana2NodeRunner(options: GeminiClientOptions = {}): NodeRunner {
-  const client = createGeminiClient(options);
   return async ({ node, params, inputs, context }) => {
     const model = NANO_BANANA_2_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "Create a polished image.");
     const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
     if (images.length > 14) throw new Error(`gemini.nano-banana-2 accepts at most 14 input images, got ${images.length}.`);
-    const effectivePrompt = buildImageGenerationPrompt(prompt, images.length > 0);
-    const parts = await buildNanoBanana2Parts({ prompt: effectivePrompt, images, fetchImpl: options.fetchImpl });
-    const result = await client.generateContent(model, parts, {
-      aspectRatio: stringParam(params.aspectRatio),
-      imageSize: stringParam(params.imageSize)
+    const gateway = options.modelGateway ?? createGeminiModelGateway(options, model, "image.generate");
+    const gatewayResult = await gateway.invoke({
+      capability: "image.generate",
+      modelRef: `model://gemini/${model}`,
+      input: { prompt, images },
+      parameters: {
+        aspectRatio: stringParam(params.aspectRatio),
+        imageSize: stringParam(params.imageSize)
+      },
+      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type }
     });
+    const result = geminiGenerateResultFromGateway(gatewayResult, model);
+    const imageAsset = imageAssetFromGateway(gatewayResult);
     if (!result.image) {
       throw new Error(
         `Nano Banana 2 (${model}) did not return an image.${result.text ? ` Provider text response: ${truncateProviderText(result.text)}` : ""} Try an explicit image-generation prompt.`
       );
     }
-    const imageAsset = await writeGeneratedImage(result.image, {
-      outputDirectory: context.outputDirectory,
-      sourceNodeId: node.id,
-      model
-    });
+    if (!imageAsset) throw new Error(`Nano Banana 2 (${model}) did not return a saved image asset.`);
     return {
       output: {
         image: imageAsset,
@@ -160,15 +164,20 @@ export function createNanoBanana2NodeRunner(options: GeminiClientOptions = {}): 
 }
 
 export function createGeminiLlmNodeRunner(options: GeminiClientOptions = {}): NodeRunner {
-  const client = createGeminiClient(options);
   return async ({ node, params, inputs }) => {
     const model = stringParam(params.model) ?? GEMINI_LLM_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     const systemPrompt = firstInputText(inputs.systemPrompt) ?? String(params.systemPrompt ?? GEMINI_LLM_DEFAULT_SYSTEM_PROMPT);
     const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
     if (images.length > 14) throw new Error(`gemini.llm accepts at most 14 input images, got ${images.length}.`);
-    const parts = await buildNanoBanana2Parts({ prompt, images, fetchImpl: options.fetchImpl });
-    const result = await client.generateText(model, parts, systemPrompt);
+    const gateway = options.modelGateway ?? createGeminiModelGateway(options, model, "text.generate");
+    const gatewayResult = await gateway.invoke({
+      capability: "text.generate",
+      modelRef: `model://gemini/${model}`,
+      input: { prompt, images, systemPrompt },
+      metadata: { nodeId: node.id, nodeType: node.type }
+    });
+    const result = geminiGenerateResultFromGateway(gatewayResult, model);
     const text = result.text?.trim();
     if (!text) {
       throw new Error(`Gemini LLM (${model}) did not return text.`);
@@ -195,6 +204,98 @@ export function createGeminiLlmNodeRunner(options: GeminiClientOptions = {}): No
       } satisfies ProviderUsageEvent
     };
   };
+}
+
+export function createGeminiProviderAdapter(options: GeminiClientOptions = {}): ProviderAdapter {
+  const client = createGeminiClient(options);
+  return {
+    id: "gemini",
+    title: "Gemini",
+    capabilities: ["text.generate", "image.generate"],
+    async invoke(request) {
+      const prompt = stringParam(request.input.prompt) ?? "";
+      const images = collectInputImages(request.input.images ?? request.input.image);
+      if (images.length > 14) throw new Error(`gemini provider adapter accepts at most 14 input images, got ${images.length}.`);
+      if (request.capability === "text.generate") {
+        const parts = await buildNanoBanana2Parts({ prompt, images, fetchImpl: options.fetchImpl });
+        const result = await client.generateText(request.model.id, parts, stringParam(request.input.systemPrompt));
+        return {
+          modelId: request.model.id,
+          providerId: "gemini",
+          capability: request.capability,
+          output: {
+            text: result.text,
+            output: result.output,
+            model: request.model.id
+          },
+          usage: objectField(result.output, "usageMetadata") as Record<string, unknown> | undefined,
+          raw: result
+        };
+      }
+      if (request.capability === "image.generate") {
+        const effectivePrompt = buildImageGenerationPrompt(prompt, images.length > 0);
+        const parts = await buildNanoBanana2Parts({ prompt: effectivePrompt, images, fetchImpl: options.fetchImpl });
+        const result = await client.generateContent(request.model.id, parts, {
+          aspectRatio: stringParam(request.parameters?.aspectRatio),
+          imageSize: stringParam(request.parameters?.imageSize)
+        });
+        const imageAsset = result.image
+          ? await writeGeneratedImage(result.image, {
+              outputDirectory: stringParam(request.metadata?.outputDirectory) ?? process.cwd(),
+              sourceNodeId: stringParam(request.metadata?.sourceNodeId) ?? "gemini",
+              model: request.model.id
+            })
+          : undefined;
+        return {
+          modelId: request.model.id,
+          providerId: "gemini",
+          capability: request.capability,
+          output: {
+            image: imageAsset,
+            output: result.output,
+            text: result.text,
+            model: request.model.id
+          },
+          usage: objectField(result.output, "usageMetadata") as Record<string, unknown> | undefined,
+          raw: result
+        };
+      }
+      throw new Error(`Gemini adapter does not support capability "${request.capability}".`);
+    }
+  };
+}
+
+function createGeminiModelGateway(options: GeminiClientOptions, model: string, capability: "text.generate" | "image.generate"): ModelGateway {
+  return new ModelGateway({
+    models: [{
+      id: model,
+      providerId: "gemini",
+      title: model,
+      capabilities: [capability],
+      pricingHint: "external-provider-billing"
+    }],
+    adapters: [createGeminiProviderAdapter(options)],
+    connections: [{
+      providerId: "gemini",
+      enabled: true,
+      credentialRef: "provider.gemini.default",
+      baseUrl: API_BASE
+    }]
+  });
+}
+
+function geminiGenerateResultFromGateway(result: ModelInvokeResult, model: string): GeminiGenerateResult {
+  if (result.raw && typeof result.raw === "object" && "output" in result.raw) return result.raw as GeminiGenerateResult;
+  return {
+    model,
+    output: result.output.output,
+    text: typeof result.output.text === "string" ? result.output.text : undefined
+  };
+}
+
+function imageAssetFromGateway(result: ModelInvokeResult): GeminiDownloadedImageAsset | undefined {
+  const image = result.output.image;
+  return image && typeof image === "object" ? image as GeminiDownloadedImageAsset : undefined;
 }
 
 function buildImageGenerationPrompt(prompt: string, hasInputImage: boolean): string {
@@ -331,6 +432,10 @@ function firstText(value: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+function objectField(value: unknown, key: string): unknown {
+  return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
 }
 
 function truncateProviderText(text: string): string {

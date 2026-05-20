@@ -4,7 +4,7 @@ import { registerBuiltInNodeRunners, registerInstalledNodeRunners } from "@snark
 import { createClarityUpscalerNodeRunner, createReplicateNodeRunner } from "@snarkroute/replicate";
 import { createModelResolver } from "@snarkroute/openrouter";
 import { createPolzaImageNodeRunner, createPolzaTextNodeRunner } from "@snarkroute/polza";
-import { createRemoteImageNodeRunner, createRemoteTextNodeRunner, loadOpenRouterMappings } from "../providers/openrouter";
+import { createRemoteImageNodeRunner, createRemoteTextNodeRunner, loadModelRouteMappings } from "./model-gateway-runners";
 export async function createRouteExecutor() {
   const executor = createExecutor();
   registerBuiltInNodeRunners(executor);
@@ -14,7 +14,7 @@ export async function createRouteExecutor() {
     const text = typeof from === "string" ? from : JSON.stringify(from, null, 2);
     return { output: { text } };
   });
-  const modelResolver = createModelResolver(await loadOpenRouterMappings());
+  const modelResolver = createModelResolver(await loadModelRouteMappings());
   executor.registerNodeRunner("replicate.model", createReplicateNodeRunner());
   executor.registerNodeRunner("replicate.clarity-upscaler", createClarityUpscalerNodeRunner());
   executor.registerNodeRunner("gemini.llm", createGeminiLlmNodeRunner());

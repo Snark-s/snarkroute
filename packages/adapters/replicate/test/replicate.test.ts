@@ -195,6 +195,65 @@ describe("Replicate client", () => {
     expect(result.providerUsage).toMatchObject({ provider: "replicate", model: "owner/model", externalId: "p1", status: "succeeded" });
   });
 
+  it("replicate.clarity-upscaler calls Model Gateway and preserves output shape", async () => {
+    const imageBytes = Buffer.from("image");
+    const downloadFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => "image/webp" },
+      arrayBuffer: async () => imageBytes.buffer.slice(imageBytes.byteOffset, imageBytes.byteOffset + imageBytes.byteLength)
+    } as Response);
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: "philz1337x/clarity-upscaler",
+        providerId: "replicate",
+        capability: "image.upscale",
+        output: {
+          predictionId: "p1",
+          output: ["https://example.com/out.webp"],
+          status: "succeeded",
+          metrics: { predict_time: 1 }
+        },
+        raw: {
+          predictionId: "p1",
+          model: "philz1337x/clarity-upscaler",
+          input: {},
+          output: ["https://example.com/out.webp"],
+          status: "succeeded",
+          metrics: { predict_time: 1 }
+        }
+      }))
+    };
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-clarity-gateway-"));
+    const runner = createClarityUpscalerNodeRunner({ modelGateway, fetchImpl: downloadFetch });
+    const result = await runner({
+      node: { id: "upscale", type: "replicate.clarity-upscaler", params: {} },
+      params: { image: "https://example.com/in.png", prompt: "sharp", scale_factor: 2, creativity: 0.25, resemblance: 0.8 },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "image.upscale",
+      modelRef: "model://replicate/philz1337x/clarity-upscaler",
+      input: expect.objectContaining({
+        image: "https://example.com/in.png",
+        prompt: "sharp",
+        scale_factor: 2,
+        creativity: 0.25,
+        resemblance: 0.8
+      }),
+      metadata: { nodeId: "upscale", nodeType: "replicate.clarity-upscaler" }
+    }));
+    expect(result.output).toMatchObject({
+      predictionId: "p1",
+      status: "succeeded",
+      image: { originalUrl: "https://example.com/out.webp", mimeType: "image/webp" },
+      localPath: expect.stringContaining("upscale-p1.webp"),
+      originalUrl: "https://example.com/out.webp"
+    });
+    expect(result.providerUsage).toMatchObject({ provider: "replicate", model: "philz1337x/clarity-upscaler", externalId: "p1", status: "succeeded" });
+  });
+
   it("Replicate provider adapter does not require raw API keys in node settings", async () => {
     const fetchImpl = vi
       .fn()

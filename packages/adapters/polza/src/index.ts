@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
+import { ModelGateway, type ModelInvokeResult, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
@@ -15,6 +16,7 @@ export interface PolzaClientOptions {
   retryDelayMs?: number;
   mediaPollIntervalMs?: number;
   mediaPollMaxAttempts?: number;
+  modelGateway?: Pick<ModelGateway, "invoke">;
 }
 
 export interface PolzaImageAsset {
@@ -131,7 +133,6 @@ function parsePolzaModel(input: unknown): PolzaModelInfo | null {
 }
 
 export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): NodeRunner {
-  const client = createPolzaClient(options);
   return async ({ node, params, inputs }) => {
     const model = stringParam(params.model) ?? POLZA_TEXT_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
@@ -139,19 +140,16 @@ export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): Nod
     const systemPrompt = firstInputText(inputs.systemPrompt) ?? stringParam(params.systemPrompt);
     const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
     if (images.length > 14) throw new Error(`Polza Text accepts at most 14 input images, got ${images.length}.`);
-    const imageUrls = await Promise.all(images.map((image) => prepareImageUrl(image, options.fetchImpl)));
-    const userContent: string | PolzaChatContentPart[] = imageUrls.length > 0
-      ? [
-          { type: "text", text: prompt },
-          ...imageUrls.map((url) => ({ type: "image_url" as const, image_url: { url } }))
-        ]
-      : prompt;
-    const messages: PolzaChatMessage[] = [
-      ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
-      { role: "user", content: userContent }
-    ];
-    const response = await client.chatCompletions(buildChatRequestBody(model, messages, params));
-    const text = firstChatText(response);
+    const gateway = options.modelGateway ?? createPolzaModelGateway(options, model, "text.generate");
+    const gatewayResult = await gateway.invoke({
+      capability: "text.generate",
+      modelRef: `model://polza/${model}`,
+      input: { prompt, images, systemPrompt },
+      parameters: params,
+      metadata: { nodeId: node.id, nodeType: node.type }
+    });
+    const response = gatewayResult.output.output;
+    const text = typeof gatewayResult.output.text === "string" ? gatewayResult.output.text : firstChatText(response);
     if (!text) throw new Error(`Polza text model "${model}" did not return text.`);
     const usage = objectField(response, "usage");
     return {
@@ -173,27 +171,24 @@ export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): Nod
 }
 
 export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): NodeRunner {
-  const client = createPolzaClient(options);
   return async ({ node, params, inputs, context }) => {
     const model = stringParam(params.model) ?? POLZA_IMAGE_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     if (!prompt.trim()) throw new Error("Polza Image requires a prompt.");
     const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
     if (images.length > 14) throw new Error(`Polza Image accepts at most 14 input images, got ${images.length}.`);
-    const imageInputs = await Promise.all(images.map((image) => prepareMediaImageInput(image, options.fetchImpl)));
-    const usesImageGenerations = usesPolzaImageGenerationsEndpoint(model);
-    const request = usesImageGenerations ? buildImageRequestBody(polzaImageGenerationsModel(model), prompt, params) : buildMediaImageRequestBody(model, prompt, params, imageInputs);
-    const response = usesImageGenerations ? await client.imageGenerations(request) : await waitForPolzaMediaResult(await client.media(request), client, options);
-    const image = firstGeneratedImage(response);
-    if (!image) {
-      throw new Error(`Polza image model "${model}" did not return an image.`);
-    }
-    const imageAsset = await writePolzaImage(image, {
-      outputDirectory: context.outputDirectory,
-      sourceNodeId: node.id,
-      model,
-      fetchImpl: options.fetchImpl
+    const gateway = options.modelGateway ?? createPolzaModelGateway(options, model, "image.generate");
+    const gatewayResult = await gateway.invoke({
+      capability: "image.generate",
+      modelRef: `model://polza/${model}`,
+      input: { prompt, images },
+      parameters: params,
+      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type }
     });
+    const response = gatewayResult.output.output;
+    const request = gatewayResult.output.request as Record<string, unknown> | undefined;
+    const imageAsset = polzaImageAssetFromGateway(gatewayResult);
+    if (!imageAsset) throw new Error(`Polza image model "${model}" did not return an image.`);
     const usage = objectField(response, "usage");
     return {
       output: {
@@ -216,6 +211,92 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
       providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage)
     };
   };
+}
+
+export function createPolzaProviderAdapter(options: PolzaClientOptions = {}): ProviderAdapter {
+  const client = createPolzaClient(options);
+  return {
+    id: "polza",
+    title: "Polza.ai",
+    capabilities: ["text.generate", "image.generate"],
+    async invoke(request) {
+      const prompt = stringParam(request.input.prompt) ?? "";
+      const images = collectInputImages(request.input.images ?? request.input.image);
+      if (request.capability === "text.generate") {
+        const imageUrls = await Promise.all(images.map((image) => prepareImageUrl(image, options.fetchImpl)));
+        const userContent: string | PolzaChatContentPart[] = imageUrls.length > 0
+          ? [
+              { type: "text", text: prompt },
+              ...imageUrls.map((url) => ({ type: "image_url" as const, image_url: { url } }))
+            ]
+          : prompt;
+        const systemPrompt = stringParam(request.input.systemPrompt);
+        const messages: PolzaChatMessage[] = [
+          ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
+          { role: "user", content: userContent }
+        ];
+        const response = await client.chatCompletions(buildChatRequestBody(request.model.id, messages, request.parameters ?? {}));
+        const text = firstChatText(response);
+        return {
+          modelId: request.model.id,
+          providerId: "polza",
+          capability: request.capability,
+          output: { text, output: response, model: request.model.id },
+          usage: objectField(response, "usage") as Record<string, unknown> | undefined,
+          raw: response
+        };
+      }
+      if (request.capability === "image.generate") {
+        const imageInputs = await Promise.all(images.map((image) => prepareMediaImageInput(image, options.fetchImpl)));
+        const usesImageGenerations = usesPolzaImageGenerationsEndpoint(request.model.id);
+        const requestBody = usesImageGenerations
+          ? buildImageRequestBody(polzaImageGenerationsModel(request.model.id), prompt, request.parameters ?? {})
+          : buildMediaImageRequestBody(request.model.id, prompt, request.parameters ?? {}, imageInputs);
+        const response = usesImageGenerations ? await client.imageGenerations(requestBody) : await waitForPolzaMediaResult(await client.media(requestBody), client, options);
+        const image = firstGeneratedImage(response);
+        if (!image) throw new Error(`Polza image model "${request.model.id}" did not return an image.`);
+        const imageAsset = await writePolzaImage(image, {
+          outputDirectory: stringParam(request.metadata?.outputDirectory) ?? process.cwd(),
+          sourceNodeId: stringParam(request.metadata?.sourceNodeId) ?? "polza",
+          model: request.model.id,
+          fetchImpl: options.fetchImpl
+        });
+        return {
+          modelId: request.model.id,
+          providerId: "polza",
+          capability: request.capability,
+          output: { image: imageAsset, output: response, request: requestBody, model: request.model.id },
+          usage: objectField(response, "usage") as Record<string, unknown> | undefined,
+          raw: response
+        };
+      }
+      throw new Error(`Polza adapter does not support capability "${request.capability}".`);
+    }
+  };
+}
+
+function createPolzaModelGateway(options: PolzaClientOptions, model: string, capability: "text.generate" | "image.generate"): ModelGateway {
+  return new ModelGateway({
+    models: [{
+      id: model,
+      providerId: "polza",
+      title: model,
+      capabilities: [capability],
+      pricingHint: "polza_usage"
+    }],
+    adapters: [createPolzaProviderAdapter(options)],
+    connections: [{
+      providerId: "polza",
+      enabled: true,
+      credentialRef: "provider.polza.default",
+      baseUrl: options.baseUrl ?? process.env.POLZA_BASE_URL ?? POLZA_BASE_URL
+    }]
+  });
+}
+
+function polzaImageAssetFromGateway(result: ModelInvokeResult): PolzaImageAsset | undefined {
+  const image = result.output.image;
+  return image && typeof image === "object" ? image as PolzaImageAsset : undefined;
 }
 
 export function buildChatRequestBody(model: string, messages: PolzaChatMessage[], params: Record<string, unknown>): Record<string, unknown> {

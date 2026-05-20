@@ -103,6 +103,37 @@ describe("Polza adapter", () => {
     ]);
   });
 
+  it("Polza text runner calls Model Gateway", async () => {
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: "openai/gpt-4o",
+        providerId: "polza",
+        capability: "text.generate",
+        output: {
+          text: "gateway hello",
+          output: { choices: [{ message: { content: "gateway hello" } }], usage: { cost: 0.2 } },
+          model: "openai/gpt-4o"
+        },
+        raw: { choices: [{ message: { content: "gateway hello" } }], usage: { cost: 0.2 } }
+      }))
+    };
+    const runner = createPolzaTextNodeRunner({ modelGateway });
+    const result = await runner({
+      node: { id: "text", type: "polza.text", params: {} },
+      params: { model: "openai/gpt-4o", prompt: "hi" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: tmpdir(), nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "text.generate",
+      modelRef: "model://polza/openai/gpt-4o",
+      input: expect.objectContaining({ prompt: "hi" }),
+      metadata: { nodeId: "text", nodeType: "polza.text" }
+    }));
+    expect(result.output).toMatchObject({ text: "gateway hello", provider: "polza", model: "openai/gpt-4o" });
+  });
+
   it("writes generated base64 image output", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-image-"));
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ b64_json: Buffer.from("image").toString("base64") }], usage: { cost_rub: 1.5 } }));
@@ -136,6 +167,47 @@ describe("Polza adapter", () => {
       body: expect.stringContaining("\"images\":[{\"type\":\"base64\",\"data\":\"data:image/png;base64,aaa\"}]")
     }));
     expect(result.output).toMatchObject({ provider: "polza", inputImageCount: 1 });
+  });
+
+  it("Polza image runner calls Model Gateway", async () => {
+    const image = {
+      localPath: join(tmpdir(), "polza-gateway.png"),
+      path: join(tmpdir(), "polza-gateway.png"),
+      filename: "polza-gateway.png",
+      mimeType: "image/png",
+      sizeBytes: 5,
+      sourceNodeId: "image",
+      model: "openai/gpt-5-image-mini"
+    };
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: "openai/gpt-5-image-mini",
+        providerId: "polza",
+        capability: "image.generate",
+        output: {
+          image,
+          output: { data: [{ b64_json: "aaa" }], usage: { cost_rub: 1.5 } },
+          request: { model: "openai/gpt-5-image-mini", input: { prompt: "draw" } },
+          model: "openai/gpt-5-image-mini"
+        },
+        raw: { data: [{ b64_json: "aaa" }], usage: { cost_rub: 1.5 } }
+      }))
+    };
+    const runner = createPolzaImageNodeRunner({ modelGateway });
+    const result = await runner({
+      node: { id: "image", type: "polza.image.generate", params: {} },
+      params: { model: "openai/gpt-5-image-mini", prompt: "draw" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: tmpdir(), nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "image.generate",
+      modelRef: "model://polza/openai/gpt-5-image-mini",
+      input: { prompt: "draw", images: [] },
+      metadata: expect.objectContaining({ nodeId: "image", nodeType: "polza.image.generate" })
+    }));
+    expect(result.output).toMatchObject({ provider: "polza", model: "openai/gpt-5-image-mini", image });
   });
 
   it("polls pending Polza media generations until image output is ready", async () => {

@@ -8,6 +8,7 @@ import {
   createOpenRouterImageNodeRunner,
   createModelResolver,
   createOpenRouterClient,
+  createOpenRouterProviderAdapter,
   createOpenRouterTextNodeRunner,
   parseOpenRouterModelCatalog,
   refreshOpenRouterModelCatalog,
@@ -132,6 +133,38 @@ describe("OpenRouter adapter", () => {
     expect((result.output as Record<string, unknown>).pricingSource).toBe("unknown");
   });
 
+  it("text runner calls Model Gateway", async () => {
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: "openai/gpt-5.2",
+        providerId: "openrouter",
+        capability: "text.generate",
+        output: {
+          text: "hello",
+          output: { choices: [{ message: { content: "hello" } }], usage: { prompt_tokens: 1 } },
+          model: "openai/gpt-5.2",
+          estimatedCost: null
+        },
+        raw: { choices: [{ message: { content: "hello" } }], usage: { prompt_tokens: 1 } }
+      }))
+    };
+    const runner = createOpenRouterTextNodeRunner({ modelGateway });
+    const result = await runner({
+      node: { id: "n1", type: "ai.text" },
+      params: { model: "openai/gpt-5.2", prompt: "hi" },
+      inputs: {},
+      context: { runId: "r1", route: { routeVersion: "0.1", route: { id: "r", title: "R", author: {} }, nodes: [], edges: [] }, outputDirectory: "", nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "text.generate",
+      modelRef: "model://openrouter/openai/gpt-5.2",
+      input: expect.objectContaining({ prompt: "hi" }),
+      metadata: { nodeId: "n1", nodeType: "ai.text", warnings: [] }
+    }));
+    expect(result.output).toMatchObject({ text: "hello", provider: "openrouter", model: "openai/gpt-5.2" });
+  });
+
   it("runs image-capable OpenRouter slugs without a hardcoded local mapping", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-openrouter-image-"));
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { images: [{ image_url: { url: "data:image/png;base64,aaa" } }] } }] }), { status: 200 })) as unknown as typeof fetch;
@@ -150,6 +183,55 @@ describe("OpenRouter adapter", () => {
     expect((result.output as Record<string, unknown>).selectedModelLabel).not.toBe("OpenAI: GPT-5.4 Image 2");
     const image = (result.output as { image: { localPath: string } }).image;
     expect(await readFile(image.localPath)).toEqual(Buffer.from("aaa", "base64"));
+  });
+
+  it("image runner calls Model Gateway", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-openrouter-gateway-image-"));
+    const image = { localPath: join(outputDirectory, "image.png"), path: join(outputDirectory, "image.png"), filename: "image.png", mimeType: "image/png", sourceNodeId: "n1", model: "openai/gpt-5.4-image-2" };
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: "openai/gpt-5.4-image-2",
+        providerId: "openrouter",
+        capability: "image.generate",
+        output: {
+          image,
+          output: { choices: [{ message: { images: [{ image_url: { url: "data:image/png;base64,aaa" } }] } }] },
+          model: "openai/gpt-5.4-image-2",
+          estimatedCost: null
+        },
+        raw: { choices: [{ message: { images: [{ image_url: { url: "data:image/png;base64,aaa" } }] } }] }
+      }))
+    };
+    const runner = createOpenRouterImageNodeRunner({ modelGateway });
+    const result = await runner({
+      node: { id: "n1", type: "ai.image.generate" },
+      params: { model: "openai/gpt-5.4-image-2", providerMode: "openrouter", prompt: "draw" },
+      inputs: {},
+      context: { runId: "r1", route: { routeVersion: "0.1", route: { id: "r", title: "R", author: {} }, nodes: [], edges: [] }, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "image.generate",
+      modelRef: "model://openrouter/openai/gpt-5.4-image-2",
+      input: { prompt: "draw", images: [] },
+      metadata: expect.objectContaining({ nodeId: "n1", nodeType: "ai.image.generate" })
+    }));
+    expect(result.output).toMatchObject({ image, requestModelSlug: "openai/gpt-5.4-image-2", status: "succeeded" });
+  });
+
+  it("OpenRouter provider adapter works through the Gateway contract", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: "hello" } }] }), { status: 200 })) as unknown as typeof fetch;
+    const adapter = createOpenRouterProviderAdapter({ apiKey: "sk-test", fetchImpl });
+    await expect(adapter.invoke({
+      capability: "text.generate",
+      modelRef: "model://openrouter/openai/gpt-5.2",
+      model: { id: "openai/gpt-5.2", providerId: "openrouter", title: "GPT", capabilities: ["text.generate"] },
+      input: { prompt: "hi" }
+    }, { providerId: "openrouter", enabled: true, credentialRef: "provider.openrouter.default" })).resolves.toMatchObject({
+      providerId: "openrouter",
+      modelId: "openai/gpt-5.2",
+      output: { text: "hello" }
+    });
   });
 });
 

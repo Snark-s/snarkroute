@@ -77,8 +77,14 @@ Node receives:
 
 - `@snarkroute/model-registry` contains neutral mapping/resolution extracted from OpenRouter.
 - `packages/core/src/model-gateway` contains the gateway types, registry, resolver, and gateway.
-- `@snarkroute/replicate` exposes a Replicate `ProviderAdapter`.
-- `replicate.model` is routed through Model Gateway v0 and still returns its previous output/provenance/providerUsage shape.
+- `@snarkroute/replicate` exposes a Replicate `ProviderAdapter` for `image.generate` and `image.upscale`.
+- `@snarkroute/openrouter` exposes an OpenRouter `ProviderAdapter` for `text.generate` and `image.generate`.
+- `@snarkroute/gemini` exposes a Gemini `ProviderAdapter` for `text.generate` and `image.generate`.
+- `@snarkroute/polza` exposes a Polza `ProviderAdapter` for `text.generate` and `image.generate`.
+- Existing model-executing nodes keep their public params/output shape while invoking providers through Model Gateway v0.
+- Server compatibility glue for `ai.text` and `ai.image.generate` lives in `apps/server/src/execution/model-gateway-runners.ts`. It resolves legacy `model` / `providerMode` params before calling gateway-backed provider runners.
+- `apps/server/src/providers/openrouter.ts` is OpenRouter-specific and does not import Gemini direct runners.
+- Polza is available through explicit `polza.text` and `polza.image.generate` nodes. It is not yet part of logical `ai.text` / `ai.image.generate` routing.
 
 ## Not Implemented
 
@@ -89,3 +95,5 @@ Node receives:
 - No model marketplace or billing.
 - No provider settings UI redesign.
 - No public route/ORP format changes.
+- No automatic migration of route files; old route params remain supported by compatibility wrappers.
+- No Polza auto/provider-preference route in logical model routing yet.

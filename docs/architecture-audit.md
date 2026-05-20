@@ -50,7 +50,7 @@ Legacy code, route files, APIs, and package formats still use `node` names for c
 
 ## Provider Logic Audit
 
-Provider adapter packages already exist and are the correct boundary for API calls. Server-side provider routing glue now lives outside the root bootstrap: `routes/providers.ts` owns HTTP endpoints, while `providers/openrouter.ts` owns OpenRouter catalog/status/resolution glue and `providers/provider-node-manifests.ts` owns bundled provider node manifests.
+Provider adapter packages already exist and are the correct boundary for API calls. Server-side provider routing glue now lives outside the root bootstrap: `routes/providers.ts` owns HTTP endpoints, `providers/openrouter.ts` owns OpenRouter catalog/status/error helpers, `execution/model-gateway-runners.ts` owns provider-neutral compatibility routing for logical model ids, and `providers/provider-node-manifests.ts` owns bundled provider node manifests.
 
 ### 2026-05-15: Model Registry and Dialogue Workbench
 
@@ -64,7 +64,9 @@ OpenRouter-specific model resolution has been split from the OpenRouter adapter.
 
 The OpenRouter adapter remains a provider adapter boundary for OpenRouter HTTP behavior. The new registry package does not do smart model selection, cost-based routing, benchmark routing, or remote registry lookup; it only preserves the existing mapping/resolution behavior as a reusable data layer.
 
-Model Gateway v0 lives in `packages/core/src/model-gateway`. It builds on the registry/resolver direction by accepting capability-based requests, resolving a local model, finding a provider adapter and provider connection, and returning a normalized invoke result. The first migrated node is `replicate.model`, wrapped through a Replicate provider adapter without changing public route format or output behavior.
+Model Gateway v0 lives in `packages/core/src/model-gateway`. It builds on the registry/resolver direction by accepting capability-based requests, resolving a local model, finding a provider adapter and provider connection, and returning a normalized invoke result. Existing model-executing provider nodes for Replicate, OpenRouter, Gemini, and Polza now invoke provider APIs through gateway-backed provider adapters while preserving public route format and node output behavior.
+
+Provider-neutral server routing for `ai.text` and `ai.image.generate` lives in `apps/server/src/execution/model-gateway-runners.ts`, not in the OpenRouter provider helper. OpenRouter, Gemini, and Polza remain provider-specific adapter packages; Polza is still exposed through explicit Polza node types rather than logical model routing.
 
 ## Runtime / Execution Audit
 
