@@ -74,6 +74,8 @@ export interface ExecuteOptions {
 export interface ProviderUsageEvent {
   provider: string;
   model?: string;
+  providerModel?: string;
+  logicalModel?: string;
   nodeId?: string;
   nodeType?: string;
   externalId?: string;
@@ -81,7 +83,10 @@ export interface ProviderUsageEvent {
   metrics?: Record<string, unknown>;
   estimatedCost?: number | null;
   actualCost?: number | null;
+  actualCostCurrency?: string | null;
   pricingHint?: string;
+  pricingSource?: string;
+  pricingQuote?: unknown;
 }
 
 export interface RunEconomicsSummary {
@@ -605,6 +610,8 @@ function stripProviderUsageSecrets(event: ProviderUsageEvent): ProviderUsageEven
   return {
     provider: event.provider,
     model: event.model,
+    providerModel: event.providerModel,
+    logicalModel: event.logicalModel,
     nodeId: event.nodeId,
     nodeType: event.nodeType,
     externalId: event.externalId,
@@ -612,7 +619,10 @@ function stripProviderUsageSecrets(event: ProviderUsageEvent): ProviderUsageEven
     metrics: event.metrics,
     estimatedCost: event.estimatedCost ?? null,
     actualCost: event.actualCost ?? null,
-    pricingHint: event.pricingHint
+    actualCostCurrency: event.actualCostCurrency ?? null,
+    pricingHint: event.pricingHint,
+    pricingSource: event.pricingSource,
+    pricingQuote: event.pricingQuote
   };
 }
 

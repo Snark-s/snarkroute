@@ -5,9 +5,12 @@ const rootDirectory = dirname(fileURLToPath(import.meta.url));
 
 export const snarkrouteAliases = {
   "@snarkroute/protocol": resolve(rootDirectory, "packages/protocol/src/index.ts"),
+  "@snarkroute/core": resolve(rootDirectory, "packages/core/src/index.ts"),
   "@snarkroute/executor": resolve(rootDirectory, "packages/executor/src/index.ts"),
   "@snarkroute/storage": resolve(rootDirectory, "packages/storage/src/index.ts"),
   "@snarkroute/nodes": resolve(rootDirectory, "packages/nodes/src/index.ts"),
+  "@snarkroute/model-registry": resolve(rootDirectory, "packages/model-registry/src/index.ts"),
+  "@snarkroute/openrouter": resolve(rootDirectory, "packages/adapters/openrouter/src/index.ts"),
   "@snarkroute/replicate": resolve(rootDirectory, "packages/adapters/replicate/src/index.ts"),
   "@snarkroute/gemini": resolve(rootDirectory, "packages/adapters/gemini/src/index.ts"),
   "@snarkroute/polza": resolve(rootDirectory, "packages/adapters/polza/src/index.ts")

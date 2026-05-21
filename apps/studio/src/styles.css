@@ -2224,6 +2224,43 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+.nodePricingPreview {
+  border: 1px solid #33475d;
+  border-radius: 8px;
+  display: grid;
+  gap: 5px;
+  margin: 2px 0 8px;
+  padding: 8px;
+}
+
+.nodePricingPreview div,
+.nodeQuoteAlternatives div {
+  align-items: start;
+  display: grid;
+  gap: 6px;
+  grid-template-columns: minmax(82px, 0.9fr) minmax(0, 1.1fr);
+}
+
+.nodePricingPreview span,
+.nodeQuoteAlternatives span,
+.nodeQuoteAlternatives summary {
+  color: #9da8ba;
+  font-size: 10px;
+}
+
+.nodePricingPreview strong,
+.nodeQuoteAlternatives strong {
+  color: #f8d680;
+  font-size: 10px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.nodeQuoteAlternatives {
+  display: grid;
+  gap: 5px;
+}
+
 .assetParams {
   display: grid;
   gap: 8px;

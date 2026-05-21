@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildNanoBanana2Parts, createGeminiClient, createGeminiLlmNodeRunner, createNanoBanana2NodeRunner, prepareImageInlineData } from "../src/index";
+import { buildNanoBanana2Parts, createGeminiClient, createGeminiLlmNodeRunner, createNanoBanana2NodeRunner, estimateGeminiPricingQuote, prepareImageInlineData } from "../src/index";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return {
@@ -74,8 +74,28 @@ describe("Gemini adapter", () => {
     const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
     expect(body.contents[0].parts[0].text).toContain("Return an image result");
     expect(body.contents[0].parts[0].text).toContain("connected prompt");
-    expect(result.output).toMatchObject({ cost: { amountUsd: 0.039 }, inputImageCount: 0 });
+    expect(result.output).toMatchObject({ cost: { amountUsd: null }, inputImageCount: 0, estimatedCost: null, estimatedCostConfidence: "unknown" });
     expect(JSON.stringify(result.providerUsage)).not.toContain("token");
+  });
+
+  it("missing local Gemini price returns unknown quote", () => {
+    expect(estimateGeminiPricingQuote({
+      provider: "gemini",
+      providerModel: "gemini-3.1-flash-image-preview",
+      capability: "image.generate",
+      params: { localPricingConfig: { models: { "gemini-3.1-flash-image-preview": { currency: "USD", unit: "image", price: null } } } },
+      inputMetadata: {}
+    })).toMatchObject({ estimatedCost: null, confidence: "unknown", pricingSource: "local_pricing_config" });
+  });
+
+  it("local configured Gemini image price produces a quote", () => {
+    expect(estimateGeminiPricingQuote({
+      provider: "gemini",
+      providerModel: "gemini-3.1-flash-image-preview",
+      capability: "image.generate",
+      params: { n: 2, localPricingConfig: { models: { "gemini-3.1-flash-image-preview": { currency: "USD", unit: "image", price: 0.04 } } } },
+      inputMetadata: {}
+    })).toMatchObject({ estimatedCost: 0.08, confidence: "estimated", pricingSource: "local_pricing_config" });
   });
 
   it("passes aspect ratio and image size to Gemini image config", async () => {
@@ -190,6 +210,85 @@ describe("Gemini adapter", () => {
         outputUsdPerMillionTokens: 0.4
       }
     });
+  });
+
+  it("Gemini LLM runner calls Model Gateway", async () => {
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: "gemini-test",
+        providerId: "gemini",
+        capability: "text.generate",
+        output: {
+          text: "Gateway text",
+          output: { candidates: [{ content: { parts: [{ text: "Gateway text" }] } }] },
+          model: "gemini-test"
+        },
+        raw: {
+          model: "gemini-test",
+          output: { candidates: [{ content: { parts: [{ text: "Gateway text" }] } }] },
+          text: "Gateway text"
+        }
+      }))
+    };
+    const runner = createGeminiLlmNodeRunner({ modelGateway });
+    const result = await runner({
+      node: { id: "llm", type: "gemini.llm", params: {} },
+      params: { prompt: "hi", model: "gemini-test" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: "", nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "text.generate",
+      modelRef: "model://gemini/gemini-test",
+      input: expect.objectContaining({ prompt: "hi" }),
+      metadata: { nodeId: "llm", nodeType: "gemini.llm" }
+    }));
+    expect(result.output).toMatchObject({ text: "Gateway text", model: "gemini-test", status: "succeeded" });
+  });
+
+  it("Nano Banana 2 runner calls Model Gateway", async () => {
+    const image = {
+      localPath: join(tmpdir(), "gateway-banana.png"),
+      path: join(tmpdir(), "gateway-banana.png"),
+      filename: "gateway-banana.png",
+      mimeType: "image/png",
+      sizeBytes: 5,
+      sourceNodeId: "banana",
+      model: "gemini-3.1-flash-image-preview"
+    };
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: "gemini-3.1-flash-image-preview",
+        providerId: "gemini",
+        capability: "image.generate",
+        output: {
+          image,
+          output: { candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "aaa" } }] } }] },
+          model: "gemini-3.1-flash-image-preview"
+        },
+        raw: {
+          model: "gemini-3.1-flash-image-preview",
+          output: { candidates: [{ content: { parts: [{ inlineData: { mimeType: "image/png", data: "aaa" } }] } }] },
+          image: { mimeType: "image/png", dataBase64: "aaa" }
+        }
+      }))
+    };
+    const runner = createNanoBanana2NodeRunner({ modelGateway });
+    const result = await runner({
+      node: { id: "banana", type: "gemini.nano-banana-2", params: {} },
+      params: { prompt: "draw" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: tmpdir(), nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "image.generate",
+      modelRef: "model://gemini/gemini-3.1-flash-image-preview",
+      input: { prompt: "draw", images: [] },
+      metadata: expect.objectContaining({ nodeId: "banana", nodeType: "gemini.nano-banana-2" })
+    }));
+    expect(result.output).toMatchObject({ image, model: "gemini-3.1-flash-image-preview", status: "succeeded" });
   });
 
   it("Nano Banana 2 runner reports provider text when no image is returned", async () => {

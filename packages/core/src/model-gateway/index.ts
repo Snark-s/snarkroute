@@ -11,6 +11,7 @@ export type ModelCapability =
   | (string & {});
 
 export type ModelProviderId = string;
+import type { ModelIOContract, ModelIOItem, ModelMediaKind } from "@snarkroute/protocol";
 
 export interface ModelInfo {
   id: string;
@@ -24,6 +25,7 @@ export interface ModelInfo {
   supportsImages?: boolean;
   supportsVideo?: boolean;
   supportsJson?: boolean;
+  ioContract?: ModelIOContract;
   defaultParameters?: Record<string, unknown>;
   pricingHint?: string;
   qualityHint?: "draft" | "balanced" | "best" | number | string;
@@ -52,9 +54,12 @@ export interface ModelInvokeRequest {
   providerId?: ModelProviderId;
   input: Record<string, unknown>;
   parameters?: Record<string, unknown>;
+  requiredIOContract?: ModelIOContract;
   preferences?: ModelSelectionPreferences;
   metadata?: Record<string, unknown>;
 }
+
+export type ModelQuoteRequest = ModelInvokeRequest;
 
 export interface ModelInvokeResult {
   modelId: string;
@@ -71,7 +76,14 @@ export interface ProviderAdapter {
   title: string;
   capabilities: ModelCapability[];
   listModels?(connection?: ProviderConnection): Promise<ModelInfo[]>;
+  pricingResolver?: PricingResolver;
   invoke(request: ModelInvokeRequest & { model: ModelInfo }, connection?: ProviderConnection): Promise<ModelInvokeResult>;
+}
+
+export interface ModelGatewayQuoteResult {
+  selected: PricingQuote;
+  alternatives: PricingQuote[];
+  warnings: string[];
 }
 
 export class ModelRegistry {
@@ -111,15 +123,26 @@ export class GatewayModelResolver {
       const model = this.registry.findByModelRef(request.modelRef);
       if (!model) throw new Error(`Model Gateway could not resolve modelRef "${request.modelRef}".`);
       if (!model.capabilities.includes(request.capability)) throw new Error(`Model "${model.id}" does not support capability "${request.capability}".`);
+      if (!modelSatisfiesIOContract(getModelIOContract(model), request.requiredIOContract)) throw new Error(`Model "${model.id}" does not satisfy the required IO contract.`);
       this.assertEnabled(model.providerId);
       return model;
     }
 
     const candidates = this.registry
       .findByCapability(request.capability, request.providerId)
-      .filter((model) => this.getConnection(model.providerId)?.enabled);
+      .filter((model) => this.getConnection(model.providerId)?.enabled)
+      .filter((model) => modelSatisfiesIOContract(getModelIOContract(model), request.requiredIOContract));
     if (candidates.length === 0) throw new Error(`Model Gateway could not find an enabled model for capability "${request.capability}".`);
     return sortByPreferences(candidates, request.preferences)[0];
+  }
+
+  resolveAvailableRoutes(request: ModelInvokeRequest): ModelInfo[] {
+    if (request.modelRef) return [this.resolve(request)];
+    const candidates = this.registry
+      .findByCapability(request.capability, request.providerId)
+      .filter((model) => this.getConnection(model.providerId)?.enabled)
+      .filter((model) => modelSatisfiesIOContract(getModelIOContract(model), request.requiredIOContract));
+    return sortByPreferences(candidates, request.preferences);
   }
 
   private assertEnabled(providerId: ModelProviderId): void {
@@ -162,15 +185,102 @@ export class ModelGateway {
     const connection = this.#connections.get(model.providerId);
     return adapter.invoke({ ...request, model }, connection);
   }
+
+  quote(request: ModelQuoteRequest): ModelGatewayQuoteResult {
+    const selected = this.quoteSelectedRoute(request);
+    return {
+      selected,
+      alternatives: this.quoteAvailableRoutes(request).filter((quote) => quote.provider !== selected.provider || quote.providerModel !== selected.providerModel),
+      warnings: selected.warnings ?? []
+    };
+  }
+
+  quoteSelectedRoute(request: ModelQuoteRequest): PricingQuote {
+    const model = this.resolver.resolve(request);
+    return this.quoteModel(request, model);
+  }
+
+  quoteAvailableRoutes(request: ModelQuoteRequest): PricingQuote[] {
+    const models = this.resolver.resolveAvailableRoutes(request);
+    return models.map((model) => this.quoteModel(request, model));
+  }
+
+  private quoteModel(request: ModelQuoteRequest, model: ModelInfo): PricingQuote {
+    const adapter = this.#adapters.get(model.providerId);
+    const pricingInput: ModelPricingInput = {
+      logicalModel: typeof request.metadata?.logicalModel === "string" ? request.metadata.logicalModel : undefined,
+      provider: model.providerId,
+      providerModel: model.id,
+      capability: request.capability,
+      params: request.parameters ?? {},
+      inputMetadata: { ...(request.input ?? {}), ...(request.metadata ?? {}) }
+    };
+    if (!adapter) return unknownPricingQuote(pricingInput, model.pricingHint ?? "unknown", `Model Gateway has no adapter for provider "${model.providerId}".`);
+    if (!adapter.capabilities.includes(request.capability)) return unknownPricingQuote(pricingInput, model.pricingHint ?? "unknown", `Provider adapter "${adapter.id}" does not support capability "${request.capability}".`);
+    return adapter.pricingResolver?.estimate(pricingInput) ?? unknownPricingQuote(pricingInput, model.pricingHint ?? "unknown");
+  }
 }
 
 export function providerModelRef(model: ModelInfo): string {
   return `model://${model.providerId}/${model.id}`;
 }
 
+export function getModelIOContract(model: ModelInfo): ModelIOContract | undefined {
+  if (model.ioContract) return model.ioContract;
+
+  const inputs = itemsFromTypes(model.inputTypes);
+  const outputs = itemsFromTypes(model.outputTypes);
+  if (model.supportsImages) addItem(inputs, "image");
+  if (model.supportsVideo) addItem(inputs, "video");
+  if (model.supportsJson) addItem(inputs, "json");
+
+  return inputs.length || outputs.length ? { inputs: inputs.length ? inputs : undefined, outputs: outputs.length ? outputs : undefined } : undefined;
+}
+
+export function modelSatisfiesIOContract(modelContract: ModelIOContract | undefined, requiredContract: ModelIOContract | undefined): boolean {
+  if (!requiredContract) return true;
+  if (!hasContractItems(requiredContract)) return true;
+  if (!modelContract || !hasContractItems(modelContract)) return true;
+  return contractSideSatisfies(modelContract.inputs, requiredContract.inputs) && contractSideSatisfies(modelContract.outputs, requiredContract.outputs);
+}
+
 function parseModelRef(modelRef: string): { providerId: ModelProviderId; modelId: string } | null {
   const match = /^model:\/\/([^/]+)\/(.+)$/.exec(modelRef);
   return match ? { providerId: match[1], modelId: match[2] } : null;
+}
+
+function itemsFromTypes(types: string[] | undefined): ModelIOItem[] {
+  const items: ModelIOItem[] = [];
+  for (const type of types ?? []) {
+    const kind = toModelMediaKind(type);
+    if (kind) addItem(items, kind);
+  }
+  return items;
+}
+
+function addItem(items: ModelIOItem[], kind: ModelMediaKind): void {
+  if (!items.some((item) => item.kind === kind)) items.push({ kind, minItems: 0, maxItems: 1 });
+}
+
+function toModelMediaKind(value: string): ModelMediaKind | null {
+  return value === "text" || value === "image" || value === "video" || value === "audio" || value === "file" || value === "json" ? value : null;
+}
+
+function hasContractItems(contract: ModelIOContract): boolean {
+  return Boolean(contract.inputs?.length || contract.outputs?.length);
+}
+
+function contractSideSatisfies(modelItems: ModelIOItem[] | undefined, requiredItems: ModelIOItem[] | undefined): boolean {
+  if (!requiredItems?.length) return true;
+  if (!modelItems?.length) return false;
+
+  return requiredItems.every((requiredItem) => {
+    const modelItem = modelItems.find((item) => item.kind === requiredItem.kind);
+    if (!modelItem) return false;
+    if (requiredItem.maxItems !== undefined && modelItem.maxItems !== undefined && requiredItem.maxItems > modelItem.maxItems) return false;
+    if (requiredItem.minItems !== undefined && modelItem.maxItems !== undefined && requiredItem.minItems > modelItem.maxItems) return false;
+    return true;
+  });
 }
 
 function assertConnectionDoesNotCarrySecret(connection: ProviderConnection): void {
@@ -206,3 +316,20 @@ function scoreCost(pricingHint: string | undefined, preferred: ModelSelectionPre
   if (preferred === "balanced" && /balanced|standard/i.test(pricingHint)) return 2;
   return 0;
 }
+
+import type { ModelPricingInput, PricingQuote, PricingResolver } from "./pricing";
+import { unknownPricingQuote } from "./pricing";
+export type {
+  ModelPricingInput,
+  PricingConfidence,
+  PricingCurrency,
+  PricingQuote,
+  PricingResolver,
+  PricingUnit
+} from "./pricing";
+export type { ModelIOContract, ModelIOItem, ModelMediaKind } from "@snarkroute/protocol";
+export {
+  estimateCatalogPricingQuote,
+  sanitizePricingQuote,
+  unknownPricingQuote
+} from "./pricing";

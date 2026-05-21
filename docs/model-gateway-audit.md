@@ -2,31 +2,58 @@
 
 ## Current Model Data
 
-- `data/model-registry/openrouter-mappings.json` is loaded by `apps/server/src/providers/openrouter.ts` and currently maps UI model ids such as `text.default` or `image.nano-banana` to OpenRouter/direct/local execution routes.
+- `data/model-registry/openrouter-mappings.json` is loaded by `apps/server/src/execution/model-gateway-runners.ts` and currently maps UI model ids such as `text.default` or `image.nano-banana` to OpenRouter/direct/local execution routes.
 - `packages/protocol/src/model-registry.ts` contains portable profile/preset schemas. That file is route/protocol-oriented metadata, not an execution gateway.
 - `apps/studio/src/main.tsx` contains provider-facing UI state, model lists, example routes, and OpenRouter settings controls.
 - `apps/server/src/providers/provider-node-manifests.ts` contains bundled provider node manifests and permission declarations.
 - Provider catalog data for OpenRouter is cached in `data/cache/openrouter-models.json` through `apps/server/src/routes/providers.ts`.
+- Local optional direct-provider pricing metadata lives under `data/model-pricing/`, currently `data/model-pricing/gemini.json`. This is runtime metadata, not ORP route data.
+- Neutral advisory pricing types and generic catalog estimation helpers live in `packages/core/src/model-gateway/pricing.ts`.
 
 ## Current Provider API Calls
 
-- `packages/adapters/openrouter/src/index.ts` owns OpenRouter HTTP calls and node runners for `ai.text` / OpenRouter image generation.
-- `packages/adapters/replicate/src/index.ts` owns Replicate HTTP calls and runners for `replicate.model` and `replicate.clarity-upscaler`.
-- `packages/adapters/gemini/src/index.ts` owns Gemini calls used by `gemini.llm`, `gemini.nano-banana-2`, and direct fallback from server OpenRouter glue.
-- `packages/adapters/polza/src/index.ts` owns Polza text/image calls.
-- `apps/server/src/routes/providers.ts` calls provider APIs for connection tests, model catalog refresh, OpenRouter model reads, and Replicate schema reads.
+- `packages/adapters/openrouter/src/index.ts` owns OpenRouter HTTP calls and exposes an OpenRouter `ProviderAdapter`.
+- `packages/adapters/replicate/src/index.ts` owns Replicate HTTP calls and exposes a Replicate `ProviderAdapter`.
+- `packages/adapters/gemini/src/index.ts` owns Gemini HTTP calls and exposes a Gemini `ProviderAdapter`.
+- `packages/adapters/polza/src/index.ts` owns Polza HTTP calls and exposes a Polza `ProviderAdapter`.
+- `apps/server/src/routes/providers.ts` calls provider APIs for non-execution settings/catalog endpoints: connection tests, model catalog refresh, OpenRouter model reads, Polza model reads, and Replicate schema reads.
 - `apps/server/src/execution/service.ts` registers provider-specific runners directly with the executor.
+
+## Execution Path Migration Table
+
+| Node / module | Provider | Current execution path | Migrated to ModelGateway | Reason if no | Tests covering it |
+| --- | --- | --- | --- | --- | --- |
+| `replicate.model` | Replicate | node runner -> `ModelGateway.invoke` -> Replicate `ProviderAdapter` -> `createReplicateClient().runPrediction` | yes |  | `packages/adapters/replicate/test/replicate.test.ts` |
+| `replicate.clarity-upscaler` | Replicate | node runner -> `ModelGateway.invoke` -> Replicate `ProviderAdapter` -> `runPrediction`; runner keeps image download/output shaping | yes |  | `packages/adapters/replicate/test/replicate.test.ts`, `apps/server/test/replicate-registration.test.ts` |
+| `gemini.llm` | Gemini | node runner -> `ModelGateway.invoke` -> Gemini `ProviderAdapter` -> `generateText` | yes |  | `packages/adapters/gemini/test/gemini.test.ts` |
+| `gemini.nano-banana-2` | Gemini | node runner -> `ModelGateway.invoke` -> Gemini `ProviderAdapter` -> `generateContent`; adapter writes image asset | yes |  | `packages/adapters/gemini/test/gemini.test.ts` |
+| `polza.text` | Polza | node runner -> `ModelGateway.invoke` -> Polza `ProviderAdapter` -> chat completions | yes |  | `packages/adapters/polza/test/polza.test.ts`, `apps/server/test/replicate-registration.test.ts` |
+| `polza.image.generate` | Polza | node runner -> `ModelGateway.invoke` -> Polza `ProviderAdapter` -> image/media endpoint | yes |  | `packages/adapters/polza/test/polza.test.ts` |
+| `ai.text` OpenRouter route | OpenRouter | `apps/server/src/execution/model-gateway-runners.ts` compatibility resolver -> gateway-backed OpenRouter runner -> OpenRouter `ProviderAdapter` | yes |  | `packages/adapters/openrouter/test/openrouter.test.ts`, `apps/server/test/provider-neutral-routing.test.ts` |
+| `ai.text` direct Gemini route | Gemini | `apps/server/src/execution/model-gateway-runners.ts` compatibility resolver -> gateway-backed Gemini runner -> Gemini `ProviderAdapter` | yes |  | `packages/adapters/gemini/test/gemini.test.ts`; server route behavior covered indirectly by existing execution tests |
+| `ai.image.generate` OpenRouter route | OpenRouter | `apps/server/src/execution/model-gateway-runners.ts` compatibility resolver/catalog check -> gateway-backed OpenRouter runner -> OpenRouter `ProviderAdapter` | yes |  | `packages/adapters/openrouter/test/openrouter.test.ts`, `apps/server/test/image-generation-routing.test.ts`, `apps/server/test/provider-neutral-routing.test.ts` |
+| `ai.image.generate` direct Gemini route | Gemini | `apps/server/src/execution/model-gateway-runners.ts` compatibility resolver -> gateway-backed Gemini image runner -> Gemini `ProviderAdapter` | yes |  | `packages/adapters/gemini/test/gemini.test.ts`, `apps/server/test/image-generation-routing.test.ts` |
+| `apps/server/src/routes/providers.ts` settings/catalog endpoints | OpenRouter / Polza / Replicate | route handler -> provider client for status/catalog/schema | no | Not model execution; these are settings/catalog helper endpoints and do not invoke workflow models. TODO: wrap catalog listing in provider adapter `listModels` if the UI starts using gateway-managed model catalogs. | server provider/settings tests |
+
+## Cost Preview Path
+
+- `ModelGateway.quote`, `quoteSelectedRoute`, and `quoteAvailableRoutes` resolve the same provider route as `invoke`, but only return `PricingQuote` metadata.
+- OpenRouter quotes use cached catalog pricing fields such as `pricing.image`, `pricing.request`, `pricing.prompt`, `pricing.completion`, `pricing.input`, and `pricing.output` when present.
+- Polza quotes are available for explicit `polza.text` and `polza.image.generate` nodes when the Polza model catalog exposes pricing. Polza is not included in logical `ai.text` or `ai.image.generate` routing yet.
+- Direct Gemini image quotes use `data/model-pricing/gemini.json`. If `price` is `null`, the quote is unknown with a local-pricing warning.
+- `POST /api/model-gateway/quote` serves Studio previews. It is advisory only, does not execute the model, does not make paid calls, and does not accept or return API keys/tokens/secrets.
+- Model node outputs and provider usage events now carry quote fields next to existing cost fields: `estimatedCost`, `estimatedCostCurrency`, `estimatedCostConfidence`, `pricingSource`, `pricingQuote`, `actualUsage`, `actualCost`, and `actualCostCurrency` when known.
 
 ## Direct Node Dependencies
 
-- `ai.text` currently uses `apps/server/src/providers/openrouter.ts` as a compatibility router. It may call OpenRouter directly or delegate to Gemini direct mode.
-- `ai.image.generate` currently uses the same server OpenRouter glue and may call OpenRouter or Gemini direct mode depending on mapping/catalog resolution.
-- `replicate.model` now calls Model Gateway v0 first, using a Replicate provider adapter while preserving the old output shape.
-- `replicate.clarity-upscaler`, `gemini.llm`, `gemini.nano-banana-2`, `polza.text`, and `polza.image.generate` still call their provider adapters directly.
+- `ai.text` uses `apps/server/src/execution/model-gateway-runners.ts` as a provider-neutral compatibility resolver for legacy params (`model`, `providerMode`), then invokes gateway-backed OpenRouter or Gemini runners.
+- `ai.image.generate` uses the same provider-neutral server compatibility resolver/catalog check, then invokes gateway-backed OpenRouter or Gemini runners.
+- `replicate.model`, `replicate.clarity-upscaler`, `gemini.llm`, `gemini.nano-banana-2`, `polza.text`, and `polza.image.generate` call `ModelGateway.invoke` before any provider API request.
 
 ## Mixed Boundaries
 
-- `apps/server/src/providers/openrouter.ts` mixes model mapping, provider selection, credential availability checks, OpenRouter catalog interpretation, Gemini direct fallback, and node runner glue.
+- `apps/server/src/execution/model-gateway-runners.ts` intentionally owns compatibility routing for logical model ids such as `image.nano-banana`.
+- `apps/server/src/providers/openrouter.ts` is OpenRouter-specific: settings status, catalog cache reads, masking, and public OpenRouter error wording.
 - `apps/studio/src/main.tsx` mixes UI, example routes, provider settings, model status, and provider-specific controls.
 - `apps/server/src/routes/settings.ts` persists local provider secrets into `.env`; this is appropriate for local settings, but it should remain outside route/node settings.
 - `packages/adapters/*` are the right low-level API boundary. Gateway adapters should wrap those clients instead of moving HTTP details into nodes.
@@ -37,28 +64,31 @@
 - Ledger stripping in `apps/server/src/ledger/service.ts` applies the same class of redaction.
 - Studio tests already check that route JSON does not include `REPLICATE_API_TOKEN`; protocol tests check route export secrets.
 - Model Gateway v0 rejects `ProviderConnection` objects that carry raw fields such as `apiKey` or `token`; callers must use `credentialRef` or `secretRef`.
+- Quote endpoint params are sanitized for secret-shaped keys and `PricingQuote` output is stripped of `apiKey`, `token`, `secret`, `password`, and `baseUrl` shaped fields.
 - Remaining risk: provider setting forms in `apps/studio/src/main.tsx` temporarily hold typed secrets in UI state before posting them to local settings. This is expected for settings UX, but those values must not be copied into route params or exported documents.
 
 ## Safe Changes Now
 
 - Keep `@snarkroute/model-registry` as a neutral mapping/resolution package and re-export it from `@snarkroute/openrouter` for compatibility.
 - Keep provider HTTP details in provider adapter packages.
-- Introduce Model Gateway v0 as an execution-layer abstraction in `packages/core/src/model-gateway`.
-- Migrate one existing provider node at a time through gateway wrappers while preserving public node params/output.
+- Keep Model Gateway v0 as an execution-layer abstraction in `packages/core/src/model-gateway`.
+- Preserve public node params/output while routing model execution through gateway wrappers.
 - Prefer `credentialRef`/`secretRef` on gateway connections and keep actual credentials in local env/settings.
 
 ## Future Work
 
-- Move `ai.text` through gateway after adding an OpenRouter `text.generate` adapter and a Gemini direct adapter with compatibility tests.
-- Move `ai.image.generate` through gateway after catalog-backed OpenRouter image resolution and Gemini direct image behavior are covered.
-- Add gateway adapters for Gemini and Polza when migrating their nodes.
+- Move provider catalog/status endpoints toward `ProviderAdapter.listModels` where that improves consistency without mixing execution and settings.
+- Add route validation warnings if a route/node param key looks like a secret even before export stripping.
 - Consider splitting provider settings/model UI out of `apps/studio/src/main.tsx`.
-- Add validation warnings if a route/node param key looks like a secret even before export stripping.
+- Consider a shared gateway factory in the server once more providers need cross-provider orchestration. Do not add smart model selection until a separate model selection policy exists.
+- Polza remains explicit node types (`polza.text`, `polza.image.generate`) and is not yet included in logical `ai.text` / `ai.image.generate` routing. TODO: add Polza mapping entries only after defining a stable provider preference value that does not change ORP route format or existing `providerMode` semantics.
 
 ## Not In v0
 
 - No smart model selection.
 - No cost-based routing.
+- No automatic cheapest-provider routing.
+- No guaranteed final cost before execution.
 - No benchmark-based routing.
 - No remote registry.
 - No marketplace, billing, accounts, or provider settings redesign.

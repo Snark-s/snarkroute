@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
+import { estimateCatalogPricingQuote, ModelGateway, type ModelInvokeResult, type ModelPricingInput, type PricingQuote, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 import {
   createModelResolver,
@@ -36,6 +37,7 @@ export interface OpenRouterClientOptions {
   referer?: string;
   title?: string;
   retryDelayMs?: number;
+  modelGateway?: Pick<ModelGateway, "invoke">;
 }
 
 export interface OpenRouterChatMessage {
@@ -115,7 +117,6 @@ export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
 }
 
 export function createOpenRouterTextNodeRunner(options: OpenRouterClientOptions & { modelResolver?: ModelResolver } = {}): NodeRunner {
-  const client = createOpenRouterClient(options);
   return async ({ node, params, inputs }) => {
     const resolution = options.modelResolver?.({ task: "text", modelId: stringParam(params.model) ?? "text.default", providerMode: providerModeParam(params.providerMode) }) ?? {
       provider: "openrouter" as const,
@@ -136,44 +137,54 @@ export function createOpenRouterTextNodeRunner(options: OpenRouterClientOptions 
     if (!prompt.trim()) throw new Error("Text AI requires a prompt.");
     const systemPrompt = firstInputText(inputs.systemPrompt) ?? stringParam(params.systemPrompt);
     const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
-    const imageUrls = await Promise.all(images.map((image) => prepareImageUrl(image, options.fetchImpl)));
-    const userContent: string | OpenRouterContentPart[] = imageUrls.length > 0
-      ? [
-          { type: "text", text: prompt },
-          ...imageUrls.map((url) => ({ type: "image_url" as const, image_url: { url } }))
-        ]
-      : prompt;
-    const messages: OpenRouterChatMessage[] = [
-      ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
-      { role: "user", content: userContent }
-    ];
-    const response = await client.chatCompletions(buildChatRequestBody(resolution.model, messages, params));
-    const text = firstOpenRouterText(response);
+    const gateway = options.modelGateway ?? createOpenRouterModelGateway(options, resolution.model, "text.generate");
+    const gatewayResult = await gateway.invoke({
+      capability: "text.generate",
+      modelRef: `model://openrouter/${resolution.model}`,
+      input: { prompt, images, systemPrompt },
+      parameters: params,
+      metadata: { nodeId: node.id, nodeType: node.type, warnings: resolution.warnings }
+    });
+    const response = gatewayResult.output.output;
+    const text = typeof gatewayResult.output.text === "string" ? gatewayResult.output.text : firstOpenRouterText(response);
     if (!text) throw new Error(`OpenRouter model "${resolution.model}" did not return text.`);
-    const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : undefined;
-    const estimatedCost = estimateTextCostFromPricing(params.pricing, usage);
+    const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : gatewayResult.usage;
+    const pricingQuote = quoteFromGatewayOutput(gatewayResult.output) ?? estimateOpenRouterPricingQuote({
+      logicalModel: stringParam(params.model),
+      provider: "openrouter",
+      providerModel: resolution.model,
+      capability: "text.generate",
+      params,
+      inputMetadata: {}
+    });
+    const estimatedCost = numberOrNull(gatewayResult.output.estimatedCost) ?? estimateTextCostFromPricing(params.pricing, usage) ?? pricingQuote.estimatedCost;
     return {
       output: {
         text,
         output: response,
         provider: "openrouter",
+        logicalModel: stringParam(params.model),
         model: resolution.model,
+        providerModel: resolution.model,
         warnings: resolution.warnings,
         estimatedCost,
+        estimatedCostCurrency: pricingQuote.currency,
+        estimatedCostConfidence: pricingQuote.confidence,
         actualUsage: usage,
         actualCost: actualCostFromUsage(usage),
+        actualCostCurrency: null,
         pricingSource: estimatedCost === null ? "unknown" : "openrouter_catalog",
+        pricingQuote,
         status: "succeeded"
       },
       logs: [`Generated text with OpenRouter ${resolution.model}`],
       provenance: { provider: "openrouter", model: resolution.model, reason: resolution.reason, warnings: resolution.warnings },
-      providerUsage: openRouterUsageEvent(node.id, node.type, resolution.model, "succeeded", usage, estimatedCost)
+      providerUsage: openRouterUsageEvent(node.id, node.type, resolution.model, "succeeded", usage, { ...pricingQuote, estimatedCost }, stringParam(params.model))
     };
   };
 }
 
 export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions & { modelResolver?: ModelResolver } = {}): NodeRunner {
-  const client = createOpenRouterClient(options);
   return async ({ node, params, inputs, context }) => {
     const selectedModelId = stringParam(params.model) ?? "image.nano-banana";
     const selectedConnectionRoute = providerModeParam(params.providerMode);
@@ -195,18 +206,27 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     if (!prompt.trim()) throw new Error("Image Generation requires a prompt.");
     const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
-    const imageUrls = await Promise.all(images.map((image) => prepareImageUrl(image, options.fetchImpl)));
-    const response = await client.chatCompletions(buildImageRequestBody(resolution.model, prompt, params, imageUrls));
-    const image = firstOpenRouterImage(response);
-    if (!image) throw new Error(`OpenRouter model "${resolution.model}" did not return an image.`);
-    const imageAsset = await writeOpenRouterImage(image, {
-      outputDirectory: context.outputDirectory,
-      sourceNodeId: node.id,
-      model: resolution.model,
-      fetchImpl: options.fetchImpl
+    const gateway = options.modelGateway ?? createOpenRouterModelGateway(options, resolution.model, "image.generate");
+    const gatewayResult = await gateway.invoke({
+      capability: "image.generate",
+      modelRef: `model://openrouter/${resolution.model}`,
+      input: { prompt, images },
+      parameters: params,
+      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type, warnings: resolution.warnings }
     });
-    const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : undefined;
-    const estimatedCost = estimateImageCostFromPricing(params.pricing);
+    const response = gatewayResult.output.output;
+    const imageAsset = openRouterImageAssetFromGateway(gatewayResult);
+    if (!imageAsset) throw new Error(`OpenRouter model "${resolution.model}" did not return an image.`);
+    const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : gatewayResult.usage;
+    const pricingQuote = quoteFromGatewayOutput(gatewayResult.output) ?? estimateOpenRouterPricingQuote({
+      logicalModel: selectedModelId,
+      provider: "openrouter",
+      providerModel: resolution.model,
+      capability: "image.generate",
+      params,
+      inputMetadata: {}
+    });
+    const estimatedCost = numberOrNull(gatewayResult.output.estimatedCost) ?? estimateImageCostFromPricing(params.pricing) ?? pricingQuote.estimatedCost;
     const metadata = resolutionMetadata(resolution, {
       requestProvider: "openrouter",
       requestModelSlug: resolution.model,
@@ -218,10 +238,18 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
         output: response,
         metadata,
         ...metadata,
+        logicalModel: selectedModelId,
+        provider: "openrouter",
+        model: resolution.model,
+        providerModel: resolution.model,
         estimatedCost,
+        estimatedCostCurrency: pricingQuote.currency,
+        estimatedCostConfidence: pricingQuote.confidence,
         actualUsage: usage,
         actualCost: actualCostFromUsage(usage),
+        actualCostCurrency: null,
         pricingSource: estimatedCost === null ? "unknown" : "openrouter_catalog",
+        pricingQuote,
         inputImageCount: images.length,
         localPath: imageAsset.localPath,
         status: "succeeded"
@@ -231,9 +259,126 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
         `Resolved route: ${metadata.resolvedRoute}; fallback: ${metadata.fallbackUsed ? metadata.fallbackReason || "yes" : "no"}`
       ],
       provenance: metadata,
-      providerUsage: openRouterUsageEvent(node.id, node.type, resolution.model, "succeeded", usage, estimatedCost)
+      providerUsage: openRouterUsageEvent(node.id, node.type, resolution.model, "succeeded", usage, { ...pricingQuote, estimatedCost }, selectedModelId)
     };
   };
+}
+
+export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions = {}): ProviderAdapter {
+  const client = createOpenRouterClient(options);
+  return {
+    id: "openrouter",
+    title: "OpenRouter",
+    capabilities: ["text.generate", "image.generate"],
+    pricingResolver: {
+      estimate: estimateOpenRouterPricingQuote
+    },
+    async invoke(request) {
+      const prompt = stringParam(request.input.prompt) ?? "";
+      const images = collectInputImages(request.input.images ?? request.input.image);
+      const imageUrls = await Promise.all(images.map((image) => prepareImageUrl(image, options.fetchImpl)));
+      if (request.capability === "text.generate") {
+        const userContent: string | OpenRouterContentPart[] = imageUrls.length > 0
+          ? [
+              { type: "text", text: prompt },
+              ...imageUrls.map((url) => ({ type: "image_url" as const, image_url: { url } }))
+            ]
+          : prompt;
+        const systemPrompt = stringParam(request.input.systemPrompt);
+        const messages: OpenRouterChatMessage[] = [
+          ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
+          { role: "user", content: userContent }
+        ];
+        const response = await client.chatCompletions(buildChatRequestBody(request.model.id, messages, request.parameters ?? {}));
+        const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : undefined;
+        return {
+          modelId: request.model.id,
+          providerId: "openrouter",
+          capability: request.capability,
+          output: {
+            text: firstOpenRouterText(response),
+            output: response,
+            model: request.model.id,
+            estimatedCost: estimateTextCostFromPricing(request.parameters?.pricing, usage),
+            pricingQuote: estimateOpenRouterPricingQuote({
+              logicalModel: stringParam(request.metadata?.logicalModel),
+              provider: "openrouter",
+              providerModel: request.model.id,
+              capability: request.capability,
+              params: request.parameters ?? {},
+              inputMetadata: request.metadata
+            })
+          },
+          usage: usage && typeof usage === "object" ? usage as Record<string, unknown> : undefined,
+          raw: response,
+          warnings: stringArrayFromUnknown(request.metadata?.warnings)
+        };
+      }
+      if (request.capability === "image.generate") {
+        const response = await client.chatCompletions(buildImageRequestBody(request.model.id, prompt, request.parameters ?? {}, imageUrls));
+        const image = firstOpenRouterImage(response);
+        if (!image) throw new Error(`OpenRouter model "${request.model.id}" did not return an image.`);
+        const imageAsset = await writeOpenRouterImage(image, {
+          outputDirectory: stringParam(request.metadata?.outputDirectory) ?? process.cwd(),
+          sourceNodeId: stringParam(request.metadata?.sourceNodeId) ?? "openrouter",
+          model: request.model.id,
+          fetchImpl: options.fetchImpl
+        });
+        const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : undefined;
+        return {
+          modelId: request.model.id,
+          providerId: "openrouter",
+          capability: request.capability,
+          output: {
+            image: imageAsset,
+            output: response,
+            model: request.model.id,
+            estimatedCost: estimateImageCostFromPricing(request.parameters?.pricing),
+            pricingQuote: estimateOpenRouterPricingQuote({
+              logicalModel: stringParam(request.metadata?.logicalModel),
+              provider: "openrouter",
+              providerModel: request.model.id,
+              capability: request.capability,
+              params: request.parameters ?? {},
+              inputMetadata: request.metadata
+            })
+          },
+          usage: usage && typeof usage === "object" ? usage as Record<string, unknown> : undefined,
+          raw: response,
+          warnings: stringArrayFromUnknown(request.metadata?.warnings)
+        };
+      }
+      throw new Error(`OpenRouter adapter does not support capability "${request.capability}".`);
+    }
+  };
+}
+
+export function estimateOpenRouterPricingQuote(input: ModelPricingInput): PricingQuote {
+  return estimateCatalogPricingQuote(input, input.params.pricing, "openrouter_catalog");
+}
+
+function createOpenRouterModelGateway(options: OpenRouterClientOptions, model: string, capability: "text.generate" | "image.generate"): ModelGateway {
+  return new ModelGateway({
+    models: [{
+      id: model,
+      providerId: "openrouter",
+      title: model,
+      capabilities: [capability],
+      pricingHint: "openrouter_catalog"
+    }],
+    adapters: [createOpenRouterProviderAdapter(options)],
+    connections: [{
+      providerId: "openrouter",
+      enabled: true,
+      credentialRef: "provider.openrouter.default",
+      baseUrl: options.baseUrl ?? process.env.OPENROUTER_BASE_URL ?? OPENROUTER_BASE_URL
+    }]
+  });
+}
+
+function openRouterImageAssetFromGateway(result: ModelInvokeResult): { localPath?: string; path?: string; filename?: string; mimeType?: string; sourceNodeId?: string; model?: string } | undefined {
+  const image = result.output.image;
+  return image && typeof image === "object" ? image : undefined;
 }
 
 export function buildChatRequestBody(model: string, messages: OpenRouterChatMessage[], params: Record<string, unknown>): Record<string, unknown> {
@@ -510,18 +655,28 @@ function extensionFromMimeType(mimeType: string): string {
   return ".png";
 }
 
-function openRouterUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown, estimatedCost: number | null): ProviderUsageEvent {
+function openRouterUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown, pricingQuote: PricingQuote, logicalModel?: string): ProviderUsageEvent {
   return {
     provider: "openrouter",
     model,
+    providerModel: model,
+    logicalModel,
     nodeId,
     nodeType,
     status,
     metrics: usage && typeof usage === "object" ? usage as Record<string, unknown> : undefined,
-    estimatedCost,
+    estimatedCost: pricingQuote.estimatedCost,
     actualCost: actualCostFromUsage(usage),
-    pricingHint: estimatedCost === null ? "unknown" : "openrouter_catalog"
+    actualCostCurrency: null,
+    pricingHint: pricingQuote.pricingSource,
+    pricingSource: pricingQuote.pricingSource,
+    pricingQuote
   };
+}
+
+function quoteFromGatewayOutput(output: Record<string, unknown>): PricingQuote | null {
+  const quote = output.pricingQuote;
+  return quote && typeof quote === "object" ? quote as PricingQuote : null;
 }
 
 function estimateTextCostFromPricing(pricing: unknown, usage: unknown): number | null {
@@ -603,9 +758,18 @@ function stringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined;
 }
 
+function stringArrayFromUnknown(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined;
+}
+
 function optionalNumber(value: unknown): number | undefined {
   const number = typeof value === "string" ? Number(value) : typeof value === "number" ? value : NaN;
   return Number.isFinite(number) ? number : undefined;
+}
+
+function numberOrNull(value: unknown): number | null {
+  const number = optionalNumber(value);
+  return number === undefined ? null : number;
 }
 
 function filterDefined<T extends Record<string, unknown>>(value: T): T {

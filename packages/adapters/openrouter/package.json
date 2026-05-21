@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@snarkroute/core": "workspace:*",
     "@snarkroute/executor": "workspace:*",
     "@snarkroute/model-registry": "workspace:*"
   },
