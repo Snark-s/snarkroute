@@ -5,17 +5,31 @@ export {
   GatewayModelResolver,
   ModelGateway,
   ModelRegistry,
-  providerModelRef
+  estimateCatalogPricingQuote,
+  providerModelRef,
+  sanitizePricingQuote,
+  unknownPricingQuote
 } from "./model-gateway";
 export type {
+  ModelGatewayQuoteResult,
   ModelCapability,
   ModelInfo,
+  ModelIOContract,
+  ModelIOItem,
+  ModelMediaKind,
   ModelInvokeRequest,
   ModelInvokeResult,
+  ModelPricingInput,
   ModelProviderId,
+  ModelQuoteRequest,
   ModelSelectionPreferences,
   ProviderAdapter,
-  ProviderConnection
+  ProviderConnection,
+  PricingConfidence,
+  PricingCurrency,
+  PricingQuote,
+  PricingResolver,
+  PricingUnit
 } from "./model-gateway";
 export * from "@snarkroute/protocol";
 

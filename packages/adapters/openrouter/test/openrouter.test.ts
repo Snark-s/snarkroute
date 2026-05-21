@@ -10,6 +10,7 @@ import {
   createOpenRouterClient,
   createOpenRouterProviderAdapter,
   createOpenRouterTextNodeRunner,
+  estimateOpenRouterPricingQuote,
   parseOpenRouterModelCatalog,
   refreshOpenRouterModelCatalog,
   resolveModelProvider
@@ -131,6 +132,27 @@ describe("OpenRouter adapter", () => {
     });
     expect((result.output as Record<string, unknown>).estimatedCost).toBeNull();
     expect((result.output as Record<string, unknown>).pricingSource).toBe("unknown");
+  });
+
+  it("catalog pricing.image produces an image-generation quote", () => {
+    expect(estimateOpenRouterPricingQuote({
+      logicalModel: "image.nano-banana",
+      provider: "openrouter",
+      providerModel: "google/gemini-image",
+      capability: "image.generate",
+      params: { n: 2, pricing: { image: "0.03" } },
+      inputMetadata: {}
+    })).toMatchObject({ estimatedCost: 0.06, currency: "USD", confidence: "exact", pricingSource: "openrouter_catalog" });
+  });
+
+  it("missing catalog pricing returns an unknown quote", () => {
+    expect(estimateOpenRouterPricingQuote({
+      provider: "openrouter",
+      providerModel: "openai/gpt-5.2",
+      capability: "text.generate",
+      params: {},
+      inputMetadata: {}
+    })).toMatchObject({ estimatedCost: null, confidence: "unknown" });
   });
 
   it("text runner calls Model Gateway", async () => {

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { ModelGateway, type ModelInvokeResult, type ProviderAdapter } from "@snarkroute/core";
+import { ModelGateway, unknownPricingQuote, type ModelInvokeResult, type ModelPricingInput, type PricingQuote, type PricingUnit, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -24,6 +24,17 @@ export interface GeminiClientOptions {
   token?: string;
   fetchImpl?: typeof fetch;
   modelGateway?: Pick<ModelGateway, "invoke">;
+  pricingConfigPath?: string;
+  localPricingConfig?: GeminiLocalPricingConfig;
+}
+
+export interface GeminiLocalPricingConfig {
+  models?: Record<string, {
+    currency?: string;
+    unit?: PricingUnit;
+    price?: number | string | null;
+    notes?: string;
+  }>;
 }
 
 export interface GeminiImageConfig {
@@ -129,6 +140,17 @@ export function createNanoBanana2NodeRunner(options: GeminiClientOptions = {}): 
       metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type }
     });
     const result = geminiGenerateResultFromGateway(gatewayResult, model);
+    const pricingQuote = quoteFromGatewayOutput(gatewayResult.output) ?? estimateGeminiPricingQuote({
+      provider: "gemini",
+      providerModel: model,
+      capability: "image.generate",
+      params: {
+        aspectRatio: stringParam(params.aspectRatio),
+        imageSize: stringParam(params.imageSize),
+        localPricingConfig: options.localPricingConfig ?? await readLocalGeminiPricingConfig(options.pricingConfigPath)
+      },
+      inputMetadata: {}
+    });
     const imageAsset = imageAssetFromGateway(gatewayResult);
     if (!result.image) {
       throw new Error(
@@ -141,8 +163,18 @@ export function createNanoBanana2NodeRunner(options: GeminiClientOptions = {}): 
         image: imageAsset,
         output: result.output,
         text: result.text,
+        provider: "gemini",
         model,
-        cost: estimateGeminiImageCost(params.imageSize),
+        providerModel: model,
+        cost: legacyCostFromQuote(pricingQuote, params.imageSize),
+        estimatedCost: pricingQuote.estimatedCost,
+        estimatedCostCurrency: pricingQuote.currency,
+        estimatedCostConfidence: pricingQuote.confidence,
+        pricingSource: pricingQuote.pricingSource,
+        pricingQuote,
+        actualUsage: gatewayResult.usage,
+        actualCost: null,
+        actualCostCurrency: null,
         inputImageCount: images.length,
         localPath: imageAsset.localPath,
         status: "succeeded"
@@ -155,9 +187,14 @@ export function createNanoBanana2NodeRunner(options: GeminiClientOptions = {}): 
         nodeId: node.id,
         nodeType: node.type,
         status: "succeeded",
-        estimatedCost: null,
+        providerModel: model,
+        logicalModel: undefined,
+        estimatedCost: pricingQuote.estimatedCost,
         actualCost: null,
-        pricingHint: "external-provider-billing"
+        actualCostCurrency: null,
+        pricingHint: pricingQuote.pricingSource,
+        pricingSource: pricingQuote.pricingSource,
+        pricingQuote
       } satisfies ProviderUsageEvent
     };
   };
@@ -178,6 +215,13 @@ export function createGeminiLlmNodeRunner(options: GeminiClientOptions = {}): No
       metadata: { nodeId: node.id, nodeType: node.type }
     });
     const result = geminiGenerateResultFromGateway(gatewayResult, model);
+    const pricingQuote = estimateGeminiPricingQuote({
+      provider: "gemini",
+      providerModel: model,
+      capability: "text.generate",
+      params: { localPricingConfig: options.localPricingConfig ?? await readLocalGeminiPricingConfig(options.pricingConfigPath) },
+      inputMetadata: {}
+    });
     const text = result.text?.trim();
     if (!text) {
       throw new Error(`Gemini LLM (${model}) did not return text.`);
@@ -186,8 +230,18 @@ export function createGeminiLlmNodeRunner(options: GeminiClientOptions = {}): No
       output: {
         text,
         output: result.output,
+        provider: "gemini",
         model,
+        providerModel: model,
         cost: estimateGeminiLlmCost(model, result.output),
+        estimatedCost: pricingQuote.estimatedCost,
+        estimatedCostCurrency: pricingQuote.currency,
+        estimatedCostConfidence: pricingQuote.confidence,
+        pricingSource: pricingQuote.pricingSource,
+        pricingQuote,
+        actualUsage: gatewayResult.usage,
+        actualCost: null,
+        actualCostCurrency: null,
         status: "succeeded"
       },
       logs: [`Generated Gemini text with ${model}`],
@@ -198,9 +252,13 @@ export function createGeminiLlmNodeRunner(options: GeminiClientOptions = {}): No
         nodeId: node.id,
         nodeType: node.type,
         status: "succeeded",
-        estimatedCost: null,
+        providerModel: model,
+        estimatedCost: pricingQuote.estimatedCost,
         actualCost: null,
-        pricingHint: "external-provider-billing"
+        actualCostCurrency: null,
+        pricingHint: pricingQuote.pricingSource,
+        pricingSource: pricingQuote.pricingSource,
+        pricingQuote
       } satisfies ProviderUsageEvent
     };
   };
@@ -212,6 +270,9 @@ export function createGeminiProviderAdapter(options: GeminiClientOptions = {}): 
     id: "gemini",
     title: "Gemini",
     capabilities: ["text.generate", "image.generate"],
+    pricingResolver: {
+      estimate: estimateGeminiPricingQuote
+    },
     async invoke(request) {
       const prompt = stringParam(request.input.prompt) ?? "";
       const images = collectInputImages(request.input.images ?? request.input.image);
@@ -265,6 +326,41 @@ export function createGeminiProviderAdapter(options: GeminiClientOptions = {}): 
   };
 }
 
+export function estimateGeminiPricingQuote(input: ModelPricingInput): PricingQuote {
+  const config = input.params.localPricingConfig;
+  const modelConfig = config && typeof config === "object"
+    ? ((config as GeminiLocalPricingConfig).models ?? {})[input.providerModel]
+    : undefined;
+  if (!modelConfig) return unknownPricingQuote(input, "local_pricing_config", `No local pricing configured for this Gemini model.`);
+  const price = numberValue(modelConfig.price);
+  if (price === null) {
+    return unknownPricingQuote(input, "local_pricing_config", `No local pricing configured for this Gemini model.`);
+  }
+  const count = Math.max(1, Math.floor(numberValue(input.params.n) ?? 1));
+  return {
+    logicalModel: input.logicalModel,
+    provider: input.provider,
+    providerModel: input.providerModel,
+    capability: input.capability,
+    estimatedCost: Number((price * count).toFixed(8)),
+    currency: modelConfig.currency ?? "USD",
+    pricingSource: "local_pricing_config",
+    confidence: "estimated",
+    unit: modelConfig.unit ?? "image",
+    breakdown: { price, count },
+    warnings: modelConfig.notes ? [modelConfig.notes] : undefined
+  };
+}
+
+export async function readLocalGeminiPricingConfig(configPath = join(process.cwd(), "data", "model-pricing", "gemini.json")): Promise<GeminiLocalPricingConfig> {
+  try {
+    const parsed = JSON.parse(await readFile(configPath, "utf8")) as unknown;
+    return parsed && typeof parsed === "object" ? parsed as GeminiLocalPricingConfig : {};
+  } catch {
+    return {};
+  }
+}
+
 function createGeminiModelGateway(options: GeminiClientOptions, model: string, capability: "text.generate" | "image.generate"): ModelGateway {
   return new ModelGateway({
     models: [{
@@ -296,6 +392,22 @@ function geminiGenerateResultFromGateway(result: ModelInvokeResult, model: strin
 function imageAssetFromGateway(result: ModelInvokeResult): GeminiDownloadedImageAsset | undefined {
   const image = result.output.image;
   return image && typeof image === "object" ? image as GeminiDownloadedImageAsset : undefined;
+}
+
+function quoteFromGatewayOutput(output: Record<string, unknown>): PricingQuote | null {
+  const quote = output.pricingQuote;
+  return quote && typeof quote === "object" ? quote as PricingQuote : null;
+}
+
+function legacyCostFromQuote(quote: PricingQuote, imageSize: unknown): Record<string, unknown> {
+  return {
+    estimated: true,
+    currency: quote.currency,
+    amountUsd: quote.currency === "USD" ? quote.estimatedCost : null,
+    imageSize: stringParam(imageSize) ?? "2K",
+    source: quote.pricingSource,
+    note: quote.confidence === "unknown" ? "No local pricing configured for this Gemini model." : "Advisory provider cost preview; final billing may differ."
+  };
 }
 
 function buildImageGenerationPrompt(prompt: string, hasInputImage: boolean): string {
@@ -452,18 +564,13 @@ function filterDefined<T extends Record<string, unknown>>(value: T): Partial<T> 
 
 export function estimateGeminiImageCost(imageSize: unknown): Record<string, unknown> {
   const size = stringParam(imageSize) ?? "2K";
-  const estimatedBySize: Record<string, number> = {
-    "1K": 0.039,
-    "2K": 0.039,
-    "4K": 0.24
-  };
   return {
     estimated: true,
     currency: "USD",
-    amountUsd: estimatedBySize[size] ?? null,
+    amountUsd: null,
     imageSize: size,
-    source: "Gemini image generation public pricing hint",
-    note: "Estimated provider cost for this image; final billing may differ."
+    source: "local_pricing_config",
+    note: "No local pricing configured for this Gemini image model."
   };
 }
 

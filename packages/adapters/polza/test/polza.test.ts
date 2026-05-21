@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildImageRequestBody, buildMediaImageRequestBody, createPolzaImageNodeRunner, createPolzaTextNodeRunner } from "../src/index";
+import { buildImageRequestBody, buildMediaImageRequestBody, createPolzaImageNodeRunner, createPolzaTextNodeRunner, estimatePolzaPricingQuote } from "../src/index";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -41,6 +41,26 @@ describe("Polza adapter", () => {
       },
       async: false
     });
+  });
+
+  it("catalog pricing returns a Polza image quote", () => {
+    expect(estimatePolzaPricingQuote({
+      provider: "polza",
+      providerModel: "openai/gpt-5.4-image-2",
+      capability: "image.generate",
+      params: { n: 2, pricing: { image: "1.5", currency: "RUB" } },
+      inputMetadata: {}
+    })).toMatchObject({ estimatedCost: 3, currency: "RUB", pricingSource: "polza_catalog" });
+  });
+
+  it("missing Polza pricing returns unknown quote", () => {
+    expect(estimatePolzaPricingQuote({
+      provider: "polza",
+      providerModel: "openai/gpt-5.4-image-2",
+      capability: "image.generate",
+      params: {},
+      inputMetadata: {}
+    })).toMatchObject({ estimatedCost: null, confidence: "unknown" });
   });
 
   it("does not send unsupported aspect ratio controls to GPT-5 Image Mini", () => {

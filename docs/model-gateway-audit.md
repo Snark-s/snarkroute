@@ -7,6 +7,8 @@
 - `apps/studio/src/main.tsx` contains provider-facing UI state, model lists, example routes, and OpenRouter settings controls.
 - `apps/server/src/providers/provider-node-manifests.ts` contains bundled provider node manifests and permission declarations.
 - Provider catalog data for OpenRouter is cached in `data/cache/openrouter-models.json` through `apps/server/src/routes/providers.ts`.
+- Local optional direct-provider pricing metadata lives under `data/model-pricing/`, currently `data/model-pricing/gemini.json`. This is runtime metadata, not ORP route data.
+- Neutral advisory pricing types and generic catalog estimation helpers live in `packages/core/src/model-gateway/pricing.ts`.
 
 ## Current Provider API Calls
 
@@ -33,6 +35,15 @@
 | `ai.image.generate` direct Gemini route | Gemini | `apps/server/src/execution/model-gateway-runners.ts` compatibility resolver -> gateway-backed Gemini image runner -> Gemini `ProviderAdapter` | yes |  | `packages/adapters/gemini/test/gemini.test.ts`, `apps/server/test/image-generation-routing.test.ts` |
 | `apps/server/src/routes/providers.ts` settings/catalog endpoints | OpenRouter / Polza / Replicate | route handler -> provider client for status/catalog/schema | no | Not model execution; these are settings/catalog helper endpoints and do not invoke workflow models. TODO: wrap catalog listing in provider adapter `listModels` if the UI starts using gateway-managed model catalogs. | server provider/settings tests |
 
+## Cost Preview Path
+
+- `ModelGateway.quote`, `quoteSelectedRoute`, and `quoteAvailableRoutes` resolve the same provider route as `invoke`, but only return `PricingQuote` metadata.
+- OpenRouter quotes use cached catalog pricing fields such as `pricing.image`, `pricing.request`, `pricing.prompt`, `pricing.completion`, `pricing.input`, and `pricing.output` when present.
+- Polza quotes are available for explicit `polza.text` and `polza.image.generate` nodes when the Polza model catalog exposes pricing. Polza is not included in logical `ai.text` or `ai.image.generate` routing yet.
+- Direct Gemini image quotes use `data/model-pricing/gemini.json`. If `price` is `null`, the quote is unknown with a local-pricing warning.
+- `POST /api/model-gateway/quote` serves Studio previews. It is advisory only, does not execute the model, does not make paid calls, and does not accept or return API keys/tokens/secrets.
+- Model node outputs and provider usage events now carry quote fields next to existing cost fields: `estimatedCost`, `estimatedCostCurrency`, `estimatedCostConfidence`, `pricingSource`, `pricingQuote`, `actualUsage`, `actualCost`, and `actualCostCurrency` when known.
+
 ## Direct Node Dependencies
 
 - `ai.text` uses `apps/server/src/execution/model-gateway-runners.ts` as a provider-neutral compatibility resolver for legacy params (`model`, `providerMode`), then invokes gateway-backed OpenRouter or Gemini runners.
@@ -53,6 +64,7 @@
 - Ledger stripping in `apps/server/src/ledger/service.ts` applies the same class of redaction.
 - Studio tests already check that route JSON does not include `REPLICATE_API_TOKEN`; protocol tests check route export secrets.
 - Model Gateway v0 rejects `ProviderConnection` objects that carry raw fields such as `apiKey` or `token`; callers must use `credentialRef` or `secretRef`.
+- Quote endpoint params are sanitized for secret-shaped keys and `PricingQuote` output is stripped of `apiKey`, `token`, `secret`, `password`, and `baseUrl` shaped fields.
 - Remaining risk: provider setting forms in `apps/studio/src/main.tsx` temporarily hold typed secrets in UI state before posting them to local settings. This is expected for settings UX, but those values must not be copied into route params or exported documents.
 
 ## Safe Changes Now
@@ -75,6 +87,8 @@
 
 - No smart model selection.
 - No cost-based routing.
+- No automatic cheapest-provider routing.
+- No guaranteed final cost before execution.
 - No benchmark-based routing.
 - No remote registry.
 - No marketplace, billing, accounts, or provider settings redesign.

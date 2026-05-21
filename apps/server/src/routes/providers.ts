@@ -4,6 +4,8 @@ import { createReplicateClient } from "@snarkroute/replicate";
 import { createOpenRouterClient, readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
 import { openRouterCatalogCachePath, providerLinksPath } from "../server-paths";
+import { createModelResolver } from "@snarkroute/openrouter";
+import { loadModelRouteMappings, quoteModelExecutingNode } from "../execution/model-gateway-runners";
 import { isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterPublicError, openRouterSettingsStatus } from "../providers/openrouter";
@@ -51,6 +53,38 @@ app.get("/api/providers/openrouter/models", async () => {
   return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: cache?.models.length ?? 0, models: cache?.models ?? [] };
 });
 
+app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/api/model-gateway/quote", async (request, reply) => {
+  try {
+    const nodeType = typeof request.body?.nodeType === "string" ? request.body.nodeType : "";
+    const params = sanitizeQuoteParams(request.body?.params);
+    const polzaModels = nodeType.startsWith("polza.") && isPolzaEnabled()
+      ? await createPolzaClient().getModels(nodeType === "polza.text" ? "chat" : "image").catch(() => [])
+      : [];
+    return await quoteModelExecutingNode({
+      nodeType,
+      params,
+      modelResolver: createModelResolver(await loadModelRouteMappings()),
+      polzaModels
+    });
+  } catch (error) {
+    return reply.code(200).send({
+      selected: {
+        provider: "unknown",
+        providerModel: String(request.body?.params?.model ?? request.body?.nodeType ?? "unknown"),
+        capability: "unknown",
+        estimatedCost: null,
+        currency: null,
+        pricingSource: "unknown",
+        confidence: "unknown",
+        unit: "unknown",
+        warnings: [errorMessage(error)]
+      },
+      alternatives: [],
+      warnings: [errorMessage(error)]
+    });
+  }
+});
+
 app.get<{ Querystring: { type?: "chat" | "image" | "embedding" } }>("/api/providers/polza/models", async (request, reply) => {
   try {
     if (!isPolzaEnabled()) return { ok: true, configured: false, modelCount: 0, models: [] };
@@ -71,4 +105,9 @@ app.get<{ Querystring: { model?: string } }>("/api/replicate/schema", async (req
   }
 });
 
+}
+
+function sanitizeQuoteParams(params: unknown): Record<string, unknown> {
+  if (!params || typeof params !== "object" || Array.isArray(params)) return {};
+  return Object.fromEntries(Object.entries(params as Record<string, unknown>).filter(([key]) => !/api[_-]?key|token|secret|password/i.test(key)));
 }

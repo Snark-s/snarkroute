@@ -218,6 +218,26 @@ type PolzaModel = {
   architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
 };
 
+type PricingQuote = {
+  logicalModel?: string;
+  provider: string;
+  providerModel: string;
+  capability: string;
+  estimatedCost: number | null;
+  currency: string | null;
+  pricingSource: string;
+  confidence: string;
+  unit?: string;
+  breakdown?: Record<string, unknown>;
+  warnings?: string[];
+};
+
+type ModelQuotePreview = {
+  selected: PricingQuote;
+  alternatives: PricingQuote[];
+  warnings: string[];
+};
+
 type ImageModelOption = {
   id: string;
   slug: string;
@@ -753,6 +773,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const modelProfiles = (data.modelProfiles as ModelProfile[] | undefined) ?? DEFAULT_MODEL_PROFILES;
   const polzaTextModels = (data.polzaTextModels as PolzaModel[] | undefined) ?? [];
   const polzaImageModels = (data.polzaImageModels as PolzaModel[] | undefined) ?? [];
+  const quotePreview = data.quotePreview as ModelQuotePreview | undefined;
   const manifest = data.manifest as NodeManifest | undefined;
   const isMissingNode = Boolean(data.isMissingNode);
   const onRefreshStableDiffusionModels = data.onRefreshStableDiffusionModels as ((endpoint: string) => void) | undefined;
@@ -1016,6 +1037,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           modelProfiles={modelProfiles}
           polzaTextModels={polzaTextModels}
           polzaImageModels={polzaImageModels}
+          quotePreview={quotePreview}
           onRefreshStableDiffusionModels={onRefreshStableDiffusionModels}
           onChange={patchParams}
           onBrowse={(kind) => onBrowseAsset?.(id, kind)}
@@ -1678,6 +1700,7 @@ function NodeInlineParams({
   openRouterModels,
   polzaTextModels,
   polzaImageModels,
+  quotePreview,
   modelProfiles,
   onRefreshStableDiffusionModels,
   onChange,
@@ -1697,6 +1720,7 @@ function NodeInlineParams({
   openRouterModels: OpenRouterModel[];
   polzaTextModels: PolzaModel[];
   polzaImageModels: PolzaModel[];
+  quotePreview?: ModelQuotePreview;
   modelProfiles: ModelProfile[];
   onRefreshStableDiffusionModels?: (endpoint: string) => void;
   onChange: (patch: Record<string, unknown>) => void;
@@ -2039,6 +2063,7 @@ function NodeInlineParams({
           </select>
           <small className="nodeConnectedHint">{openRouterCostLabel(openRouterModels.find((entry) => entry.id === model))}</small>
         </label>
+        <ModelPricingPreview quotePreview={quotePreview} />
         <label className="nodeField">
           <span>system prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
@@ -2101,6 +2126,7 @@ function NodeInlineParams({
           </select>
           <small className="nodeConnectedHint">{imageModelCostLabel(selectedModel)}</small>
         </label>
+        <ModelPricingPreview quotePreview={quotePreview} />
         <label className="nodeField">
           <span>prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
@@ -2162,6 +2188,7 @@ function NodeInlineParams({
           </select>
           <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Text model via Polza.ai")}</small>
         </label>
+        <ModelPricingPreview quotePreview={quotePreview} />
         <label className="nodeField">
           <span>system prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
@@ -2203,6 +2230,7 @@ function NodeInlineParams({
           </select>
           <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Image model via Polza.ai")}</small>
         </label>
+        <ModelPricingPreview quotePreview={quotePreview} />
         <label className="nodeField">
           <span>prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
@@ -2283,6 +2311,7 @@ function NodeInlineParams({
             </select>
           </label>
         </div>
+        <ModelPricingPreview quotePreview={quotePreview} />
       </>
     );
   }
@@ -3560,6 +3589,72 @@ function manifestInputPortSpec(port: NodeManifest["inputs"][number]): PortSpec {
   };
 }
 
+function ModelPricingPreview({ quotePreview }: { quotePreview?: ModelQuotePreview }) {
+  const selected = quotePreview?.selected;
+  if (!selected) {
+    return (
+      <div className="nodePricingPreview">
+        <div><span>Estimated cost</span><strong>Unknown</strong></div>
+        <div><span>Provider route</span><strong>Not configured</strong></div>
+      </div>
+    );
+  }
+  return (
+    <div className="nodePricingPreview">
+      <div><span>Estimated cost</span><strong>{pricingAmountLabel(selected)}</strong></div>
+      <div><span>Provider route</span><strong>{providerRouteLabel(selected)}</strong></div>
+      <div><span>Confidence</span><strong>{selected.confidence || "unknown"}</strong></div>
+      <div><span>Pricing source</span><strong>{selected.pricingSource || "unknown"}</strong></div>
+      {selected.warnings?.length ? <div><span>Note</span><strong>{selected.warnings[0]}</strong></div> : null}
+      {quotePreview.alternatives.length > 0 ? (
+        <details className="nodeQuoteAlternatives">
+          <summary>Alternative route quotes</summary>
+          {quotePreview.alternatives.map((quote) => (
+            <div key={`${quote.provider}:${quote.providerModel}`}>
+              <span>{quote.provider}</span>
+              <strong>{pricingAmountLabel(quote)} · {quote.providerModel}</strong>
+            </div>
+          ))}
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function pricingAmountLabel(quote: PricingQuote): string {
+  if (typeof quote.estimatedCost !== "number") return quote.pricingSource === "local_pricing_config" ? "Not configured" : "Unknown";
+  const currency = quote.currency ?? "";
+  return `${currency ? `${currency} ` : ""}${quote.estimatedCost.toFixed(quote.estimatedCost < 0.01 ? 6 : 4)}`;
+}
+
+function providerRouteLabel(quote: PricingQuote): string {
+  const provider = quote.provider === "openrouter" ? "OpenRouter" : quote.provider === "gemini" ? "Direct Gemini" : quote.provider === "polza" ? "Polza.ai" : quote.provider;
+  return `${provider}: ${quote.providerModel}`;
+}
+
+function isModelQuoteableNodeType(type: string): boolean {
+  return ["ai.text", "ai.image.generate", "gemini.nano-banana-2", "polza.text", "polza.image.generate"].includes(type);
+}
+
+function unknownQuotePreview(node: RouteDoc["nodes"][number]): ModelQuotePreview {
+  return {
+    selected: {
+      logicalModel: String(node.params?.model ?? node.type),
+      provider: "unknown",
+      providerModel: String(node.params?.model ?? node.type),
+      capability: node.type.includes("image") || node.type.includes("banana") ? "image.generate" : "text.generate",
+      estimatedCost: null,
+      currency: null,
+      pricingSource: "unknown",
+      confidence: "unknown",
+      unit: "unknown",
+      warnings: ["Quote preview is unavailable."]
+    },
+    alternatives: [],
+    warnings: ["Quote preview is unavailable."]
+  };
+}
+
 function isKnownBuiltInPortType(type: string): boolean {
   return type === "compound.subroute" || library.some((item) => item.type === type);
 }
@@ -4572,6 +4667,7 @@ function App() {
   const [docsMenuOpen, setDocsMenuOpen] = useState(false);
   const [activeDoc, setActiveDoc] = useState<StudioDocEntry | null>(null);
   const [activeDialogueWorkbenchId, setActiveDialogueWorkbenchId] = useState<string | null>(null);
+  const [modelQuotePreviews, setModelQuotePreviews] = useState<Record<string, ModelQuotePreview>>({});
   const [loadedRouteSnapshot, setLoadedRouteSnapshot] = useState(() => routeSnapshot(initialRouteState.route));
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
@@ -4747,6 +4843,7 @@ function App() {
           polzaConfigured,
           polzaTextModels,
           polzaImageModels,
+          quotePreview: modelQuotePreviews[node.id],
           openAiConfigured,
           seedanceConfigured,
           seedanceStatusText: seedanceSettings.statusText,
@@ -4755,7 +4852,7 @@ function App() {
           result: staleResultNodeIds.has(node.id) ? undefined : readyNodeResult(node.data.routeNode as RouteDoc["nodes"][number], runResult?.nodeResults?.[node.id], nodes, edges, runResult)
         }
       })),
-    [nodes, edges, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, modelQuotePreviews, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
@@ -4768,6 +4865,38 @@ function App() {
     void loadPromptLibraryData();
     void loadLedgerSummary();
   }, []);
+
+  useEffect(() => {
+    const quoteableNodes = nodes
+      .map((node) => node.data.routeNode as RouteDoc["nodes"][number])
+      .filter((node) => isModelQuoteableNodeType(node.type));
+    if (quoteableNodes.length === 0) {
+      setModelQuotePreviews({});
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      const entries = await Promise.all(quoteableNodes.map(async (node) => {
+        try {
+          const response = await fetch(`${apiBase}/api/model-gateway/quote`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nodeType: node.type, params: node.params ?? {} })
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error ?? "Quote preview unavailable.");
+          return [node.id, result as ModelQuotePreview] as const;
+        } catch {
+          return [node.id, unknownQuotePreview(node)] as const;
+        }
+      }));
+      if (!cancelled) setModelQuotePreviews(Object.fromEntries(entries));
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [nodes]);
 
   useEffect(() => {
     saveLibraryNodeMetadata(libraryNodeMetadata);

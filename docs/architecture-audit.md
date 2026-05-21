@@ -68,6 +68,14 @@ Model Gateway v0 lives in `packages/core/src/model-gateway`. It builds on the re
 
 Provider-neutral server routing for `ai.text` and `ai.image.generate` lives in `apps/server/src/execution/model-gateway-runners.ts`, not in the OpenRouter provider helper. OpenRouter, Gemini, and Polza remain provider-specific adapter packages; Polza is still exposed through explicit Polza node types rather than logical model routing.
 
+### 2026-05-21: Advisory Cost Preview / Pricing Quotes
+
+Model Gateway v0 now has a neutral advisory pricing layer in `packages/core/src/model-gateway/pricing.ts`. `ModelGateway.quote`, `quoteSelectedRoute`, and `quoteAvailableRoutes` return `PricingQuote` metadata for the resolved provider route without invoking the model or changing route selection.
+
+OpenRouter and Polza estimates use provider catalog pricing when available. Direct Gemini image pricing uses local runtime metadata in `data/model-pricing/gemini.json`; a missing or `null` price returns `estimatedCost: null` and `confidence: "unknown"`. These previews are not smart routing, not cheapest-provider routing, not billing, and not guaranteed final costs.
+
+Studio reads `POST /api/model-gateway/quote` for small read-only node previews. ORP route format remains unchanged, route files do not store pricing tables or secrets, and provider credentials remain outside routes.
+
 ## Runtime / Execution Audit
 
 `packages/executor` is a reasonable shared runtime package. It still uses `NodeRunner`, `NodeResult`, and related names because the Open Route Protocol compatibility surface is node-based. For BoojumRoute, these are now conceptually block runners.

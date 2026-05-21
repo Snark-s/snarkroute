@@ -6,7 +6,7 @@ SnarkRoute is the object/workspace layer: artifacts, boards, versions, relations
 
 BoojumRoute Lab is the working block editor and tool lab you can try today. It is the low-level graph interface for building tools from blocks, routes, providers, executors, schemas, and prompt/library assets.
 
-BoojumRoute Lab now includes a first Dialogue Workbench block for conversation-heavy route steps. It opens as a large editor, stores manual/model-assisted messages, exposes selected outputs as graph ports, and emits `conversation_text`, `conversation_json`, and `conversation_capsule`. The first Model Registry layer defines portable Model Profiles and Agent Presets while provider credentials stay in local settings. SnarkRoute also includes a provider-neutral Model Gateway v0: model-executing nodes call registered provider adapters through the gateway, while route files remain provider-agnostic where possible and never store raw provider secrets. See `docs/model-registry-principles.md`, `docs/model-gateway-v0.md`, and `docs/dialogue-workbench.md`.
+BoojumRoute Lab now includes a first Dialogue Workbench block for conversation-heavy route steps. It opens as a large editor, stores manual/model-assisted messages, exposes selected outputs as graph ports, and emits `conversation_text`, `conversation_json`, and `conversation_capsule`. The first Model Registry layer defines portable Model Profiles and Agent Presets while provider credentials stay in local settings. SnarkRoute also includes a provider-neutral Model Gateway v0: model-executing nodes call registered provider adapters through the gateway, while route files remain provider-agnostic where possible and never store raw provider secrets. Model Gateway can show advisory pricing quotes when provider pricing metadata is available; it does not automatically pick the cheapest provider or guarantee final cost before execution. See `docs/model-registry-principles.md`, `docs/model-gateway-v0.md`, and `docs/dialogue-workbench.md`.
 
 SnarkRoute Living Canvas is an early experimental shell for the future higher-level creative interface. It is not the main public preview yet.
 
@@ -400,6 +400,8 @@ Replicate output URLs may expire, so SnarkRoute downloads the first returned ima
 SnarkRoute v0.1 stores economics as metadata and local accounting only. It does not execute payments, settlements, marketplace actions, checkout, billing API calls, blockchain calls, or share payouts.
 
 Routes can include authors, contributors, revenue splits, provider cost hints, currency, and notes. Every run gets a local accounting summary with `paymentExecuted: false`, provider usage events such as Replicate prediction ids, and estimated/actual provider costs when known. Actual provider cost may be `null`.
+
+Model-executing nodes can also show pre-run advisory cost previews in Studio. These quotes come from local/runtime metadata such as cached OpenRouter catalog pricing, Polza catalog pricing, or `data/model-pricing/gemini.json`. Pricing metadata and secrets are not stored in ORP route files. If a price cannot be estimated, SnarkRoute shows `Unknown` rather than blocking execution.
 
 The ledger is local, ignored by git, and not exported with route documents:
 

@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { ModelGateway, type ModelInvokeResult, type ProviderAdapter } from "@snarkroute/core";
+import { estimateCatalogPricingQuote, ModelGateway, type ModelInvokeResult, type ModelPricingInput, type PricingQuote, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 import {
   createModelResolver,
@@ -149,23 +149,37 @@ export function createOpenRouterTextNodeRunner(options: OpenRouterClientOptions 
     const text = typeof gatewayResult.output.text === "string" ? gatewayResult.output.text : firstOpenRouterText(response);
     if (!text) throw new Error(`OpenRouter model "${resolution.model}" did not return text.`);
     const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : gatewayResult.usage;
-    const estimatedCost = numberOrNull(gatewayResult.output.estimatedCost) ?? estimateTextCostFromPricing(params.pricing, usage);
+    const pricingQuote = quoteFromGatewayOutput(gatewayResult.output) ?? estimateOpenRouterPricingQuote({
+      logicalModel: stringParam(params.model),
+      provider: "openrouter",
+      providerModel: resolution.model,
+      capability: "text.generate",
+      params,
+      inputMetadata: {}
+    });
+    const estimatedCost = numberOrNull(gatewayResult.output.estimatedCost) ?? estimateTextCostFromPricing(params.pricing, usage) ?? pricingQuote.estimatedCost;
     return {
       output: {
         text,
         output: response,
         provider: "openrouter",
+        logicalModel: stringParam(params.model),
         model: resolution.model,
+        providerModel: resolution.model,
         warnings: resolution.warnings,
         estimatedCost,
+        estimatedCostCurrency: pricingQuote.currency,
+        estimatedCostConfidence: pricingQuote.confidence,
         actualUsage: usage,
         actualCost: actualCostFromUsage(usage),
+        actualCostCurrency: null,
         pricingSource: estimatedCost === null ? "unknown" : "openrouter_catalog",
+        pricingQuote,
         status: "succeeded"
       },
       logs: [`Generated text with OpenRouter ${resolution.model}`],
       provenance: { provider: "openrouter", model: resolution.model, reason: resolution.reason, warnings: resolution.warnings },
-      providerUsage: openRouterUsageEvent(node.id, node.type, resolution.model, "succeeded", usage, estimatedCost)
+      providerUsage: openRouterUsageEvent(node.id, node.type, resolution.model, "succeeded", usage, { ...pricingQuote, estimatedCost }, stringParam(params.model))
     };
   };
 }
@@ -204,7 +218,15 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
     const imageAsset = openRouterImageAssetFromGateway(gatewayResult);
     if (!imageAsset) throw new Error(`OpenRouter model "${resolution.model}" did not return an image.`);
     const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : gatewayResult.usage;
-    const estimatedCost = numberOrNull(gatewayResult.output.estimatedCost) ?? estimateImageCostFromPricing(params.pricing);
+    const pricingQuote = quoteFromGatewayOutput(gatewayResult.output) ?? estimateOpenRouterPricingQuote({
+      logicalModel: selectedModelId,
+      provider: "openrouter",
+      providerModel: resolution.model,
+      capability: "image.generate",
+      params,
+      inputMetadata: {}
+    });
+    const estimatedCost = numberOrNull(gatewayResult.output.estimatedCost) ?? estimateImageCostFromPricing(params.pricing) ?? pricingQuote.estimatedCost;
     const metadata = resolutionMetadata(resolution, {
       requestProvider: "openrouter",
       requestModelSlug: resolution.model,
@@ -216,10 +238,18 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
         output: response,
         metadata,
         ...metadata,
+        logicalModel: selectedModelId,
+        provider: "openrouter",
+        model: resolution.model,
+        providerModel: resolution.model,
         estimatedCost,
+        estimatedCostCurrency: pricingQuote.currency,
+        estimatedCostConfidence: pricingQuote.confidence,
         actualUsage: usage,
         actualCost: actualCostFromUsage(usage),
+        actualCostCurrency: null,
         pricingSource: estimatedCost === null ? "unknown" : "openrouter_catalog",
+        pricingQuote,
         inputImageCount: images.length,
         localPath: imageAsset.localPath,
         status: "succeeded"
@@ -229,7 +259,7 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
         `Resolved route: ${metadata.resolvedRoute}; fallback: ${metadata.fallbackUsed ? metadata.fallbackReason || "yes" : "no"}`
       ],
       provenance: metadata,
-      providerUsage: openRouterUsageEvent(node.id, node.type, resolution.model, "succeeded", usage, estimatedCost)
+      providerUsage: openRouterUsageEvent(node.id, node.type, resolution.model, "succeeded", usage, { ...pricingQuote, estimatedCost }, selectedModelId)
     };
   };
 }
@@ -240,6 +270,9 @@ export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions
     id: "openrouter",
     title: "OpenRouter",
     capabilities: ["text.generate", "image.generate"],
+    pricingResolver: {
+      estimate: estimateOpenRouterPricingQuote
+    },
     async invoke(request) {
       const prompt = stringParam(request.input.prompt) ?? "";
       const images = collectInputImages(request.input.images ?? request.input.image);
@@ -266,7 +299,15 @@ export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions
             text: firstOpenRouterText(response),
             output: response,
             model: request.model.id,
-            estimatedCost: estimateTextCostFromPricing(request.parameters?.pricing, usage)
+            estimatedCost: estimateTextCostFromPricing(request.parameters?.pricing, usage),
+            pricingQuote: estimateOpenRouterPricingQuote({
+              logicalModel: stringParam(request.metadata?.logicalModel),
+              provider: "openrouter",
+              providerModel: request.model.id,
+              capability: request.capability,
+              params: request.parameters ?? {},
+              inputMetadata: request.metadata
+            })
           },
           usage: usage && typeof usage === "object" ? usage as Record<string, unknown> : undefined,
           raw: response,
@@ -292,7 +333,15 @@ export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions
             image: imageAsset,
             output: response,
             model: request.model.id,
-            estimatedCost: estimateImageCostFromPricing(request.parameters?.pricing)
+            estimatedCost: estimateImageCostFromPricing(request.parameters?.pricing),
+            pricingQuote: estimateOpenRouterPricingQuote({
+              logicalModel: stringParam(request.metadata?.logicalModel),
+              provider: "openrouter",
+              providerModel: request.model.id,
+              capability: request.capability,
+              params: request.parameters ?? {},
+              inputMetadata: request.metadata
+            })
           },
           usage: usage && typeof usage === "object" ? usage as Record<string, unknown> : undefined,
           raw: response,
@@ -302,6 +351,10 @@ export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions
       throw new Error(`OpenRouter adapter does not support capability "${request.capability}".`);
     }
   };
+}
+
+export function estimateOpenRouterPricingQuote(input: ModelPricingInput): PricingQuote {
+  return estimateCatalogPricingQuote(input, input.params.pricing, "openrouter_catalog");
 }
 
 function createOpenRouterModelGateway(options: OpenRouterClientOptions, model: string, capability: "text.generate" | "image.generate"): ModelGateway {
@@ -602,18 +655,28 @@ function extensionFromMimeType(mimeType: string): string {
   return ".png";
 }
 
-function openRouterUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown, estimatedCost: number | null): ProviderUsageEvent {
+function openRouterUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown, pricingQuote: PricingQuote, logicalModel?: string): ProviderUsageEvent {
   return {
     provider: "openrouter",
     model,
+    providerModel: model,
+    logicalModel,
     nodeId,
     nodeType,
     status,
     metrics: usage && typeof usage === "object" ? usage as Record<string, unknown> : undefined,
-    estimatedCost,
+    estimatedCost: pricingQuote.estimatedCost,
     actualCost: actualCostFromUsage(usage),
-    pricingHint: estimatedCost === null ? "unknown" : "openrouter_catalog"
+    actualCostCurrency: null,
+    pricingHint: pricingQuote.pricingSource,
+    pricingSource: pricingQuote.pricingSource,
+    pricingQuote
   };
+}
+
+function quoteFromGatewayOutput(output: Record<string, unknown>): PricingQuote | null {
+  const quote = output.pricingQuote;
+  return quote && typeof quote === "object" ? quote as PricingQuote : null;
 }
 
 function estimateTextCostFromPricing(pricing: unknown, usage: unknown): number | null {

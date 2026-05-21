@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { ModelGateway, type ModelInvokeResult, type ProviderAdapter } from "@snarkroute/core";
+import { estimateCatalogPricingQuote, ModelGateway, type ModelInvokeResult, type ModelPricingInput, type PricingQuote, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
@@ -152,20 +152,33 @@ export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): Nod
     const text = typeof gatewayResult.output.text === "string" ? gatewayResult.output.text : firstChatText(response);
     if (!text) throw new Error(`Polza text model "${model}" did not return text.`);
     const usage = objectField(response, "usage");
+    const pricingQuote = quoteFromGatewayOutput(gatewayResult.output) ?? estimatePolzaPricingQuote({
+      provider: "polza",
+      providerModel: model,
+      capability: "text.generate",
+      params,
+      inputMetadata: {}
+    });
     return {
       output: {
         text,
         output: response,
         provider: "polza",
         model,
+        providerModel: model,
+        estimatedCost: pricingQuote.estimatedCost,
+        estimatedCostCurrency: pricingQuote.currency,
+        estimatedCostConfidence: pricingQuote.confidence,
         actualUsage: usage,
         actualCost: actualCostFromUsage(usage),
-        pricingSource: "polza_usage",
+        actualCostCurrency: actualCostCurrencyFromUsage(usage),
+        pricingSource: pricingQuote.pricingSource,
+        pricingQuote,
         status: "succeeded"
       },
       logs: [`Generated text with Polza ${model}`],
       provenance: { provider: "polza", model },
-      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage)
+      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage, pricingQuote)
     };
   };
 }
@@ -190,6 +203,13 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
     const imageAsset = polzaImageAssetFromGateway(gatewayResult);
     if (!imageAsset) throw new Error(`Polza image model "${model}" did not return an image.`);
     const usage = objectField(response, "usage");
+    const pricingQuote = quoteFromGatewayOutput(gatewayResult.output) ?? estimatePolzaPricingQuote({
+      provider: "polza",
+      providerModel: model,
+      capability: "image.generate",
+      params,
+      inputMetadata: {}
+    });
     return {
       output: {
         image: imageAsset,
@@ -197,9 +217,15 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
         request,
         provider: "polza",
         model,
+        providerModel: model,
+        estimatedCost: pricingQuote.estimatedCost,
+        estimatedCostCurrency: pricingQuote.currency,
+        estimatedCostConfidence: pricingQuote.confidence,
         actualUsage: usage,
         actualCost: actualCostFromUsage(usage),
-        pricingSource: "polza_usage",
+        actualCostCurrency: actualCostCurrencyFromUsage(usage),
+        pricingSource: pricingQuote.pricingSource,
+        pricingQuote,
         inputImageCount: images.length,
         localPath: imageAsset.localPath,
         originalUrl: imageAsset.originalUrl,
@@ -208,7 +234,7 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
       },
       logs: [`Generated Polza image with ${model}: ${imageAsset.localPath ?? imageAsset.originalUrl ?? imageAsset.path}`],
       provenance: { provider: "polza", model },
-      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage)
+      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage, pricingQuote)
     };
   };
 }
@@ -219,6 +245,9 @@ export function createPolzaProviderAdapter(options: PolzaClientOptions = {}): Pr
     id: "polza",
     title: "Polza.ai",
     capabilities: ["text.generate", "image.generate"],
+    pricingResolver: {
+      estimate: estimatePolzaPricingQuote
+    },
     async invoke(request) {
       const prompt = stringParam(request.input.prompt) ?? "";
       const images = collectInputImages(request.input.images ?? request.input.image);
@@ -275,6 +304,10 @@ export function createPolzaProviderAdapter(options: PolzaClientOptions = {}): Pr
   };
 }
 
+export function estimatePolzaPricingQuote(input: ModelPricingInput): PricingQuote {
+  return estimateCatalogPricingQuote(input, input.params.pricing, "polza_catalog");
+}
+
 function createPolzaModelGateway(options: PolzaClientOptions, model: string, capability: "text.generate" | "image.generate"): ModelGateway {
   return new ModelGateway({
     models: [{
@@ -297,6 +330,11 @@ function createPolzaModelGateway(options: PolzaClientOptions, model: string, cap
 function polzaImageAssetFromGateway(result: ModelInvokeResult): PolzaImageAsset | undefined {
   const image = result.output.image;
   return image && typeof image === "object" ? image as PolzaImageAsset : undefined;
+}
+
+function quoteFromGatewayOutput(output: Record<string, unknown>): PricingQuote | null {
+  const quote = output.pricingQuote;
+  return quote && typeof quote === "object" ? quote as PricingQuote : null;
 }
 
 export function buildChatRequestBody(model: string, messages: PolzaChatMessage[], params: Record<string, unknown>): Record<string, unknown> {
@@ -541,17 +579,21 @@ async function writeGeneratedImage(
   };
 }
 
-function polzaUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown): ProviderUsageEvent {
+function polzaUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown, pricingQuote: PricingQuote): ProviderUsageEvent {
   return {
     provider: "polza",
     model,
+    providerModel: model,
     nodeId,
     nodeType,
     status,
     metrics: usage && typeof usage === "object" ? usage as Record<string, unknown> : undefined,
-    estimatedCost: null,
+    estimatedCost: pricingQuote.estimatedCost,
     actualCost: actualCostFromUsage(usage),
-    pricingHint: "polza_usage"
+    actualCostCurrency: actualCostCurrencyFromUsage(usage),
+    pricingHint: pricingQuote.pricingSource,
+    pricingSource: pricingQuote.pricingSource,
+    pricingQuote
   };
 }
 
@@ -568,6 +610,14 @@ function firstInputText(value: unknown): string | undefined {
 function actualCostFromUsage(usage: unknown): number | null {
   if (!usage || typeof usage !== "object") return null;
   return numberParam((usage as Record<string, unknown>).cost) ?? numberParam((usage as Record<string, unknown>).cost_rub) ?? null;
+}
+
+function actualCostCurrencyFromUsage(usage: unknown): string | null {
+  if (!usage || typeof usage !== "object") return null;
+  const record = usage as Record<string, unknown>;
+  if (numberParam(record.cost_rub) !== undefined) return "RUB";
+  if (numberParam(record.cost) !== undefined) return typeof record.currency === "string" ? record.currency : null;
+  return null;
 }
 
 function objectField(value: unknown, key: string): unknown {

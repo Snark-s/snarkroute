@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildNanoBanana2Parts, createGeminiClient, createGeminiLlmNodeRunner, createNanoBanana2NodeRunner, prepareImageInlineData } from "../src/index";
+import { buildNanoBanana2Parts, createGeminiClient, createGeminiLlmNodeRunner, createNanoBanana2NodeRunner, estimateGeminiPricingQuote, prepareImageInlineData } from "../src/index";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return {
@@ -74,8 +74,28 @@ describe("Gemini adapter", () => {
     const body = JSON.parse(String(fetchImpl.mock.calls[0][1]?.body));
     expect(body.contents[0].parts[0].text).toContain("Return an image result");
     expect(body.contents[0].parts[0].text).toContain("connected prompt");
-    expect(result.output).toMatchObject({ cost: { amountUsd: 0.039 }, inputImageCount: 0 });
+    expect(result.output).toMatchObject({ cost: { amountUsd: null }, inputImageCount: 0, estimatedCost: null, estimatedCostConfidence: "unknown" });
     expect(JSON.stringify(result.providerUsage)).not.toContain("token");
+  });
+
+  it("missing local Gemini price returns unknown quote", () => {
+    expect(estimateGeminiPricingQuote({
+      provider: "gemini",
+      providerModel: "gemini-3.1-flash-image-preview",
+      capability: "image.generate",
+      params: { localPricingConfig: { models: { "gemini-3.1-flash-image-preview": { currency: "USD", unit: "image", price: null } } } },
+      inputMetadata: {}
+    })).toMatchObject({ estimatedCost: null, confidence: "unknown", pricingSource: "local_pricing_config" });
+  });
+
+  it("local configured Gemini image price produces a quote", () => {
+    expect(estimateGeminiPricingQuote({
+      provider: "gemini",
+      providerModel: "gemini-3.1-flash-image-preview",
+      capability: "image.generate",
+      params: { n: 2, localPricingConfig: { models: { "gemini-3.1-flash-image-preview": { currency: "USD", unit: "image", price: 0.04 } } } },
+      inputMetadata: {}
+    })).toMatchObject({ estimatedCost: 0.08, confidence: "estimated", pricingSource: "local_pricing_config" });
   });
 
   it("passes aspect ratio and image size to Gemini image config", async () => {
