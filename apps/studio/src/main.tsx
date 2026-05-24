@@ -6166,10 +6166,6 @@ function App() {
   function updateNodeParamsCollapsed(nodeId: string, collapsed: boolean) {
     updateNodeUi(nodeId, { paramsCollapsed: collapsed ? true : undefined });
   }
-    });
-    nodesRef.current = nextNodes;
-    setNodes(nextNodes);
-  }
 
   function updateDialogueWorkbenchState(nodeId: string, state: DialogueWorkbenchState, patch: Record<string, unknown> = {}) {
     const currentNode = nodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
