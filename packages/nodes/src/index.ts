@@ -506,7 +506,6 @@ export const stableDiffusionHiddenControlImageRunner: NodeRunner = async ({ node
   const result = parseJsonText(responseText, "Automatic1111 txt2img response") as { images?: unknown[]; info?: unknown; parameters?: unknown };
   const images = (result.images ?? []).filter((item): item is string => typeof item === "string" && item.trim().length > 0);
   if (images.length === 0) throw new Error("Automatic1111 txt2img response did not include an output image.");
-
   const imageAssets = [];
   for (let index = 0; index < images.length; index += 1) {
     imageAssets.push(await writeBase64Image(images[index], {
@@ -519,6 +518,7 @@ export const stableDiffusionHiddenControlImageRunner: NodeRunner = async ({ node
   const seed = info && typeof info === "object" && "seed" in info ? (info as Record<string, unknown>).seed : payload.seed;
   const warnings: string[] = [];
   if (String(params.mode ?? "hidden_image") === "qr_code" && payload.alwayson_scripts.controlnet.args[0].weight < 1) {
+
     warnings.push("QR code mode usually needs illusion strength near or above 1.0 for readability.");
   }
 
@@ -555,7 +555,9 @@ export const stableDiffusionHiddenControlImageRunner: NodeRunner = async ({ node
       warnings,
       status: "succeeded"
     },
+
     logs: [`Generated ${imageAssets.length} double-image illusion image(s) with ControlNet model "${controlNetModel}".`],
+
     provenance: { provider: "local", localBackend: "automatic1111-controlnet", endpoint, controlNetModel },
     providerUsage: { provider: "local", model: controlNetModel, nodeId: node.id, nodeType: node.type, status: "succeeded", estimatedCost: null, actualCost: null }
   };

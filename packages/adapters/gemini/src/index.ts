@@ -29,10 +29,17 @@ export interface GeminiClientOptions {
 }
 
 export interface GeminiLocalPricingConfig {
+  provider?: string;
+  source?: string;
+  updatedAt?: string | null;
+  ttlHours?: number;
+  allowStalePricing?: boolean;
   models?: Record<string, {
     currency?: string;
     unit?: PricingUnit;
     price?: number | string | null;
+    confidence?: "exact" | "estimated" | "low" | "unknown";
+    sourceUrl?: string | null;
     notes?: string;
   }>;
 }
@@ -328,13 +335,26 @@ export function createGeminiProviderAdapter(options: GeminiClientOptions = {}): 
 
 export function estimateGeminiPricingQuote(input: ModelPricingInput): PricingQuote {
   const config = input.params.localPricingConfig;
+  const allowStalePricing = input.params.allowStalePricing === true || Boolean(config && typeof config === "object" && (config as GeminiLocalPricingConfig).allowStalePricing);
   const modelConfig = config && typeof config === "object"
     ? ((config as GeminiLocalPricingConfig).models ?? {})[input.providerModel]
     : undefined;
-  if (!modelConfig) return unknownPricingQuote(input, "local_pricing_config", `No local pricing configured for this Gemini model.`);
+  const pricingSource = typeof config === "object" && config && typeof (config as GeminiLocalPricingConfig).source === "string"
+    ? (config as GeminiLocalPricingConfig).source as string
+    : "manual_override";
+  if (!modelConfig) return unknownPricingQuote(input, pricingSource, `No local pricing configured for this Gemini model.`);
   const price = numberValue(modelConfig.price);
   if (price === null) {
-    return unknownPricingQuote(input, "local_pricing_config", `No local pricing configured for this Gemini model.`);
+    return unknownPricingQuote(input, pricingSource, `No local pricing configured for this Gemini model.`);
+  }
+  const freshness = geminiManualPricingFreshness(config as GeminiLocalPricingConfig);
+  if (!freshness.fresh && !allowStalePricing) {
+    return {
+      ...unknownPricingQuote(input, pricingSource, freshness.warning),
+      pricingStatus: freshness.status,
+      pricingUpdatedAt: typeof (config as GeminiLocalPricingConfig).updatedAt === "string" ? (config as GeminiLocalPricingConfig).updatedAt ?? null : null,
+      pricingExpiresAt: freshness.expiresAt
+    };
   }
   const count = Math.max(1, Math.floor(numberValue(input.params.n) ?? 1));
   return {
@@ -344,11 +364,17 @@ export function estimateGeminiPricingQuote(input: ModelPricingInput): PricingQuo
     capability: input.capability,
     estimatedCost: Number((price * count).toFixed(8)),
     currency: modelConfig.currency ?? "USD",
-    pricingSource: "local_pricing_config",
-    confidence: "estimated",
+    pricingSource,
+    confidence: modelConfig.confidence && modelConfig.confidence !== "unknown" ? modelConfig.confidence : "estimated",
+    pricingStatus: freshness.status,
+    pricingUpdatedAt: typeof (config as GeminiLocalPricingConfig).updatedAt === "string" ? (config as GeminiLocalPricingConfig).updatedAt ?? null : null,
+    pricingExpiresAt: freshness.expiresAt,
     unit: modelConfig.unit ?? "image",
     breakdown: { price, count },
-    warnings: modelConfig.notes ? [modelConfig.notes] : undefined
+    warnings: [
+      ...(modelConfig.notes ? [modelConfig.notes] : []),
+      ...(!freshness.fresh && allowStalePricing ? [freshness.warning] : [])
+    ]
   };
 }
 
@@ -407,6 +433,35 @@ function legacyCostFromQuote(quote: PricingQuote, imageSize: unknown): Record<st
     imageSize: stringParam(imageSize) ?? "2K",
     source: quote.pricingSource,
     note: quote.confidence === "unknown" ? "No local pricing configured for this Gemini model." : "Advisory provider cost preview; final billing may differ."
+  };
+}
+
+function geminiManualPricingFreshness(config: GeminiLocalPricingConfig): { fresh: boolean; status: "fresh" | "stale" | "unknown"; expiresAt: string | null; warning: string } {
+  if (!config.updatedAt) {
+    return {
+      fresh: false,
+      status: "unknown",
+      expiresAt: null,
+      warning: "Gemini manual pricing override has no updatedAt metadata; returning unknown pricing."
+    };
+  }
+  const updatedMs = Date.parse(config.updatedAt);
+  if (!Number.isFinite(updatedMs)) {
+    return {
+      fresh: false,
+      status: "unknown",
+      expiresAt: null,
+      warning: "Gemini manual pricing override has invalid updatedAt metadata; returning unknown pricing."
+    };
+  }
+  const ttlHours = Number.isFinite(config.ttlHours) && Number(config.ttlHours) > 0 ? Number(config.ttlHours) : 24;
+  const expiresAt = new Date(updatedMs + ttlHours * 60 * 60 * 1000).toISOString();
+  const fresh = Date.now() < Date.parse(expiresAt);
+  return {
+    fresh,
+    status: fresh ? "fresh" : "stale",
+    expiresAt,
+    warning: fresh ? "" : "Gemini manual pricing override is stale; returning unknown pricing."
   };
 }
 

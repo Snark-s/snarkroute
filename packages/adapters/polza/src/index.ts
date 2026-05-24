@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
-import { estimateCatalogPricingQuote, ModelGateway, type ModelInvokeResult, type ModelPricingInput, type PricingQuote, type ProviderAdapter } from "@snarkroute/core";
+import { basename, dirname, extname, join } from "node:path";
+import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
@@ -8,6 +8,7 @@ export const POLZA_TEXT_DEFAULT_MODEL = "openai/gpt-4o";
 export const POLZA_IMAGE_DEFAULT_MODEL = "openai/gpt-5.4-image-2";
 export const POLZA_MISSING_KEY_MESSAGE = "POLZA_AI_API_KEY is not configured.\nAdd POLZA_AI_API_KEY to .env with your Polza.ai API key.";
 const LOCAL_FILE_DATA_URI_LIMIT_BYTES = 20 * 1024 * 1024;
+const PRICING_TTL_HOURS = 12;
 
 export interface PolzaClientOptions {
   apiKey?: string;
@@ -109,6 +110,58 @@ export function parsePolzaModelCatalog(input: unknown): PolzaModelInfo[] {
     ? (input as Record<string, unknown>).data as unknown[]
     : Array.isArray(input) ? input : [];
   return data.map(parsePolzaModel).filter((model): model is PolzaModelInfo => Boolean(model));
+}
+
+export async function refreshPolzaPricingCatalog(options: PolzaClientOptions & { cachePath?: string; ttlHours?: number; type?: "chat" | "image" | "embedding" } = {}): Promise<PricingCatalog> {
+  const client = createPolzaClient(options);
+  const modelGroups = options.type
+    ? [await client.getModels(options.type)]
+    : await Promise.all([client.getModels("chat").catch(() => []), client.getModels("image").catch(() => []), client.getModels("embedding").catch(() => [])]);
+  const catalog = polzaPricingCatalogFromModels(modelGroups.flat(), options.ttlHours);
+  const cachePath = options.cachePath ?? join(process.cwd(), "data", "cache", "model-pricing", "polza.json");
+  await writePricingCatalog(cachePath, catalog);
+  return catalog;
+}
+
+export async function readPolzaPricingCatalogCache(cachePath = join(process.cwd(), "data", "cache", "model-pricing", "polza.json")): Promise<PricingCatalog | null> {
+  return readPricingCatalog(cachePath, "polza");
+}
+
+export function createPolzaPricingSourceAdapter(options: PolzaClientOptions & { cachePath?: string; ttlHours?: number } = {}): PricingSourceAdapter {
+  return {
+    provider: "polza",
+    refreshPricing: () => refreshPolzaPricingCatalog(options),
+    readCachedPricing: () => readPolzaPricingCatalogCache(options.cachePath),
+    isCatalogFresh: isPricingCatalogFresh,
+    estimateFromCatalog: estimatePolzaPricingQuoteFromCatalog
+  };
+}
+
+export function estimatePolzaPricingQuoteFromCatalog(input: ModelPricingInput, catalog: PricingCatalog): PricingQuote {
+  return estimatePricingCatalogQuote(input, catalog, "Polza pricing catalog is stale; using stale estimate");
+}
+
+export function polzaPricingCatalogFromModels(models: PolzaModelInfo[], ttlHours = PRICING_TTL_HOURS, fetchedAt = new Date().toISOString()): PricingCatalog {
+  const fetchedMs = Date.parse(fetchedAt);
+  const baseMs = Number.isFinite(fetchedMs) ? fetchedMs : Date.now();
+  const catalog: PricingCatalog = {
+    provider: "polza",
+    fetchedAt: new Date(baseMs).toISOString(),
+    expiresAt: new Date(baseMs + ttlHours * 60 * 60 * 1000).toISOString(),
+    source: "polza_models_catalog",
+    sourceUrl: null,
+    models: {},
+    warnings: []
+  };
+  for (const model of models) {
+    if (!model.pricing || Object.keys(model.pricing).length === 0) continue;
+    catalog.models[model.id] = {
+      currency: typeof model.pricing.currency === "string" ? model.pricing.currency : "USD",
+      pricing: { ...model.pricing },
+      raw: { id: model.id, name: model.name, type: model.type }
+    };
+  }
+  return catalog;
 }
 
 function parsePolzaModel(input: unknown): PolzaModelInfo | null {
@@ -335,6 +388,30 @@ function polzaImageAssetFromGateway(result: ModelInvokeResult): PolzaImageAsset 
 function quoteFromGatewayOutput(output: Record<string, unknown>): PricingQuote | null {
   const quote = output.pricingQuote;
   return quote && typeof quote === "object" ? quote as PricingQuote : null;
+}
+
+async function writePricingCatalog(cachePath: string, catalog: PricingCatalog): Promise<void> {
+  await mkdir(dirname(cachePath), { recursive: true });
+  await writeFile(cachePath, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
+}
+
+async function readPricingCatalog(cachePath: string, provider: string): Promise<PricingCatalog | null> {
+  try {
+    const parsed = JSON.parse(await readFile(cachePath, "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const record = parsed as Record<string, unknown>;
+    return {
+      provider,
+      fetchedAt: stringField(record, "fetchedAt") ?? "",
+      expiresAt: stringField(record, "expiresAt") ?? "",
+      source: stringField(record, "source") ?? `${provider}_catalog`,
+      sourceUrl: stringField(record, "sourceUrl") ?? null,
+      models: record.models && typeof record.models === "object" ? record.models as PricingCatalog["models"] : {},
+      warnings: stringArray(record.warnings) ?? []
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function buildChatRequestBody(model: string, messages: PolzaChatMessage[], params: Record<string, unknown>): Record<string, unknown> {

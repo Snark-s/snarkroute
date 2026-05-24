@@ -1,4 +1,4 @@
-﻿import "@xyflow/react/dist/style.css";
+import "@xyflow/react/dist/style.css";
 import "./styles.css";
 import defaultRouteDocument from "./default-route.orp.json";
 import {
@@ -227,6 +227,9 @@ type PricingQuote = {
   currency: string | null;
   pricingSource: string;
   confidence: string;
+  pricingStatus?: "fresh" | "stale" | "unknown" | string;
+  pricingUpdatedAt?: string | null;
+  pricingExpiresAt?: string | null;
   unit?: string;
   breakdown?: Record<string, unknown>;
   warnings?: string[];
@@ -790,6 +793,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onOpenSubroute = data.onOpenSubroute as ((nodeId: string) => void) | undefined;
   const onOpenDialogueWorkbench = data.onOpenDialogueWorkbench as ((nodeId: string) => void) | undefined;
   const onUncollapse = data.onUncollapse as ((nodeId: string) => void) | undefined;
+  const onNodeUiChange = data.onNodeUiChange as ((nodeId: string, patch: Record<string, unknown>) => void) | undefined;
   const promptLibrary = data.promptLibrary as PromptLibraryData | undefined;
   const onRefreshPromptLibrary = data.onRefreshPromptLibrary as (() => void) | undefined;
   const promptStatusFilter = (data.promptStatusFilter as PromptStatusFilter | undefined) ?? "all";
@@ -804,7 +808,9 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const manifest = data.manifest as NodeManifest | undefined;
   const isMissingNode = Boolean(data.isMissingNode);
   const onRefreshStableDiffusionModels = data.onRefreshStableDiffusionModels as ((endpoint: string) => void) | undefined;
+  const onRefreshPricing = data.onRefreshPricing as ((provider: string) => void) | undefined;
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
+  const connectedInputCounts = (data.connectedInputCounts as Record<string, number> | undefined) ?? {};
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
   const ports = getNodePorts(type, manifest, routeNode);
   const outputPinned = pinnedOutputFromParams(params) !== undefined;
@@ -883,7 +889,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
       {ports.inputs.map((port, index) => (
         <React.Fragment key={port.id}>
           <span className="portLabel input" style={{ top: `${portLabelTop(index)}px` }}>
-            {port.label ?? port.id}
+            {portLabel(port, connectedInputCounts[port.id] ?? 0)}
           </span>
           <Handle
             className={`typedHandle ${port.kind}`}
@@ -1065,6 +1071,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           polzaTextModels={polzaTextModels}
           polzaImageModels={polzaImageModels}
           quotePreview={quotePreview}
+          onRefreshPricing={onRefreshPricing}
           onRefreshStableDiffusionModels={onRefreshStableDiffusionModels}
           onChange={patchParams}
           onBrowse={(kind) => onBrowseAsset?.(id, kind)}
@@ -1728,6 +1735,7 @@ function NodeInlineParams({
   polzaTextModels,
   polzaImageModels,
   quotePreview,
+  onRefreshPricing,
   modelProfiles,
   onRefreshStableDiffusionModels,
   onChange,
@@ -1748,6 +1756,7 @@ function NodeInlineParams({
   polzaTextModels: PolzaModel[];
   polzaImageModels: PolzaModel[];
   quotePreview?: ModelQuotePreview;
+  onRefreshPricing?: (provider: string) => void;
   modelProfiles: ModelProfile[];
   onRefreshStableDiffusionModels?: (endpoint: string) => void;
   onChange: (patch: Record<string, unknown>) => void;
@@ -2090,7 +2099,7 @@ function NodeInlineParams({
           </select>
           <small className="nodeConnectedHint">{openRouterCostLabel(openRouterModels.find((entry) => entry.id === model))}</small>
         </label>
-        <ModelPricingPreview quotePreview={quotePreview} />
+        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
         <label className="nodeField">
           <span>system prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
@@ -2153,7 +2162,7 @@ function NodeInlineParams({
           </select>
           <small className="nodeConnectedHint">{imageModelCostLabel(selectedModel)}</small>
         </label>
-        <ModelPricingPreview quotePreview={quotePreview} />
+        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
         <label className="nodeField">
           <span>prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
@@ -2215,7 +2224,7 @@ function NodeInlineParams({
           </select>
           <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Text model via Polza.ai")}</small>
         </label>
-        <ModelPricingPreview quotePreview={quotePreview} />
+        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
         <label className="nodeField">
           <span>system prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
@@ -2257,7 +2266,6 @@ function NodeInlineParams({
           </select>
           <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Image model via Polza.ai")}</small>
         </label>
-        <ModelPricingPreview quotePreview={quotePreview} />
         <label className="nodeField">
           <span>prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
@@ -2279,6 +2287,7 @@ function NodeInlineParams({
         </div>
         <details className="nodeAdvanced">
           <summary>Advanced</summary>
+          <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
           <div className="nodeGridFields">
             <label className="nodeField">
               <span>quality</span>
@@ -2338,7 +2347,7 @@ function NodeInlineParams({
             </select>
           </label>
         </div>
-        <ModelPricingPreview quotePreview={quotePreview} />
+        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
       </>
     );
   }
@@ -3644,6 +3653,20 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
   return { inputs: [{ id: "input", kind: "json", label: "JSON" }], outputs: [{ id: "output", kind: "json", label: "JSON" }] };
 }
 
+function portLabel(port: PortSpec, connectedCount: number): string {
+  const base = port.label ?? port.id;
+  return typeof port.maxConnections === "number" ? `${base} ${connectedCount}/${port.maxConnections}` : base;
+}
+
+function inputConnectionCounts(nodeId: string, edges: Edge[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const edge of edges) {
+    if (edge.target !== nodeId || !edge.targetHandle) continue;
+    counts[edge.targetHandle] = (counts[edge.targetHandle] ?? 0) + 1;
+  }
+  return counts;
+}
+
 function manifestInputPortSpec(port: NodeManifest["inputs"][number]): PortSpec {
   const kind = portKindFromManifest(port.type);
   return {
@@ -3654,7 +3677,7 @@ function manifestInputPortSpec(port: NodeManifest["inputs"][number]): PortSpec {
   };
 }
 
-function ModelPricingPreview({ quotePreview }: { quotePreview?: ModelQuotePreview }) {
+function ModelPricingPreview({ quotePreview, onRefreshPricing }: { quotePreview?: ModelQuotePreview; onRefreshPricing?: (provider: string) => void }) {
   const selected = quotePreview?.selected;
   if (!selected) {
     return (
@@ -3670,6 +3693,13 @@ function ModelPricingPreview({ quotePreview }: { quotePreview?: ModelQuotePrevie
       <div><span>Provider route</span><strong>{providerRouteLabel(selected)}</strong></div>
       <div><span>Confidence</span><strong>{selected.confidence || "unknown"}</strong></div>
       <div><span>Pricing source</span><strong>{selected.pricingSource || "unknown"}</strong></div>
+      <div><span>Pricing status</span><strong>{pricingStatusLabel(selected)}</strong></div>
+      <div><span>Last pricing update</span><strong>{pricingUpdateLabel(selected)}</strong></div>
+      {onRefreshPricing && ["openrouter", "polza"].includes(selected.provider) ? (
+        <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onRefreshPricing(selected.provider)}>
+          <RefreshCw size={13} /> Refresh pricing
+        </button>
+      ) : null}
       {selected.warnings?.length ? <div><span>Note</span><strong>{selected.warnings[0]}</strong></div> : null}
       {quotePreview.alternatives.length > 0 ? (
         <details className="nodeQuoteAlternatives">
@@ -3687,9 +3717,25 @@ function ModelPricingPreview({ quotePreview }: { quotePreview?: ModelQuotePrevie
 }
 
 function pricingAmountLabel(quote: PricingQuote): string {
-  if (typeof quote.estimatedCost !== "number") return quote.pricingSource === "local_pricing_config" ? "Not configured" : "Unknown";
+  if (typeof quote.estimatedCost !== "number") {
+    if (quote.pricingStatus === "stale") return "Unknown, pricing catalog stale";
+    return "Unknown, pricing unavailable";
+  }
   const currency = quote.currency ?? "";
   return `${currency ? `${currency} ` : ""}${quote.estimatedCost.toFixed(quote.estimatedCost < 0.01 ? 6 : 4)}`;
+}
+
+function pricingStatusLabel(quote: PricingQuote): string {
+  const status = quote.pricingStatus ?? (quote.estimatedCost === null ? "unknown" : "fresh");
+  if (status === "fresh") return "Fresh";
+  if (status === "stale") return "Stale";
+  return "Unknown";
+}
+
+function pricingUpdateLabel(quote: PricingQuote): string {
+  if (!quote.pricingUpdatedAt) return "Unknown";
+  const date = new Date(quote.pricingUpdatedAt);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : "Unknown";
 }
 
 function providerRouteLabel(quote: PricingQuote): string {
@@ -4103,15 +4149,30 @@ function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
   };
 }
 
+
 function routeNodeParamsCollapsed(node: RouteDoc["nodes"][number] | undefined): boolean {
   return node?.ui?.paramsCollapsed === true;
 }
 
-function withRouteNodeParamsCollapsed(node: RouteDoc["nodes"][number], collapsed: boolean): RouteDoc["nodes"][number] {
+function withRouteNodeParamsCollapsed(
+  node: RouteDoc["nodes"][number],
+  collapsed: boolean
+): RouteDoc["nodes"][number] {
   const { paramsCollapsed: _paramsCollapsed, ...ui } = node.ui ?? {};
   return {
     ...node,
     ui: collapsed ? { ...ui, paramsCollapsed: true } : ui
+  };
+}
+
+function layoutBatchPosition(
+  origin: { x: number; y: number },
+  index: number
+): { x: number; y: number } {
+  const columns = 3;
+  return {
+    x: origin.x + (index % columns) * 300,
+    y: origin.y + Math.floor(index / columns) * 220
   };
 }
 
@@ -4746,6 +4807,7 @@ function App() {
   const [activeDoc, setActiveDoc] = useState<StudioDocEntry | null>(null);
   const [activeDialogueWorkbenchId, setActiveDialogueWorkbenchId] = useState<string | null>(null);
   const [modelQuotePreviews, setModelQuotePreviews] = useState<Record<string, ModelQuotePreview>>({});
+  const [quoteRefreshTick, setQuoteRefreshTick] = useState(0);
   const [loadedRouteSnapshot, setLoadedRouteSnapshot] = useState(() => routeSnapshot(initialRouteState.route));
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
@@ -4767,7 +4829,7 @@ function App() {
 
   useEffect(() => {
     nodesRef.current = nodes;
-  }, [nodes]);
+  }, [nodes, quoteRefreshTick]);
 
   useEffect(() => {
     edgesRef.current = edges;
@@ -4908,12 +4970,14 @@ function App() {
           onOpenSubroute: openSubroute,
           onOpenDialogueWorkbench: openDialogueWorkbench,
           onUncollapse: uncollapseCompoundNode,
+          onNodeUiChange: updateNodeUi,
           onRefreshPromptLibrary: refreshPromptLibraryData,
           promptStatusFilter: promptLibraryStatusFilter,
           onPromptStatusFilterChange: setPromptLibraryStatusFilter,
           onPromptContextMenu: openPromptLibraryMenu,
           onRefreshStableDiffusionModels: refreshStableDiffusionModels,
           connectedInputPorts: edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle).filter((handle): handle is string => Boolean(handle)),
+          connectedInputCounts: inputConnectionCounts(node.id, edges),
           canRunNodeOnly: canRunNodeOnly(node.id),
           promptLibrary,
           stableDiffusionModels,
@@ -4924,6 +4988,7 @@ function App() {
           polzaTextModels,
           polzaImageModels,
           quotePreview: modelQuotePreviews[node.id],
+          onRefreshPricing: refreshPricingCatalog,
           openAiConfigured,
           seedanceConfigured,
           seedanceStatusText: seedanceSettings.statusText,
@@ -5644,6 +5709,27 @@ function App() {
     }
   }
 
+  async function refreshPricingCatalog(provider: string) {
+    try {
+      const response = await fetch(`${apiBase}/api/model-pricing/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Pricing refresh failed.");
+      const refreshed = Array.isArray(result.refreshed) ? result.refreshed.join(", ") : provider;
+      const failed = Array.isArray(result.failed) && result.failed.length > 0 ? ` Failed: ${result.failed.map((entry: { provider?: string; error?: string }) => `${entry.provider}: ${entry.error}`).join("; ")}` : "";
+      setSettingsMessage(`Pricing refresh complete: ${refreshed || "none"}.${failed}`);
+      setLogs((current) => [`Pricing refresh complete: ${refreshed || "none"}.${failed}`, ...current]);
+      setQuoteRefreshTick((tick) => tick + 1);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Pricing refresh failed: ${message}`, ...current]);
+    }
+  }
+
   function openReplicateSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your Replicate token in Settings \u2192 Secrets \u2192 Replicate.");
@@ -5755,13 +5841,14 @@ function App() {
       return;
     }
 
-    const file = event.dataTransfer.files?.[0];
+    const files = Array.from(event.dataTransfer.files ?? []);
+    const file = files[0];
     if (!file) return;
-    if (canImportNodePackageFile(file)) {
+    if (files.length === 1 && canImportNodePackageFile(file)) {
       await importNodePackageFile(file, flowPositionFromEvent(event));
       return;
     }
-    if (canImportDroppedRouteFile(file)) {
+    if (files.length === 1 && canImportDroppedRouteFile(file)) {
       try {
         await importRouteOntoCanvas(file, flowPositionFromEvent(event));
       } catch (error) {
@@ -5771,7 +5858,18 @@ function App() {
       return;
     }
 
-    const kind = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
+    const imageFiles = files.filter(isImageFile);
+    if (imageFiles.length > 1) {
+      try {
+        await addAssetNodesFromFiles(imageFiles, "image", flowPositionFromEvent(event), "Dropped images");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setLogs((entries) => [`Drop import error: ${message}`, ...entries]);
+      }
+      return;
+    }
+
+    const kind = isImageFile(file) ? "image" : file.type.startsWith("video/") ? "video" : "file";
     try {
       await addAssetNodeFromFile(file, kind, flowPositionFromEvent(event), `Dropped ${kind}`);
     } catch (error) {
@@ -6021,15 +6119,53 @@ function App() {
     }
   }
 
-  function updateNodeParamsCollapsed(nodeId: string, collapsed: boolean) {
+  function updateNodeUi(nodeId: string, patch: Record<string, unknown>) {
     const currentNodes = nodesRef.current;
     const currentNode = currentNodes.find((node) => node.id === nodeId);
     const currentRouteNode = currentNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
-    if (!currentRouteNode || routeNodeParamsCollapsed(currentRouteNode) === collapsed) return;
+    if (!currentRouteNode) return;
+
+    const nextUi = { ...(currentRouteNode.ui ?? {}) } as Record<string, unknown>;
+
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) {
+        delete nextUi[key];
+      } else {
+        nextUi[key] = value;
+      }
+    }
+
+    const uiChanged = JSON.stringify(currentRouteNode.ui ?? {}) !== JSON.stringify(nextUi);
+    if (!uiChanged) return;
+
+    pushUndoSnapshot(`Update ${nodeId} view`);
+
     const nextNodes = currentNodes.map((node) => {
       if (node.id !== nodeId) return node;
-      const routeNode = withRouteNodeParamsCollapsed(node.data.routeNode as RouteDoc["nodes"][number], collapsed);
-      return { ...node, data: { ...node.data, routeNode, paramsCollapsed: collapsed } };
+
+      const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
+      const dataPatch =
+        Object.prototype.hasOwnProperty.call(patch, "paramsCollapsed")
+          ? { paramsCollapsed: nextUi.paramsCollapsed === true }
+          : {};
+
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          ...dataPatch,
+          routeNode: { ...routeNode, ui: nextUi }
+        }
+      };
+    });
+
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
+  }
+
+  function updateNodeParamsCollapsed(nodeId: string, collapsed: boolean) {
+    updateNodeUi(nodeId, { paramsCollapsed: collapsed ? true : undefined });
+  }
     });
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
@@ -6217,6 +6353,35 @@ function App() {
     if (createdId) selectNode(null);
     setLogs((entries) => [`${logPrefix}: ${path}`, ...entries]);
     return createdId;
+  }
+
+  async function addAssetNodesFromFiles(files: File[], kind: AssetKind, position: { x: number; y: number } | undefined, logPrefix: string) {
+    const type = `input.${kind}`;
+    const item = nodeCatalog.find((candidate) => candidate.type === type) ?? library.find((candidate) => candidate.type === type);
+    if (!item) throw new Error(`Cannot add missing node type: ${type}`);
+    const imported = await Promise.all(files.map(async (file) => ({ file, path: await importLocalAsset(file, kind) })));
+    const itemTitle = catalogItemTitle(item);
+    const origin = position ?? { x: 120 + nodesRef.current.length * 36, y: 140 + nodesRef.current.length * 28 };
+    pushUndoSnapshot(`Add ${files.length} ${kind} nodes`);
+    setNodes((current) => {
+      const usedIds = new Set(current.map((node) => node.id));
+      const createdNodes = imported.map(({ path }, index) => {
+        const id = uniqueFlowId(`${type.replace(/\W+/g, "_")}_${current.length + index + 1}`, usedIds);
+        const routeNode = { id, type, title: itemTitle, params: { path }, ui: {} };
+        return {
+          id,
+          type: "route",
+          position: layoutBatchPosition(origin, index),
+          data: { label: `${itemTitle}\n${type}`, routeNode }
+        } satisfies Node;
+      });
+      const nextNodes = [...current, ...createdNodes];
+      nodesRef.current = nextNodes;
+      return nextNodes;
+    });
+    selectNode(null);
+    setLogs((entries) => [`${logPrefix}: imported ${imported.length} ${kind} file(s).`, ...entries]);
+    return imported.map((entry) => entry.path);
   }
 
   function toggleLibrarySection(id: string) {
@@ -9360,6 +9525,10 @@ async function importLocalAsset(file: File, kind: AssetKind): Promise<string> {
   if (!response.ok) throw new Error(result.error ?? "Local import failed.");
   if (!result.path) throw new Error("Local import did not return a path.");
   return result.path;
+}
+
+function isImageFile(file: File): boolean {
+  return ["image/png", "image/jpeg", "image/webp"].includes(file.type) || /\.(png|jpe?g|webp)$/i.test(file.name);
 }
 
 function imageFileFromClipboard(event: ClipboardEvent): File | null {

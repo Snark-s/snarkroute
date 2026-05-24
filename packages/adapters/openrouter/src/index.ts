@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { estimateCatalogPricingQuote, ModelGateway, type ModelInvokeResult, type ModelPricingInput, type PricingQuote, type ProviderAdapter } from "@snarkroute/core";
+import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 import {
   createModelResolver,
@@ -66,6 +66,9 @@ export interface OpenRouterCatalogCache {
   refreshedAt: string;
   models: OpenRouterModelInfo[];
 }
+
+export const OPENROUTER_PRICING_CATALOG_SOURCE = "openrouter_models_catalog";
+const PRICING_TTL_HOURS = 12;
 
 export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
   const fetcher = options.fetchImpl ?? fetch;
@@ -457,6 +460,67 @@ export async function refreshOpenRouterModelCatalog(options: OpenRouterClientOpt
   return cache;
 }
 
+export async function refreshOpenRouterPricingCatalog(options: OpenRouterClientOptions & { cachePath?: string; modelCatalogCachePath?: string; ttlHours?: number } = {}): Promise<PricingCatalog> {
+  const models = await createOpenRouterClient(options).getModels(false);
+  const modelCatalogCachePath = options.modelCatalogCachePath;
+  if (modelCatalogCachePath) {
+    await writeOpenRouterModelCatalogCache({ refreshedAt: new Date().toISOString(), models }, modelCatalogCachePath);
+  }
+  const catalog = openRouterPricingCatalogFromModels(models, options.ttlHours);
+  const cachePath = options.cachePath ?? join(process.cwd(), "data", "cache", "model-pricing", "openrouter.json");
+  await writePricingCatalog(cachePath, catalog);
+  return catalog;
+}
+
+export async function refreshOpenRouterPricingCatalogFromModelCache(options: { cachePath?: string; modelCatalogCachePath?: string; ttlHours?: number } = {}): Promise<PricingCatalog | null> {
+  const modelCache = await readOpenRouterModelCatalogCache(options.modelCatalogCachePath);
+  if (!modelCache) return null;
+  const catalog = openRouterPricingCatalogFromModels(modelCache.models, options.ttlHours, modelCache.refreshedAt);
+  await writePricingCatalog(options.cachePath ?? join(process.cwd(), "data", "cache", "model-pricing", "openrouter.json"), catalog);
+  return catalog;
+}
+
+export async function readOpenRouterPricingCatalogCache(cachePath = join(process.cwd(), "data", "cache", "model-pricing", "openrouter.json")): Promise<PricingCatalog | null> {
+  return readPricingCatalog(cachePath, "openrouter");
+}
+
+export function createOpenRouterPricingSourceAdapter(options: OpenRouterClientOptions & { cachePath?: string; modelCatalogCachePath?: string; ttlHours?: number } = {}): PricingSourceAdapter {
+  return {
+    provider: "openrouter",
+    refreshPricing: () => refreshOpenRouterPricingCatalog(options),
+    readCachedPricing: () => readOpenRouterPricingCatalogCache(options.cachePath),
+    isCatalogFresh: isPricingCatalogFresh,
+    estimateFromCatalog: estimateOpenRouterPricingQuoteFromCatalog
+  };
+}
+
+export function estimateOpenRouterPricingQuoteFromCatalog(input: ModelPricingInput, catalog: PricingCatalog): PricingQuote {
+  return estimatePricingCatalogQuote(input, catalog, "OpenRouter pricing catalog is stale; using stale estimate");
+}
+
+export function openRouterPricingCatalogFromModels(models: OpenRouterModelInfo[], ttlHours = PRICING_TTL_HOURS, fetchedAt = new Date().toISOString()): PricingCatalog {
+  const fetchedMs = Date.parse(fetchedAt);
+  const baseMs = Number.isFinite(fetchedMs) ? fetchedMs : Date.now();
+  const catalog: PricingCatalog = {
+    provider: "openrouter",
+    fetchedAt: new Date(baseMs).toISOString(),
+    expiresAt: new Date(baseMs + ttlHours * 60 * 60 * 1000).toISOString(),
+    source: OPENROUTER_PRICING_CATALOG_SOURCE,
+    sourceUrl: null,
+    models: {},
+    warnings: []
+  };
+  for (const model of models) {
+    if (!model.pricing || Object.keys(model.pricing).length === 0) continue;
+    catalog.models[model.id] = {
+      currency: typeof model.pricing.currency === "string" ? model.pricing.currency : "USD",
+      pricing: { ...model.pricing },
+      raw: { id: model.id, name: model.name }
+    };
+  }
+  return catalog;
+}
+
 export async function readOpenRouterModelCatalogCache(cachePath = join(process.cwd(), "data", "cache", "openrouter-models.json")): Promise<OpenRouterCatalogCache | null> {
   try {
     const parsed = JSON.parse(await readFile(cachePath, "utf8")) as unknown;
@@ -465,6 +529,35 @@ export async function readOpenRouterModelCatalogCache(cachePath = join(process.c
     return {
       refreshedAt: typeof record.refreshedAt === "string" ? record.refreshedAt : "",
       models: Array.isArray(record.models) ? record.models.map(parseOpenRouterModel).filter((model): model is OpenRouterModelInfo => Boolean(model)) : []
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeOpenRouterModelCatalogCache(cache: OpenRouterCatalogCache, cachePath: string): Promise<void> {
+  await mkdir(dirname(cachePath), { recursive: true });
+  await writeFile(cachePath, `${JSON.stringify(cache, null, 2)}\n`, "utf8");
+}
+
+async function writePricingCatalog(cachePath: string, catalog: PricingCatalog): Promise<void> {
+  await mkdir(dirname(cachePath), { recursive: true });
+  await writeFile(cachePath, `${JSON.stringify(catalog, null, 2)}\n`, "utf8");
+}
+
+async function readPricingCatalog(cachePath: string, provider: string): Promise<PricingCatalog | null> {
+  try {
+    const parsed = JSON.parse(await readFile(cachePath, "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object") return null;
+    const record = parsed as Record<string, unknown>;
+    return {
+      provider,
+      fetchedAt: optionalString(record.fetchedAt) ?? "",
+      expiresAt: optionalString(record.expiresAt) ?? "",
+      source: optionalString(record.source) ?? `${provider}_catalog`,
+      sourceUrl: optionalString(record.sourceUrl) ?? null,
+      models: record.models && typeof record.models === "object" ? record.models as PricingCatalog["models"] : {},
+      warnings: stringArray(record.warnings) ?? []
     };
   } catch {
     return null;

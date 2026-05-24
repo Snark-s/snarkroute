@@ -11,6 +11,23 @@ export type PricingUnit =
   | "unknown";
 
 export type PricingConfidence = "exact" | "estimated" | "low" | "unknown";
+export type PricingStatus = "fresh" | "stale" | "unknown";
+
+export interface PricingCatalogModel {
+  currency: string;
+  pricing: Record<string, unknown>;
+  raw?: Record<string, unknown>;
+}
+
+export interface PricingCatalog {
+  provider: string;
+  fetchedAt: string;
+  expiresAt: string;
+  source: string;
+  sourceUrl: string | null;
+  models: Record<string, PricingCatalogModel>;
+  warnings: string[];
+}
 
 export interface PricingQuote {
   logicalModel?: string;
@@ -21,6 +38,9 @@ export interface PricingQuote {
   currency: string | null;
   pricingSource: string;
   confidence: PricingConfidence;
+  pricingStatus?: PricingStatus;
+  pricingUpdatedAt?: string | null;
+  pricingExpiresAt?: string | null;
   unit?: PricingUnit;
   breakdown?: Record<string, unknown>;
   warnings?: string[];
@@ -37,6 +57,14 @@ export interface ModelPricingInput {
 
 export interface PricingResolver {
   estimate(input: ModelPricingInput): PricingQuote;
+}
+
+export interface PricingSourceAdapter {
+  provider: string;
+  refreshPricing(options?: Record<string, unknown>): Promise<PricingCatalog>;
+  readCachedPricing(): Promise<PricingCatalog | null>;
+  isCatalogFresh(catalog: PricingCatalog): boolean;
+  estimateFromCatalog(input: ModelPricingInput, catalog: PricingCatalog): PricingQuote;
 }
 
 export function unknownPricingQuote(input: ModelPricingInput, pricingSource = "unknown", warning?: string): PricingQuote {
@@ -96,6 +124,29 @@ export function estimateCatalogPricingQuote(input: ModelPricingInput, pricing: u
   const requestPrice = numberValue(pricingRecord.request);
   if (requestPrice !== undefined) return pricedQuote(input, requestPrice, countFromParams(input.params), currency, pricingSource, "request");
   return unknownPricingQuote(input, pricingSource, "Catalog pricing cannot be estimated before execution for this request.");
+}
+
+export function estimatePricingCatalogQuote(input: ModelPricingInput, catalog: PricingCatalog, staleWarning?: string): PricingQuote {
+  const catalogModel = catalog.models[input.providerModel];
+  const quote = estimateCatalogPricingQuote(input, catalogModel?.pricing, catalog.source);
+  const fresh = isPricingCatalogFresh(catalog);
+  return sanitizePricingQuote({
+    ...quote,
+    pricingStatus: fresh ? "fresh" : "stale",
+    pricingUpdatedAt: catalog.fetchedAt || null,
+    pricingExpiresAt: catalog.expiresAt || null,
+    currency: quote.currency ?? catalogModel?.currency ?? null,
+    warnings: [
+      ...(quote.warnings ?? []),
+      ...(fresh ? [] : [staleWarning ?? `${catalog.provider} pricing catalog is stale.`]),
+      ...(catalog.warnings ?? [])
+    ].filter(Boolean) as string[]
+  });
+}
+
+export function isPricingCatalogFresh(catalog: PricingCatalog, now = new Date()): boolean {
+  const expiresAt = Date.parse(catalog.expiresAt);
+  return Number.isFinite(expiresAt) && expiresAt > now.getTime();
 }
 
 export function sanitizePricingQuote(quote: PricingQuote): PricingQuote {

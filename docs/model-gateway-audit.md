@@ -7,6 +7,7 @@
 - `apps/studio/src/main.tsx` contains provider-facing UI state, model lists, example routes, and OpenRouter settings controls.
 - `apps/server/src/providers/provider-node-manifests.ts` contains bundled provider node manifests and permission declarations.
 - Provider catalog data for OpenRouter is cached in `data/cache/openrouter-models.json` through `apps/server/src/routes/providers.ts`.
+- Runtime pricing catalogs are cached in `data/cache/model-pricing/openrouter.json`, `data/cache/model-pricing/polza.json`, and the reserved `data/cache/model-pricing/gemini.json` path.
 - Local optional direct-provider pricing metadata lives under `data/model-pricing/`, currently `data/model-pricing/gemini.json`. This is runtime metadata, not ORP route data.
 - Neutral advisory pricing types and generic catalog estimation helpers live in `packages/core/src/model-gateway/pricing.ts`.
 
@@ -38,10 +39,11 @@
 ## Cost Preview Path
 
 - `ModelGateway.quote`, `quoteSelectedRoute`, and `quoteAvailableRoutes` resolve the same provider route as `invoke`, but only return `PricingQuote` metadata.
-- OpenRouter quotes use cached catalog pricing fields such as `pricing.image`, `pricing.request`, `pricing.prompt`, `pricing.completion`, `pricing.input`, and `pricing.output` when present.
-- Polza quotes are available for explicit `polza.text` and `polza.image.generate` nodes when the Polza model catalog exposes pricing. Polza is not included in logical `ai.text` or `ai.image.generate` routing yet.
-- Direct Gemini image quotes use `data/model-pricing/gemini.json`. If `price` is `null`, the quote is unknown with a local-pricing warning.
-- `POST /api/model-gateway/quote` serves Studio previews. It is advisory only, does not execute the model, does not make paid calls, and does not accept or return API keys/tokens/secrets.
+- OpenRouter quotes use a runtime pricing catalog refreshed from the machine-readable OpenRouter `/models` catalog, falling back to stale cached estimates with a warning when refresh fails.
+- Polza quotes are available for explicit `polza.text` and `polza.image.generate` nodes when `getModels()` exposes pricing. Polza is not included in logical `ai.text` or `ai.image.generate` routing yet.
+- Direct Gemini image quotes use `data/model-pricing/gemini.json` only as a manual override/fallback. If `price` is `null`, `updatedAt` is missing, or the TTL has expired, the quote is unknown with a warning.
+- `POST /api/model-gateway/quote` serves Studio previews. It is advisory only, does not execute the model, does not make paid calls, and does not accept or return API keys/tokens/secrets. Expired pricing catalogs trigger a bounded lazy refresh where relevant.
+- `POST /api/model-pricing/refresh` refreshes `openrouter`, `polza`, or `all` pricing catalogs without changing routes, returning secrets, or invoking generation.
 - Model node outputs and provider usage events now carry quote fields next to existing cost fields: `estimatedCost`, `estimatedCostCurrency`, `estimatedCostConfidence`, `pricingSource`, `pricingQuote`, `actualUsage`, `actualCost`, and `actualCostCurrency` when known.
 
 ## Direct Node Dependencies

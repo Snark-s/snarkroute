@@ -76,6 +76,12 @@ OpenRouter and Polza estimates use provider catalog pricing when available. Dire
 
 Studio reads `POST /api/model-gateway/quote` for small read-only node previews. ORP route format remains unchanged, route files do not store pricing tables or secrets, and provider credentials remain outside routes.
 
+### 2026-05-21: Automated Pricing Refresh
+
+Pricing catalogs now have a runtime cache under `data/cache/model-pricing/`. OpenRouter refresh extracts prices from its machine-readable `/models` catalog; Polza refresh uses `getModels()` when catalog rows include pricing. `POST /api/model-pricing/refresh` can refresh `openrouter`, `polza`, or `all`, and quote requests lazily refresh expired catalogs with a timeout.
+
+Gemini/direct pricing still does not scrape official pages or invent prices. `data/model-pricing/gemini.json` is a manual override/fallback with `updatedAt` and TTL metadata; stale or null manual prices return unknown. No ORP/route format changes, provider route changes, cheapest-provider routing, billing, marketplace, or paid generation calls were added.
+
 ## Runtime / Execution Audit
 
 `packages/executor` is a reasonable shared runtime package. It still uses `NodeRunner`, `NodeResult`, and related names because the Open Route Protocol compatibility surface is node-based. For BoojumRoute, these are now conceptually block runners.

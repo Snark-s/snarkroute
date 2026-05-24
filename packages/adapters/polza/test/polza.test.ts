@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildImageRequestBody, buildMediaImageRequestBody, createPolzaImageNodeRunner, createPolzaTextNodeRunner, estimatePolzaPricingQuote } from "../src/index";
+import { buildImageRequestBody, buildMediaImageRequestBody, createPolzaImageNodeRunner, createPolzaTextNodeRunner, estimatePolzaPricingQuote, estimatePolzaPricingQuoteFromCatalog, polzaPricingCatalogFromModels, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "../src/index";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -61,6 +61,26 @@ describe("Polza adapter", () => {
       params: {},
       inputMetadata: {}
     })).toMatchObject({ estimatedCost: null, confidence: "unknown" });
+  });
+
+  it("refreshes Polza pricing catalog when model catalog contains pricing", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sr-polza-pricing-"));
+    const cachePath = join(directory, "polza.json");
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ id: "openai/gpt-4o", pricing: { prompt: "0.1", completion: "0.2", currency: "RUB" } }] }));
+    const catalog = await refreshPolzaPricingCatalog({ apiKey: "pza-test", fetchImpl, cachePath, type: "chat" });
+    expect(catalog.models["openai/gpt-4o"].pricing).toMatchObject({ prompt: "0.1" });
+    expect(await readPolzaPricingCatalogCache(cachePath)).toMatchObject({ provider: "polza", source: "polza_models_catalog" });
+  });
+
+  it("cached Polza pricing catalog is usable by quote", () => {
+    const catalog = polzaPricingCatalogFromModels([{ id: "openai/gpt-5.4-image-2", pricing: { image: 1.5, currency: "RUB" } }]);
+    expect(estimatePolzaPricingQuoteFromCatalog({
+      provider: "polza",
+      providerModel: "openai/gpt-5.4-image-2",
+      capability: "image.generate",
+      params: {},
+      inputMetadata: {}
+    }, catalog)).toMatchObject({ estimatedCost: 1.5, currency: "RUB", pricingStatus: "fresh" });
   });
 
   it("does not send unsupported aspect ratio controls to GPT-5 Image Mini", () => {

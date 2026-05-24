@@ -23,9 +23,21 @@ type PricingQuote = {
   currency: string | null;
   pricingSource: string;
   confidence: "exact" | "estimated" | "low" | "unknown" | string;
+  pricingStatus?: "fresh" | "stale" | "unknown" | string;
+  pricingUpdatedAt?: string | null;
+  pricingExpiresAt?: string | null;
   unit?: string;
   breakdown?: Record<string, unknown>;
   warnings?: string[];
+};
+type PricingCatalog = {
+  provider: string;
+  fetchedAt: string;
+  expiresAt: string;
+  source: string;
+  sourceUrl: string | null;
+  models: Record<string, { currency: string; pricing: Record<string, unknown>; raw?: Record<string, unknown> }>;
+  warnings: string[];
 };
 import { openRouterCatalogCachePath, openRouterMappingsPath } from "../server-paths";
 import { isGeminiEnabled, isOpenRouterEnabled } from "../services/env";
@@ -105,11 +117,15 @@ export async function quoteModelExecutingNode(options: {
   params?: Record<string, unknown>;
   modelResolver: ReturnType<typeof createModelResolver>;
   polzaModels?: PolzaModelInfo[];
+  openRouterPricingCatalog?: PricingCatalog | null;
+  polzaPricingCatalog?: PricingCatalog | null;
   geminiPricingConfig?: GeminiLocalPricingConfig;
 }): Promise<ModelGatewayQuotePreview> {
   const params = options.params ?? {};
   const geminiPricingConfig = options.geminiPricingConfig ?? await readLocalGeminiPricingConfig();
   const openRouterCatalog = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
+  const openRouterPricing = options.openRouterPricingCatalog;
+  const polzaPricing = options.polzaPricingCatalog;
   const warnings: string[] = [];
 
   if (options.nodeType === "ai.image.generate") {
@@ -120,17 +136,17 @@ export async function quoteModelExecutingNode(options: {
       warnings.push("Cached OpenRouter model does not advertise image output support.");
     }
     if (cachedModel && openRouterModelSupportsImage(cachedModel) && providerMode !== "direct") {
-      const selected = openRouterQuote(modelId, cachedModel.id, "image.generate", params, cachedModel.pricing);
+      const selected = openRouterQuote(modelId, cachedModel.id, "image.generate", params, pricingForModel(openRouterPricing, cachedModel.id) ?? cachedModel.pricing, openRouterPricing);
       return { selected, alternatives: directGeminiAlternative(modelId, params, geminiPricingConfig), warnings };
     }
     try {
       const resolution = options.modelResolver({ task: "image", modelId, providerMode });
       if (resolution.provider === "openrouter") {
         const model = openRouterCatalog?.models.find((entry) => entry.id === resolution.model);
-        return { selected: openRouterQuote(modelId, resolution.model, "image.generate", params, model?.pricing), alternatives: directGeminiAlternative(modelId, params, geminiPricingConfig), warnings };
+        return { selected: openRouterQuote(modelId, resolution.model, "image.generate", params, pricingForModel(openRouterPricing, resolution.model) ?? model?.pricing, openRouterPricing), alternatives: directGeminiAlternative(modelId, params, geminiPricingConfig), warnings };
       }
       if (resolution.provider === "direct" && resolution.directProvider === "gemini") {
-        return { selected: geminiQuote(modelId, resolution.model, "image.generate", params, geminiPricingConfig), alternatives: openRouterAlternative(modelId, params, openRouterCatalog?.models), warnings };
+        return { selected: geminiQuote(modelId, resolution.model, "image.generate", params, geminiPricingConfig), alternatives: openRouterAlternative(modelId, params, openRouterCatalog?.models, openRouterPricing), warnings };
       }
       warnings.push(resolution.reason ?? "No quoteable provider route was selected.");
     } catch (error) {
@@ -145,13 +161,13 @@ export async function quoteModelExecutingNode(options: {
     const modelId = !requestedModel || requestedModel === "text.default" ? process.env.OPENROUTER_DEFAULT_MODEL || "text.default" : requestedModel;
     if (modelId.includes("/") && providerMode !== "direct") {
       const model = openRouterCatalog?.models.find((entry) => entry.id === modelId);
-      return { selected: openRouterQuote(modelId, modelId, "text.generate", params, model?.pricing), alternatives: [], warnings };
+      return { selected: openRouterQuote(modelId, modelId, "text.generate", params, pricingForModel(openRouterPricing, modelId) ?? model?.pricing, openRouterPricing), alternatives: [], warnings };
     }
     try {
       const resolution = options.modelResolver({ task: "text", modelId, providerMode });
       if (resolution.provider === "openrouter") {
         const model = openRouterCatalog?.models.find((entry) => entry.id === resolution.model);
-        return { selected: openRouterQuote(modelId, resolution.model, "text.generate", params, model?.pricing), alternatives: [], warnings };
+        return { selected: openRouterQuote(modelId, resolution.model, "text.generate", params, pricingForModel(openRouterPricing, resolution.model) ?? model?.pricing, openRouterPricing), alternatives: [], warnings };
       }
       if (resolution.provider === "direct" && resolution.directProvider === "gemini") {
         return { selected: geminiQuote(modelId, resolution.model, "text.generate", params, geminiPricingConfig), alternatives: [], warnings };
@@ -171,11 +187,16 @@ export async function quoteModelExecutingNode(options: {
     const defaultModel = options.nodeType === "polza.text" ? POLZA_TEXT_DEFAULT_MODEL : POLZA_IMAGE_DEFAULT_MODEL;
     const modelId = stringValue(params.model) ?? defaultModel;
     const catalogModel = options.polzaModels?.find((model) => model.id === modelId);
+    const pricing = pricingForModel(polzaPricing, modelId) ?? catalogModel?.pricing;
     // TODO: connect Polza as a logical Model Gateway route separately; explicit Polza nodes only are quoted here.
     return {
-      selected: estimatePolzaPricingQuote({ logicalModel: options.nodeType, provider: "polza", providerModel: modelId, capability, params: { ...params, pricing: catalogModel?.pricing }, inputMetadata: {} }),
+      selected: withCatalogMetadata(
+        estimatePolzaPricingQuote({ logicalModel: options.nodeType, provider: "polza", providerModel: modelId, capability, params: { ...params, pricing }, inputMetadata: {} }),
+        polzaPricing,
+        "Polza pricing catalog is stale; using stale estimate"
+      ),
       alternatives: [],
-      warnings: catalogModel?.pricing ? [] : ["No Polza catalog pricing is available for this model."]
+      warnings: pricing ? [] : ["No Polza catalog pricing is available for this model."]
     };
   }
 
@@ -183,8 +204,9 @@ export async function quoteModelExecutingNode(options: {
   return { selected: unknownSelected(options.nodeType, "unknown", options.nodeType, "unknown", params, warnings[0]), alternatives: [], warnings };
 }
 
-function openRouterQuote(logicalModel: string, providerModel: string, capability: string, params: Record<string, unknown>, pricing: unknown): PricingQuote {
-  return estimateOpenRouterPricingQuote({ logicalModel, provider: "openrouter", providerModel, capability, params: { ...params, pricing }, inputMetadata: {} });
+function openRouterQuote(logicalModel: string, providerModel: string, capability: string, params: Record<string, unknown>, pricing: unknown, catalog?: PricingCatalog | null): PricingQuote {
+  const quote = estimateOpenRouterPricingQuote({ logicalModel, provider: "openrouter", providerModel, capability, params: { ...params, pricing }, inputMetadata: {} });
+  return catalog ? withCatalogMetadata(quote, catalog, "OpenRouter pricing catalog is stale; using stale estimate") : quote;
 }
 
 function geminiQuote(logicalModel: string, providerModel: string, capability: string, params: Record<string, unknown>, localPricingConfig: GeminiLocalPricingConfig): PricingQuote {
@@ -195,9 +217,30 @@ function directGeminiAlternative(modelId: string, params: Record<string, unknown
   return modelId === "image.nano-banana" ? [geminiQuote(modelId, NANO_BANANA_2_DEFAULT_MODEL, "image.generate", params, config)] : [];
 }
 
-function openRouterAlternative(modelId: string, params: Record<string, unknown>, models: OpenRouterModelInfo[] | undefined): PricingQuote[] {
+function openRouterAlternative(modelId: string, params: Record<string, unknown>, models: OpenRouterModelInfo[] | undefined, catalog?: PricingCatalog | null): PricingQuote[] {
   const model = models?.find((entry) => entry.id === modelId && openRouterModelSupportsImage(entry));
-  return model ? [openRouterQuote(modelId, model.id, "image.generate", params, model.pricing)] : [];
+  return model ? [openRouterQuote(modelId, model.id, "image.generate", params, pricingForModel(catalog, model.id) ?? model.pricing, catalog)] : [];
+}
+
+function pricingForModel(catalog: PricingCatalog | null | undefined, modelId: string): Record<string, unknown> | undefined {
+  return catalog?.models?.[modelId]?.pricing;
+}
+
+function withCatalogMetadata(quote: PricingQuote, catalog: PricingCatalog | null | undefined, staleWarning: string): PricingQuote {
+  if (!catalog) return quote;
+  const fresh = Date.parse(catalog.expiresAt) > Date.now();
+  return {
+    ...quote,
+    pricingSource: quote.estimatedCost === null ? quote.pricingSource : catalog.source,
+    pricingStatus: fresh ? "fresh" : "stale",
+    pricingUpdatedAt: catalog.fetchedAt || null,
+    pricingExpiresAt: catalog.expiresAt || null,
+    warnings: [
+      ...(quote.warnings ?? []),
+      ...(fresh ? [] : [staleWarning]),
+      ...(catalog.warnings ?? [])
+    ]
+  };
 }
 
 function unknownSelected(logicalModel: string, provider: string, providerModel: string, capability: string, params: Record<string, unknown>, warning?: string): PricingQuote {

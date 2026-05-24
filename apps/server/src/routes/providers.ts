@@ -1,15 +1,25 @@
 import type { FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 import { createReplicateClient } from "@snarkroute/replicate";
-import { createOpenRouterClient, readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
-import { createPolzaClient } from "@snarkroute/polza";
-import { openRouterCatalogCachePath, providerLinksPath } from "../server-paths";
+import { createOpenRouterClient, readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache, refreshOpenRouterModelCatalog, refreshOpenRouterPricingCatalog, refreshOpenRouterPricingCatalogFromModelCache } from "@snarkroute/openrouter";
+import { createPolzaClient, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "@snarkroute/polza";
+import { openRouterCatalogCachePath, openRouterPricingCachePath, polzaPricingCachePath, providerLinksPath } from "../server-paths";
 import { createModelResolver } from "@snarkroute/openrouter";
 import { loadModelRouteMappings, quoteModelExecutingNode } from "../execution/model-gateway-runners";
 import { isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterPublicError, openRouterSettingsStatus } from "../providers/openrouter";
 import { seedanceSettingsStatus, validateSeedanceConfiguration } from "../providers/seedance";
+
+type PricingCatalog = {
+  provider: string;
+  fetchedAt: string;
+  expiresAt: string;
+  source: string;
+  sourceUrl: string | null;
+  models: Record<string, { currency: string; pricing: Record<string, unknown>; raw?: Record<string, unknown> }>;
+  warnings: string[];
+};
 
 export async function registerProviderRoutes(app: FastifyInstance) {
 app.get("/api/providers/links", async (request, reply) => {
@@ -48,6 +58,53 @@ app.post("/api/providers/openrouter/refresh-model-catalog", async (request, repl
   }
 });
 
+app.post<{ Body: { provider?: "openrouter" | "polza" | "gemini" | "all" | string } }>("/api/model-pricing/refresh", async (request) => {
+  const provider = request.body?.provider ?? "all";
+  const targets = provider === "all" ? ["openrouter", "polza"] : [provider];
+  const refreshed: string[] = [];
+  const failed: Array<{ provider: string; error: string }> = [];
+  const warnings: string[] = [];
+  for (const target of targets) {
+    if (target === "openrouter") {
+      try {
+        await refreshWithTimeout(
+          refreshOpenRouterPricingCatalog({ cachePath: openRouterPricingCachePath, modelCatalogCachePath: openRouterCatalogCachePath }),
+          8000
+        );
+        refreshed.push("openrouter");
+      } catch (error) {
+        const fromModelCache = await refreshOpenRouterPricingCatalogFromModelCache({ cachePath: openRouterPricingCachePath, modelCatalogCachePath: openRouterCatalogCachePath }).catch(() => null);
+        if (fromModelCache) {
+          refreshed.push("openrouter");
+          warnings.push("OpenRouter pricing refresh used cached model catalog because live refresh failed.");
+        } else {
+          failed.push({ provider: "openrouter", error: errorMessage(error) });
+        }
+      }
+      continue;
+    }
+    if (target === "polza") {
+      if (!isPolzaEnabled()) {
+        failed.push({ provider: "polza", error: "Polza.ai API key is not configured." });
+        continue;
+      }
+      try {
+        await refreshWithTimeout(refreshPolzaPricingCatalog({ cachePath: polzaPricingCachePath }), 8000);
+        refreshed.push("polza");
+      } catch (error) {
+        failed.push({ provider: "polza", error: errorMessage(error) });
+      }
+      continue;
+    }
+    if (target === "gemini") {
+      warnings.push("Gemini pricing has no machine-readable refresh source configured; manual override fallback remains in use.");
+      continue;
+    }
+    failed.push({ provider: target, error: "Unsupported pricing provider." });
+  }
+  return { refreshed, failed, warnings };
+});
+
 app.get("/api/providers/openrouter/models", async () => {
   const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
   return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: cache?.models.length ?? 0, models: cache?.models ?? [] };
@@ -60,11 +117,15 @@ app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/ap
     const polzaModels = nodeType.startsWith("polza.") && isPolzaEnabled()
       ? await createPolzaClient().getModels(nodeType === "polza.text" ? "chat" : "image").catch(() => [])
       : [];
+    const openRouterPricingCatalog = nodeType === "ai.text" || nodeType === "ai.image.generate" ? await ensurePricingCatalog("openrouter") : null;
+    const polzaPricingCatalog = nodeType.startsWith("polza.") ? await ensurePricingCatalog("polza") : null;
     return await quoteModelExecutingNode({
       nodeType,
       params,
       modelResolver: createModelResolver(await loadModelRouteMappings()),
-      polzaModels
+      polzaModels,
+      openRouterPricingCatalog,
+      polzaPricingCatalog
     });
   } catch (error) {
     return reply.code(200).send({
@@ -110,4 +171,32 @@ app.get<{ Querystring: { model?: string } }>("/api/replicate/schema", async (req
 function sanitizeQuoteParams(params: unknown): Record<string, unknown> {
   if (!params || typeof params !== "object" || Array.isArray(params)) return {};
   return Object.fromEntries(Object.entries(params as Record<string, unknown>).filter(([key]) => !/api[_-]?key|token|secret|password/i.test(key)));
+}
+
+async function ensurePricingCatalog(provider: "openrouter" | "polza"): Promise<PricingCatalog | null> {
+  const cache = provider === "openrouter"
+    ? await readOpenRouterPricingCatalogCache(openRouterPricingCachePath)
+    : await readPolzaPricingCatalogCache(polzaPricingCachePath);
+  if (cache && Date.parse(cache.expiresAt) > Date.now()) return cache;
+  try {
+    if (provider === "openrouter") {
+      return await refreshWithTimeout(
+        refreshOpenRouterPricingCatalog({ cachePath: openRouterPricingCachePath, modelCatalogCachePath: openRouterCatalogCachePath }),
+        5000
+      );
+    }
+    if (!isPolzaEnabled()) return cache;
+    return await refreshWithTimeout(refreshPolzaPricingCatalog({ cachePath: polzaPricingCachePath }), 5000);
+  } catch {
+    return cache
+      ? { ...cache, warnings: [...(cache.warnings ?? []), `${provider === "openrouter" ? "OpenRouter" : "Polza"} pricing catalog is stale; using stale estimate`] }
+      : null;
+  }
+}
+
+function refreshWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`Pricing refresh timed out after ${timeoutMs}ms.`)), timeoutMs))
+  ]);
 }

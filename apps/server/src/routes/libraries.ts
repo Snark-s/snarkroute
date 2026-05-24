@@ -1,0 +1,227 @@
+import type { FastifyInstance } from "fastify";
+import {
+  appendImageToNodeStack,
+  createImageStackReadStream,
+  createEmptyCanvasNode,
+  createLibrary,
+  deleteCanvasEdge,
+  deleteCanvasNode,
+  deleteImageNodeStackItem,
+  duplicateStackItemAsConnectedImageNode,
+  generateImageNodeStackItem,
+  getCurrentLibrarySnapshot,
+  importImageAsNode,
+  openLibrary,
+  renameCanvasNode,
+  readCanvas,
+  readImageNode,
+  setImageNodeActiveStackItem,
+  updateTextNode,
+  writeCanvas,
+  type LibraryContentKind,
+  type LibraryDefaultView,
+  type LibraryKind,
+  type SnarkCanvasDocument
+} from "../libraries/service";
+import { errorMessage } from "../services/errors";
+
+export async function registerLibraryRoutes(app: FastifyInstance) {
+  app.get("/api/libraries/current", async (_request, reply) => {
+    try {
+      return await getCurrentLibrarySnapshot();
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: { path?: string; title?: string; libraryKind?: LibraryKind; contentKind?: LibraryContentKind; defaultView?: LibraryDefaultView } }>("/api/libraries/create", async (request, reply) => {
+    try {
+      return await createLibrary({
+        path: request.body?.path,
+        title: request.body?.title,
+        libraryKind: request.body?.libraryKind,
+        contentKind: request.body?.contentKind,
+        defaultView: request.body?.defaultView
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: { path?: string } }>("/api/libraries/open", async (request, reply) => {
+    try {
+      if (!request.body?.path) return reply.code(400).send({ error: "path is required." });
+      return await openLibrary(request.body.path);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/libraries/current/canvas", async (_request, reply) => {
+    try {
+      const snapshot = await getCurrentLibrarySnapshot();
+      return snapshot.canvas;
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.put<{ Body: SnarkCanvasDocument }>("/api/libraries/current/canvas", async (request, reply) => {
+    try {
+      const snapshot = await getCurrentLibrarySnapshot();
+      if (!snapshot.manifest.canvas) return reply.code(400).send({ error: "Current library does not have a canvas." });
+      return await writeCanvas(snapshot.path, request.body);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get("/api/libraries/current/nested", async (_request, reply) => {
+    try {
+      return { nestedLibraries: (await getCurrentLibrarySnapshot()).nestedLibraries };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: { filename?: string; dataBase64?: string; dropX?: number; dropY?: number; width?: number; height?: number } }>("/api/libraries/current/import-image", async (request, reply) => {
+    try {
+      if (!request.body?.filename) return reply.code(400).send({ error: "filename is required." });
+      if (!request.body.dataBase64) return reply.code(400).send({ error: "dataBase64 is required." });
+      return await importImageAsNode({
+        filename: request.body.filename,
+        dataBase64: request.body.dataBase64,
+        dropX: Number(request.body.dropX ?? 0),
+        dropY: Number(request.body.dropY ?? 0),
+        width: request.body.width,
+        height: request.body.height
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Body: { type?: "image" | "text"; x?: number; y?: number; width?: number; height?: number; connectFromNodeId?: string } }>("/api/libraries/current/nodes", async (request, reply) => {
+    try {
+      if (request.body?.type !== "image" && request.body?.type !== "text") return reply.code(400).send({ error: "type must be image or text." });
+      return await createEmptyCanvasNode({
+        type: request.body.type,
+        x: Number(request.body.x ?? 0),
+        y: Number(request.body.y ?? 0),
+        width: request.body.width,
+        height: request.body.height,
+        connectFromNodeId: request.body.connectFromNodeId
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get<{ Params: { nodeId: string } }>("/api/libraries/current/image-nodes/:nodeId", async (request, reply) => {
+    try {
+      return await readImageNode(request.params.nodeId);
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string }; Body: { filename?: string; dataBase64?: string } }>("/api/libraries/current/image-nodes/:nodeId/stack", async (request, reply) => {
+    try {
+      if (!request.body?.filename) return reply.code(400).send({ error: "filename is required." });
+      if (!request.body.dataBase64) return reply.code(400).send({ error: "dataBase64 is required." });
+      return await appendImageToNodeStack({
+        nodeId: request.params.nodeId,
+        filename: request.body.filename,
+        dataBase64: request.body.dataBase64
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.put<{ Params: { nodeId: string }; Body: { activeStackIndex?: number } }>("/api/libraries/current/image-nodes/:nodeId/stack/active", async (request, reply) => {
+    try {
+      return await setImageNodeActiveStackItem(request.params.nodeId, Number(request.body?.activeStackIndex ?? 0));
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string; stackItemId: string }; Body: { x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/image-nodes/:nodeId/stack/:stackItemId/duplicate-node", async (request, reply) => {
+    try {
+      return await duplicateStackItemAsConnectedImageNode({
+        nodeId: request.params.nodeId,
+        stackItemId: request.params.stackItemId,
+        x: Number(request.body?.x ?? 0),
+        y: Number(request.body?.y ?? 0),
+        width: request.body?.width,
+        height: request.body?.height
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.delete<{ Params: { nodeId: string; stackItemId: string } }>("/api/libraries/current/image-nodes/:nodeId/stack/:stackItemId", async (request, reply) => {
+    try {
+      return await deleteImageNodeStackItem(request.params.nodeId, request.params.stackItemId);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string } }>("/api/libraries/current/image-nodes/:nodeId/generate", async (request, reply) => {
+    try {
+      if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
+      return await generateImageNodeStackItem({
+        nodeId: request.params.nodeId,
+        modelId: request.body.modelId,
+        prompt: request.body.prompt
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.put<{ Params: { nodeId: string }; Body: { text?: string; color?: string } }>("/api/libraries/current/text-nodes/:nodeId", async (request, reply) => {
+    try {
+      return await updateTextNode(request.params.nodeId, { text: request.body?.text, color: request.body?.color });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.delete<{ Params: { nodeId: string } }>("/api/libraries/current/nodes/:nodeId", async (request, reply) => {
+    try {
+      return await deleteCanvasNode(request.params.nodeId);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.put<{ Params: { nodeId: string }; Body: { title?: string } }>("/api/libraries/current/nodes/:nodeId/title", async (request, reply) => {
+    try {
+      return await renameCanvasNode(request.params.nodeId, request.body?.title ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.delete<{ Params: { edgeId: string } }>("/api/libraries/current/edges/:edgeId", async (request, reply) => {
+    try {
+      return await deleteCanvasEdge(request.params.edgeId);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get<{ Params: { nodeId: string; stackItemId: string } }>("/api/libraries/current/image-nodes/:nodeId/stack/:stackItemId", async (request, reply) => {
+    try {
+      const image = await createImageStackReadStream(request.params.nodeId, request.params.stackItemId);
+      reply.header("Content-Type", image.mimeType);
+      return reply.send(image.stream);
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error) });
+    }
+  });
+}

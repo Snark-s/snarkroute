@@ -50,6 +50,7 @@ describe("built-in nodes", () => {
         { id: "controlImage", type: "image", required: true, label: "Control Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
         { id: "prompt", type: "text", required: false, label: "Prompt" },
         { id: "negativePrompt", type: "text", required: false, label: "Negative Prompt" }
+
       ],
       ui: { params: { controlWeight: { control: "slider" }, endpoint: { advanced: true } } }
     });
@@ -779,6 +780,10 @@ A reusable image prompt.
         controlImage: `data:image/png;base64,${testRgbaPng(2, 2).toString("base64")}`,
         prompt: "ornate poster",
         negativePrompt: "blur",
+
+        width: 4,
+        height: 4,
+
         steps: 12,
         cfgScale: 6,
         samplerName: "Euler a",
@@ -799,8 +804,10 @@ A reusable image prompt.
     expect(payload).toMatchObject({
       prompt: "ornate poster",
       negative_prompt: "blur",
+
       width: 2,
       height: 2,
+
       steps: 12,
       cfg_scale: 6,
       sampler_name: "Euler a",
@@ -849,7 +856,8 @@ A reusable image prompt.
     expect(Buffer.from(base64, "base64").subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   });
 
-  it("runs Double Image Illusion against a mocked A1111 API", async () => {
+  it("runs Stable Diffusion Hidden Control Image against a mocked A1111 API", async () => {
+
     let txt2imgBody = "";
     const server = createServer((request, response) => {
       response.setHeader("Content-Type", "application/json");
@@ -883,6 +891,10 @@ A reusable image prompt.
             endpoint,
             controlImage: `data:image/png;base64,${testRgbaPng(1, 1).toString("base64")}`,
             prompt: "ceramic tile",
+
+            width: 1,
+            height: 1,
+
             steps: 1,
             cfgScale: 1
           }
