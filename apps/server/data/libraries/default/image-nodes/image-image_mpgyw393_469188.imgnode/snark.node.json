@@ -4,8 +4,18 @@
   "id": "image_mpgyw393_469188",
   "type": "image",
   "title": "Image",
-  "stack": [],
+  "stack": [
+    {
+      "id": "stack_mpk9j83f_642951",
+      "externalUrl": "https://s3.polza.ai/f/216543/2026/05/t_0b3b52f9b96cdf52.png",
+      "source": "generation",
+      "mimeType": "image/png",
+      "width": 320,
+      "height": 240,
+      "createdAt": "2026-05-24T21:01:45.531Z"
+    }
+  ],
   "activeStackIndex": 0,
   "createdAt": "2026-05-22T13:40:31.479Z",
-  "updatedAt": "2026-05-22T13:40:31.479Z"
+  "updatedAt": "2026-05-24T21:01:45.531Z"
 }

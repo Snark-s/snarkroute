@@ -4,6 +4,7 @@ import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } 
 import { randomBytes } from "node:crypto";
 import { librariesDirectory } from "../server-paths";
 import { sanitizeFilename } from "../assets/service";
+import { createRouteExecutor } from "../execution/service";
 
 export type LibraryKind = "workspace" | "collection";
 export type LibraryContentKind = "mixed" | "image" | "character" | "prompt" | "style";
@@ -73,7 +74,8 @@ export interface TextNodeManifest {
 
 export interface ImageStackItem {
   id: string;
-  file: string;
+  file?: string;
+  externalUrl?: string;
   source: "import" | string;
   mimeType: string;
   width: number;
@@ -145,6 +147,7 @@ export interface GenerateImageNodeInput {
   nodeId: string;
   modelId: string;
   prompt?: string;
+  providerId?: string;
 }
 
 export interface DuplicateStackItemInput {
@@ -360,7 +363,7 @@ export async function deleteImageNodeStackItem(nodeId: string, stackItemId: stri
   const item = manifest.stack[index];
   const nextStack = manifest.stack.filter((entry) => entry.id !== stackItemId);
   const nextActiveIndex = nextStack.length ? Math.min(manifest.activeStackIndex >= index ? manifest.activeStackIndex - 1 : manifest.activeStackIndex, nextStack.length - 1) : 0;
-  await rm(resolvePortablePath(nodePath, item.file), { force: true });
+  if (item.file) await rm(resolvePortablePath(nodePath, item.file), { force: true });
   await writeJson(join(nodePath, "snark.node.json"), {
     ...manifest,
     stack: nextStack,
@@ -374,22 +377,44 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
   const libraryPath = await ensureCurrentLibrary();
   const { manifest, nodePath } = await readImageNode(input.nodeId);
   const activeItem = manifest.stack[manifest.activeStackIndex];
-  if (!activeItem) throw new Error("Image generation needs at least one stack image as a source.");
-  const extension = extname(activeItem.file).toLowerCase() || ".png";
+  const inputImages = await connectedImageInputs(libraryPath, input.nodeId);
+  const sourceImage = activeItem ? stackItemImageInput(nodePath, activeItem) : undefined;
+  const prompt = input.prompt?.trim() || "Create a polished image.";
+  const runResult = await runImageModelForStackItem({
+    nodeId: input.nodeId,
+    modelId: input.modelId,
+    providerId: input.providerId,
+    prompt,
+    sourceImage,
+    inputImages
+  });
+  const generationResult = runResult.nodeResults.generate;
+  if (runResult.status === "failed" || generationResult?.status === "failed") {
+    throw new Error(generationResult?.error || "Image generation failed.");
+  }
+  const generatedImage = imageAssetFromGenerationOutput(generationResult?.output);
+  const generatedPath = generatedImage.localPath ?? generatedImage.path;
+  if (!generatedPath) throw new Error(`Model "${input.modelId}" did not return a saved image path.`);
+  const extension = normalizedGeneratedExtension(generatedImage.filename ?? generatedPath);
   const stackIndex = manifest.stack.length;
   const imageRelativePath = nextStackFilename(manifest.stack, "generation", extension);
-  await copyFile(resolvePortablePath(nodePath, activeItem.file), resolvePortablePath(nodePath, imageRelativePath));
+  const externalUrl = !generatedImage.localPath && isRemoteUrl(generatedPath) ? generatedPath : undefined;
+  if (!externalUrl) {
+    await mkdir(dirname(resolvePortablePath(nodePath, imageRelativePath)), { recursive: true });
+    await copyFile(generatedPath, resolvePortablePath(nodePath, imageRelativePath));
+  }
 
   const now = new Date().toISOString();
   const updatedManifest: ImageNodeManifest = {
     ...manifest,
     stack: [...manifest.stack, {
       id: `stack_${shortId()}`,
-      file: imageRelativePath,
+      file: externalUrl ? undefined : imageRelativePath,
+      externalUrl,
       source: "generation",
-      mimeType: activeItem.mimeType,
-      width: activeItem.width,
-      height: activeItem.height,
+      mimeType: generatedImage.mimeType ?? mimeTypeFromExtension(extension),
+      width: numberValue(generatedImage.width) ?? activeItem?.width ?? defaultNodeWidth,
+      height: numberValue(generatedImage.height) ?? activeItem?.height ?? defaultNodeHeight,
       createdAt: now
     }],
     activeStackIndex: stackIndex,
@@ -397,6 +422,63 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
   };
   await writeJson(join(nodePath, "snark.node.json"), updatedManifest);
   return readLibrarySnapshot(libraryPath);
+}
+
+async function runImageModelForStackItem(input: { nodeId: string; modelId: string; providerId?: string; prompt: string; sourceImage?: { path: string; localPath?: string; mimeType: string }; inputImages: Array<{ path: string; localPath?: string; mimeType: string }> }) {
+  const nodeType = input.providerId === "polza" ? "polza.image.generate" : "ai.image.generate";
+  const executor = await createRouteExecutor();
+  const images = [
+    ...input.inputImages,
+    ...(input.sourceImage ? [input.sourceImage] : [])
+  ].filter((image, index, all) => all.findIndex((candidate) => candidate.path === image.path) === index);
+  const route = {
+    routeVersion: "0.1",
+    route: {
+      id: `snarkroute-image-generation-${input.nodeId}`,
+      title: "SnarkRoute Image Generation",
+      author: { name: "SnarkRoute" }
+    },
+    nodes: [{
+      id: "generate",
+      type: nodeType,
+      params: {
+        model: input.modelId,
+        providerMode: input.providerId === "openrouter" ? "openrouter" : "auto",
+        prompt: input.prompt,
+        images,
+        aspectRatio: "16:9",
+        imageSize: "1K",
+        imageResolution: "1K",
+        quality: "high",
+        outputFormat: "png"
+      }
+    }],
+    edges: []
+  };
+  return executor.executeRoute(route);
+}
+
+async function connectedImageInputs(libraryPath: string, targetNodeId: string): Promise<Array<{ path: string; localPath?: string; mimeType: string }>> {
+  const canvas = await ensureCanvas(libraryPath);
+  const sourceNodeIds = (canvas.edges ?? []).filter((edge) => edge.toNodeId === targetNodeId).map((edge) => edge.fromNodeId);
+  const images: Array<{ path: string; localPath?: string; mimeType: string }> = [];
+  for (const sourceNodeId of sourceNodeIds) {
+    const sourceNode = canvas.nodes.find((node) => node.id === sourceNodeId);
+    if (sourceNode?.type !== "image") continue;
+    const { manifest, nodePath } = await readImageNode(sourceNodeId);
+    const item = manifest.stack[manifest.activeStackIndex];
+    if (!item) continue;
+    images.push(stackItemImageInput(nodePath, item));
+  }
+  return images;
+}
+
+function imageAssetFromGenerationOutput(output: unknown): { localPath?: string; path?: string; filename?: string; mimeType?: string; width?: unknown; height?: unknown } {
+  if (!output || typeof output !== "object") throw new Error("Image generation returned no output.");
+  const record = output as Record<string, unknown>;
+  const image = record.image;
+  if (!image || typeof image !== "object") throw new Error("Image generation returned no image asset.");
+  return image as { localPath?: string; path?: string; filename?: string; mimeType?: string; width?: unknown; height?: unknown };
 }
 
 export async function duplicateStackItemAsConnectedImageNode(input: DuplicateStackItemInput): Promise<LibrarySnapshot> {
@@ -412,10 +494,10 @@ export async function duplicateStackItemAsConnectedImageNode(input: DuplicateSta
   const nodeRelativePath = portableJoin("image-nodes", folderName);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   const stackPath = join(nodePath, "stack");
-  const extension = extname(sourceItem.file).toLowerCase() || ".png";
+  const extension = extname(sourceItem.file ?? sourceItem.externalUrl ?? "").toLowerCase() || ".png";
   const imageRelativePath = portableJoin("stack", `000-import${extension}`);
   await mkdir(stackPath, { recursive: true });
-  await copyFile(resolvePortablePath(sourceNodePath, sourceItem.file), resolvePortablePath(nodePath, imageRelativePath));
+  if (sourceItem.file) await copyFile(resolvePortablePath(sourceNodePath, sourceItem.file), resolvePortablePath(nodePath, imageRelativePath));
 
   const manifest: ImageNodeManifest = {
     format: "snarkroute.node",
@@ -425,7 +507,8 @@ export async function duplicateStackItemAsConnectedImageNode(input: DuplicateSta
     title,
     stack: [{
       id: `stack_${shortId()}`,
-      file: imageRelativePath,
+      file: sourceItem.file ? imageRelativePath : undefined,
+      externalUrl: sourceItem.externalUrl,
       source: "import",
       mimeType: sourceItem.mimeType,
       width: sourceItem.width,
@@ -578,10 +661,12 @@ export async function readImageNode(nodeId: string): Promise<{ manifest: ImageNo
   throw new Error(`Image node "${nodeId}" was not found.`);
 }
 
-export async function createImageStackReadStream(nodeId: string, stackItemId: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
+export async function createImageStackReadStream(nodeId: string, stackItemId: string): Promise<{ stream?: ReturnType<typeof createReadStream>; mimeType: string; remoteUrl?: string }> {
   const { manifest, nodePath } = await readImageNode(nodeId);
   const item = manifest.stack.find((entry) => entry.id === stackItemId);
   if (!item) throw new Error(`Stack item "${stackItemId}" was not found.`);
+  if (item.externalUrl) return { mimeType: item.mimeType, remoteUrl: item.externalUrl };
+  if (!item.file) throw new Error(`Stack item "${stackItemId}" does not contain an image source.`);
   const imagePath = resolvePortablePath(nodePath, item.file);
   return { stream: createReadStream(imagePath), mimeType: item.mimeType };
 }
@@ -702,10 +787,33 @@ function normalizedImageExtension(filename: string): ".png" | ".jpg" | ".jpeg" |
   throw new Error("Supported image formats are .png, .jpg, .jpeg, and .webp.");
 }
 
+function stackItemImageInput(nodePath: string, item: ImageStackItem): { path: string; localPath?: string; mimeType: string } {
+  if (item.externalUrl) return { path: item.externalUrl, mimeType: item.mimeType };
+  if (!item.file) throw new Error(`Stack item "${item.id}" does not contain an image source.`);
+  const path = resolvePortablePath(nodePath, item.file);
+  return { path, localPath: path, mimeType: item.mimeType };
+}
+
+function isRemoteUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+function normalizedGeneratedExtension(filename: string): ".png" | ".jpg" | ".jpeg" | ".webp" {
+  try {
+    return normalizedImageExtension(filename);
+  } catch {
+    return ".png";
+  }
+}
+
 function mimeTypeFromExtension(extension: string): string {
   if (extension === ".png") return "image/png";
   if (extension === ".webp") return "image/webp";
   return "image/jpeg";
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function titleFromFilename(filename: string): string {

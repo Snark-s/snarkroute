@@ -1,7 +1,13 @@
 import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const { executeRouteMock } = vi.hoisted(() => ({ executeRouteMock: vi.fn() }));
+
+vi.mock("../src/execution/service", () => ({
+  createRouteExecutor: async () => ({ executeRoute: executeRouteMock })
+}));
 
 const previousNoListen = process.env.SNARKROUTE_NO_LISTEN;
 const previousLibraryPath = process.env.SNARKROUTE_LIBRARY_PATH;
@@ -13,6 +19,7 @@ describe("SnarkRoute libraries", () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
     libraryPath = await mkdtemp(join(tmpdir(), "sr-library-"));
     process.env.SNARKROUTE_LIBRARY_PATH = libraryPath;
+    executeRouteMock.mockReset();
   });
 
   afterEach(() => {
@@ -92,6 +99,105 @@ describe("SnarkRoute libraries", () => {
       await app.close();
     }
   });
+
+  it("sends the selected image model and connected image inputs through generation", async () => {
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Source.png");
+      const targetResponse = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "image", x: 600, y: 300, width: 320, height: 240 }
+      });
+      const target = targetResponse.json().nodes.find((node: { manifest: { type: string; stack: unknown[] } }) => node.manifest.type === "image" && node.manifest.stack.length === 0);
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_input", fromNodeId: source.manifest.id, toNodeId: target.manifest.id }] }
+      });
+      const generatedPath = join(libraryPath, source.canvas.nodePath, source.manifest.stack[0].file);
+      executeRouteMock.mockResolvedValue({
+        nodeResults: { generate: { output: { image: { localPath: generatedPath, path: generatedPath, filename: "result.png", mimeType: "image/png", width: 1, height: 1 } } } }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${target.manifest.id}/generate`,
+        payload: { modelId: "openai/gpt-5-image-mini", providerId: "polza", prompt: "Combine references" }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === target.manifest.id).manifest.stack).toHaveLength(1);
+      expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
+        nodes: [expect.objectContaining({
+          type: "polza.image.generate",
+          params: expect.objectContaining({ model: "openai/gpt-5-image-mini", prompt: "Combine references" })
+        })]
+      }));
+      const route = executeRouteMock.mock.calls[0][0];
+      expect(route.nodes[0].params.images).toHaveLength(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns the provider generation error instead of a missing-output message", async () => {
+    const app = await testServer();
+    try {
+      const target = await importNode(app, "Target.png");
+      executeRouteMock.mockResolvedValue({
+        status: "failed",
+        nodeResults: { generate: { status: "failed", error: "Provider rejected this image request." } }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${target.manifest.id}/generate`,
+        payload: { modelId: "openai/gpt-5-image-mini", providerId: "polza", prompt: "Colorize" }
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error).toBe("Provider rejected this image request.");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("keeps a generated remote image URL in the node stack when no local copy is available", async () => {
+    const app = await testServer();
+    try {
+      const target = await importNode(app, "Target.png");
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: {
+          generate: {
+            status: "succeeded",
+            output: { image: { path: "https://s3.polza.ai/generated/colorized.png", filename: "colorized.png", mimeType: "image/png" } }
+          }
+        }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${target.manifest.id}/generate`,
+        payload: { modelId: "openai/gpt-5.4-image-2", providerId: "polza", prompt: "Colorize" }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const generated = response.json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === target.manifest.id).manifest.stack[1];
+      expect(generated).toMatchObject({ externalUrl: "https://s3.polza.ai/generated/colorized.png", mimeType: "image/png" });
+
+      const previewResponse = await app.inject({
+        method: "GET",
+        url: `/api/libraries/current/image-nodes/${target.manifest.id}/stack/${generated.id}`
+      });
+      expect(previewResponse.statusCode).toBe(302);
+      expect(previewResponse.headers.location).toBe("https://s3.polza.ai/generated/colorized.png");
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 async function testServer() {
@@ -102,6 +208,15 @@ async function testServer() {
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) delete process.env[key];
   else process.env[key] = value;
+}
+
+async function importNode(app: Awaited<ReturnType<typeof testServer>>, filename: string) {
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/libraries/current/import-image",
+    payload: { filename, dataBase64: onePixelPngBase64, dropX: 500, dropY: 300, width: 320, height: 240 }
+  });
+  return response.json().nodes[response.json().nodes.length - 1];
 }
 
 const onePixelPngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";

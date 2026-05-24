@@ -721,7 +721,7 @@ h2 {
   border-radius: 6px;
   display: grid;
   gap: 8px;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   justify-content: stretch;
   min-height: 58px;
   padding: 8px;
@@ -750,6 +750,7 @@ h2 {
   border-radius: 6px;
   display: grid;
   gap: 7px;
+  grid-template-columns: auto minmax(0, 1fr);
   justify-content: stretch;
   min-height: 74px;
   padding: 8px;
@@ -768,6 +769,34 @@ h2 {
   font-size: 12px;
   line-height: 1.25;
   white-space: normal;
+}
+
+.dialogueModelOption > .modelBadges {
+  grid-column: 2;
+}
+
+.modelLogoMark {
+  background: #0f131b;
+  border: 1px solid #343c4b;
+  border-radius: 8px;
+  display: block;
+  flex: 0 0 auto;
+  height: 24px;
+  object-fit: contain;
+  width: 24px;
+}
+
+.modelLogoMark.tiny {
+  border-radius: 5px;
+  height: 16px;
+  width: 16px;
+}
+
+.nodeMetaLine.withLogo {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  justify-content: center;
 }
 
 .modelBadges {
@@ -2078,7 +2107,7 @@ h2 {
   align-items: center;
   display: grid;
   gap: 7px;
-  grid-template-columns: 36px minmax(0, 1fr) 38px;
+  grid-template-columns: 72px minmax(0, 1fr) 38px;
   text-align: left;
 }
 
@@ -2086,6 +2115,7 @@ h2 {
 .nodeSliderField output {
   color: #9da8ba;
   font-size: 10px;
+  line-height: 1.2;
 }
 
 .nodeSliderField output {
@@ -2097,6 +2127,10 @@ h2 {
 .nodeSliderField input[type="range"] {
   accent-color: #67c5ad;
   min-width: 0;
+}
+
+.nodeSliderField .nodeConnectedHint {
+  grid-column: 1 / -1;
 }
 
 .liveFisheyeResult {
@@ -2147,6 +2181,13 @@ h2 {
 .nodeSelect {
   appearance: auto;
   height: 34px;
+}
+
+.nodeModelSelectRow {
+  align-items: center;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: auto minmax(0, 1fr);
 }
 
 .nodeTextarea {

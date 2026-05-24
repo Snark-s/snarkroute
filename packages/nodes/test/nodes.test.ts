@@ -47,7 +47,7 @@ describe("built-in nodes", () => {
       category: "Local / Stable Diffusion",
       permissions: { network: true, networkHosts: ["127.0.0.1", "localhost"], readFiles: true, writeOutputs: true },
       inputs: [
-        { id: "controlImage", type: "image", required: true, label: "Control Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
+        { id: "controlImage", type: "image", required: true, label: "Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
         { id: "prompt", type: "text", required: false, label: "Prompt" },
         { id: "negativePrompt", type: "text", required: false, label: "Negative Prompt" }
 
@@ -780,10 +780,6 @@ A reusable image prompt.
         controlImage: `data:image/png;base64,${testRgbaPng(2, 2).toString("base64")}`,
         prompt: "ornate poster",
         negativePrompt: "blur",
-
-        width: 4,
-        height: 4,
-
         steps: 12,
         cfgScale: 6,
         samplerName: "Euler a",

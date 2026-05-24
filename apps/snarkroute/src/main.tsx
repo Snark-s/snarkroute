@@ -1,7 +1,8 @@
 import "./styles.css";
-import { ArrowUp, ChevronLeft, ChevronRight, Download, Expand, Folder, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, Sun, Trash2, Wallpaper } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Download, Expand, Folder, ImageIcon, ImagePlus, Layers3, LoaderCircle, Moon, PanelRight, Sun, Trash2, Wallpaper } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { modelLogoFor } from "./modelLogos";
 
 type ThemeName = "day" | "night";
 type BackgroundName = "plain" | "dots" | "grid" | "gears";
@@ -79,7 +80,8 @@ interface TextNodeManifest {
 
 interface ImageStackItem {
   id: string;
-  file: string;
+  file?: string;
+  externalUrl?: string;
   source: string;
   width: number;
   height: number;
@@ -200,6 +202,15 @@ interface ModelOption {
   id: string;
   title: string;
   nodeTypes: string[];
+  providerId?: string;
+  source?: string;
+  acceptsImageInput?: boolean;
+}
+
+interface GenerationFeedback {
+  busy: boolean;
+  message: string;
+  error?: boolean;
 }
 
 declare global {
@@ -218,13 +229,17 @@ const activePromptHeight = 250;
 const passiveFooterHeight = 42;
 const minCanvasScale = 0.35;
 const maxCanvasScale = 2.5;
+const busyFaviconDim = busyFavicon("#aa9e69", "#72683e");
+const busyFaviconLit = busyFavicon("#ffe785", "#f3bf45");
 const backgroundOptions: { value: BackgroundName; label: string }[] = [
   { value: "plain", label: "Plain" },
   { value: "dots", label: "Dots" },
   { value: "grid", label: "Grid" },
   { value: "gears", label: "Gears" }
 ];
-const fallbackModels: ModelOption[] = [];
+const fallbackModels: ModelOption[] = [
+  { id: "image.nano-banana", title: "Nano Banana", nodeTypes: ["image"], providerId: "gemini", source: "fallback", acceptsImageInput: true }
+];
 
 function App() {
   const [theme, setTheme] = useStoredSetting<ThemeName>(themeStorageKey, "night", ["day", "night"]);
@@ -248,6 +263,8 @@ function App() {
   const [models, setModels] = useState<ModelOption[]>(fallbackModels);
   const [modelSearchNodeId, setModelSearchNodeId] = useState<string | null>(null);
   const [modelSelections, setModelSelections] = useStoredJsonSetting<Record<string, string>>("snarkroute.nodeModels", {});
+  const [generationFeedback, setGenerationFeedback] = useState<Record<string, GenerationFeedback>>({});
+  const generationRunning = Object.values(generationFeedback).some((feedback) => feedback.busy);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const interactionMovedRef = useRef(false);
   const undoStackRef = useRef<CanvasDocument[]>([]);
@@ -446,6 +463,31 @@ function App() {
     return () => window.removeEventListener("pointerdown", closeFloatingMenus);
   }, []);
 
+  useEffect(() => {
+    const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!icon) return;
+    const initialHref = icon.getAttribute("href") ?? "/snarkroute-icon.png";
+    const initialType = icon.getAttribute("type");
+    if (!generationRunning) {
+      icon.href = initialHref;
+      if (initialType) icon.type = initialType;
+      return;
+    }
+
+    let lit = true;
+    icon.type = "image/svg+xml";
+    icon.href = busyFaviconLit;
+    const timer = window.setInterval(() => {
+      lit = !lit;
+      icon.href = lit ? busyFaviconLit : busyFaviconDim;
+    }, 520);
+    return () => {
+      window.clearInterval(timer);
+      icon.href = initialHref;
+      if (initialType) icon.type = initialType;
+    };
+  }, [generationRunning]);
+
   const connectionPreview = dragState?.kind === "connection" ? dragState : null;
 
   async function refreshLibrary() {
@@ -462,20 +504,21 @@ function App() {
   }
 
   async function refreshModels() {
-    const endpoints = ["/api/providers/models", "/api/model-registry/models", "/api/providers"];
-    for (const endpoint of endpoints) {
+    const sources = [
+      { endpoint: "/api/providers/openrouter/models", providerId: "openrouter" },
+      { endpoint: "/api/providers/polza/models?type=image", providerId: "polza" }
+    ];
+    const loaded: ModelOption[] = [];
+    for (const source of sources) {
       try {
-        const response = await apiGet<unknown>(endpoint);
-        const nextModels = normalizeModelOptions(response);
-        if (nextModels.length) {
-          setModels(nextModels);
-          return;
-        }
+        const response = await apiGet<unknown>(source.endpoint);
+        loaded.push(...normalizeModelOptions(response, source.providerId));
       } catch {
-        // Try the next known project model surface.
+        // Keep the canvas usable when a provider is not configured or its cache is absent.
       }
     }
-    setModels([]);
+    const availableModels = mergeModelOptions(loaded);
+    setModels(availableModels.length ? availableModels : fallbackModels);
   }
 
   async function openNestedLibrary(path: string) {
@@ -879,15 +922,19 @@ function App() {
     }
   }
 
-  async function runImageGeneration(nodeId: string, modelId: string, prompt: string) {
+  async function runImageGeneration(nodeId: string, modelId: string, prompt: string, providerId?: string) {
     try {
       setStatus("Generating image...");
-      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/generate`, { modelId, prompt });
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: true, message: "Generating..." } }));
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/generate`, { modelId, prompt, providerId });
       setLibrary(snapshot);
       setSelectedNodeId(nodeId);
       setStatus("Generation added to stack");
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message: "Added to stack" } }));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not run generation.");
+      const message = error instanceof Error ? error.message : "Could not run generation.";
+      setStatus(message);
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message, error: true } }));
     }
   }
 
@@ -1109,14 +1156,15 @@ function App() {
                 setStackItemMenu({ x: event.clientX, y: event.clientY, nodeId, stackItemId });
               }}
               models={models.filter((model) => model.nodeTypes.includes(node.manifest.type))}
-              modelId={modelSelections[node.canvas.id] ?? models.find((model) => model.nodeTypes.includes(node.manifest.type))?.id ?? ""}
+              modelId={modelSelections[node.canvas.id] ?? modelSelectionId(models.find((model) => model.nodeTypes.includes(node.manifest.type)))}
+              generationFeedback={generationFeedback[node.canvas.id]}
               modelSearchOpen={modelSearchNodeId === node.canvas.id}
               onToggleModelSearch={(nodeId) => setModelSearchNodeId((current) => current === nodeId ? null : nodeId)}
               onSelectModel={(nodeId, modelId) => {
                 setModelSelections({ ...modelSelections, [nodeId]: modelId });
                 setModelSearchNodeId(null);
               }}
-              onRunGeneration={(nodeId, modelId, prompt) => void runImageGeneration(nodeId, modelId, prompt)}
+              onRunGeneration={(nodeId, modelId, prompt, providerId) => void runImageGeneration(nodeId, modelId, prompt, providerId)}
               onSaveText={saveTextNode}
               onSaveTextColor={saveTextNodeColor}
               onDeleteNode={(nodeId) => void deleteSelectedNode(nodeId)}
@@ -1230,6 +1278,7 @@ function ImageNode({
   onStackItemContextMenu,
   models,
   modelId,
+  generationFeedback,
   modelSearchOpen,
   onToggleModelSearch,
   onSelectModel,
@@ -1257,10 +1306,11 @@ function ImageNode({
   onStackItemContextMenu: (event: React.MouseEvent<HTMLElement>, nodeId: string, stackItemId: string) => void;
   models: ModelOption[];
   modelId: string;
+  generationFeedback?: GenerationFeedback;
   modelSearchOpen: boolean;
   onToggleModelSearch: (nodeId: string) => void;
   onSelectModel: (nodeId: string, modelId: string) => void;
-  onRunGeneration: (nodeId: string, modelId: string, prompt: string) => void;
+  onRunGeneration: (nodeId: string, modelId: string, prompt: string, providerId?: string) => void;
   onSaveText: (nodeId: string, text: string) => void;
   onSaveTextColor: (nodeId: string, color: string) => void;
   onDeleteNode: (nodeId: string) => void;
@@ -1272,8 +1322,11 @@ function ImageNode({
   const isTextNode = node.manifest.type === "text";
   const [prompt, setPrompt] = useState("");
   const [modelQuery, setModelQuery] = useState("");
-  const selectedModel = models.find((model) => model.id === modelId) ?? models[0] ?? { id: "", title: "Select model", nodeTypes: ["image"] };
-  const visibleModels = models.filter((model) => model.title.toLowerCase().includes(modelQuery.toLowerCase()) || model.id.toLowerCase().includes(modelQuery.toLowerCase()));
+  const needsImageInput = inputNodes.some((input) => input.type === "image") || (node.manifest.type === "image" && node.manifest.stack.length > 0);
+  const compatibleModels = needsImageInput ? models.filter((model) => model.acceptsImageInput !== false) : models;
+  const selectedModel = compatibleModels.find((model) => modelSelectionId(model) === modelId) ?? compatibleModels.find((model) => model.id === modelId) ?? compatibleModels[0] ?? { id: "", title: "Select model", nodeTypes: ["image"] };
+  const visibleModels = compatibleModels.filter((model) => model.title.toLowerCase().includes(modelQuery.toLowerCase()) || model.id.toLowerCase().includes(modelQuery.toLowerCase()));
+  const selectedModelLogo = modelLogoFor(selectedModel.providerId, selectedModel.id);
   if (isTextNode) {
     return (
       <article
@@ -1358,7 +1411,7 @@ function ImageNode({
         </div>
       )}
       <div className="nodeTitle">
-        <ImageIcon size={15} />
+        {generationFeedback?.busy ? <LoaderCircle size={15} className="nodeBusyIndicator" /> : <ImageIcon size={15} />}
         {active ? (
           <input
             defaultValue={node.manifest.title}
@@ -1451,9 +1504,11 @@ function ImageNode({
               <button
                 type="button"
                 className="modelPickerButton"
+                aria-label={`Choose image model: ${selectedModel.title}`}
+                title={selectedModel.title}
                 onClick={() => onToggleModelSearch(node.manifest.id)}
               >
-                {selectedModel.title}
+                <img src={selectedModelLogo.src} alt="" />
               </button>
               {modelSearchOpen && (
                 <div className="modelMenu" onPointerDown={(event) => event.stopPropagation()}>
@@ -1464,16 +1519,21 @@ function ImageNode({
                   />
                   <div className="modelMenuList">
                     {visibleModels.map((model) => (
-                      <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, model.id)}>
-                        {model.title}
+                      <button key={modelSelectionId(model)} type="button" onClick={() => onSelectModel(node.manifest.id, modelSelectionId(model))}>
+                        <img src={modelLogoFor(model.providerId, model.id).src} alt="" />
+                        <span>
+                          <strong>{model.title}</strong>
+                          <small>{model.id}</small>
+                        </span>
                       </button>
                     ))}
+                    {visibleModels.length === 0 ? <span className="modelMenuEmpty">No image models found</span> : null}
                   </div>
                 </div>
               )}
             </div>
-            <span>16:9 · 1K</span>
-            <button type="button" aria-label="Run" disabled={!selectedModel.id} onClick={() => onRunGeneration(node.manifest.id, selectedModel.id, prompt)}><ArrowUp size={16} /></button>
+            <span className={generationFeedback?.error ? "generationStatus isError" : "generationStatus"}>{generationFeedback?.message ?? "16:9 · 1K"}</span>
+            <button type="button" aria-label="Run" disabled={!selectedModel.id || generationFeedback?.busy} onClick={() => onRunGeneration(node.manifest.id, selectedModel.id, prompt, selectedModel.providerId)}><ArrowUp size={16} /></button>
           </div>
         </footer>
       )}
@@ -1550,19 +1610,40 @@ function stackImageUrl(nodeId: string, stackItemId: string): string {
   return `${apiBase}/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}?v=${encodeURIComponent(stackItemId)}`;
 }
 
-function normalizeModelOptions(value: unknown): ModelOption[] {
+function mergeModelOptions(options: ModelOption[]): ModelOption[] {
+  const byId = new Map<string, ModelOption>();
+  for (const option of options) {
+    const key = modelSelectionId(option);
+    if (!byId.has(key)) byId.set(key, option);
+  }
+  return [...byId.values()];
+}
+
+function modelSelectionId(model: ModelOption | undefined): string {
+  if (!model) return "";
+  return `${model.providerId ?? "unknown"}:${model.id}`;
+}
+
+function normalizeModelOptions(value: unknown, providerId?: string): ModelOption[] {
   const candidates = collectModelCandidates(value);
   const seen = new Set<string>();
   return candidates
-    .map((entry) => {
+    .map((entry): ModelOption | null => {
       const record = entry as Record<string, unknown>;
       const id = String(record.id ?? record.modelId ?? record.slug ?? record.name ?? "");
       const title = String(record.title ?? record.label ?? record.displayName ?? record.name ?? id);
       if (!id || seen.has(id)) return null;
       seen.add(id);
-      return { id, title, nodeTypes: inferModelNodeTypes(record) };
+      return {
+        id,
+        title,
+        nodeTypes: inferModelNodeTypes(record),
+        providerId: String(record.providerId ?? record.provider ?? providerId ?? providerFromModelId(id)),
+        source: providerId,
+        acceptsImageInput: modelAcceptsImageInput(record)
+      };
     })
-    .filter((entry): entry is ModelOption => Boolean(entry) && entry.nodeTypes.includes("image"));
+    .filter((entry): entry is ModelOption => entry !== null && entry.nodeTypes.includes("image"));
 }
 
 function collectModelCandidates(value: unknown): unknown[] {
@@ -1580,6 +1661,7 @@ function collectModelCandidates(value: unknown): unknown[] {
 }
 
 function inferModelNodeTypes(record: Record<string, unknown>): string[] {
+  const architecture = record.architecture && typeof record.architecture === "object" ? record.architecture as Record<string, unknown> : {};
   const fields = [
     record.nodeTypes,
     record.nodeType,
@@ -1588,6 +1670,9 @@ function inferModelNodeTypes(record: Record<string, unknown>): string[] {
     record.modalities,
     record.inputModalities,
     record.outputModalities,
+    architecture.input_modalities,
+    architecture.output_modalities,
+    architecture.modality,
     record.tasks,
     record.kind,
     record.category,
@@ -1596,7 +1681,26 @@ function inferModelNodeTypes(record: Record<string, unknown>): string[] {
   const text = fields.flatMap((field) => Array.isArray(field) ? field : [field]).filter(Boolean).map(String).join(" ").toLowerCase();
   if (/(image|img|vision|visual|text-to-image|image-generation|generation)/.test(text)) return ["image"];
   if (/(text|chat|language|embedding)/.test(text)) return ["text"];
-  return ["image"];
+  return [];
+}
+
+function modelAcceptsImageInput(record: Record<string, unknown>): boolean {
+  const architecture = record.architecture && typeof record.architecture === "object" ? record.architecture as Record<string, unknown> : {};
+  const provider = record.top_provider && typeof record.top_provider === "object" ? record.top_provider as Record<string, unknown> : {};
+  const parameters = provider.parameters && typeof provider.parameters === "object" ? provider.parameters as Record<string, unknown> : {};
+  const inputModalities = Array.isArray(architecture.input_modalities) ? architecture.input_modalities.map(String) : [];
+  return inputModalities.some((modality) => modality.toLowerCase() === "image") || Object.hasOwn(parameters, "images");
+}
+
+function providerFromModelId(modelId: string): string {
+  if (modelId.startsWith("image.")) return "gemini";
+  if (modelId.startsWith("gemini-")) return "gemini";
+  if (modelId.includes("/")) return modelId.split("/")[0] || "unknown";
+  return "unknown";
+}
+
+function busyFavicon(fill: string, glow: string): string {
+  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#111813"/><path d="M16 5.5a8 8 0 0 0-4.7 14.5c.9.7 1.4 1.8 1.4 2.9v.6h6.6v-.6c0-1.1.5-2.2 1.4-2.9A8 8 0 0 0 16 5.5Z" fill="${fill}" stroke="${glow}" stroke-width="1.6"/><path d="M13 26h6M13.8 28h4.4" stroke="${fill}" stroke-width="1.7" stroke-linecap="round"/><path d="M16 2.5v-2M5.8 7.2 4.3 5.7M26.2 7.2l1.5-1.5M5 17H2.7M29.3 17H27" stroke="${glow}" stroke-width="1.7" stroke-linecap="round"/></svg>`)}`;
 }
 
 async function downloadPreview(previewUrl: string, title: string) {

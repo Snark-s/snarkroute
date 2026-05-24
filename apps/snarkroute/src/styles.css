@@ -1024,11 +1024,43 @@ dd {
   white-space: nowrap;
 }
 
+.nodeBusyIndicator {
+  color: #8fd7b5;
+  animation: nodeBusySpin 0.9s linear infinite;
+}
+
+@keyframes nodeBusySpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.promptMeta .generationStatus {
+  flex: 1;
+  max-width: none;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+}
+
+.promptMeta .generationStatus.isError {
+  color: #e99b9b;
+  line-height: 1.35;
+  max-height: 34px;
+  white-space: normal;
+}
+
 .promptMeta button {
   margin-left: auto;
   border-radius: 999px;
   background: color-mix(in srgb, var(--text) 90%, transparent);
   color: var(--panel);
+}
+
+.promptMeta button:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 .modelPicker {
@@ -1037,26 +1069,34 @@ dd {
 }
 
 .modelPickerButton {
-  width: 150px;
-  height: 28px;
-  justify-content: flex-start;
+  width: 42px;
+  height: 42px;
+  justify-content: center;
   margin-left: 0;
-  padding: 0 8px;
+  padding: 5px;
   overflow: hidden;
-  border: 0;
-  border-radius: 6px;
-  background: var(--panel-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-soft) 84%, var(--text) 16%);
   color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  box-shadow: 0 4px 14px var(--shadow);
+}
+
+.modelPickerButton img,
+.modelMenuList button img {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  border-radius: 999px;
 }
 
 .modelMenu {
   position: absolute;
   left: 0;
-  bottom: 34px;
+  bottom: 48px;
   z-index: 8;
-  width: 230px;
+  width: 292px;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1085,13 +1125,45 @@ dd {
 
 .modelMenuList button {
   width: 100%;
-  min-height: 30px;
+  min-height: 42px;
   justify-content: flex-start;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
   margin-left: 0;
+  padding: 6px;
   border-radius: 7px;
   background: transparent;
   color: var(--text);
   text-align: left;
+}
+
+.modelMenuList button span {
+  display: grid;
+  min-width: 0;
+}
+
+.modelMenuList button strong,
+.modelMenuList button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelMenuList button strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.modelMenuList button small,
+.modelMenuEmpty {
+  color: color-mix(in srgb, var(--text) 68%, transparent);
+  font-size: 11px;
+}
+
+.modelMenuEmpty {
+  padding: 8px;
 }
 
 .modelMenuList button:hover {

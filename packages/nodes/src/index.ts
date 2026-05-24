@@ -639,7 +639,7 @@ function builtInInputs(type: string) {
   if (type === "local.stableDiffusion.textToImage") return [{ id: "prompt", type: "text", required: false, label: "Prompt" }];
   if (type === "ai.image.sd15.qr_monster_hidden_control") {
     return [
-      { id: "controlImage", type: "image", required: true, label: "Control Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
+      { id: "controlImage", type: "image", required: true, label: "Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
       { id: "prompt", type: "text", required: false, label: "Prompt" },
       { id: "negativePrompt", type: "text", required: false, label: "Negative Prompt" }
     ];
@@ -742,7 +742,7 @@ function builtInUi(type: string) {
             { value: "qr_code", label: "QR code" }
           ]
         },
-        controlWeight: { control: "slider", min: 0, max: 3, step: 0.05, helperText: "Higher = hidden image / QR more readable; lower = image more creative." },
+        controlWeight: { control: "slider", min: 0, max: 2, step: 0.05, helperText: "Higher = hidden image / QR more readable; lower = image more creative." },
         endpoint: { advanced: true },
         steps: { control: "slider", min: 1, max: 80, step: 1, advanced: true },
         cfgScale: { control: "slider", min: 1, max: 20, step: 0.5, advanced: true },
@@ -871,7 +871,7 @@ export async function buildStableDiffusionHiddenControlPayload(
           image: encodeRgbaPng(processed.width, processed.height, processed.data).toString("base64"),
           module: "none",
           model: controlNetModel,
-          weight: clampedNumberParam(params.controlWeight, 1.2, 0, 3, "controlWeight"),
+          weight: clampedNumberParam(params.controlWeight, 1.2, 0, 2, "controlWeight"),
           resize_mode: resizeMode,
           guidance_start: clampedNumberParam(params.guidanceStart, 0, 0, 1, "guidanceStart"),
           guidance_end: clampedNumberParam(params.guidanceEnd, 1, 0, 1, "guidanceEnd"),

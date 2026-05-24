@@ -55,6 +55,7 @@ import {
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
 import { studioDocs, type StudioDocEntry } from "./docsRegistry";
 import { MarkdownDocument } from "./MarkdownDocument";
+import { modelLogoFor, type ModelLogo } from "./modelLogos";
 import {
   availableCanvasThemes,
   loadCanvasBackgroundTheme,
@@ -1119,7 +1120,10 @@ function DialogueNodeMeta({ routeNode, modelProfiles }: { routeNode: RouteDoc["n
   const profile = modelProfiles.find((entry) => entry.id === (state.defaultModelProfileId ?? routeNode.params?.defaultModelProfileId));
   return (
     <>
-      <div className="nodeMetaLine">{profile?.displayName ?? state.defaultModelProfileId ?? "No model profile"} · {state.messages.length} message(s)</div>
+      <div className="nodeMetaLine withLogo">
+        {profile ? <ModelLogoMark logo={modelLogoFor(profile.providerId, profile.modelId, profile.id)} size="tiny" /> : null}
+        <span>{profile?.displayName ?? state.defaultModelProfileId ?? "No model profile"} · {state.messages.length} message(s)</span>
+      </div>
       <div className="nodeMetaLine">{state.selectedOutputs.length} selected output(s)</div>
     </>
   );
@@ -1480,6 +1484,7 @@ function DialogueWorkbenchEditor({
               <label>
                 <span>Model</span>
                 <button className="dialogueModelPickerToggle" type="button" onClick={() => setModelPickerOpen((value) => !value)}>
+                  {selectedProfile ? <ModelLogoMark logo={modelLogoFor(selectedProfile.providerId, selectedProfile.modelId, selectedProfile.id)} /> : null}
                   <span>
                     <strong>{selectedProfile?.displayName ?? "No model selected"}</strong>
                     {selectedProfile ? <small>{selectedProfile.providerId}/{selectedProfile.modelId}</small> : null}
@@ -1507,6 +1512,7 @@ function DialogueWorkbenchEditor({
                           setModelPickerOpen(false);
                         }}
                       >
+                        <ModelLogoMark logo={modelLogoFor(profile.providerId, profile.modelId, profile.id)} />
                         <span>
                           <strong>{profile.displayName}</strong>
                           <small>{profile.providerId}/{profile.modelId}</small>
@@ -1602,6 +1608,19 @@ function ModelCapabilityBadges({ profile }: { profile: ModelProfile }) {
     <span className="modelBadges">
       {badges.map((badge) => <em className={badge === "Vision" ? "vision" : ""} key={badge}>{badge}</em>)}
     </span>
+  );
+}
+
+function ModelLogoMark({ logo, size = "normal" }: { logo: ModelLogo; size?: "tiny" | "normal" }) {
+  return <img className={`modelLogoMark ${size}`} src={logo.src} alt="" title={logo.label} width={size === "tiny" ? 16 : 24} height={size === "tiny" ? 16 : 24} loading="lazy" />;
+}
+
+function ModelSelectWithLogo({ logo, children }: { logo: ModelLogo; children: React.ReactNode }) {
+  return (
+    <div className="nodeModelSelectRow">
+      <ModelLogoMark logo={logo} />
+      {children}
+    </div>
   );
 }
 
@@ -2009,7 +2028,9 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span>model</span>
-        <input className="nodrag nopan nodeInput" value={String(params.model ?? "")} onChange={(event) => updateTextParam("model", event)} />
+          <ModelSelectWithLogo logo={modelLogoFor("replicate", String(params.model ?? ""))}>
+            <input className="nodrag nopan nodeInput" value={String(params.model ?? "")} onChange={(event) => updateTextParam("model", event)} />
+          </ModelSelectWithLogo>
         </label>
         <label className="nodeField">
           <span>input</span>
@@ -2090,13 +2111,15 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span>model</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
-            <option value="text.default">Auto / default text model</option>
-            {openRouterModels.filter((entry) => modelSupportsText(entry)).map((entry) => (
-              <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, openRouterModelSupportsVisionInput(entry))}</option>
-            ))}
-            {model && model !== "text.default" && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
-          </select>
+          <ModelSelectWithLogo logo={modelLogoFor("openrouter", model)}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+              <option value="text.default">Auto / default text model</option>
+              {openRouterModels.filter((entry) => modelSupportsText(entry)).map((entry) => (
+                <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, openRouterModelSupportsVisionInput(entry))}</option>
+              ))}
+              {model && model !== "text.default" && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{openRouterCostLabel(openRouterModels.find((entry) => entry.id === model))}</small>
         </label>
         <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
@@ -2142,24 +2165,26 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span>model</span>
-          <select
-            className="nodrag nopan nodeInput nodeSelect"
-            value={model}
-            onChange={(event) => {
-              const nextModel = modelOptions.find((entry) => entry.id === event.target.value);
-              const nextAspectRatios = imageAspectRatioOptions(nextModel);
-              const nextImageSizes = imageSizeOptionsForModel(nextModel);
-              onChange({
-                model: event.target.value,
-                aspectRatio: supportedOptionValue(params.aspectRatio, nextAspectRatios),
-                imageSize: supportedOptionValue(params.imageSize, nextImageSizes)
-              });
-            }}
-          >
-            {modelOptions.map((entry) => (
-              <option key={entry.id} value={entry.id} disabled={entry.disabled}>{imageModelOptionLabel(entry)}</option>
-            ))}
-          </select>
+          <ModelSelectWithLogo logo={modelLogoFor(selectedModel?.provider, selectedModel?.slug ?? model)}>
+            <select
+              className="nodrag nopan nodeInput nodeSelect"
+              value={model}
+              onChange={(event) => {
+                const nextModel = modelOptions.find((entry) => entry.id === event.target.value);
+                const nextAspectRatios = imageAspectRatioOptions(nextModel);
+                const nextImageSizes = imageSizeOptionsForModel(nextModel);
+                onChange({
+                  model: event.target.value,
+                  aspectRatio: supportedOptionValue(params.aspectRatio, nextAspectRatios),
+                  imageSize: supportedOptionValue(params.imageSize, nextImageSizes)
+                });
+              }}
+            >
+              {modelOptions.map((entry) => (
+                <option key={entry.id} value={entry.id} disabled={entry.disabled}>{imageModelOptionLabel(entry)}</option>
+              ))}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{imageModelCostLabel(selectedModel)}</small>
         </label>
         <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
@@ -2217,11 +2242,13 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span>model</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
-            {modelOptions.map((entry) => (
-              <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, polzaModelSupportsVisionInput(entry))}</option>
-            ))}
-          </select>
+          <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+              {modelOptions.map((entry) => (
+                <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, polzaModelSupportsVisionInput(entry))}</option>
+              ))}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Text model via Polza.ai")}</small>
         </label>
         <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
@@ -2259,11 +2286,13 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span>model</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
-            {modelOptions.map((entry) => (
-              <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
-            ))}
-          </select>
+          <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+              {modelOptions.map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
+              ))}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Image model via Polza.ai")}</small>
         </label>
         <label className="nodeField">
@@ -2379,17 +2408,19 @@ function NodeInlineParams({
         </label>
         <label className="nodeField">
           <span>model</span>
-          <select
-            className="nodrag nopan nodeInput nodeSelect"
-            value={String(params.model ?? "gemini-2.5-flash-lite")}
-            onChange={(event) => onChange({ model: event.target.value })}
-          >
-            {GEMINI_LLM_MODEL_OPTIONS.map((model) => (
-              <option key={model.value} value={model.value}>
-                {llmModelOptionLabel(model.label, model.value, model.supportsVision)}
-              </option>
-            ))}
-          </select>
+          <ModelSelectWithLogo logo={modelLogoFor("gemini", String(params.model ?? "gemini-2.5-flash-lite"))}>
+            <select
+              className="nodrag nopan nodeInput nodeSelect"
+              value={String(params.model ?? "gemini-2.5-flash-lite")}
+              onChange={(event) => onChange({ model: event.target.value })}
+            >
+              {GEMINI_LLM_MODEL_OPTIONS.map((model) => (
+                <option key={model.value} value={model.value}>
+                  {llmModelOptionLabel(model.label, model.value, model.supportsVision)}
+                </option>
+              ))}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{geminiLlmPricingLabel(String(params.model ?? "gemini-2.5-flash-lite"))}</small>
         </label>
       </>
@@ -2409,17 +2440,19 @@ function NodeInlineParams({
         </label>
         <label className="nodeField">
           <span>model</span>
-          <select
-            className="nodrag nopan nodeInput nodeSelect"
-            value={selectedModel}
-            onChange={(event) => onChange({ model: event.target.value })}
-          >
-            <option value="">current WebUI model</option>
-            {stableDiffusionModels.map((model) => (
-              <option key={model.title} value={model.title}>{model.title}</option>
-            ))}
-            {selectedModel && !stableDiffusionModels.some((model) => model.title === selectedModel) ? <option value={selectedModel}>{selectedModel}</option> : null}
-          </select>
+          <ModelSelectWithLogo logo={modelLogoFor("local", selectedModel || "stable-diffusion")}>
+            <select
+              className="nodrag nopan nodeInput nodeSelect"
+              value={selectedModel}
+              onChange={(event) => onChange({ model: event.target.value })}
+            >
+              <option value="">current WebUI model</option>
+              {stableDiffusionModels.map((model) => (
+                <option key={model.title} value={model.title}>{model.title}</option>
+              ))}
+              {selectedModel && !stableDiffusionModels.some((model) => model.title === selectedModel) ? <option value={selectedModel}>{selectedModel}</option> : null}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">Sent as sd_model_checkpoint for this request.</small>
         </label>
         <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onRefreshStableDiffusionModels?.(endpoint)}>Refresh models</button>
@@ -3569,7 +3602,7 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
   if (type === "ai.image.sd15.qr_monster_hidden_control") {
     return {
       inputs: [
-        { id: "controlImage", kind: "image", label: "control" },
+        { id: "controlImage", kind: "image", label: "image" },
         { id: "prompt", kind: "text" },
         { id: "negativePrompt", kind: "text", label: "negative" }
       ],
@@ -4409,6 +4442,7 @@ function isPolzaNode(type: string): boolean {
 function executorKind(type: string, manifest?: NodeManifest): string {
   if (manifest?.origin && manifest.origin !== "bundled") return "custom";
   if (manifest?.executor.type === "plugin") return "custom";
+  if (type === "ai.image.sd15.qr_monster_hidden_control") return "local";
   if (type.startsWith("local.")) return "local";
   if (type.startsWith("ai.")) return "openrouter";
   if (type.startsWith("polza.")) return "polza";
@@ -9434,7 +9468,7 @@ function stringParam(params: Record<string, unknown> | undefined, key: string): 
 function providerHintForNode(node: RouteDoc["nodes"][number] | undefined): string {
   if (!node) return "";
   if (node.type.startsWith("gemini.")) return "gemini";
-  if (node.type.startsWith("local.stableDiffusion.")) return "stable-diffusion";
+  if (node.type.startsWith("local.stableDiffusion.") || node.type === "ai.image.sd15.qr_monster_hidden_control") return "stable-diffusion";
   if (node.type.startsWith("replicate.")) return "replicate";
   return "";
 }

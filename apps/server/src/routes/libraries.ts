@@ -170,13 +170,14 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string } }>("/api/libraries/current/image-nodes/:nodeId/generate", async (request, reply) => {
+  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string } }>("/api/libraries/current/image-nodes/:nodeId/generate", async (request, reply) => {
     try {
       if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
       return await generateImageNodeStackItem({
         nodeId: request.params.nodeId,
         modelId: request.body.modelId,
-        prompt: request.body.prompt
+        prompt: request.body.prompt,
+        providerId: request.body.providerId
       });
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
@@ -218,6 +219,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
   app.get<{ Params: { nodeId: string; stackItemId: string } }>("/api/libraries/current/image-nodes/:nodeId/stack/:stackItemId", async (request, reply) => {
     try {
       const image = await createImageStackReadStream(request.params.nodeId, request.params.stackItemId);
+      if (image.remoteUrl) return reply.redirect(image.remoteUrl);
       reply.header("Content-Type", image.mimeType);
       return reply.send(image.stream);
     } catch (error) {
