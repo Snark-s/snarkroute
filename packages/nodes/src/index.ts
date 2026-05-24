@@ -113,6 +113,13 @@ export const builtInNodeDefinitions: NodeDefinition[] = [
     economics: { license: "AGPL-3.0-or-later", notes: "Local executor metadata only; no payment execution." },
     capabilities: [{ id: "image.create", title: "Create Image", priority: 10 }]
   },
+  {
+    type: "ai.image.sd15.qr_monster_hidden_control",
+    title: "Double Image Illusion",
+    description: "Generates double-image hidden-picture or QR illusions through a local Automatic1111 API with ControlNet QR Code Monster.",
+    economics: { license: "AGPL-3.0-or-later", notes: "Local executor metadata only; no payment execution." },
+    capabilities: [{ id: "image.create", title: "Create Image", priority: 9 }]
+  },
   { type: "output.text", title: "Text Output", description: "Displays text or JSON output without writing a file.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "output.file", title: "Output File", description: "Writes text or JSON to the local run folder.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } }
 ];
@@ -134,6 +141,7 @@ export const builtInNodeManifests: SnarkNodeManifest[] = builtInNodeDefinitions.
   inputs: builtInInputs(definition.type),
   outputs: builtInOutputs(definition.type),
   params: builtInParams(definition.type),
+  ui: builtInUi(definition.type),
   capabilities: definition.capabilities
 }));
 
@@ -471,6 +479,88 @@ export const localStableDiffusionTextToImageRunner: NodeRunner = async ({ node, 
   };
 };
 
+export const stableDiffusionHiddenControlImageRunner: NodeRunner = async ({ node, params, inputs, context }) => {
+  const endpoint = trimTrailingSlash(requiredString(params.endpoint ?? "http://127.0.0.1:7860", "ai.image.sd15.qr_monster_hidden_control requires params.endpoint."));
+  const timeoutMs = numberParam(params.timeoutMs, 180000);
+  const controlNetModel = await preflightStableDiffusionQrMonster(endpoint, timeoutMs);
+  const payload = await buildStableDiffusionHiddenControlPayload(params, inputs, controlNetModel);
+
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(`${endpoint}/sdapi/v1/txt2img`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }, timeoutMs);
+  } catch (error) {
+    context.log(`Automatic1111 txt2img request failed at ${endpoint}: ${errorMessage(error)}`, node.id);
+    throw new Error(`Automatic1111 txt2img request failed: ${errorMessage(error)}`);
+  }
+
+  const responseText = await response.text();
+  if (!response.ok) {
+    context.log(`Automatic1111 returned ${response.status}: ${truncate(responseText, 1000)}`, node.id);
+    throw new Error(`Automatic1111 API returned ${response.status}: ${truncate(responseText, 300)}`);
+  }
+
+  const result = parseJsonText(responseText, "Automatic1111 txt2img response") as { images?: unknown[]; info?: unknown; parameters?: unknown };
+  const images = (result.images ?? []).filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  if (images.length === 0) throw new Error("Automatic1111 txt2img response did not include an output image.");
+
+  const imageAssets = [];
+  for (let index = 0; index < images.length; index += 1) {
+    imageAssets.push(await writeBase64Image(images[index], {
+      outputDirectory: context.outputDirectory,
+      sourceNodeId: images.length === 1 ? node.id : `${node.id}-${index + 1}`,
+      endpoint
+    }));
+  }
+  const info = typeof result.info === "string" && result.info.trim() ? parseJsonText(result.info, "Automatic1111 generation info") : result.info;
+  const seed = info && typeof info === "object" && "seed" in info ? (info as Record<string, unknown>).seed : payload.seed;
+  const warnings: string[] = [];
+  if (String(params.mode ?? "hidden_image") === "qr_code" && payload.alwayson_scripts.controlnet.args[0].weight < 1) {
+    warnings.push("QR code mode usually needs illusion strength near or above 1.0 for readability.");
+  }
+
+  return {
+    output: {
+      image: imageAssets[0],
+      images: imageAssets,
+      localPath: imageAssets[0].localPath,
+      seed,
+      usedPrompt: payload.prompt,
+      usedNegativePrompt: payload.negative_prompt,
+      controlNetModel,
+      rawGenerationInfo: result.info,
+      metadata: {
+        seed,
+        endpoint,
+        width: payload.width,
+        height: payload.height,
+        steps: payload.steps,
+        cfgScale: payload.cfg_scale,
+        samplerName: payload.sampler_name,
+        batchSize: payload.batch_size,
+        controlNetModel,
+        controlWeight: payload.alwayson_scripts.controlnet.args[0].weight,
+        guidanceStart: payload.alwayson_scripts.controlnet.args[0].guidance_start,
+        guidanceEnd: payload.alwayson_scripts.controlnet.args[0].guidance_end,
+        controlMode: payload.alwayson_scripts.controlnet.args[0].control_mode,
+        resizeMode: payload.alwayson_scripts.controlnet.args[0].resize_mode,
+        pixelPerfect: payload.alwayson_scripts.controlnet.args[0].pixel_perfect,
+        mode: String(params.mode ?? "hidden_image"),
+        localBackend: "automatic1111-controlnet"
+      },
+      parameters: result.parameters,
+      warnings,
+      status: "succeeded"
+    },
+    logs: [`Generated ${imageAssets.length} double-image illusion image(s) with ControlNet model "${controlNetModel}".`],
+    provenance: { provider: "local", localBackend: "automatic1111-controlnet", endpoint, controlNetModel },
+    providerUsage: { provider: "local", model: controlNetModel, nodeId: node.id, nodeType: node.type, status: "succeeded", estimatedCost: null, actualCost: null }
+  };
+};
+
 export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("input.text", inputTextRunner);
   executor.registerNodeRunner("input.file", inputFileRunner);
@@ -489,12 +579,15 @@ export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("utility.null", nullRunner);
   executor.registerNodeRunner("http.request", httpRequestRunner);
   executor.registerNodeRunner("local.stableDiffusion.textToImage", localStableDiffusionTextToImageRunner);
+  executor.registerNodeRunner("ai.image.sd15.qr_monster_hidden_control", stableDiffusionHiddenControlImageRunner);
   executor.registerCapabilityProvider("image.create", "local.stableDiffusion.textToImage", { priority: 10 });
+  executor.registerCapabilityProvider("image.create", "ai.image.sd15.qr_monster_hidden_control", { priority: 9 });
   executor.registerNodeRunner("output.text", outputTextRunner);
   executor.registerNodeRunner("output.file", outputFileRunner);
 }
 
 function builtInNodeCategory(type: string): string {
+  if (type === "ai.image.sd15.qr_monster_hidden_control") return "Local / Stable Diffusion";
   if (type.startsWith("input.")) return "Input";
   if (type.startsWith("output.")) return "Output";
   if (type.startsWith("preview.")) return "Preview";
@@ -511,10 +604,10 @@ function builtInNodeCategory(type: string): string {
 
 function builtInPermissions(type: string) {
   return {
-    network: type === "http.request" || type === "local.stableDiffusion.textToImage",
-    networkHosts: type === "local.stableDiffusion.textToImage" ? ["127.0.0.1", "localhost"] : [],
-    readFiles: type === "input.file" || type === "input.image" || type === "input.video" || type === "transform.panorama360ToFisheye",
-    writeOutputs: type === "output.file" || type === "local.stableDiffusion.textToImage" || type === "transform.panorama360ToFisheye",
+    network: type === "http.request" || type === "local.stableDiffusion.textToImage" || type === "ai.image.sd15.qr_monster_hidden_control",
+    networkHosts: type === "local.stableDiffusion.textToImage" || type === "ai.image.sd15.qr_monster_hidden_control" ? ["127.0.0.1", "localhost"] : [],
+    readFiles: type === "input.file" || type === "input.image" || type === "input.video" || type === "transform.panorama360ToFisheye" || type === "ai.image.sd15.qr_monster_hidden_control",
+    writeOutputs: type === "output.file" || type === "local.stableDiffusion.textToImage" || type === "transform.panorama360ToFisheye" || type === "ai.image.sd15.qr_monster_hidden_control",
     shell: false,
     env: []
   };
@@ -542,6 +635,13 @@ function builtInInputs(type: string) {
   if (type === "output.text") return [{ id: "from", type: "data", required: false, label: "From" }];
   if (type === "output.file") return [{ id: "from", type: "data", required: false, label: "From" }];
   if (type === "local.stableDiffusion.textToImage") return [{ id: "prompt", type: "text", required: false, label: "Prompt" }];
+  if (type === "ai.image.sd15.qr_monster_hidden_control") {
+    return [
+      { id: "controlImage", type: "image", required: true, label: "Control Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
+      { id: "prompt", type: "text", required: false, label: "Prompt" },
+      { id: "negativePrompt", type: "text", required: false, label: "Negative Prompt" }
+    ];
+  }
   if (type === "capability.image.edit" || type === "capability.image.upscale") return [{ id: "image", type: "image", required: true, label: "Image" }];
   if (type === "capability.video.animate") return [{ id: "image", type: "image", required: false, label: "Image" }];
   return [];
@@ -555,7 +655,7 @@ function builtInOutputs(type: string) {
     { id: "conversation_capsule", type: "conversation_context", label: "conversation_capsule" }
   ];
   if (type === "input.file" || type === "output.file") return [{ id: "file", type: "file", label: "File" }];
-  if (type === "input.image" || type === "preview.image" || type === "preview.panorama360" || type === "transform.panorama360ToFisheye" || type === "local.stableDiffusion.textToImage") return [{ id: "image", type: "image", label: "Image" }];
+  if (type === "input.image" || type === "preview.image" || type === "preview.panorama360" || type === "transform.panorama360ToFisheye" || type === "local.stableDiffusion.textToImage" || type === "ai.image.sd15.qr_monster_hidden_control") return [{ id: "image", type: "image", label: "Image" }];
   if (type === "capability.image.create" || type === "capability.image.edit" || type === "capability.image.upscale") return [{ id: "image", type: "image", label: "Image" }];
   if (type === "capability.video.animate") return [{ id: "video", type: "video", label: "Video" }];
   if (type === "capability.character.create" || type === "capability.location.create") return [{ id: "resource", type: "json", label: "Resource" }];
@@ -601,7 +701,77 @@ function builtInParams(type: string) {
       { id: "method", type: "text", label: "Method", default: "GET" }
     ];
   }
+  if (type === "ai.image.sd15.qr_monster_hidden_control") {
+    return [
+      { id: "prompt", type: "text", label: "Prompt", default: "" },
+      { id: "negativePrompt", type: "text", label: "Negative Prompt", default: "" },
+      { id: "mode", type: "enum", label: "Mode", default: "hidden_image" },
+      { id: "controlWeight", type: "number", label: "Illusion Strength", default: 1.2, description: "Higher = hidden image / QR more readable; lower = image more creative." },
+      { id: "endpoint", type: "text", label: "Automatic1111 Endpoint", default: "http://127.0.0.1:7860", description: "Requires local Automatic1111 with --api, ControlNet extension, and QR Code Monster model." },
+      { id: "steps", type: "number", label: "Steps", default: 30 },
+      { id: "cfgScale", type: "number", label: "CFG Scale", default: 7 },
+      { id: "samplerName", type: "text", label: "Sampler", default: "DPM++ 2M Karras" },
+      { id: "seed", type: "number", label: "Seed", default: -1 },
+      { id: "batchSize", type: "number", label: "Batch Size", default: 1 },
+      { id: "guidanceStart", type: "number", label: "Guidance Start", default: 0 },
+      { id: "guidanceEnd", type: "number", label: "Guidance End", default: 1 },
+      { id: "controlMode", type: "enum", label: "Control Mode", default: "Balanced" },
+      { id: "resizeMode", type: "enum", label: "Resize Mode", default: "Just Resize" },
+      { id: "pixelPerfect", type: "boolean", label: "Pixel Perfect", default: true },
+      { id: "preprocessGrayscale", type: "boolean", label: "Grayscale", default: true },
+      { id: "preprocessInvert", type: "boolean", label: "Invert", default: false },
+      { id: "preprocessThreshold", type: "number", label: "Threshold" },
+      { id: "preprocessContrast", type: "number", label: "Contrast" }
+    ];
+  }
   return [];
+}
+
+function builtInUi(type: string) {
+  if (type === "ai.image.sd15.qr_monster_hidden_control") {
+    return {
+      params: {
+        prompt: { control: "textarea", size: "compact", placeholder: "Describe the visible image" },
+        negativePrompt: { control: "textarea", size: "compact" },
+        mode: {
+          control: "select",
+          options: [
+            { value: "hidden_image", label: "Hidden image" },
+            { value: "qr_code", label: "QR code" }
+          ]
+        },
+        controlWeight: { control: "slider", min: 0, max: 3, step: 0.05, helperText: "Higher = hidden image / QR more readable; lower = image more creative." },
+        endpoint: { advanced: true },
+        steps: { control: "slider", min: 1, max: 80, step: 1, advanced: true },
+        cfgScale: { control: "slider", min: 1, max: 20, step: 0.5, advanced: true },
+        samplerName: {
+          control: "select",
+          advanced: true,
+          options: ["DPM++ 2M Karras", "DPM++ SDE Karras", "Euler a", "Euler", "DDIM"]
+        },
+        seed: { advanced: true },
+        batchSize: { control: "slider", min: 1, max: 8, step: 1, advanced: true },
+        guidanceStart: { control: "slider", min: 0, max: 1, step: 0.05, advanced: true },
+        guidanceEnd: { control: "slider", min: 0, max: 1, step: 0.05, advanced: true },
+        controlMode: {
+          control: "select",
+          advanced: true,
+          options: ["Balanced", "My prompt is more important", "ControlNet is more important"]
+        },
+        resizeMode: {
+          control: "select",
+          advanced: true,
+          options: ["Just Resize", "Scale to Fit (Inner Fit)", "Envelope (Outer Fit)"]
+        },
+        pixelPerfect: { advanced: true },
+        preprocessGrayscale: { advanced: true },
+        preprocessInvert: { advanced: true },
+        preprocessThreshold: { control: "slider", min: 0, max: 255, step: 1, advanced: true },
+        preprocessContrast: { control: "slider", min: 0, max: 4, step: 0.1, advanced: true }
+      }
+    };
+  }
+  return undefined;
 }
 
 export function composePromptText(params: Record<string, unknown>, inputs: Record<string, unknown>): string {
@@ -633,6 +803,132 @@ export function composePromptText(params: Record<string, unknown>, inputs: Recor
     .map((part) => hasSlotInputs && part.label !== "Prompt" ? `${part.label}${part.index > 1 ? ` ${part.index}` : ""}:\n${part.value}` : part.value)
     .join(separator);
   return `${String(params.prefix ?? "")}${body}${String(params.suffix ?? "")}`;
+}
+
+export interface StableDiffusionHiddenControlPayload {
+  prompt: string;
+  negative_prompt: string;
+  width: number;
+  height: number;
+  steps: number;
+  cfg_scale: number;
+  sampler_name: string;
+  seed: number;
+  batch_size: number;
+  alwayson_scripts: {
+    controlnet: {
+      args: [{
+        enabled: true;
+        image: string;
+        module: "none";
+        model: string;
+        weight: number;
+        resize_mode: string;
+        guidance_start: number;
+        guidance_end: number;
+        control_mode: string;
+        pixel_perfect: boolean;
+      }];
+    };
+  };
+}
+
+export async function buildStableDiffusionHiddenControlPayload(
+  params: Record<string, unknown>,
+  inputs: Record<string, unknown>,
+  controlNetModel: string
+): Promise<StableDiffusionHiddenControlPayload> {
+  const controlMode = enumParam(params.controlMode, "Balanced", ["Balanced", "My prompt is more important", "ControlNet is more important"], "controlMode");
+  const resizeMode = enumParam(params.resizeMode, "Just Resize", ["Just Resize", "Scale to Fit (Inner Fit)", "Envelope (Outer Fit)"], "resizeMode");
+  const image = await readLocalPngImage(params.controlImage ?? inputs.controlImage ?? inputs.image ?? firstInputValue(inputs), "ai.image.sd15.qr_monster_hidden_control");
+  const width = integerParam(params.width, image.width, "width");
+  const height = integerParam(params.height, image.height, "height");
+  const processed = preprocessControlImage(image, {
+    width,
+    height,
+    resizeMode,
+    grayscale: params.preprocessGrayscale !== false,
+    invert: params.preprocessInvert === true,
+    threshold: optionalNumberParam(params.preprocessThreshold, "preprocessThreshold"),
+    contrast: optionalNumberParam(params.preprocessContrast, "preprocessContrast")
+  });
+  return {
+    prompt: firstInputText(inputs.prompt) ?? requiredString(params.prompt, "ai.image.sd15.qr_monster_hidden_control requires params.prompt."),
+    negative_prompt: firstInputText(inputs.negativePrompt) ?? stringParam(params.negativePrompt) ?? "",
+    width,
+    height,
+    steps: integerParam(params.steps, 30, "steps"),
+    cfg_scale: positiveNumberParam(params.cfgScale, 7, "cfgScale"),
+    sampler_name: stringParam(params.samplerName) ?? "DPM++ 2M Karras",
+    seed: Math.round(numberParam(params.seed, -1)),
+    batch_size: integerParam(params.batchSize, 1, "batchSize"),
+    alwayson_scripts: {
+      controlnet: {
+        args: [{
+          enabled: true,
+          image: encodeRgbaPng(processed.width, processed.height, processed.data).toString("base64"),
+          module: "none",
+          model: controlNetModel,
+          weight: clampedNumberParam(params.controlWeight, 1.2, 0, 3, "controlWeight"),
+          resize_mode: resizeMode,
+          guidance_start: clampedNumberParam(params.guidanceStart, 0, 0, 1, "guidanceStart"),
+          guidance_end: clampedNumberParam(params.guidanceEnd, 1, 0, 1, "guidanceEnd"),
+          control_mode: controlMode,
+          pixel_perfect: params.pixelPerfect !== false
+        }]
+      }
+    }
+  };
+}
+
+export async function preflightStableDiffusionQrMonster(endpoint: string, timeoutMs = 30000): Promise<string> {
+  try {
+    const version = await fetchWithTimeout(`${endpoint}/controlnet/version`, { method: "GET" }, timeoutMs);
+    if (!version.ok) throw new Error(`HTTP ${version.status}`);
+  } catch (error) {
+    throw new Error(`Automatic1111 is not reachable at ${endpoint}, or it is running without --api / without the ControlNet extension. GET /controlnet/version failed: ${errorMessage(error)}`);
+  }
+
+  let modelList: unknown;
+  try {
+    const response = await fetchWithTimeout(`${endpoint}/controlnet/model_list`, { method: "GET" }, timeoutMs);
+    const text = await response.text();
+    if (!response.ok) throw new Error(`HTTP ${response.status}: ${truncate(text, 300)}`);
+    modelList = parseJsonText(text, "ControlNet model_list response");
+  } catch (error) {
+    throw new Error(`ControlNet extension is not reachable at ${endpoint}. GET /controlnet/model_list failed: ${errorMessage(error)}`);
+  }
+
+  const model = findQrMonsterControlNetModel(modelList);
+  if (!model) throw new Error("ControlNet QR Code Monster model is not installed. Install a model whose name contains control_v1p_sd15_qrcode_monster or qrcode_monster.");
+  return model;
+}
+
+export function findQrMonsterControlNetModel(modelList: unknown): string | null {
+  const candidates = extractControlNetModelNames(modelList);
+  const needles = ["control_v1p_sd15_qrcode_monster", "qrcode_monster"];
+  return candidates.find((model) => needles.some((needle) => model.toLowerCase().includes(needle))) ?? null;
+}
+
+export function encodeStableDiffusionControlImageBase64(image: RgbaImage, options: {
+  width: number;
+  height: number;
+  resizeMode?: string;
+  grayscale?: boolean;
+  invert?: boolean;
+  threshold?: number;
+  contrast?: number;
+}): string {
+  const processed = preprocessControlImage(image, {
+    width: options.width,
+    height: options.height,
+    resizeMode: options.resizeMode ?? "Just Resize",
+    grayscale: options.grayscale ?? true,
+    invert: options.invert ?? false,
+    threshold: options.threshold,
+    contrast: options.contrast
+  });
+  return encodeRgbaPng(processed.width, processed.height, processed.data).toString("base64");
 }
 
 function promptComposeFixedSlots(): Array<{ id: string; label: string }> {
@@ -1234,10 +1530,107 @@ async function writeBase64Image(data: string, options: { outputDirectory: string
   return metadata;
 }
 
-interface RgbaImage {
+export interface RgbaImage {
   width: number;
   height: number;
   data: Uint8Array;
+}
+
+function preprocessControlImage(source: RgbaImage, options: {
+  width: number;
+  height: number;
+  resizeMode: string;
+  grayscale: boolean;
+  invert: boolean;
+  threshold?: number;
+  contrast?: number;
+}): RgbaImage {
+  const resized = resizeRgbaImage(source, options.width, options.height, options.resizeMode);
+  const data = new Uint8Array(resized.data);
+  const contrast = options.contrast === undefined ? undefined : Math.max(0, options.contrast);
+  const contrastFactor = contrast === undefined ? 1 : contrast;
+  const threshold = options.threshold === undefined ? undefined : clamp(Math.round(options.threshold), 0, 255);
+  for (let index = 0; index < data.length; index += 4) {
+    let red = data[index];
+    let green = data[index + 1];
+    let blue = data[index + 2];
+    if (options.grayscale) {
+      const gray = Math.round(red * 0.299 + green * 0.587 + blue * 0.114);
+      red = gray;
+      green = gray;
+      blue = gray;
+    }
+    if (contrast !== undefined) {
+      red = clamp(Math.round((red - 128) * contrastFactor + 128), 0, 255);
+      green = clamp(Math.round((green - 128) * contrastFactor + 128), 0, 255);
+      blue = clamp(Math.round((blue - 128) * contrastFactor + 128), 0, 255);
+    }
+    if (threshold !== undefined) {
+      const gray = Math.round(red * 0.299 + green * 0.587 + blue * 0.114);
+      const value = gray >= threshold ? 255 : 0;
+      red = value;
+      green = value;
+      blue = value;
+    }
+    if (options.invert) {
+      red = 255 - red;
+      green = 255 - green;
+      blue = 255 - blue;
+    }
+    data[index] = red;
+    data[index + 1] = green;
+    data[index + 2] = blue;
+    data[index + 3] = 255;
+  }
+  return { width: resized.width, height: resized.height, data };
+}
+
+function resizeRgbaImage(source: RgbaImage, targetWidth: number, targetHeight: number, resizeMode: string): RgbaImage {
+  if (resizeMode === "Just Resize") return resampleRgbaImage(source, targetWidth, targetHeight);
+  const outerFit = resizeMode === "Envelope (Outer Fit)";
+  const scale = outerFit
+    ? Math.max(targetWidth / source.width, targetHeight / source.height)
+    : Math.min(targetWidth / source.width, targetHeight / source.height);
+  const scaledWidth = Math.max(1, Math.round(source.width * scale));
+  const scaledHeight = Math.max(1, Math.round(source.height * scale));
+  const scaled = resampleRgbaImage(source, scaledWidth, scaledHeight);
+  const output = new Uint8Array(targetWidth * targetHeight * 4);
+  output.fill(255);
+  for (let pixel = 0; pixel < targetWidth * targetHeight; pixel += 1) output[pixel * 4 + 3] = 255;
+  const offsetX = Math.floor((targetWidth - scaledWidth) / 2);
+  const offsetY = Math.floor((targetHeight - scaledHeight) / 2);
+  for (let y = 0; y < targetHeight; y += 1) {
+    const sourceY = y - offsetY;
+    if (sourceY < 0 || sourceY >= scaledHeight) continue;
+    for (let x = 0; x < targetWidth; x += 1) {
+      const sourceX = x - offsetX;
+      if (sourceX < 0 || sourceX >= scaledWidth) continue;
+      const sourceIndex = (sourceY * scaledWidth + sourceX) * 4;
+      const targetIndex = (y * targetWidth + x) * 4;
+      output[targetIndex] = scaled.data[sourceIndex];
+      output[targetIndex + 1] = scaled.data[sourceIndex + 1];
+      output[targetIndex + 2] = scaled.data[sourceIndex + 2];
+      output[targetIndex + 3] = scaled.data[sourceIndex + 3];
+    }
+  }
+  return { width: targetWidth, height: targetHeight, data: output };
+}
+
+function resampleRgbaImage(source: RgbaImage, targetWidth: number, targetHeight: number): RgbaImage {
+  const output = new Uint8Array(targetWidth * targetHeight * 4);
+  for (let y = 0; y < targetHeight; y += 1) {
+    const sourceY = clamp(Math.floor((y + 0.5) * source.height / targetHeight), 0, source.height - 1);
+    for (let x = 0; x < targetWidth; x += 1) {
+      const sourceX = clamp(Math.floor((x + 0.5) * source.width / targetWidth), 0, source.width - 1);
+      const sourceIndex = (sourceY * source.width + sourceX) * 4;
+      const targetIndex = (y * targetWidth + x) * 4;
+      output[targetIndex] = source.data[sourceIndex];
+      output[targetIndex + 1] = source.data[sourceIndex + 1];
+      output[targetIndex + 2] = source.data[sourceIndex + 2];
+      output[targetIndex + 3] = source.data[sourceIndex + 3];
+    }
+  }
+  return { width: targetWidth, height: targetHeight, data: output };
 }
 
 async function readLocalPngImage(value: unknown, nodeType: string): Promise<RgbaImage> {
@@ -1416,6 +1809,13 @@ function numberParam(value: unknown, fallback: number): number {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function optionalNumberParam(value: unknown, label: string): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const number = Number(typeof value === "string" ? value.replace(",", ".") : value);
+  if (!Number.isFinite(number)) throw new Error(`params.${label} must be a number.`);
+  return number;
+}
+
 function integerParam(value: unknown, fallback: number, label: string): number {
   const number = Math.round(numberParam(value, fallback));
   if (number <= 0) throw new Error(`params.${label} must be a positive number.`);
@@ -1457,6 +1857,23 @@ function parseRgbaParam(value: unknown, fallback: [number, number, number, numbe
 function optionalBoolean(value: unknown): boolean | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   return Boolean(value);
+}
+
+function enumParam<T extends string>(value: unknown, fallback: T, allowed: readonly T[], label: string): T {
+  const candidate = typeof value === "string" && value.trim() ? value.trim() : fallback;
+  if (allowed.includes(candidate as T)) return candidate as T;
+  throw new Error(`params.${label} must be one of: ${allowed.join(", ")}.`);
+}
+
+function extractControlNetModelNames(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  for (const key of ["model_list", "models", "modelList"]) {
+    const nested = record[key];
+    if (Array.isArray(nested)) return nested.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  }
+  return [];
 }
 
 function filterDefined(value: Record<string, unknown>): Record<string, unknown> {

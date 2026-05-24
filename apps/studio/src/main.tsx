@@ -321,6 +321,9 @@ type NodeManifest = {
       layout?: "inline";
       placeholder?: string;
       helperText?: string;
+      min?: number;
+      max?: number;
+      step?: number;
     }>;
   };
   enabled?: boolean;
@@ -487,6 +490,29 @@ const library = [
     }
   },
   {
+    type: "ai.image.sd15.qr_monster_hidden_control",
+    label: "Double Image Illusion",
+    params: {
+      endpoint: "http://127.0.0.1:7860",
+      prompt: "A cinematic poster image with the hidden control image subtly readable from a distance",
+      negativePrompt: "",
+      mode: "hidden_image",
+      controlWeight: 1.2,
+      steps: 30,
+      seed: -1,
+      cfgScale: 7,
+      samplerName: "DPM++ 2M Karras",
+      batchSize: 1,
+      guidanceStart: 0,
+      guidanceEnd: 1,
+      controlMode: "Balanced",
+      resizeMode: "Just Resize",
+      pixelPerfect: true,
+      preprocessGrayscale: true,
+      preprocessInvert: false
+    }
+  },
+  {
     type: "replicate.clarity-upscaler",
     label: "Clarity Upscaler",
     params: {
@@ -539,7 +565,7 @@ const library = [
 const librarySections = [
   { id: "inputs-assets", title: "Inputs & Assets", types: ["input.text", "library.prompt", "input.image", "input.video", "input.file", "compound.input", "compound.output"] },
   { id: "text-prompting", title: "Text & Prompting", types: ["dialogue.workbench", "text.promptCompose", "transform.template", "ai.text", "gemini.llm"] },
-  { id: "image-generation", title: "Image Generation", types: ["ai.image.generate", "gemini.nano-banana-2", "local.stableDiffusion.textToImage"] },
+  { id: "image-generation", title: "Image Generation", types: ["ai.image.generate", "gemini.nano-banana-2", "local.stableDiffusion.textToImage", "ai.image.sd15.qr_monster_hidden_control"] },
   { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image", "preview.panorama360", "transform.panorama360ToFisheye"] },
   { id: "api-integration", title: "API & Integration", types: ["http.request"] },
   { id: "outputs", title: "Outputs", types: ["output.text", "output.file"] },
@@ -735,11 +761,12 @@ const exampleCategories: ExampleCategory[] = ["Basic Image", "AI Image", "Local 
 function RouteNodeCard({ id, data }: NodeProps) {
   const label = String(data.label ?? "");
   const [title, type] = label.split("\n");
-  const [paramsCollapsed, setParamsCollapsed] = useState(false);
   const routeNode = data.routeNode as RouteDoc["nodes"][number] | undefined;
+  const paramsCollapsed = Boolean(data.paramsCollapsed ?? routeNodeParamsCollapsed(routeNode));
   const params = routeNode?.params ?? {};
   const result = data.result as NodeRunResult | undefined;
   const onParamsChange = data.onParamsChange as ((nodeId: string, params: Record<string, unknown>) => void) | undefined;
+  const onParamsCollapsedChange = data.onParamsCollapsedChange as ((nodeId: string, collapsed: boolean) => void) | undefined;
   const onBrowseAsset = data.onBrowseAsset as ((nodeId: string, kind: AssetKind) => void) | undefined;
   const replicateConfigured = Boolean(data.replicateConfigured);
   const geminiConfigured = Boolean(data.geminiConfigured);
@@ -887,7 +914,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           title={paramsCollapsed ? "Show parameters" : "Hide parameters"}
           onClick={(event) => {
             event.stopPropagation();
-            setParamsCollapsed((value) => !value);
+            onParamsCollapsedChange?.(id, !paramsCollapsed);
           }}
         >
           {paramsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
@@ -2573,6 +2600,29 @@ function GenericManifestParams({
     const value = params[param.id] ?? param.default ?? "";
     const label = param.label ?? param.id;
     const options = control.options ?? [];
+    if (control.control === "slider") {
+      const parsedValue = typeof value === "number" ? value : numericParam(String(value || param.default || 0));
+      const numericValue = typeof parsedValue === "number" ? parsedValue : 0;
+      const min = control.min ?? 0;
+      const max = control.max ?? 100;
+      const step = control.step ?? 1;
+      return (
+        <label className="nodeSliderField" key={param.id}>
+          <span>{label}</span>
+          <input
+            className="nodrag nopan"
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={numericValue}
+            onChange={(event) => onChange({ [param.id]: numericParam(event.target.value) })}
+          />
+          <output>{numericValue}</output>
+          {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
+        </label>
+      );
+    }
     if (options.length > 0 || control.control === "select") {
       return (
         <label className="nodeField" key={param.id}>
@@ -3507,6 +3557,21 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
       ]
     };
   }
+  if (type === "ai.image.sd15.qr_monster_hidden_control") {
+    return {
+      inputs: [
+        { id: "controlImage", kind: "image", label: "control" },
+        { id: "prompt", kind: "text" },
+        { id: "negativePrompt", kind: "text", label: "negative" }
+      ],
+      outputs: [
+        { id: "image", kind: "image" },
+        { id: "images", kind: "image", label: "images" },
+        { id: "metadata", kind: "json" },
+        { id: "output", kind: "json", label: "JSON" }
+      ]
+    };
+  }
   if (type === "http.request") {
     return {
       inputs: [
@@ -4038,6 +4103,18 @@ function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
   };
 }
 
+function routeNodeParamsCollapsed(node: RouteDoc["nodes"][number] | undefined): boolean {
+  return node?.ui?.paramsCollapsed === true;
+}
+
+function withRouteNodeParamsCollapsed(node: RouteDoc["nodes"][number], collapsed: boolean): RouteDoc["nodes"][number] {
+  const { paramsCollapsed: _paramsCollapsed, ...ui } = node.ui ?? {};
+  return {
+    ...node,
+    ui: collapsed ? { ...ui, paramsCollapsed: true } : ui
+  };
+}
+
 function routeToEditableSubrouteFlow(route: RouteDoc, compound: RouteDoc["nodes"][number]): { nodes: Node[]; edges: Edge[] } {
   const flow = routeToFlow(route);
   const usedNodeIds = new Set(flow.nodes.map((node) => node.id));
@@ -4323,6 +4400,7 @@ function nodeIcon(type: string) {
   if (type.includes("seedance")) return <Film size={15} />;
   if (type === "gemini.nano-banana-2") return <Sparkles size={15} />;
   if (type === "local.stableDiffusion.textToImage") return <Cpu size={15} />;
+  if (type === "ai.image.sd15.qr_monster_hidden_control") return <Sparkles size={15} />;
   if (type === "http.request") return <Globe size={15} />;
   if (type === "preview.image" || type === "preview.panorama360") return <Eye size={15} />;
   if (type === "debug.log") return <Bug size={15} />;
@@ -4812,6 +4890,8 @@ function App() {
           manifest: nodeCatalog.find((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type))?.manifest,
           isMissingNode: !isKnownBuiltInPortType(String((node.data.routeNode as RouteDoc["nodes"][number]).type)) && !nodeCatalog.some((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type)),
           onParamsChange: updateNodeParams,
+          onParamsCollapsedChange: updateNodeParamsCollapsed,
+          paramsCollapsed: routeNodeParamsCollapsed(node.data.routeNode as RouteDoc["nodes"][number]),
           onBrowseAsset: browseAsset,
           onConfigureReplicate: openReplicateSettings,
           onConfigureGemini: openGeminiSettings,
@@ -5939,6 +6019,20 @@ function App() {
     if (options.persistProject) {
       saveRouteDocument(buildRouteDocumentFrom(nextNodes, edges), { saveStartup: true, logMessage: options.persistLog });
     }
+  }
+
+  function updateNodeParamsCollapsed(nodeId: string, collapsed: boolean) {
+    const currentNodes = nodesRef.current;
+    const currentNode = currentNodes.find((node) => node.id === nodeId);
+    const currentRouteNode = currentNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (!currentRouteNode || routeNodeParamsCollapsed(currentRouteNode) === collapsed) return;
+    const nextNodes = currentNodes.map((node) => {
+      if (node.id !== nodeId) return node;
+      const routeNode = withRouteNodeParamsCollapsed(node.data.routeNode as RouteDoc["nodes"][number], collapsed);
+      return { ...node, data: { ...node.data, routeNode, paramsCollapsed: collapsed } };
+    });
+    nodesRef.current = nextNodes;
+    setNodes(nextNodes);
   }
 
   function updateDialogueWorkbenchState(nodeId: string, state: DialogueWorkbenchState, patch: Record<string, unknown> = {}) {
