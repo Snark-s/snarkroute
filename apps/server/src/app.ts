@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import { registerAssetRoutes } from "./routes/assets";
 import { registerExecutionRoutes, registerRunResultRoutes } from "./routes/execution";
 import { registerLedgerRoutes } from "./routes/ledger";
+import { registerLibraryRoutes } from "./routes/libraries";
 import { registerLocalStableDiffusionRoutes } from "./routes/local-stable-diffusion";
 import { registerNodeCatalogRoutes } from "./routes/nodes";
 import { registerNodePackageRoutes } from "./routes/node-packages";
@@ -24,6 +25,7 @@ export function buildServer() {
   void registerLocalStableDiffusionRoutes(app);
   void registerPromptLibraryRoutes(app);
   void registerAssetRoutes(app);
+  void registerLibraryRoutes(app);
   void registerExecutionRoutes(app);
   void registerRunResultRoutes(app);
   void registerLedgerRoutes(app);

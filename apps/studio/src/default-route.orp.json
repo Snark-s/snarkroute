@@ -19,18 +19,20 @@
   },
   "nodes": [
     {
-      "id": "transform_panorama360ToFisheye_2",
-      "type": "transform.panorama360ToFisheye",
-      "title": "360 Panorama to Fisheye",
+      "id": "polza_image_generate_2",
+      "type": "polza.image.generate",
+      "title": "Polza Image",
       "params": {
-        "fovDegrees": 224,
-        "outputSize": 1024,
-        "yawDegrees": -93,
-        "pitchDegrees": -90
+        "model": "openai/gpt-5.4-image-2",
+        "prompt": "поверни людей на 30 градусов влево. Лица должны смотреть туда же куда тела. Референсы персонажей приложены",
+        "aspectRatio": "16:9",
+        "imageResolution": "2K",
+        "quality": "high",
+        "outputFormat": "png"
       },
       "ui": {
-        "x": 258.8748938110523,
-        "y": 176.59412011339407
+        "x": 138.78270532100663,
+        "y": 223.91935766968192
       }
     },
     {
@@ -38,25 +40,66 @@
       "type": "input.image",
       "title": "Input Image",
       "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779227016399-360.png"
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779393230313-t_7edfc5c2b4f1ec70.png"
       },
       "ui": {
-        "x": -170.3202304029934,
-        "y": 220.3532179504407
+        "x": -283.7876120078995,
+        "y": 259.2065514520508,
+        "collapsed": true
+      }
+    },
+    {
+      "id": "input_image_3_2",
+      "type": "input.image",
+      "title": "Input Image",
+      "params": {
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779395154839-девочка.png"
+      },
+      "ui": {
+        "x": -289.63114280639763,
+        "y": 353.35474496456703,
+        "collapsed": true
+      }
+    },
+    {
+      "id": "input_image_4",
+      "type": "input.image",
+      "title": "Input Image",
+      "params": {
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779395791131-image.png"
+      },
+      "ui": {
+        "collapsed": true,
+        "x": -322.34172465023437,
+        "y": 456.4282462424886
       }
     }
   ],
   "edges": [
     {
-      "id": "xy-edge__input_image_3image-transform_panorama360ToFisheye_2image",
+      "id": "xy-edge__input_image_3image-polza_image_generate_2images",
       "from": "input_image_3",
-      "to": "transform_panorama360ToFisheye_2",
+      "to": "polza_image_generate_2",
       "fromPort": "image",
-      "toPort": "image"
+      "toPort": "images"
+    },
+    {
+      "id": "xy-edge__input_image_3_2image-polza_image_generate_2images",
+      "from": "input_image_3_2",
+      "to": "polza_image_generate_2",
+      "fromPort": "image",
+      "toPort": "images"
+    },
+    {
+      "id": "xy-edge__input_image_4image-polza_image_generate_2images",
+      "from": "input_image_4",
+      "to": "polza_image_generate_2",
+      "fromPort": "image",
+      "toPort": "images"
     }
   ],
   "provenance": {
-    "updatedAt": "2026-05-19T21:44:18.530Z",
+    "updatedAt": "2026-05-21T20:49:49.068Z",
     "tool": "snarkroute-studio"
   }
 }

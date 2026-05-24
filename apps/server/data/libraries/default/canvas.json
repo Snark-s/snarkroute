@@ -1,0 +1,33 @@
+{
+  "format": "snarkroute.canvas",
+  "version": "0.1",
+  "nodes": [
+    {
+      "id": "image_mpfw6ljg_de237e",
+      "type": "image",
+      "nodePath": "image-nodes/image-image_mpfw6ljg_de237e.imgnode",
+      "x": -674,
+      "y": -211,
+      "width": 320,
+      "height": 240
+    },
+    {
+      "id": "image_mpgyw393_469188",
+      "type": "image",
+      "nodePath": "image-nodes/image-image_mpgyw393_469188.imgnode",
+      "x": 76,
+      "y": -239,
+      "width": 320,
+      "height": 240
+    }
+  ],
+  "createdAt": "2026-05-21T12:38:35.799Z",
+  "updatedAt": "2026-05-24T12:55:27.083Z",
+  "edges": [
+    {
+      "id": "edge_mpgyw395_9276f4",
+      "fromNodeId": "image_mpfw6ljg_de237e",
+      "toNodeId": "image_mpgyw393_469188"
+    }
+  ]
+}

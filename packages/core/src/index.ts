@@ -6,6 +6,8 @@ export {
   ModelGateway,
   ModelRegistry,
   estimateCatalogPricingQuote,
+  estimatePricingCatalogQuote,
+  isPricingCatalogFresh,
   providerModelRef,
   sanitizePricingQuote,
   unknownPricingQuote
@@ -26,9 +28,13 @@ export type {
   ProviderAdapter,
   ProviderConnection,
   PricingConfidence,
+  PricingCatalog,
+  PricingCatalogModel,
   PricingCurrency,
   PricingQuote,
   PricingResolver,
+  PricingSourceAdapter,
+  PricingStatus,
   PricingUnit
 } from "./model-gateway";
 export * from "@snarkroute/protocol";

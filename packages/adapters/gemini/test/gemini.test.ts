@@ -85,7 +85,7 @@ describe("Gemini adapter", () => {
       capability: "image.generate",
       params: { localPricingConfig: { models: { "gemini-3.1-flash-image-preview": { currency: "USD", unit: "image", price: null } } } },
       inputMetadata: {}
-    })).toMatchObject({ estimatedCost: null, confidence: "unknown", pricingSource: "local_pricing_config" });
+    })).toMatchObject({ estimatedCost: null, confidence: "unknown", pricingSource: "manual_override" });
   });
 
   it("local configured Gemini image price produces a quote", () => {
@@ -93,9 +93,29 @@ describe("Gemini adapter", () => {
       provider: "gemini",
       providerModel: "gemini-3.1-flash-image-preview",
       capability: "image.generate",
-      params: { n: 2, localPricingConfig: { models: { "gemini-3.1-flash-image-preview": { currency: "USD", unit: "image", price: 0.04 } } } },
+      params: { n: 2, localPricingConfig: { source: "manual_override", updatedAt: new Date().toISOString(), ttlHours: 24, models: { "gemini-3.1-flash-image-preview": { currency: "USD", unit: "image", price: 0.04 } } } },
       inputMetadata: {}
-    })).toMatchObject({ estimatedCost: 0.08, confidence: "estimated", pricingSource: "local_pricing_config" });
+    })).toMatchObject({ estimatedCost: 0.08, confidence: "estimated", pricingSource: "manual_override", pricingStatus: "fresh" });
+  });
+
+  it("stale Gemini manual price returns unknown by default", () => {
+    expect(estimateGeminiPricingQuote({
+      provider: "gemini",
+      providerModel: "gemini-3.1-flash-image-preview",
+      capability: "image.generate",
+      params: { localPricingConfig: { source: "manual_override", updatedAt: "2020-01-01T00:00:00.000Z", ttlHours: 24, models: { "gemini-3.1-flash-image-preview": { currency: "USD", unit: "image", price: 0.04 } } } },
+      inputMetadata: {}
+    })).toMatchObject({ estimatedCost: null, confidence: "unknown", pricingSource: "manual_override", pricingStatus: "stale" });
+  });
+
+  it("Gemini manual price without updatedAt returns unknown", () => {
+    expect(estimateGeminiPricingQuote({
+      provider: "gemini",
+      providerModel: "gemini-3.1-flash-image-preview",
+      capability: "image.generate",
+      params: { localPricingConfig: { source: "manual_override", models: { "gemini-3.1-flash-image-preview": { currency: "USD", unit: "image", price: 0.04 } } } },
+      inputMetadata: {}
+    })).toMatchObject({ estimatedCost: null, confidence: "unknown", pricingStatus: "unknown" });
   });
 
   it("passes aspect ratio and image size to Gemini image config", async () => {

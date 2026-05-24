@@ -6,7 +6,10 @@ import { deflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { createExecutor } from "@snarkroute/executor";
 import {
+  buildStableDiffusionHiddenControlPayload,
   builtInNodeManifests,
+  encodeStableDiffusionControlImageBase64,
+  findQrMonsterControlNetModel,
   installNodePackageFromManifest,
   installNodePackageFromArchive,
   loadInstalledNodeManifests,
@@ -16,6 +19,7 @@ import {
   parsePromptFile,
   parseResourceFile,
   previewNodePackageArchive,
+  preflightStableDiffusionQrMonster,
   registerBuiltInNodeRunners,
   registerInstalledNodeRunners,
   uninstallInstalledNode,
@@ -38,6 +42,16 @@ describe("built-in nodes", () => {
     expect(builtInNodeManifests.find((manifest) => manifest.id === "local.stableDiffusion.textToImage")?.capabilities).toEqual([
       { id: "image.create", title: "Create Image", priority: 10 }
     ]);
+    expect(builtInNodeManifests.find((manifest) => manifest.id === "ai.image.sd15.qr_monster_hidden_control")).toMatchObject({
+      title: "Double Image Illusion",
+      category: "Local / Stable Diffusion",
+      permissions: { network: true, networkHosts: ["127.0.0.1", "localhost"], readFiles: true, writeOutputs: true },
+      inputs: [
+        { id: "controlImage", type: "image", required: true, label: "Control Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
+        { id: "prompt", type: "text", required: false, label: "Prompt" },
+        { id: "negativePrompt", type: "text", required: false, label: "Negative Prompt" }
+      ]
+    });
     expect(builtInNodeManifests.find((manifest) => manifest.id === "capability.image.create")).toBeTruthy();
     expect(builtInNodeManifests.find((manifest) => manifest.id === "transform.panorama360ToFisheye")).toMatchObject({
       inputs: [{ id: "image", type: "image", required: true, label: "Image" }],
@@ -746,6 +760,148 @@ A reusable image prompt.
       const output = result.nodeResults.sd.output as { image?: { localPath?: string }; metadata?: { localBackend?: string; seed?: number } };
       expect(output.metadata).toMatchObject({ localBackend: "stable-diffusion-webui-compatible", seed: 42, model: "demo-model.safetensors" });
       expect(JSON.parse(requestBody).override_settings).toEqual({ sd_model_checkpoint: "demo-model.safetensors" });
+      expect(await readFile(output.image!.localPath!)).toEqual(tinyPng());
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it("finds QR Code Monster ControlNet models by supported substrings", () => {
+    expect(findQrMonsterControlNetModel({ model_list: ["control_v1p_sd15_qrcode_monster [a1b2]", "other"] })).toBe("control_v1p_sd15_qrcode_monster [a1b2]");
+    expect(findQrMonsterControlNetModel({ model_list: ["diffusion_pytorch_model", "my-qrcode_monster-v2"] })).toBe("my-qrcode_monster-v2");
+    expect(findQrMonsterControlNetModel({ model_list: ["tile", "canny"] })).toBeNull();
+  });
+
+  it("builds a ControlNet QR Monster txt2img payload with base64 PNG control image", async () => {
+    const payload = await buildStableDiffusionHiddenControlPayload(
+      {
+        controlImage: `data:image/png;base64,${testRgbaPng(2, 2).toString("base64")}`,
+        prompt: "ornate poster",
+        negativePrompt: "blur",
+        width: 4,
+        height: 4,
+        steps: 12,
+        cfgScale: 6,
+        samplerName: "Euler a",
+        seed: 123,
+        batchSize: 2,
+        controlWeight: 1.4,
+        guidanceStart: 0.1,
+        guidanceEnd: 0.9,
+        controlMode: "ControlNet is more important",
+        resizeMode: "Scale to Fit (Inner Fit)",
+        pixelPerfect: false,
+        preprocessThreshold: 128
+      },
+      {},
+      "control_v1p_sd15_qrcode_monster [abc]"
+    );
+
+    expect(payload).toMatchObject({
+      prompt: "ornate poster",
+      negative_prompt: "blur",
+      width: 4,
+      height: 4,
+      steps: 12,
+      cfg_scale: 6,
+      sampler_name: "Euler a",
+      seed: 123,
+      batch_size: 2
+    });
+    expect(payload.alwayson_scripts.controlnet.args[0]).toMatchObject({
+      enabled: true,
+      module: "none",
+      model: "control_v1p_sd15_qrcode_monster [abc]",
+      weight: 1.4,
+      resize_mode: "Scale to Fit (Inner Fit)",
+      guidance_start: 0.1,
+      guidance_end: 0.9,
+      control_mode: "ControlNet is more important",
+      pixel_perfect: false
+    });
+    expect(Buffer.from(payload.alwayson_scripts.controlnet.args[0].image, "base64").subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  });
+
+  it("preflights Automatic1111 ControlNet and reports missing QR Monster model clearly", async () => {
+    const server = createServer((request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      if (request.url === "/controlnet/version") response.end(JSON.stringify({ version: "1.1" }));
+      else if (request.url === "/controlnet/model_list") response.end(JSON.stringify({ model_list: ["control_v11p_sd15_canny"] }));
+      else {
+        response.statusCode = 404;
+        response.end("{}");
+      }
+    });
+    const endpoint = await listen(server);
+    try {
+      await expect(preflightStableDiffusionQrMonster(endpoint)).rejects.toThrow("QR Code Monster model is not installed");
+    } finally {
+      await closeServer(server);
+    }
+  });
+
+  it("encodes preprocessed control images as plain base64 PNG", () => {
+    const base64 = encodeStableDiffusionControlImageBase64({
+      width: 1,
+      height: 1,
+      data: new Uint8Array([10, 20, 30, 255])
+    }, { width: 2, height: 2, grayscale: true, invert: true, threshold: 16 });
+    expect(base64.startsWith("data:")).toBe(false);
+    expect(Buffer.from(base64, "base64").subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  });
+
+  it("runs Stable Diffusion Hidden Control Image against a mocked A1111 API", async () => {
+    let txt2imgBody = "";
+    const server = createServer((request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      if (request.url === "/controlnet/version") {
+        response.end(JSON.stringify({ version: "1.1" }));
+        return;
+      }
+      if (request.url === "/controlnet/model_list") {
+        response.end(JSON.stringify({ model_list: ["control_v1p_sd15_qrcode_monster [abc]"] }));
+        return;
+      }
+      if (request.url !== "/sdapi/v1/txt2img") {
+        response.statusCode = 404;
+        response.end("{}");
+        return;
+      }
+      request.on("data", (chunk) => {
+        txt2imgBody += chunk;
+      });
+      request.on("end", () => {
+        response.end(JSON.stringify({ images: [tinyPng().toString("base64")], info: JSON.stringify({ seed: 77 }) }));
+      });
+    });
+    const endpoint = await listen(server);
+    try {
+      const result = await executeRoute({
+        nodes: [{
+          id: "hidden",
+          type: "ai.image.sd15.qr_monster_hidden_control",
+          params: {
+            endpoint,
+            controlImage: `data:image/png;base64,${testRgbaPng(1, 1).toString("base64")}`,
+            prompt: "ceramic tile",
+            width: 1,
+            height: 1,
+            steps: 1,
+            cfgScale: 1
+          }
+        }],
+        edges: []
+      });
+
+      expect(result.status).toBe("succeeded");
+      const output = result.nodeResults.hidden.output as { controlNetModel?: string; seed?: number; image?: { localPath?: string } };
+      expect(output.controlNetModel).toBe("control_v1p_sd15_qrcode_monster [abc]");
+      expect(output.seed).toBe(77);
+      expect(JSON.parse(txt2imgBody).alwayson_scripts.controlnet.args[0]).toMatchObject({
+        model: "control_v1p_sd15_qrcode_monster [abc]",
+        module: "none",
+        enabled: true
+      });
       expect(await readFile(output.image!.localPath!)).toEqual(tinyPng());
     } finally {
       await closeServer(server);

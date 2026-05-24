@@ -323,13 +323,19 @@ export type {
   ModelPricingInput,
   PricingConfidence,
   PricingCurrency,
+  PricingCatalog,
+  PricingCatalogModel,
   PricingQuote,
   PricingResolver,
+  PricingSourceAdapter,
+  PricingStatus,
   PricingUnit
 } from "./pricing";
 export type { ModelIOContract, ModelIOItem, ModelMediaKind } from "@snarkroute/protocol";
 export {
   estimateCatalogPricingQuote,
+  estimatePricingCatalogQuote,
+  isPricingCatalogFresh,
   sanitizePricingQuote,
   unknownPricingQuote
 } from "./pricing";

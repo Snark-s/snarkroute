@@ -21,6 +21,7 @@ The gateway keeps nodes focused on workflow behavior. Provider-specific URL cons
 - `ProviderAdapter`: provider boundary with `id`, `title`, `capabilities`, optional `listModels`, and `invoke`.
 - `PricingQuote`: advisory pre-run cost preview for a selected provider route. `estimatedCost` can be `null` and `confidence` can be `unknown`.
 - `PricingResolver`: provider-specific resolver that estimates a `PricingQuote` from local/runtime pricing metadata. It must not make paid model calls.
+- `PricingSourceAdapter`: provider-specific pricing catalog boundary. It can refresh/read a runtime pricing catalog, check freshness, and estimate from cached catalog data without invoking a model.
 - `ModelGateway`: central entrypoint. `invoke(request)` resolves the model, selects the adapter, gets the connection, calls `adapter.invoke`, and returns a `ModelInvokeResult`. `quote(request)`, `quoteSelectedRoute(request)`, and `quoteAvailableRoutes(request)` use the same route resolution path without invoking the model.
 
 ## Request Shape
@@ -115,14 +116,15 @@ Node receives:
 
 - `@snarkroute/model-registry` contains neutral mapping/resolution extracted from OpenRouter.
 - `packages/core/src/model-gateway` contains the gateway types, registry, resolver, and gateway.
-- `packages/core/src/model-gateway/pricing.ts` contains neutral pricing types and generic catalog-pricing estimation helpers.
+- `packages/core/src/model-gateway/pricing.ts` contains neutral pricing types, `PricingSourceAdapter`, catalog freshness metadata, and generic catalog-pricing estimation helpers.
 - `@snarkroute/replicate` exposes a Replicate `ProviderAdapter` for `image.generate` and `image.upscale`.
-- `@snarkroute/openrouter` exposes an OpenRouter `ProviderAdapter` for `text.generate` and `image.generate`, with advisory quotes from cached OpenRouter catalog pricing when present.
-- `@snarkroute/gemini` exposes a Gemini `ProviderAdapter` for `text.generate` and `image.generate`, with direct image quotes from local optional pricing config in `data/model-pricing/gemini.json`.
-- `@snarkroute/polza` exposes a Polza `ProviderAdapter` for `text.generate` and `image.generate`, with advisory quotes from Polza catalog pricing when available.
+- `@snarkroute/openrouter` exposes an OpenRouter `ProviderAdapter` for `text.generate` and `image.generate`, plus automatic pricing refresh from the machine-readable OpenRouter `/models` catalog.
+- `@snarkroute/gemini` exposes a Gemini `ProviderAdapter` for `text.generate` and `image.generate`. Direct Gemini pricing remains unknown unless a fresh manual override is present in `data/model-pricing/gemini.json`.
+- `@snarkroute/polza` exposes a Polza `ProviderAdapter` for `text.generate` and `image.generate`, plus automatic pricing refresh from Polza `getModels()` when that catalog contains pricing.
 - Existing model-executing nodes keep their public params/output shape while invoking providers through Model Gateway v0.
 - Server compatibility glue for `ai.text` and `ai.image.generate` lives in `apps/server/src/execution/model-gateway-runners.ts`. It resolves legacy `model` / `providerMode` params before calling gateway-backed provider runners.
 - `POST /api/model-gateway/quote` returns `{ selected, alternatives, warnings }` for Studio previews. It accepts node type and params only, strips secret-shaped fields, and does not require provider API keys for cached/local metadata.
+- `POST /api/model-pricing/refresh` refreshes machine-readable pricing catalogs for `openrouter`, `polza`, or `all`. It does not modify routes, return secrets, or invoke paid model generation.
 - `apps/server/src/providers/openrouter.ts` is OpenRouter-specific and does not import Gemini direct runners.
 - Polza is available through explicit `polza.text` and `polza.image.generate` nodes. It is not yet part of logical `ai.text` / `ai.image.generate` routing.
 
@@ -132,7 +134,13 @@ SnarkRoute can show advisory pricing quotes for model execution routes when prov
 
 Route files remain portable: pricing catalogs, local pricing config, provider credentials, API keys, tokens, base URLs, and runtime settings are not stored in ORP route format.
 
-Unknown pricing is normal. If a provider catalog lacks a usable price, or a direct provider has no local price configured, the quote returns `estimatedCost: null` and `confidence: "unknown"` instead of failing.
+Runtime pricing cache files live under `data/cache/model-pricing/`: `openrouter.json`, `polza.json`, and a reserved `gemini.json` path for a future machine-readable Gemini source if one is added without scraping or paid calls.
+
+OpenRouter pricing is refreshed from the `/models` catalog. Polza pricing is refreshed from `getModels()` when returned model records include pricing. Refresh is lazy: quote requests try to refresh expired catalogs with a timeout, and failures become warnings or unknown quotes rather than 500s where possible.
+
+`data/model-pricing/gemini.json` is a manual override/fallback, not the source of truth. A filled manual price is used only when `updatedAt` exists and the configured TTL has not expired. Stale or `null` Gemini prices return `estimatedCost: null`, `confidence: "unknown"`, and a warning by default.
+
+Unknown pricing is preferred over stale or invented pricing. If a provider catalog lacks a usable price, cannot be refreshed, or a direct provider has no fresh override, the quote returns `estimatedCost: null` and `confidence: "unknown"` instead of failing or guessing.
 
 ## Not Implemented
 

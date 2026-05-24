@@ -11,7 +11,11 @@ import {
   createOpenRouterProviderAdapter,
   createOpenRouterTextNodeRunner,
   estimateOpenRouterPricingQuote,
+  estimateOpenRouterPricingQuoteFromCatalog,
+  openRouterPricingCatalogFromModels,
   parseOpenRouterModelCatalog,
+  readOpenRouterPricingCatalogCache,
+  refreshOpenRouterPricingCatalog,
   refreshOpenRouterModelCatalog,
   resolveModelProvider
 } from "../src/index";
@@ -115,6 +119,19 @@ describe("OpenRouter adapter", () => {
     }
   });
 
+  it("refreshes and saves the pricing catalog cache from /models pricing", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "snarkroute-openrouter-pricing-"));
+    try {
+      const cachePath = join(dir, "model-pricing", "openrouter.json");
+      const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "openai/gpt-5.2", pricing: { prompt: "0.000001", completion: "0.000002" } }] }), { status: 200 })) as unknown as typeof fetch;
+      const cache = await refreshOpenRouterPricingCatalog({ fetchImpl, cachePath });
+      expect(cache.models["openai/gpt-5.2"].pricing).toMatchObject({ prompt: "0.000001" });
+      expect(await readOpenRouterPricingCatalogCache(cachePath)).toMatchObject({ provider: "openrouter", source: "openrouter_models_catalog" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("parses catalogs defensively when optional fields are missing", () => {
     expect(parseOpenRouterModelCatalog({ data: [{ id: "x/y" }, { name: "missing id" }] })).toEqual([
       { id: "x/y", architecture: { input_modalities: undefined, output_modalities: undefined, modality: undefined }, context_length: undefined, description: undefined, name: undefined, pricing: undefined, supported_parameters: undefined, top_provider: undefined }
@@ -153,6 +170,17 @@ describe("OpenRouter adapter", () => {
       params: {},
       inputMetadata: {}
     })).toMatchObject({ estimatedCost: null, confidence: "unknown" });
+  });
+
+  it("cached pricing catalog is usable by quote", () => {
+    const catalog = openRouterPricingCatalogFromModels([{ id: "openai/gpt-5.2", pricing: { request: 0.01 } }]);
+    expect(estimateOpenRouterPricingQuoteFromCatalog({
+      provider: "openrouter",
+      providerModel: "openai/gpt-5.2",
+      capability: "text.generate",
+      params: {},
+      inputMetadata: {}
+    }, catalog)).toMatchObject({ estimatedCost: 0.01, pricingStatus: "fresh", pricingSource: "openrouter_models_catalog" });
   });
 
   it("text runner calls Model Gateway", async () => {

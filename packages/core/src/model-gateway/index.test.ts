@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { estimateCatalogPricingQuote, getModelIOContract, ModelGateway, ModelRegistry, modelSatisfiesIOContract, type ProviderAdapter } from "./index";
+import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, getModelIOContract, ModelGateway, ModelRegistry, modelSatisfiesIOContract, type ProviderAdapter } from "./index";
 
 const models = [
   { id: "fast-text", providerId: "mock", title: "Fast Text", capabilities: ["text.generate"], speedHint: "fast" },
@@ -108,6 +108,45 @@ describe("Model Gateway v0", () => {
     expect(JSON.stringify(quote)).not.toContain("sk-test");
     expect(JSON.stringify(quote)).not.toContain("tok");
     expect(JSON.stringify(quote)).not.toContain("hidden");
+  });
+
+  it("fresh pricing catalog gives estimate metadata", () => {
+    const quote = estimatePricingCatalogQuote({
+      provider: "mock",
+      providerModel: "image",
+      capability: "image.generate",
+      params: { n: 2 },
+      inputMetadata: {}
+    }, {
+      provider: "mock",
+      fetchedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      source: "mock_catalog",
+      sourceUrl: null,
+      models: { image: { currency: "USD", pricing: { image: 0.03 } } },
+      warnings: []
+    });
+    expect(quote).toMatchObject({ estimatedCost: 0.06, pricingStatus: "fresh", pricingSource: "mock_catalog" });
+  });
+
+  it("stale pricing catalog returns warning, not a crash", () => {
+    const quote = estimatePricingCatalogQuote({
+      provider: "mock",
+      providerModel: "image",
+      capability: "image.generate",
+      params: {},
+      inputMetadata: {}
+    }, {
+      provider: "mock",
+      fetchedAt: "2020-01-01T00:00:00.000Z",
+      expiresAt: "2020-01-01T01:00:00.000Z",
+      source: "mock_catalog",
+      sourceUrl: null,
+      models: { image: { currency: "USD", pricing: { image: 0.03 } } },
+      warnings: []
+    });
+    expect(quote).toMatchObject({ estimatedCost: 0.03, pricingStatus: "stale" });
+    expect(quote.warnings?.[0]).toContain("stale");
   });
 
   it("matches a model with an explicit text and image IO contract", () => {
