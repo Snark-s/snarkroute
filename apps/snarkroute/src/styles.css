@@ -481,7 +481,7 @@ dd {
   left: 0;
   top: 0;
   overflow: visible;
-  cursor: move;
+  cursor: default;
   pointer-events: auto;
   touch-action: none;
 }
@@ -508,12 +508,42 @@ dd {
   outline: 0;
 }
 
-.textNodeBody[readonly] {
-  cursor: move;
+.textNodeBody {
+  cursor: text;
 }
 
-.textNodeBody:not([readonly]) {
-  cursor: text;
+.textNodeDragBar {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 3px;
+  z-index: 4;
+  height: 21px;
+  padding: 0;
+  border: 0;
+  border-radius: 13px 13px 5px 5px;
+  background: color-mix(in srgb, var(--panel-soft) 44%, transparent);
+  cursor: grab;
+}
+
+.textNodeDragBar::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 8px;
+  width: 42px;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 62%, transparent);
+  transform: translateX(-50%);
+}
+
+.textNodeDragBar:hover {
+  background: color-mix(in srgb, var(--panel-soft) 80%, transparent);
+}
+
+.textNodeDragBar:active {
+  cursor: grabbing;
 }
 
 .textColor-mint {
@@ -849,6 +879,12 @@ dd {
   color: var(--muted);
 }
 
+.inputChip.isInactive {
+  opacity: 0.38;
+  filter: grayscale(1);
+  cursor: not-allowed;
+}
+
 .previewOverlay {
   position: fixed;
   inset: 0;
@@ -1009,6 +1045,52 @@ dd {
   line-height: 1.45;
 }
 
+.promptRichEditor {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.promptInlineChip {
+  width: 36px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 3px;
+  vertical-align: middle;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  cursor: grab;
+}
+
+.promptInlineChip:active {
+  cursor: grabbing;
+}
+
+.promptInlineChip img,
+.promptInlineChip .textChipThumb,
+.promptInlineImageFallback {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.promptInlineImageFallback {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.promptInlineChip.isInactive {
+  opacity: 0.38;
+  filter: grayscale(1);
+}
+
 .promptMeta {
   min-width: 0;
   color: var(--text);
@@ -1024,14 +1106,42 @@ dd {
   white-space: nowrap;
 }
 
-.nodeBusyIndicator {
+.nodeBusyGears {
+  width: 16px;
+  height: 16px;
+  display: inline-block;
+  position: relative;
+  color: #8fd7b5;
+}
+
+.nodeBusyGearLarge,
+.nodeBusyGearSmall {
+  position: absolute;
+}
+
+.nodeBusyGearLarge {
+  left: 0;
+  top: 0;
   color: #8fd7b5;
   animation: nodeBusySpin 0.9s linear infinite;
+}
+
+.nodeBusyGearSmall {
+  right: 0;
+  bottom: 0;
+  color: #f3bf45;
+  animation: nodeBusyCounterSpin 0.7s linear infinite;
 }
 
 @keyframes nodeBusySpin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes nodeBusyCounterSpin {
+  to {
+    transform: rotate(-360deg);
   }
 }
 
@@ -1049,6 +1159,78 @@ dd {
   line-height: 1.35;
   max-height: 34px;
   white-space: normal;
+}
+
+.generationParameters {
+  position: relative;
+  margin-left: 4px;
+}
+
+.promptMeta .generationParametersButton {
+  width: auto;
+  height: 30px;
+  margin-left: 0;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.promptMeta .generationParametersButton:hover,
+.promptMeta .generationParametersButton[aria-expanded="true"] {
+  border-color: var(--line);
+  background: var(--panel-soft);
+  color: var(--text);
+}
+
+.promptMeta .generationParametersButton:disabled {
+  opacity: 0.62;
+  cursor: default;
+}
+
+.generationParametersMenu {
+  position: absolute;
+  left: 0;
+  bottom: 38px;
+  z-index: 8;
+  display: grid;
+  gap: 9px;
+  width: 218px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 14px 36px var(--shadow);
+}
+
+.generationParametersMenu strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.generationParametersMenu label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 82px;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.generationParametersMenu select,
+.generationParametersMenu input {
+  width: 82px;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  color: var(--text);
 }
 
 .promptMeta button {

@@ -24,10 +24,10 @@
       "title": "Double Image Illusion",
       "params": {
         "endpoint": "http://127.0.0.1:7860",
-        "prompt": "A dark pictorialist black-and-white photograph of an old mysterious house entrance, seen from outside. A lonely door, a few steps, overgrown garden, tree branches crossing the frame, mist and hazy air, strong beams of light, deep shadows, blown-out highlights, heavy film grain, soft focus, aged vintage print texture, rough tonal transitions, slightly abstract forms, dreamlike and uncanny atmosphere, silent and poetic, early photographic process look, photogravure, gum bichromate, charcoal-like softness, the house feels haunted by memory, no people.",
+        "prompt": "a single old urban apartment house entrance, close view of one doorway and one window, worn plaster wall, dark rectangular door, short stone steps, bare tree branches crossing the frame, empty yard, no people, black and white pictorialist photograph, early 20th century art photography, gum bichromate print, photogravure, coarse grain, soot-black shadows, blown-out milky highlights, foggy light, soft focus, low detail in the darkness, rough aged paper texture, oppressive silence, uncanny but realistic, not fantasy, not cinematic, composition made of large simple light and dark shapes",
         "negativePrompt": "",
         "mode": "hidden_image",
-        "controlWeight": 2.25,
+        "controlWeight": 1.65,
         "steps": 30,
         "seed": -1,
         "cfgScale": 7,
@@ -69,7 +69,7 @@
     }
   ],
   "provenance": {
-    "updatedAt": "2026-05-24T20:39:13.380Z",
+    "updatedAt": "2026-05-24T21:41:53.438Z",
     "tool": "snarkroute-studio"
   }
 }

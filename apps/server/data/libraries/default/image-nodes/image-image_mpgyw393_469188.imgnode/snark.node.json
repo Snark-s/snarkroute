@@ -13,9 +13,19 @@
       "width": 320,
       "height": 240,
       "createdAt": "2026-05-24T21:01:45.531Z"
+    },
+    {
+      "id": "stack_mpkzo5pp_74ec95",
+      "externalUrl": "https://s3.polza.ai/f/216543/2026/05/t_2cec348fbcc460e1.png",
+      "source": "generation",
+      "mimeType": "image/png",
+      "width": 320,
+      "height": 240,
+      "createdAt": "2026-05-25T09:13:25.741Z"
     }
   ],
-  "activeStackIndex": 0,
+  "activeStackIndex": 1,
   "createdAt": "2026-05-22T13:40:31.479Z",
-  "updatedAt": "2026-05-24T21:01:45.531Z"
+  "updatedAt": "2026-05-25T09:37:20.222Z",
+  "currentPrompt": "[[text:text_mpkzqauy_5fe78b]]Нарисуй "
 }

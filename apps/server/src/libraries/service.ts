@@ -5,6 +5,7 @@ import { randomBytes } from "node:crypto";
 import { librariesDirectory } from "../server-paths";
 import { sanitizeFilename } from "../assets/service";
 import { createRouteExecutor } from "../execution/service";
+import { embedImageProvenance, imageProvenanceFormat, imageProvenanceVersion } from "./image-metadata";
 
 export type LibraryKind = "workspace" | "collection";
 export type LibraryContentKind = "mixed" | "image" | "character" | "prompt" | "style";
@@ -19,8 +20,14 @@ export interface SnarkLibraryManifest {
   contentKind: LibraryContentKind;
   defaultView: LibraryDefaultView;
   canvas?: string;
+  representativeImage?: LibraryRepresentativeImage;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface LibraryRepresentativeImage {
+  nodeId: string;
+  stackItemId: string;
 }
 
 export interface SnarkCanvasDocument {
@@ -54,6 +61,7 @@ export interface ImageNodeManifest {
   id: string;
   type: "image";
   title: string;
+  currentPrompt?: string;
   stack: ImageStackItem[];
   activeStackIndex: number;
   createdAt: string;
@@ -148,7 +156,13 @@ export interface GenerateImageNodeInput {
   modelId: string;
   prompt?: string;
   providerId?: string;
+  inputNodeIds?: string[];
+  maxImageInputs?: number;
+  imageReferenceSyntax?: string;
+  parameters?: ImageGenerationSettings;
 }
+
+export type ImageGenerationSettings = Record<string, string | number | boolean>;
 
 export interface DuplicateStackItemInput {
   nodeId: string;
@@ -161,6 +175,7 @@ export interface DuplicateStackItemInput {
 
 const manifestFilename = "snark.library.json";
 const canvasFilename = "canvas.json";
+const currentPromptFilename = "current-prompt.txt";
 const defaultNodeWidth = 320;
 const defaultNodeHeight = 240;
 let currentLibraryPath = process.env.SNARKROUTE_LIBRARY_PATH ? resolve(process.env.SNARKROUTE_LIBRARY_PATH) : join(librariesDirectory, "default");
@@ -286,6 +301,8 @@ export async function importImageAsNode(input: ImportImageInput): Promise<Librar
     updatedAt: now
   };
   await writeJson(join(nodePath, "snark.node.json"), manifest);
+  await writeCurrentPrompt(nodePath, "");
+  await setLibraryRepresentativeImage(libraryPath, id, manifest.stack[0].id);
 
   const canvas = await ensureCanvas(libraryPath);
   const width = input.width ?? defaultNodeWidth;
@@ -340,6 +357,7 @@ export async function appendImageToNodeStack(input: AppendImageStackInput): Prom
     updatedAt: now
   };
   await writeJson(join(nodePath, "snark.node.json"), updatedManifest);
+  await setLibraryRepresentativeImage(libraryPath, input.nodeId, updatedManifest.stack[stackIndex].id);
   return readLibrarySnapshot(libraryPath);
 }
 
@@ -352,6 +370,7 @@ export async function setImageNodeActiveStackItem(nodeId: string, stackIndex: nu
     activeStackIndex: stackIndex,
     updatedAt: new Date().toISOString()
   });
+  await setLibraryRepresentativeImage(libraryPath, nodeId, manifest.stack[stackIndex].id);
   return readLibrarySnapshot(libraryPath);
 }
 
@@ -370,6 +389,7 @@ export async function deleteImageNodeStackItem(nodeId: string, stackItemId: stri
     activeStackIndex: Math.max(0, nextActiveIndex),
     updatedAt: new Date().toISOString()
   });
+  await replaceDeletedRepresentativeImage(libraryPath, nodeId, stackItemId, nextStack[Math.max(0, nextActiveIndex)]?.id);
   return readLibrarySnapshot(libraryPath);
 }
 
@@ -377,16 +397,30 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
   const libraryPath = await ensureCurrentLibrary();
   const { manifest, nodePath } = await readImageNode(input.nodeId);
   const activeItem = manifest.stack[manifest.activeStackIndex];
-  const inputImages = await connectedImageInputs(libraryPath, input.nodeId);
+  const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
+  const orderedInputs = orderConnectedInputs(connectedInputs, input.inputNodeIds);
+  const inputImages = orderedInputs.filter((entry) => entry.image).map((entry) => entry.image!);
   const sourceImage = activeItem ? stackItemImageInput(nodePath, activeItem) : undefined;
-  const prompt = input.prompt?.trim() || "Create a polished image.";
+  const maxImageInputs = positiveInteger(input.maxImageInputs);
+  const generationInputs = limitImages([
+    ...inputImages,
+    ...(sourceImage ? [sourceImage] : [])
+  ].filter((image, index, all) => all.findIndex((candidate) => candidate.path === image.path) === index), maxImageInputs);
+  const promptTemplate = input.prompt?.trim() || "Create a polished image.";
+  const prompt = resolveInputTokens(promptTemplate, orderedInputs, generationInputs, input.imageReferenceSyntax);
+  const generationSettings = sanitizeImageGenerationSettings(input.parameters);
+  await writeCurrentPrompt(nodePath, promptTemplate);
+  const parameters = {
+    ...imageGenerationParameters(input.modelId, input.providerId, prompt, generationInputs, generationSettings),
+    promptTemplate
+  };
   const runResult = await runImageModelForStackItem({
     nodeId: input.nodeId,
     modelId: input.modelId,
     providerId: input.providerId,
     prompt,
-    sourceImage,
-    inputImages
+    images: generationInputs,
+    parameters: generationSettings
   });
   const generationResult = runResult.nodeResults.generate;
   if (runResult.status === "failed" || generationResult?.status === "failed") {
@@ -400,8 +434,19 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
   const imageRelativePath = nextStackFilename(manifest.stack, "generation", extension);
   const externalUrl = !generatedImage.localPath && isRemoteUrl(generatedPath) ? generatedPath : undefined;
   if (!externalUrl) {
-    await mkdir(dirname(resolvePortablePath(nodePath, imageRelativePath)), { recursive: true });
-    await copyFile(generatedPath, resolvePortablePath(nodePath, imageRelativePath));
+    const imagePath = resolvePortablePath(nodePath, imageRelativePath);
+    await mkdir(dirname(imagePath), { recursive: true });
+    const imageBuffer = await readFile(generatedPath);
+    await writeFile(imagePath, embedImageProvenance(imageBuffer, extension, {
+      format: imageProvenanceFormat,
+      version: imageProvenanceVersion,
+      prompt,
+      parameters,
+      providerId: input.providerId,
+      modelId: input.modelId,
+      nodeId: input.nodeId,
+      createdAt: new Date().toISOString()
+    }));
   }
 
   const now = new Date().toISOString();
@@ -421,16 +466,13 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
     updatedAt: now
   };
   await writeJson(join(nodePath, "snark.node.json"), updatedManifest);
+  await setLibraryRepresentativeImage(libraryPath, input.nodeId, updatedManifest.stack[stackIndex].id);
   return readLibrarySnapshot(libraryPath);
 }
 
-async function runImageModelForStackItem(input: { nodeId: string; modelId: string; providerId?: string; prompt: string; sourceImage?: { path: string; localPath?: string; mimeType: string }; inputImages: Array<{ path: string; localPath?: string; mimeType: string }> }) {
+async function runImageModelForStackItem(input: { nodeId: string; modelId: string; providerId?: string; prompt: string; images: Array<{ path: string; localPath?: string; mimeType: string }>; parameters: ImageGenerationSettings }) {
   const nodeType = input.providerId === "polza" ? "polza.image.generate" : "ai.image.generate";
   const executor = await createRouteExecutor();
-  const images = [
-    ...input.inputImages,
-    ...(input.sourceImage ? [input.sourceImage] : [])
-  ].filter((image, index, all) => all.findIndex((candidate) => candidate.path === image.path) === index);
   const route = {
     routeVersion: "0.1",
     route: {
@@ -441,36 +483,38 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
     nodes: [{
       id: "generate",
       type: nodeType,
-      params: {
-        model: input.modelId,
-        providerMode: input.providerId === "openrouter" ? "openrouter" : "auto",
-        prompt: input.prompt,
-        images,
-        aspectRatio: "16:9",
-        imageSize: "1K",
-        imageResolution: "1K",
-        quality: "high",
-        outputFormat: "png"
-      }
+      params: imageGenerationParameters(input.modelId, input.providerId, input.prompt, input.images, input.parameters)
     }],
     edges: []
   };
   return executor.executeRoute(route);
 }
 
-async function connectedImageInputs(libraryPath: string, targetNodeId: string): Promise<Array<{ path: string; localPath?: string; mimeType: string }>> {
+interface ConnectedCanvasInput {
+  nodeId: string;
+  type: string;
+  text?: string;
+  image?: { path: string; localPath?: string; mimeType: string };
+}
+
+async function connectedCanvasInputs(libraryPath: string, targetNodeId: string): Promise<ConnectedCanvasInput[]> {
   const canvas = await ensureCanvas(libraryPath);
   const sourceNodeIds = (canvas.edges ?? []).filter((edge) => edge.toNodeId === targetNodeId).map((edge) => edge.fromNodeId);
-  const images: Array<{ path: string; localPath?: string; mimeType: string }> = [];
+  const inputs: ConnectedCanvasInput[] = [];
   for (const sourceNodeId of sourceNodeIds) {
     const sourceNode = canvas.nodes.find((node) => node.id === sourceNodeId);
-    if (sourceNode?.type !== "image") continue;
-    const { manifest, nodePath } = await readImageNode(sourceNodeId);
-    const item = manifest.stack[manifest.activeStackIndex];
-    if (!item) continue;
-    images.push(stackItemImageInput(nodePath, item));
+    if (sourceNode?.type === "image") {
+      const { manifest, nodePath } = await readImageNode(sourceNodeId);
+      const item = manifest.stack[manifest.activeStackIndex];
+      inputs.push({ nodeId: sourceNodeId, type: "image", image: item ? stackItemImageInput(nodePath, item) : undefined });
+    }
+    if (sourceNode?.type === "text") {
+      const manifestPath = join(resolvePortablePath(libraryPath, sourceNode.nodePath), "snark.node.json");
+      const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as TextNodeManifest;
+      inputs.push({ nodeId: sourceNodeId, type: "text", text: manifest.text });
+    }
   }
-  return images;
+  return inputs;
 }
 
 function imageAssetFromGenerationOutput(output: unknown): { localPath?: string; path?: string; filename?: string; mimeType?: string; width?: unknown; height?: unknown } {
@@ -520,6 +564,7 @@ export async function duplicateStackItemAsConnectedImageNode(input: DuplicateSta
     updatedAt: now
   };
   await writeJson(join(nodePath, "snark.node.json"), manifest);
+  await writeCurrentPrompt(nodePath, sourceManifest.currentPrompt ?? "");
 
   const width = input.width ?? defaultNodeWidth;
   const height = input.height ?? defaultNodeHeight;
@@ -564,6 +609,7 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
       updatedAt: now
     };
     await writeJson(join(nodePath, "snark.node.json"), manifest);
+    await writeCurrentPrompt(nodePath, "");
   } else {
     const manifest: TextNodeManifest = {
       format: "snarkroute.node",
@@ -613,6 +659,13 @@ export async function updateTextNode(nodeId: string, updates: { text?: string; c
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function updateImageNodePrompt(nodeId: string, prompt: string): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { nodePath } = await readImageNode(nodeId);
+  await writeCurrentPrompt(nodePath, prompt);
+  return readLibrarySnapshot(libraryPath);
+}
+
 export async function renameCanvasNode(nodeId: string, title: string): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const canvas = await ensureCanvas(libraryPath);
@@ -635,6 +688,7 @@ export async function deleteCanvasNode(nodeId: string): Promise<LibrarySnapshot>
   // Keep the node folder on disk so local undo can restore the canvas entry.
   // Orphan cleanup should be a separate explicit maintenance action.
   await writeCanvas(libraryPath, canvas);
+  await replaceDeletedRepresentativeImage(libraryPath, nodeId);
   return readLibrarySnapshot(libraryPath);
 }
 
@@ -656,7 +710,7 @@ export async function readImageNode(nodeId: string): Promise<{ manifest: ImageNo
     const manifestPath = join(nodePath, "snark.node.json");
     if (!await fileExists(manifestPath)) continue;
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest;
-    if (manifest.id === nodeId) return { manifest, nodePath };
+    if (manifest.id === nodeId) return { manifest: { ...manifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
   }
   throw new Error(`Image node "${nodeId}" was not found.`);
 }
@@ -731,12 +785,13 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
     if (!await fileExists(manifestPath)) continue;
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | TextNodeManifest;
     if (manifest.type === "image") {
-      const activeStackItem = manifest.stack[manifest.activeStackIndex] ?? null;
+      const hydratedManifest = { ...manifest, currentPrompt: await readCurrentPrompt(resolvePortablePath(libraryPath, canvasNode.nodePath)) };
+      const activeStackItem = hydratedManifest.stack[hydratedManifest.activeStackIndex] ?? null;
       nodes.push({
         canvas: canvasNode,
-        manifest,
+        manifest: hydratedManifest,
         activeStackItem,
-        previewUrl: activeStackItem ? `/api/libraries/current/image-nodes/${encodeURIComponent(manifest.id)}/stack/${encodeURIComponent(activeStackItem.id)}` : null
+        previewUrl: activeStackItem ? `/api/libraries/current/image-nodes/${encodeURIComponent(hydratedManifest.id)}/stack/${encodeURIComponent(activeStackItem.id)}` : null
       });
     }
     if (manifest.type === "text") {
@@ -766,6 +821,39 @@ function nextStackFilename(stack: ImageStackItem[], label: string, extension: st
     if (!used.has(candidate)) return candidate;
   }
   throw new Error("Could not allocate a stack filename.");
+}
+
+async function writeCurrentPrompt(nodePath: string, prompt: string): Promise<void> {
+  await writeFile(join(nodePath, currentPromptFilename), prompt, "utf8");
+}
+
+async function readCurrentPrompt(nodePath: string): Promise<string> {
+  try {
+    return await readFile(join(nodePath, currentPromptFilename), "utf8");
+  } catch {
+    await writeCurrentPrompt(nodePath, "");
+    return "";
+  }
+}
+
+async function setLibraryRepresentativeImage(libraryPath: string, nodeId: string, stackItemId: string): Promise<void> {
+  const manifest = await readLibraryManifest(libraryPath);
+  await writeLibraryManifest(libraryPath, {
+    ...manifest,
+    representativeImage: { nodeId, stackItemId },
+    updatedAt: new Date().toISOString()
+  });
+}
+
+async function replaceDeletedRepresentativeImage(libraryPath: string, nodeId: string, stackItemId?: string, replacementStackItemId?: string): Promise<void> {
+  const manifest = await readLibraryManifest(libraryPath);
+  if (manifest.representativeImage?.nodeId !== nodeId) return;
+  if (stackItemId && manifest.representativeImage.stackItemId !== stackItemId) return;
+  await writeLibraryManifest(libraryPath, {
+    ...manifest,
+    representativeImage: replacementStackItemId ? { nodeId, stackItemId: replacementStackItemId } : undefined,
+    updatedAt: new Date().toISOString()
+  });
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {
@@ -814,6 +902,68 @@ function mimeTypeFromExtension(extension: string): string {
 
 function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function limitImages<T>(images: T[], maxImages: number | undefined): T[] {
+  return maxImages ? images.slice(0, maxImages) : images;
+}
+
+function orderConnectedInputs(inputs: ConnectedCanvasInput[], nodeIds: string[] | undefined): ConnectedCanvasInput[] {
+  if (!Array.isArray(nodeIds)) return inputs;
+  const rank = new Map(nodeIds.map((nodeId, index) => [nodeId, index]));
+  return [...inputs].sort((left, right) => (rank.get(left.nodeId) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.nodeId) ?? Number.MAX_SAFE_INTEGER));
+}
+
+function resolveInputTokens(
+  promptTemplate: string,
+  inputs: ConnectedCanvasInput[],
+  sentImages: Array<{ path: string; localPath?: string; mimeType: string }>,
+  imageReferenceSyntax: string | undefined
+): string {
+  const inputById = new Map(inputs.map((entry) => [entry.nodeId, entry]));
+  return promptTemplate.replace(/\[\[(text|image):([^\]]+)\]\]/g, (_token, type: string, nodeId: string) => {
+    const input = inputById.get(nodeId);
+    if (!input || input.type !== type) return "";
+    if (type === "text") return input.text ?? "";
+    if (!input.image || !imageReferenceSyntax) return "";
+    const position = sentImages.findIndex((image) => image.path === input.image?.path);
+    return position >= 0 ? imageReferenceSyntax.replaceAll("{index}", String(position + 1)) : "";
+  });
+}
+
+function imageGenerationParameters(
+  modelId: string,
+  providerId: string | undefined,
+  prompt: string,
+  images: Array<{ path: string; localPath?: string; mimeType: string }>,
+  settings: ImageGenerationSettings = sanitizeImageGenerationSettings()
+): Record<string, unknown> {
+  return {
+    model: modelId,
+    providerMode: providerId === "openrouter" ? "openrouter" : "auto",
+    prompt,
+    images,
+    ...settings
+  };
+}
+
+function sanitizeImageGenerationSettings(settings: ImageGenerationSettings | undefined = undefined): ImageGenerationSettings {
+  if (!settings) return {};
+  const sanitized: ImageGenerationSettings = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (!/^[A-Za-z][A-Za-z0-9_.-]{0,60}$/.test(key)) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed && trimmed.length <= 80) sanitized[key] = trimmed;
+      continue;
+    }
+    if (typeof value === "boolean" || typeof value === "number" && Number.isFinite(value)) sanitized[key] = value;
+  }
+  return sanitized;
 }
 
 function titleFromFilename(filename: string): string {

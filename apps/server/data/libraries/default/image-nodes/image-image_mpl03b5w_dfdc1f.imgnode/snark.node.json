@@ -1,0 +1,49 @@
+{
+  "format": "snarkroute.node",
+  "version": "0.1",
+  "id": "image_mpl03b5w_dfdc1f",
+  "type": "image",
+  "title": "Image",
+  "stack": [
+    {
+      "id": "stack_mpl06vwj_7defc8",
+      "file": "stack/000-generation.png",
+      "source": "generation",
+      "mimeType": "image/png",
+      "width": 320,
+      "height": 240,
+      "createdAt": "2026-05-25T09:27:59.491Z"
+    },
+    {
+      "id": "stack_mpl078u7_a31eb5",
+      "file": "stack/001-generation.png",
+      "source": "generation",
+      "mimeType": "image/png",
+      "width": 320,
+      "height": 240,
+      "createdAt": "2026-05-25T09:28:16.255Z"
+    },
+    {
+      "id": "stack_mpl0lacl_6a925b",
+      "file": "stack/002-generation.png",
+      "source": "generation",
+      "mimeType": "image/png",
+      "width": 320,
+      "height": 240,
+      "createdAt": "2026-05-25T09:39:11.397Z"
+    },
+    {
+      "id": "stack_mpl15mrt_18336d",
+      "file": "stack/003-generation.png",
+      "source": "generation",
+      "mimeType": "image/png",
+      "width": 320,
+      "height": 240,
+      "createdAt": "2026-05-25T09:55:00.617Z"
+    }
+  ],
+  "activeStackIndex": 3,
+  "createdAt": "2026-05-25T09:25:12.644Z",
+  "updatedAt": "2026-05-25T09:55:00.617Z",
+  "currentPrompt": "Нарисуй [[text:text_mpl02cg5_4a10fa]] который лежит на [[text:text_mpl01r0j_9fa9da]]"
+}

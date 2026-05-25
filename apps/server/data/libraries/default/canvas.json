@@ -15,19 +15,84 @@
       "id": "image_mpgyw393_469188",
       "type": "image",
       "nodePath": "image-nodes/image-image_mpgyw393_469188.imgnode",
-      "x": 76,
-      "y": -239,
+      "x": 182,
+      "y": -223,
+      "width": 320,
+      "height": 240
+    },
+    {
+      "id": "image_mpkaws6o_a24da5",
+      "type": "image",
+      "nodePath": "image-nodes/image-image_mpkaws6o_a24da5.imgnode",
+      "x": -205,
+      "y": -415,
+      "width": 320,
+      "height": 240
+    },
+    {
+      "id": "text_mpkzqauy_5fe78b",
+      "type": "text",
+      "nodePath": "text-nodes/text-text_mpkzqauy_5fe78b.txtnode",
+      "x": -7309,
+      "y": -3874,
+      "width": 320,
+      "height": 180
+    },
+    {
+      "id": "text_mpl01r0j_9fa9da",
+      "type": "text",
+      "nodePath": "text-nodes/text-text_mpl01r0j_9fa9da.txtnode",
+      "x": 663,
+      "y": -459,
+      "width": 320,
+      "height": 180
+    },
+    {
+      "id": "text_mpl02cg5_4a10fa",
+      "type": "text",
+      "nodePath": "text-nodes/text-text_mpl02cg5_4a10fa.txtnode",
+      "x": 653,
+      "y": -190,
+      "width": 320,
+      "height": 180
+    },
+    {
+      "id": "image_mpl03b5w_dfdc1f",
+      "type": "image",
+      "nodePath": "image-nodes/image-image_mpl03b5w_dfdc1f.imgnode",
+      "x": 1171,
+      "y": -432,
       "width": 320,
       "height": 240
     }
   ],
   "createdAt": "2026-05-21T12:38:35.799Z",
-  "updatedAt": "2026-05-24T21:04:02.766Z",
+  "updatedAt": "2026-05-25T10:00:15.988Z",
   "edges": [
     {
       "id": "edge_mpgyw395_9276f4",
       "fromNodeId": "image_mpfw6ljg_de237e",
       "toNodeId": "image_mpgyw393_469188"
+    },
+    {
+      "id": "edge_mpkaws6u_b40235",
+      "fromNodeId": "image_mpfw6ljg_de237e",
+      "toNodeId": "image_mpkaws6o_a24da5"
+    },
+    {
+      "id": "edge_mpkax0fj",
+      "fromNodeId": "image_mpkaws6o_a24da5",
+      "toNodeId": "image_mpgyw393_469188"
+    },
+    {
+      "id": "edge_mpl03b5y_aaa2be",
+      "fromNodeId": "text_mpl01r0j_9fa9da",
+      "toNodeId": "image_mpl03b5w_dfdc1f"
+    },
+    {
+      "id": "edge_mpl03djz",
+      "fromNodeId": "text_mpl02cg5_4a10fa",
+      "toNodeId": "image_mpl03b5w_dfdc1f"
     }
   ]
 }

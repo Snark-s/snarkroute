@@ -1,5 +1,5 @@
 import "./styles.css";
-import { ArrowUp, ChevronLeft, ChevronRight, Download, Expand, Folder, ImageIcon, ImagePlus, Layers3, LoaderCircle, Moon, PanelRight, Sun, Trash2, Wallpaper } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Cog, Download, Expand, Folder, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, Sun, Trash2, Wallpaper } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { modelLogoFor } from "./modelLogos";
@@ -66,6 +66,7 @@ interface ImageNodeManifest {
   id: string;
   type: "image";
   title: string;
+  currentPrompt?: string;
   stack: ImageStackItem[];
   activeStackIndex: number;
 }
@@ -205,6 +206,24 @@ interface ModelOption {
   providerId?: string;
   source?: string;
   acceptsImageInput?: boolean;
+  maxImageInputs?: number;
+  imageReferenceSyntax?: string;
+  generationParameters?: ModelParameterDefinition[];
+  defaultParameters?: ImageGenerationParameters;
+}
+
+type GenerationParameterValue = string | number | boolean;
+type ImageGenerationParameters = Record<string, GenerationParameterValue>;
+
+interface ModelParameterDefinition {
+  id: string;
+  label: string;
+  type: "select" | "number" | "text";
+  default?: GenerationParameterValue;
+  options?: Array<{ value: string; label?: string }>;
+  min?: number;
+  max?: number;
+  step?: number;
 }
 
 interface GenerationFeedback {
@@ -229,8 +248,7 @@ const activePromptHeight = 250;
 const passiveFooterHeight = 42;
 const minCanvasScale = 0.35;
 const maxCanvasScale = 2.5;
-const busyFaviconDim = busyFavicon("#aa9e69", "#72683e");
-const busyFaviconLit = busyFavicon("#ffe785", "#f3bf45");
+const busyFaviconFrames = Array.from({ length: 8 }, (_, index) => busyFavicon(index * 45));
 const backgroundOptions: { value: BackgroundName; label: string }[] = [
   { value: "plain", label: "Plain" },
   { value: "dots", label: "Dots" },
@@ -238,7 +256,15 @@ const backgroundOptions: { value: BackgroundName; label: string }[] = [
   { value: "gears", label: "Gears" }
 ];
 const fallbackModels: ModelOption[] = [
-  { id: "image.nano-banana", title: "Nano Banana", nodeTypes: ["image"], providerId: "gemini", source: "fallback", acceptsImageInput: true }
+  {
+    id: "image.nano-banana",
+    title: "Nano Banana",
+    nodeTypes: ["image"],
+    providerId: "gemini",
+    source: "fallback",
+    acceptsImageInput: true,
+    generationParameters: fallbackGeminiParameters()
+  }
 ];
 
 function App() {
@@ -426,15 +452,13 @@ function App() {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.code === "KeyZ") {
-        const target = event.target;
-        if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return;
+        if (isTextEditingTarget(event.target)) return;
         event.preventDefault();
         void undoCanvas();
         return;
       }
       if (event.key !== "Delete" && event.key !== "Backspace") return;
-      const target = event.target;
-      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return;
+      if (isTextEditingTarget(event.target)) return;
       if (selectedNodeId) {
         event.preventDefault();
         void deleteSelectedNodes(selectedNodeIds.length ? selectedNodeIds : [selectedNodeId]);
@@ -474,13 +498,13 @@ function App() {
       return;
     }
 
-    let lit = true;
+    let frame = 0;
     icon.type = "image/svg+xml";
-    icon.href = busyFaviconLit;
+    icon.href = busyFaviconFrames[frame];
     const timer = window.setInterval(() => {
-      lit = !lit;
-      icon.href = lit ? busyFaviconLit : busyFaviconDim;
-    }, 520);
+      frame = (frame + 1) % busyFaviconFrames.length;
+      icon.href = busyFaviconFrames[frame];
+    }, 120);
     return () => {
       window.clearInterval(timer);
       icon.href = initialHref;
@@ -877,6 +901,16 @@ function App() {
     }
   }
 
+  async function saveImagePrompt(nodeId: string, prompt: string) {
+    try {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/prompt`, { prompt });
+      setLibrary(snapshot);
+      setStatus("Prompt saved");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save prompt.");
+    }
+  }
+
   async function renameNode(nodeId: string, title: string) {
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/title`, { title });
@@ -922,11 +956,19 @@ function App() {
     }
   }
 
-  async function runImageGeneration(nodeId: string, modelId: string, prompt: string, providerId?: string) {
+  async function runImageGeneration(nodeId: string, modelId: string, prompt: string, providerId?: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string, parameters?: ImageGenerationParameters) {
     try {
       setStatus("Generating image...");
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: true, message: "Generating..." } }));
-      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/generate`, { modelId, prompt, providerId });
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/generate`, {
+        modelId,
+        prompt,
+        providerId,
+        inputNodeIds,
+        maxImageInputs,
+        imageReferenceSyntax,
+        parameters
+      });
       setLibrary(snapshot);
       setSelectedNodeId(nodeId);
       setStatus("Generation added to stack");
@@ -1164,7 +1206,8 @@ function App() {
                 setModelSelections({ ...modelSelections, [nodeId]: modelId });
                 setModelSearchNodeId(null);
               }}
-              onRunGeneration={(nodeId, modelId, prompt, providerId) => void runImageGeneration(nodeId, modelId, prompt, providerId)}
+              onRunGeneration={(nodeId, modelId, prompt, providerId, inputNodeIds, maxImageInputs, imageReferenceSyntax, parameters) => void runImageGeneration(nodeId, modelId, prompt, providerId, inputNodeIds, maxImageInputs, imageReferenceSyntax, parameters)}
+              onSavePrompt={(nodeId, prompt) => void saveImagePrompt(nodeId, prompt)}
               onSaveText={saveTextNode}
               onSaveTextColor={saveTextNodeColor}
               onDeleteNode={(nodeId) => void deleteSelectedNode(nodeId)}
@@ -1283,6 +1326,7 @@ function ImageNode({
   onToggleModelSearch,
   onSelectModel,
   onRunGeneration,
+  onSavePrompt,
   onSaveText,
   onSaveTextColor,
   onDeleteNode,
@@ -1310,7 +1354,8 @@ function ImageNode({
   modelSearchOpen: boolean;
   onToggleModelSearch: (nodeId: string) => void;
   onSelectModel: (nodeId: string, modelId: string) => void;
-  onRunGeneration: (nodeId: string, modelId: string, prompt: string, providerId?: string) => void;
+  onRunGeneration: (nodeId: string, modelId: string, prompt: string, providerId?: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string, parameters?: ImageGenerationParameters) => void;
+  onSavePrompt: (nodeId: string, prompt: string) => void;
   onSaveText: (nodeId: string, text: string) => void;
   onSaveTextColor: (nodeId: string, color: string) => void;
   onDeleteNode: (nodeId: string) => void;
@@ -1320,13 +1365,52 @@ function ImageNode({
   const stackCount = node.manifest.type === "image" ? node.manifest.stack.length : 0;
   const activeIndex = node.manifest.type === "image" && stackCount ? node.manifest.activeStackIndex + 1 : 0;
   const isTextNode = node.manifest.type === "text";
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(node.manifest.type === "image" ? node.manifest.currentPrompt ?? "" : "");
   const [modelQuery, setModelQuery] = useState("");
+  const [orderedInputNodes, setOrderedInputNodes] = useState(inputNodes);
+  const [parametersOpen, setParametersOpen] = useState(false);
+  const [promptInsertRequest, setPromptInsertRequest] = useState<{ token: string; sequence: number } | null>(null);
+  const promptInsertSequence = useRef(0);
   const needsImageInput = inputNodes.some((input) => input.type === "image") || (node.manifest.type === "image" && node.manifest.stack.length > 0);
   const compatibleModels = needsImageInput ? models.filter((model) => model.acceptsImageInput !== false) : models;
-  const selectedModel = compatibleModels.find((model) => modelSelectionId(model) === modelId) ?? compatibleModels.find((model) => model.id === modelId) ?? compatibleModels[0] ?? { id: "", title: "Select model", nodeTypes: ["image"] };
+  const selectedModel: ModelOption = compatibleModels.find((model) => modelSelectionId(model) === modelId) ?? compatibleModels.find((model) => model.id === modelId) ?? compatibleModels[0] ?? { id: "", title: "Select model", nodeTypes: ["image"] };
   const visibleModels = compatibleModels.filter((model) => model.title.toLowerCase().includes(modelQuery.toLowerCase()) || model.id.toLowerCase().includes(modelQuery.toLowerCase()));
   const selectedModelLogo = modelLogoFor(selectedModel.providerId, selectedModel.id);
+  const selectedModelKey = modelSelectionId(selectedModel);
+  const [generationParameters, setGenerationParameters] = useState<ImageGenerationParameters>(() => modelGenerationParameters(selectedModel));
+  const parameterDefinitions = selectedModel.generationParameters ?? [];
+  const imageInputs = orderedInputNodes.filter((input) => input.type === "image");
+  const maxImageInputs = selectedModel.maxImageInputs;
+  useEffect(() => {
+    setOrderedInputNodes((current) => {
+      const byId = new Map(inputNodes.map((input) => [input.id, input]));
+      return [...current.filter((input) => byId.has(input.id)).map((input) => byId.get(input.id)!), ...inputNodes.filter((input) => !current.some((existing) => existing.id === input.id))];
+    });
+  }, [inputNodes]);
+  useEffect(() => {
+    setGenerationParameters(modelGenerationParameters(selectedModel));
+    setParametersOpen(false);
+  }, [selectedModelKey]);
+
+  function insertInputToken(input: InputNodeChip) {
+    const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
+    if (input.type === "image" && maxImageInputs !== undefined && imageIndex >= maxImageInputs) return;
+    const token = `[[${input.type === "text" ? "text" : "image"}:${input.id}]]`;
+    promptInsertSequence.current += 1;
+    setPromptInsertRequest({ token, sequence: promptInsertSequence.current });
+  }
+
+  function moveInputChip(draggedId: string, beforeId: string) {
+    if (draggedId === beforeId) return;
+    setOrderedInputNodes((current) => {
+      const dragged = current.find((input) => input.id === draggedId);
+      if (!dragged) return current;
+      const rest = current.filter((input) => input.id !== draggedId);
+      const targetIndex = rest.findIndex((input) => input.id === beforeId);
+      if (targetIndex < 0) return [...rest, dragged];
+      return [...rest.slice(0, targetIndex), dragged, ...rest.slice(targetIndex)];
+    });
+  }
   if (isTextNode) {
     return (
       <article
@@ -1337,10 +1421,15 @@ function ImageNode({
           width: node.canvas.width,
           height: node.canvas.height
         } as React.CSSProperties}
-        onPointerDown={(event) => onPointerDown(event, node)}
         onClick={(event) => onClick(event, node)}
         onContextMenu={(event) => onContextMenu(event, node)}
       >
+        <button
+          type="button"
+          className="textNodeDragBar"
+          aria-label="Select or move text node"
+          onPointerDown={(event) => onPointerDown(event, node)}
+        />
         <div className="nodeHandleLine nodeHandleLineInput" />
         <div className="nodeHandleLine nodeHandleLineOutput" />
         <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
@@ -1379,12 +1468,12 @@ function ImageNode({
           className={`textNodeBody textColor-${node.manifest.color ?? "mint"}`}
           defaultValue={node.manifest.text}
           placeholder="Text"
-          readOnly={!active}
           onPointerDown={(event) => {
-            if (active) event.stopPropagation();
+            event.stopPropagation();
           }}
           onClick={(event) => {
-            if (active) event.stopPropagation();
+            event.stopPropagation();
+            onClick(event, node);
           }}
           onBlur={(event) => onSaveText(node.manifest.id, event.currentTarget.value)}
         />
@@ -1411,7 +1500,12 @@ function ImageNode({
         </div>
       )}
       <div className="nodeTitle">
-        {generationFeedback?.busy ? <LoaderCircle size={15} className="nodeBusyIndicator" /> : <ImageIcon size={15} />}
+        {generationFeedback?.busy ? (
+          <span className="nodeBusyGears" aria-label="Generating">
+            <Cog size={12} className="nodeBusyGearLarge" />
+            <Cog size={9} className="nodeBusyGearSmall" />
+          </span>
+        ) : <ImageIcon size={15} />}
         {active ? (
           <input
             defaultValue={node.manifest.title}
@@ -1485,19 +1579,35 @@ function ImageNode({
       {active && (
         <footer className="promptPanel" onPointerDown={(event) => event.stopPropagation()}>
           <div className="inputChips">
-            {inputNodes.length ? inputNodes.map((input) => (
-              <span className="inputChip" key={input.id}>
+            {orderedInputNodes.length ? orderedInputNodes.map((input) => {
+              const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
+              const inactive = input.type === "image" && maxImageInputs !== undefined && imageIndex >= maxImageInputs;
+              return (
+              <button
+                type="button"
+                className={`inputChip${inactive ? " isInactive" : ""}`}
+                key={input.id}
+                draggable
+                title={inactive ? "Model image input limit exceeded" : `Insert ${input.title} into prompt`}
+                onDragStart={(event) => event.dataTransfer.setData("text/snarkroute-input-node", input.id)}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  moveInputChip(event.dataTransfer.getData("text/snarkroute-input-node"), input.id);
+                }}
+                onClick={() => insertInputToken(input)}
+              >
                 {input.previewUrl ? <img src={`${apiBase}${input.previewUrl}`} alt="" /> : input.type === "image" ? <ImageIcon size={15} /> : <span className={`textChipThumb textColor-${input.color ?? "mint"}`}>T</span>}
-              </span>
-            )) : <span className="inputChip isEmpty">No inputs</span>}
+              </button>
+            ); }) : <span className="inputChip isEmpty">No inputs</span>}
           </div>
-          <textarea
-            className="promptTextArea"
-            aria-label="Prompt"
+          <PromptComposer
             value={prompt}
-            onChange={(event) => setPrompt(event.currentTarget.value)}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
+            inputNodes={orderedInputNodes}
+            maxImageInputs={maxImageInputs}
+            insertRequest={promptInsertRequest}
+            onChange={setPrompt}
+            onBlur={() => onSavePrompt(node.manifest.id, prompt)}
           />
           <div className="promptMeta">
             <div className="modelPicker">
@@ -1532,8 +1642,35 @@ function ImageNode({
                 </div>
               )}
             </div>
-            <span className={generationFeedback?.error ? "generationStatus isError" : "generationStatus"}>{generationFeedback?.message ?? "16:9 · 1K"}</span>
-            <button type="button" aria-label="Run" disabled={!selectedModel.id || generationFeedback?.busy} onClick={() => onRunGeneration(node.manifest.id, selectedModel.id, prompt, selectedModel.providerId)}><ArrowUp size={16} /></button>
+            <div className="generationParameters">
+              <button
+                type="button"
+                className="generationParametersButton"
+                aria-label="Generation parameters"
+                aria-expanded={parametersOpen}
+                disabled={parameterDefinitions.length === 0}
+                onClick={() => parameterDefinitions.length && setParametersOpen((current) => !current)}
+              >
+                {generationParameterSummary(parameterDefinitions, generationParameters)}
+              </button>
+              {parametersOpen && parameterDefinitions.length > 0 && (
+                <div className="generationParametersMenu" onPointerDown={(event) => event.stopPropagation()}>
+                  <strong>{selectedModel.title}</strong>
+                  {parameterDefinitions.map((definition) => (
+                    <label key={definition.id}>
+                      {definition.label}
+                      <GenerationParameterControl
+                        definition={definition}
+                        value={generationParameters[definition.id] ?? definition.default ?? ""}
+                        onChange={(value) => setGenerationParameters((current) => ({ ...current, [definition.id]: value }))}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"}>{generationFeedback.message}</span> : null}
+            <button type="button" aria-label="Run" disabled={!selectedModel.id || generationFeedback?.busy} onClick={() => onRunGeneration(node.manifest.id, selectedModel.id, prompt, selectedModel.providerId, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters)}><ArrowUp size={16} /></button>
           </div>
         </footer>
       )}
@@ -1548,6 +1685,228 @@ function ImageNode({
       )}
     </article>
   );
+}
+
+function PromptComposer({
+  value,
+  inputNodes,
+  maxImageInputs,
+  insertRequest,
+  onChange,
+  onBlur
+}: {
+  value: string;
+  inputNodes: InputNodeChip[];
+  maxImageInputs?: number;
+  insertRequest: { token: string; sequence: number } | null;
+  onChange: (value: string) => void;
+  onBlur: () => void;
+}) {
+  const editorRef = useRef<HTMLDivElement | null>(null);
+  const savedRangeRef = useRef<Range | null>(null);
+  const draggingChipRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || serializePromptContent(editor) === value) return;
+    renderPromptContent(editor, value, inputNodes, maxImageInputs);
+  }, [inputNodes, maxImageInputs, value]);
+
+  useEffect(() => {
+    if (!insertRequest) return;
+    const editor = editorRef.current;
+    const input = inputForPromptToken(insertRequest.token, inputNodes);
+    if (!editor || !input) return;
+    insertChipAtRange(editor, input, insertRequest.token, inputNodes, maxImageInputs, savedRangeRef.current);
+    onChange(serializePromptContent(editor));
+    editor.focus();
+    saveEditorRange(editor, savedRangeRef);
+  }, [insertRequest?.sequence]);
+
+  return (
+    <div
+      className="promptTextArea promptRichEditor"
+      ref={editorRef}
+      role="textbox"
+      aria-label="Prompt"
+      contentEditable
+      suppressContentEditableWarning
+      onInput={(event) => {
+        onChange(serializePromptContent(event.currentTarget));
+        saveEditorRange(event.currentTarget, savedRangeRef);
+      }}
+      onBlur={() => {
+        saveEditorRange(editorRef.current, savedRangeRef);
+        onBlur();
+      }}
+      onKeyUp={() => saveEditorRange(editorRef.current, savedRangeRef)}
+      onMouseUp={() => saveEditorRange(editorRef.current, savedRangeRef)}
+      onDragOver={(event) => event.preventDefault()}
+      onDragStart={(event) => {
+        const chip = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".promptInlineChip") : null;
+        const token = chip?.dataset.promptToken;
+        if (token) {
+          draggingChipRef.current = chip;
+          event.dataTransfer.setData("text/snarkroute-prompt-token", token);
+        }
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        const token = event.dataTransfer.getData("text/snarkroute-prompt-token")
+          || tokenForInputId(event.dataTransfer.getData("text/snarkroute-input-node"), inputNodes);
+        const input = inputForPromptToken(token, inputNodes);
+        if (!input) return;
+        const range = promptDropRange(event.clientX, event.clientY, editorRef.current);
+        draggingChipRef.current?.remove();
+        draggingChipRef.current = null;
+        insertChipAtRange(event.currentTarget, input, token, inputNodes, maxImageInputs, range);
+        onChange(serializePromptContent(event.currentTarget));
+        saveEditorRange(event.currentTarget, savedRangeRef);
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+    />
+  );
+}
+
+function GenerationParameterControl({
+  definition,
+  value,
+  onChange
+}: {
+  definition: ModelParameterDefinition;
+  value: GenerationParameterValue;
+  onChange: (value: GenerationParameterValue) => void;
+}) {
+  if (definition.type === "select") {
+    return (
+      <select value={String(value)} onChange={(event) => onChange(event.currentTarget.value)}>
+        {(definition.options ?? []).map((option) => <option key={option.value} value={option.value}>{option.label ?? option.value}</option>)}
+      </select>
+    );
+  }
+  return (
+    <input
+      type={definition.type}
+      value={String(value)}
+      min={definition.min}
+      max={definition.max}
+      step={definition.step}
+      onChange={(event) => onChange(definition.type === "number" ? Number(event.currentTarget.value) : event.currentTarget.value)}
+    />
+  );
+}
+
+function renderPromptContent(editor: HTMLElement, value: string, inputNodes: InputNodeChip[], maxImageInputs?: number) {
+  const inputById = new Map(inputNodes.map((input) => [input.id, input]));
+  const imageInputs = inputNodes.filter((input) => input.type === "image");
+  const fragment = document.createDocumentFragment();
+  const tokenPattern = /\[\[(text|image):([^\]]+)\]\]/g;
+  let lastIndex = 0;
+  for (const match of value.matchAll(tokenPattern)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) fragment.append(document.createTextNode(value.slice(lastIndex, index)));
+    const input = inputById.get(match[2]);
+    if (!input || input.type !== match[1]) {
+      fragment.append(document.createTextNode(match[0]));
+    } else {
+      const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
+      const inactive = input.type === "image" && maxImageInputs !== undefined && imageIndex >= maxImageInputs;
+      fragment.append(promptInlineChip(match[0], input, inactive));
+    }
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < value.length) fragment.append(document.createTextNode(value.slice(lastIndex)));
+  editor.replaceChildren(fragment);
+}
+
+function promptInlineChip(token: string, input: InputNodeChip, inactive: boolean): HTMLElement {
+  const chip = document.createElement("span");
+  chip.className = `promptInlineChip${inactive ? " isInactive" : ""}`;
+  chip.contentEditable = "false";
+  chip.draggable = true;
+  chip.dataset.promptToken = token;
+  chip.title = input.title;
+  if (input.previewUrl) {
+    const image = document.createElement("img");
+    image.src = `${apiBase}${input.previewUrl}`;
+    image.alt = "";
+    chip.append(image);
+  } else {
+    const thumbnail = document.createElement("span");
+    thumbnail.className = input.type === "text" ? `textChipThumb textColor-${input.color ?? "mint"}` : "promptInlineImageFallback";
+    thumbnail.textContent = input.type === "text" ? "T" : "I";
+    chip.append(thumbnail);
+  }
+  return chip;
+}
+
+function serializePromptContent(editor: HTMLElement): string {
+  return [...editor.childNodes].map((node) => serializePromptNode(node)).join("");
+}
+
+function serializePromptNode(node: ChildNode): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+  if (!(node instanceof HTMLElement)) return "";
+  if (node.dataset.promptToken) return node.dataset.promptToken;
+  if (node.tagName === "BR") return "\n";
+  const content = [...node.childNodes].map((child) => serializePromptNode(child)).join("");
+  return node.tagName === "DIV" ? `${content}\n` : content;
+}
+
+function inputForPromptToken(token: string, inputs: InputNodeChip[]): InputNodeChip | undefined {
+  const match = /^\[\[(text|image):([^\]]+)\]\]$/.exec(token);
+  return match ? inputs.find((input) => input.type === match[1] && input.id === match[2]) : undefined;
+}
+
+function tokenForInputId(inputId: string, inputs: InputNodeChip[]): string {
+  const input = inputs.find((candidate) => candidate.id === inputId);
+  return input ? `[[${input.type === "text" ? "text" : "image"}:${input.id}]]` : "";
+}
+
+function insertChipAtRange(
+  editor: HTMLElement,
+  input: InputNodeChip,
+  token: string,
+  inputs: InputNodeChip[],
+  maxImageInputs: number | undefined,
+  requestedRange: Range | null
+) {
+  const imageInputs = inputs.filter((candidate) => candidate.type === "image");
+  const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
+  const inactive = input.type === "image" && maxImageInputs !== undefined && imageIndex >= maxImageInputs;
+  const range = requestedRange && editor.contains(requestedRange.commonAncestorContainer) ? requestedRange : document.createRange();
+  if (!requestedRange || !editor.contains(requestedRange.commonAncestorContainer)) {
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+  range.deleteContents();
+  const chip = promptInlineChip(token, input, inactive);
+  range.insertNode(chip);
+  range.setStartAfter(chip);
+  range.collapse(true);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}
+
+function saveEditorRange(editor: HTMLElement | null, rangeRef: React.MutableRefObject<Range | null>) {
+  if (!editor) return;
+  const selection = window.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  if (range && editor.contains(range.commonAncestorContainer)) rangeRef.current = range.cloneRange();
+}
+
+function promptDropRange(clientX: number, clientY: number, editor: HTMLElement | null): Range | null {
+  if (!editor) return null;
+  const rangeFromPoint = (document as Document & { caretRangeFromPoint?: (x: number, y: number) => Range | null }).caretRangeFromPoint?.(clientX, clientY);
+  if (rangeFromPoint && editor.contains(rangeFromPoint.commonAncestorContainer)) return rangeFromPoint;
+  const caretPosition = (document as Document & { caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null }).caretPositionFromPoint?.(clientX, clientY);
+  if (!caretPosition || !editor.contains(caretPosition.offsetNode)) return null;
+  const range = document.createRange();
+  range.setStart(caretPosition.offsetNode, caretPosition.offset);
+  range.collapse(true);
+  return range;
 }
 
 function StackPreview({
@@ -1640,7 +1999,11 @@ function normalizeModelOptions(value: unknown, providerId?: string): ModelOption
         nodeTypes: inferModelNodeTypes(record),
         providerId: String(record.providerId ?? record.provider ?? providerId ?? providerFromModelId(id)),
         source: providerId,
-        acceptsImageInput: modelAcceptsImageInput(record)
+        acceptsImageInput: modelAcceptsImageInput(record),
+        maxImageInputs: modelMaxImageInputs(record),
+        imageReferenceSyntax: modelImageReferenceSyntax(record),
+        generationParameters: modelGenerationParameterDefinitions(record),
+        defaultParameters: modelDefaultGenerationParameters(record)
       };
     })
     .filter((entry): entry is ModelOption => entry !== null && entry.nodeTypes.includes("image"));
@@ -1692,6 +2055,103 @@ function modelAcceptsImageInput(record: Record<string, unknown>): boolean {
   return inputModalities.some((modality) => modality.toLowerCase() === "image") || Object.hasOwn(parameters, "images");
 }
 
+function modelMaxImageInputs(record: Record<string, unknown>): number | undefined {
+  const direct = Number(record.maxImageInputs ?? record.maxImages);
+  if (Number.isInteger(direct) && direct > 0) return direct;
+  const ioContract = record.ioContract && typeof record.ioContract === "object" ? record.ioContract as Record<string, unknown> : {};
+  const inputs = Array.isArray(ioContract.inputs) ? ioContract.inputs : [];
+  const imageInput = inputs.find((input) => input && typeof input === "object" && (input as Record<string, unknown>).kind === "image") as Record<string, unknown> | undefined;
+  const contracted = Number(imageInput?.maxItems);
+  return Number.isInteger(contracted) && contracted > 0 ? contracted : undefined;
+}
+
+function modelImageReferenceSyntax(record: Record<string, unknown>): string | undefined {
+  const value = record.imageReferenceSyntax ?? record.image_reference_syntax;
+  return typeof value === "string" && value.includes("{index}") ? value : undefined;
+}
+
+function modelGenerationParameterDefinitions(record: Record<string, unknown>): ModelParameterDefinition[] | undefined {
+  if (!Array.isArray(record.generationParameters)) return undefined;
+  const definitions = record.generationParameters.flatMap((source) => {
+    if (!source || typeof source !== "object") return [];
+    const definition = source as Record<string, unknown>;
+    const id = stringParameter(definition.id);
+    const label = stringParameter(definition.label);
+    const type: ModelParameterDefinition["type"] = definition.type === "number" || definition.type === "text" ? definition.type : "select";
+    if (!id || !label) return [];
+    const options = Array.isArray(definition.options)
+      ? definition.options.flatMap((entry) => {
+          if (!entry || typeof entry !== "object") return [];
+          const option = entry as Record<string, unknown>;
+          const value = stringParameter(option.value);
+          return value ? [{ value, label: stringParameter(option.label) }] : [];
+        })
+      : undefined;
+    return [{
+      id,
+      label,
+      type,
+      default: parameterValue(definition.default),
+      options,
+      min: numberParameter(definition.min),
+      max: numberParameter(definition.max),
+      step: numberParameter(definition.step)
+    }];
+  });
+  return definitions.length ? definitions : [];
+}
+
+function modelDefaultGenerationParameters(record: Record<string, unknown>): ImageGenerationParameters | undefined {
+  const source = record.defaultParameters ?? record.defaultParams;
+  if (!source || typeof source !== "object") return undefined;
+  return Object.fromEntries(
+    Object.entries(source as Record<string, unknown>).flatMap(([key, value]) => {
+      const parameter = parameterValue(value);
+      return parameter === undefined ? [] : [[key, parameter]];
+    })
+  );
+}
+
+function modelGenerationParameters(model: ModelOption): ImageGenerationParameters {
+  const schemaDefaults = Object.fromEntries(
+    (model.generationParameters ?? []).flatMap((definition) => definition.default === undefined ? [] : [[definition.id, definition.default]])
+  );
+  return { ...schemaDefaults, ...(model.defaultParameters ?? {}) };
+}
+
+function generationParameterSummary(definitions: ModelParameterDefinition[], values: ImageGenerationParameters): string {
+  if (definitions.length === 0) return "No parameters";
+  return definitions.slice(0, 2).map((definition) => String(values[definition.id] ?? definition.default ?? "")).filter(Boolean).join(" · ") || "Parameters";
+}
+
+function stringParameter(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function numberParameter(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parameterValue(value: unknown): GenerationParameterValue | undefined {
+  return typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function fallbackGeminiParameters(): ModelParameterDefinition[] {
+  return [
+    { id: "aspectRatio", label: "Aspect ratio", type: "select", default: "1:1", options: ["1:1", "3:2", "2:3", "16:9", "9:16"].map((value) => ({ value })) },
+    { id: "imageSize", label: "Resolution", type: "select", default: "2K", options: ["1K", "2K", "4K"].map((value) => ({ value })) }
+  ];
+}
+
+function isTextEditingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+    || target.isContentEditable
+    || Boolean(target.closest('[contenteditable="true"]'));
+}
+
 function providerFromModelId(modelId: string): string {
   if (modelId.startsWith("image.")) return "gemini";
   if (modelId.startsWith("gemini-")) return "gemini";
@@ -1699,8 +2159,8 @@ function providerFromModelId(modelId: string): string {
   return "unknown";
 }
 
-function busyFavicon(fill: string, glow: string): string {
-  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#111813"/><path d="M16 5.5a8 8 0 0 0-4.7 14.5c.9.7 1.4 1.8 1.4 2.9v.6h6.6v-.6c0-1.1.5-2.2 1.4-2.9A8 8 0 0 0 16 5.5Z" fill="${fill}" stroke="${glow}" stroke-width="1.6"/><path d="M13 26h6M13.8 28h4.4" stroke="${fill}" stroke-width="1.7" stroke-linecap="round"/><path d="M16 2.5v-2M5.8 7.2 4.3 5.7M26.2 7.2l1.5-1.5M5 17H2.7M29.3 17H27" stroke="${glow}" stroke-width="1.7" stroke-linecap="round"/></svg>`)}`;
+function busyFavicon(angle: number): string {
+  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#111813"/><g transform="rotate(${angle} 13 13)" fill="#8fd7b5" stroke="#d8ffe9" stroke-width="1"><path d="M13 4.5 15 6l2.4-.5 1.4 2.1-.9 2.3 1.6 2v2.2l-2.3.8-.7 2.4-2.3.7-1.7-1.8-2.4.5-1.4-2.1.9-2.3-1.6-2V10l2.3-.8.7-2.4Z"/><circle cx="13" cy="12" r="3.1" fill="#111813"/></g><g transform="rotate(${-angle} 22 22)" fill="#f3bf45" stroke="#ffe785" stroke-width=".85"><path d="M22 15.3 23.5 17l2.1-.1.7 2-1.5 1.5.4 2.1-1.9.9-1.6-1.4-2.1.5-.9-1.9 1.3-1.7-.5-2.1 1.9-.9Z"/><circle cx="22" cy="19.3" r="2" fill="#111813"/></g></svg>`)}`;
 }
 
 async function downloadPreview(previewUrl: string, title: string) {

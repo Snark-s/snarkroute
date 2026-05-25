@@ -10,6 +10,7 @@ import { isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled } from "../serv
 import { errorMessage } from "../services/errors";
 import { openRouterPublicError, openRouterSettingsStatus } from "../providers/openrouter";
 import { seedanceSettingsStatus, validateSeedanceConfiguration } from "../providers/seedance";
+import { livingCanvasModelMetadata } from "../providers/living-canvas-model-catalog";
 
 type PricingCatalog = {
   provider: string;
@@ -107,7 +108,8 @@ app.post<{ Body: { provider?: "openrouter" | "polza" | "gemini" | "all" | string
 
 app.get("/api/providers/openrouter/models", async () => {
   const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
-  return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: cache?.models.length ?? 0, models: cache?.models ?? [] };
+  const models = (cache?.models ?? []).map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "openrouter") }));
+  return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, models };
 });
 
 app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/api/model-gateway/quote", async (request, reply) => {
@@ -150,7 +152,8 @@ app.get<{ Querystring: { type?: "chat" | "image" | "embedding" } }>("/api/provid
   try {
     if (!isPolzaEnabled()) return { ok: true, configured: false, modelCount: 0, models: [] };
     const models = await createPolzaClient().getModels(request.query.type);
-    return { ok: true, configured: true, modelCount: models.length, models };
+    const livingCanvasModels = models.map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "polza") }));
+    return { ok: true, configured: true, modelCount: livingCanvasModels.length, models: livingCanvasModels };
   } catch (error) {
     return reply.code(400).send({ ok: false, error: errorMessage(error) });
   }

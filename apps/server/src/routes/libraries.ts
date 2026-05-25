@@ -16,11 +16,13 @@ import {
   readCanvas,
   readImageNode,
   setImageNodeActiveStackItem,
+  updateImageNodePrompt,
   updateTextNode,
   writeCanvas,
   type LibraryContentKind,
   type LibraryDefaultView,
   type LibraryKind,
+  type ImageGenerationSettings,
   type SnarkCanvasDocument
 } from "../libraries/service";
 import { errorMessage } from "../services/errors";
@@ -170,15 +172,27 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string } }>("/api/libraries/current/image-nodes/:nodeId/generate", async (request, reply) => {
+  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; parameters?: ImageGenerationSettings } }>("/api/libraries/current/image-nodes/:nodeId/generate", async (request, reply) => {
     try {
       if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
       return await generateImageNodeStackItem({
         nodeId: request.params.nodeId,
         modelId: request.body.modelId,
         prompt: request.body.prompt,
-        providerId: request.body.providerId
+        providerId: request.body.providerId,
+        inputNodeIds: request.body.inputNodeIds,
+        maxImageInputs: request.body.maxImageInputs,
+        imageReferenceSyntax: request.body.imageReferenceSyntax,
+        parameters: request.body.parameters
       });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.put<{ Params: { nodeId: string }; Body: { prompt?: string } }>("/api/libraries/current/image-nodes/:nodeId/prompt", async (request, reply) => {
+    try {
+      return await updateImageNodePrompt(request.params.nodeId, request.body?.prompt ?? "");
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
