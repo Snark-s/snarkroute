@@ -6,6 +6,7 @@ import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 export const POLZA_BASE_URL = "https://polza.ai/api";
 export const POLZA_TEXT_DEFAULT_MODEL = "openai/gpt-4o";
 export const POLZA_IMAGE_DEFAULT_MODEL = "openai/gpt-5.4-image-2";
+export const POLZA_VIDEO_DEFAULT_MODEL = "wan/2.6";
 export const POLZA_MISSING_KEY_MESSAGE = "POLZA_AI_API_KEY is not configured.\nAdd POLZA_AI_API_KEY to .env with your Polza.ai API key.";
 const LOCAL_FILE_DATA_URI_LIMIT_BYTES = 20 * 1024 * 1024;
 const PRICING_TTL_HOURS = 12;
@@ -31,6 +32,8 @@ export interface PolzaImageAsset {
   originalUrl?: string;
   warning?: string;
 }
+
+export type PolzaVideoAsset = PolzaImageAsset;
 
 export interface PolzaModelInfo {
   id: string;
@@ -98,7 +101,7 @@ export function createPolzaClient(options: PolzaClientOptions = {}) {
     async mediaStatus(id: string): Promise<unknown> {
       return request(`/v1/media/${encodeURIComponent(id)}`, { method: "GET" });
     },
-    async getModels(type?: "chat" | "image" | "embedding"): Promise<PolzaModelInfo[]> {
+    async getModels(type?: "chat" | "image" | "video" | "embedding"): Promise<PolzaModelInfo[]> {
       const query = type ? `?type=${encodeURIComponent(type)}` : "";
       return parsePolzaModelCatalog(await request(`/v1/models${query}`, { method: "GET" }));
     }
@@ -292,12 +295,68 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
   };
 }
 
+export function createPolzaVideoNodeRunner(options: PolzaClientOptions = {}): NodeRunner {
+  return async ({ node, params, inputs, context }) => {
+    const model = stringParam(params.model) ?? POLZA_VIDEO_DEFAULT_MODEL;
+    const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
+    if (!prompt.trim()) throw new Error("Polza Video requires a prompt.");
+    const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
+    if (images.length > 1) throw new Error(`Polza Video accepts at most 1 input image, got ${images.length}.`);
+    const gateway = options.modelGateway ?? createPolzaModelGateway(options, model, "video.generate");
+    const gatewayResult = await gateway.invoke({
+      capability: "video.generate",
+      modelRef: `model://polza/${model}`,
+      input: { prompt, images },
+      parameters: params,
+      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type }
+    });
+    const response = gatewayResult.output.output;
+    const request = gatewayResult.output.request as Record<string, unknown> | undefined;
+    const videoAsset = polzaVideoAssetFromGateway(gatewayResult);
+    if (!videoAsset) throw new Error(`Polza video model "${model}" did not return a video.`);
+    const usage = objectField(response, "usage");
+    const pricingQuote = quoteFromGatewayOutput(gatewayResult.output) ?? estimatePolzaPricingQuote({
+      provider: "polza",
+      providerModel: model,
+      capability: "video.generate",
+      params,
+      inputMetadata: {}
+    });
+    return {
+      output: {
+        video: videoAsset,
+        output: response,
+        request,
+        provider: "polza",
+        model,
+        providerModel: model,
+        estimatedCost: pricingQuote.estimatedCost,
+        estimatedCostCurrency: pricingQuote.currency,
+        estimatedCostConfidence: pricingQuote.confidence,
+        actualUsage: usage,
+        actualCost: actualCostFromUsage(usage),
+        actualCostCurrency: actualCostCurrencyFromUsage(usage),
+        pricingSource: pricingQuote.pricingSource,
+        pricingQuote,
+        inputImageCount: images.length,
+        localPath: videoAsset.localPath,
+        originalUrl: videoAsset.originalUrl,
+        warning: videoAsset.warning,
+        status: "succeeded"
+      },
+      logs: [`Generated Polza video with ${model}: ${videoAsset.localPath ?? videoAsset.originalUrl ?? videoAsset.path}`],
+      provenance: { provider: "polza", model },
+      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage, pricingQuote)
+    };
+  };
+}
+
 export function createPolzaProviderAdapter(options: PolzaClientOptions = {}): ProviderAdapter {
   const client = createPolzaClient(options);
   return {
     id: "polza",
     title: "Polza.ai",
-    capabilities: ["text.generate", "image.generate"],
+    capabilities: ["text.generate", "image.generate", "video.generate"],
     pricingResolver: {
       estimate: estimatePolzaPricingQuote
     },
@@ -352,6 +411,27 @@ export function createPolzaProviderAdapter(options: PolzaClientOptions = {}): Pr
           raw: response
         };
       }
+      if (request.capability === "video.generate") {
+        const imageInputs = await Promise.all(images.map((image) => prepareMediaImageInput(image, options.fetchImpl)));
+        const requestBody = buildMediaVideoRequestBody(request.model.id, prompt, request.parameters ?? {}, imageInputs);
+        const response = await waitForPolzaMediaResult(await client.media(requestBody), client, options, "video");
+        const video = firstGeneratedVideo(response);
+        if (!video) throw new Error(`Polza video model "${request.model.id}" did not return a video.`);
+        const videoAsset = await writePolzaVideo(video, {
+          outputDirectory: stringParam(request.metadata?.outputDirectory) ?? process.cwd(),
+          sourceNodeId: stringParam(request.metadata?.sourceNodeId) ?? "polza",
+          model: request.model.id,
+          fetchImpl: options.fetchImpl
+        });
+        return {
+          modelId: request.model.id,
+          providerId: "polza",
+          capability: request.capability,
+          output: { video: videoAsset, output: response, request: requestBody, model: request.model.id },
+          usage: objectField(response, "usage") as Record<string, unknown> | undefined,
+          raw: response
+        };
+      }
       throw new Error(`Polza adapter does not support capability "${request.capability}".`);
     }
   };
@@ -361,7 +441,7 @@ export function estimatePolzaPricingQuote(input: ModelPricingInput): PricingQuot
   return estimateCatalogPricingQuote(input, input.params.pricing, "polza_catalog");
 }
 
-function createPolzaModelGateway(options: PolzaClientOptions, model: string, capability: "text.generate" | "image.generate"): ModelGateway {
+function createPolzaModelGateway(options: PolzaClientOptions, model: string, capability: "text.generate" | "image.generate" | "video.generate"): ModelGateway {
   return new ModelGateway({
     models: [{
       id: model,
@@ -383,6 +463,11 @@ function createPolzaModelGateway(options: PolzaClientOptions, model: string, cap
 function polzaImageAssetFromGateway(result: ModelInvokeResult): PolzaImageAsset | undefined {
   const image = result.output.image;
   return image && typeof image === "object" ? image as PolzaImageAsset : undefined;
+}
+
+function polzaVideoAssetFromGateway(result: ModelInvokeResult): PolzaVideoAsset | undefined {
+  const video = result.output.video;
+  return video && typeof video === "object" ? video as PolzaVideoAsset : undefined;
 }
 
 function quoteFromGatewayOutput(output: Record<string, unknown>): PricingQuote | null {
@@ -468,6 +553,17 @@ export function buildMediaImageRequestBody(model: string, prompt: string, params
   };
 }
 
+export function buildMediaVideoRequestBody(model: string, prompt: string, params: Record<string, unknown>, imageInputs: Array<{ type: "url" | "base64"; data: string }> = []): Record<string, unknown> {
+  const input: Record<string, unknown> = {
+    prompt,
+    resolution: stringParam(params.resolution) ?? "720p",
+    duration: String(numberParam(params.duration) ?? stringParam(params.duration) ?? "5"),
+    multi_shots: params.multi_shots === true || stringParam(params.multi_shots) === "true" ? "true" : "false"
+  };
+  if (imageInputs.length > 0) input.images = imageInputs.slice(0, 1);
+  return { model, input, async: true, user: stringParam(params.user) };
+}
+
 function isPolzaGpt54Image2(model: string): boolean {
   return model === "openai/gpt-5.4-image-2";
 }
@@ -513,14 +609,24 @@ function firstGeneratedImage(response: unknown): unknown {
   return record.b64_json ?? record.url ?? null;
 }
 
+function firstGeneratedVideo(response: unknown): unknown {
+  const mediaVideo = firstMediaVideo(response);
+  if (mediaVideo) return mediaVideo;
+  const data = objectField(response, "data");
+  return firstMediaVideo(data);
+}
+
 async function waitForPolzaMediaResult(
   initialResponse: unknown,
   client: { mediaStatus: (id: string) => Promise<unknown> },
-  options: PolzaClientOptions
+  options: PolzaClientOptions,
+  kind: "image" | "video" = "image"
 ): Promise<unknown> {
-  if (firstGeneratedImage(initialResponse)) return initialResponse;
-  const id = stringField(initialResponse, "id");
-  const status = stringField(initialResponse, "status");
+  const outputFrom = kind === "video" ? firstGeneratedVideo : firstGeneratedImage;
+  if (outputFrom(initialResponse)) return initialResponse;
+  const initialState = mediaOperationState(initialResponse);
+  const id = initialState.id;
+  const status = initialState.status;
   if (!id || (status !== "pending" && status !== "processing")) return initialResponse;
 
   const intervalMs = options.mediaPollIntervalMs ?? 3000;
@@ -528,11 +634,27 @@ async function waitForPolzaMediaResult(
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     await delay(intervalMs);
     const response = await client.mediaStatus(id);
-    const nextStatus = stringField(response, "status");
-    if (nextStatus === "completed" || firstGeneratedImage(response)) return response;
-    if (nextStatus === "failed") throw new Error(`Polza image generation failed (${id}). ${JSON.stringify(objectField(response, "error") ?? response)}`);
+    const nextStatus = mediaOperationState(response).status;
+    if (nextStatus === "completed" || outputFrom(response)) return response;
+    if (nextStatus === "failed") throw new Error(`Polza ${kind} generation failed (${id}). ${JSON.stringify(objectField(response, "error") ?? response)}`);
   }
-  throw new Error(`Polza image generation is still ${status} (${id}) after ${Math.round((intervalMs * maxAttempts) / 1000)} seconds.`);
+  throw new Error(`Polza ${kind} generation is still ${status} (${id}) after ${Math.round((intervalMs * maxAttempts) / 1000)} seconds.`);
+}
+
+function mediaOperationState(value: unknown): { id?: string; status?: string } {
+  const directId = stringField(value, "id");
+  const directStatus = stringField(value, "status");
+  if (directId || directStatus) return { id: directId, status: directStatus?.toLowerCase() };
+  const text = nestedStatusText(value);
+  const pending = /\b(pending|processing)\s*\(\s*([^)]+)\s*\)/i.exec(text);
+  return pending ? { status: pending[1].toLowerCase(), id: pending[2].trim() } : {};
+}
+
+function nestedStatusText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(nestedStatusText).join(" ");
+  if (!value || typeof value !== "object") return "";
+  return Object.values(value as Record<string, unknown>).map(nestedStatusText).join(" ");
 }
 
 function firstMediaImage(value: unknown): unknown {
@@ -554,6 +676,29 @@ function firstMediaImage(value: unknown): unknown {
   for (const key of ["images", "files", "outputs", "result", "results"]) {
     const image = firstMediaImage(record[key]);
     if (image) return image;
+  }
+  return null;
+}
+
+function firstMediaVideo(value: unknown): unknown {
+  if (!value) return null;
+  if (typeof value === "string") return looksLikeVideoReference(value) ? value : null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const video = firstMediaVideo(item);
+      if (video) return video;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["url", "video", "video_url", "output_url", "file_url", "b64_json", "base64", "data"]) {
+    const video = firstMediaVideo(record[key]);
+    if (video) return video;
+  }
+  for (const key of ["videos", "files", "outputs", "result", "results"]) {
+    const video = firstMediaVideo(record[key]);
+    if (video) return video;
   }
   return null;
 }
@@ -597,6 +742,10 @@ function looksLikeImageReference(value: string): boolean {
   return value.startsWith("data:image/") || /^https?:\/\//i.test(value) || /^[A-Za-z0-9+/]+=*$/.test(value.slice(0, 80));
 }
 
+function looksLikeVideoReference(value: string): boolean {
+  return value.startsWith("data:video/") || /^https?:\/\//i.test(value) || /^[A-Za-z0-9+/]+=*$/.test(value.slice(0, 80));
+}
+
 async function writePolzaImage(
   image: unknown,
   options: { outputDirectory: string; sourceNodeId: string; model: string; fetchImpl?: typeof fetch }
@@ -622,6 +771,23 @@ async function writePolzaImage(
   return writeGeneratedImage(Buffer.from(image, "base64"), "image/png", options);
 }
 
+async function writePolzaVideo(
+  video: unknown,
+  options: { outputDirectory: string; sourceNodeId: string; model: string; fetchImpl?: typeof fetch }
+): Promise<PolzaVideoAsset> {
+  if (typeof video !== "string" || !video.trim()) throw new Error("Polza video response did not include a usable video URL or base64 payload.");
+  if (/^https?:\/\//i.test(video)) {
+    const response = await (options.fetchImpl ?? fetch)(video);
+    if (!response.ok) throw new Error(`Could not download Polza video output (${response.status}).`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    const mimeType = response.headers.get("content-type")?.split(";")[0] ?? videoMimeTypeFromUrl(video);
+    return writeGeneratedVideo(bytes, mimeType, { ...options, originalUrl: video });
+  }
+  const dataUriMatch = /^data:([^;,]+);base64,(.+)$/i.exec(video);
+  if (dataUriMatch) return writeGeneratedVideo(Buffer.from(dataUriMatch[2], "base64"), dataUriMatch[1], options);
+  return writeGeneratedVideo(Buffer.from(video, "base64"), "video/mp4", options);
+}
+
 function remoteImageAsset(url: string, options: { sourceNodeId: string; model: string; warning?: string }): PolzaImageAsset {
   return {
     originalUrl: url,
@@ -642,6 +808,28 @@ async function writeGeneratedImage(
   const assetsDirectory = join(options.outputDirectory, "assets");
   await mkdir(assetsDirectory, { recursive: true });
   const filename = `${sanitizeFilename(options.sourceNodeId)}-${Date.now()}${extensionFromMimeType(mimeType)}`;
+  const localPath = join(assetsDirectory, filename);
+  await writeFile(localPath, bytes);
+  return {
+    localPath,
+    path: localPath,
+    filename,
+    mimeType,
+    sizeBytes: bytes.length,
+    sourceNodeId: options.sourceNodeId,
+    model: options.model,
+    originalUrl: options.originalUrl
+  };
+}
+
+async function writeGeneratedVideo(
+  bytes: Buffer,
+  mimeType: string,
+  options: { outputDirectory: string; sourceNodeId: string; model: string; originalUrl?: string }
+): Promise<PolzaVideoAsset> {
+  const assetsDirectory = join(options.outputDirectory, "assets");
+  await mkdir(assetsDirectory, { recursive: true });
+  const filename = `${sanitizeFilename(options.sourceNodeId)}-${Date.now()}${videoExtensionFromMimeType(mimeType)}`;
   const localPath = join(assetsDirectory, filename);
   await writeFile(localPath, bytes);
   return {
@@ -746,6 +934,17 @@ function mimeTypeFromUrl(url: string): string {
   return "image/png";
 }
 
+function videoMimeTypeFromUrl(url: string): string {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    if (pathname.endsWith(".webm")) return "video/webm";
+    if (pathname.endsWith(".mov")) return "video/quicktime";
+  } catch {
+    return "video/mp4";
+  }
+  return "video/mp4";
+}
+
 function mimeTypeFromPath(path: string): string {
   const ext = extname(path).toLowerCase();
   const mimeTypes: Record<string, string> = {
@@ -770,6 +969,12 @@ function extensionFromMimeType(mimeType: string): string {
   if (mimeType === "image/jpeg") return ".jpg";
   if (mimeType === "image/webp") return ".webp";
   return ".png";
+}
+
+function videoExtensionFromMimeType(mimeType: string): string {
+  if (mimeType === "video/webm") return ".webm";
+  if (mimeType === "video/quicktime") return ".mov";
+  return ".mp4";
 }
 
 function polzaHttpError(status: number, body: string): string {

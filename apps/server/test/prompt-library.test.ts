@@ -91,6 +91,41 @@ describe("prompt library API", () => {
     }
   });
 
+  it("can create generated image prompt assets as canonical embedded prompt PNGs", async () => {
+    process.env.SNARKROUTE_NO_LISTEN = "1";
+    const directory = join(tmpdir(), `sr-server-prompt-png-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    await mkdir(directory, { recursive: true });
+    process.env.SNARKROUTE_PROMPT_LIBRARY_PATH = directory;
+
+    const { buildServer } = await import("../src/index");
+    const app = buildServer();
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/prompt-library/generated-image",
+        payload: {
+          title: "Embedded Forest",
+          slug: "embedded-forest",
+          category: "image-generation",
+          prompt: "A forest carried inside PNG metadata.",
+          negativePrompt: "blur",
+          assetFormat: "png",
+          imageDataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        }
+      });
+      expect(created.statusCode).toBe(200);
+      expect(created.json().promptPath).toContain("embedded-forest.prompt.png");
+      expect(created.json().library.categories[0].prompts[0]).toMatchObject({
+        title: "Embedded Forest",
+        text: "A forest carried inside PNG metadata.",
+        negativePrompt: "blur",
+        previewImage: "embedded-forest.prompt.png"
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("updates prompt asset status and category without deleting the file", async () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
     const directory = join(tmpdir(), `sr-server-prompt-move-${Date.now()}-${Math.random().toString(16).slice(2)}`);

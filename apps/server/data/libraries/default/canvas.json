@@ -6,8 +6,8 @@
       "id": "image_mpfw6ljg_de237e",
       "type": "image",
       "nodePath": "image-nodes/image-image_mpfw6ljg_de237e.imgnode",
-      "x": -674,
-      "y": -211,
+      "x": -859,
+      "y": -191,
       "width": 320,
       "height": 240
     },
@@ -15,8 +15,8 @@
       "id": "image_mpgyw393_469188",
       "type": "image",
       "nodePath": "image-nodes/image-image_mpgyw393_469188.imgnode",
-      "x": 182,
-      "y": -223,
+      "x": -63,
+      "y": -460,
       "width": 320,
       "height": 240
     },
@@ -24,8 +24,8 @@
       "id": "image_mpkaws6o_a24da5",
       "type": "image",
       "nodePath": "image-nodes/image-image_mpkaws6o_a24da5.imgnode",
-      "x": -205,
-      "y": -415,
+      "x": -495,
+      "y": -450,
       "width": 320,
       "height": 240
     },
@@ -39,35 +39,26 @@
       "height": 180
     },
     {
-      "id": "text_mpl01r0j_9fa9da",
-      "type": "text",
-      "nodePath": "text-nodes/text-text_mpl01r0j_9fa9da.txtnode",
-      "x": 663,
-      "y": -459,
+      "id": "video_mpl5j859_8b9013",
+      "type": "video",
+      "nodePath": "video-nodes/video-video_mpl5j859_8b9013.vidnode",
+      "x": 192,
+      "y": -26,
       "width": 320,
-      "height": 180
+      "height": 240
     },
     {
-      "id": "text_mpl02cg5_4a10fa",
-      "type": "text",
-      "nodePath": "text-nodes/text-text_mpl02cg5_4a10fa.txtnode",
-      "x": 653,
-      "y": -190,
-      "width": 320,
-      "height": 180
-    },
-    {
-      "id": "image_mpl03b5w_dfdc1f",
+      "id": "image_mplptlyp_9f3f16",
       "type": "image",
-      "nodePath": "image-nodes/image-image_mpl03b5w_dfdc1f.imgnode",
-      "x": 1171,
-      "y": -432,
+      "nodePath": "image-nodes/image-image_mplptlyp_9f3f16.imgnode",
+      "x": -335,
+      "y": -26,
       "width": 320,
       "height": 240
     }
   ],
   "createdAt": "2026-05-21T12:38:35.799Z",
-  "updatedAt": "2026-05-25T10:00:15.988Z",
+  "updatedAt": "2026-05-26T12:32:57.246Z",
   "edges": [
     {
       "id": "edge_mpgyw395_9276f4",
@@ -85,14 +76,9 @@
       "toNodeId": "image_mpgyw393_469188"
     },
     {
-      "id": "edge_mpl03b5y_aaa2be",
-      "fromNodeId": "text_mpl01r0j_9fa9da",
-      "toNodeId": "image_mpl03b5w_dfdc1f"
-    },
-    {
-      "id": "edge_mpl03djz",
-      "fromNodeId": "text_mpl02cg5_4a10fa",
-      "toNodeId": "image_mpl03b5w_dfdc1f"
+      "id": "edge_mplpz2dw",
+      "fromNodeId": "image_mplptlyp_9f3f16",
+      "toNodeId": "video_mpl5j859_8b9013"
     }
   ]
 }

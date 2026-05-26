@@ -1948,7 +1948,7 @@ function NodeInlineParams({
             ))}
           </select>
         </label>
-        <div className="nodePromptCards">
+        <div className="nodePromptCards nowheel">
           {prompts.map((prompt) => (
             <PromptLibraryPromptCard
               key={prompt.id}
@@ -2187,7 +2187,6 @@ function NodeInlineParams({
           </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{imageModelCostLabel(selectedModel)}</small>
         </label>
-        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
         <label className="nodeField">
           <span>prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
@@ -7833,7 +7832,7 @@ function App() {
 
   return (
     <div className={`app ${leftCollapsed ? "leftCollapsed" : ""} ${rightCollapsed ? "rightCollapsed" : ""} ${bottomCollapsed ? "bottomCollapsed" : ""}`}>
-      <aside className="sidebar left">
+      <aside className="sidebar left nowheel">
         <div className="sidebarHeader">
           {!leftCollapsed ? (
             <h1 className="appBrand">
@@ -7922,7 +7921,7 @@ function App() {
           <span><i className="legendDot video" />Video</span>
           <span><i className="legendDot file" />File</span>
         </div>
-        <div className="librarySections">
+        <div className="librarySections nowheel">
           {visibleCatalogSections.map((section) => {
             const collapsed = nodeSearchQuery ? false : collapsedLibrarySections[section.id] ?? true;
             const items = section.items;
@@ -8247,7 +8246,7 @@ function App() {
         ) : null}
         {connectionNodeMenu ? (
           <div
-            className="connectionNodeMenu"
+            className="connectionNodeMenu nowheel"
             style={{ left: connectionNodeMenu.clientX, top: connectionNodeMenu.clientY }}
             onClick={(event) => event.stopPropagation()}
           >
@@ -9326,8 +9325,7 @@ function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], select
 }
 
 function imageModelOptionLabel(model: ImageModelOption): string {
-  const formatNote = isOpenAiImageSlug(model.id) ? "square only" : "";
-  const notes = [formatNote, model.disabled ? model.note : ""].filter(Boolean);
+  const notes = [model.disabled ? model.note : ""].filter(Boolean);
   return notes.length > 0 ? `${model.label} (${notes.join(", ")})` : model.label;
 }
 

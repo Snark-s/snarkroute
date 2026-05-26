@@ -44,6 +44,8 @@ Living Canvas is a view of directories, not a container that owns otherwise hidd
 
 This makes a nested workflow presentable as one card/node in a parent canvas while it remains a navigable directory and canvas internally. Collapsing a selection into such a nested workflow is UI behavior; it does not require a new binary container format.
 
+Deleting a node removes it from the canvas and moves its complete directory to `.trash/nodes/` inside the owning workflow directory.
+
 ## Current Prompt
 
 Every image-node directory owns its editable current request:
@@ -69,6 +71,7 @@ Connected node chips can be inserted into the editable prompt as stable tokens:
 - The editor renders an inserted token as the corresponding visual chip thumbnail; chips may be inserted or dragged to any caret/drop position in the prompt. The token text is the persisted transport representation, not the normal editing presentation.
 - A text token is replaced at execution time with the current text of that connected text node. A connected text node whose token is not present in the prompt is ignored.
 - Image inputs are ordered by the reorderable chip strip and sent in that order, up to the selected model's declared image-input limit.
+- Only image nodes connected into the target node are sent as image inputs; the target node's own active stack image is output history, not an implicit input.
 - When a model declares an image reference syntax, such as `@image{index}`, an inserted image token is replaced with its transmitted one-based reference, for example `@image1`.
 - If an image is beyond the model's declared `maxImageInputs`, its chip is displayed inactive, its image is not sent, and its token resolves to empty text.
 - If a model accepts images but does not declare `imageReferenceSyntax`, eligible images are still sent; image tokens resolve to empty text instead of inventing provider-specific syntax.
@@ -142,6 +145,6 @@ Payload identifier: `snarkroute.image-provenance` version `0.1`.
 
 For XMP carriers, the JSON payload is UTF-8 bytes encoded as Base64 inside `<snarkroute:provenance>...</snarkroute:provenance>`. For PNG, the `iTXt` text value is the JSON payload directly.
 
-Imported files are not rewritten merely because they enter a stack. An image with no provenance payload remains a normal image in the stack. A remote stack item represented only by `externalUrl` is also left unchanged because SnarkRoute does not own a writable graphic file.
+Imported files are not rewritten merely because they enter a stack. An image with no provenance payload remains a normal image in the stack. Newly generated images returned as remote URLs are downloaded into their node stack before they are accepted as generation results, so generated history remains locally owned and can carry provenance.
 
 See `docs/terminology.md` for the shared terminology model.

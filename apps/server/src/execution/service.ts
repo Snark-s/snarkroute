@@ -3,7 +3,7 @@ import { createGeminiLlmNodeRunner, createNanoBanana2NodeRunner } from "@snarkro
 import { registerBuiltInNodeRunners, registerInstalledNodeRunners } from "@snarkroute/nodes";
 import { createClarityUpscalerNodeRunner, createReplicateNodeRunner } from "@snarkroute/replicate";
 import { createModelResolver } from "@snarkroute/openrouter";
-import { createPolzaImageNodeRunner, createPolzaTextNodeRunner } from "@snarkroute/polza";
+import { createPolzaImageNodeRunner, createPolzaTextNodeRunner, createPolzaVideoNodeRunner } from "@snarkroute/polza";
 import { createRemoteImageNodeRunner, createRemoteTextNodeRunner, loadModelRouteMappings } from "./model-gateway-runners";
 export async function createRouteExecutor() {
   const executor = createExecutor();
@@ -21,6 +21,7 @@ export async function createRouteExecutor() {
   executor.registerNodeRunner("gemini.nano-banana-2", createNanoBanana2NodeRunner());
   executor.registerNodeRunner("polza.text", createPolzaTextNodeRunner());
   executor.registerNodeRunner("polza.image.generate", createPolzaImageNodeRunner());
+  executor.registerNodeRunner("polza.video.generate", createPolzaVideoNodeRunner());
   executor.registerNodeRunner("ai.text", createRemoteTextNodeRunner(modelResolver));
   executor.registerNodeRunner("ai.image.generate", createRemoteImageNodeRunner(modelResolver));
   return executor;

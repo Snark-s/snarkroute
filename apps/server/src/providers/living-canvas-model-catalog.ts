@@ -22,9 +22,21 @@ const resolutions = parameter("imageResolution", "Resolution", ["1K", "2K", "4K"
 const imageSizes = parameter("imageSize", "Resolution", ["1K", "2K", "4K"], "2K");
 const qualities = parameter("quality", "Quality", ["draft", "standard", "high"], "high");
 const outputFormats = parameter("outputFormat", "Format", ["png", "jpg", "webp"], "png");
+const videoResolutions = parameter("resolution", "Resolution", ["720p", "1080p"], "720p");
+const videoDurations = parameter("duration", "Duration", ["5", "10", "15"], "5");
+const videoMultiShots = parameter("multi_shots", "Multi-shot", ["false", "true"], "false");
 
-export function livingCanvasModelMetadata(modelId: string, providerId: string): LivingCanvasModelMetadata {
+export function livingCanvasModelMetadata(modelId: string, providerId: string, contentType?: string): LivingCanvasModelMetadata {
   const id = modelId.toLowerCase();
+  if (contentType === "video") {
+    if (/(^|\/)(video-)?upscale|upscaler/.test(id)) {
+      return { generationParameters: [], maxImageInputs: 1 };
+    }
+    if (providerId === "polza") {
+      return { generationParameters: [videoResolutions, videoDurations, videoMultiShots], maxImageInputs: 1 };
+    }
+    return { generationParameters: [] };
+  }
   if (/(^|\/)(image-)?upscale|upscaler/.test(id)) {
     return { generationParameters: [], maxImageInputs: 1 };
   }

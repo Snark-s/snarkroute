@@ -51,7 +51,8 @@
       "createdAt": "2026-05-22T13:32:02.778Z"
     }
   ],
-  "activeStackIndex": 2,
+  "activeStackIndex": 0,
   "createdAt": "2026-05-21T19:36:56.715Z",
-  "updatedAt": "2026-05-22T13:46:27.904Z"
+  "updatedAt": "2026-05-25T18:03:01.255Z",
+  "currentPrompt": ""
 }

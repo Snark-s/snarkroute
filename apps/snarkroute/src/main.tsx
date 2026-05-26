@@ -1,11 +1,30 @@
 import "./styles.css";
-import { ArrowUp, ChevronLeft, ChevronRight, Cog, Download, Expand, Folder, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, Sun, Trash2, Wallpaper } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Cog, Download, Expand, Folder, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  fallbackModels,
+  generationParameterSummary,
+  loadModelCatalog,
+  localProviderModelOptions,
+  mergeModelsForDisplay,
+  modelGenerationParameters,
+  modelSelectionId,
+  modelsForContentKind,
+  providerDisplayName,
+  type ContentKind,
+  type GenerationParameterValue,
+  type ImageGenerationParameters,
+  type ModelOption,
+  type ModelParameterDefinition,
+  type ModelRouteSelection,
+  type ProviderSettings
+} from "./modelCatalog";
 import { modelLogoFor } from "./modelLogos";
 
 type ThemeName = "day" | "night";
 type BackgroundName = "plain" | "dots" | "grid" | "gears";
+type LibraryViewMode = "media-folder" | "image-stack" | "text-library" | "prompt-library" | "board" | "workflow";
 
 interface LibrarySnapshot {
   manifest: LibraryManifest;
@@ -67,6 +86,21 @@ interface ImageNodeManifest {
   type: "image";
   title: string;
   currentPrompt?: string;
+  modelId?: string;
+  executionProvider?: string;
+  fallbackAllowed?: boolean;
+  stack: ImageStackItem[];
+  activeStackIndex: number;
+}
+
+interface VideoNodeManifest {
+  id: string;
+  type: "video";
+  title: string;
+  currentPrompt?: string;
+  modelId?: string;
+  executionProvider?: string;
+  fallbackAllowed?: boolean;
   stack: ImageStackItem[];
   activeStackIndex: number;
 }
@@ -88,7 +122,60 @@ interface ImageStackItem {
   height: number;
 }
 
-type NodeView = ImageNodeView | TextNodeView;
+interface VideoNodeView {
+  canvas: CanvasNode;
+  manifest: VideoNodeManifest;
+  activeStackItem: ImageStackItem | null;
+  previewUrl: string | null;
+}
+
+interface LocalLibraryAsset {
+  id: string;
+  relativePath: string;
+  title: string;
+  kind: "image" | "video" | "audio" | "text" | "prompt" | "file";
+  mimeType: string;
+  embeddedPrompt?: {
+    title: string;
+    category: string;
+    text: string;
+    negativePrompt?: string;
+    tags?: string[];
+    source?: Record<string, unknown>;
+    modelHints?: string[];
+  };
+}
+
+interface LocalLibraryScanResult {
+  sourcePath: string;
+  title: string;
+  description?: string;
+  availableViews: LibraryViewMode[];
+  assets: LocalLibraryAsset[];
+  prompts: LocalLibraryAsset["embeddedPrompt"][];
+  entryBoard?: string;
+  entryWorkflow?: string;
+  error?: string;
+}
+
+interface LibraryNodeManifest {
+  id: string;
+  type: "library";
+  title: string;
+  sourcePath: string;
+  viewMode: LibraryViewMode;
+}
+
+interface LibraryNodeView {
+  canvas: CanvasNode;
+  manifest: LibraryNodeManifest;
+  scan: LocalLibraryScanResult;
+  activeStackItem: null;
+  previewUrl: string | null;
+}
+
+type NodeView = ImageNodeView | VideoNodeView | TextNodeView | LibraryNodeView;
+type EditableNodeView = ImageNodeView | VideoNodeView | TextNodeView;
 
 interface TextNodeView {
   canvas: CanvasNode;
@@ -183,6 +270,7 @@ interface StackItemMenu {
 interface SelectionMenu {
   x: number;
   y: number;
+  nodeId: string;
 }
 
 interface SaveFilePickerOptions {
@@ -199,38 +287,41 @@ interface FileSystemFileHandle {
   createWritable(): Promise<FileSystemWritableFileStream>;
 }
 
-interface ModelOption {
-  id: string;
-  title: string;
-  nodeTypes: string[];
-  providerId?: string;
-  source?: string;
-  acceptsImageInput?: boolean;
-  maxImageInputs?: number;
-  imageReferenceSyntax?: string;
-  generationParameters?: ModelParameterDefinition[];
-  defaultParameters?: ImageGenerationParameters;
-}
-
-type GenerationParameterValue = string | number | boolean;
-type ImageGenerationParameters = Record<string, GenerationParameterValue>;
-
-interface ModelParameterDefinition {
-  id: string;
-  label: string;
-  type: "select" | "number" | "text";
-  default?: GenerationParameterValue;
-  options?: Array<{ value: string; label?: string }>;
-  min?: number;
-  max?: number;
-  step?: number;
-}
-
 interface GenerationFeedback {
   busy: boolean;
   message: string;
   error?: boolean;
 }
+
+type ProviderId = "polza" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
+
+interface ProviderDefinition {
+  id: ProviderId;
+  title: string;
+  capabilityText: string;
+  settingsEndpoint: string;
+  keyField: string;
+  testEndpoint?: string;
+}
+
+interface LocalProviderConnection {
+  id: string;
+  title: string;
+  endpointUrl: string;
+  providerType: string;
+  status: "saved" | "connected" | "error";
+  statusReason?: string;
+  models?: Array<{ id?: string; title?: string; modelName?: string }>;
+}
+
+const providerDefinitions: ProviderDefinition[] = [
+  { id: "polza", title: "Polza", capabilityText: "Image generation catalog", settingsEndpoint: "/api/settings/polza-token", keyField: "polzaAiApiKey" },
+  { id: "openrouter", title: "OpenRouter", capabilityText: "Text and multimodal routed models", settingsEndpoint: "/api/settings/openrouter", keyField: "openRouterApiKey", testEndpoint: "/api/providers/openrouter/test" },
+  { id: "gemini", title: "Gemini", capabilityText: "Image generation / multimodal", settingsEndpoint: "/api/settings/gemini-token", keyField: "geminiApiKey" },
+  { id: "replicate", title: "Replicate", capabilityText: "Hosted model endpoints", settingsEndpoint: "/api/settings/replicate-token", keyField: "replicateApiToken" },
+  { id: "seedance", title: "Seedance", capabilityText: "Video generation endpoints", settingsEndpoint: "/api/settings/seedance-token", keyField: "seedanceApiKey", testEndpoint: "/api/providers/seedance/test" },
+  { id: "openai", title: "OpenAI", capabilityText: "Model API connection", settingsEndpoint: "/api/settings/openai-token", keyField: "openAiApiKey" }
+];
 
 declare global {
   interface Window {
@@ -255,18 +346,6 @@ const backgroundOptions: { value: BackgroundName; label: string }[] = [
   { value: "grid", label: "Grid" },
   { value: "gears", label: "Gears" }
 ];
-const fallbackModels: ModelOption[] = [
-  {
-    id: "image.nano-banana",
-    title: "Nano Banana",
-    nodeTypes: ["image"],
-    providerId: "gemini",
-    source: "fallback",
-    acceptsImageInput: true,
-    generationParameters: fallbackGeminiParameters()
-  }
-];
-
 function App() {
   const [theme, setTheme] = useStoredSetting<ThemeName>(themeStorageKey, "night", ["day", "night"]);
   const [background, setBackground] = useStoredSetting<BackgroundName>(backgroundStorageKey, "gears", backgroundOptions.map((option) => option.value));
@@ -286,9 +365,15 @@ function App() {
   const [openStackNodeId, setOpenStackNodeId] = useState<string | null>(null);
   const [stackItemMenu, setStackItemMenu] = useState<StackItemMenu | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
+  const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(fallbackModels);
+  const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
+  const [providerErrors, setProviderErrors] = useState<Partial<Record<string, string>>>({});
+  const [providerNotice, setProviderNotice] = useState<Partial<Record<string, string>>>({});
+  const [customModels, setCustomModels] = useStoredJsonSetting<ModelOption[]>("snarkroute.customModels", []);
+  const [localProviders, setLocalProviders] = useStoredJsonSetting<LocalProviderConnection[]>("snarkroute.localProviders", []);
   const [modelSearchNodeId, setModelSearchNodeId] = useState<string | null>(null);
-  const [modelSelections, setModelSelections] = useStoredJsonSetting<Record<string, string>>("snarkroute.nodeModels", {});
+  const [modelSelections, setModelSelections] = useStoredJsonSetting<Record<string, string | ModelRouteSelection>>("snarkroute.nodeModels", {});
   const [generationFeedback, setGenerationFeedback] = useState<Record<string, GenerationFeedback>>({});
   const generationRunning = Object.values(generationFeedback).some((feedback) => feedback.busy);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -304,7 +389,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void refreshModels();
+    void refreshModelsAndProviders();
+  }, []);
+
+  useEffect(() => {
+    void refreshSavedLocalModelCatalogs();
   }, []);
 
   useEffect(() => {
@@ -322,25 +411,31 @@ function App() {
   const nodes = useMemo(() => library?.nodes ?? [], [library]);
   const edges = library?.canvas?.edges ?? [];
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.canvas.id, node])), [nodes]);
+  const catalogModels = useMemo(() => [
+    ...models,
+    ...customModels,
+    ...localProviders.flatMap((provider) => localProviderModelOptions(provider))
+  ], [models, customModels, localProviders]);
   const viewportScale = viewport.scale ?? 1;
 
   useEffect(() => {
     if (!dragState) return;
+    const activeDrag = dragState;
 
     function handlePointerMove(event: PointerEvent) {
-      if (event.pointerId !== dragState.pointerId) return;
-      if (dragState.kind === "stackItem") {
-        const moved = Math.hypot(event.clientX - dragState.startClientX, event.clientY - dragState.startClientY) > 6;
+      if (event.pointerId !== activeDrag.pointerId) return;
+      if (activeDrag.kind === "stackItem") {
+        const moved = Math.hypot(event.clientX - activeDrag.startClientX, event.clientY - activeDrag.startClientY) > 6;
         if (moved) interactionMovedRef.current = true;
         const point = screenToWorld(event.clientX, event.clientY);
-        setDragState({ ...dragState, currentX: point.x, currentY: point.y });
+        setDragState({ ...activeDrag, currentX: point.x, currentY: point.y });
         return;
       }
-      if (dragState.kind === "selection") {
+      if (activeDrag.kind === "selection") {
         interactionMovedRef.current = true;
         const point = screenToWorld(event.clientX, event.clientY);
         setDragState({
-          ...dragState,
+          ...activeDrag,
           currentClientX: event.clientX,
           currentClientY: event.clientY,
           currentX: point.x,
@@ -348,90 +443,90 @@ function App() {
         });
         return;
       }
-      if (dragState.kind === "connection") {
+      if (activeDrag.kind === "connection") {
         interactionMovedRef.current = true;
         const point = screenToWorld(event.clientX, event.clientY);
-        setDragState({ ...dragState, currentX: point.x, currentY: point.y });
+        setDragState({ ...activeDrag, currentX: point.x, currentY: point.y });
         return;
       }
-      if (dragState.kind === "canvas") {
+      if (activeDrag.kind === "canvas") {
         interactionMovedRef.current = true;
         setViewport({
-          x: dragState.startPanX + event.clientX - dragState.startClientX,
-          y: dragState.startPanY + event.clientY - dragState.startClientY,
-          scale: dragState.startScale
+          x: activeDrag.startPanX + event.clientX - activeDrag.startClientX,
+          y: activeDrag.startPanY + event.clientY - activeDrag.startClientY,
+          scale: activeDrag.startScale
         });
         return;
       }
 
       interactionMovedRef.current = true;
-      const dx = (event.clientX - dragState.startClientX) / viewportScale;
-      const dy = (event.clientY - dragState.startClientY) / viewportScale;
-      if (dragState.groupStartPositions?.length) {
-        updateNodePositions(dragState.groupStartPositions.map((node) => ({
+      const dx = (event.clientX - activeDrag.startClientX) / viewportScale;
+      const dy = (event.clientY - activeDrag.startClientY) / viewportScale;
+      if (activeDrag.groupStartPositions?.length) {
+        updateNodePositions(activeDrag.groupStartPositions.map((node) => ({
           id: node.id,
           x: Math.round(node.x + dx),
           y: Math.round(node.y + dy)
         })));
       } else {
         updateNodePosition(
-          dragState.nodeId,
-          Math.round(dragState.startX + dx),
-          Math.round(dragState.startY + dy)
+          activeDrag.nodeId,
+          Math.round(activeDrag.startX + dx),
+          Math.round(activeDrag.startY + dy)
         );
       }
     }
 
     function handlePointerUp(event: PointerEvent) {
-      if (event.pointerId !== dragState.pointerId) return;
-      if (dragState.kind === "node") {
-        const dx = (event.clientX - dragState.startClientX) / viewportScale;
-        const dy = (event.clientY - dragState.startClientY) / viewportScale;
-        if (dragState.groupStartPositions?.length) {
-          void persistNodePositions(dragState.groupStartPositions.map((node) => ({
+      if (event.pointerId !== activeDrag.pointerId) return;
+      if (activeDrag.kind === "node") {
+        const dx = (event.clientX - activeDrag.startClientX) / viewportScale;
+        const dy = (event.clientY - activeDrag.startClientY) / viewportScale;
+        if (activeDrag.groupStartPositions?.length) {
+          void persistNodePositions(activeDrag.groupStartPositions.map((node) => ({
             id: node.id,
             x: Math.round(node.x + dx),
             y: Math.round(node.y + dy)
           })));
         } else {
           void persistNodePosition(
-            dragState.nodeId,
-            Math.round(dragState.startX + dx),
-            Math.round(dragState.startY + dy)
+            activeDrag.nodeId,
+            Math.round(activeDrag.startX + dx),
+            Math.round(activeDrag.startY + dy)
           );
         }
       }
-      if (dragState.kind === "connection") {
+      if (activeDrag.kind === "connection") {
         const target = document.elementFromPoint(event.clientX, event.clientY);
         const input = target instanceof HTMLElement ? target.closest<HTMLElement>("[data-node-input-id]") : null;
         const output = target instanceof HTMLElement ? target.closest<HTMLElement>("[data-node-output-id]") : null;
         const toNodeId = input?.dataset.nodeInputId;
         const fromNodeId = output?.dataset.nodeOutputId;
-        if (dragState.direction === "fromOutput" && toNodeId && toNodeId !== dragState.fromNodeId) {
-          void addCanvasEdge(dragState.fromNodeId, toNodeId);
-        } else if (dragState.direction === "fromInput" && fromNodeId && fromNodeId !== dragState.toNodeId) {
-          void addCanvasEdge(fromNodeId, dragState.toNodeId ?? dragState.fromNodeId);
+        if (activeDrag.direction === "fromOutput" && toNodeId && toNodeId !== activeDrag.fromNodeId) {
+          void addCanvasEdge(activeDrag.fromNodeId, toNodeId);
+        } else if (activeDrag.direction === "fromInput" && fromNodeId && fromNodeId !== activeDrag.toNodeId) {
+          void addCanvasEdge(fromNodeId, activeDrag.toNodeId ?? activeDrag.fromNodeId);
         } else {
           const point = screenToWorld(event.clientX, event.clientY);
-          if (dragState.direction === "fromOutput") {
+          if (activeDrag.direction === "fromOutput") {
             setNodeCreateMenu({
               x: event.clientX,
               y: event.clientY,
               worldX: point.x,
               worldY: point.y,
-              fromNodeId: dragState.fromNodeId
+              fromNodeId: activeDrag.fromNodeId
             });
           }
         }
       }
-      if (dragState.kind === "stackItem") {
+      if (activeDrag.kind === "stackItem") {
         const point = screenToWorld(event.clientX, event.clientY);
-        if (interactionMovedRef.current) {
-          void duplicateStackItemNode(dragState.nodeId, dragState.stackItemId, point);
+        if (interactionMovedRef.current && isPointInsideCanvas(event.clientX, event.clientY)) {
+          void duplicateStackItemNode(activeDrag.nodeId, activeDrag.stackItemId, point);
         }
       }
-      if (dragState.kind === "selection") {
-        const bounds = normalizedRect(dragState.startX, dragState.startY, dragState.currentX, dragState.currentY);
+      if (activeDrag.kind === "selection") {
+        const bounds = normalizedRect(activeDrag.startX, activeDrag.startY, activeDrag.currentX, activeDrag.currentY);
         const selected = nodes.filter((node) => rectIntersects(bounds, node.canvas)).map((node) => node.canvas.id);
         setSelectedNodeIds(selected);
         setSelectedNodeId(selected[selected.length - 1] ?? null);
@@ -439,13 +534,19 @@ function App() {
       setDragState(null);
     }
 
+    function handlePointerCancel(event: PointerEvent) {
+      if (event.pointerId !== activeDrag.pointerId) return;
+      interactionMovedRef.current = false;
+      setDragState(null);
+    }
+
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
-    window.addEventListener("pointercancel", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
-      window.removeEventListener("pointercancel", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
     };
   }, [dragState, library, viewport, viewportScale, nodes]);
 
@@ -527,22 +628,109 @@ function App() {
     }
   }
 
-  async function refreshModels() {
-    const sources = [
-      { endpoint: "/api/providers/openrouter/models", providerId: "openrouter" },
-      { endpoint: "/api/providers/polza/models?type=image", providerId: "polza" }
-    ];
-    const loaded: ModelOption[] = [];
-    for (const source of sources) {
+  async function refreshModelsAndProviders() {
+    try {
+      const settings = await apiGet<ProviderSettings>("/api/settings");
+      setProviderSettings(settings);
+      const catalog = await loadModelCatalog(apiGet, settings);
+      setModels(catalog.models);
+      setProviderErrors(catalog.errors);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not load model sources.";
+      setProviderErrors({ settings: message });
+      setModels(fallbackModels);
+    }
+  }
+
+  async function saveProviderToken(providerId: ProviderId, key: string, extras?: Record<string, string>) {
+    const config = providerDefinitions.find((provider) => provider.id === providerId);
+    if (!config || !key.trim()) return;
+    try {
+      await apiPost(config.settingsEndpoint, { [config.keyField]: key.trim(), ...(extras ?? {}) });
+      let refreshWarning = "";
+      if (providerId === "openrouter") {
+        try {
+          await apiPost("/api/providers/openrouter/refresh-model-catalog", {});
+        } catch (error) {
+          refreshWarning = error instanceof Error ? ` Catalog refresh failed: ${error.message}` : " Catalog refresh failed.";
+        }
+      }
+      setProviderNotice((current) => ({ ...current, [providerId]: `Connection saved locally.${refreshWarning}` }));
+      await refreshModelsAndProviders();
+    } catch (error) {
+      setProviderErrors((current) => ({ ...current, [providerId]: error instanceof Error ? error.message : "Connection failed." }));
+    }
+  }
+
+  async function testProvider(providerId: ProviderId) {
+    const config = providerDefinitions.find((provider) => provider.id === providerId);
+    if (!config?.testEndpoint) {
+      setProviderNotice((current) => ({ ...current, [providerId]: "Live connection test is not exposed by the server yet." }));
+      return;
+    }
+    try {
+      await apiPost(config.testEndpoint, {});
+      setProviderNotice((current) => ({ ...current, [providerId]: "Connection test passed." }));
+      setProviderErrors((current) => ({ ...current, [providerId]: undefined }));
+    } catch (error) {
+      setProviderErrors((current) => ({ ...current, [providerId]: error instanceof Error ? error.message : "Test failed." }));
+    }
+  }
+
+  async function refreshProviderModels(providerId: ProviderId) {
+    try {
+      if (providerId === "openrouter") await apiPost("/api/providers/openrouter/refresh-model-catalog", {});
+      if (providerId !== "openrouter" && providerId !== "polza") {
+        setProviderNotice((current) => ({ ...current, [providerId]: "A model catalog endpoint is not available for this source yet." }));
+        return;
+      }
+      await refreshModelsAndProviders();
+      setProviderNotice((current) => ({ ...current, [providerId]: "Model catalog refreshed." }));
+    } catch (error) {
+      setProviderErrors((current) => ({ ...current, [providerId]: error instanceof Error ? error.message : "Refresh failed." }));
+    }
+  }
+
+  function addCustomModel(profile: Omit<ModelOption, "isAvailable" | "statusReason">) {
+    setCustomModels([
+      ...customModels.filter((model) => model.id !== profile.id || model.providerId !== profile.providerId),
+      { ...profile, isAvailable: false, statusReason: "Execution adapter is not configured for custom profiles yet." }
+    ]);
+  }
+
+  async function testAndSaveLocalProvider(profile: Omit<LocalProviderConnection, "status" | "statusReason">) {
+    let result: Pick<LocalProviderConnection, "status" | "statusReason">;
+    try {
+      const response = await fetch(profile.endpointUrl, { method: "GET" });
+      result = response.ok
+        ? { status: "connected" }
+        : { status: "error", statusReason: `Endpoint returned HTTP ${response.status}.` };
+    } catch {
+      result = { status: "error", statusReason: "Endpoint is unreachable from the browser or blocks CORS." };
+    }
+    let discoveredModels: LocalProviderConnection["models"];
+    if (result.status === "connected" && supportsLocalModelDiscovery(profile.providerType)) {
       try {
-        const response = await apiGet<unknown>(source.endpoint);
-        loaded.push(...normalizeModelOptions(response, source.providerId));
-      } catch {
-        // Keep the canvas usable when a provider is not configured or its cache is absent.
+        discoveredModels = await discoverLocalModels(profile.endpointUrl, profile.providerType);
+      } catch (error) {
+        result = { status: "error", statusReason: error instanceof Error ? error.message : "Could not discover local models." };
       }
     }
-    const availableModels = mergeModelOptions(loaded);
-    setModels(availableModels.length ? availableModels : fallbackModels);
+    setLocalProviders([...localProviders.filter((provider) => provider.id !== profile.id), { ...profile, ...result, models: discoveredModels }]);
+  }
+
+  async function refreshSavedLocalModelCatalogs() {
+    const refreshable = localProviders.filter((provider) => provider.status === "connected" && supportsLocalModelDiscovery(provider.providerType));
+    if (refreshable.length === 0) return;
+    const refreshed = await Promise.all(localProviders.map(async (provider) => {
+      if (provider.status !== "connected" || !supportsLocalModelDiscovery(provider.providerType)) return provider;
+      try {
+        return { ...provider, models: await discoverLocalModels(provider.endpointUrl, provider.providerType) };
+      } catch {
+        return provider;
+      }
+    }));
+    setLocalProviders(refreshed);
   }
 
   async function openNestedLibrary(path: string) {
@@ -562,17 +750,18 @@ function App() {
       setStatus(apiUnavailableMessage);
       return;
     }
-    const file = [...event.dataTransfer.files].find((item) => /\.(png|jpe?g|webp)$/i.test(item.name));
+    const file = [...event.dataTransfer.files].find((item) => /\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(item.name));
     const canvas = canvasRef.current;
     if (!file || !canvas) {
-      setStatus("Drop a PNG, JPG, JPEG, or WEBP image.");
+      setStatus("Drop a PNG, JPG, WEBP image or MP4, WEBM, MOV video.");
       return;
     }
 
     const bounds = canvas.getBoundingClientRect();
     const dropX = (event.clientX - bounds.left + canvas.scrollLeft - viewport.x) / viewportScale;
     const dropY = (event.clientY - bounds.top + canvas.scrollTop - viewport.y) / viewportScale;
-    await importImageFileAt(file, { x: dropX, y: dropY });
+    if (isVideoFile(file)) await importVideoFileAt(file, { x: dropX, y: dropY });
+    else await importImageFileAt(file, { x: dropX, y: dropY });
   }
 
   async function importImageFileAt(file: File, point: { x: number; y: number }) {
@@ -636,6 +825,10 @@ function App() {
   }
 
   function handleCanvasWheel(event: React.WheelEvent<HTMLElement>) {
+    if (event.target instanceof Element && event.target.closest("[data-canvas-wheel-scroll]")) {
+      event.stopPropagation();
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const canvas = canvasRef.current;
@@ -777,7 +970,7 @@ function App() {
     setSelectedNodeId(node.canvas.id);
     setSelectedNodeIds(selection);
     setSelectedEdgeId(null);
-    setSelectionMenu({ x: event.clientX, y: event.clientY });
+    setSelectionMenu({ x: event.clientX, y: event.clientY, nodeId: node.canvas.id });
   }
 
   function updateNodePosition(nodeId: string, x: number, y: number) {
@@ -860,8 +1053,9 @@ function App() {
     }
   }
 
-  async function createConnectedNode(type: "image" | "text") {
+  async function createConnectedNode(type: "image" | "video" | "text") {
     if (!nodeCreateMenu) return;
+    setNodeCreateMenu(null);
     try {
       pushUndoSnapshot();
       const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/current/nodes", {
@@ -869,13 +1063,12 @@ function App() {
         x: nodeCreateMenu.worldX,
         y: nodeCreateMenu.worldY,
         width: imageNodeWidth,
-        height: type === "image" ? imageNodeHeight : 180,
+        height: type === "text" ? 180 : imageNodeHeight,
         connectFromNodeId: nodeCreateMenu.fromNodeId
       });
       setLibrary(snapshot);
       setSelectedNodeId(snapshot.nodes[snapshot.nodes.length - 1]?.canvas.id ?? null);
-      setNodeCreateMenu(null);
-      setStatus(`${type === "image" ? "Image" : "Text"} node created`);
+      setStatus(`${type === "image" ? "Image" : type === "video" ? "Video" : "Text"} node created`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not create node.");
     }
@@ -901,13 +1094,73 @@ function App() {
     }
   }
 
-  async function saveImagePrompt(nodeId: string, prompt: string) {
+  async function saveMediaPrompt(nodeId: string, prompt: string) {
     try {
-      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/prompt`, { prompt });
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/prompt`, { prompt });
       setLibrary(snapshot);
       setStatus("Prompt saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save prompt.");
+    }
+  }
+
+  async function saveMediaRouteSettings(type: "image" | "video", nodeId: string, selection: ModelRouteSelection) {
+    setModelSelections((current) => ({ ...current, [nodeId]: selection }));
+    try {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${type}-nodes/${encodeURIComponent(nodeId)}/route-settings`, selection);
+      setLibrary(snapshot);
+      setStatus("Execution route saved");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save execution route.");
+    }
+  }
+  async function addLocalLibraryFolder() {
+    const sourcePath = window.prompt("Add local library folder path");
+    if (!sourcePath?.trim()) return;
+    try {
+      const point = viewportCenterWorldPoint();
+      const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/current/import-local-library", {
+        sourcePath: sourcePath.trim(),
+        dropX: point.x,
+        dropY: point.y
+      });
+      setLibrary(snapshot);
+      setStatus("Local library added to canvas");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not add local library folder.");
+    }
+  }
+
+  async function setLibraryViewMode(nodeId: string, viewMode: LibraryViewMode) {
+    try {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/library-nodes/${encodeURIComponent(nodeId)}/view-mode`, { viewMode });
+      setLibrary(snapshot);
+      setStatus(`Opened library as ${libraryViewLabel(viewMode)}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not change library view.");
+    }
+  }
+
+  async function importVideoFileAt(file: File, point: { x: number; y: number }) {
+    if (!library) {
+      setStatus(apiUnavailableMessage);
+      return;
+    }
+    setStatus(`Importing ${file.name || "video"}...`);
+    try {
+      const dataBase64 = await fileToBase64(file);
+      const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/current/import-video", {
+        filename: file.name || `video-${Date.now()}.mp4`,
+        dataBase64,
+        dropX: point.x,
+        dropY: point.y,
+        width: imageNodeWidth,
+        height: imageNodeHeight
+      });
+      setLibrary(snapshot);
+      setStatus("Video node imported");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Video import failed.");
     }
   }
 
@@ -921,25 +1174,30 @@ function App() {
     }
   }
 
+  function mediaNodeRoute(nodeId: string): "image-nodes" | "video-nodes" {
+    return nodes.find((node) => node.canvas.id === nodeId)?.manifest.type === "video" ? "video-nodes" : "image-nodes";
+  }
+
   async function uploadImageToNodeStack(nodeId: string) {
+    const isVideo = mediaNodeRoute(nodeId) === "video-nodes";
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp";
+    input.accept = isVideo ? ".mp4,.webm,.mov,video/mp4,video/webm,video/quicktime" : ".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp";
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
       try {
         setStatus(`Adding ${file.name} to stack...`);
         const dataBase64 = await fileToBase64(file);
-        const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack`, {
+        const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack`, {
           filename: file.name,
           dataBase64
         });
         setLibrary(snapshot);
         setSelectedNodeId(nodeId);
-        setStatus("Image added to stack");
+        setStatus(`${isVideo ? "Video" : "Image"} added to stack`);
       } catch (error) {
-        setStatus(error instanceof Error ? error.message : "Could not add image to stack.");
+        setStatus(error instanceof Error ? error.message : `Could not add ${isVideo ? "video" : "image"} to stack.`);
       }
     };
     input.click();
@@ -947,23 +1205,25 @@ function App() {
 
   async function setActiveStackImage(nodeId: string, activeStackIndex: number) {
     try {
-      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/active`, { activeStackIndex });
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack/active`, { activeStackIndex });
       setLibrary(snapshot);
       setSelectedNodeId(nodeId);
-      setStatus("Stack image selected");
+      setStatus("Stack item selected");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not select stack image.");
+      setStatus(error instanceof Error ? error.message : "Could not select stack item.");
     }
   }
 
-  async function runImageGeneration(nodeId: string, modelId: string, prompt: string, providerId?: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string, parameters?: ImageGenerationParameters) {
+  async function runMediaGeneration(type: "image" | "video", nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string, parameters?: ImageGenerationParameters) {
     try {
-      setStatus("Generating image...");
+      setStatus(`Generating ${type}...`);
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: true, message: "Generating..." } }));
-      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/generate`, {
-        modelId,
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/${type}-nodes/${encodeURIComponent(nodeId)}/generate`, {
+        modelId: selection.modelId,
         prompt,
-        providerId,
+        executionProvider: selection.executionProvider,
+        fallbackAllowed: selection.fallbackAllowed,
+        availableExecutionProviders,
         inputNodeIds,
         maxImageInputs,
         imageReferenceSyntax,
@@ -981,34 +1241,75 @@ function App() {
   }
 
   async function duplicateStackItemNode(nodeId: string, stackItemId: string, point: { x: number; y: number }) {
+    setStackItemMenu(null);
     try {
       pushUndoSnapshot();
       const snapshot = await apiPost<LibrarySnapshot>(
-        `/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}/duplicate-node`,
+        `/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}/duplicate-node`,
         { x: point.x, y: point.y, width: imageNodeWidth, height: imageNodeHeight }
       );
       setLibrary(snapshot);
       setOpenStackNodeId(null);
-      setStatus("Stack image pulled into a new node");
+      setStatus("Stack item pulled into a new node");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not create node from stack image.");
+      setStatus(error instanceof Error ? error.message : "Could not create node from stack item.");
     }
   }
 
   async function deleteStackItem(nodeId: string, stackItemId: string) {
+    setStackItemMenu(null);
     try {
-      const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`);
+      const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`);
       setLibrary(snapshot);
-      setStackItemMenu(null);
-      setStatus("Stack image deleted");
+      setStatus("Stack item deleted");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not delete stack image.");
+      setStatus(error instanceof Error ? error.message : "Could not delete stack item.");
     }
   }
 
   async function saveStackItem(nodeId: string, stackItemId: string) {
-    await downloadPreview(`${apiBase}/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`, "stack-image");
     setStackItemMenu(null);
+    await downloadPreview(`${apiBase}/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`, "stack-item");
+  }
+
+  async function duplicateNode(nodeId: string, targetNodeId = nodeId, action = "duplicated") {
+    setSelectionMenu(null);
+    const targetNode = nodes.find((node) => node.canvas.id === targetNodeId);
+    if (!targetNode) {
+      setStatus("Could not find node to paste beside.");
+      return;
+    }
+    try {
+      pushUndoSnapshot();
+      const existingIds = new Set(nodes.map((node) => node.canvas.id));
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/duplicate`, {
+        x: targetNode.canvas.x + 28,
+        y: targetNode.canvas.y + 28
+      });
+      const created = snapshot.nodes.find((node) => !existingIds.has(node.canvas.id));
+      setLibrary(snapshot);
+      setSelectedNodeId(created?.canvas.id ?? null);
+      setSelectedNodeIds(created ? [created.canvas.id] : []);
+      setStatus(`Node ${action}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not duplicate node.");
+    }
+  }
+
+  async function openNodeAsFolder(nodeId: string) {
+    setSelectionMenu(null);
+    try {
+      await apiPost(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/open-folder`, {});
+      setStatus("Node folder opened");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not open node folder.");
+    }
+  }
+
+  function copyNode(nodeId: string) {
+    setCopiedNodeId(nodeId);
+    setSelectionMenu(null);
+    setStatus("Node copied");
   }
 
   async function deleteSelectedNode(nodeId: string) {
@@ -1025,6 +1326,7 @@ function App() {
   }
 
   async function deleteSelectedNodes(nodeIds: string[]) {
+    setSelectionMenu(null);
     try {
       pushUndoSnapshot();
       let snapshot: LibrarySnapshot | null = null;
@@ -1035,7 +1337,6 @@ function App() {
       setSelectedNodeId(null);
       setSelectedNodeIds([]);
       setSelectedEdgeId(null);
-      setSelectionMenu(null);
       setStatus(nodeIds.length > 1 ? "Nodes deleted" : "Node deleted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete nodes.");
@@ -1064,6 +1365,13 @@ function App() {
     };
   }
 
+  function isPointInsideCanvas(clientX: number, clientY: number): boolean {
+    const canvas = canvasRef.current;
+    if (!canvas) return false;
+    const bounds = canvas.getBoundingClientRect();
+    return clientX >= bounds.left && clientX <= bounds.right && clientY >= bounds.top && clientY <= bounds.bottom;
+  }
+
   function viewportCenterWorldPoint() {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -1073,32 +1381,15 @@ function App() {
 
   return (
     <main className={`livingCanvasShell${libraryOpen ? "" : " libraryCollapsed"}${inspectorOpen ? " inspectorOpen" : ""}`}>
-      <header className="topbar">
-        <div className="brand">
-          <img src="/snarkroute-icon.png" alt="" />
-          <div>
-            <h1>SnarkRoute</h1>
-            <span>Living Canvas</span>
-          </div>
-        </div>
-        <div className="toolbar" aria-label="Canvas controls">
-          <button className="iconButton" type="button" onClick={() => setTheme(theme === "night" ? "day" : "night")} title={theme === "night" ? "Switch to day" : "Switch to night"}>
-            {theme === "night" ? <Sun size={17} /> : <Moon size={17} />}
-          </button>
-          <label className="sceneSelect" title="Canvas background">
-            <Wallpaper size={17} />
-            <select value={background} onChange={(event) => setBackground(event.target.value as BackgroundName)} aria-label="Canvas background">
-              {backgroundOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-          </label>
-          <button className="iconButton" type="button" onClick={() => setInspectorOpen((value) => !value)} title="Toggle context">
-            <PanelRight size={18} />
-          </button>
-        </div>
-      </header>
-
       {libraryOpen && (
-        <aside className="libraryRail">
+        <aside className="libraryRail" data-canvas-wheel-scroll onWheelCapture={(event) => event.stopPropagation()}>
+          <div className="brand panelBrand">
+            <img src="/snarkroute-icon.png" alt="" />
+            <div>
+              <h1>SnarkRoute</h1>
+              <span>Living Canvas</span>
+            </div>
+          </div>
           <div className="panelTitle">
             <Folder size={17} />
             <h2>Library</h2>
@@ -1110,6 +1401,10 @@ function App() {
             <strong>{library?.manifest.title ?? "Local library"}</strong>
             <span>{library?.path ?? "Loading..."}</span>
           </div>
+          <button className="addLibraryButton" type="button" onClick={() => void addLocalLibraryFolder()}>
+            <Folder size={15} />
+            Add local library folder
+          </button>
           <div className="nestedList">
             {library?.nestedLibraries.length ? library.nestedLibraries.map((entry) => (
               <button key={`${entry.id}-${entry.path}`} type="button" onClick={() => void openNestedLibrary(entry.path)}>
@@ -1122,9 +1417,12 @@ function App() {
         </aside>
       )}
       {!libraryOpen && (
-        <button className="libraryReopenButton" type="button" onClick={() => setLibraryOpen(true)} title="Open library">
-          <PanelRight size={16} />
-        </button>
+        <>
+          <img className="collapsedBrandIcon" src="/snarkroute-icon.png" alt="SnarkRoute" />
+          <button className="libraryReopenButton" type="button" onClick={() => setLibraryOpen(true)} title="Open library">
+            <PanelRight size={16} />
+          </button>
+        </>
       )}
 
       <section
@@ -1153,10 +1451,21 @@ function App() {
               setSelectedNodeId(null);
             }}
           />
-          {nodes.map((node) => (
+          {nodes.map((node) => node.manifest.type === "library" ? (
+            <LibraryCardNode
+              key={node.manifest.id}
+              node={node as LibraryNodeView}
+              active={selectedNodeIds.length === 1 && selectedNodeId === node.canvas.id}
+              selected={selectedNodeIds.includes(node.canvas.id)}
+              onPointerDown={handleNodePointerDown}
+              onClick={handleNodeClick}
+              onContextMenu={handleNodeContextMenu}
+              onViewModeChange={(viewMode) => void setLibraryViewMode(node.manifest.id, viewMode)}
+            />
+          ) : (
             <ImageNode
               key={node.manifest.id}
-              node={node}
+              node={node as ImageNodeView | VideoNodeView | TextNodeView}
               active={selectedNodeIds.length === 1 && selectedNodeId === node.canvas.id}
               selected={selectedNodeIds.includes(node.canvas.id)}
               inputNodes={inputChipsForNode(node.canvas.id, edges, nodeById)}
@@ -1178,7 +1487,9 @@ function App() {
               }}
               onDragStackImage={(event, nodeId, stackItemId) => {
                 if (event.button !== 0) return;
+                event.preventDefault();
                 event.stopPropagation();
+                event.currentTarget.setPointerCapture(event.pointerId);
                 interactionMovedRef.current = false;
                 const point = screenToWorld(event.clientX, event.clientY);
                 setDragState({
@@ -1197,27 +1508,46 @@ function App() {
                 event.stopPropagation();
                 setStackItemMenu({ x: event.clientX, y: event.clientY, nodeId, stackItemId });
               }}
-              models={models.filter((model) => model.nodeTypes.includes(node.manifest.type))}
-              modelId={modelSelections[node.canvas.id] ?? modelSelectionId(models.find((model) => model.nodeTypes.includes(node.manifest.type)))}
+              models={modelsForContentKind(catalogModels, node.manifest.type as ContentKind)}
+              modelSelection={normalizedModelRouteSelection(node.manifest.modelId ? {
+                modelId: node.manifest.modelId,
+                executionProvider: node.manifest.executionProvider ?? "auto",
+                fallbackAllowed: node.manifest.fallbackAllowed !== false
+              } : modelSelections[node.canvas.id], modelsForContentKind(catalogModels, node.manifest.type as ContentKind)[0])}
               generationFeedback={generationFeedback[node.canvas.id]}
               modelSearchOpen={modelSearchNodeId === node.canvas.id}
               onToggleModelSearch={(nodeId) => setModelSearchNodeId((current) => current === nodeId ? null : nodeId)}
+              onOpenModels={() => setInspectorOpen(true)}
               onSelectModel={(nodeId, modelId) => {
-                setModelSelections({ ...modelSelections, [nodeId]: modelId });
+                void saveMediaRouteSettings(node.manifest.type as "image" | "video", nodeId, { modelId, executionProvider: "auto", fallbackAllowed: true });
                 setModelSearchNodeId(null);
               }}
-              onRunGeneration={(nodeId, modelId, prompt, providerId, inputNodeIds, maxImageInputs, imageReferenceSyntax, parameters) => void runImageGeneration(nodeId, modelId, prompt, providerId, inputNodeIds, maxImageInputs, imageReferenceSyntax, parameters)}
-              onSavePrompt={(nodeId, prompt) => void saveImagePrompt(nodeId, prompt)}
+              onChangeRouteSettings={(nodeId, selection) => void saveMediaRouteSettings(node.manifest.type as "image" | "video", nodeId, selection)}
+              onRunGeneration={(nodeId, selection, availableExecutionProviders, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax, parameters) => void runMediaGeneration(node.manifest.type as "image" | "video", nodeId, selection, availableExecutionProviders, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax, parameters)}
+              onSavePrompt={(nodeId, prompt) => void saveMediaPrompt(nodeId, prompt)}
               onSaveText={saveTextNode}
               onSaveTextColor={saveTextNodeColor}
               onDeleteNode={(nodeId) => void deleteSelectedNode(nodeId)}
               onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
             />
           ))}
+          {dragState?.kind === "stackItem" && interactionMovedRef.current ? (
+            <div
+              className="stackItemDragPreview"
+              style={{
+                transform: `translate(${dragState.currentX - imageNodeWidth / 2}px, ${dragState.currentY - imageNodeHeight / 2}px)`,
+                width: imageNodeWidth,
+                height: imageNodeHeight
+              }}
+            >
+              <span>Drop to create node</span>
+            </div>
+          ) : null}
         </div>
         {nodeCreateMenu && (
           <div className="nodeCreateMenu" style={{ left: nodeCreateMenu.x, top: nodeCreateMenu.y }}>
             <button type="button" onClick={() => void createConnectedNode("image")}>Create image node</button>
+            <button type="button" onClick={() => void createConnectedNode("video")}>Create video node</button>
             <button type="button" onClick={() => void createConnectedNode("text")}>Create text node</button>
           </div>
         )}
@@ -1234,7 +1564,7 @@ function App() {
             <button type="button" className="previewClose" onClick={() => setPreviewImage(null)}>×</button>
             <StackPreview
               preview={previewImage}
-              node={nodes.find((node) => node.canvas.id === previewImage.nodeId && node.manifest.type === "image") as ImageNodeView | undefined}
+              node={nodes.find((node) => node.canvas.id === previewImage.nodeId && (node.manifest.type === "image" || node.manifest.type === "video")) as ImageNodeView | VideoNodeView | undefined}
               onChangeIndex={(index) => setPreviewImage({ ...previewImage, index })}
               onMakeMain={(nodeId, index) => void setActiveStackImage(nodeId, index)}
             />
@@ -1250,6 +1580,10 @@ function App() {
       )}
       {selectionMenu && selectedNodeIds.length > 0 && (
         <div className="selectionMenu" style={{ left: selectionMenu.x, top: selectionMenu.y }}>
+          <button type="button" onClick={() => void duplicateNode(selectionMenu.nodeId)}>Duplicate node</button>
+          <button type="button" onClick={() => copyNode(selectionMenu.nodeId)}>Copy</button>
+          <button type="button" disabled={!copiedNodeId} onClick={() => copiedNodeId && void duplicateNode(copiedNodeId, selectionMenu.nodeId, "pasted")}>Paste</button>
+          <button type="button" onClick={() => void openNodeAsFolder(selectionMenu.nodeId)}>Open folder</button>
           <button type="button" onClick={() => void deleteSelectedNodes(selectedNodeIds)}>
             Delete {selectedNodeIds.length > 1 ? `${selectedNodeIds.length} nodes` : "node"}
           </button>
@@ -1257,20 +1591,395 @@ function App() {
       )}
 
       {inspectorOpen && (
-        <aside className="inspector">
-          <div className="panelTitle">
-            <PanelRight size={17} />
-            <h2>Context</h2>
+        <aside className="inspector" data-canvas-wheel-scroll onWheelCapture={(event) => event.stopPropagation()}>
+          <div className="toolbar panelToolbar" aria-label="Canvas controls">
+            <button className="iconButton" type="button" onClick={() => setTheme(theme === "night" ? "day" : "night")} title={theme === "night" ? "Switch to day" : "Switch to night"}>
+              {theme === "night" ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
+            <label className="sceneSelect" title="Canvas background">
+              <Wallpaper size={17} />
+              <select value={background} onChange={(event) => setBackground(event.target.value as BackgroundName)} aria-label="Canvas background">
+                {backgroundOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <button className="iconButton" type="button" onClick={() => setInspectorOpen(false)} title="Close context">
+              <PanelRight size={18} />
+            </button>
           </div>
-          <dl>
-            <div><dt>Nodes</dt><dd>{nodes.length}</dd></div>
-            <div><dt>View</dt><dd>{library?.manifest.defaultView ?? "canvas"}</dd></div>
-            <div><dt>Canvas</dt><dd>{library?.manifest.canvas ?? "none"}</dd></div>
-          </dl>
+          <ModelsPanel
+            settings={providerSettings}
+            errors={providerErrors}
+            notices={providerNotice}
+            models={catalogModels}
+            localProviders={localProviders}
+            onConnect={saveProviderToken}
+            onTest={testProvider}
+            onRefresh={refreshProviderModels}
+            onAddCustomModel={addCustomModel}
+            onSaveLocalProvider={(profile) => void testAndSaveLocalProvider(profile)}
+          />
         </aside>
+      )}
+      {!inspectorOpen && (
+        <button className="inspectorReopenButton" type="button" onClick={() => setInspectorOpen(true)} title="Open context">
+          <PanelRight size={18} />
+        </button>
       )}
     </main>
   );
+}
+
+function ModelsPanel({
+  settings,
+  errors,
+  notices,
+  models,
+  localProviders,
+  onConnect,
+  onTest,
+  onRefresh,
+  onAddCustomModel,
+  onSaveLocalProvider
+}: {
+  settings: ProviderSettings | null;
+  errors: Partial<Record<string, string>>;
+  notices: Partial<Record<string, string>>;
+  models: ModelOption[];
+  localProviders: LocalProviderConnection[];
+  onConnect: (providerId: ProviderId, key: string, extras?: Record<string, string>) => Promise<void>;
+  onTest: (providerId: ProviderId) => Promise<void>;
+  onRefresh: (providerId: ProviderId) => Promise<void>;
+  onAddCustomModel: (profile: Omit<ModelOption, "isAvailable" | "statusReason">) => void;
+  onSaveLocalProvider: (profile: Omit<LocalProviderConnection, "status" | "statusReason">) => void;
+}) {
+  return (
+    <div className="modelsPanel">
+      <div className="panelTitle">
+        <Cog size={17} />
+        <h2>Модели</h2>
+      </div>
+      <section className="modelsSection">
+        <h3>Connected sources</h3>
+        {providerDefinitions.map((definition) => (
+          <ProviderConnectionCard
+            key={definition.id}
+            definition={definition}
+            configured={Boolean(settings?.[definition.id]?.configured)}
+            offline={Boolean(errors.settings)}
+            error={errors[definition.id]}
+            notice={notices[definition.id]}
+            modelCounts={providerModelCounts(models, definition.id)}
+            onConnect={onConnect}
+            onTest={onTest}
+            onRefresh={onRefresh}
+          />
+        ))}
+        {localProviders.map((provider) => (
+          <article className="providerCard" key={provider.id}>
+            <div className="providerHeading">
+              <strong>{provider.title}</strong>
+              <span className={`providerStatus is-${provider.status}`}>{provider.status}</span>
+            </div>
+            <p>{provider.providerType} / {provider.endpointUrl}</p>
+            {provider.statusReason ? <small className="providerMessage isError">{provider.statusReason}</small> : null}
+          </article>
+        ))}
+      </section>
+      <AvailableModels models={models} />
+      <CustomModelForm onAdd={onAddCustomModel} />
+      <LocalProviderForm onSave={onSaveLocalProvider} />
+    </div>
+  );
+}
+
+function ProviderConnectionCard({
+  definition,
+  configured,
+  offline,
+  error,
+  notice,
+  modelCounts,
+  onConnect,
+  onTest,
+  onRefresh
+}: {
+  definition: ProviderDefinition;
+  configured: boolean;
+  offline: boolean;
+  error?: string;
+  notice?: string;
+  modelCounts: string[];
+  onConnect: (providerId: ProviderId, key: string, extras?: Record<string, string>) => Promise<void>;
+  onTest: (providerId: ProviderId) => Promise<void>;
+  onRefresh: (providerId: ProviderId) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [key, setKey] = useState("");
+  const [seedanceBackend, setSeedanceBackend] = useState("seedance-compatible");
+  const status = offline ? "offline" : error ? "error" : configured ? "connected" : "missing key";
+
+  async function connect() {
+    if (!key.trim()) return;
+    await onConnect(definition.id, key, definition.id === "seedance" ? { backend: seedanceBackend } : undefined);
+    setKey("");
+    setEditing(false);
+  }
+
+  return (
+    <article className="providerCard">
+      <div className="providerHeading">
+        <strong>{definition.title}</strong>
+        <span className={`providerStatus is-${status.replace(" ", "-")}`}>{status}</span>
+      </div>
+      <p>{definition.capabilityText}</p>
+      {modelCounts.length > 0 ? <small>{modelCounts.join(" / ")}</small> : null}
+      {error ? <small className="providerMessage isError">{error}</small> : notice ? <small className="providerMessage">{notice}</small> : null}
+      {editing && (
+        <div className="providerConnectForm">
+          <input
+            type="password"
+            autoComplete="off"
+            value={key}
+            placeholder={`${definition.title} API key`}
+            onChange={(event) => setKey(event.currentTarget.value)}
+          />
+          {definition.id === "seedance" ? (
+            <select value={seedanceBackend} onChange={(event) => setSeedanceBackend(event.currentTarget.value)}>
+              <option value="seedance-compatible">Compatible endpoint</option>
+              <option value="byteplus-modelark">BytePlus ModelArk</option>
+              <option value="volcengine-las">Volcengine LAS</option>
+            </select>
+          ) : null}
+          <button type="button" disabled={!key.trim()} onClick={() => void connect()}>Save key</button>
+        </div>
+      )}
+      <div className="providerActions">
+        <button type="button" onClick={() => setEditing((value) => !value)}>{configured ? "Edit" : "Подключить"}</button>
+        <button type="button" onClick={() => void onTest(definition.id)}>Test</button>
+        <button type="button" onClick={() => void onRefresh(definition.id)}>Refresh models</button>
+      </div>
+    </article>
+  );
+}
+
+function AvailableModels({ models }: { models: ModelOption[] }) {
+  const groups: Array<{ label: string; includes: (model: ModelOption) => boolean }> = [
+    { label: "Image", includes: (model) => !model.role && model.produces.includes("image") },
+    { label: "Video", includes: (model) => !model.role && model.produces.includes("video") },
+    { label: "Text", includes: (model) => !model.role && model.produces.includes("text") },
+    { label: "Audio", includes: (model) => !model.role && model.produces.includes("audio") },
+    { label: "Image upscalers", includes: (model) => model.role === "image-upscaler" },
+    { label: "Video upscalers", includes: (model) => model.role === "video-upscaler" }
+  ];
+  return (
+    <section className="modelsSection availableModels">
+      <h3>Available models</h3>
+      {groups.map(({ label, includes }) => {
+        const entries = mergeModelsForDisplay(models.filter(includes));
+        if (entries.length === 0) return null;
+        return (
+          <details className="modelGroup" key={label}>
+            <summary>
+              <strong>{label}</strong>
+              <small>{entries.length}</small>
+            </summary>
+            <div className="modelGroupList">
+              {entries.map(({ model, providers }) => {
+                const source = providers.map(providerDisplayName).join(", ");
+                return (
+                <span className={model.isAvailable ? "" : "isUnavailable"} key={modelSelectionId(model)}>
+                  {model.title} <small title={model.statusReason}>{source}</small>
+                </span>
+                );
+              })}
+            </div>
+          </details>
+        );
+      })}
+    </section>
+  );
+}
+
+function CustomModelForm({ onAdd }: { onAdd: (profile: Omit<ModelOption, "isAvailable" | "statusReason">) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [url, setUrl] = useState("");
+  const [unsupported, setUnsupported] = useState(false);
+  const [title, setTitle] = useState("");
+  const [providerType, setProviderType] = useState("custom");
+  const [inputKinds, setInputKinds] = useState("text");
+  const [outputKinds, setOutputKinds] = useState("image");
+  const [capabilities, setCapabilities] = useState("image.generate");
+
+  function revealManualProfile() {
+    setExpanded(true);
+    setUnsupported(true);
+  }
+
+  function addProfile() {
+    if (!title.trim() || !url.trim()) return;
+    const accepts = parseKinds(inputKinds);
+    const produces = parseKinds(outputKinds);
+    onAdd({
+      id: `custom:${url.trim()}`,
+      title: title.trim(),
+      providerId: providerType.trim() || "custom",
+      source: "custom-link",
+      contentKinds: produces,
+      accepts,
+      produces,
+      capabilities: capabilities.split(",").map((value) => value.trim()).filter(Boolean)
+    });
+    setTitle("");
+  }
+
+  return (
+    <section className="modelsSection addModelForm">
+      <button className="modelsAddButton" type="button" onClick={() => setExpanded((value) => !value)}>+ Add model by link</button>
+      {expanded && (
+        <>
+          <label>Model URL<input value={url} onChange={(event) => setUrl(event.currentTarget.value)} placeholder="https://..." /></label>
+          <button type="button" disabled={!url.trim()} onClick={revealManualProfile}>Add</button>
+          {unsupported && (
+            <div className="manualProfile">
+              <p>Автоматическое распознавание этой ссылки пока не поддерживается. Опишите модель вручную.</p>
+              <label>Title<input value={title} onChange={(event) => setTitle(event.currentTarget.value)} /></label>
+              <label>Provider type<input value={providerType} onChange={(event) => setProviderType(event.currentTarget.value)} /></label>
+              <label>Endpoint URL<input value={url} onChange={(event) => setUrl(event.currentTarget.value)} /></label>
+              <label>Input kinds<input value={inputKinds} onChange={(event) => setInputKinds(event.currentTarget.value)} /></label>
+              <label>Output kinds<input value={outputKinds} onChange={(event) => setOutputKinds(event.currentTarget.value)} /></label>
+              <label>Capabilities<input value={capabilities} onChange={(event) => setCapabilities(event.currentTarget.value)} /></label>
+              <button type="button" disabled={!title.trim()} onClick={addProfile}>Save custom profile</button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function LocalProviderForm({ onSave }: { onSave: (profile: Omit<LocalProviderConnection, "status" | "statusReason">) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [title, setTitle] = useState("Local ComfyUI");
+  const [providerType, setProviderType] = useState("ComfyUI");
+  const [endpointUrl, setEndpointUrl] = useState("http://127.0.0.1:8188");
+  return (
+    <section className="modelsSection addModelForm">
+      <button className="modelsAddButton" type="button" onClick={() => setExpanded((value) => !value)}>+ Add local model</button>
+      {expanded && (
+        <>
+          <label>Title<input value={title} onChange={(event) => setTitle(event.currentTarget.value)} /></label>
+          <label>Provider type<input value={providerType} onChange={(event) => setProviderType(event.currentTarget.value)} /></label>
+          <label>Local endpoint URL<input value={endpointUrl} onChange={(event) => setEndpointUrl(event.currentTarget.value)} /></label>
+          <button type="button" disabled={!endpointUrl.trim()} onClick={() => onSave({ id: `local:${endpointUrl.trim()}`, title, providerType, endpointUrl: endpointUrl.trim() })}>
+            Test connection and save
+          </button>
+          <p>Workflow discovery and execution adapter will be added separately.</p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function parseKinds(value: string): ContentKind[] {
+  return value.split(",").map((kind) => kind.trim().toLowerCase()).filter((kind): kind is ContentKind => kind === "image" || kind === "video" || kind === "text" || kind === "audio");
+}
+
+function supportsLocalModelDiscovery(providerType: string): boolean {
+  return /comfy|stable diffusion|a1111|automatic1111/i.test(providerType);
+}
+
+async function discoverLocalModels(endpointUrl: string, providerType: string): Promise<LocalProviderConnection["models"]> {
+  const catalog = await apiGet<{ models?: LocalProviderConnection["models"] }>(`/api/local-stable-diffusion/models?endpoint=${encodeURIComponent(endpointUrl)}&providerType=${encodeURIComponent(providerType)}`);
+  return catalog.models ?? [];
+}
+
+function providerModelCounts(models: ModelOption[], providerId: string): string[] {
+  return (["image", "video", "text", "audio"] as ContentKind[]).flatMap((kind) => {
+    const count = models.filter((model) => model.providerId === providerId && model.isAvailable && !model.role && model.produces.includes(kind)).length;
+    return count ? [`${kind}: ${count}`] : [];
+  }).concat(
+    models.some((model) => model.providerId === providerId && model.isAvailable && model.role === "image-upscaler") ? ["image upscalers"] : [],
+    models.some((model) => model.providerId === providerId && model.isAvailable && model.role === "video-upscaler") ? ["video upscalers"] : []
+  );
+}
+
+function LibraryCardNode({
+  node,
+  active,
+  selected,
+  onPointerDown,
+  onClick,
+  onContextMenu,
+  onViewModeChange
+}: {
+  node: LibraryNodeView;
+  active: boolean;
+  selected: boolean;
+  onPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
+  onClick: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onContextMenu: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onViewModeChange: (viewMode: LibraryViewMode) => void;
+}) {
+  const images = node.scan.assets.filter((asset) => asset.kind === "image");
+  const texts = node.scan.assets.filter((asset) => asset.kind === "text");
+  const prompts = node.scan.assets.filter((asset) => asset.kind === "prompt" || asset.embeddedPrompt);
+  const displayAssets = node.manifest.viewMode === "image-stack"
+    ? images
+    : node.manifest.viewMode === "text-library"
+      ? texts
+      : node.manifest.viewMode === "prompt-library"
+        ? prompts
+        : node.scan.assets;
+  return (
+    <article
+      className={`libraryNode${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
+      style={{ transform: `translate(${node.canvas.x}px, ${node.canvas.y}px)`, width: node.canvas.width, minHeight: node.canvas.height }}
+      onPointerDown={(event) => onPointerDown(event, node)}
+      onClick={(event) => onClick(event, node)}
+      onContextMenu={(event) => onContextMenu(event, node)}
+    >
+      <header className="libraryNodeHeader">
+        <Folder size={15} />
+        <strong>{node.manifest.title}</strong>
+      </header>
+      <span className="libraryNodePath">{node.scan.sourcePath}</span>
+      {node.scan.error ? <p className="libraryPlaceholder">Source unavailable: {node.scan.error}</p> : null}
+      <label className="libraryModeSelect" onPointerDown={(event) => event.stopPropagation()}>
+        <span>Open as</span>
+        <select value={node.manifest.viewMode} onChange={(event) => onViewModeChange(event.target.value as LibraryViewMode)}>
+          {node.scan.availableViews.map((mode) => <option key={mode} value={mode}>{libraryViewLabel(mode)}</option>)}
+        </select>
+      </label>
+      <div className="libraryAssetGrid">
+        {displayAssets.slice(0, 6).map((asset) => (
+          <div key={asset.id} className="libraryAsset" title={asset.relativePath}>
+            {asset.kind === "image" ? <img src={libraryAssetUrl(node.manifest.id, asset.id)} alt="" /> : <span>{asset.kind === "prompt" || asset.embeddedPrompt ? "Prompt" : asset.kind}</span>}
+            {asset.embeddedPrompt ? <small>Prompt inside</small> : null}
+          </div>
+        ))}
+        {displayAssets.length === 0 ? <p className="libraryEmpty">No assets for this view.</p> : null}
+      </div>
+      {(node.manifest.viewMode === "board" || node.manifest.viewMode === "workflow") && (
+        <p className="libraryPlaceholder">{node.manifest.viewMode === "board" ? "Board opening is reserved for the next canvas step." : "Workflow is available as an action source; execution wiring comes next."}</p>
+      )}
+    </article>
+  );
+}
+
+function libraryViewLabel(mode: LibraryViewMode): string {
+  const labels: Record<LibraryViewMode, string> = {
+    "media-folder": "Media Folder",
+    "image-stack": "Image Stack",
+    "text-library": "Text Library",
+    "prompt-library": "Prompt Library",
+    board: "Board",
+    workflow: "Workflow / Action Source"
+  };
+  return labels[mode];
+}
+
+function libraryAssetUrl(nodeId: string, assetId: string): string {
+  return `${apiBase}/api/libraries/current/library-nodes/${encodeURIComponent(nodeId)}/assets/${encodeURIComponent(assetId)}`;
 }
 
 function CanvasEdges({
@@ -1320,11 +2029,13 @@ function ImageNode({
   onDragStackImage,
   onStackItemContextMenu,
   models,
-  modelId,
+  modelSelection,
   generationFeedback,
   modelSearchOpen,
   onToggleModelSearch,
+  onOpenModels,
   onSelectModel,
+  onChangeRouteSettings,
   onRunGeneration,
   onSavePrompt,
   onSaveText,
@@ -1332,7 +2043,7 @@ function ImageNode({
   onDeleteNode,
   onRenameNode
 }: {
-  node: NodeView;
+  node: EditableNodeView;
   active: boolean;
   selected: boolean;
   inputNodes: InputNodeChip[];
@@ -1349,12 +2060,14 @@ function ImageNode({
   onDragStackImage: (event: React.PointerEvent<HTMLElement>, nodeId: string, stackItemId: string) => void;
   onStackItemContextMenu: (event: React.MouseEvent<HTMLElement>, nodeId: string, stackItemId: string) => void;
   models: ModelOption[];
-  modelId: string;
+  modelSelection: ModelRouteSelection;
   generationFeedback?: GenerationFeedback;
   modelSearchOpen: boolean;
   onToggleModelSearch: (nodeId: string) => void;
+  onOpenModels: () => void;
   onSelectModel: (nodeId: string, modelId: string) => void;
-  onRunGeneration: (nodeId: string, modelId: string, prompt: string, providerId?: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string, parameters?: ImageGenerationParameters) => void;
+  onChangeRouteSettings: (nodeId: string, selection: ModelRouteSelection) => void;
+  onRunGeneration: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string, parameters?: ImageGenerationParameters) => void;
   onSavePrompt: (nodeId: string, prompt: string) => void;
   onSaveText: (nodeId: string, text: string) => void;
   onSaveTextColor: (nodeId: string, color: string) => void;
@@ -1362,21 +2075,36 @@ function ImageNode({
   onRenameNode: (nodeId: string, title: string) => void;
 }) {
   const previewUrl = node.previewUrl ? `${apiBase}${node.previewUrl}?v=${encodeURIComponent(node.activeStackItem?.id ?? node.manifest.id)}` : "";
-  const stackCount = node.manifest.type === "image" ? node.manifest.stack.length : 0;
-  const activeIndex = node.manifest.type === "image" && stackCount ? node.manifest.activeStackIndex + 1 : 0;
-  const isTextNode = node.manifest.type === "text";
-  const [prompt, setPrompt] = useState(node.manifest.type === "image" ? node.manifest.currentPrompt ?? "" : "");
+  const isVideoNode = node.manifest.type === "video";
+  const stackCount = node.manifest.type === "text" ? 0 : node.manifest.stack.length;
+  const activeIndex = node.manifest.type !== "text" && stackCount ? node.manifest.activeStackIndex + 1 : 0;
+  const [prompt, setPrompt] = useState(node.manifest.type === "text" ? "" : node.manifest.currentPrompt ?? "");
   const [modelQuery, setModelQuery] = useState("");
   const [orderedInputNodes, setOrderedInputNodes] = useState(inputNodes);
   const [parametersOpen, setParametersOpen] = useState(false);
+  const [routeSettingsOpen, setRouteSettingsOpen] = useState(false);
   const [promptInsertRequest, setPromptInsertRequest] = useState<{ token: string; sequence: number } | null>(null);
   const promptInsertSequence = useRef(0);
   const needsImageInput = inputNodes.some((input) => input.type === "image") || (node.manifest.type === "image" && node.manifest.stack.length > 0);
   const compatibleModels = needsImageInput ? models.filter((model) => model.acceptsImageInput !== false) : models;
-  const selectedModel: ModelOption = compatibleModels.find((model) => modelSelectionId(model) === modelId) ?? compatibleModels.find((model) => model.id === modelId) ?? compatibleModels[0] ?? { id: "", title: "Select model", nodeTypes: ["image"] };
-  const visibleModels = compatibleModels.filter((model) => model.title.toLowerCase().includes(modelQuery.toLowerCase()) || model.id.toLowerCase().includes(modelQuery.toLowerCase()));
+  const displayModels = mergeModelsForDisplay(compatibleModels);
+  const selectedRoutes = displayModels.find((entry) => entry.model.id === modelSelection.modelId)?.routes ?? [];
+  const selectedModel: ModelOption = selectedRoutes.find((model) => model.providerId === modelSelection.executionProvider) ?? selectedRoutes[0] ?? compatibleModels[0] ?? {
+    id: "",
+    title: "Select model",
+    providerId: "none",
+    contentKinds: [isVideoNode ? "video" : "image"],
+    accepts: ["text"],
+    produces: [isVideoNode ? "video" : "image"],
+    capabilities: [],
+    isAvailable: false
+  };
+  const effectiveSelection: ModelRouteSelection = selectedRoutes.length && selectedModel.id !== modelSelection.modelId
+    ? { modelId: selectedModel.id, executionProvider: "auto", fallbackAllowed: true }
+    : modelSelection;
+  const visibleModels = displayModels.filter(({ model }) => model.title.toLowerCase().includes(modelQuery.toLowerCase()) || model.id.toLowerCase().includes(modelQuery.toLowerCase()));
   const selectedModelLogo = modelLogoFor(selectedModel.providerId, selectedModel.id);
-  const selectedModelKey = modelSelectionId(selectedModel);
+  const selectedModelKey = `${selectedModel.id}:${effectiveSelection.executionProvider}`;
   const [generationParameters, setGenerationParameters] = useState<ImageGenerationParameters>(() => modelGenerationParameters(selectedModel));
   const parameterDefinitions = selectedModel.generationParameters ?? [];
   const imageInputs = orderedInputNodes.filter((input) => input.type === "image");
@@ -1395,7 +2123,7 @@ function ImageNode({
   function insertInputToken(input: InputNodeChip) {
     const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
     if (input.type === "image" && maxImageInputs !== undefined && imageIndex >= maxImageInputs) return;
-    const token = `[[${input.type === "text" ? "text" : "image"}:${input.id}]]`;
+    const token = `[[${input.type === "text" ? "text" : input.type === "video" ? "video" : "image"}:${input.id}]]`;
     promptInsertSequence.current += 1;
     setPromptInsertRequest({ token, sequence: promptInsertSequence.current });
   }
@@ -1411,7 +2139,8 @@ function ImageNode({
       return [...rest.slice(0, targetIndex), dragged, ...rest.slice(targetIndex)];
     });
   }
-  if (isTextNode) {
+  if (node.manifest.type === "text") {
+    const textNode = node as TextNodeView;
     return (
       <article
         className={`textNode${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
@@ -1440,7 +2169,7 @@ function ImageNode({
               <button
                 key={color}
                 type="button"
-                className={`textSwatch textSwatch-${color}${node.manifest.color === color ? " isSelected" : ""}`}
+                className={`textSwatch textSwatch-${color}${textNode.manifest.color === color ? " isSelected" : ""}`}
                 aria-label={`Set ${color} color`}
                 onClick={() => onSaveTextColor(node.manifest.id, color)}
               />
@@ -1459,7 +2188,7 @@ function ImageNode({
           <div className="textInputChips">
             {inputNodes.map((input) => (
               <span className="inputChip" key={input.id}>
-                {input.previewUrl ? <img src={`${apiBase}${input.previewUrl}`} alt="" /> : input.type === "image" ? <ImageIcon size={15} /> : <span className={`textChipThumb textColor-${input.color ?? "mint"}`}>T</span>}
+                {input.previewUrl ? input.type === "video" ? <Video size={15} /> : <img src={`${apiBase}${input.previewUrl}`} alt="" /> : input.type === "image" ? <ImageIcon size={15} /> : input.type === "video" ? <Video size={15} /> : <span className={`textChipThumb textColor-${input.color ?? "mint"}`}>T</span>}
               </span>
             ))}
           </div>
@@ -1480,9 +2209,10 @@ function ImageNode({
       </article>
     );
   }
+  const mediaNode = node as ImageNodeView | VideoNodeView;
   return (
     <article
-      className={`imageNode${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
+      className={`imageNode${isVideoNode ? " videoNode" : ""}${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
       style={{
         "--image-height": `${node.canvas.height}px`,
         transform: `translate(${node.canvas.x}px, ${node.canvas.y}px)`,
@@ -1495,8 +2225,8 @@ function ImageNode({
     >
       {active && (
         <div className="nodeToolbar" onPointerDown={(event) => event.stopPropagation()}>
-          <button type="button" aria-label="Download image" onClick={() => void downloadPreview(previewUrl, node.manifest.title)}><Download size={16} /></button>
-          <button type="button" aria-label="Expand image" onClick={() => previewUrl && onOpenPreview(node.manifest.id, node.manifest.activeStackIndex, node.manifest.title)}><Expand size={16} /></button>
+          <button type="button" aria-label={`Download ${isVideoNode ? "video" : "image"}`} onClick={() => void downloadPreview(previewUrl, node.manifest.title)}><Download size={16} /></button>
+          <button type="button" aria-label={`Expand ${isVideoNode ? "video" : "image"}`} onClick={() => previewUrl && onOpenPreview(mediaNode.manifest.id, mediaNode.manifest.activeStackIndex, mediaNode.manifest.title)}><Expand size={16} /></button>
         </div>
       )}
       <div className="nodeTitle">
@@ -1505,7 +2235,7 @@ function ImageNode({
             <Cog size={12} className="nodeBusyGearLarge" />
             <Cog size={9} className="nodeBusyGearSmall" />
           </span>
-        ) : <ImageIcon size={15} />}
+        ) : isVideoNode ? <Video size={15} /> : <ImageIcon size={15} />}
         {active ? (
           <input
             defaultValue={node.manifest.title}
@@ -1517,23 +2247,23 @@ function ImageNode({
               if (event.key === "Enter") event.currentTarget.blur();
             }}
           />
-        ) : <span>{node.manifest.title || (isTextNode ? "Text" : "Image")}</span>}
+        ) : <span>{node.manifest.title || (isVideoNode ? "Video" : "Image")}</span>}
       </div>
       <div className="nodeHandleLine nodeHandleLineInput" />
       <div className="nodeHandleLine nodeHandleLineOutput" />
       <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
       <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
       <div className="imagePreview">
-        {previewUrl ? <img src={previewUrl} alt={node.manifest.title} draggable={false} /> : (
+        {previewUrl ? isVideoNode ? <video src={previewUrl} controls preload="metadata" onPointerDown={(event) => event.stopPropagation()} /> : <img src={previewUrl} alt={node.manifest.title} draggable={false} /> : (
           <div className="emptyNodePreview">
-            {isTextNode ? "Text" : <ImageIcon size={32} />}
+            {isVideoNode ? <Video size={32} /> : <ImageIcon size={32} />}
           </div>
         )}
         {active && (
           <button
             className="uploadStackButton"
             type="button"
-            aria-label="Upload image to stack"
+            aria-label={`Upload ${isVideoNode ? "video" : "image"} to stack`}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
@@ -1559,16 +2289,16 @@ function ImageNode({
             </button>
             {openStack && (
               <div className="stackBoard" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-                {node.manifest.stack.length ? node.manifest.stack.map((item, index) => (
+                {mediaNode.manifest.stack.length ? mediaNode.manifest.stack.map((item, index) => (
                   <button
                     key={item.id}
                     type="button"
-                    className={index === node.manifest.activeStackIndex ? "isActive" : ""}
+                    className={index === mediaNode.manifest.activeStackIndex ? "isActive" : ""}
                     onPointerDown={(event) => onDragStackImage(event, node.manifest.id, item.id)}
                     onContextMenu={(event) => onStackItemContextMenu(event, node.manifest.id, item.id)}
                     onClick={() => onSelectStackImage(node.manifest.id, index)}
                   >
-                    <img src={stackImageUrl(node.manifest.id, item.id)} alt="" />
+                    {isVideoNode ? <video draggable={false} src={stackMediaUrl(mediaNode.manifest.type, mediaNode.manifest.id, item.id)} preload="metadata" /> : <img draggable={false} src={stackMediaUrl(mediaNode.manifest.type, mediaNode.manifest.id, item.id)} alt="" />}
                   </button>
                 )) : <span className="stackBoardEmpty">Empty stack</span>}
               </div>
@@ -1597,7 +2327,7 @@ function ImageNode({
                 }}
                 onClick={() => insertInputToken(input)}
               >
-                {input.previewUrl ? <img src={`${apiBase}${input.previewUrl}`} alt="" /> : input.type === "image" ? <ImageIcon size={15} /> : <span className={`textChipThumb textColor-${input.color ?? "mint"}`}>T</span>}
+                {input.previewUrl ? input.type === "video" ? <Video size={15} /> : <img src={`${apiBase}${input.previewUrl}`} alt="" /> : input.type === "image" ? <ImageIcon size={15} /> : input.type === "video" ? <Video size={15} /> : <span className={`textChipThumb textColor-${input.color ?? "mint"}`}>T</span>}
               </button>
             ); }) : <span className="inputChip isEmpty">No inputs</span>}
           </div>
@@ -1614,7 +2344,7 @@ function ImageNode({
               <button
                 type="button"
                 className="modelPickerButton"
-                aria-label={`Choose image model: ${selectedModel.title}`}
+                aria-label={`Choose ${isVideoNode ? "video" : "image"} model: ${selectedModel.title}`}
                 title={selectedModel.title}
                 onClick={() => onToggleModelSearch(node.manifest.id)}
               >
@@ -1627,9 +2357,9 @@ function ImageNode({
                     placeholder="Search model"
                     onChange={(event) => setModelQuery(event.currentTarget.value)}
                   />
-                  <div className="modelMenuList">
-                    {visibleModels.map((model) => (
-                      <button key={modelSelectionId(model)} type="button" onClick={() => onSelectModel(node.manifest.id, modelSelectionId(model))}>
+                  <div className="modelMenuList" data-canvas-wheel-scroll>
+                    {visibleModels.map(({ model }) => (
+                      <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, model.id)}>
                         <img src={modelLogoFor(model.providerId, model.id).src} alt="" />
                         <span>
                           <strong>{model.title}</strong>
@@ -1637,8 +2367,50 @@ function ImageNode({
                         </span>
                       </button>
                     ))}
-                    {visibleModels.length === 0 ? <span className="modelMenuEmpty">No image models found</span> : null}
+                    {visibleModels.length === 0 ? (
+                      <div className="modelMenuEmpty">
+                        <span>Нет подключённых моделей для этого типа артефакта</span>
+                        <button type="button" onClick={onOpenModels}>Открыть панель моделей</button>
+                      </div>
+                    ) : null}
                   </div>
+                </div>
+              )}
+            </div>
+            <div className="routeSettings">
+              <button
+                type="button"
+                className="routeSettingsButton"
+                aria-label={`Execution route for ${selectedModel.title}`}
+                aria-expanded={routeSettingsOpen}
+                onClick={() => setRouteSettingsOpen((current) => !current)}
+              >
+                <Wrench size={13} />
+              </button>
+              {effectiveSelection.executionProvider !== "auto" ? <small className="routeBadge">via {executionRouteDisplayName(effectiveSelection.executionProvider)}</small> : null}
+              {routeSettingsOpen && (
+                <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
+                  <strong>{selectedModel.title}</strong>
+                  <small className="routeModelId">{selectedModel.id}</small>
+                  <label>
+                    Run via
+                    <select
+                      value={effectiveSelection.executionProvider}
+                      onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, executionProvider: event.currentTarget.value })}
+                    >
+                      <option value="auto">Auto</option>
+                      {selectedRoutes.map((route) => <option key={route.providerId} value={route.providerId}>{executionRouteDisplayName(route.providerId)}</option>)}
+                    </select>
+                  </label>
+                  <label className="fallbackSetting">
+                    <input
+                      type="checkbox"
+                      checked={effectiveSelection.fallbackAllowed}
+                      onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, fallbackAllowed: event.currentTarget.checked })}
+                    />
+                    Fallback allowed
+                  </label>
+                  <small>{effectiveSelection.executionProvider === "auto" ? "The gateway chooses from available routes." : effectiveSelection.fallbackAllowed ? "Fallback is allowed when supported by the gateway." : "Run strictly through this provider."}</small>
                 </div>
               )}
             </div>
@@ -1670,7 +2442,7 @@ function ImageNode({
               )}
             </div>
             {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"}>{generationFeedback.message}</span> : null}
-            <button type="button" aria-label="Run" disabled={!selectedModel.id || generationFeedback?.busy} onClick={() => onRunGeneration(node.manifest.id, selectedModel.id, prompt, selectedModel.providerId, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters)}><ArrowUp size={16} /></button>
+            <button type="button" aria-label="Run" disabled={!selectedModel.id || generationFeedback?.busy} onClick={() => onRunGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), prompt, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters)}><ArrowUp size={16} /></button>
           </div>
         </footer>
       )}
@@ -1769,6 +2541,34 @@ function PromptComposer({
   );
 }
 
+function normalizedModelRouteSelection(value: string | ModelRouteSelection | undefined, fallback: ModelOption | undefined): ModelRouteSelection {
+  if (value && typeof value === "object" && typeof value.modelId === "string") {
+    return {
+      modelId: value.modelId,
+      executionProvider: value.executionProvider || "auto",
+      fallbackAllowed: value.fallbackAllowed !== false
+    };
+  }
+  if (typeof value === "string" && value) {
+    const separator = value.indexOf(":");
+    if (separator > 0) {
+      return {
+        modelId: value.slice(separator + 1),
+        executionProvider: value.slice(0, separator),
+        fallbackAllowed: true
+      };
+    }
+    return { modelId: value, executionProvider: "auto", fallbackAllowed: true };
+  }
+  return { modelId: fallback?.id ?? "", executionProvider: "auto", fallbackAllowed: true };
+}
+
+function executionRouteDisplayName(providerId: string): string {
+  const directProviders = new Set(["gemini", "openai", "anthropic", "google", "xai"]);
+  const name = providerDisplayName(providerId);
+  return directProviders.has(providerId.toLowerCase()) ? `${name} direct` : name;
+}
+
 function GenerationParameterControl({
   definition,
   value,
@@ -1801,7 +2601,7 @@ function renderPromptContent(editor: HTMLElement, value: string, inputNodes: Inp
   const inputById = new Map(inputNodes.map((input) => [input.id, input]));
   const imageInputs = inputNodes.filter((input) => input.type === "image");
   const fragment = document.createDocumentFragment();
-  const tokenPattern = /\[\[(text|image):([^\]]+)\]\]/g;
+  const tokenPattern = /\[\[(text|image|video):([^\]]+)\]\]/g;
   let lastIndex = 0;
   for (const match of value.matchAll(tokenPattern)) {
     const index = match.index ?? 0;
@@ -1827,7 +2627,7 @@ function promptInlineChip(token: string, input: InputNodeChip, inactive: boolean
   chip.draggable = true;
   chip.dataset.promptToken = token;
   chip.title = input.title;
-  if (input.previewUrl) {
+  if (input.previewUrl && input.type !== "video") {
     const image = document.createElement("img");
     image.src = `${apiBase}${input.previewUrl}`;
     image.alt = "";
@@ -1835,7 +2635,7 @@ function promptInlineChip(token: string, input: InputNodeChip, inactive: boolean
   } else {
     const thumbnail = document.createElement("span");
     thumbnail.className = input.type === "text" ? `textChipThumb textColor-${input.color ?? "mint"}` : "promptInlineImageFallback";
-    thumbnail.textContent = input.type === "text" ? "T" : "I";
+    thumbnail.textContent = input.type === "text" ? "T" : input.type === "video" ? "V" : "I";
     chip.append(thumbnail);
   }
   return chip;
@@ -1855,13 +2655,13 @@ function serializePromptNode(node: ChildNode): string {
 }
 
 function inputForPromptToken(token: string, inputs: InputNodeChip[]): InputNodeChip | undefined {
-  const match = /^\[\[(text|image):([^\]]+)\]\]$/.exec(token);
+  const match = /^\[\[(text|image|video):([^\]]+)\]\]$/.exec(token);
   return match ? inputs.find((input) => input.type === match[1] && input.id === match[2]) : undefined;
 }
 
 function tokenForInputId(inputId: string, inputs: InputNodeChip[]): string {
   const input = inputs.find((candidate) => candidate.id === inputId);
-  return input ? `[[${input.type === "text" ? "text" : "image"}:${input.id}]]` : "";
+  return input ? `[[${input.type === "text" ? "text" : input.type === "video" ? "video" : "image"}:${input.id}]]` : "";
 }
 
 function insertChipAtRange(
@@ -1916,14 +2716,15 @@ function StackPreview({
   onMakeMain
 }: {
   preview: { nodeId: string; title: string; index: number };
-  node: ImageNodeView | undefined;
+  node: ImageNodeView | VideoNodeView | undefined;
   onChangeIndex: (index: number) => void;
   onMakeMain: (nodeId: string, index: number) => void;
 }) {
   const stack = node?.manifest.stack ?? [];
   const safeIndex = stack.length ? Math.min(Math.max(preview.index, 0), stack.length - 1) : 0;
   const item = stack[safeIndex];
-  const imageUrl = item ? stackImageUrl(preview.nodeId, item.id) : "";
+  const mediaUrl = item && node ? stackMediaUrl(node.manifest.type, preview.nodeId, item.id) : "";
+  const isVideo = node?.manifest.type === "video";
   const canGoPrevious = safeIndex > 0;
   const canGoNext = safeIndex < stack.length - 1;
   const isMain = node?.manifest.activeStackIndex === safeIndex;
@@ -1931,7 +2732,7 @@ function StackPreview({
   return (
     <>
       <div className="previewImageWrap">
-        {imageUrl ? <img src={imageUrl} alt={preview.title} /> : <div className="previewEmpty">No image</div>}
+        {mediaUrl ? isVideo ? <video src={mediaUrl} controls preload="metadata" /> : <img src={mediaUrl} alt={preview.title} /> : <div className="previewEmpty">No media</div>}
         {canGoPrevious && (
           <button className="previewHoverZone previewHoverLeft" type="button" onClick={() => onChangeIndex(safeIndex - 1)}>
             <span><ChevronLeft size={22} strokeWidth={2.4} /></span>
@@ -1965,182 +2766,8 @@ function inputChipsForNode(nodeId: string, edges: CanvasEdge[], nodeById: Map<st
     }));
 }
 
-function stackImageUrl(nodeId: string, stackItemId: string): string {
-  return `${apiBase}/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}?v=${encodeURIComponent(stackItemId)}`;
-}
-
-function mergeModelOptions(options: ModelOption[]): ModelOption[] {
-  const byId = new Map<string, ModelOption>();
-  for (const option of options) {
-    const key = modelSelectionId(option);
-    if (!byId.has(key)) byId.set(key, option);
-  }
-  return [...byId.values()];
-}
-
-function modelSelectionId(model: ModelOption | undefined): string {
-  if (!model) return "";
-  return `${model.providerId ?? "unknown"}:${model.id}`;
-}
-
-function normalizeModelOptions(value: unknown, providerId?: string): ModelOption[] {
-  const candidates = collectModelCandidates(value);
-  const seen = new Set<string>();
-  return candidates
-    .map((entry): ModelOption | null => {
-      const record = entry as Record<string, unknown>;
-      const id = String(record.id ?? record.modelId ?? record.slug ?? record.name ?? "");
-      const title = String(record.title ?? record.label ?? record.displayName ?? record.name ?? id);
-      if (!id || seen.has(id)) return null;
-      seen.add(id);
-      return {
-        id,
-        title,
-        nodeTypes: inferModelNodeTypes(record),
-        providerId: String(record.providerId ?? record.provider ?? providerId ?? providerFromModelId(id)),
-        source: providerId,
-        acceptsImageInput: modelAcceptsImageInput(record),
-        maxImageInputs: modelMaxImageInputs(record),
-        imageReferenceSyntax: modelImageReferenceSyntax(record),
-        generationParameters: modelGenerationParameterDefinitions(record),
-        defaultParameters: modelDefaultGenerationParameters(record)
-      };
-    })
-    .filter((entry): entry is ModelOption => entry !== null && entry.nodeTypes.includes("image"));
-}
-
-function collectModelCandidates(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  if (!value || typeof value !== "object") return [];
-  const record = value as Record<string, unknown>;
-  for (const key of ["models", "imageModels", "providerModels", "connectedModels", "availableModels", "items"]) {
-    if (Array.isArray(record[key])) return record[key];
-  }
-  const nested: unknown[] = [];
-  for (const item of Object.values(record)) {
-    nested.push(...collectModelCandidates(item));
-  }
-  return nested;
-}
-
-function inferModelNodeTypes(record: Record<string, unknown>): string[] {
-  const architecture = record.architecture && typeof record.architecture === "object" ? record.architecture as Record<string, unknown> : {};
-  const fields = [
-    record.nodeTypes,
-    record.nodeType,
-    record.type,
-    record.capabilities,
-    record.modalities,
-    record.inputModalities,
-    record.outputModalities,
-    architecture.input_modalities,
-    architecture.output_modalities,
-    architecture.modality,
-    record.tasks,
-    record.kind,
-    record.category,
-    record.family
-  ];
-  const text = fields.flatMap((field) => Array.isArray(field) ? field : [field]).filter(Boolean).map(String).join(" ").toLowerCase();
-  if (/(image|img|vision|visual|text-to-image|image-generation|generation)/.test(text)) return ["image"];
-  if (/(text|chat|language|embedding)/.test(text)) return ["text"];
-  return [];
-}
-
-function modelAcceptsImageInput(record: Record<string, unknown>): boolean {
-  const architecture = record.architecture && typeof record.architecture === "object" ? record.architecture as Record<string, unknown> : {};
-  const provider = record.top_provider && typeof record.top_provider === "object" ? record.top_provider as Record<string, unknown> : {};
-  const parameters = provider.parameters && typeof provider.parameters === "object" ? provider.parameters as Record<string, unknown> : {};
-  const inputModalities = Array.isArray(architecture.input_modalities) ? architecture.input_modalities.map(String) : [];
-  return inputModalities.some((modality) => modality.toLowerCase() === "image") || Object.hasOwn(parameters, "images");
-}
-
-function modelMaxImageInputs(record: Record<string, unknown>): number | undefined {
-  const direct = Number(record.maxImageInputs ?? record.maxImages);
-  if (Number.isInteger(direct) && direct > 0) return direct;
-  const ioContract = record.ioContract && typeof record.ioContract === "object" ? record.ioContract as Record<string, unknown> : {};
-  const inputs = Array.isArray(ioContract.inputs) ? ioContract.inputs : [];
-  const imageInput = inputs.find((input) => input && typeof input === "object" && (input as Record<string, unknown>).kind === "image") as Record<string, unknown> | undefined;
-  const contracted = Number(imageInput?.maxItems);
-  return Number.isInteger(contracted) && contracted > 0 ? contracted : undefined;
-}
-
-function modelImageReferenceSyntax(record: Record<string, unknown>): string | undefined {
-  const value = record.imageReferenceSyntax ?? record.image_reference_syntax;
-  return typeof value === "string" && value.includes("{index}") ? value : undefined;
-}
-
-function modelGenerationParameterDefinitions(record: Record<string, unknown>): ModelParameterDefinition[] | undefined {
-  if (!Array.isArray(record.generationParameters)) return undefined;
-  const definitions = record.generationParameters.flatMap((source) => {
-    if (!source || typeof source !== "object") return [];
-    const definition = source as Record<string, unknown>;
-    const id = stringParameter(definition.id);
-    const label = stringParameter(definition.label);
-    const type: ModelParameterDefinition["type"] = definition.type === "number" || definition.type === "text" ? definition.type : "select";
-    if (!id || !label) return [];
-    const options = Array.isArray(definition.options)
-      ? definition.options.flatMap((entry) => {
-          if (!entry || typeof entry !== "object") return [];
-          const option = entry as Record<string, unknown>;
-          const value = stringParameter(option.value);
-          return value ? [{ value, label: stringParameter(option.label) }] : [];
-        })
-      : undefined;
-    return [{
-      id,
-      label,
-      type,
-      default: parameterValue(definition.default),
-      options,
-      min: numberParameter(definition.min),
-      max: numberParameter(definition.max),
-      step: numberParameter(definition.step)
-    }];
-  });
-  return definitions.length ? definitions : [];
-}
-
-function modelDefaultGenerationParameters(record: Record<string, unknown>): ImageGenerationParameters | undefined {
-  const source = record.defaultParameters ?? record.defaultParams;
-  if (!source || typeof source !== "object") return undefined;
-  return Object.fromEntries(
-    Object.entries(source as Record<string, unknown>).flatMap(([key, value]) => {
-      const parameter = parameterValue(value);
-      return parameter === undefined ? [] : [[key, parameter]];
-    })
-  );
-}
-
-function modelGenerationParameters(model: ModelOption): ImageGenerationParameters {
-  const schemaDefaults = Object.fromEntries(
-    (model.generationParameters ?? []).flatMap((definition) => definition.default === undefined ? [] : [[definition.id, definition.default]])
-  );
-  return { ...schemaDefaults, ...(model.defaultParameters ?? {}) };
-}
-
-function generationParameterSummary(definitions: ModelParameterDefinition[], values: ImageGenerationParameters): string {
-  if (definitions.length === 0) return "No parameters";
-  return definitions.slice(0, 2).map((definition) => String(values[definition.id] ?? definition.default ?? "")).filter(Boolean).join(" · ") || "Parameters";
-}
-
-function stringParameter(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function numberParameter(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function parameterValue(value: unknown): GenerationParameterValue | undefined {
-  return typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function fallbackGeminiParameters(): ModelParameterDefinition[] {
-  return [
-    { id: "aspectRatio", label: "Aspect ratio", type: "select", default: "1:1", options: ["1:1", "3:2", "2:3", "16:9", "9:16"].map((value) => ({ value })) },
-    { id: "imageSize", label: "Resolution", type: "select", default: "2K", options: ["1K", "2K", "4K"].map((value) => ({ value })) }
-  ];
+function stackMediaUrl(type: "image" | "video", nodeId: string, stackItemId: string): string {
+  return `${apiBase}/api/libraries/current/${type}-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}?v=${encodeURIComponent(stackItemId)}`;
 }
 
 function isTextEditingTarget(target: EventTarget | null): boolean {
@@ -2152,13 +2779,6 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
     || Boolean(target.closest('[contenteditable="true"]'));
 }
 
-function providerFromModelId(modelId: string): string {
-  if (modelId.startsWith("image.")) return "gemini";
-  if (modelId.startsWith("gemini-")) return "gemini";
-  if (modelId.includes("/")) return modelId.split("/")[0] || "unknown";
-  return "unknown";
-}
-
 function busyFavicon(angle: number): string {
   return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#111813"/><g transform="rotate(${angle} 13 13)" fill="#8fd7b5" stroke="#d8ffe9" stroke-width="1"><path d="M13 4.5 15 6l2.4-.5 1.4 2.1-.9 2.3 1.6 2v2.2l-2.3.8-.7 2.4-2.3.7-1.7-1.8-2.4.5-1.4-2.1.9-2.3-1.6-2V10l2.3-.8.7-2.4Z"/><circle cx="13" cy="12" r="3.1" fill="#111813"/></g><g transform="rotate(${-angle} 22 22)" fill="#f3bf45" stroke="#ffe785" stroke-width=".85"><path d="M22 15.3 23.5 17l2.1-.1.7 2-1.5 1.5.4 2.1-1.9.9-1.6-1.4-2.1.5-.9-1.9 1.3-1.7-.5-2.1 1.9-.9Z"/><circle cx="22" cy="19.3" r="2" fill="#111813"/></g></svg>`)}`;
 }
@@ -2167,12 +2787,14 @@ async function downloadPreview(previewUrl: string, title: string) {
   if (!previewUrl) return;
   const response = await fetch(previewUrl);
   const blob = await response.blob();
-  const filename = `${title || "image"}.png`;
+  const video = blob.type.startsWith("video/");
+  const extension = blob.type === "video/webm" ? ".webm" : blob.type === "video/quicktime" ? ".mov" : video ? ".mp4" : ".png";
+  const filename = `${title || (video ? "video" : "image")}${extension}`;
   const picker = window.showSaveFilePicker;
   if (picker) {
     const handle = await picker({
       suggestedName: filename,
-      types: [{ description: "Image", accept: { [blob.type || "image/png"]: [".png", ".jpg", ".jpeg", ".webp"] } }]
+      types: [{ description: video ? "Video" : "Image", accept: { [blob.type || "image/png"]: video ? [extension] : [".png", ".jpg", ".jpeg", ".webp"] } }]
     });
     const writable = await handle.createWritable();
     await writable.write(blob);
@@ -2347,6 +2969,10 @@ function fileToBase64(file: File): Promise<string> {
     reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
     reader.readAsDataURL(file);
   });
+}
+
+function isVideoFile(file: File): boolean {
+  return file.type.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(file.name);
 }
 
 createRoot(document.getElementById("root")!).render(

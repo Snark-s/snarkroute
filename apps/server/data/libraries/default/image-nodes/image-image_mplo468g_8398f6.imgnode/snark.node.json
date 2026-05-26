@@ -1,0 +1,21 @@
+{
+  "format": "snarkroute.node",
+  "version": "0.1",
+  "id": "image_mplo468g_8398f6",
+  "type": "image",
+  "title": "Image",
+  "stack": [
+    {
+      "id": "stack_mplo468i_45728c",
+      "externalUrl": "https://s3.polza.ai/f/216543/2026/05/t_0b3b52f9b96cdf52.png",
+      "source": "import",
+      "mimeType": "image/png",
+      "width": 320,
+      "height": 240,
+      "createdAt": "2026-05-25T20:37:43.696Z"
+    }
+  ],
+  "activeStackIndex": 0,
+  "createdAt": "2026-05-25T20:37:43.696Z",
+  "updatedAt": "2026-05-25T20:37:43.696Z"
+}

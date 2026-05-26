@@ -148,11 +148,11 @@ app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/ap
   }
 });
 
-app.get<{ Querystring: { type?: "chat" | "image" | "embedding" } }>("/api/providers/polza/models", async (request, reply) => {
+app.get<{ Querystring: { type?: "chat" | "image" | "video" | "embedding" } }>("/api/providers/polza/models", async (request, reply) => {
   try {
     if (!isPolzaEnabled()) return { ok: true, configured: false, modelCount: 0, models: [] };
     const models = await createPolzaClient().getModels(request.query.type);
-    const livingCanvasModels = models.map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "polza") }));
+    const livingCanvasModels = models.map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "polza", request.query.type) }));
     return { ok: true, configured: true, modelCount: livingCanvasModels.length, models: livingCanvasModels };
   } catch (error) {
     return reply.code(400).send({ ok: false, error: errorMessage(error) });

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { getLocalAssetMetadata, getPromptLibraryPath, getPromptLibraryPrompt, loadPromptLibrary } from "@snarkroute/nodes";
+import { getLocalAssetMetadata, getPromptLibraryPath, getPromptLibraryPrompt, loadPromptLibrary, writePngTextChunk } from "@snarkroute/nodes";
 
 export type CreatePromptAssetBody = {
   title?: string;
@@ -20,6 +20,7 @@ export type CreatePromptAssetBody = {
   };
   imagePath?: string;
   imageDataBase64?: string;
+  assetFormat?: "markdown" | "png";
 };
 
 export type UpdatePromptAssetBody = {
@@ -140,7 +141,9 @@ export async function createPromptAssetFromGeneratedImage(body: CreatePromptAsse
 
   const promptPath = join(directory, `${slug}.prompt.md`);
   const previewPath = join(directory, `${slug}.preview.png`);
-  if (existsSync(promptPath) || existsSync(previewPath)) {
+  const pngPromptPath = join(directory, `${slug}.prompt.png`);
+  const assetFormat = body.assetFormat === "png" ? "png" : "markdown";
+  if (existsSync(promptPath) || existsSync(previewPath) || existsSync(pngPromptPath)) {
     throw new Error(`Prompt asset "${category}/${slug}" already exists. Choose a different slug.`);
   }
   const tags = (body.tags ?? []).map(cleanSingleLine).filter(Boolean);
@@ -152,6 +155,24 @@ export async function createPromptAssetFromGeneratedImage(body: CreatePromptAsse
     nodeId: cleanSingleLine(body.source?.nodeId) || undefined,
     outputId: cleanSingleLine(body.source?.outputId) || undefined
   };
+  if (assetFormat === "png") {
+    const metadata = {
+      schema: "snarkroute.prompt-image.v0",
+      id: slug,
+      title,
+      category,
+      prompt,
+      negativePrompt: String(body.negativePrompt ?? "").trim() || undefined,
+      description: cleanSingleLine(body.description) || title,
+      kind: "text/prompt",
+      status: "candidate",
+      tags: tags.length ? tags : ["image"],
+      modelHints: modelHints.length ? modelHints : undefined,
+      source
+    };
+    await writeFile(pngPromptPath, writePngTextChunk(imageBuffer, "snarkroute:prompt", JSON.stringify(metadata)));
+    return { promptPath: pngPromptPath, previewPath: pngPromptPath, category, slug, assetFormat };
+  }
   const frontmatter = [
     "---",
     `id: ${yamlScalar(slug)}`,
@@ -176,7 +197,7 @@ export async function createPromptAssetFromGeneratedImage(body: CreatePromptAsse
   ].join("\n");
   await writeFile(promptPath, frontmatter, "utf8");
   await writeFile(previewPath, imageBuffer);
-  return { promptPath, previewPath, category, slug };
+  return { promptPath, previewPath, category, slug, assetFormat };
 }
 
 function yamlScalar(value: string): string {
@@ -189,64 +210,6 @@ async function readPromptAssetImageFromPath(path: string): Promise<Buffer> {
   if (imageMetadata.sizeBytes <= 0) throw new Error(`Preview image is empty: ${imageMetadata.path}`);
   if (imageMetadata.mimeType !== "image/png") throw new Error("Prompt PNG assets require a PNG image output.");
   return readFile(imageMetadata.path);
-}
-
-function writePngTextChunk(buffer: Buffer, key: string, text: string): Buffer {
-  assertPng(buffer);
-  const chunks: Buffer[] = [buffer.subarray(0, 8)];
-  let offset = 8;
-  let inserted = false;
-  while (offset + 12 <= buffer.length) {
-    const length = buffer.readUInt32BE(offset);
-    const type = buffer.toString("ascii", offset + 4, offset + 8);
-    const dataStart = offset + 8;
-    const dataEnd = dataStart + length;
-    const chunkEnd = dataEnd + 4;
-    if (chunkEnd > buffer.length) throw new Error("Invalid PNG chunk length.");
-    const data = buffer.subarray(dataStart, dataEnd);
-    const sameKey = (type === "iTXt" && pngTextChunkKey(data) === key) || (type === "tEXt" && pngTextChunkKey(data) === key);
-    if (type === "IEND" && !inserted) {
-      chunks.push(createITxtChunk(key, text));
-      inserted = true;
-    }
-    if (!sameKey) chunks.push(buffer.subarray(offset, chunkEnd));
-    if (type === "IEND") break;
-    offset = chunkEnd;
-  }
-  if (!inserted) throw new Error("PNG file is missing IEND chunk.");
-  return Buffer.concat(chunks);
-}
-
-function assertPng(buffer: Buffer): void {
-  if (buffer.length < 24 || buffer.toString("ascii", 1, 4) !== "PNG") throw new Error("Invalid PNG image.");
-}
-
-function pngTextChunkKey(data: Buffer): string | null {
-  const separator = data.indexOf(0);
-  return separator > 0 ? data.toString("latin1", 0, separator) : null;
-}
-
-function createITxtChunk(key: string, text: string): Buffer {
-  const payload = Buffer.concat([Buffer.from(key, "latin1"), Buffer.from([0, 0, 0, 0, 0]), Buffer.from(text, "utf8")]);
-  return createPngChunk("iTXt", payload);
-}
-
-function createPngChunk(type: string, data: Buffer): Buffer {
-  const length = Buffer.alloc(4);
-  length.writeUInt32BE(data.length, 0);
-  const typeBuffer = Buffer.from(type, "ascii");
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(Buffer.concat([typeBuffer, data])), 0);
-  return Buffer.concat([length, typeBuffer, data, crc]);
-}
-
-function crc32(buffer: Buffer): number {
-  let crc = 0xffffffff;
-  for (const byte of buffer) {
-    crc ^= byte;
-    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
-  }
-  return (crc ^ 0xffffffff) >>> 0;
 }
 
 function cleanSingleLine(value: unknown): string {

@@ -39,6 +39,7 @@ export interface PromptLibraryPrompt {
   title: string;
   category: string;
   description?: string;
+  negativePrompt?: string;
   tags?: string[];
   kind?: string;
   status?: string;
@@ -1153,6 +1154,7 @@ export function parsePromptFile(text: string, path = "<prompt>"): { prompt: Prom
   const description = stringField(metadata, "description");
   const kind = stringField(metadata, "kind");
   const status = stringField(metadata, "status");
+  const negativePrompt = stringField(metadata, "negativePrompt");
   const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())) : undefined;
   const previewImage = stringField(metadata, "previewImage");
   const source = metadata.source && typeof metadata.source === "object" && !Array.isArray(metadata.source) ? metadata.source as Record<string, unknown> : undefined;
@@ -1164,6 +1166,7 @@ export function parsePromptFile(text: string, path = "<prompt>"): { prompt: Prom
       title,
       category,
       description: description || undefined,
+      negativePrompt: negativePrompt || undefined,
       tags,
       kind: kind || undefined,
       status: status || undefined,
@@ -1192,6 +1195,7 @@ export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { pro
     const description = stringField(metadata, "description");
     const kind = stringField(metadata, "kind");
     const status = stringField(metadata, "status");
+    const negativePrompt = stringField(metadata, "negativePrompt");
     const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())) : undefined;
     const source = metadata.source && typeof metadata.source === "object" && !Array.isArray(metadata.source) ? metadata.source as Record<string, unknown> : undefined;
     const modelHints = Array.isArray(metadata.modelHints) ? metadata.modelHints.filter((hint): hint is string => typeof hint === "string" && Boolean(hint.trim())) : undefined;
@@ -1201,6 +1205,7 @@ export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { pro
         title,
         category,
         description: description || undefined,
+        negativePrompt: negativePrompt || undefined,
         tags,
         kind: kind || undefined,
         status: status || undefined,

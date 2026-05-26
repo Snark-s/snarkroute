@@ -30,15 +30,16 @@ describe("OpenRouter adapter", () => {
     });
   });
 
-  it("passes OpenAI image aspect ratio and maps it to size", () => {
-    expect(buildImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "3:2", imageSize: "low" })).toMatchObject({
+  it("passes OpenAI image aspect ratio through OpenRouter image_config", () => {
+    const body = buildImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "16:9", imageSize: "low" });
+    expect(body).toMatchObject({
       model: "openai/gpt-5.4-image-2",
       messages: [{ role: "user", content: "draw" }],
       modalities: ["image", "text"],
-      aspect_ratio: "3:2",
-      size: "1536x1024",
+      image_config: { aspect_ratio: "16:9" },
       quality: "low"
     });
+    expect(body).not.toHaveProperty("aspect_ratio");
   });
 
   it("builds a Gemini-compatible image request with image_config", () => {

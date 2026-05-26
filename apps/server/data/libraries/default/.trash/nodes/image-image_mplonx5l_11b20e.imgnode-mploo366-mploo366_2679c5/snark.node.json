@@ -1,0 +1,21 @@
+{
+  "format": "snarkroute.node",
+  "version": "0.1",
+  "id": "image_mplonx5l_11b20e",
+  "type": "image",
+  "title": "Image",
+  "stack": [
+    {
+      "id": "stack_mplonx5n_868a58",
+      "file": "stack/000-import.jpg",
+      "source": "import",
+      "mimeType": "image/jpeg",
+      "width": 1376,
+      "height": 1536,
+      "createdAt": "2026-05-25T20:53:05.049Z"
+    }
+  ],
+  "activeStackIndex": 0,
+  "createdAt": "2026-05-25T20:53:05.049Z",
+  "updatedAt": "2026-05-25T20:53:05.049Z"
+}

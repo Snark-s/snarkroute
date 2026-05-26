@@ -1,0 +1,21 @@
+{
+  "format": "snarkroute.node",
+  "version": "0.1",
+  "id": "image_mpl59mtr_031593",
+  "type": "image",
+  "title": "image",
+  "stack": [
+    {
+      "id": "stack_mpl59mtu_c24d72",
+      "file": "stack/000-import.png",
+      "source": "import",
+      "mimeType": "image/png",
+      "width": 1921,
+      "height": 1017,
+      "createdAt": "2026-05-25T11:50:05.778Z"
+    }
+  ],
+  "activeStackIndex": 0,
+  "createdAt": "2026-05-25T11:50:05.778Z",
+  "updatedAt": "2026-05-25T11:50:05.778Z"
+}

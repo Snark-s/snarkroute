@@ -54,10 +54,11 @@ button {
 }
 
 .livingCanvasShell {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .livingCanvasShell.inspectorOpen {
@@ -70,17 +71,6 @@ button {
 
 .livingCanvasShell.libraryCollapsed.inspectorOpen {
   grid-template-columns: minmax(0, 1fr) 300px;
-}
-
-.topbar {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
 }
 
 .brand {
@@ -169,6 +159,7 @@ dd {
   padding: 16px;
   background: var(--panel);
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .libraryRail {
@@ -177,6 +168,214 @@ dd {
 
 .inspector {
   border-left: 1px solid var(--line);
+}
+
+.panelBrand {
+  margin-bottom: 22px;
+}
+
+.collapsedBrandIcon {
+  position: fixed;
+  top: 13px;
+  left: 12px;
+  z-index: 10;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.panelToolbar {
+  justify-content: flex-end;
+  margin-bottom: 18px;
+}
+
+.modelsPanel {
+  display: grid;
+  gap: 16px;
+}
+
+.modelsSection {
+  display: grid;
+  gap: 8px;
+}
+
+.modelsSection h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.providerCard {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+
+.providerHeading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.providerStatus {
+  padding: 3px 6px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 80%, transparent);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.providerStatus.is-connected {
+  color: var(--accent);
+}
+
+.providerStatus.is-error,
+.providerStatus.is-offline {
+  color: #e99b9b;
+}
+
+.providerCard p,
+.addModelForm p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.providerCard small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.providerMessage {
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.providerMessage.isError {
+  color: #e99b9b;
+  background: color-mix(in srgb, #e66b6b 10%, transparent);
+}
+
+.providerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.providerActions button,
+.providerConnectForm button,
+.addModelForm button {
+  min-height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.providerConnectForm,
+.manualProfile {
+  display: grid;
+  gap: 6px;
+}
+
+.providerConnectForm input,
+.providerConnectForm select,
+.addModelForm input {
+  width: 100%;
+  height: 30px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--panel);
+}
+
+.availableModels {
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.modelGroup {
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--panel-soft);
+  font-size: 12px;
+}
+
+.modelGroup summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.modelGroup summary::-webkit-details-marker {
+  display: none;
+}
+
+.modelGroup summary strong::before {
+  content: ">";
+  display: inline-block;
+  margin-right: 7px;
+  color: var(--muted);
+  transform: rotate(0deg);
+  transition: transform 120ms ease;
+}
+
+.modelGroup[open] summary strong::before {
+  transform: rotate(90deg);
+}
+
+.modelGroupList {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.modelGroupList > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--text);
+}
+
+.modelGroupList > span.isUnavailable {
+  opacity: 0.5;
+}
+
+.modelGroup small {
+  color: var(--muted);
+}
+
+.addModelForm {
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.addModelForm label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.modelsAddButton {
+  width: 100%;
+  text-align: left;
 }
 
 .panelTitle {
@@ -200,10 +399,10 @@ dd {
   border-radius: 6px;
 }
 
-.libraryReopenButton {
+.libraryReopenButton,
+.inspectorReopenButton {
   position: fixed;
-  left: 10px;
-  top: 78px;
+  top: 14px;
   z-index: 10;
   width: 34px;
   height: 34px;
@@ -212,6 +411,15 @@ dd {
   justify-content: center;
   border-radius: 6px;
   box-shadow: 0 8px 24px var(--shadow);
+}
+
+.libraryReopenButton {
+  top: 55px;
+  left: 13px;
+}
+
+.inspectorReopenButton {
+  right: 10px;
 }
 
 .libraryCard {
@@ -361,6 +569,29 @@ dd {
   pointer-events: none;
 }
 
+.stackItemDragPreview {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 18;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border: 2px dashed var(--accent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 0 12px 34px var(--shadow);
+}
+
+.stackItemDragPreview span {
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  font-size: 12px;
+  font-weight: 650;
+}
+
 .canvasEdges .edgePreview {
   stroke: var(--accent);
   stroke-dasharray: 8 8;
@@ -383,6 +614,17 @@ dd {
 
 .imageNode.isActive {
   grid-template-rows: 24px var(--image-height) 250px;
+}
+
+.addLibraryButton {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 7px;
 }
 
 .imageNode.isSelected .imagePreview,
@@ -461,7 +703,7 @@ dd {
 .nodeToolbar {
   position: absolute;
   left: 50%;
-  top: -64px;
+  top: -48px;
   z-index: 4;
   display: flex;
   align-items: center;
@@ -510,6 +752,111 @@ dd {
 
 .textNodeBody {
   cursor: text;
+}
+
+.libraryNode {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 97%, transparent);
+  box-shadow: 0 16px 42px var(--shadow);
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.libraryNode.isSelected {
+  box-shadow: 0 0 0 2px var(--accent), 0 16px 42px var(--shadow);
+}
+
+.libraryNodeHeader {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.libraryNodeHeader strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.libraryNodePath {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.libraryModeSelect {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: default;
+}
+
+.libraryModeSelect select {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--panel-soft);
+}
+
+.libraryAssetGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.libraryAsset {
+  position: relative;
+  height: 58px;
+  min-width: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.libraryAsset img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.libraryAsset small {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.74);
+  color: #fff;
+  font-size: 9px;
+}
+
+.libraryEmpty,
+.libraryPlaceholder {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 .textNodeDragBar {
@@ -688,7 +1035,8 @@ dd {
   background: #dfe8e2;
 }
 
-.imagePreview img {
+.imagePreview img,
+.imagePreview video {
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -761,13 +1109,15 @@ dd {
   overflow: hidden;
   padding: 0;
   border-radius: 8px;
+  touch-action: none;
 }
 
 .stackBoard button.isActive {
   outline: 2px solid var(--accent);
 }
 
-.stackBoard img {
+.stackBoard img,
+.stackBoard video {
   width: 100%;
   height: 100%;
   object-fit: contain;
@@ -861,10 +1211,11 @@ dd {
   height: 100%;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--text-node-color, var(--accent)) 72%, var(--panel));
-  color: #07100b;
-  font-size: 13px;
-  font-weight: 800;
+  border: 2px solid color-mix(in srgb, var(--text-node-color, var(--accent)) 76%, var(--line));
+  background: color-mix(in srgb, var(--text-node-color, var(--accent)) 28%, #f6f7f2);
+  color: #101611;
+  font-size: 19px;
+  font-weight: 900;
 }
 
 .inputChip span {
@@ -906,7 +1257,8 @@ dd {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.52);
 }
 
-.previewDialog img {
+.previewDialog img,
+.previewDialog video {
   display: block;
   max-width: 100%;
   max-height: calc(88vh - 84px);
@@ -1345,11 +1697,103 @@ dd {
 }
 
 .modelMenuEmpty {
+  display: grid;
+  gap: 7px;
   padding: 8px;
+}
+
+.promptMeta .modelMenuEmpty button {
+  width: 100%;
+  height: 30px;
+  margin: 0;
+  border-radius: 7px;
+  color: var(--text);
+  background: var(--panel-soft);
+  font-size: 11px;
 }
 
 .modelMenuList button:hover {
   background: var(--panel-soft);
+}
+
+.routeSettings {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.promptMeta .routeSettingsButton {
+  width: 25px;
+  height: 25px;
+  margin-left: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  color: var(--muted);
+}
+
+.routeBadge {
+  max-width: 90px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routeSettingsMenu {
+  position: absolute;
+  left: -48px;
+  bottom: 34px;
+  z-index: 9;
+  display: grid;
+  gap: 9px;
+  width: 220px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 14px 36px var(--shadow);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.routeSettingsMenu strong,
+.routeSettingsMenu .routeModelId {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routeSettingsMenu strong {
+  color: var(--text);
+}
+
+.routeSettingsMenu label:not(.fallbackSetting) {
+  display: grid;
+  gap: 5px;
+}
+
+.routeSettingsMenu select {
+  width: 100%;
+  height: 30px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--text);
+}
+
+.routeSettingsMenu .fallbackSetting {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text);
+}
+
+.routeSettingsMenu .fallbackSetting input {
+  margin: 0;
 }
 
 .nodeCreateMenu {
@@ -1434,18 +1878,12 @@ dd {
   .livingCanvasShell.libraryCollapsed,
   .livingCanvasShell.libraryCollapsed.inspectorOpen {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto minmax(460px, 1fr) auto;
+    grid-template-rows: auto minmax(460px, 1fr) auto;
   }
 
-  .topbar,
   .toolbar {
     align-items: flex-start;
     flex-wrap: wrap;
-  }
-
-  .topbar {
-    min-height: 64px;
-    padding: 12px;
   }
 
   .libraryRail {
