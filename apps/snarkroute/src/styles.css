@@ -1733,15 +1733,6 @@ dd {
   color: var(--muted);
 }
 
-.routeBadge {
-  max-width: 90px;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .routeSettingsMenu {
   position: absolute;
   left: -48px;

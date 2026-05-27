@@ -7,7 +7,7 @@
   "stack": [
     {
       "id": "stack_mpmjexn0_9951fe",
-      "file": "stack/000-generation.mp4",
+      "file": "content/000-generation.mp4",
       "source": "generation",
       "mimeType": "video/mp4",
       "width": 320,
@@ -16,7 +16,7 @@
     },
     {
       "id": "stack_mpmjl2gn_2148e4",
-      "file": "stack/001-generation.mp4",
+      "file": "content/001-generation.mp4",
       "source": "generation",
       "mimeType": "video/mp4",
       "width": 320,

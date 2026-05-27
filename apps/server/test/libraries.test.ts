@@ -65,7 +65,7 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
-  it("imports an image as a full Image Node folder with stack[0] copied image", async () => {
+  it("imports an image into a neutral node folder with stack[0] copied into content", async () => {
     const app = await testServer();
     try {
       const response = await app.inject({
@@ -84,21 +84,21 @@ describe("SnarkRoute libraries", () => {
       const body = response.json();
       const node = body.nodes[0];
       expect(node.canvas).toMatchObject({ type: "image", x: 340, y: 180, width: 320, height: 240 });
-      expect(node.canvas.nodePath).toMatch(/^image-nodes\/.+\.imgnode$/);
+      expect(node.canvas.nodePath).toMatch(/^nodes\/image_.+\.node$/);
       expect(node.manifest).toMatchObject({ format: "snarkroute.node", type: "image", activeStackIndex: 0 });
-      expect(node.manifest.stack[0]).toMatchObject({ file: "stack/000-import.png", source: "import", mimeType: "image/png", width: 1, height: 1 });
+      expect(node.manifest.stack[0]).toMatchObject({ file: "content/000-import.png", source: "import", mimeType: "image/png", width: 1, height: 1 });
 
       const canvas = JSON.parse(await readFile(join(libraryPath, "canvas.json"), "utf8"));
       expect(canvas.nodes[0].nodePath).toBe(node.canvas.nodePath);
       expect(canvas.nodes[0].nodePath).not.toContain("\\");
       expect(canvas.nodes[0].nodePath).not.toContain(libraryPath);
 
-      const nodeFolders = await readdir(join(libraryPath, "image-nodes"));
-      const nodeManifest = JSON.parse(await readFile(join(libraryPath, "image-nodes", nodeFolders[0], "snark.node.json"), "utf8"));
-      expect(nodeManifest.stack[0].file).toBe("stack/000-import.png");
-      await expect(readFile(join(libraryPath, "image-nodes", nodeFolders[0], "current-prompt.txt"), "utf8")).resolves.toBe("");
+      const nodeFolders = await readdir(join(libraryPath, "nodes"));
+      const nodeManifest = JSON.parse(await readFile(join(libraryPath, "nodes", nodeFolders[0], "snark.node.json"), "utf8"));
+      expect(nodeManifest.stack[0].file).toBe("content/000-import.png");
+      await expect(readFile(join(libraryPath, "nodes", nodeFolders[0], "current-prompt.txt"), "utf8")).resolves.toBe("");
       expect(body.manifest.representativeImage).toEqual({ nodeId: node.manifest.id, stackItemId: node.manifest.stack[0].id });
-      await expect(readFile(join(libraryPath, "image-nodes", nodeFolders[0], "stack", "000-import.png"))).resolves.toBeInstanceOf(Buffer);
+      await expect(readFile(join(libraryPath, "nodes", nodeFolders[0], "content", "000-import.png"))).resolves.toBeInstanceOf(Buffer);
     } finally {
       await app.close();
     }
@@ -141,7 +141,7 @@ describe("SnarkRoute libraries", () => {
       expect(imported.statusCode).toBe(200);
       const node = imported.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "library");
       expect(node.manifest).toMatchObject({ type: "library", sourcePath, viewMode: "image-stack" });
-      expect(node.canvas.nodePath).toMatch(/^library-nodes\/.+\.libnode$/);
+      expect(node.canvas.nodePath).toMatch(/^nodes\/library_.+\.node$/);
       expect(node.scan).toMatchObject({ title: "Robot Children", defaultView: "image-stack", availableViews: expect.arrayContaining(["image-stack", "prompt-library", "workflow"]) });
       expect(node.scan.assets.find((asset: { relativePath: string }) => asset.relativePath === "images/closeup.png")).toMatchObject({
         kind: "image",
@@ -177,9 +177,9 @@ describe("SnarkRoute libraries", () => {
       expect(importedResponse.statusCode).toBe(200);
       const node = importedResponse.json().nodes[0];
       expect(node.canvas).toMatchObject({ type: "video", x: 340, y: 180, width: 320, height: 240 });
-      expect(node.canvas.nodePath).toMatch(/^video-nodes\/.+\.vidnode$/);
+      expect(node.canvas.nodePath).toMatch(/^nodes\/video_.+\.node$/);
       expect(node.manifest).toMatchObject({ type: "video", activeStackIndex: 0 });
-      expect(node.manifest.stack[0]).toMatchObject({ file: "stack/000-import.mp4", mimeType: "video/mp4" });
+      expect(node.manifest.stack[0]).toMatchObject({ file: "content/000-import.mp4", mimeType: "video/mp4" });
 
       const promptedResponse = await app.inject({
         method: "PUT",
@@ -197,7 +197,7 @@ describe("SnarkRoute libraries", () => {
       });
       const updated = appendedResponse.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
       expect(updated.manifest.activeStackIndex).toBe(1);
-      expect(updated.manifest.stack[1]).toMatchObject({ file: "stack/000-import.webm", mimeType: "video/webm" });
+      expect(updated.manifest.stack[1]).toMatchObject({ file: "content/000-import.webm", mimeType: "video/webm" });
 
       const previewResponse = await app.inject({
         method: "GET",
@@ -253,7 +253,7 @@ describe("SnarkRoute libraries", () => {
 
       expect(response.statusCode).toBe(200);
       const generatedNode = response.json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === target.manifest.id);
-      expect(generatedNode.manifest.stack[1]).toMatchObject({ file: "stack/000-generation.mp4", mimeType: "video/mp4" });
+      expect(generatedNode.manifest.stack[1]).toMatchObject({ file: "content/000-generation.mp4", mimeType: "video/mp4" });
       expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
         nodes: [expect.objectContaining({
           type: "polza.video.generate",
@@ -301,9 +301,9 @@ describe("SnarkRoute libraries", () => {
       const duplicate = response.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id !== source.manifest.id);
       expect(duplicate.canvas).toMatchObject({ type: "image", x: 420, y: 220 });
       expect(duplicate.manifest).toMatchObject({ type: "image", title: "Source copy", currentPrompt: "Copied prompt" });
-      expect(duplicate.manifest.stack[0]).toMatchObject({ file: "stack/000-import.png", mimeType: "image/png" });
+      expect(duplicate.manifest.stack[0]).toMatchObject({ file: "content/000-import.png", mimeType: "image/png" });
       expect(response.json().canvas.edges ?? []).toEqual([]);
-      await expect(readFile(join(libraryPath, duplicate.canvas.nodePath, "stack", "000-import.png"))).resolves.toBeInstanceOf(Buffer);
+      await expect(readFile(join(libraryPath, duplicate.canvas.nodePath, "content", "000-import.png"))).resolves.toBeInstanceOf(Buffer);
     } finally {
       await app.close();
     }
@@ -386,6 +386,7 @@ describe("SnarkRoute libraries", () => {
         payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
       });
       const textNode = textResponse.json().nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "text");
+      expect(textNode.canvas.nodePath).toMatch(/^nodes\/text_.+\.node$/);
       await app.inject({
         method: "PUT",
         url: `/api/libraries/current/text-nodes/${textNode.manifest.id}`,
@@ -484,7 +485,7 @@ describe("SnarkRoute libraries", () => {
       expect(response.statusCode).toBe(200);
       await expect(readFile(join(originalPath, "snark.node.json"), "utf8")).rejects.toThrow();
       const trashFolders = await readdir(join(libraryPath, ".trash", "nodes"));
-      expect(trashFolders.some((folder) => folder.startsWith("disposable-"))).toBe(true);
+      expect(trashFolders.some((folder) => folder.startsWith(target.manifest.id))).toBe(true);
 
       const undoResponse = await app.inject({
         method: "PUT",
@@ -524,7 +525,7 @@ describe("SnarkRoute libraries", () => {
 
       expect(response.statusCode).toBe(200);
       const generated = response.json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === target.manifest.id).manifest.stack[1];
-      expect(generated).toMatchObject({ file: "stack/000-generation.png", mimeType: "image/png" });
+      expect(generated).toMatchObject({ file: "content/000-generation.png", mimeType: "image/png" });
       expect(generated.externalUrl).toBeUndefined();
       expect(executeRouteMock.mock.calls[0][0].nodes[0].params.images).toEqual([]);
       await expect(readFile(join(libraryPath, target.canvas.nodePath, generated.file))).resolves.toBeInstanceOf(Buffer);

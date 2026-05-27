@@ -7,7 +7,7 @@
   "stack": [
     {
       "id": "stack_mpfy0iou_606893",
-      "file": "stack/000-import.png",
+      "file": "content/000-import.png",
       "source": "import",
       "mimeType": "image/png",
       "width": 1365,
@@ -16,7 +16,7 @@
     },
     {
       "id": "stack_mpg0fzl8_737f9b",
-      "file": "stack/005-import.jpg",
+      "file": "content/005-import.jpg",
       "source": "import",
       "mimeType": "image/jpeg",
       "width": 1376,
@@ -25,7 +25,7 @@
     },
     {
       "id": "stack_mpg0gmkk_33a6b5",
-      "file": "stack/004-import.jpg",
+      "file": "content/004-import.jpg",
       "source": "import",
       "mimeType": "image/jpeg",
       "width": 895,
@@ -34,7 +34,7 @@
     },
     {
       "id": "stack_mpgyl09e_699994",
-      "file": "stack/001-import.png",
+      "file": "content/001-import.png",
       "source": "import",
       "mimeType": "image/png",
       "width": 1578,
@@ -43,7 +43,7 @@
     },
     {
       "id": "stack_mpgyl6qi_4f6f05",
-      "file": "stack/002-import.png",
+      "file": "content/002-import.png",
       "source": "import",
       "mimeType": "image/png",
       "width": 1596,

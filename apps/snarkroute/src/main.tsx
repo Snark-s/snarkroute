@@ -389,7 +389,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void refreshModelsAndProviders();
+    void refreshModelsAndProviders(true);
   }, []);
 
   useEffect(() => {
@@ -628,13 +628,21 @@ function App() {
     }
   }
 
-  async function refreshModelsAndProviders() {
+  async function refreshModelsAndProviders(refreshConnectedCatalogs = false) {
     try {
       const settings = await apiGet<ProviderSettings>("/api/settings");
       setProviderSettings(settings);
+      const refreshErrors: Partial<Record<string, string>> = {};
+      if (refreshConnectedCatalogs && settings.openrouter?.configured) {
+        try {
+          await apiPost("/api/providers/openrouter/refresh-model-catalog", {});
+        } catch (error) {
+          refreshErrors.openrouter = error instanceof Error ? error.message : "Catalog refresh failed.";
+        }
+      }
       const catalog = await loadModelCatalog(apiGet, settings);
       setModels(catalog.models);
-      setProviderErrors(catalog.errors);
+      setProviderErrors({ ...catalog.errors, ...refreshErrors });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not load model sources.";
       setProviderErrors({ settings: message });
@@ -1067,7 +1075,9 @@ function App() {
         connectFromNodeId: nodeCreateMenu.fromNodeId
       });
       setLibrary(snapshot);
-      setSelectedNodeId(snapshot.nodes[snapshot.nodes.length - 1]?.canvas.id ?? null);
+      const createdNodeId = snapshot.nodes[snapshot.nodes.length - 1]?.canvas.id ?? null;
+      setSelectedNodeId(createdNodeId);
+      setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
       setStatus(`${type === "image" ? "Image" : type === "video" ? "Video" : "Text"} node created`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not create node.");
@@ -1105,7 +1115,7 @@ function App() {
   }
 
   async function saveMediaRouteSettings(type: "image" | "video", nodeId: string, selection: ModelRouteSelection) {
-    setModelSelections((current) => ({ ...current, [nodeId]: selection }));
+    setModelSelections({ ...modelSelections, [nodeId]: selection });
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${type}-nodes/${encodeURIComponent(nodeId)}/route-settings`, selection);
       setLibrary(snapshot);
@@ -1195,6 +1205,7 @@ function App() {
         });
         setLibrary(snapshot);
         setSelectedNodeId(nodeId);
+        setSelectedNodeIds([nodeId]);
         setStatus(`${isVideo ? "Video" : "Image"} added to stack`);
       } catch (error) {
         setStatus(error instanceof Error ? error.message : `Could not add ${isVideo ? "video" : "image"} to stack.`);
@@ -1208,6 +1219,7 @@ function App() {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack/active`, { activeStackIndex });
       setLibrary(snapshot);
       setSelectedNodeId(nodeId);
+      setSelectedNodeIds([nodeId]);
       setStatus("Stack item selected");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not select stack item.");
@@ -1231,6 +1243,7 @@ function App() {
       });
       setLibrary(snapshot);
       setSelectedNodeId(nodeId);
+      setSelectedNodeIds([nodeId]);
       setStatus("Generation added to stack");
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message: "Added to stack" } }));
     } catch (error) {
@@ -1318,7 +1331,9 @@ function App() {
       const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}`);
       setLibrary(snapshot);
       setSelectedNodeId(null);
+      setSelectedNodeIds([]);
       setSelectedEdgeId(null);
+      setSelectionMenu(null);
       setStatus("Node deleted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete node.");
@@ -1449,6 +1464,7 @@ function App() {
             onSelectEdge={(edgeId) => {
               setSelectedEdgeId(edgeId);
               setSelectedNodeId(null);
+              setSelectedNodeIds([]);
             }}
           />
           {nodes.map((node) => node.manifest.type === "library" ? (
@@ -1509,7 +1525,7 @@ function App() {
                 setStackItemMenu({ x: event.clientX, y: event.clientY, nodeId, stackItemId });
               }}
               models={modelsForContentKind(catalogModels, node.manifest.type as ContentKind)}
-              modelSelection={normalizedModelRouteSelection(node.manifest.modelId ? {
+              modelSelection={normalizedModelRouteSelection("modelId" in node.manifest && node.manifest.modelId ? {
                 modelId: node.manifest.modelId,
                 executionProvider: node.manifest.executionProvider ?? "auto",
                 fallbackAllowed: node.manifest.fallbackAllowed !== false
@@ -2387,7 +2403,6 @@ function ImageNode({
               >
                 <Wrench size={13} />
               </button>
-              {effectiveSelection.executionProvider !== "auto" ? <small className="routeBadge">via {executionRouteDisplayName(effectiveSelection.executionProvider)}</small> : null}
               {routeSettingsOpen && (
                 <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
                   <strong>{selectedModel.title}</strong>

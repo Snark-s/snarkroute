@@ -399,13 +399,12 @@ export async function importImageAsNode(input: ImportImageInput): Promise<Librar
   const mimeType = mimeTypeFromExtension(extension);
   const title = titleFromFilename(input.filename);
   const id = `image_${shortId()}`;
-  const folderName = `${slugify(title)}-${id}.imgnode`;
-  const nodeRelativePath = portableJoin("image-nodes", folderName);
+  const nodeRelativePath = canvasNodeRelativePath(id);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
-  const stackPath = join(nodePath, "stack");
-  const imageRelativePath = portableJoin("stack", `000-import${extension}`);
+  const contentPath = join(nodePath, "content");
+  const imageRelativePath = portableJoin("content", `000-import${extension}`);
   const imagePath = resolvePortablePath(nodePath, imageRelativePath);
-  await mkdir(stackPath, { recursive: true });
+  await mkdir(contentPath, { recursive: true });
 
   if (input.dataBase64) {
     await writeFile(imagePath, Buffer.from(input.dataBase64, "base64"));
@@ -462,12 +461,11 @@ export async function importVideoAsNode(input: ImportVideoInput): Promise<Librar
   const extension = normalizedVideoExtension(input.filename);
   const title = titleFromFilename(input.filename);
   const id = `video_${shortId()}`;
-  const folderName = `${slugify(title)}-${id}.vidnode`;
-  const nodeRelativePath = portableJoin("video-nodes", folderName);
+  const nodeRelativePath = canvasNodeRelativePath(id);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
-  const videoRelativePath = portableJoin("stack", `000-import${extension}`);
+  const videoRelativePath = portableJoin("content", `000-import${extension}`);
   const videoPath = resolvePortablePath(nodePath, videoRelativePath);
-  await mkdir(join(nodePath, "stack"), { recursive: true });
+  await mkdir(join(nodePath, "content"), { recursive: true });
 
   if (input.dataBase64) {
     await writeFile(videoPath, Buffer.from(input.dataBase64, "base64"));
@@ -521,7 +519,7 @@ export async function importLocalLibraryAsNode(input: ImportLocalLibraryInput): 
   const scan = await scanLocalLibrary(input.sourcePath);
   const now = new Date().toISOString();
   const id = `library_${shortId()}`;
-  const nodeRelativePath = portableJoin("library-nodes", `${slugify(scan.title)}-${id}.libnode`);
+  const nodeRelativePath = canvasNodeRelativePath(id);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   const viewMode = input.viewMode && scan.availableViews.includes(input.viewMode) ? input.viewMode : scan.defaultView;
   const manifest: LibraryNodeManifest = {
@@ -629,11 +627,11 @@ export async function appendImageToNodeStack(input: AppendImageStackInput): Prom
   const { manifest, nodePath } = await readImageNode(input.nodeId);
   const extension = normalizedImageExtension(input.filename);
   const mimeType = mimeTypeFromExtension(extension);
-  const stackPath = join(nodePath, "stack");
+  const contentPath = join(nodePath, "content");
   const stackIndex = manifest.stack.length;
   const imageRelativePath = nextStackFilename(manifest.stack, "import", extension);
   const imagePath = resolvePortablePath(nodePath, imageRelativePath);
-  await mkdir(stackPath, { recursive: true });
+  await mkdir(contentPath, { recursive: true });
 
   if (input.dataBase64) {
     await writeFile(imagePath, Buffer.from(input.dataBase64, "base64"));
@@ -672,7 +670,7 @@ export async function appendVideoToNodeStack(input: AppendVideoStackInput): Prom
   const stackIndex = manifest.stack.length;
   const videoRelativePath = nextStackFilename(manifest.stack, "import", extension);
   const videoPath = resolvePortablePath(nodePath, videoRelativePath);
-  await mkdir(join(nodePath, "stack"), { recursive: true });
+  await mkdir(join(nodePath, "content"), { recursive: true });
 
   if (input.dataBase64) {
     await writeFile(videoPath, Buffer.from(input.dataBase64, "base64"));
@@ -1005,13 +1003,12 @@ export async function duplicateStackItemAsConnectedImageNode(input: DuplicateSta
   const now = new Date().toISOString();
   const id = `image_${shortId()}`;
   const title = sourceManifest.title || "Image";
-  const folderName = `${slugify(title)}-${id}.imgnode`;
-  const nodeRelativePath = portableJoin("image-nodes", folderName);
+  const nodeRelativePath = canvasNodeRelativePath(id);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
-  const stackPath = join(nodePath, "stack");
+  const contentPath = join(nodePath, "content");
   const extension = extname(sourceItem.file ?? sourceItem.externalUrl ?? "").toLowerCase() || ".png";
-  const imageRelativePath = portableJoin("stack", `000-import${extension}`);
-  await mkdir(stackPath, { recursive: true });
+  const imageRelativePath = portableJoin("content", `000-import${extension}`);
+  await mkdir(contentPath, { recursive: true });
   if (sourceItem.file) await copyFile(resolvePortablePath(sourceNodePath, sourceItem.file), resolvePortablePath(nodePath, imageRelativePath));
 
   const manifest: ImageNodeManifest = {
@@ -1062,12 +1059,11 @@ export async function duplicateStackItemAsConnectedVideoNode(input: DuplicateSta
 
   const now = new Date().toISOString();
   const id = `video_${shortId()}`;
-  const folderName = `${slugify(sourceManifest.title || "Video")}-${id}.vidnode`;
-  const nodeRelativePath = portableJoin("video-nodes", folderName);
+  const nodeRelativePath = canvasNodeRelativePath(id);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   const extension = extname(sourceItem.file).toLowerCase() || ".mp4";
-  const videoRelativePath = portableJoin("stack", `000-import${extension}`);
-  await mkdir(join(nodePath, "stack"), { recursive: true });
+  const videoRelativePath = portableJoin("content", `000-import${extension}`);
+  await mkdir(join(nodePath, "content"), { recursive: true });
   await copyFile(resolvePortablePath(sourceNodePath, sourceItem.file), resolvePortablePath(nodePath, videoRelativePath));
 
   const manifest: VideoNodeManifest = {
@@ -1107,10 +1103,7 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
   const id = `${input.type}_${shortId()}`;
   const width = input.width ?? defaultNodeWidth;
   const height = input.height ?? defaultNodeHeight;
-  const nodeRelativePath = portableJoin(
-    input.type === "image" ? "image-nodes" : input.type === "video" ? "video-nodes" : "text-nodes",
-    `${input.type}-${id}.${input.type === "image" ? "imgnode" : input.type === "video" ? "vidnode" : "txtnode"}`
-  );
+  const nodeRelativePath = canvasNodeRelativePath(id);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   await mkdir(nodePath, { recursive: true });
 
@@ -1185,9 +1178,7 @@ export async function duplicateCanvasNode(input: DuplicateCanvasNodeInput): Prom
   const now = new Date().toISOString();
   const id = `${manifest.type}_${shortId()}`;
   const title = `${manifest.title || manifest.type} copy`;
-  const directory = manifest.type === "image" ? "image-nodes" : manifest.type === "video" ? "video-nodes" : manifest.type === "library" ? "library-nodes" : "text-nodes";
-  const extension = manifest.type === "image" ? "imgnode" : manifest.type === "video" ? "vidnode" : manifest.type === "library" ? "libnode" : "txtnode";
-  const nodeRelativePath = portableJoin(directory, `${slugify(title)}-${id}.${extension}`);
+  const nodeRelativePath = canvasNodeRelativePath(id);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   await cp(sourcePath, nodePath, { recursive: true });
   await writeJson(join(nodePath, "snark.node.json"), { ...manifest, id, title, createdAt: now, updatedAt: now });
@@ -1293,48 +1284,33 @@ export async function canvasNodeFolderPath(nodeId: string): Promise<string> {
 }
 
 export async function readImageNode(nodeId: string): Promise<{ manifest: ImageNodeManifest; nodePath: string }> {
-  const libraryPath = await ensureCurrentLibrary();
-  const nodesDirectory = join(libraryPath, "image-nodes");
-  const entries = await readdir(nodesDirectory, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const nodePath = join(nodesDirectory, entry.name);
-    const manifestPath = join(nodePath, "snark.node.json");
-    if (!await fileExists(manifestPath)) continue;
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest;
-    if (manifest.id === nodeId) return { manifest: { ...manifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
-  }
-  throw new Error(`Image node "${nodeId}" was not found.`);
+  const { manifest, nodePath } = await readTypedCanvasNode(nodeId, "image");
+  return { manifest: { ...manifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
 }
 
 export async function readVideoNode(nodeId: string): Promise<{ manifest: VideoNodeManifest; nodePath: string }> {
-  const libraryPath = await ensureCurrentLibrary();
-  const nodesDirectory = join(libraryPath, "video-nodes");
-  const entries = await readdir(nodesDirectory, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const nodePath = join(nodesDirectory, entry.name);
-    const manifestPath = join(nodePath, "snark.node.json");
-    if (!await fileExists(manifestPath)) continue;
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as VideoNodeManifest;
-    if (manifest.id === nodeId) return { manifest: { ...manifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
-  }
-  throw new Error(`Video node "${nodeId}" was not found.`);
+  const { manifest, nodePath } = await readTypedCanvasNode(nodeId, "video");
+  return { manifest: { ...manifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
 }
 
 export async function readLibraryNode(nodeId: string): Promise<{ manifest: LibraryNodeManifest; nodePath: string }> {
+  return readTypedCanvasNode(nodeId, "library");
+}
+
+async function readTypedCanvasNode(nodeId: string, type: "image"): Promise<{ manifest: ImageNodeManifest; nodePath: string }>;
+async function readTypedCanvasNode(nodeId: string, type: "video"): Promise<{ manifest: VideoNodeManifest; nodePath: string }>;
+async function readTypedCanvasNode(nodeId: string, type: "library"): Promise<{ manifest: LibraryNodeManifest; nodePath: string }>;
+async function readTypedCanvasNode(nodeId: string, type: "image" | "video" | "library"): Promise<{ manifest: ImageNodeManifest | VideoNodeManifest | LibraryNodeManifest; nodePath: string }> {
   const libraryPath = await ensureCurrentLibrary();
-  const nodesDirectory = join(libraryPath, "library-nodes");
-  const entries = await readdir(nodesDirectory, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const nodePath = join(nodesDirectory, entry.name);
-    const manifestPath = join(nodePath, "snark.node.json");
-    if (!await fileExists(manifestPath)) continue;
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as LibraryNodeManifest;
-    if (manifest.id === nodeId) return { manifest, nodePath };
-  }
-  throw new Error(`Library item "${nodeId}" was not found.`);
+  const canvas = await ensureCanvas(libraryPath);
+  const canvasNode = canvas.nodes.find((node) => node.id === nodeId);
+  if (!canvasNode) throw new Error(`${type} node "${nodeId}" was not found.`);
+  const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+  const manifestPath = join(nodePath, "snark.node.json");
+  if (!await fileExists(manifestPath)) throw new Error(`${type} node "${nodeId}" was not found.`);
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | LibraryNodeManifest;
+  if (manifest.type !== type) throw new Error(`Node "${nodeId}" is not a ${type} node.`);
+  return { manifest, nodePath };
 }
 
 export async function createImageStackReadStream(nodeId: string, stackItemId: string): Promise<{ stream?: ReturnType<typeof createReadStream>; mimeType: string; remoteUrl?: string }> {
@@ -1480,10 +1456,14 @@ function portableJoin(...parts: string[]): string {
   return parts.join("/");
 }
 
+function canvasNodeRelativePath(nodeId: string): string {
+  return portableJoin("nodes", `${nodeId}.node`);
+}
+
 function nextStackFilename(stack: ImageStackItem[], label: string, extension: string): string {
   const used = new Set(stack.map((item) => item.file));
   for (let index = 0; index < 10000; index += 1) {
-    const candidate = portableJoin("stack", `${String(index).padStart(3, "0")}-${label}${extension}`);
+    const candidate = portableJoin("content", `${String(index).padStart(3, "0")}-${label}${extension}`);
     if (!used.has(candidate)) return candidate;
   }
   throw new Error("Could not allocate a stack filename.");
@@ -1640,9 +1620,9 @@ function stackItemImageInput(nodePath: string, item: ImageStackItem): { path: st
 async function readGeneratedImageBuffer(path: string): Promise<Buffer> {
   if (!isRemoteUrl(path)) return readFile(path);
   const response = await fetchWithTimeout(path, 15000).catch((error) => {
-    throw new Error(`Could not save generated image in its stack folder: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Could not save generated image in its content folder: ${error instanceof Error ? error.message : String(error)}`);
   });
-  if (!response.ok) throw new Error(`Could not save generated image in its stack folder: download failed (${response.status}).`);
+  if (!response.ok) throw new Error(`Could not save generated image in its content folder: download failed (${response.status}).`);
   return Buffer.from(await response.arrayBuffer());
 }
 

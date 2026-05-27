@@ -1,0 +1,21 @@
+{
+  "format": "snarkroute.node",
+  "version": "0.1",
+  "id": "image_mpn4brwq_94154f",
+  "type": "image",
+  "title": "Вестибюль 360",
+  "stack": [
+    {
+      "id": "stack_mpn4brwv_78b1e5",
+      "file": "stack/000-import.png",
+      "source": "import",
+      "mimeType": "image/png",
+      "width": 1280,
+      "height": 720,
+      "createdAt": "2026-05-26T20:59:18.415Z"
+    }
+  ],
+  "activeStackIndex": 0,
+  "createdAt": "2026-05-26T20:59:18.415Z",
+  "updatedAt": "2026-05-26T20:59:18.415Z"
+}
