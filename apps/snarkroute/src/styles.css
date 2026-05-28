@@ -628,7 +628,7 @@ dd {
 }
 
 .imageNode.isSelected .imagePreview,
-.textNode.isSelected .textNodeBody {
+.textNode.isSelected .textNodePreview {
   box-shadow: 0 0 0 2px var(--accent), 0 16px 42px var(--shadow);
 }
 
@@ -722,18 +722,25 @@ dd {
   position: absolute;
   left: 0;
   top: 0;
+  display: grid;
+  grid-template-rows: 24px var(--image-height);
   overflow: visible;
-  cursor: default;
+  cursor: move;
   pointer-events: auto;
   touch-action: none;
 }
 
-.textNode .nodeHandle,
-.textNode .nodeHandleLine {
-  top: calc(var(--image-height) / 2);
+.textNode.isActive {
+  grid-template-rows: 24px var(--image-height) auto;
 }
 
-.textNodeBody {
+.textNode .nodeHandle,
+.textNode .nodeHandleLine {
+  top: calc(24px + var(--image-height) / 2);
+}
+
+.textNodePreview {
+  position: relative;
   width: 100%;
   height: 100%;
   padding: 18px;
@@ -743,15 +750,31 @@ dd {
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   box-shadow: 0 16px 42px var(--shadow);
   color: var(--text);
-  font-size: 18px;
-  line-height: 1.35;
-  text-align: left;
-  resize: none;
-  outline: 0;
 }
 
-.textNodeBody {
-  cursor: text;
+.textOutputLabel,
+.textDraftLabel {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.textOutputLabel {
+  margin-bottom: 8px;
+}
+
+.textNodeOutput {
+  max-height: calc(100% - 38px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .libraryNode {
@@ -859,40 +882,6 @@ dd {
   font-size: 12px;
 }
 
-.textNodeDragBar {
-  position: absolute;
-  left: 3px;
-  right: 3px;
-  top: 3px;
-  z-index: 4;
-  height: 21px;
-  padding: 0;
-  border: 0;
-  border-radius: 13px 13px 5px 5px;
-  background: color-mix(in srgb, var(--panel-soft) 44%, transparent);
-  cursor: grab;
-}
-
-.textNodeDragBar::before {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 8px;
-  width: 42px;
-  height: 3px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--muted) 62%, transparent);
-  transform: translateX(-50%);
-}
-
-.textNodeDragBar:hover {
-  background: color-mix(in srgb, var(--panel-soft) 80%, transparent);
-}
-
-.textNodeDragBar:active {
-  cursor: grabbing;
-}
-
 .textColor-mint {
   --text-node-color: #75d99f;
 }
@@ -909,11 +898,71 @@ dd {
   --text-node-color: #f27c9d;
 }
 
-.textNodeBody {
+.textNodePreview {
   border-color: color-mix(in srgb, var(--text-node-color, var(--muted)) 72%, var(--line));
 }
 
-:root[data-theme="day"] .textNodeBody {
+.textStackBoard {
+  position: absolute;
+  right: 20px;
+  top: 56px;
+  z-index: 8;
+  width: min(260px, calc(100% - 40px));
+  max-height: calc(100% - 70px);
+  display: grid;
+  gap: 7px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 97%, transparent);
+  box-shadow: 0 12px 26px var(--shadow);
+}
+
+.textStackBoard button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 7px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  color: var(--text);
+  text-align: left;
+}
+
+.textStackBoard button.isActive {
+  border-color: var(--accent);
+  outline: 1px solid var(--accent);
+}
+
+.textStackBoard img {
+  grid-row: span 2;
+  width: 38px;
+  height: 38px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.textStackBoard strong,
+.textStackBoard span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.textStackBoard strong {
+  font-size: 12px;
+}
+
+.textStackBoard span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+:root[data-theme="day"] .textNodePreview {
   border-color: color-mix(in srgb, var(--text-node-color, var(--muted)) 86%, #1b241d);
 }
 
@@ -963,22 +1012,6 @@ dd {
   background: #f27c9d;
 }
 
-.textDeleteButton {
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border-radius: 6px;
-  color: var(--text);
-  background: color-mix(in srgb, var(--panel-soft) 88%, transparent);
-}
-
-.textDeleteButton:hover {
-  background: color-mix(in srgb, #b94141 72%, var(--panel));
-}
-
 .nodeToolbar button,
 .promptPanel button {
   width: 30px;
@@ -1005,6 +1038,10 @@ dd {
   font-size: 16px;
   line-height: 22px;
   pointer-events: none;
+}
+
+.textNodeTitle {
+  user-select: none;
 }
 
 .nodeTitle input {
@@ -1168,6 +1205,41 @@ dd {
   border-radius: 18px;
   background: color-mix(in srgb, var(--panel) 96%, transparent);
   box-shadow: 0 18px 48px var(--shadow);
+}
+
+.textPromptPanel {
+  grid-template-rows: 40px minmax(120px, 1fr) 38px;
+}
+
+.textPromptEditor {
+  position: relative;
+  min-height: 0;
+  padding: 12px 48px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--panel-soft) 72%, transparent);
+}
+
+.textPromptEditor .promptTextArea {
+  height: calc(100% - 19px);
+  margin-top: 7px;
+}
+
+.textAddStackButton {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--accent);
+}
+
+.textAddStackButton:hover:not(:disabled) {
+  border-color: var(--accent);
 }
 
 .promptHeader,

@@ -10,6 +10,7 @@ import {
   addEdge,
   useEdgesState,
   useNodesState,
+  useUpdateNodeInternals,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -763,6 +764,8 @@ const studioExamples: StudioExample[] = [
 const exampleCategories: ExampleCategory[] = ["Basic Image", "AI Image", "Local AI", "Developer"];
 
 function RouteNodeCard({ id, data }: NodeProps) {
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const updateNodeInternals = useUpdateNodeInternals();
   const label = String(data.label ?? "");
   const [title, type] = label.split("\n");
   const routeNode = data.routeNode as RouteDoc["nodes"][number] | undefined;
@@ -833,6 +836,25 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const collapsedPortCount = Math.max(ports.inputs.length, ports.outputs.length);
   const collapsedMinHeight = paramsCollapsed ? Math.max(44, 30 + Math.max(0, collapsedPortCount - 1) * collapsedPortSpacing) : undefined;
 
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+
+    let animationFrame = 0;
+    const updateHandles = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => updateNodeInternals(id));
+    };
+    const observer = new ResizeObserver(updateHandles);
+    observer.observe(card);
+    updateHandles();
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+    };
+  }, [id, updateNodeInternals, paramsCollapsed, ports.inputs.length, ports.outputs.length]);
+
   function portLabelTop(index: number): number {
     return paramsCollapsed ? portHandleTop(index, 1) : portTopBase + index * 28;
   }
@@ -857,7 +879,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   });
 
   return (
-    <div className={`routeNodeCard ${compactNodeClass(type)} ${paramsCollapsed ? "paramsCollapsed" : ""}`.trim()} style={collapsedMinHeight ? { minHeight: `${collapsedMinHeight}px` } : undefined}>
+    <div ref={cardRef} className={`routeNodeCard ${compactNodeClass(type)} ${paramsCollapsed ? "paramsCollapsed" : ""}`.trim()} style={collapsedMinHeight ? { minHeight: `${collapsedMinHeight}px` } : undefined}>
       <span className={`nodeStatus ${statusClass(result?.status)}`} />
       {isMissingNode ? <div className="nodeWarning">Missing block package. Install "{type}" or remove this block.</div> : null}
       {shouldShowNodeRunButton(type) ? (
@@ -1905,7 +1927,7 @@ function NodeInlineParams({
     if (categories.length === 0) {
       return (
         <div className="assetParams">
-          <div className="nodeWarning">{promptLibrary.categories.length === 0 ? "No prompts found. Add .prompt.md files to data/prompt-library/ and refresh." : "No prompts match the selected status filter."}</div>
+          <div className="nodeWarning">{promptLibrary.categories.length === 0 ? "No prompts found. Add .prompt.png or .prompt.md files to data/prompt-library/ and refresh." : "No prompts match the selected status filter."}</div>
           <label className="nodeField">
             <span>status</span>
             <select
@@ -5493,7 +5515,8 @@ function App() {
             outputId: promptAssetDraft.sourceOutputId
           },
           imagePath: promptAssetDraft.imagePath,
-          imageDataBase64
+          imageDataBase64,
+          assetFormat: "png"
         })
       });
       const result = await response.json().catch(() => ({}));

@@ -6,6 +6,7 @@ import { loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type PromptLi
 import { librariesDirectory } from "../server-paths";
 import { sanitizeFilename } from "../assets/service";
 import { createRouteExecutor } from "../execution/service";
+import { createTextPromptAsset } from "../prompt-library/service";
 import { fetchWithTimeout } from "../services/http";
 import { embedImageProvenance, imageProvenanceFormat, imageProvenanceVersion } from "./image-metadata";
 
@@ -136,6 +137,11 @@ export interface TextNodeManifest {
   type: "text";
   title: string;
   text: string;
+  stackPath?: string;
+  selectedStackItemId?: string;
+  modelId?: string;
+  executionProvider?: string;
+  fallbackAllowed?: boolean;
   color?: string;
   createdAt: string;
   updatedAt: string;
@@ -150,6 +156,16 @@ export interface ImageStackItem {
   width: number;
   height: number;
   createdAt: string;
+}
+
+export interface TextStackItem {
+  id: string;
+  file: string;
+  title: string;
+  text: string;
+  source: "prompt" | "text";
+  mimeType: string;
+  previewFile?: string;
 }
 
 export interface LibrarySnapshot {
@@ -200,8 +216,10 @@ export interface VideoNodeView {
 export interface TextNodeView {
   canvas: SnarkCanvasNode;
   manifest: TextNodeManifest;
-  activeStackItem: null;
-  previewUrl: null;
+  stack: TextStackItem[];
+  activeStackItem: TextStackItem | null;
+  outputText: string;
+  previewUrl: string | null;
 }
 
 export interface LibraryNodeView {
@@ -259,6 +277,19 @@ export interface GenerateImageNodeInput {
 }
 
 export interface GenerateVideoNodeInput extends GenerateImageNodeInput {}
+
+export interface GenerateTextNodeInput {
+  nodeId: string;
+  modelId: string;
+  prompt?: string;
+  providerId?: string;
+  executionProvider?: string;
+  fallbackAllowed?: boolean;
+  availableExecutionProviders?: string[];
+  inputNodeIds?: string[];
+  maxImageInputs?: number;
+  imageReferenceSyntax?: string;
+}
 
 export type ImageGenerationSettings = Record<string, string | number | boolean>;
 
@@ -397,9 +428,8 @@ export async function importImageAsNode(input: ImportImageInput): Promise<Librar
   const libraryPath = await ensureCurrentLibrary();
   const extension = normalizedImageExtension(input.filename);
   const mimeType = mimeTypeFromExtension(extension);
-  const title = titleFromFilename(input.filename);
   const id = `image_${shortId()}`;
-  const nodeRelativePath = canvasNodeRelativePath(id);
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, titleFromFilename(input.filename));
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   const contentPath = join(nodePath, "content");
   const imageRelativePath = portableJoin("content", `000-import${extension}`);
@@ -459,9 +489,8 @@ export async function importImageAsNode(input: ImportImageInput): Promise<Librar
 export async function importVideoAsNode(input: ImportVideoInput): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const extension = normalizedVideoExtension(input.filename);
-  const title = titleFromFilename(input.filename);
   const id = `video_${shortId()}`;
-  const nodeRelativePath = canvasNodeRelativePath(id);
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, titleFromFilename(input.filename));
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   const videoRelativePath = portableJoin("content", `000-import${extension}`);
   const videoPath = resolvePortablePath(nodePath, videoRelativePath);
@@ -519,7 +548,7 @@ export async function importLocalLibraryAsNode(input: ImportLocalLibraryInput): 
   const scan = await scanLocalLibrary(input.sourcePath);
   const now = new Date().toISOString();
   const id = `library_${shortId()}`;
-  const nodeRelativePath = canvasNodeRelativePath(id);
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, scan.title);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   const viewMode = input.viewMode && scan.availableViews.includes(input.viewMode) ? input.viewMode : scan.defaultView;
   const manifest: LibraryNodeManifest = {
@@ -527,7 +556,7 @@ export async function importLocalLibraryAsNode(input: ImportLocalLibraryInput): 
     version: "0.1",
     id,
     type: "library",
-    title: scan.title,
+    title,
     sourceType: "local-folder",
     sourcePath: scan.sourcePath,
     viewMode,
@@ -620,6 +649,27 @@ export async function createLocalLibraryAssetReadStream(nodeId: string, assetId:
   if (!asset) throw new Error(`Library asset "${assetId}" was not found.`);
   const assetPath = resolvePortablePath(scan.sourcePath, asset.relativePath);
   return { stream: createReadStream(assetPath), mimeType: asset.mimeType };
+}
+
+export async function deleteLocalLibraryAsset(nodeId: string, assetId: string): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest } = await readLibraryNode(nodeId);
+  const scan = await scanLocalLibrary(manifest.sourcePath);
+  const asset = scan.assets.find((candidate) => candidate.id === assetId);
+  if (!asset) throw new Error(`Library asset "${assetId}" was not found.`);
+
+  const root = resolve(scan.sourcePath);
+  const assetPath = resolvePortablePath(root, asset.relativePath);
+  if (!isWithinDirectory(root, assetPath)) throw new Error("Library asset path is outside the source folder.");
+  await rm(assetPath, { force: true });
+
+  const previewImage = asset.embeddedPrompt?.previewImage;
+  if (previewImage && !/^https?:\/\//i.test(previewImage)) {
+    const previewPath = resolve(dirname(assetPath), previewImage);
+    if (previewPath !== assetPath && isWithinDirectory(root, previewPath)) await rm(previewPath, { force: true });
+  }
+
+  return readLibrarySnapshot(libraryPath);
 }
 
 export async function appendImageToNodeStack(input: AppendImageStackInput): Promise<LibrarySnapshot> {
@@ -719,6 +769,57 @@ export async function setVideoNodeActiveStackItem(nodeId: string, stackIndex: nu
   await writeJson(join(nodePath, "snark.node.json"), {
     ...manifest,
     activeStackIndex: stackIndex,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function appendTextToNodeStack(nodeId: string, text: string, title?: string): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readTextNode(nodeId);
+  const body = text.trim();
+  if (!body) throw new Error("Text is required.");
+  const stackDirectory = textNodeStackDirectory(nodePath, manifest);
+  await mkdir(stackDirectory, { recursive: true });
+  const safeTitle = cleanTextTitle(title) || firstTextLine(body) || "Saved text";
+  const saved = await createTextPromptAsset(stackDirectory, { title: safeTitle, prompt: body, category: "text-stack" });
+  const relativeFile = portableRelativePath(nodePath, saved.promptPath);
+  const selectedStackItemId = textStackItemId(relativeFile);
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    stackPath: manifest.stackPath ?? "content",
+    selectedStackItemId,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function setTextNodeActiveStackItem(nodeId: string, selectedStackItemId: string | null): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readTextNode(nodeId);
+  if (selectedStackItemId) {
+    const stack = await readTextNodeStack(nodePath, manifest);
+    if (!stack.some((item) => item.id === selectedStackItemId)) throw new Error(`Text stack item "${selectedStackItemId}" was not found.`);
+  }
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    selectedStackItemId: selectedStackItemId || undefined,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function deleteTextNodeStackItem(nodeId: string, stackItemId: string): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readTextNode(nodeId);
+  const stack = await readTextNodeStack(nodePath, manifest);
+  const item = stack.find((entry) => entry.id === stackItemId);
+  if (!item) throw new Error(`Text stack item "${stackItemId}" was not found.`);
+  await rm(resolvePortablePath(nodePath, item.file), { force: true });
+  const nextStack = stack.filter((entry) => entry.id !== stackItemId);
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    selectedStackItemId: manifest.selectedStackItemId === stackItemId ? nextStack[0]?.id : manifest.selectedStackItemId,
     updatedAt: new Date().toISOString()
   });
   return readLibrarySnapshot(libraryPath);
@@ -907,6 +1008,48 @@ export async function generateVideoNodeStackItem(input: GenerateVideoNodeInput):
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function generateTextNodeStackItem(input: GenerateTextNodeInput): Promise<LibrarySnapshot> {
+  const promptTemplate = input.prompt?.trim();
+  if (!promptTemplate) throw new Error("Prompt is required.");
+  const libraryPath = await ensureCurrentLibrary();
+  const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
+  const orderedInputs = orderConnectedInputs(connectedInputs, input.inputNodeIds);
+  const inputImages = orderedInputs.filter((entry) => entry.image).map((entry) => entry.image!);
+  const images = limitImages(
+    inputImages.filter((image, index, all) => all.findIndex((candidate) => candidate.path === image.path) === index),
+    positiveInteger(input.maxImageInputs)
+  );
+  const prompt = resolveInputTokens(promptTemplate, orderedInputs, images, input.imageReferenceSyntax);
+  const runResult = await runTextModelForStackItem({
+    nodeId: input.nodeId,
+    modelId: input.modelId,
+    executionProvider: executionProviderForInput(input),
+    fallbackAllowed: input.fallbackAllowed,
+    availableExecutionProviders: input.availableExecutionProviders,
+    prompt,
+    images
+  });
+  const generationResult = runResult.nodeResults.generate;
+  if (runResult.status === "failed" || generationResult?.status === "failed") {
+    throw new Error(generationResult?.error || "Text generation failed.");
+  }
+  const output = generationResult?.output;
+  const text = output && typeof output === "object" && typeof (output as Record<string, unknown>).text === "string"
+    ? String((output as Record<string, unknown>).text).trim()
+    : "";
+  if (!text) throw new Error(`Model "${input.modelId}" did not return text.`);
+  const snapshot = await appendTextToNodeStack(input.nodeId, text, firstTextLine(text) || "Generated text");
+  const { manifest, nodePath } = await readTextNode(input.nodeId);
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    modelId: input.modelId,
+    executionProvider: executionProviderForInput(input),
+    fallbackAllowed: input.fallbackAllowed !== false,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(snapshot.path);
+}
+
 async function runImageModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: Array<{ path: string; localPath?: string; mimeType: string }>; parameters: ImageGenerationSettings }) {
   if (!["auto", "polza", "openrouter", "gemini"].includes(input.executionProvider)) {
     throw new Error(`Execution provider "${input.executionProvider}" is not available for image generation.`);
@@ -929,6 +1072,32 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
     edges: []
   };
   return executor.executeRoute(route);
+}
+
+async function runTextModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: Array<{ path: string; localPath?: string; mimeType: string }> }) {
+  if (!["auto", "polza", "openrouter", "gemini"].includes(input.executionProvider)) {
+    throw new Error(`Execution provider "${input.executionProvider}" is not available for text generation.`);
+  }
+  const autoOnlyPolza = input.executionProvider === "auto" && input.availableExecutionProviders?.length === 1 && input.availableExecutionProviders[0] === "polza";
+  const nodeType = input.executionProvider === "polza" || autoOnlyPolza ? "polza.text" : "ai.text";
+  const executor = await createRouteExecutor();
+  return executor.executeRoute({
+    routeVersion: "0.1",
+    route: { id: `snarkroute-text-generation-${input.nodeId}`, title: "SnarkRoute Text Generation", author: { name: "SnarkRoute" } },
+    nodes: [{
+      id: "generate",
+      type: nodeType,
+      params: {
+        model: input.modelId,
+        executionProvider: input.executionProvider,
+        providerMode: input.executionProvider === "openrouter" ? "openrouter" : input.executionProvider === "gemini" ? "direct" : "auto",
+        fallbackAllowed: input.fallbackAllowed !== false,
+        prompt: input.prompt,
+        images: input.images
+      }
+    }],
+    edges: []
+  });
 }
 
 async function runVideoModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: Array<{ path: string; localPath?: string; mimeType: string }>; parameters: ImageGenerationSettings }) {
@@ -972,7 +1141,9 @@ async function connectedCanvasInputs(libraryPath: string, targetNodeId: string):
     if (sourceNode?.type === "text") {
       const manifestPath = join(resolvePortablePath(libraryPath, sourceNode.nodePath), "snark.node.json");
       const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as TextNodeManifest;
-      inputs.push({ nodeId: sourceNodeId, type: "text", text: manifest.text });
+      const stack = await readTextNodeStack(resolvePortablePath(libraryPath, sourceNode.nodePath), manifest);
+      const selected = stack.find((item) => item.id === manifest.selectedStackItemId);
+      inputs.push({ nodeId: sourceNodeId, type: "text", text: selected?.text ?? manifest.text });
     }
   }
   return inputs;
@@ -1002,8 +1173,7 @@ export async function duplicateStackItemAsConnectedImageNode(input: DuplicateSta
 
   const now = new Date().toISOString();
   const id = `image_${shortId()}`;
-  const title = sourceManifest.title || "Image";
-  const nodeRelativePath = canvasNodeRelativePath(id);
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, sourceManifest.title || "Image");
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   const contentPath = join(nodePath, "content");
   const extension = extname(sourceItem.file ?? sourceItem.externalUrl ?? "").toLowerCase() || ".png";
@@ -1059,7 +1229,7 @@ export async function duplicateStackItemAsConnectedVideoNode(input: DuplicateSta
 
   const now = new Date().toISOString();
   const id = `video_${shortId()}`;
-  const nodeRelativePath = canvasNodeRelativePath(id);
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, sourceManifest.title || "Video");
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   const extension = extname(sourceItem.file).toLowerCase() || ".mp4";
   const videoRelativePath = portableJoin("content", `000-import${extension}`);
@@ -1071,7 +1241,7 @@ export async function duplicateStackItemAsConnectedVideoNode(input: DuplicateSta
     version: "0.1",
     id,
     type: "video",
-    title: sourceManifest.title || "Video",
+    title,
     stack: [{ ...sourceItem, id: `stack_${shortId()}`, file: videoRelativePath, source: "import", createdAt: now }],
     activeStackIndex: 0,
     createdAt: now,
@@ -1097,13 +1267,60 @@ export async function duplicateStackItemAsConnectedVideoNode(input: DuplicateSta
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function duplicateStackItemAsTextNode(input: DuplicateStackItemInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest: sourceManifest, nodePath: sourceNodePath } = await readTextNode(input.nodeId);
+  const sourceItem = (await readTextNodeStack(sourceNodePath, sourceManifest)).find((item) => item.id === input.stackItemId);
+  if (!sourceItem) throw new Error(`Text stack item "${input.stackItemId}" was not found.`);
+
+  const now = new Date().toISOString();
+  const id = `text_${shortId()}`;
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, sourceItem.title || "Text");
+  const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
+  const copiedFile = portableJoin("content", basename(sourceItem.file));
+  await mkdir(join(nodePath, "content"), { recursive: true });
+  await copyFile(resolvePortablePath(sourceNodePath, sourceItem.file), resolvePortablePath(nodePath, copiedFile));
+  const manifest: TextNodeManifest = {
+    format: "snarkroute.node",
+    version: "0.1",
+    id,
+    type: "text",
+    title,
+    text: "",
+    stackPath: "content",
+    selectedStackItemId: textStackItemId(copiedFile),
+    color: sourceManifest.color ?? "mint",
+    createdAt: now,
+    updatedAt: now
+  };
+  await writeJson(join(nodePath, "snark.node.json"), manifest);
+
+  const canvas = await ensureCanvas(libraryPath);
+  const sourceCanvasNode = canvas.nodes.find((candidate) => candidate.id === input.nodeId && candidate.type === "text");
+  const width = sourceCanvasNode?.width ?? input.width ?? defaultNodeWidth;
+  const height = sourceCanvasNode?.height ?? defaultNodeHeight;
+  canvas.nodes.push({
+    id,
+    type: "text",
+    nodePath: nodeRelativePath,
+    x: Math.round(input.x - width / 2),
+    y: Math.round(input.y - height / 2),
+    width,
+    height
+  });
+  canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.nodeId, toNodeId: id }];
+  await writeCanvas(libraryPath, canvas);
+  return readLibrarySnapshot(libraryPath);
+}
+
 export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const now = new Date().toISOString();
   const id = `${input.type}_${shortId()}`;
   const width = input.width ?? defaultNodeWidth;
   const height = input.height ?? defaultNodeHeight;
-  const nodeRelativePath = canvasNodeRelativePath(id);
+  const defaultTitle = input.type === "image" ? "Image" : input.type === "video" ? "Video" : "Text";
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, defaultTitle);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   await mkdir(nodePath, { recursive: true });
 
@@ -1113,7 +1330,7 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
       version: "0.1",
       id,
       type: "image",
-      title: "Image",
+      title,
       stack: [],
       activeStackIndex: 0,
       createdAt: now,
@@ -1127,7 +1344,7 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
       version: "0.1",
       id,
       type: "video",
-      title: "Video",
+      title,
       stack: [],
       activeStackIndex: 0,
       createdAt: now,
@@ -1141,13 +1358,15 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
       version: "0.1",
       id,
       type: "text",
-      title: "Text",
+      title,
       text: "",
+      stackPath: "content",
       color: "mint",
       createdAt: now,
       updatedAt: now
     };
     await writeJson(join(nodePath, "snark.node.json"), manifest);
+    await mkdir(join(nodePath, "content"), { recursive: true });
   }
 
   const canvas = await ensureCanvas(libraryPath);
@@ -1177,8 +1396,7 @@ export async function duplicateCanvasNode(input: DuplicateCanvasNodeInput): Prom
   const manifest = JSON.parse(await readFile(join(sourcePath, "snark.node.json"), "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
   const now = new Date().toISOString();
   const id = `${manifest.type}_${shortId()}`;
-  const title = `${manifest.title || manifest.type} copy`;
-  const nodeRelativePath = canvasNodeRelativePath(id);
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, `${manifest.title || manifest.type} copy`);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   await cp(sourcePath, nodePath, { recursive: true });
   await writeJson(join(nodePath, "snark.node.json"), { ...manifest, id, title, createdAt: now, updatedAt: now });
@@ -1194,7 +1412,7 @@ export async function duplicateCanvasNode(input: DuplicateCanvasNodeInput): Prom
   return readLibrarySnapshot(libraryPath);
 }
 
-export async function updateTextNode(nodeId: string, updates: { text?: string; color?: string }): Promise<LibrarySnapshot> {
+export async function updateTextNode(nodeId: string, updates: { text?: string; color?: string; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean }): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const canvas = await ensureCanvas(libraryPath);
   const canvasNode = canvas.nodes.find((node) => node.id === nodeId && node.type === "text");
@@ -1206,6 +1424,9 @@ export async function updateTextNode(nodeId: string, updates: { text?: string; c
     ...manifest,
     text: updates.text ?? manifest.text,
     color: updates.color ?? manifest.color,
+    modelId: updates.modelId ?? manifest.modelId,
+    executionProvider: updates.executionProvider ?? manifest.executionProvider,
+    fallbackAllowed: updates.fallbackAllowed ?? manifest.fallbackAllowed,
     updatedAt: new Date().toISOString()
   });
   return readLibrarySnapshot(libraryPath);
@@ -1245,9 +1466,15 @@ export async function renameCanvasNode(nodeId: string, title: string): Promise<L
   const canvas = await ensureCanvas(libraryPath);
   const canvasNode = canvas.nodes.find((node) => node.id === nodeId);
   if (!canvasNode) throw new Error(`Node "${nodeId}" was not found.`);
-  const manifestPath = join(resolvePortablePath(libraryPath, canvasNode.nodePath), "snark.node.json");
+  const currentPath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+  const manifestPath = join(currentPath, "snark.node.json");
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
-  await writeJson(manifestPath, { ...manifest, title: title.trim() || manifest.title, updatedAt: new Date().toISOString() });
+  const location = await allocateCanvasNodeLocation(libraryPath, title.trim() || manifest.title, canvasNode.nodePath);
+  const nextPath = resolvePortablePath(libraryPath, location.nodeRelativePath);
+  if (nextPath !== currentPath) await rename(currentPath, nextPath);
+  canvasNode.nodePath = location.nodeRelativePath;
+  await writeJson(join(nextPath, "snark.node.json"), { ...manifest, title: location.title, updatedAt: new Date().toISOString() });
+  await writeCanvas(libraryPath, canvas);
   return readLibrarySnapshot(libraryPath);
 }
 
@@ -1285,12 +1512,25 @@ export async function canvasNodeFolderPath(nodeId: string): Promise<string> {
 
 export async function readImageNode(nodeId: string): Promise<{ manifest: ImageNodeManifest; nodePath: string }> {
   const { manifest, nodePath } = await readTypedCanvasNode(nodeId, "image");
-  return { manifest: { ...manifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
+  const stackManifest = await syncMediaStackWithContent(nodePath, manifest);
+  return { manifest: { ...stackManifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
 }
 
 export async function readVideoNode(nodeId: string): Promise<{ manifest: VideoNodeManifest; nodePath: string }> {
   const { manifest, nodePath } = await readTypedCanvasNode(nodeId, "video");
-  return { manifest: { ...manifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
+  const stackManifest = await syncMediaStackWithContent(nodePath, manifest);
+  return { manifest: { ...stackManifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
+}
+
+export async function readTextNode(nodeId: string): Promise<{ manifest: TextNodeManifest; nodePath: string }> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const canvasNode = canvas.nodes.find((node) => node.id === nodeId && node.type === "text");
+  if (!canvasNode) throw new Error(`Text node "${nodeId}" was not found.`);
+  const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+  const manifest = JSON.parse(await readFile(join(nodePath, "snark.node.json"), "utf8")) as TextNodeManifest;
+  if (manifest.type !== "text") throw new Error(`Node "${nodeId}" is not a text node.`);
+  return { manifest, nodePath };
 }
 
 export async function readLibraryNode(nodeId: string): Promise<{ manifest: LibraryNodeManifest; nodePath: string }> {
@@ -1390,7 +1630,8 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
     if (!await fileExists(manifestPath)) continue;
     const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
     if (manifest.type === "image") {
-      const hydratedManifest = { ...manifest, currentPrompt: await readCurrentPrompt(resolvePortablePath(libraryPath, canvasNode.nodePath)) };
+      const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+      const hydratedManifest = { ...await syncMediaStackWithContent(nodePath, manifest), currentPrompt: await readCurrentPrompt(nodePath) };
       const activeStackItem = hydratedManifest.stack[hydratedManifest.activeStackIndex] ?? null;
       nodes.push({
         canvas: canvasNode,
@@ -1400,7 +1641,8 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
       });
     }
     if (manifest.type === "video") {
-      const hydratedManifest = { ...manifest, currentPrompt: await readCurrentPrompt(resolvePortablePath(libraryPath, canvasNode.nodePath)) };
+      const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+      const hydratedManifest = { ...await syncMediaStackWithContent(nodePath, manifest), currentPrompt: await readCurrentPrompt(nodePath) };
       const activeStackItem = hydratedManifest.stack[hydratedManifest.activeStackIndex] ?? null;
       nodes.push({
         canvas: canvasNode,
@@ -1410,7 +1652,17 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
       });
     }
     if (manifest.type === "text") {
-      nodes.push({ canvas: canvasNode, manifest, activeStackItem: null, previewUrl: null });
+      const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+      const stack = await readTextNodeStack(nodePath, manifest);
+      const activeStackItem = stack.find((item) => item.id === manifest.selectedStackItemId) ?? null;
+      nodes.push({
+        canvas: canvasNode,
+        manifest: { ...manifest, stackPath: manifest.stackPath ?? "content", selectedStackItemId: activeStackItem?.id },
+        stack,
+        activeStackItem,
+        outputText: activeStackItem?.text ?? manifest.text,
+        previewUrl: activeStackItem?.previewFile ? `/api/libraries/current/text-nodes/${encodeURIComponent(manifest.id)}/stack/${encodeURIComponent(activeStackItem.id)}/preview` : null
+      });
     }
     if (manifest.type === "library") {
       let scan: LocalLibraryScanResult;
@@ -1452,12 +1704,31 @@ function resolvePortablePath(root: string, relativePath: string): string {
   return resolved;
 }
 
+function isWithinDirectory(root: string, path: string): boolean {
+  const rootResolved = resolve(root);
+  const rel = relative(rootResolved, resolve(path));
+  return rel === "" || (!rel.startsWith("..") && rel !== ".." && !isAbsolute(rel));
+}
+
 function portableJoin(...parts: string[]): string {
   return parts.join("/");
 }
 
-function canvasNodeRelativePath(nodeId: string): string {
-  return portableJoin("nodes", `${nodeId}.node`);
+async function allocateCanvasNodeLocation(libraryPath: string, requestedTitle: string, currentRelativePath?: string): Promise<{ title: string; nodeRelativePath: string }> {
+  const baseTitle = requestedTitle.trim() || "Node";
+  for (let index = 1; index < 10000; index += 1) {
+    const title = index === 1 ? baseTitle : `${baseTitle} (${index})`;
+    const nodeRelativePath = portableJoin("nodes", `${nodeFolderName(title)}.node`);
+    if (nodeRelativePath === currentRelativePath || !await pathExists(resolvePortablePath(libraryPath, nodeRelativePath))) {
+      return { title, nodeRelativePath };
+    }
+  }
+  throw new Error(`Could not allocate a folder for node "${baseTitle}".`);
+}
+
+function nodeFolderName(title: string): string {
+  const sanitized = sanitizeFilename(title).replace(/[. ]+$/u, "").trim() || "Node";
+  return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/iu.test(sanitized) ? `_${sanitized}` : sanitized;
 }
 
 function nextStackFilename(stack: ImageStackItem[], label: string, extension: string): string {
@@ -1480,6 +1751,132 @@ async function readCurrentPrompt(nodePath: string): Promise<string> {
     await writeCurrentPrompt(nodePath, "");
     return "";
   }
+}
+
+export async function createTextStackPreviewReadStream(nodeId: string, stackItemId: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
+  const { manifest, nodePath } = await readTextNode(nodeId);
+  const item = (await readTextNodeStack(nodePath, manifest)).find((candidate) => candidate.id === stackItemId);
+  if (!item?.previewFile) throw new Error(`Text stack preview "${stackItemId}" was not found.`);
+  return { stream: createReadStream(resolvePortablePath(nodePath, item.previewFile)), mimeType: "image/png" };
+}
+
+async function readTextNodeStack(nodePath: string, manifest: TextNodeManifest): Promise<TextStackItem[]> {
+  const directory = textNodeStackDirectory(nodePath, manifest);
+  await mkdir(directory, { recursive: true });
+  const promptLibrary = await loadPromptLibrary(directory);
+  const promptItems: TextStackItem[] = promptLibrary.categories.flatMap((category) => category.prompts).map((prompt) => {
+    const file = portableRelativePath(nodePath, prompt.path);
+    const previewFile = prompt.path.toLowerCase().endsWith(".prompt.png")
+      ? file
+      : prompt.previewImage ? portableRelativePath(nodePath, resolve(dirname(prompt.path), prompt.previewImage)) : undefined;
+    return {
+      id: textStackItemId(file),
+      file,
+      title: prompt.title,
+      text: prompt.text,
+      source: "prompt",
+      mimeType: prompt.path.toLowerCase().endsWith(".prompt.png") ? "image/png" : "text/markdown",
+      previewFile
+    };
+  });
+  const promptPaths = new Set(promptItems.map((item) => resolvePortablePath(nodePath, item.file)));
+  const embeddedImageItems: TextStackItem[] = [];
+  const textItems: TextStackItem[] = [];
+  for (const path of await listLocalLibraryFiles(directory)) {
+    const extension = extname(path).toLowerCase();
+    if (extension === ".png" && !promptPaths.has(resolve(path))) {
+      const parsed = parsePromptPngFile(await readFile(path), path);
+      if ("prompt" in parsed) {
+        const file = portableRelativePath(nodePath, path);
+        embeddedImageItems.push({
+          id: textStackItemId(file),
+          file,
+          title: parsed.prompt.title,
+          text: parsed.prompt.text,
+          source: "prompt",
+          mimeType: "image/png",
+          previewFile: file
+        });
+      }
+      continue;
+    }
+    if ((extension !== ".txt" && extension !== ".md") || promptPaths.has(resolve(path)) || path.toLowerCase().endsWith(".prompt.md")) continue;
+    const text = (await readFile(path, "utf8")).trim();
+    if (!text) continue;
+    const file = portableRelativePath(nodePath, path);
+    textItems.push({
+      id: textStackItemId(file),
+      file,
+      title: titleFromFilename(basename(path)),
+      text,
+      source: "text",
+      mimeType: extension === ".md" ? "text/markdown" : "text/plain"
+    });
+  }
+  const items = [...promptItems, ...embeddedImageItems, ...textItems];
+  const datedItems = await Promise.all(items.map(async (item) => {
+    const details = await stat(resolvePortablePath(nodePath, item.file));
+    return { item, createdAt: details.birthtimeMs || details.mtimeMs };
+  }));
+  return datedItems.sort((left, right) => left.createdAt - right.createdAt || left.item.title.localeCompare(right.item.title)).map((entry) => entry.item);
+}
+
+async function syncMediaStackWithContent(nodePath: string, manifest: ImageNodeManifest): Promise<ImageNodeManifest>;
+async function syncMediaStackWithContent(nodePath: string, manifest: VideoNodeManifest): Promise<VideoNodeManifest>;
+async function syncMediaStackWithContent(nodePath: string, manifest: ImageNodeManifest | VideoNodeManifest): Promise<ImageNodeManifest | VideoNodeManifest> {
+  const contentPath = join(nodePath, "content");
+  const entries = await readdir(contentPath, { withFileTypes: true }).catch(() => []);
+  const existingFiles = new Set(manifest.stack.flatMap((item) => item.file ? [item.file.toLowerCase()] : []));
+  const newFiles = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((file) => {
+      const extension = extname(file).toLowerCase();
+      return manifest.type === "image"
+        ? extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".webp"
+        : extension === ".mp4" || extension === ".webm" || extension === ".mov";
+    })
+    .filter((file) => !existingFiles.has(portableJoin("content", file).toLowerCase()));
+  if (!newFiles.length) return manifest;
+  const sortedFiles = await Promise.all(newFiles.map(async (file) => ({ file, details: await stat(join(contentPath, file)) })));
+  sortedFiles.sort((left, right) => (left.details.birthtimeMs || left.details.mtimeMs) - (right.details.birthtimeMs || right.details.mtimeMs));
+  const now = new Date().toISOString();
+  const items: ImageStackItem[] = [];
+  for (const entry of sortedFiles) {
+    const extension = extname(entry.file).toLowerCase();
+    const file = portableJoin("content", entry.file);
+    if (manifest.type === "image") {
+      const dimensions = readImageDimensions(await readFile(resolvePortablePath(nodePath, file)), extension);
+      items.push({ id: `stack_${shortId()}`, file, source: "import", mimeType: mimeTypeFromExtension(extension), width: dimensions.width, height: dimensions.height, createdAt: now });
+    } else {
+      items.push({ id: `stack_${shortId()}`, file, source: "import", mimeType: videoMimeTypeFromExtension(extension), width: defaultNodeWidth, height: defaultNodeHeight, createdAt: now });
+    }
+  }
+  const updated = { ...manifest, stack: [...manifest.stack, ...items], updatedAt: now };
+  await writeJson(join(nodePath, "snark.node.json"), updated);
+  return updated;
+}
+
+function textNodeStackDirectory(nodePath: string, manifest: TextNodeManifest): string {
+  return resolvePortablePath(nodePath, manifest.stackPath ?? "content");
+}
+
+function portableRelativePath(root: string, path: string): string {
+  const relativePath = relative(resolve(root), resolve(path)).split(sep).join("/");
+  resolvePortablePath(root, relativePath);
+  return relativePath;
+}
+
+function textStackItemId(file: string): string {
+  return `text_${Buffer.from(file, "utf8").toString("base64url")}`;
+}
+
+function cleanTextTitle(value: unknown): string {
+  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, 96);
+}
+
+function firstTextLine(value: string): string {
+  return cleanTextTitle(value.split(/\r?\n/u)[0]);
 }
 
 async function setLibraryRepresentativeImage(libraryPath: string, nodeId: string, stackItemId: string): Promise<void> {
@@ -1510,6 +1907,15 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 async function fileExists(path: string): Promise<boolean> {
   try {
     return (await stat(path)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
   } catch {
     return false;
   }

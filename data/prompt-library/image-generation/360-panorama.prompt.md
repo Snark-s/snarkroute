@@ -19,4 +19,4 @@ modelHints:
 - openai/gpt-5.4-image-2
 ---
 
-This translates to: Create a 360 panorama from this image.
+Create a 360 panorama from this image.

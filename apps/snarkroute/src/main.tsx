@@ -1,6 +1,6 @@
 import "./styles.css";
-import { ArrowUp, ChevronLeft, ChevronRight, Cog, Download, Expand, Folder, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, Check, ChevronLeft, ChevronRight, Cog, Download, Expand, Folder, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, Sun, Video, Wallpaper, Wrench } from "lucide-react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   fallbackModels,
@@ -110,6 +110,11 @@ interface TextNodeManifest {
   type: "text";
   title: string;
   text: string;
+  stackPath?: string;
+  selectedStackItemId?: string;
+  modelId?: string;
+  executionProvider?: string;
+  fallbackAllowed?: boolean;
   color?: string;
 }
 
@@ -120,6 +125,16 @@ interface ImageStackItem {
   source: string;
   width: number;
   height: number;
+}
+
+interface TextStackItem {
+  id: string;
+  file: string;
+  title: string;
+  text: string;
+  source: "prompt" | "text";
+  mimeType: string;
+  previewFile?: string;
 }
 
 interface VideoNodeView {
@@ -180,8 +195,10 @@ type EditableNodeView = ImageNodeView | VideoNodeView | TextNodeView;
 interface TextNodeView {
   canvas: CanvasNode;
   manifest: TextNodeManifest;
-  activeStackItem: null;
-  previewUrl: null;
+  stack: TextStackItem[];
+  activeStackItem: TextStackItem | null;
+  outputText: string;
+  previewUrl: string | null;
 }
 
 interface CanvasViewport {
@@ -267,6 +284,13 @@ interface StackItemMenu {
   stackItemId: string;
 }
 
+interface LibraryAssetMenu {
+  x: number;
+  y: number;
+  nodeId: string;
+  assetId: string;
+}
+
 interface SelectionMenu {
   x: number;
   y: number;
@@ -335,6 +359,7 @@ const backgroundStorageKey = "snarkroute.canvasBackground";
 const imageNodeWidth = 320;
 const imageNodeHeight = 240;
 const nodeTitleHeight = 24;
+const textNodeBaseHeight = 180;
 const activePromptHeight = 250;
 const passiveFooterHeight = 42;
 const minCanvasScale = 0.35;
@@ -364,6 +389,7 @@ function App() {
   const [previewImage, setPreviewImage] = useState<{ nodeId: string; title: string; index: number } | null>(null);
   const [openStackNodeId, setOpenStackNodeId] = useState<string | null>(null);
   const [stackItemMenu, setStackItemMenu] = useState<StackItemMenu | null>(null);
+  const [libraryAssetMenu, setLibraryAssetMenu] = useState<LibraryAssetMenu | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
   const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(fallbackModels);
@@ -386,6 +412,18 @@ function App() {
 
   useEffect(() => {
     void refreshLibrary();
+  }, []);
+
+  useEffect(() => {
+    function refreshAfterExternalChange() {
+      if (document.visibilityState === "visible") void refreshLibraryContents();
+    }
+    window.addEventListener("focus", refreshAfterExternalChange);
+    document.addEventListener("visibilitychange", refreshAfterExternalChange);
+    return () => {
+      window.removeEventListener("focus", refreshAfterExternalChange);
+      document.removeEventListener("visibilitychange", refreshAfterExternalChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -1104,6 +1142,70 @@ function App() {
     }
   }
 
+  async function refreshLibraryContents() {
+    try {
+      setLibrary(await apiGet<LibrarySnapshot>("/api/libraries/current"));
+    } catch {
+      // Keep the current canvas visible when an external refresh is transiently unavailable.
+    }
+  }
+
+  async function addTextToStack(nodeId: string, text: string) {
+    try {
+      await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, { text });
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/stack`, { text });
+      setLibrary(snapshot);
+      setStatus("Text added to stack");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not add text to stack.");
+    }
+  }
+
+  async function setActiveTextStackItem(nodeId: string, selectedStackItemId: string | null) {
+    try {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/stack/active`, { selectedStackItemId });
+      setLibrary(snapshot);
+      setStatus(selectedStackItemId ? "Stack text selected" : "Draft text selected");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not select text.");
+    }
+  }
+
+  async function saveTextRouteSettings(nodeId: string, selection: ModelRouteSelection) {
+    setModelSelections({ ...modelSelections, [nodeId]: selection });
+    try {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, selection);
+      setLibrary(snapshot);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save text generation route.");
+    }
+  }
+
+  async function runTextGeneration(nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) {
+    try {
+      setStatus("Generating text...");
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: true, message: "Generating..." } }));
+      await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, { text: prompt });
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/generate`, {
+        modelId: selection.modelId,
+        prompt,
+        executionProvider: selection.executionProvider,
+        fallbackAllowed: selection.fallbackAllowed,
+        availableExecutionProviders,
+        inputNodeIds,
+        maxImageInputs,
+        imageReferenceSyntax
+      });
+      setLibrary(snapshot);
+      setStatus("Generated text added to stack");
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message: "Added to stack" } }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not generate text.";
+      setStatus(message);
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message, error: true } }));
+    }
+  }
+
   async function saveMediaPrompt(nodeId: string, prompt: string) {
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/prompt`, { prompt });
@@ -1257,8 +1359,10 @@ function App() {
     setStackItemMenu(null);
     try {
       pushUndoSnapshot();
+      const nodeType = nodes.find((node) => node.canvas.id === nodeId)?.manifest.type;
+      const route = nodeType === "text" ? "text-nodes" : mediaNodeRoute(nodeId);
       const snapshot = await apiPost<LibrarySnapshot>(
-        `/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}/duplicate-node`,
+        `/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}/duplicate-node`,
         { x: point.x, y: point.y, width: imageNodeWidth, height: imageNodeHeight }
       );
       setLibrary(snapshot);
@@ -1272,7 +1376,9 @@ function App() {
   async function deleteStackItem(nodeId: string, stackItemId: string) {
     setStackItemMenu(null);
     try {
-      const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`);
+      const nodeType = nodes.find((node) => node.canvas.id === nodeId)?.manifest.type;
+      const route = nodeType === "text" ? "text-nodes" : mediaNodeRoute(nodeId);
+      const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`);
       setLibrary(snapshot);
       setStatus("Stack item deleted");
     } catch (error) {
@@ -1280,9 +1386,39 @@ function App() {
     }
   }
 
+  async function deleteLibraryAsset(nodeId: string, assetId: string) {
+    setLibraryAssetMenu(null);
+    try {
+      const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/library-nodes/${encodeURIComponent(nodeId)}/assets/${encodeURIComponent(assetId)}`);
+      setLibrary(snapshot);
+      setStatus("Library asset deleted");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not delete library asset.");
+    }
+  }
+
   async function saveStackItem(nodeId: string, stackItemId: string) {
     setStackItemMenu(null);
     await downloadPreview(`${apiBase}/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`, "stack-item");
+  }
+
+  async function useTextStackItemAsDraft(nodeId: string, stackItemId: string) {
+    setStackItemMenu(null);
+    const node = nodes.find((candidate): candidate is TextNodeView => candidate.canvas.id === nodeId && candidate.manifest.type === "text");
+    const item = node?.stack.find((candidate) => candidate.id === stackItemId);
+    if (!item) {
+      setStatus("Could not find text stack item.");
+      return;
+    }
+    try {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, { text: item.text });
+      setLibrary(snapshot);
+      setSelectedNodeId(nodeId);
+      setSelectedNodeIds([nodeId]);
+      setStatus("Text copied into input field");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not place text into input field.");
+    }
   }
 
   async function duplicateNode(nodeId: string, targetNodeId = nodeId, action = "duplicated") {
@@ -1477,6 +1613,11 @@ function App() {
               onClick={handleNodeClick}
               onContextMenu={handleNodeContextMenu}
               onViewModeChange={(viewMode) => void setLibraryViewMode(node.manifest.id, viewMode)}
+              onAssetContextMenu={(event, nodeId, assetId) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setLibraryAssetMenu({ x: event.clientX, y: event.clientY, nodeId, assetId });
+              }}
             />
           ) : (
             <ImageNode
@@ -1535,15 +1676,28 @@ function App() {
               onToggleModelSearch={(nodeId) => setModelSearchNodeId((current) => current === nodeId ? null : nodeId)}
               onOpenModels={() => setInspectorOpen(true)}
               onSelectModel={(nodeId, modelId) => {
-                void saveMediaRouteSettings(node.manifest.type as "image" | "video", nodeId, { modelId, executionProvider: "auto", fallbackAllowed: true });
+                if (node.manifest.type === "text") void saveTextRouteSettings(nodeId, { modelId, executionProvider: "auto", fallbackAllowed: true });
+                else void saveMediaRouteSettings(node.manifest.type as "image" | "video", nodeId, { modelId, executionProvider: "auto", fallbackAllowed: true });
                 setModelSearchNodeId(null);
               }}
-              onChangeRouteSettings={(nodeId, selection) => void saveMediaRouteSettings(node.manifest.type as "image" | "video", nodeId, selection)}
+              onChangeRouteSettings={(nodeId, selection) => {
+                if (node.manifest.type === "text") void saveTextRouteSettings(nodeId, selection);
+                else void saveMediaRouteSettings(node.manifest.type as "image" | "video", nodeId, selection);
+              }}
               onRunGeneration={(nodeId, selection, availableExecutionProviders, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax, parameters) => void runMediaGeneration(node.manifest.type as "image" | "video", nodeId, selection, availableExecutionProviders, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax, parameters)}
               onSavePrompt={(nodeId, prompt) => void saveMediaPrompt(nodeId, prompt)}
               onSaveText={saveTextNode}
               onSaveTextColor={saveTextNodeColor}
-              onDeleteNode={(nodeId) => void deleteSelectedNode(nodeId)}
+              onAddTextToStack={(nodeId, text) => void addTextToStack(nodeId, text)}
+              onSelectTextStackItem={(nodeId, stackItemId) => {
+                if (interactionMovedRef.current) {
+                  interactionMovedRef.current = false;
+                  return;
+                }
+                setOpenStackNodeId(null);
+                void setActiveTextStackItem(nodeId, stackItemId);
+              }}
+              onRunTextGeneration={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => void runTextGeneration(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
               onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
             />
           ))}
@@ -1589,9 +1743,21 @@ function App() {
       )}
       {stackItemMenu && (
         <div className="stackItemMenu" style={{ left: stackItemMenu.x, top: stackItemMenu.y }}>
-          <button type="button" onClick={() => void duplicateStackItemNode(stackItemMenu.nodeId, stackItemMenu.stackItemId, screenToWorld(stackItemMenu.x, stackItemMenu.y))}>Transform to node</button>
+          <button type="button" onClick={() => void duplicateStackItemNode(stackItemMenu.nodeId, stackItemMenu.stackItemId, screenToWorld(stackItemMenu.x, stackItemMenu.y))}>
+            {nodes.find((node) => node.canvas.id === stackItemMenu.nodeId)?.manifest.type === "text" ? "Create text node" : "Transform to node"}
+          </button>
+          {nodes.find((node) => node.canvas.id === stackItemMenu.nodeId)?.manifest.type === "text" ? (
+            <button type="button" onClick={() => void useTextStackItemAsDraft(stackItemMenu.nodeId, stackItemMenu.stackItemId)}>Use in text field</button>
+          ) : null}
           <button type="button" onClick={() => void deleteStackItem(stackItemMenu.nodeId, stackItemMenu.stackItemId)}>Delete</button>
-          <button type="button" onClick={() => void saveStackItem(stackItemMenu.nodeId, stackItemMenu.stackItemId)}>Save</button>
+          {nodes.find((node) => node.canvas.id === stackItemMenu.nodeId)?.manifest.type !== "text" ? (
+            <button type="button" onClick={() => void saveStackItem(stackItemMenu.nodeId, stackItemMenu.stackItemId)}>Save</button>
+          ) : null}
+        </div>
+      )}
+      {libraryAssetMenu && (
+        <div className="stackItemMenu" style={{ left: libraryAssetMenu.x, top: libraryAssetMenu.y }}>
+          <button type="button" onClick={() => void deleteLibraryAsset(libraryAssetMenu.nodeId, libraryAssetMenu.assetId)}>Delete from library</button>
         </div>
       )}
       {selectionMenu && selectedNodeIds.length > 0 && (
@@ -1926,7 +2092,8 @@ function LibraryCardNode({
   onPointerDown,
   onClick,
   onContextMenu,
-  onViewModeChange
+  onViewModeChange,
+  onAssetContextMenu
 }: {
   node: LibraryNodeView;
   active: boolean;
@@ -1935,6 +2102,7 @@ function LibraryCardNode({
   onClick: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
   onContextMenu: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
   onViewModeChange: (viewMode: LibraryViewMode) => void;
+  onAssetContextMenu: (event: React.MouseEvent<HTMLElement>, nodeId: string, assetId: string) => void;
 }) {
   const images = node.scan.assets.filter((asset) => asset.kind === "image");
   const texts = node.scan.assets.filter((asset) => asset.kind === "text");
@@ -1968,7 +2136,7 @@ function LibraryCardNode({
       </label>
       <div className="libraryAssetGrid">
         {displayAssets.slice(0, 6).map((asset) => (
-          <div key={asset.id} className="libraryAsset" title={asset.relativePath}>
+          <div key={asset.id} className="libraryAsset" title={asset.relativePath} onContextMenu={(event) => onAssetContextMenu(event, node.manifest.id, asset.id)}>
             {asset.kind === "image" ? <img src={libraryAssetUrl(node.manifest.id, asset.id)} alt="" /> : <span>{asset.kind === "prompt" || asset.embeddedPrompt ? "Prompt" : asset.kind}</span>}
             {asset.embeddedPrompt ? <small>Prompt inside</small> : null}
           </div>
@@ -2056,7 +2224,9 @@ function ImageNode({
   onSavePrompt,
   onSaveText,
   onSaveTextColor,
-  onDeleteNode,
+  onAddTextToStack,
+  onSelectTextStackItem,
+  onRunTextGeneration,
   onRenameNode
 }: {
   node: EditableNodeView;
@@ -2087,31 +2257,38 @@ function ImageNode({
   onSavePrompt: (nodeId: string, prompt: string) => void;
   onSaveText: (nodeId: string, text: string) => void;
   onSaveTextColor: (nodeId: string, color: string) => void;
-  onDeleteNode: (nodeId: string) => void;
+  onAddTextToStack: (nodeId: string, text: string) => void;
+  onSelectTextStackItem: (nodeId: string, stackItemId: string | null) => void;
+  onRunTextGeneration: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => void;
   onRenameNode: (nodeId: string, title: string) => void;
 }) {
   const previewUrl = node.previewUrl ? `${apiBase}${node.previewUrl}?v=${encodeURIComponent(node.activeStackItem?.id ?? node.manifest.id)}` : "";
   const isVideoNode = node.manifest.type === "video";
-  const stackCount = node.manifest.type === "text" ? 0 : node.manifest.stack.length;
+  const stackCount = node.manifest.type === "text" ? (node as TextNodeView).stack.length : node.manifest.stack.length;
   const activeIndex = node.manifest.type !== "text" && stackCount ? node.manifest.activeStackIndex + 1 : 0;
   const [prompt, setPrompt] = useState(node.manifest.type === "text" ? "" : node.manifest.currentPrompt ?? "");
+  const [draftText, setDraftText] = useState(node.manifest.type === "text" ? node.manifest.text : "");
   const [modelQuery, setModelQuery] = useState("");
   const [orderedInputNodes, setOrderedInputNodes] = useState(inputNodes);
   const [parametersOpen, setParametersOpen] = useState(false);
   const [routeSettingsOpen, setRouteSettingsOpen] = useState(false);
   const [promptInsertRequest, setPromptInsertRequest] = useState<{ token: string; sequence: number } | null>(null);
   const promptInsertSequence = useRef(0);
+  const textPreviewRef = useRef<HTMLDivElement | null>(null);
+  const textOutputRef = useRef<HTMLDivElement | null>(null);
+  const textBaseHeight = node.manifest.type === "text" ? Math.min(node.canvas.height, textNodeBaseHeight) : node.canvas.height;
+  const [textPreviewHeight, setTextPreviewHeight] = useState(textBaseHeight);
   const needsImageInput = inputNodes.some((input) => input.type === "image") || (node.manifest.type === "image" && node.manifest.stack.length > 0);
-  const compatibleModels = needsImageInput ? models.filter((model) => model.acceptsImageInput !== false) : models;
+  const compatibleModels = needsImageInput ? models.filter((model) => model.accepts.includes("image") || model.acceptsImageInput === true) : models;
   const displayModels = mergeModelsForDisplay(compatibleModels);
   const selectedRoutes = displayModels.find((entry) => entry.model.id === modelSelection.modelId)?.routes ?? [];
   const selectedModel: ModelOption = selectedRoutes.find((model) => model.providerId === modelSelection.executionProvider) ?? selectedRoutes[0] ?? compatibleModels[0] ?? {
     id: "",
     title: "Select model",
     providerId: "none",
-    contentKinds: [isVideoNode ? "video" : "image"],
+    contentKinds: [node.manifest.type === "text" ? "text" : isVideoNode ? "video" : "image"],
     accepts: ["text"],
-    produces: [isVideoNode ? "video" : "image"],
+    produces: [node.manifest.type === "text" ? "text" : isVideoNode ? "video" : "image"],
     capabilities: [],
     isAvailable: false
   };
@@ -2135,6 +2312,19 @@ function ImageNode({
     setGenerationParameters(modelGenerationParameters(selectedModel));
     setParametersOpen(false);
   }, [selectedModelKey]);
+  useEffect(() => {
+    if (node.manifest.type === "text") setDraftText(node.manifest.text);
+  }, [node.manifest.id, node.manifest.type === "text" ? node.manifest.text : ""]);
+  useLayoutEffect(() => {
+    if (node.manifest.type !== "text") return;
+    const preview = textPreviewRef.current;
+    const output = textOutputRef.current;
+    if (!preview || !output) return;
+    const styles = window.getComputedStyle(preview);
+    const nonTextHeight = output.offsetTop + Number.parseFloat(styles.paddingBottom) + Number.parseFloat(styles.borderBottomWidth);
+    const requiredHeight = Math.ceil(output.scrollHeight + nonTextHeight);
+    setTextPreviewHeight(Math.min(textBaseHeight * 2, Math.max(textBaseHeight, requiredHeight)));
+  }, [textBaseHeight, node.canvas.width, node.manifest.type === "text" ? (node as TextNodeView).outputText : ""]);
 
   function insertInputToken(input: InputNodeChip) {
     const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
@@ -2161,67 +2351,187 @@ function ImageNode({
       <article
         className={`textNode${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
         style={{
-          "--image-height": `${node.canvas.height}px`,
+          "--image-height": `${textPreviewHeight}px`,
           transform: `translate(${node.canvas.x}px, ${node.canvas.y}px)`,
           width: node.canvas.width,
-          height: node.canvas.height
+          height: textPreviewHeight + nodeTitleHeight
         } as React.CSSProperties}
+        onPointerDown={(event) => onPointerDown(event, node)}
         onClick={(event) => onClick(event, node)}
         onContextMenu={(event) => onContextMenu(event, node)}
       >
-        <button
-          type="button"
-          className="textNodeDragBar"
-          aria-label="Select or move text node"
-          onPointerDown={(event) => onPointerDown(event, node)}
-        />
+        <div className="nodeTitle textNodeTitle">
+          {active ? (
+            <input
+              defaultValue={node.manifest.title}
+              aria-label="Node title"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+              onBlur={(event) => onRenameNode(node.manifest.id, event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+              }}
+            />
+          ) : <span>{node.manifest.title || "Text"}</span>}
+        </div>
         <div className="nodeHandleLine nodeHandleLineInput" />
         <div className="nodeHandleLine nodeHandleLineOutput" />
         <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
         <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
-        {active && (
-          <div className="textColorSwatches" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-            {["mint", "violet", "amber", "rose"].map((color) => (
+        <div ref={textPreviewRef} className={`textNodePreview textColor-${node.manifest.color ?? "mint"}`}>
+          <small className="textOutputLabel">Output text</small>
+          <div ref={textOutputRef} className="textNodeOutput" data-canvas-wheel-scroll>{textNode.outputText || "No text selected"}</div>
+          {active ? (
+            <>
               <button
-                key={color}
+                className="stackMenu textStackMenu"
                 type="button"
-                className={`textSwatch textSwatch-${color}${textNode.manifest.color === color ? " isSelected" : ""}`}
-                aria-label={`Set ${color} color`}
-                onClick={() => onSaveTextColor(node.manifest.id, color)}
+                aria-label="Text stack"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleStack(node.manifest.id);
+                }}
+              >
+                {stackCount || 0}
+              </button>
+              {openStack ? (
+                <div className="textStackBoard" data-canvas-wheel-scroll onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+                  {textNode.stack.length ? textNode.stack.map((item) => (
+                    <button
+                      type="button"
+                      key={item.id}
+                      className={item.id === textNode.manifest.selectedStackItemId ? "isActive" : ""}
+                      onPointerDown={(event) => onDragStackImage(event, node.manifest.id, item.id)}
+                      onClick={() => onSelectTextStackItem(node.manifest.id, item.id)}
+                      onContextMenu={(event) => onStackItemContextMenu(event, node.manifest.id, item.id)}
+                    >
+                      {item.previewFile ? <img src={`${apiBase}/api/libraries/current/text-nodes/${encodeURIComponent(node.manifest.id)}/stack/${encodeURIComponent(item.id)}/preview`} alt="" /> : null}
+                      <strong>{item.title}</strong>
+                      <span>{item.text}</span>
+                    </button>
+                  )) : <span className="stackBoardEmpty">Empty stack</span>}
+                </div>
+              ) : null}
+              <div className="textColorSwatches" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+                {["mint", "violet", "amber", "rose"].map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    className={`textSwatch textSwatch-${color}${textNode.manifest.color === color ? " isSelected" : ""}`}
+                    aria-label={`Set ${color} color`}
+                    onClick={() => onSaveTextColor(node.manifest.id, color)}
+                  />
+                ))}
+              </div>
+            </>
+          ) : null}
+        </div>
+        {active ? (
+          <footer className="promptPanel textPromptPanel" onPointerDown={(event) => event.stopPropagation()}>
+            <div className="inputChips">
+              {orderedInputNodes.length ? orderedInputNodes.map((input) => {
+                const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
+                const inactive = input.type === "image" && maxImageInputs !== undefined && imageIndex >= maxImageInputs;
+                return (
+                  <button
+                    type="button"
+                    className={`inputChip${inactive ? " isInactive" : ""}`}
+                    key={input.id}
+                    draggable
+                    title={inactive ? "Model image input limit exceeded" : `Insert ${input.title} into prompt`}
+                    onDragStart={(event) => event.dataTransfer.setData("text/snarkroute-input-node", input.id)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      moveInputChip(event.dataTransfer.getData("text/snarkroute-input-node"), input.id);
+                    }}
+                    onClick={() => insertInputToken(input)}
+                  >
+                    {input.previewUrl ? input.type === "video" ? <Video size={15} /> : <img src={`${apiBase}${input.previewUrl}`} alt="" /> : input.type === "image" ? <ImageIcon size={15} /> : input.type === "video" ? <Video size={15} /> : <span className={`textChipThumb textColor-${input.color ?? "mint"}`}>T</span>}
+                  </button>
+                );
+              }) : <span className="inputChip isEmpty">No inputs</span>}
+            </div>
+            <div className="textPromptEditor">
+              <small className="textDraftLabel">New text</small>
+              <PromptComposer
+                value={draftText}
+                inputNodes={orderedInputNodes}
+                maxImageInputs={maxImageInputs}
+                insertRequest={promptInsertRequest}
+                onChange={setDraftText}
+                onBlur={() => onSaveText(node.manifest.id, draftText)}
               />
-            ))}
-            <button
-              type="button"
-              className="textDeleteButton"
-              aria-label="Delete text node"
-              onClick={() => onDeleteNode(node.manifest.id)}
-            >
-              <Trash2 size={13} />
-            </button>
-          </div>
-        )}
-        {inputNodes.length > 0 && (
-          <div className="textInputChips">
-            {inputNodes.map((input) => (
-              <span className="inputChip" key={input.id}>
-                {input.previewUrl ? input.type === "video" ? <Video size={15} /> : <img src={`${apiBase}${input.previewUrl}`} alt="" /> : input.type === "image" ? <ImageIcon size={15} /> : input.type === "video" ? <Video size={15} /> : <span className={`textChipThumb textColor-${input.color ?? "mint"}`}>T</span>}
-              </span>
-            ))}
-          </div>
-        )}
-        <textarea
-          className={`textNodeBody textColor-${node.manifest.color ?? "mint"}`}
-          defaultValue={node.manifest.text}
-          placeholder="Text"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-          }}
-          onClick={(event) => {
-            event.stopPropagation();
-            onClick(event, node);
-          }}
-          onBlur={(event) => onSaveText(node.manifest.id, event.currentTarget.value)}
-        />
+              <button
+                type="button"
+                className="textAddStackButton"
+                aria-label="Add text to stack"
+                disabled={!draftText.trim()}
+                onClick={() => onAddTextToStack(node.manifest.id, draftText)}
+              >
+                <Check size={17} />
+              </button>
+            </div>
+            <div className="promptMeta">
+              <div className="modelPicker">
+                <button
+                  type="button"
+                  className="modelPickerButton"
+                  aria-label={`Choose text model: ${selectedModel.title}`}
+                  title={selectedModel.title}
+                  disabled={!selectedModel.id}
+                  onClick={() => onToggleModelSearch(node.manifest.id)}
+                >
+                  <img src={selectedModelLogo.src} alt="" />
+                </button>
+                {modelSearchOpen ? (
+                  <div className="modelMenu" onPointerDown={(event) => event.stopPropagation()}>
+                    <input value={modelQuery} placeholder="Search model" onChange={(event) => setModelQuery(event.currentTarget.value)} />
+                    <div className="modelMenuList" data-canvas-wheel-scroll>
+                      {visibleModels.map(({ model }) => (
+                        <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, model.id)}>
+                          <img src={modelLogoFor(model.providerId, model.id).src} alt="" />
+                          <span><strong>{model.title}</strong><small>{model.id}</small></span>
+                        </button>
+                      ))}
+                      {visibleModels.length === 0 ? (
+                        <div className="modelMenuEmpty">
+                          <span>Нет подключённых текстовых моделей</span>
+                          <button type="button" onClick={onOpenModels}>Открыть панель моделей</button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+              <div className="routeSettings">
+                <button type="button" className="routeSettingsButton" aria-label={`Execution route for ${selectedModel.title}`} aria-expanded={routeSettingsOpen} disabled={!selectedModel.id} onClick={() => setRouteSettingsOpen((current) => !current)}>
+                  <Wrench size={13} />
+                </button>
+                {routeSettingsOpen ? (
+                  <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
+                    <strong>{selectedModel.title}</strong>
+                    <small className="routeModelId">{selectedModel.id}</small>
+                    <label>
+                      Run via
+                      <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, executionProvider: event.currentTarget.value })}>
+                        <option value="auto">Auto</option>
+                        {selectedRoutes.map((route) => <option key={route.providerId} value={route.providerId}>{executionRouteDisplayName(route.providerId)}</option>)}
+                      </select>
+                    </label>
+                    <label className="fallbackSetting">
+                      <input type="checkbox" checked={effectiveSelection.fallbackAllowed} onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, fallbackAllowed: event.currentTarget.checked })} />
+                      Fallback allowed
+                    </label>
+                  </div>
+                ) : null}
+              </div>
+              {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"}>{generationFeedback.message}</span> : null}
+              <button type="button" aria-label="Run" disabled={!draftText.trim() || !selectedModel.id || generationFeedback?.busy} onClick={() => onRunTextGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), draftText, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax)}><ArrowUp size={16} /></button>
+            </div>
+          </footer>
+        ) : null}
       </article>
     );
   }
@@ -2904,11 +3214,11 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function nodeInputPoint(node: CanvasNode) {
-  return { x: node.x, y: node.y + (node.type === "text" ? node.height / 2 : nodeTitleHeight + node.height / 2) };
+  return { x: node.x, y: node.y + nodeTitleHeight + node.height / 2 };
 }
 
 function nodeOutputPoint(node: CanvasNode) {
-  return { x: node.x + node.width, y: node.y + (node.type === "text" ? node.height / 2 : nodeTitleHeight + node.height / 2) };
+  return { x: node.x + node.width, y: node.y + nodeTitleHeight + node.height / 2 };
 }
 
 function edgePath(start: { x: number; y: number }, end: { x: number; y: number }) {

@@ -1,0 +1,16 @@
+{
+  "format": "snarkroute.node",
+  "version": "0.1",
+  "id": "text_mpoaf690_8960b9",
+  "type": "text",
+  "title": "Text",
+  "text": "Селай описание этой картинки",
+  "stackPath": "content",
+  "color": "amber",
+  "createdAt": "2026-05-27T16:37:40.836Z",
+  "updatedAt": "2026-05-27T21:16:22.309Z",
+  "selectedStackItemId": "text_Y29udGVudC8zNjAucHJvbXB0LnBuZw",
+  "modelId": "qwen/qwen3.5-plus-20260420",
+  "executionProvider": "auto",
+  "fallbackAllowed": true
+}

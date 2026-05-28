@@ -1,0 +1,21 @@
+{
+  "format": "snarkroute.node",
+  "version": "0.1",
+  "id": "image_mppgthtf_113cec",
+  "type": "image",
+  "title": "image (3)",
+  "stack": [
+    {
+      "id": "stack_mppgthtm_959daf",
+      "file": "content/000-import.png",
+      "source": "import",
+      "mimeType": "image/png",
+      "width": 2000,
+      "height": 857,
+      "createdAt": "2026-05-28T12:24:32.890Z"
+    }
+  ],
+  "activeStackIndex": 0,
+  "createdAt": "2026-05-28T12:24:32.890Z",
+  "updatedAt": "2026-05-28T12:24:32.890Z"
+}

@@ -65,7 +65,7 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
-  it("imports an image into a neutral node folder with stack[0] copied into content", async () => {
+  it("imports an image into a title-matched node folder with stack[0] copied into content", async () => {
     const app = await testServer();
     try {
       const response = await app.inject({
@@ -84,7 +84,7 @@ describe("SnarkRoute libraries", () => {
       const body = response.json();
       const node = body.nodes[0];
       expect(node.canvas).toMatchObject({ type: "image", x: 340, y: 180, width: 320, height: 240 });
-      expect(node.canvas.nodePath).toMatch(/^nodes\/image_.+\.node$/);
+      expect(node.canvas.nodePath).toBe("nodes/My Image.node");
       expect(node.manifest).toMatchObject({ format: "snarkroute.node", type: "image", activeStackIndex: 0 });
       expect(node.manifest.stack[0]).toMatchObject({ file: "content/000-import.png", source: "import", mimeType: "image/png", width: 1, height: 1 });
 
@@ -99,6 +99,11 @@ describe("SnarkRoute libraries", () => {
       await expect(readFile(join(libraryPath, "nodes", nodeFolders[0], "current-prompt.txt"), "utf8")).resolves.toBe("");
       expect(body.manifest.representativeImage).toEqual({ nodeId: node.manifest.id, stackItemId: node.manifest.stack[0].id });
       await expect(readFile(join(libraryPath, "nodes", nodeFolders[0], "content", "000-import.png"))).resolves.toBeInstanceOf(Buffer);
+
+      await writeFile(join(libraryPath, node.canvas.nodePath, "content", "manual-reference.png"), Buffer.from(onePixelPngBase64, "base64"));
+      const refreshed = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes[0];
+      expect(refreshed.manifest.stack[1]).toMatchObject({ file: "content/manual-reference.png", mimeType: "image/png" });
+      expect(refreshed.manifest.activeStackIndex).toBe(0);
     } finally {
       await app.close();
     }
@@ -141,7 +146,7 @@ describe("SnarkRoute libraries", () => {
       expect(imported.statusCode).toBe(200);
       const node = imported.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "library");
       expect(node.manifest).toMatchObject({ type: "library", sourcePath, viewMode: "image-stack" });
-      expect(node.canvas.nodePath).toMatch(/^nodes\/library_.+\.node$/);
+      expect(node.canvas.nodePath).toBe("nodes/Robot Children.node");
       expect(node.scan).toMatchObject({ title: "Robot Children", defaultView: "image-stack", availableViews: expect.arrayContaining(["image-stack", "prompt-library", "workflow"]) });
       expect(node.scan.assets.find((asset: { relativePath: string }) => asset.relativePath === "images/closeup.png")).toMatchObject({
         kind: "image",
@@ -157,6 +162,13 @@ describe("SnarkRoute libraries", () => {
       expect(switched.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id).manifest.viewMode).toBe("prompt-library");
       const rescanned = await app.inject({ method: "POST", url: `/api/libraries/current/library-nodes/${node.manifest.id}/rescan` });
       expect(rescanned.statusCode).toBe(200);
+      const promptAssetId = node.scan.assets.find((asset: { relativePath: string }) => asset.relativePath === "hero.prompt.png").id;
+      const deleted = await app.inject({ method: "DELETE", url: `/api/libraries/current/library-nodes/${node.manifest.id}/assets/${promptAssetId}` });
+      expect(deleted.statusCode).toBe(200);
+      await expect(readFile(join(sourcePath, "hero.prompt.png"))).rejects.toThrow();
+      expect(deleted.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id).scan.assets).not.toEqual(
+        expect.arrayContaining([expect.objectContaining({ relativePath: "hero.prompt.png" })])
+      );
       await rm(sourcePath, { recursive: true, force: true });
       const missingSource = await app.inject({ method: "GET", url: "/api/libraries/current" });
       expect(missingSource.statusCode).toBe(200);
@@ -177,7 +189,7 @@ describe("SnarkRoute libraries", () => {
       expect(importedResponse.statusCode).toBe(200);
       const node = importedResponse.json().nodes[0];
       expect(node.canvas).toMatchObject({ type: "video", x: 340, y: 180, width: 320, height: 240 });
-      expect(node.canvas.nodePath).toMatch(/^nodes\/video_.+\.node$/);
+      expect(node.canvas.nodePath).toBe("nodes/Clip.node");
       expect(node.manifest).toMatchObject({ type: "video", activeStackIndex: 0 });
       expect(node.manifest.stack[0]).toMatchObject({ file: "content/000-import.mp4", mimeType: "video/mp4" });
 
@@ -198,6 +210,10 @@ describe("SnarkRoute libraries", () => {
       const updated = appendedResponse.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
       expect(updated.manifest.activeStackIndex).toBe(1);
       expect(updated.manifest.stack[1]).toMatchObject({ file: "content/000-import.webm", mimeType: "video/webm" });
+      await writeFile(join(libraryPath, node.canvas.nodePath, "content", "manual-cut.mov"), Buffer.from(sampleVideoBase64, "base64"));
+      const diskRefreshed = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(diskRefreshed.manifest.stack[2]).toMatchObject({ file: "content/manual-cut.mov", mimeType: "video/quicktime" });
+      expect(diskRefreshed.manifest.activeStackIndex).toBe(1);
 
       const previewResponse = await app.inject({
         method: "GET",
@@ -301,6 +317,7 @@ describe("SnarkRoute libraries", () => {
       const duplicate = response.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id !== source.manifest.id);
       expect(duplicate.canvas).toMatchObject({ type: "image", x: 420, y: 220 });
       expect(duplicate.manifest).toMatchObject({ type: "image", title: "Source copy", currentPrompt: "Copied prompt" });
+      expect(duplicate.canvas.nodePath).toBe("nodes/Source copy.node");
       expect(duplicate.manifest.stack[0]).toMatchObject({ file: "content/000-import.png", mimeType: "image/png" });
       expect(response.json().canvas.edges ?? []).toEqual([]);
       await expect(readFile(join(libraryPath, duplicate.canvas.nodePath, "content", "000-import.png"))).resolves.toBeInstanceOf(Buffer);
@@ -386,7 +403,7 @@ describe("SnarkRoute libraries", () => {
         payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
       });
       const textNode = textResponse.json().nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "text");
-      expect(textNode.canvas.nodePath).toMatch(/^nodes\/text_.+\.node$/);
+      expect(textNode.canvas.nodePath).toBe("nodes/Text.node");
       await app.inject({
         method: "PUT",
         url: `/api/libraries/current/text-nodes/${textNode.manifest.id}`,
@@ -453,6 +470,105 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("uses prompt assets and plain text files as a text-node stack", async () => {
+    const app = await testServer();
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      const contentPath = join(libraryPath, node.canvas.nodePath, "content");
+      await writeFile(join(contentPath, "notes.txt"), "Text file content", "utf8");
+      const pngPrompt = writePngTextChunk(Buffer.from(onePixelPngBase64, "base64"), "snarkroute:prompt", JSON.stringify({
+        schema: "snarkroute.prompt-image.v0",
+        id: "embedded",
+        title: "Embedded Prompt",
+        category: "text-stack",
+        prompt: "Prompt extracted from PNG"
+      }));
+      await writeFile(join(contentPath, "embedded.png"), pngPrompt);
+
+      const snapshot = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json();
+      const textNode = snapshot.nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(textNode.manifest).toMatchObject({ stackPath: "content" });
+      expect(textNode.stack).toEqual(expect.arrayContaining([
+        expect.objectContaining({ title: "Embedded Prompt", text: "Prompt extracted from PNG", previewFile: "content/embedded.png" }),
+        expect.objectContaining({ title: "notes", text: "Text file content", source: "text" })
+      ]));
+      const embedded = textNode.stack.find((item: { title: string }) => item.title === "Embedded Prompt");
+      const selected = await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/stack/active`,
+        payload: { selectedStackItemId: embedded.id }
+      });
+      const selectedNode = selected.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(selectedNode.outputText).toBe("Prompt extracted from PNG");
+      const preview = await app.inject({ method: "GET", url: `/api/libraries/current/text-nodes/${node.manifest.id}/stack/${embedded.id}/preview` });
+      expect(preview.statusCode).toBe(200);
+
+      const saved = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/stack`,
+        payload: { text: "New reusable prompt" }
+      });
+      const savedNode = saved.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(savedNode.activeStackItem.text).toBe("New reusable prompt");
+      await expect(readFile(join(libraryPath, node.canvas.nodePath, savedNode.activeStackItem.file), "utf8")).resolves.toContain("category: text-stack");
+      await writeFile(join(contentPath, "manual-later.txt"), "Manually appended text", "utf8");
+      const withManual = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(withManual.stack).toEqual(expect.arrayContaining([expect.objectContaining({ title: "manual later", text: "Manually appended text" })]));
+      expect(withManual.activeStackItem.id).toBe(savedNode.activeStackItem.id);
+
+      const duplicated = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/stack/${savedNode.activeStackItem.id}/duplicate-node`,
+        payload: { x: 600, y: 300, width: 320, height: 240 }
+      });
+      const duplicatedText = duplicated.json().nodes.find((entry: { manifest: { id: string; type: string } }) => entry.manifest.type === "text" && entry.manifest.id !== node.manifest.id);
+      const sourceAfterDuplicate = duplicated.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(duplicatedText.outputText).toBe("New reusable prompt");
+      expect(duplicatedText.canvas.height).toBe(node.canvas.height);
+      expect(sourceAfterDuplicate.activeStackItem.id).toBe(savedNode.activeStackItem.id);
+      expect(duplicated.json().canvas.edges).toContainEqual(expect.objectContaining({ fromNodeId: node.manifest.id, toNodeId: duplicatedText.manifest.id }));
+
+      const removed = await app.inject({ method: "DELETE", url: `/api/libraries/current/text-nodes/${node.manifest.id}/stack/${embedded.id}` });
+      const removedNode = removed.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(removedNode.stack).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: embedded.id })]));
+
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: { generate: { status: "succeeded", output: { text: "Generated library text" } } }
+      });
+      const sourceImage = await importNode(app, "Text context.png");
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_text_image", fromNodeId: sourceImage.manifest.id, toNodeId: node.manifest.id }] }
+      });
+      const generated = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/generate`,
+        payload: {
+          modelId: "text.default",
+          prompt: `Draft instruction [[image:${sourceImage.manifest.id}]]`,
+          executionProvider: "auto",
+          inputNodeIds: [sourceImage.manifest.id],
+          imageReferenceSyntax: "reference {index}"
+        }
+      });
+      expect(generated.statusCode).toBe(200);
+      expect(generated.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id).activeStackItem.text).toBe("Generated library text");
+      expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
+        nodes: [expect.objectContaining({ type: "ai.text", params: expect.objectContaining({ prompt: "Draft instruction reference 1", images: [expect.objectContaining({ mimeType: "image/png" })] }) })]
+      }));
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns the provider generation error instead of a missing-output message", async () => {
     const app = await testServer();
     try {
@@ -485,7 +601,7 @@ describe("SnarkRoute libraries", () => {
       expect(response.statusCode).toBe(200);
       await expect(readFile(join(originalPath, "snark.node.json"), "utf8")).rejects.toThrow();
       const trashFolders = await readdir(join(libraryPath, ".trash", "nodes"));
-      expect(trashFolders.some((folder) => folder.startsWith(target.manifest.id))).toBe(true);
+      expect(trashFolders.some((folder) => folder.startsWith("Disposable.node-"))).toBe(true);
 
       const undoResponse = await app.inject({
         method: "PUT",
@@ -497,6 +613,31 @@ describe("SnarkRoute libraries", () => {
         .find((node: { manifest: { id: string } }) => node.manifest.id === target.manifest.id);
       expect(restored.manifest.title).toBe("Disposable");
       await expect(readFile(join(originalPath, "snark.node.json"), "utf8")).resolves.toContain(target.manifest.id);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("keeps node folder names aligned when titles collide or change", async () => {
+    const app = await testServer();
+    try {
+      const first = await importNode(app, "Reference.png");
+      const second = await importNode(app, "Reference.png");
+      expect(first.canvas.nodePath).toBe("nodes/Reference.node");
+      expect(second.manifest.title).toBe("Reference (2)");
+      expect(second.canvas.nodePath).toBe("nodes/Reference (2).node");
+
+      const response = await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/nodes/${first.manifest.id}/title`,
+        payload: { title: "Hero" }
+      });
+      expect(response.statusCode).toBe(200);
+      const renamed = response.json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === first.manifest.id);
+      expect(renamed.manifest.title).toBe("Hero");
+      expect(renamed.canvas.nodePath).toBe("nodes/Hero.node");
+      await expect(readFile(join(libraryPath, "nodes", "Reference.node", "snark.node.json"), "utf8")).rejects.toThrow();
+      await expect(readFile(join(libraryPath, "nodes", "Hero.node", "content", "000-import.png"))).resolves.toBeInstanceOf(Buffer);
     } finally {
       await app.close();
     }

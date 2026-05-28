@@ -2,9 +2,11 @@ import type { FastifyInstance } from "fastify";
 import { spawn } from "node:child_process";
 import {
   appendImageToNodeStack,
+  appendTextToNodeStack,
   appendVideoToNodeStack,
   canvasNodeFolderPath,
   createImageStackReadStream,
+  createTextStackPreviewReadStream,
   createVideoStackReadStream,
   createLocalLibraryAssetReadStream,
   duplicateCanvasNode,
@@ -13,10 +15,14 @@ import {
   deleteCanvasEdge,
   deleteCanvasNode,
   deleteImageNodeStackItem,
+  deleteLocalLibraryAsset,
+  deleteTextNodeStackItem,
   deleteVideoNodeStackItem,
   duplicateStackItemAsConnectedImageNode,
+  duplicateStackItemAsTextNode,
   duplicateStackItemAsConnectedVideoNode,
   generateImageNodeStackItem,
+  generateTextNodeStackItem,
   generateVideoNodeStackItem,
   getCurrentLibrarySnapshot,
   importImageAsNode,
@@ -29,6 +35,7 @@ import {
   readLibraryNode,
   readVideoNode,
   setImageNodeActiveStackItem,
+  setTextNodeActiveStackItem,
   setVideoNodeActiveStackItem,
   updateLibraryNodeViewMode,
   updateImageNodePrompt,
@@ -367,9 +374,74 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.put<{ Params: { nodeId: string }; Body: { text?: string; color?: string } }>("/api/libraries/current/text-nodes/:nodeId", async (request, reply) => {
+  app.put<{ Params: { nodeId: string }; Body: { text?: string; color?: string; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean } }>("/api/libraries/current/text-nodes/:nodeId", async (request, reply) => {
     try {
-      return await updateTextNode(request.params.nodeId, { text: request.body?.text, color: request.body?.color });
+      return await updateTextNode(request.params.nodeId, {
+        text: request.body?.text,
+        color: request.body?.color,
+        modelId: request.body?.modelId,
+        executionProvider: request.body?.executionProvider,
+        fallbackAllowed: request.body?.fallbackAllowed
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string }; Body: { text?: string; title?: string } }>("/api/libraries/current/text-nodes/:nodeId/stack", async (request, reply) => {
+    try {
+      return await appendTextToNodeStack(request.params.nodeId, request.body?.text ?? "", request.body?.title);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemId?: string | null } }>("/api/libraries/current/text-nodes/:nodeId/stack/active", async (request, reply) => {
+    try {
+      return await setTextNodeActiveStackItem(request.params.nodeId, request.body?.selectedStackItemId ?? null);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string; stackItemId: string }; Body: { x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/text-nodes/:nodeId/stack/:stackItemId/duplicate-node", async (request, reply) => {
+    try {
+      return await duplicateStackItemAsTextNode({
+        nodeId: request.params.nodeId,
+        stackItemId: request.params.stackItemId,
+        x: Number(request.body?.x ?? 0),
+        y: Number(request.body?.y ?? 0),
+        width: request.body?.width,
+        height: request.body?.height
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.delete<{ Params: { nodeId: string; stackItemId: string } }>("/api/libraries/current/text-nodes/:nodeId/stack/:stackItemId", async (request, reply) => {
+    try {
+      return await deleteTextNodeStackItem(request.params.nodeId, request.params.stackItemId);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string } }>("/api/libraries/current/text-nodes/:nodeId/generate", async (request, reply) => {
+    try {
+      if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
+      return await generateTextNodeStackItem({
+        nodeId: request.params.nodeId,
+        modelId: request.body.modelId,
+        prompt: request.body.prompt,
+        providerId: request.body.providerId,
+        executionProvider: request.body.executionProvider,
+        fallbackAllowed: request.body.fallbackAllowed,
+        availableExecutionProviders: request.body.availableExecutionProviders,
+        inputNodeIds: request.body.inputNodeIds,
+        maxImageInputs: request.body.maxImageInputs,
+        imageReferenceSyntax: request.body.imageReferenceSyntax
+      });
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -438,6 +510,16 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
+  app.get<{ Params: { nodeId: string; stackItemId: string } }>("/api/libraries/current/text-nodes/:nodeId/stack/:stackItemId/preview", async (request, reply) => {
+    try {
+      const preview = await createTextStackPreviewReadStream(request.params.nodeId, request.params.stackItemId);
+      reply.header("Content-Type", preview.mimeType);
+      return reply.send(preview.stream);
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error) });
+    }
+  });
+
   app.get<{ Params: { nodeId: string; assetId: string } }>("/api/libraries/current/library-nodes/:nodeId/assets/:assetId", async (request, reply) => {
     try {
       const asset = await createLocalLibraryAssetReadStream(request.params.nodeId, request.params.assetId);
@@ -445,6 +527,14 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
       return reply.send(asset.stream);
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.delete<{ Params: { nodeId: string; assetId: string } }>("/api/libraries/current/library-nodes/:nodeId/assets/:assetId", async (request, reply) => {
+    try {
+      return await deleteLocalLibraryAsset(request.params.nodeId, request.params.assetId);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
     }
   });
 }

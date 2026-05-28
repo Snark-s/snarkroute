@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
-import { getLocalAssetMetadata, getPromptLibraryPath, getPromptLibraryPrompt, loadPromptLibrary, writePngTextChunk } from "@snarkroute/nodes";
+import { getLocalAssetMetadata, getPromptLibraryPath, getPromptLibraryPrompt, loadPromptLibrary, writePngTextChunk, type PromptLibraryPrompt } from "@snarkroute/nodes";
 
 export type CreatePromptAssetBody = {
   title?: string;
@@ -20,7 +20,7 @@ export type CreatePromptAssetBody = {
   };
   imagePath?: string;
   imageDataBase64?: string;
-  assetFormat?: "markdown" | "png";
+  assetFormat?: "png";
 };
 
 export type UpdatePromptAssetBody = {
@@ -31,12 +31,13 @@ export type UpdatePromptAssetBody = {
 const promptAssetStatuses = new Set(["draft", "candidate", "approved", "published", "archived"]);
 
 export async function updatePromptAsset(category: string, id: string, body: UpdatePromptAssetBody) {
-  const prompt = await loadPromptAssetForMutation(category, id);
+  const prompt = await loadPromptAssetForMutation(category, id, { allowPng: true });
   const status = cleanSingleLine(body.status);
   const nextCategory = cleanSingleLine(body.category);
   if (!status && !nextCategory) throw new Error("status or category is required.");
   if (status && !promptAssetStatuses.has(status)) throw new Error(`Unsupported prompt status "${status}".`);
   if (nextCategory && !safePathSegment(nextCategory)) throw new Error("Invalid prompt category.");
+  if (prompt.path.endsWith(".prompt.png")) return updatePromptPngAsset(prompt, { status, nextCategory });
 
   const text = await readFile(prompt.path, "utf8");
   const currentCategory = prompt.category;
@@ -58,6 +59,23 @@ export async function updatePromptAsset(category: string, id: string, body: Upda
     await movePromptPreview(prompt.previewImage, dirname(prompt.path), targetDirectory);
   }
   return { category: targetCategory, id, path: targetPath };
+}
+
+async function updatePromptPngAsset(prompt: PromptLibraryPrompt & { path: string }, updates: { status: string; nextCategory: string }) {
+  const targetCategory = updates.nextCategory || prompt.category;
+  const root = resolve(getPromptLibraryPath());
+  const targetDirectory = resolve(root, targetCategory);
+  if (!targetDirectory.startsWith(root)) throw new Error("Invalid prompt category.");
+  await mkdir(targetDirectory, { recursive: true });
+  const targetPath = join(targetDirectory, basename(prompt.path));
+  if (targetPath !== prompt.path && existsSync(targetPath)) throw new Error(`Prompt asset "${targetCategory}/${prompt.id}" already exists.`);
+  const metadata = promptPngMetadata(prompt, {
+    category: targetCategory,
+    status: updates.status || prompt.status || "candidate"
+  });
+  await writeFile(prompt.path, writePngTextChunk(await readFile(prompt.path), "snarkroute:prompt", JSON.stringify(metadata)));
+  if (targetPath !== prompt.path) await rename(prompt.path, targetPath);
+  return { category: targetCategory, id: prompt.id, path: targetPath };
 }
 
 export async function deletePromptAsset(category: string, id: string) {
@@ -125,7 +143,7 @@ export async function createPromptAssetFromGeneratedImage(body: CreatePromptAsse
   const title = cleanSingleLine(body.title) || "Generated Image Prompt";
   const category = safePathSegment(body.category || "image-generation") || "image-generation";
   const slug = safePathSegment(body.slug || slugFromTitle(title));
-  const prompt = String(body.prompt ?? "").trim();
+  const prompt = normalizePromptChips(String(body.prompt ?? "")).trim();
   if (!slug) throw new Error("Slug is required.");
   if (!prompt) throw new Error("Prompt body is required.");
   if (!body.imagePath && !body.imageDataBase64) throw new Error("imagePath or imageDataBase64 is required.");
@@ -142,7 +160,6 @@ export async function createPromptAssetFromGeneratedImage(body: CreatePromptAsse
   const promptPath = join(directory, `${slug}.prompt.md`);
   const previewPath = join(directory, `${slug}.preview.png`);
   const pngPromptPath = join(directory, `${slug}.prompt.png`);
-  const assetFormat = body.assetFormat === "png" ? "png" : "markdown";
   if (existsSync(promptPath) || existsSync(previewPath) || existsSync(pngPromptPath)) {
     throw new Error(`Prompt asset "${category}/${slug}" already exists. Choose a different slug.`);
   }
@@ -155,49 +172,70 @@ export async function createPromptAssetFromGeneratedImage(body: CreatePromptAsse
     nodeId: cleanSingleLine(body.source?.nodeId) || undefined,
     outputId: cleanSingleLine(body.source?.outputId) || undefined
   };
-  if (assetFormat === "png") {
-    const metadata = {
-      schema: "snarkroute.prompt-image.v0",
-      id: slug,
-      title,
-      category,
-      prompt,
-      negativePrompt: String(body.negativePrompt ?? "").trim() || undefined,
-      description: cleanSingleLine(body.description) || title,
-      kind: "text/prompt",
-      status: "candidate",
-      tags: tags.length ? tags : ["image"],
-      modelHints: modelHints.length ? modelHints : undefined,
-      source
-    };
-    await writeFile(pngPromptPath, writePngTextChunk(imageBuffer, "snarkroute:prompt", JSON.stringify(metadata)));
-    return { promptPath: pngPromptPath, previewPath: pngPromptPath, category, slug, assetFormat };
+  const metadata = promptPngMetadata({
+    id: slug,
+    title,
+    category,
+    text: prompt,
+    negativePrompt: normalizePromptChips(String(body.negativePrompt ?? "")).trim() || undefined,
+    description: cleanSingleLine(body.description) || title,
+    kind: "text/prompt",
+    status: "candidate",
+    tags: tags.length ? tags : ["image"],
+    modelHints: modelHints.length ? modelHints : undefined,
+    source,
+    previewImage: `${slug}.prompt.png`,
+    ref: `${category}/${slug}`,
+    path: pngPromptPath
+  }, { category, status: "candidate" });
+  await writeFile(pngPromptPath, writePngTextChunk(imageBuffer, "snarkroute:prompt", JSON.stringify(metadata)));
+  return { promptPath: pngPromptPath, previewPath: pngPromptPath, category, slug, assetFormat: "png" as const };
+}
+
+export async function createTextPromptAsset(directory: string, body: { title?: string; prompt?: string; category?: string }) {
+  const title = cleanSingleLine(body.title) || "Saved text";
+  const category = safePathSegment(body.category || "text-stack") || "text-stack";
+  const prompt = normalizePromptChips(String(body.prompt ?? "")).trim();
+  if (!prompt) throw new Error("Prompt body is required.");
+  await mkdir(directory, { recursive: true });
+  const baseSlug = safePathSegment(title) || `prompt-${Date.now()}`;
+  let slug = baseSlug;
+  for (let index = 1; existsSync(join(directory, `${slug}.prompt.md`)) || existsSync(join(directory, `${slug}.prompt.png`)); index += 1) {
+    slug = `${baseSlug}-${index + 1}`;
   }
+  const promptPath = join(directory, `${slug}.prompt.md`);
   const frontmatter = [
     "---",
     `id: ${yamlScalar(slug)}`,
     `title: ${yamlScalar(title)}`,
     `category: ${yamlScalar(category)}`,
-    `description: ${yamlScalar(cleanSingleLine(body.description) || title)}`,
-    "kind: system",
-    "tags:",
-    ...(tags.length ? tags : ["image"]).map((tag) => `- ${yamlScalar(tag)}`),
-    `previewImage: ${yamlScalar(`${slug}.preview.png`)}`,
+    `description: ${yamlScalar("Saved from text node")}`,
+    "kind: text/prompt",
     "status: candidate",
-    "source:",
-    ...Object.entries(source)
-      .filter(([, value]) => value !== undefined)
-      .map(([key, value]) => `  ${key}: ${yamlScalar(String(value))}`),
-    ...(modelHints.length ? ["modelHints:", ...modelHints.map((hint) => `- ${yamlScalar(hint)}`)] : []),
-    ...(String(body.negativePrompt ?? "").trim() ? [`negativePrompt: ${yamlScalar(String(body.negativePrompt ?? "").trim())}`] : []),
     "---",
     "",
     prompt,
     ""
   ].join("\n");
   await writeFile(promptPath, frontmatter, "utf8");
-  await writeFile(previewPath, imageBuffer);
-  return { promptPath, previewPath, category, slug, assetFormat };
+  return { promptPath, category, slug, assetFormat: "markdown" as const };
+}
+
+function promptPngMetadata(prompt: PromptLibraryPrompt, overrides: { category: string; status: string }) {
+  return {
+    schema: "snarkroute.prompt-image.v0",
+    id: prompt.id,
+    title: prompt.title,
+    category: overrides.category,
+    prompt: normalizePromptChips(prompt.text),
+    negativePrompt: prompt.negativePrompt ? normalizePromptChips(prompt.negativePrompt) : undefined,
+    description: prompt.description || prompt.title,
+    kind: prompt.kind || "text/prompt",
+    status: overrides.status,
+    tags: prompt.tags?.length ? prompt.tags : ["image"],
+    modelHints: prompt.modelHints?.length ? prompt.modelHints : undefined,
+    source: prompt.source
+  };
 }
 
 function yamlScalar(value: string): string {

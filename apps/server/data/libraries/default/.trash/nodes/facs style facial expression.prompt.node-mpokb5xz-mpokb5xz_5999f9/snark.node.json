@@ -1,0 +1,21 @@
+{
+  "format": "snarkroute.node",
+  "version": "0.1",
+  "id": "image_mpokaw2j_d0bdba",
+  "type": "image",
+  "title": "facs style facial expression.prompt",
+  "stack": [
+    {
+      "id": "stack_mpokaw2s_f61f86",
+      "file": "content/000-import.png",
+      "source": "import",
+      "mimeType": "image/png",
+      "width": 1024,
+      "height": 1024,
+      "createdAt": "2026-05-27T21:14:17.188Z"
+    }
+  ],
+  "activeStackIndex": 0,
+  "createdAt": "2026-05-27T21:14:17.188Z",
+  "updatedAt": "2026-05-27T21:14:17.188Z"
+}
