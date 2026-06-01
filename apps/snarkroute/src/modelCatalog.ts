@@ -225,11 +225,24 @@ function collectModelCandidates(value: unknown): unknown[] {
 
 function inferProducedKinds(record: Record<string, unknown>, providerId: string): ContentKind[] {
   const explicitType = typeof record.type === "string" ? record.type.toLowerCase() : "";
+  const architecture = objectValue(record.architecture);
+  const outputModalities = [
+    architecture.output_modalities,
+    record.outputModalities,
+    record.outputs,
+    record.produces
+  ].flatMap((field) => Array.isArray(field) ? field : [field]).filter(Boolean).map(String).join(" ").toLowerCase();
+  const explicitOutputs: ContentKind[] = [];
+  if (/(video|text-to-video|image-to-video|video-generation)/.test(outputModalities)) explicitOutputs.push("video");
+  if (/(image|img|text-to-image|image-generation)/.test(outputModalities)) explicitOutputs.push("image");
+  if (/(audio|speech|music|sound)/.test(outputModalities)) explicitOutputs.push("audio");
+  if (/(text|chat|language|message)/.test(outputModalities)) explicitOutputs.push("text");
+  if (explicitOutputs.length) return [...new Set(explicitOutputs)];
   if (explicitType === "video") return ["video"];
   if (explicitType === "image") return ["image"];
   if (explicitType === "chat" || explicitType === "text") return ["text"];
   if (explicitType === "audio") return ["audio"];
-  const text = modelMetadataText(record);
+  const text = modelOutputMetadataText(record);
   if (/(video|text-to-video|image-to-video|video-generation)/.test(text)) return ["video"];
   if (/(image|img|vision|visual|text-to-image|image-generation)/.test(text)) return ["image"];
   if (/(audio|speech|music|sound)/.test(text)) return ["audio"];
@@ -282,6 +295,14 @@ function modelMetadataText(record: Record<string, unknown>): string {
     record.inputModalities, record.outputModalities, architecture.input_modalities,
     architecture.output_modalities, architecture.modality, record.tasks, record.kind,
     record.category, record.family, record.id
+  ].flatMap((field) => Array.isArray(field) ? field : [field]).filter(Boolean).map(String).join(" ").toLowerCase();
+}
+
+function modelOutputMetadataText(record: Record<string, unknown>): string {
+  const architecture = objectValue(record.architecture);
+  return [
+    record.nodeTypes, record.nodeType, record.type, record.outputModalities, architecture.output_modalities,
+    record.outputs, record.produces, record.tasks, record.kind, record.category, record.family, record.id
   ].flatMap((field) => Array.isArray(field) ? field : [field]).filter(Boolean).map(String).join(" ").toLowerCase();
 }
 

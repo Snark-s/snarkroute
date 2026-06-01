@@ -8,7 +8,7 @@ import { sanitizeFilename } from "../assets/service";
 import { createRouteExecutor } from "../execution/service";
 import { createTextPromptAsset } from "../prompt-library/service";
 import { fetchWithTimeout } from "../services/http";
-import { embedImageProvenance, imageProvenanceFormat, imageProvenanceVersion } from "./image-metadata";
+import { embedImageProvenance, imageMetadataSchema, type SnarkImageMetadata } from "./image-metadata";
 
 export type LibraryKind = "workspace" | "collection";
 export type LibraryContentKind = "mixed" | "image" | "character" | "prompt" | "style";
@@ -176,6 +176,31 @@ export interface LibrarySnapshot {
   nodes: NodeView[];
 }
 
+export interface LibraryProjectSummary {
+  id: string;
+  title: string;
+  path: string;
+  coverUrl: string | null;
+  current: boolean;
+}
+
+export interface LibraryProjectImageSummary {
+  id: string;
+  title: string;
+  url: string;
+}
+
+interface LibraryProjectRegistry {
+  version: 1;
+  projects: LibraryProjectRegistryEntry[];
+}
+
+interface LibraryProjectRegistryEntry {
+  path: string;
+  addedAt: string;
+  coverPath?: string;
+}
+
 export interface NestedLibrary {
   id: string;
   title: string;
@@ -243,6 +268,15 @@ export interface ImportImageInput {
 }
 
 export interface ImportVideoInput extends ImportImageInput {}
+
+export interface ImportTextInput {
+  filename: string;
+  text: string;
+  dropX: number;
+  dropY: number;
+  width?: number;
+  height?: number;
+}
 
 export interface CreateNodeInput {
   type: "image" | "video" | "text";
@@ -323,9 +357,19 @@ export interface ImportLocalLibraryInput {
   height?: number;
 }
 
+export interface ImportLocalFolderStackInput {
+  sourcePath: string;
+  stackKind: "image" | "text" | "video";
+  dropX: number;
+  dropY: number;
+  width?: number;
+  height?: number;
+}
+
 const manifestFilename = "snark.library.json";
 const canvasFilename = "canvas.json";
 const currentPromptFilename = "current-prompt.txt";
+const projectRegistryFilename = "projects.json";
 const defaultNodeWidth = 320;
 const defaultNodeHeight = 240;
 let currentLibraryPath = process.env.SNARKROUTE_LIBRARY_PATH ? resolve(process.env.SNARKROUTE_LIBRARY_PATH) : join(librariesDirectory, "default");
@@ -353,6 +397,85 @@ export async function createLibrary(options: { path?: string; title?: string; li
   });
   currentLibraryPath = libraryPath;
   return readLibrarySnapshot(libraryPath);
+}
+
+export async function listLibraryProjects(): Promise<{ projects: LibraryProjectSummary[] }> {
+  const activePath = await ensureCurrentLibrary();
+  const records = (await readProjectRegistry()).projects;
+  const projects = await Promise.all(records.map((record) => projectSummary(record.path, record.path === activePath, record.coverPath)));
+  return { projects };
+}
+
+export async function addLibraryProject(path: string): Promise<{ projects: LibraryProjectSummary[]; current: LibrarySnapshot }> {
+  const projectPath = resolve(path);
+  await ensureProjectLibrary(projectPath);
+  await saveProjectPath(projectPath);
+  currentLibraryPath = projectPath;
+  return { projects: (await listLibraryProjects()).projects, current: await readLibrarySnapshot(projectPath) };
+}
+
+export async function openLibraryProject(path: string): Promise<{ projects: LibraryProjectSummary[]; current: LibrarySnapshot }> {
+  const projectPath = resolve(path);
+  await readLibraryManifest(projectPath);
+  await saveProjectPath(projectPath);
+  currentLibraryPath = projectPath;
+  return { projects: (await listLibraryProjects()).projects, current: await readLibrarySnapshot(projectPath) };
+}
+
+export async function removeLibraryProject(path: string): Promise<{ projects: LibraryProjectSummary[]; current: LibrarySnapshot }> {
+  const projectPath = resolve(path);
+  const registry = await readProjectRegistry();
+  registry.projects = registry.projects.filter((project) => resolve(project.path) !== projectPath);
+  await writeProjectRegistry(registry);
+  if (resolve(currentLibraryPath) === projectPath) {
+    currentLibraryPath = registry.projects[0]?.path ? resolve(registry.projects[0].path) : join(librariesDirectory, "default");
+  }
+  const activePath = await ensureCurrentLibrary();
+  return { projects: (await listLibraryProjects()).projects, current: await readLibrarySnapshot(activePath) };
+}
+
+export async function createProjectCoverReadStream(projectId: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
+  const project = await projectRecordById(projectId);
+  if (!project) throw new Error(`Project "${projectId}" was not found.`);
+  const cover = await findProjectCover(project.path, project.coverPath);
+  if (!cover) throw new Error(`Project "${basename(project.path) || projectId}" has no cover image.`);
+  return { stream: createReadStream(cover.path), mimeType: cover.mimeType };
+}
+
+export async function listLibraryProjectImages(projectId: string): Promise<{ images: LibraryProjectImageSummary[] }> {
+  const project = await projectRecordById(projectId);
+  if (!project) throw new Error(`Project "${projectId}" was not found.`);
+  const images = (await findProjectImages(project.path)).map((image) => ({
+    id: projectImageId(image.path),
+    title: basename(image.path),
+    url: `/api/libraries/projects/${encodeURIComponent(projectId)}/images/${encodeURIComponent(projectImageId(image.path))}`
+  }));
+  return { images };
+}
+
+export async function createProjectImageReadStream(projectId: string, imageId: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
+  const project = await projectRecordById(projectId);
+  if (!project) throw new Error(`Project "${projectId}" was not found.`);
+  const image = (await findProjectImages(project.path)).find((candidate) => projectImageId(candidate.path) === imageId);
+  if (!image) throw new Error(`Project image "${imageId}" was not found.`);
+  return { stream: createReadStream(image.path), mimeType: image.mimeType };
+}
+
+export async function setLibraryProjectCover(projectId: string, imageId: string): Promise<{ projects: LibraryProjectSummary[] }> {
+  const project = await projectRecordById(projectId);
+  if (!project) throw new Error(`Project "${projectId}" was not found.`);
+  const image = (await findProjectImages(project.path)).find((candidate) => projectImageId(candidate.path) === imageId);
+  if (!image) throw new Error(`Project image "${imageId}" was not found.`);
+  const registry = await readProjectRegistry();
+  const normalized = resolve(project.path);
+  const existing = registry.projects.find((entry) => resolve(entry.path) === normalized);
+  if (existing) {
+    existing.coverPath = image.path;
+  } else {
+    registry.projects.unshift({ path: normalized, addedAt: new Date().toISOString(), coverPath: image.path });
+  }
+  await writeProjectRegistry(registry);
+  return listLibraryProjects();
 }
 
 export async function readLibrarySnapshot(libraryPath: string): Promise<LibrarySnapshot> {
@@ -543,6 +666,48 @@ export async function importVideoAsNode(input: ImportVideoInput): Promise<Librar
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function importTextAsNode(input: ImportTextInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const body = input.text.trim();
+  if (!body) throw new Error("Text is required.");
+  const now = new Date().toISOString();
+  const id = `text_${shortId()}`;
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, titleFromFilename(input.filename));
+  const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
+  await mkdir(join(nodePath, "content"), { recursive: true });
+  const saved = await createTextPromptAsset(join(nodePath, "content"), { title, prompt: body, category: "text-stack" });
+  const relativeFile = portableRelativePath(nodePath, saved.promptPath);
+  const manifest: TextNodeManifest = {
+    format: "snarkroute.node",
+    version: "0.1",
+    id,
+    type: "text",
+    title,
+    text: body,
+    stackPath: "content",
+    selectedStackItemId: textStackItemId(relativeFile),
+    color: "mint",
+    createdAt: now,
+    updatedAt: now
+  };
+  await writeJson(join(nodePath, "snark.node.json"), manifest);
+
+  const canvas = await ensureCanvas(libraryPath);
+  const width = input.width ?? defaultNodeWidth;
+  const height = input.height ?? 180;
+  canvas.nodes.push({
+    id,
+    type: "text",
+    nodePath: nodeRelativePath,
+    x: Math.round(input.dropX - width / 2),
+    y: Math.round(input.dropY - height / 2),
+    width,
+    height
+  });
+  await writeCanvas(libraryPath, canvas);
+  return readLibrarySnapshot(libraryPath);
+}
+
 export async function importLocalLibraryAsNode(input: ImportLocalLibraryInput): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const scan = await scanLocalLibrary(input.sourcePath);
@@ -631,6 +796,145 @@ export async function scanLocalLibrary(sourcePath: string): Promise<LocalLibrary
     entryBoard: manifest?.entryBoard,
     entryWorkflow: manifest?.entryWorkflow
   };
+}
+
+async function importImageAssetsAsStackNode(scan: LocalLibraryScanResult, input: ImportLocalFolderStackInput): Promise<LibrarySnapshot> {
+  const imageAssets = scan.assets.filter((asset) => asset.kind === "image" && /\.(png|jpe?g|webp)$/i.test(asset.relativePath));
+  if (!imageAssets.length) throw new Error("Folder does not contain image assets.");
+  const libraryPath = await ensureCurrentLibrary();
+  const now = new Date().toISOString();
+  const id = `image_${shortId()}`;
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, `${scan.title} Image Stack`);
+  const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
+  await mkdir(join(nodePath, "content"), { recursive: true });
+
+  const stack: ImageStackItem[] = [];
+  for (const [index, asset] of imageAssets.entries()) {
+    const extension = normalizedImageExtension(asset.relativePath);
+    const file = portableJoin("content", `${String(index + 1).padStart(3, "0")}-${sanitizeFilename(basename(asset.relativePath)) || `image${extension}`}`);
+    const sourcePath = resolvePortablePath(scan.sourcePath, asset.relativePath);
+    const targetPath = resolvePortablePath(nodePath, file);
+    await copyFile(sourcePath, targetPath);
+    const dimensions = readImageDimensions(await readFile(targetPath), extension);
+    stack.push({ id: `stack_${shortId()}`, file, source: "folder-import", mimeType: mimeTypeFromExtension(extension), width: dimensions.width, height: dimensions.height, createdAt: now });
+  }
+
+  const manifest: ImageNodeManifest = {
+    format: "snarkroute.node",
+    version: "0.1",
+    id,
+    type: "image",
+    title,
+    stack,
+    activeStackIndex: 0,
+    createdAt: now,
+    updatedAt: now
+  };
+  await writeJson(join(nodePath, "snark.node.json"), manifest);
+  await writeCurrentPrompt(nodePath, "");
+  await addTypedStackCanvasNode(libraryPath, id, "image", nodeRelativePath, input, defaultNodeWidth, defaultNodeHeight);
+  await setLibraryRepresentativeImage(libraryPath, id, stack[0].id);
+  return readLibrarySnapshot(libraryPath);
+}
+
+async function importVideoAssetsAsStackNode(scan: LocalLibraryScanResult, input: ImportLocalFolderStackInput): Promise<LibrarySnapshot> {
+  const videoAssets = scan.assets.filter((asset) => asset.kind === "video");
+  if (!videoAssets.length) throw new Error("Folder does not contain video assets.");
+  const libraryPath = await ensureCurrentLibrary();
+  const now = new Date().toISOString();
+  const id = `video_${shortId()}`;
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, `${scan.title} Video Stack`);
+  const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
+  await mkdir(join(nodePath, "content"), { recursive: true });
+
+  const stack: ImageStackItem[] = [];
+  for (const [index, asset] of videoAssets.entries()) {
+    const extension = normalizedVideoExtension(asset.relativePath);
+    const file = portableJoin("content", `${String(index + 1).padStart(3, "0")}-${sanitizeFilename(basename(asset.relativePath)) || `video${extension}`}`);
+    await copyFile(resolvePortablePath(scan.sourcePath, asset.relativePath), resolvePortablePath(nodePath, file));
+    stack.push({ id: `stack_${shortId()}`, file, source: "folder-import", mimeType: videoMimeTypeFromExtension(extension), width: input.width ?? defaultNodeWidth, height: input.height ?? defaultNodeHeight, createdAt: now });
+  }
+
+  const manifest: VideoNodeManifest = {
+    format: "snarkroute.node",
+    version: "0.1",
+    id,
+    type: "video",
+    title,
+    stack,
+    activeStackIndex: 0,
+    createdAt: now,
+    updatedAt: now
+  };
+  await writeJson(join(nodePath, "snark.node.json"), manifest);
+  await writeCurrentPrompt(nodePath, "");
+  await addTypedStackCanvasNode(libraryPath, id, "video", nodeRelativePath, input, defaultNodeWidth, defaultNodeHeight);
+  return readLibrarySnapshot(libraryPath);
+}
+
+async function importTextAssetsAsStackNode(scan: LocalLibraryScanResult, input: ImportLocalFolderStackInput): Promise<LibrarySnapshot> {
+  const textAssets = scan.assets.filter((asset) => asset.kind === "text" || Boolean(asset.embeddedPrompt));
+  if (!textAssets.length) throw new Error("Folder does not contain text or prompt assets.");
+  const libraryPath = await ensureCurrentLibrary();
+  const now = new Date().toISOString();
+  const id = `text_${shortId()}`;
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, `${scan.title} Text Stack`);
+  const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
+  await mkdir(join(nodePath, "content"), { recursive: true });
+
+  let selectedStackItemId: string | undefined;
+  let selectedText = "";
+  for (const asset of textAssets) {
+    const sourcePath = resolvePortablePath(scan.sourcePath, asset.relativePath);
+    const text = asset.embeddedPrompt?.text ?? (await readFile(sourcePath, "utf8")).trim();
+    if (!text) continue;
+    const saved = await createTextPromptAsset(join(nodePath, "content"), { title: asset.title, prompt: text, category: "text-stack" });
+    const relativeFile = portableRelativePath(nodePath, saved.promptPath);
+    selectedStackItemId ??= textStackItemId(relativeFile);
+    selectedText ||= text;
+  }
+  if (!selectedStackItemId) throw new Error("Folder text assets did not contain readable text.");
+
+  const manifest: TextNodeManifest = {
+    format: "snarkroute.node",
+    version: "0.1",
+    id,
+    type: "text",
+    title,
+    text: selectedText,
+    stackPath: "content",
+    selectedStackItemId,
+    color: "mint",
+    createdAt: now,
+    updatedAt: now
+  };
+  await writeJson(join(nodePath, "snark.node.json"), manifest);
+  await addTypedStackCanvasNode(libraryPath, id, "text", nodeRelativePath, input, defaultNodeWidth, 180);
+  return readLibrarySnapshot(libraryPath);
+}
+
+async function addTypedStackCanvasNode(
+  libraryPath: string,
+  id: string,
+  type: "image" | "text" | "video",
+  nodeRelativePath: string,
+  input: ImportLocalFolderStackInput,
+  fallbackWidth: number,
+  fallbackHeight: number
+): Promise<void> {
+  const canvas = await ensureCanvas(libraryPath);
+  const width = input.width ?? fallbackWidth;
+  const height = input.height ?? fallbackHeight;
+  canvas.nodes.push({
+    id,
+    type,
+    nodePath: nodeRelativePath,
+    x: Math.round(input.dropX - width / 2),
+    y: Math.round(input.dropY - height / 2),
+    width,
+    height
+  });
+  await writeCanvas(libraryPath, canvas);
 }
 
 export async function updateLibraryNodeViewMode(nodeId: string, viewMode: LibraryViewMode): Promise<LibrarySnapshot> {
@@ -878,14 +1182,11 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
   const prompt = resolveInputTokens(promptTemplate, orderedInputs, generationInputs, input.imageReferenceSyntax);
   const generationSettings = sanitizeImageGenerationSettings(input.parameters);
   await writeCurrentPrompt(nodePath, promptTemplate);
-  const parameters = {
-    ...imageGenerationParameters(input.modelId, executionProviderForInput(input), input.fallbackAllowed, prompt, generationInputs, generationSettings),
-    promptTemplate
-  };
+  const providerId = executionProviderForInput(input);
   const runResult = await runImageModelForStackItem({
     nodeId: input.nodeId,
     modelId: input.modelId,
-    executionProvider: executionProviderForInput(input),
+    executionProvider: providerId,
     fallbackAllowed: input.fallbackAllowed,
     availableExecutionProviders: input.availableExecutionProviders,
     prompt,
@@ -905,29 +1206,32 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
   const imagePath = resolvePortablePath(nodePath, imageRelativePath);
   await mkdir(dirname(imagePath), { recursive: true });
   const imageBuffer = await readGeneratedImageBuffer(generatedPath);
-  const imageWithProvenance = embedImageProvenance(imageBuffer, extension, {
-    format: imageProvenanceFormat,
-    version: imageProvenanceVersion,
-    prompt,
-    parameters,
-    providerId: executionProviderForInput(input),
-    modelId: input.modelId,
-    nodeId: input.nodeId,
-    createdAt: new Date().toISOString()
-  });
-  const storedImage = extension === ".png"
-    ? writePngTextChunk(imageWithProvenance, "snarkroute:prompt", JSON.stringify({
-      schema: "snarkroute.prompt-image.v0",
-      id: `${input.nodeId}-${stackIndex}`,
+  const imageMetadata: SnarkImageMetadata = {
+    schema: imageMetadataSchema,
+    kind: "generated-image",
+    id: `${input.nodeId}-${stackIndex}`,
+    createdAt: new Date().toISOString(),
+    source: { nodeId: input.nodeId, outputId: `stack-${stackIndex}` },
+    generation: {
+      providerId,
+      modelId: input.modelId,
+      providerMode: providerModeForExecutionProvider(providerId),
+      fallbackAllowed: input.fallbackAllowed !== false,
+      prompt: {
+        text: prompt,
+        template: promptTemplate
+      },
+      inputImages: imageMetadataInputs(promptTemplate, orderedInputs, generationInputs),
+      parameters: generationSettings
+    },
+    library: {
       title: manifest.title || "Generated Image",
       category: "generated",
-      prompt,
-      kind: "text/prompt",
       status: "candidate",
-      source: { type: "generated-image", nodeId: input.nodeId, outputId: `stack-${stackIndex}` },
       modelHints: [input.modelId]
-    }))
-    : imageWithProvenance;
+    }
+  };
+  const storedImage = embedImageProvenance(imageBuffer, extension, imageMetadata);
   await writeFile(imagePath, storedImage);
 
   const now = new Date().toISOString();
@@ -1050,7 +1354,7 @@ export async function generateTextNodeStackItem(input: GenerateTextNodeInput): P
   return readLibrarySnapshot(snapshot.path);
 }
 
-async function runImageModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: Array<{ path: string; localPath?: string; mimeType: string }>; parameters: ImageGenerationSettings }) {
+async function runImageModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
   if (!["auto", "polza", "openrouter", "gemini"].includes(input.executionProvider)) {
     throw new Error(`Execution provider "${input.executionProvider}" is not available for image generation.`);
   }
@@ -1074,7 +1378,7 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
   return executor.executeRoute(route);
 }
 
-async function runTextModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: Array<{ path: string; localPath?: string; mimeType: string }> }) {
+async function runTextModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[] }) {
   if (!["auto", "polza", "openrouter", "gemini"].includes(input.executionProvider)) {
     throw new Error(`Execution provider "${input.executionProvider}" is not available for text generation.`);
   }
@@ -1100,7 +1404,7 @@ async function runTextModelForStackItem(input: { nodeId: string; modelId: string
   });
 }
 
-async function runVideoModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: Array<{ path: string; localPath?: string; mimeType: string }>; parameters: ImageGenerationSettings }) {
+async function runVideoModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
   if (input.executionProvider !== "auto" && input.executionProvider !== "polza") throw new Error("Video generation is currently available through polza.ai.");
   const executor = await createRouteExecutor();
   const route = {
@@ -1124,7 +1428,15 @@ interface ConnectedCanvasInput {
   nodeId: string;
   type: string;
   text?: string;
-  image?: { path: string; localPath?: string; mimeType: string };
+  image?: GenerationImageInput;
+}
+
+interface GenerationImageInput {
+  path: string;
+  localPath?: string;
+  mimeType: string;
+  ref?: string;
+  nodeId?: string;
 }
 
 async function connectedCanvasInputs(libraryPath: string, targetNodeId: string): Promise<ConnectedCanvasInput[]> {
@@ -1136,7 +1448,7 @@ async function connectedCanvasInputs(libraryPath: string, targetNodeId: string):
     if (sourceNode?.type === "image") {
       const { manifest, nodePath } = await readImageNode(sourceNodeId);
       const item = manifest.stack[manifest.activeStackIndex];
-      inputs.push({ nodeId: sourceNodeId, type: "image", image: item ? stackItemImageInput(nodePath, item) : undefined });
+      inputs.push({ nodeId: sourceNodeId, type: "image", image: item ? stackItemImageInput(libraryPath, nodePath, sourceNodeId, item) : undefined });
     }
     if (sourceNode?.type === "text") {
       const manifestPath = join(resolvePortablePath(libraryPath, sourceNode.nodePath), "snark.node.json");
@@ -1311,6 +1623,13 @@ export async function duplicateStackItemAsTextNode(input: DuplicateStackItemInpu
   canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.nodeId, toNodeId: id }];
   await writeCanvas(libraryPath, canvas);
   return readLibrarySnapshot(libraryPath);
+}
+
+export async function importLocalFolderStackAsNode(input: ImportLocalFolderStackInput): Promise<LibrarySnapshot> {
+  const scan = await scanLocalLibrary(input.sourcePath);
+  if (input.stackKind === "image") return importImageAssetsAsStackNode(scan, input);
+  if (input.stackKind === "video") return importVideoAssetsAsStackNode(scan, input);
+  return importTextAssetsAsStackNode(scan, input);
 }
 
 export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<LibrarySnapshot> {
@@ -1572,6 +1891,166 @@ export async function createVideoStackReadStream(nodeId: string, stackItemId: st
 
 export function centeredCanvasNodePosition(dropX: number, dropY: number, width = defaultNodeWidth, height = defaultNodeHeight): { x: number; y: number } {
   return { x: Math.round(dropX - width / 2), y: Math.round(dropY - height / 2) };
+}
+
+async function ensureProjectLibrary(projectPath: string): Promise<void> {
+  await mkdir(projectPath, { recursive: true });
+  await ensureLibraryManifest(projectPath, {
+    title: basename(projectPath) || "SnarkRoute Project",
+    libraryKind: "workspace",
+    contentKind: "mixed",
+    defaultView: "canvas"
+  });
+  await ensureCanvas(projectPath);
+}
+
+async function projectSummary(projectPath: string, current: boolean, coverPath?: string): Promise<LibraryProjectSummary> {
+  let id = projectIdFromPath(projectPath);
+  let title = basename(projectPath) || "SnarkRoute Project";
+  try {
+    const manifest = await readLibraryManifest(projectPath);
+    id = manifest.id || id;
+    title = basename(projectPath) || manifest.title || title;
+  } catch {
+  }
+  const cover = await findProjectCover(projectPath, coverPath).catch(() => null);
+  return {
+    id,
+    title,
+    path: projectPath,
+    coverUrl: cover ? `/api/libraries/projects/${encodeURIComponent(id)}/cover` : null,
+    current
+  };
+}
+
+async function saveProjectPath(projectPath: string): Promise<void> {
+  const registry = await readProjectRegistry();
+  const normalized = resolve(projectPath);
+  const existing = registry.projects.find((project) => resolve(project.path) === normalized);
+  registry.projects = [
+    { path: normalized, addedAt: existing?.addedAt ?? new Date().toISOString(), coverPath: existing?.coverPath },
+    ...registry.projects.filter((project) => resolve(project.path) !== normalized)
+  ];
+  await writeProjectRegistry(registry);
+}
+
+async function readProjectRegistry(): Promise<LibraryProjectRegistry> {
+  const path = join(librariesDirectory, projectRegistryFilename);
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<LibraryProjectRegistry>;
+    const projects = Array.isArray(parsed.projects) ? parsed.projects : [];
+    return {
+      version: 1,
+      projects: projects
+        .filter((project): project is LibraryProjectRegistryEntry => typeof project?.path === "string")
+        .map((project) => ({
+          path: resolve(project.path),
+          addedAt: typeof project.addedAt === "string" ? project.addedAt : new Date().toISOString(),
+          coverPath: typeof project.coverPath === "string" ? resolve(project.coverPath) : undefined
+        }))
+    };
+  } catch {
+    return { version: 1, projects: [] };
+  }
+}
+
+async function writeProjectRegistry(registry: LibraryProjectRegistry): Promise<void> {
+  await mkdir(librariesDirectory, { recursive: true });
+  const paths = uniquePaths(registry.projects.map((project) => project.path));
+  await writeJson(join(librariesDirectory, projectRegistryFilename), {
+    version: 1,
+    projects: paths.map((path) => ({
+      path,
+      addedAt: registry.projects.find((project) => resolve(project.path) === path)?.addedAt ?? new Date().toISOString(),
+      coverPath: registry.projects.find((project) => resolve(project.path) === path)?.coverPath
+    }))
+  });
+}
+
+async function listProjectRecords(activePath = currentLibraryPath): Promise<LibraryProjectRegistryEntry[]> {
+  const registry = await readProjectRegistry();
+  const activeResolved = resolve(activePath);
+  const activeEntry = registry.projects.find((project) => resolve(project.path) === activeResolved);
+  const records = [
+    { path: activeResolved, addedAt: activeEntry?.addedAt ?? new Date().toISOString(), coverPath: activeEntry?.coverPath },
+    ...registry.projects.filter((project) => resolve(project.path) !== activeResolved)
+  ];
+  return uniquePaths(records.map((record) => record.path)).map((path) => records.find((record) => resolve(record.path) === path) ?? { path, addedAt: new Date().toISOString() });
+}
+
+function uniquePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const path of paths) {
+    const normalized = resolve(path);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function projectIdFromPath(path: string): string {
+  return `project_${Buffer.from(resolve(path), "utf8").toString("base64url")}`;
+}
+
+async function projectRecordById(projectId: string): Promise<LibraryProjectRegistryEntry | null> {
+  for (const record of await listProjectRecords(await ensureCurrentLibrary())) {
+    if (await projectIdForPath(record.path) === projectId) return record;
+  }
+  return null;
+}
+
+async function projectIdForPath(path: string): Promise<string> {
+  try {
+    const manifest = await readLibraryManifest(path);
+    return manifest.id || projectIdFromPath(path);
+  } catch {
+    return projectIdFromPath(path);
+  }
+}
+
+async function findProjectCover(libraryPath: string, preferredPath?: string): Promise<{ path: string; mimeType: string } | null> {
+  if (preferredPath) {
+    const resolvedPreferred = resolve(preferredPath);
+    if (isWithinDirectory(libraryPath, resolvedPreferred) && await fileExists(resolvedPreferred)) {
+      const extension = extname(resolvedPreferred).toLowerCase();
+      if (isProjectImageExtension(extension)) return { path: resolvedPreferred, mimeType: localLibraryMimeType(extension) };
+    }
+  }
+  try {
+    const manifest = await readLibraryManifest(libraryPath);
+    const canvas = await readCanvas(libraryPath, manifest);
+    for (const canvasNode of canvas?.nodes ?? []) {
+      if (canvasNode.type !== "image") continue;
+      const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+      const manifestPath = join(nodePath, "snark.node.json");
+      if (!await fileExists(manifestPath)) continue;
+      const nodeManifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest;
+      if (nodeManifest.type !== "image") continue;
+      const item = nodeManifest.stack.find((entry) => entry.file);
+      if (!item?.file) continue;
+      const imagePath = resolvePortablePath(nodePath, item.file);
+      if (await fileExists(imagePath)) return { path: imagePath, mimeType: item.mimeType };
+    }
+  } catch {
+  }
+  return (await findProjectImages(libraryPath))[0] ?? null;
+}
+
+async function findProjectImages(libraryPath: string): Promise<Array<{ path: string; mimeType: string }>> {
+  const files = await listLocalLibraryFiles(libraryPath).catch(() => []);
+  return files
+    .filter((path) => isProjectImageExtension(extname(path).toLowerCase()) && isWithinDirectory(libraryPath, path))
+    .map((path) => ({ path, mimeType: localLibraryMimeType(extname(path).toLowerCase()) }));
+}
+
+function isProjectImageExtension(extension: string): boolean {
+  return extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".webp" || extension === ".gif";
+}
+
+function projectImageId(path: string): string {
+  return Buffer.from(resolve(path), "utf8").toString("base64url");
 }
 
 async function ensureCurrentLibrary(): Promise<string> {
@@ -1867,6 +2346,10 @@ function portableRelativePath(root: string, path: string): string {
   return relativePath;
 }
 
+function libraryAssetRef(relativePath: string): string {
+  return `library://default/${relativePath.replace(/\\/g, "/").replace(/^\/+/, "")}`;
+}
+
 function textStackItemId(file: string): string {
   return `text_${Buffer.from(file, "utf8").toString("base64url")}`;
 }
@@ -2016,11 +2499,11 @@ function normalizedVideoExtension(filename: string): ".mp4" | ".webm" | ".mov" {
   throw new Error("Supported video formats are .mp4, .webm, and .mov.");
 }
 
-function stackItemImageInput(nodePath: string, item: ImageStackItem): { path: string; localPath?: string; mimeType: string } {
-  if (item.externalUrl) return { path: item.externalUrl, mimeType: item.mimeType };
+function stackItemImageInput(libraryPath: string, nodePath: string, nodeId: string, item: ImageStackItem): GenerationImageInput {
+  if (item.externalUrl) return { path: item.externalUrl, ref: item.externalUrl, nodeId, mimeType: item.mimeType };
   if (!item.file) throw new Error(`Stack item "${item.id}" does not contain an image source.`);
   const path = resolvePortablePath(nodePath, item.file);
-  return { path, localPath: path, mimeType: item.mimeType };
+  return { path, localPath: path, ref: libraryAssetRef(portableRelativePath(libraryPath, path)), nodeId, mimeType: item.mimeType };
 }
 
 async function readGeneratedImageBuffer(path: string): Promise<Buffer> {
@@ -2085,11 +2568,11 @@ function orderConnectedInputs(inputs: ConnectedCanvasInput[], nodeIds: string[] 
 function resolveInputTokens(
   promptTemplate: string,
   inputs: ConnectedCanvasInput[],
-  sentImages: Array<{ path: string; localPath?: string; mimeType: string }>,
+  sentImages: GenerationImageInput[],
   imageReferenceSyntax: string | undefined
 ): string {
   const inputById = new Map(inputs.map((entry) => [entry.nodeId, entry]));
-  return promptTemplate.replace(/\[\[(text|image|video):([^\]]+)\]\]/g, (_token, type: string, nodeId: string) => {
+  return stripLeadingImageReferenceBlock(promptTemplate).replace(/\[\[(text|image|video):([^\]]+)\]\]/g, (_token, type: string, nodeId: string) => {
     const input = inputById.get(nodeId);
     if (!input || input.type !== type) return "";
     if (type === "text") return input.text ?? "";
@@ -2099,12 +2582,50 @@ function resolveInputTokens(
   });
 }
 
+function stripLeadingImageReferenceBlock(promptTemplate: string): string {
+  const match = promptTemplate.match(/^(\s*(?:\[\[image:[^\]]+\]\][^\r\n]*(?:\r?\n|[ \t])*)+)(?:\r?\n)+/u);
+  return match ? promptTemplate.slice(match[0].length).trimStart() : promptTemplate;
+}
+
+function imageMetadataInputs(promptTemplate: string, inputs: ConnectedCanvasInput[], sentImages: GenerationImageInput[]): SnarkImageMetadata["generation"]["inputImages"] {
+  const imageRoles = imageRolesFromPromptTemplate(promptTemplate);
+  return sentImages.map((image) => {
+    const input = inputs.find((entry) => entry.image?.path === image.path);
+    return {
+      ref: image.ref ?? "",
+      nodeId: image.nodeId ?? input?.nodeId,
+      mimeType: image.mimeType,
+      role: input?.nodeId ? imageRoles.get(input.nodeId) : undefined
+    };
+  }).filter((image) => Boolean(image.ref));
+}
+
+function imageRolesFromPromptTemplate(promptTemplate: string): Map<string, string> {
+  const roles = new Map<string, string>();
+  const tokenPattern = /\[\[image:([^\]]+)\]\]/g;
+  const matches = [...promptTemplate.matchAll(tokenPattern)];
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    const nodeId = match[1];
+    const afterToken = match.index === undefined ? "" : promptTemplate.slice(match.index + match[0].length, matches[index + 1]?.index);
+    const role = cleanImageRole(afterToken);
+    if (role) roles.set(nodeId, role);
+  }
+  return roles;
+}
+
+function cleanImageRole(value: string): string | undefined {
+  const firstLine = value.split(/\r?\n/)[0] ?? "";
+  const role = firstLine.replace(/^[\s:;,\-.–—]+/u, "").replace(/\s+/g, " ").trim().replace(/[.;,:\s]+$/u, "");
+  return role || undefined;
+}
+
 function imageGenerationParameters(
   modelId: string,
   executionProvider: string,
   fallbackAllowed: boolean | undefined,
   prompt: string,
-  images: Array<{ path: string; localPath?: string; mimeType: string }>,
+  images: GenerationImageInput[],
   settings: ImageGenerationSettings = sanitizeImageGenerationSettings()
 ): Record<string, unknown> {
   return {
@@ -2116,6 +2637,10 @@ function imageGenerationParameters(
     images,
     ...settings
   };
+}
+
+function providerModeForExecutionProvider(executionProvider: string): string {
+  return executionProvider === "openrouter" ? "openrouter" : executionProvider === "gemini" ? "direct" : "auto";
 }
 
 function executionProviderForInput(input: { executionProvider?: string; providerId?: string }): string {

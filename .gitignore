@@ -40,3 +40,9 @@ desktop.ini
 /SnarkRoute.png
 /Процесс/
 /START.lnk
+# Graphify generated files
+graphify-out/
+.graphify/
+.graphify-cache/
+.graphify-out/
+*.graphify.log

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractImageProvenance } from "../src/libraries/image-metadata";
-import { readPngTextChunk, writePngTextChunk } from "@snarkroute/nodes";
+import { parsePromptPngFile, readPngTextChunk, writePngTextChunk } from "@snarkroute/nodes";
 
 const { executeRouteMock } = vi.hoisted(() => ({ executeRouteMock: vi.fn() }));
 
@@ -40,6 +40,38 @@ describe("SnarkRoute libraries", () => {
     } finally {
       await app.close();
     }
+  });
+
+  it("normalizes legacy image provenance metadata when reading", async () => {
+    const legacy = writePngTextChunk(Buffer.from(onePixelPngBase64, "base64"), "snarkroute.provenance_json", JSON.stringify({
+      format: "snarkroute.image-provenance",
+      version: "0.1",
+      prompt: "Legacy prompt",
+      parameters: {
+        prompt: "Legacy prompt",
+        promptTemplate: "[[image:source]] - reference.\n\nLegacy prompt",
+        images: [{ path: "Y:\\Process\\SnarkRoute\\asset.png", localPath: "Y:\\Process\\SnarkRoute\\asset.png", mimeType: "image/png" }],
+        aspectRatio: "auto"
+      },
+      providerId: "polza",
+      modelId: "legacy-model",
+      nodeId: "generate",
+      createdAt: "2026-01-01T00:00:00.000Z"
+    }));
+
+    const metadata = extractImageProvenance(legacy, ".png");
+    expect(metadata).toMatchObject({
+      schema: "snarkroute.image-metadata.v1",
+      generation: {
+        providerId: "polza",
+        modelId: "legacy-model",
+        prompt: { text: "Legacy prompt", template: "[[image:source]] - reference.\n\nLegacy prompt" },
+        parameters: { aspectRatio: "auto" },
+        inputImages: []
+      }
+    });
+    expect(JSON.stringify(metadata)).not.toContain("localPath");
+    expect(JSON.stringify(metadata)).not.toMatch(/[A-Za-z]:\\/);
   });
 
   it("detects nested libraries without requiring canvas.json", async () => {
@@ -326,10 +358,11 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
-  it("sends the selected image model and connected image inputs through generation", async () => {
+  it("writes portable generated image metadata for connected image inputs", async () => {
     const app = await testServer();
     try {
       const source = await importNode(app, "Source.png");
+      const secondSource = await importNode(app, "Plan.png");
       const targetResponse = await app.inject({
         method: "POST",
         url: "/api/libraries/current/nodes",
@@ -340,12 +373,16 @@ describe("SnarkRoute libraries", () => {
       await app.inject({
         method: "PUT",
         url: "/api/libraries/current/canvas",
-        payload: { ...canvas, edges: [{ id: "edge_input", fromNodeId: source.manifest.id, toNodeId: target.manifest.id }] }
+        payload: { ...canvas, edges: [
+          { id: "edge_input", fromNodeId: source.manifest.id, toNodeId: target.manifest.id },
+          { id: "edge_plan", fromNodeId: secondSource.manifest.id, toNodeId: target.manifest.id }
+        ] }
       });
       const generatedPath = join(libraryPath, source.canvas.nodePath, source.manifest.stack[0].file);
       executeRouteMock.mockResolvedValue({
         nodeResults: { generate: { output: { image: { localPath: generatedPath, path: generatedPath, filename: "result.png", mimeType: "image/png", width: 1, height: 1 } } } }
       });
+      const promptTemplate = `[[image:${source.manifest.id}]] - 360 panorama hall. [[image:${secondSource.manifest.id}]] - hall map.\n\nDraw a 360 panorama from the red cross on the plan`;
 
       const response = await app.inject({
         method: "POST",
@@ -354,7 +391,7 @@ describe("SnarkRoute libraries", () => {
           modelId: "openai/gpt-5-image-mini",
           executionProvider: "polza",
           fallbackAllowed: false,
-          prompt: "Combine references",
+          prompt: promptTemplate,
           parameters: { aspectRatio: "16:9", imageSize: "1K", outputFormat: "png" }
         }
       });
@@ -362,31 +399,46 @@ describe("SnarkRoute libraries", () => {
       expect(response.statusCode).toBe(200);
       const generatedNode = response.json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === target.manifest.id);
       expect(generatedNode.manifest.stack).toHaveLength(1);
-      await expect(readFile(join(libraryPath, target.canvas.nodePath, "current-prompt.txt"), "utf8")).resolves.toBe("Combine references");
+      await expect(readFile(join(libraryPath, target.canvas.nodePath, "current-prompt.txt"), "utf8")).resolves.toBe(promptTemplate);
+      const storedImage = await readFile(join(libraryPath, target.canvas.nodePath, generatedNode.manifest.stack[0].file));
       const provenance = extractImageProvenance(
-        await readFile(join(libraryPath, target.canvas.nodePath, generatedNode.manifest.stack[0].file)),
+        storedImage,
         ".png"
       );
       expect(provenance).toMatchObject({
-        format: "snarkroute.image-provenance",
-        version: "0.1",
-        prompt: "Combine references",
-        providerId: "polza",
-        modelId: "openai/gpt-5-image-mini",
-        parameters: expect.objectContaining({ executionProvider: "polza", fallbackAllowed: false, aspectRatio: "16:9", imageSize: "1K", outputFormat: "png" })
+        schema: "snarkroute.image-metadata.v1",
+        kind: "generated-image",
+        source: { nodeId: target.manifest.id, outputId: "stack-0" },
+        generation: {
+          providerId: "polza",
+          modelId: "openai/gpt-5-image-mini",
+          fallbackAllowed: false,
+          prompt: { text: "Draw a 360 panorama from the red cross on the plan", template: promptTemplate },
+          parameters: { aspectRatio: "16:9", imageSize: "1K", outputFormat: "png" },
+          inputImages: [
+            expect.objectContaining({ ref: expect.stringMatching(/^library:\/\/default\//), nodeId: source.manifest.id, mimeType: "image/png", role: "360 panorama hall" }),
+            expect.objectContaining({ ref: expect.stringMatching(/^library:\/\/default\//), nodeId: secondSource.manifest.id, mimeType: "image/png", role: "hall map" })
+          ]
+        }
       });
-      expect(JSON.parse(readPngTextChunk(
-        await readFile(join(libraryPath, target.canvas.nodePath, generatedNode.manifest.stack[0].file)),
-        "snarkroute:prompt"
-      ) ?? "{}")).toMatchObject({ prompt: "Combine references", title: "Image", category: "generated" });
+      const serialized = JSON.stringify(provenance);
+      expect(serialized).not.toMatch(/[A-Za-z]:\\/);
+      expect(serialized).not.toContain("localPath");
+      expect(provenance?.generation.parameters).not.toHaveProperty("prompt");
+      expect(provenance?.generation.parameters).not.toHaveProperty("promptTemplate");
+      expect(readPngTextChunk(storedImage, "snarkroute:prompt")).toBeNull();
+      expect(readPngTextChunk(storedImage, "snarkroute.provenance_json")).toBeNull();
+      expect(parsePromptPngFile(storedImage, "generated.png")).toMatchObject({
+        prompt: { text: "Draw a 360 panorama from the red cross on the plan", category: "generated", previewImage: "generated.png" }
+      });
       expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
         nodes: [expect.objectContaining({
           type: "polza.image.generate",
-          params: expect.objectContaining({ model: "openai/gpt-5-image-mini", executionProvider: "polza", fallbackAllowed: false, prompt: "Combine references" })
+          params: expect.objectContaining({ model: "openai/gpt-5-image-mini", executionProvider: "polza", fallbackAllowed: false, prompt: "Draw a 360 panorama from the red cross on the plan" })
         })]
       }));
       const route = executeRouteMock.mock.calls[0][0];
-      expect(route.nodes[0].params.images).toHaveLength(1);
+      expect(route.nodes[0].params.images).toHaveLength(2);
     } finally {
       await app.close();
     }

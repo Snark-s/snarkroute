@@ -1,5 +1,6 @@
 export const imageProvenanceFormat = "snarkroute.image-provenance";
 export const imageProvenanceVersion = "0.1";
+export const imageMetadataSchema = "snarkroute.image-metadata.v1";
 
 export interface SnarkImageProvenance {
   format: typeof imageProvenanceFormat;
@@ -12,27 +13,105 @@ export interface SnarkImageProvenance {
   createdAt: string;
 }
 
+export interface SnarkImageMetadata {
+  schema: typeof imageMetadataSchema;
+  kind: "generated-image";
+  id: string;
+  createdAt: string;
+  source: {
+    nodeId: string;
+    outputId: string;
+    runId?: string;
+  };
+  generation: {
+    providerId?: string;
+    modelId: string;
+    providerMode?: string;
+    fallbackAllowed?: boolean;
+    prompt: {
+      text: string;
+      template?: string;
+    };
+    inputImages: Array<{
+      ref: string;
+      nodeId?: string;
+      assetId?: string;
+      mimeType?: string;
+      role?: string;
+    }>;
+    parameters: Record<string, unknown>;
+  };
+  library?: {
+    title?: string;
+    category?: string;
+    status?: string;
+    modelHints?: string[];
+  };
+}
+
 const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const pngKeyword = "snarkroute.provenance";
+const legacyPngKeywords = [pngKeyword, "snarkroute.provenance_json"];
 const xmpHeader = "http://ns.adobe.com/xap/1.0/\0";
 const xmpNamespace = "https://snarkroute.local/ns/image-provenance/0.1/";
 
-export function embedImageProvenance(buffer: Buffer, extension: string, provenance: SnarkImageProvenance): Buffer {
-  const json = JSON.stringify(provenance);
+export function embedImageProvenance(buffer: Buffer, extension: string, metadata: SnarkImageMetadata): Buffer {
+  const json = JSON.stringify(metadata);
   if (extension === ".png") return embedPngText(buffer, json);
   if (extension === ".jpg" || extension === ".jpeg") return embedJpegXmp(buffer, json);
   if (extension === ".webp") return embedWebpXmp(buffer, json);
   throw new Error(`Cannot embed SnarkRoute provenance in image format "${extension}".`);
 }
 
-export function extractImageProvenance(buffer: Buffer, extension: string): SnarkImageProvenance | undefined {
+export function extractImageProvenance(buffer: Buffer, extension: string): SnarkImageMetadata | undefined {
   let json: string | undefined;
   if (extension === ".png") json = extractPngText(buffer);
   if (extension === ".jpg" || extension === ".jpeg") json = extractJpegXmp(buffer);
   if (extension === ".webp") json = extractWebpXmp(buffer);
   if (!json) return undefined;
-  const parsed = JSON.parse(json) as SnarkImageProvenance;
-  return parsed.format === imageProvenanceFormat && parsed.version === imageProvenanceVersion ? parsed : undefined;
+  return normalizeImageMetadata(JSON.parse(json));
+}
+
+export function normalizeImageMetadata(value: unknown): SnarkImageMetadata | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (record.schema === imageMetadataSchema && record.kind === "generated-image") {
+    return scrubImageMetadata(record as unknown as SnarkImageMetadata);
+  }
+  if (record.format !== imageProvenanceFormat || record.version !== imageProvenanceVersion) return undefined;
+  const parameters = objectRecord(record.parameters);
+  const cleanParameters = stripRuntimeFields(parameters);
+  const prompt = stringValue(record.prompt) || stringValue(parameters.prompt) || "";
+  const promptTemplate = stringValue(parameters.promptTemplate);
+  const images = Array.isArray(parameters.images) ? parameters.images : [];
+  return scrubImageMetadata({
+    schema: imageMetadataSchema,
+    kind: "generated-image",
+    id: stringValue(record.id) || `${stringValue(record.nodeId) || "image"}-legacy`,
+    createdAt: stringValue(record.createdAt) || new Date(0).toISOString(),
+    source: {
+      nodeId: stringValue(record.nodeId) || "",
+      outputId: stringValue(record.outputId) || "image",
+      runId: stringValue(record.runId)
+    },
+    generation: {
+      providerId: stringValue(record.providerId) || stringValue(parameters.executionProvider),
+      modelId: stringValue(record.modelId) || stringValue(parameters.model) || "",
+      providerMode: stringValue(parameters.providerMode),
+      fallbackAllowed: typeof parameters.fallbackAllowed === "boolean" ? parameters.fallbackAllowed : undefined,
+      prompt: {
+        text: prompt,
+        template: promptTemplate || undefined
+      },
+      inputImages: images.map((entry) => normalizeInputImage(entry)).filter((entry): entry is NonNullable<ReturnType<typeof normalizeInputImage>> => Boolean(entry)),
+      parameters: cleanParameters
+    },
+    library: {
+      category: "generated",
+      status: "candidate",
+      modelHints: stringValue(record.modelId) ? [stringValue(record.modelId)!] : undefined
+    }
+  });
 }
 
 function embedPngText(buffer: Buffer, json: string): Buffer {
@@ -54,8 +133,12 @@ function extractPngText(buffer: Buffer): string | undefined {
     const length = buffer.readUInt32BE(offset);
     const type = buffer.toString("ascii", offset + 4, offset + 8);
     const data = buffer.subarray(offset + 8, offset + 8 + length);
-    if (type === "iTXt" && data.toString("latin1", 0, pngKeyword.length) === pngKeyword && data[pngKeyword.length] === 0) {
-      return data.subarray(pngKeyword.length + 5).toString("utf8");
+    if (type === "iTXt") {
+      for (const keyword of legacyPngKeywords) {
+        if (data.toString("latin1", 0, keyword.length) === keyword && data[keyword.length] === 0) {
+          return data.subarray(keyword.length + 5).toString("utf8");
+        }
+      }
     }
     offset += length + 12;
   }
@@ -121,6 +204,73 @@ function xmpPacket(json: string): string {
 function jsonFromXmp(xmp: string): string | undefined {
   const match = xmp.match(/<snarkroute:provenance>([A-Za-z0-9+/=]+)<\/snarkroute:provenance>/);
   return match ? Buffer.from(match[1], "base64").toString("utf8") : undefined;
+}
+
+function scrubImageMetadata(metadata: SnarkImageMetadata): SnarkImageMetadata {
+  return {
+    ...metadata,
+    generation: {
+      ...metadata.generation,
+      inputImages: metadata.generation.inputImages.map((image) => ({ ...image, ref: portableRef(image.ref) })).filter((image) => Boolean(image.ref)),
+      parameters: stripRuntimeFields(metadata.generation.parameters)
+    }
+  };
+}
+
+function stripRuntimeFields(parameters: Record<string, unknown>): Record<string, unknown> {
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(parameters)) {
+    if (key === "prompt" || key === "promptTemplate" || key === "images" || key === "localPath" || key === "path") continue;
+    const stripped = stripRuntimeValue(value);
+    if (stripped !== undefined) clean[key] = stripped;
+  }
+  return clean;
+}
+
+function stripRuntimeValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripRuntimeValue);
+  if (typeof value === "string") return isAbsoluteLocalPath(value) ? undefined : value;
+  if (!value || typeof value !== "object") return value;
+  const clean: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === "localPath" || key === "path") continue;
+    const stripped = stripRuntimeValue(nested);
+    if (stripped !== undefined) clean[key] = stripped;
+  }
+  return clean;
+}
+
+function normalizeInputImage(value: unknown): { ref: string; nodeId?: string; assetId?: string; mimeType?: string; role?: string } | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const ref = portableRef(stringValue(record.ref) || stringValue(record.assetRef) || stringValue(record.path) || stringValue(record.url) || "");
+  if (!ref) return undefined;
+  return {
+    ref,
+    nodeId: stringValue(record.nodeId) || stringValue(record.sourceNodeId),
+    assetId: stringValue(record.assetId),
+    mimeType: stringValue(record.mimeType),
+    role: stringValue(record.role) || stringValue(record.caption)
+  };
+}
+
+function portableRef(value: string): string {
+  if (!value) return "";
+  if (/^(library|node|asset):\/\//i.test(value) || /^https?:\/\//i.test(value)) return value;
+  if (isAbsoluteLocalPath(value)) return "";
+  return value.replace(/\\/g, "/");
+}
+
+function isAbsoluteLocalPath(value: string): boolean {
+  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("/") || value.startsWith("\\\\");
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function pngChunk(type: string, data: Buffer): Buffer {

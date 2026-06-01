@@ -250,6 +250,10 @@ async function readPromptAssetImageFromPath(path: string): Promise<Buffer> {
   return readFile(imageMetadata.path);
 }
 
+function normalizePromptChips(value: string): string {
+  return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
 function cleanSingleLine(value: unknown): string {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }

@@ -53,7 +53,7 @@ app.post("/api/providers/openrouter/test", async (request, reply) => {
 app.post("/api/providers/openrouter/refresh-model-catalog", async (request, reply) => {
   try {
     const cache = await refreshOpenRouterModelCatalog({ cachePath: openRouterCatalogCachePath });
-    return { ok: true, refreshedAt: cache.refreshedAt, modelCount: cache.models.length, models: cache.models };
+    return { ok: true, refreshedAt: cache.refreshedAt, modelCount: cache.models.length, sourceCounts: cache.sourceCounts, models: cache.models };
   } catch (error) {
     return reply.code(400).send({ ok: false, error: `OpenRouter catalog refresh failed: ${openRouterPublicError(error)}` });
   }
@@ -109,7 +109,7 @@ app.post<{ Body: { provider?: "openrouter" | "polza" | "gemini" | "all" | string
 app.get("/api/providers/openrouter/models", async () => {
   const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
   const models = (cache?.models ?? []).map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "openrouter") }));
-  return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, models };
+  return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, sourceCounts: cache?.sourceCounts, models };
 });
 
 app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/api/model-gateway/quote", async (request, reply) => {

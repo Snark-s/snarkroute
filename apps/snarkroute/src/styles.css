@@ -440,6 +440,144 @@ dd {
   overflow-wrap: anywhere;
 }
 
+.projectList {
+  margin-top: 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.projectItem {
+  width: 100%;
+  min-height: 190px;
+  display: grid;
+  grid-template-rows: 142px minmax(28px, auto);
+  gap: 9px;
+  padding: 10px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.projectItem.isCurrent {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.projectThumb {
+  width: 100%;
+  height: 142px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--panel);
+}
+
+.projectThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.projectItem > span:last-child {
+  align-self: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.projectEmpty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.coverPickerOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.52);
+}
+
+.coverPickerDialog {
+  width: min(760px, calc(100vw - 48px));
+  max-height: min(680px, calc(100vh - 48px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 24px 70px var(--shadow);
+}
+
+.coverPickerDialog header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.coverPickerDialog header strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coverPickerDialog header button {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+}
+
+.coverPickerGrid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+  overflow: auto;
+}
+
+.coverPickerGrid button {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.coverPickerGrid img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--panel-soft);
+}
+
+.coverPickerGrid span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.coverPickerGrid p {
+  margin: 0;
+  color: var(--muted);
+}
+
 .nestedList {
   margin-top: 16px;
   display: grid;
@@ -549,7 +687,7 @@ dd {
 
 .canvasEdges path {
   fill: none;
-  stroke: color-mix(in srgb, var(--muted) 62%, transparent);
+  stroke: color-mix(in srgb, var(--edge-color, var(--muted)) 82%, transparent);
   stroke-width: 3;
   vector-effect: non-scaling-stroke;
   cursor: pointer;
@@ -557,7 +695,7 @@ dd {
 }
 
 .canvasEdges path.isSelected {
-  stroke: var(--accent);
+  stroke: color-mix(in srgb, var(--edge-color, var(--accent)) 72%, #fff);
   stroke-width: 4;
 }
 
@@ -593,7 +731,7 @@ dd {
 }
 
 .canvasEdges .edgePreview {
-  stroke: var(--accent);
+  stroke: color-mix(in srgb, var(--edge-color, var(--accent)) 86%, transparent);
   stroke-dasharray: 8 8;
 }
 
@@ -883,19 +1021,19 @@ dd {
 }
 
 .textColor-mint {
-  --text-node-color: #75d99f;
+  --text-node-color: #2dd4bf;
 }
 
 .textColor-violet {
-  --text-node-color: #a991ff;
+  --text-node-color: #ff6bd6;
 }
 
 .textColor-amber {
-  --text-node-color: #f1bd63;
+  --text-node-color: #d8ff4f;
 }
 
 .textColor-rose {
-  --text-node-color: #f27c9d;
+  --text-node-color: #ff8a5b;
 }
 
 .textNodePreview {
@@ -962,6 +1100,48 @@ dd {
   font-size: 11px;
 }
 
+.textStackDraftFallback {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border: 1px dashed color-mix(in srgb, var(--text-node-color, var(--accent)) 70%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-node-color, var(--accent)) 10%, var(--panel-soft));
+  color: var(--text);
+}
+
+.textStackDraftFallback strong,
+.textStackDraftFallback span,
+.textStackDraftFallback small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.textStackDraftFallback strong {
+  font-size: 12px;
+}
+
+.textStackDraftFallback small,
+.textStackDraftNotice {
+  color: color-mix(in srgb, var(--text-node-color, var(--accent)) 72%, var(--muted));
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.textStackDraftNotice {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
+  z-index: 3;
+  max-width: calc(100% - 70px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 :root[data-theme="day"] .textNodePreview {
   border-color: color-mix(in srgb, var(--text-node-color, var(--muted)) 86%, #1b241d);
 }
@@ -997,19 +1177,19 @@ dd {
 }
 
 .textSwatch-mint {
-  background: #75d99f;
+  background: #2dd4bf;
 }
 
 .textSwatch-violet {
-  background: #a991ff;
+  background: #ff6bd6;
 }
 
 .textSwatch-amber {
-  background: #f1bd63;
+  background: #d8ff4f;
 }
 
 .textSwatch-rose {
-  background: #f27c9d;
+  background: #ff8a5b;
 }
 
 .nodeToolbar button,
@@ -1214,6 +1394,7 @@ dd {
 .textPromptEditor {
   position: relative;
   min-height: 0;
+  max-height: 240px;
   padding: 12px 48px 12px 12px;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -1221,8 +1402,10 @@ dd {
 }
 
 .textPromptEditor .promptTextArea {
-  height: calc(100% - 19px);
+  min-height: 72px;
+  max-height: 144px;
   margin-top: 7px;
+  overflow-y: auto;
 }
 
 .textAddStackButton {
@@ -1278,6 +1461,14 @@ dd {
   object-fit: contain;
 }
 
+.inputChip:has(.textChipThumb) {
+  border-color: var(--text-node-color, var(--accent));
+}
+
+.promptInlineChip:has(.textChipThumb) {
+  border-color: var(--text-node-color, var(--accent));
+}
+
 .textChipThumb {
   width: 100%;
   height: 100%;
@@ -1285,9 +1476,22 @@ dd {
   place-items: center;
   border: 2px solid color-mix(in srgb, var(--text-node-color, var(--accent)) 76%, var(--line));
   background: color-mix(in srgb, var(--text-node-color, var(--accent)) 28%, #f6f7f2);
-  color: #101611;
+  background-position: center;
+  background-size: cover;
+  color: var(--text-node-color, var(--accent));
   font-size: 19px;
   font-weight: 900;
+  line-height: 1;
+  -webkit-text-stroke: 0.8px #101611;
+  paint-order: stroke fill;
+  text-shadow:
+    0 0 2px #101611,
+    0 1px 4px #101611,
+    0 -1px 4px #101611;
+}
+
+.textChipThumb.hasPreview {
+  border-color: var(--text-node-color, var(--accent));
 }
 
 .inputChip span {
@@ -1470,6 +1674,8 @@ dd {
 }
 
 .promptRichEditor {
+  min-height: 120px;
+  max-height: 240px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1667,6 +1873,12 @@ dd {
 .promptMeta button:disabled {
   cursor: wait;
   opacity: 0.58;
+}
+
+.buttonBusyGears {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
 }
 
 .modelPicker {
@@ -1873,7 +2085,8 @@ dd {
   transform: translate(8px, 8px);
 }
 
-.stackItemMenu {
+.stackItemMenu,
+.projectMenu {
   position: fixed;
   z-index: 30;
   display: grid;
@@ -1905,8 +2118,12 @@ dd {
   text-align: left;
 }
 
-.stackItemMenu button {
+.stackItemMenu button,
+.projectMenu button {
   min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   border-radius: 7px;
   text-align: left;
 }

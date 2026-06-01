@@ -33,7 +33,7 @@ export function livingCanvasModelMetadata(modelId: string, providerId: string, c
       return { generationParameters: [], maxImageInputs: 1 };
     }
     if (providerId === "polza") {
-      return { generationParameters: [videoResolutions, videoDurations, videoMultiShots], maxImageInputs: 1 };
+      return { generationParameters: [videoResolutions, videoDurations, videoMultiShots] };
     }
     return { generationParameters: [] };
   }

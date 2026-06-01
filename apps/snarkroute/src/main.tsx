@@ -1,6 +1,6 @@
 import "./styles.css";
-import { ArrowUp, Check, ChevronLeft, ChevronRight, Cog, Download, Expand, Folder, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, Sun, Video, Wallpaper, Wrench } from "lucide-react";
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ArrowUp, ChevronLeft, ChevronRight, Clipboard, Cog, Copy, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, Save, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   fallbackModels,
@@ -32,6 +32,33 @@ interface LibrarySnapshot {
   nestedLibraries: NestedLibrary[];
   canvas: CanvasDocument | null;
   nodes: NodeView[];
+}
+
+interface ProjectSummary {
+  id: string;
+  title: string;
+  path: string;
+  coverUrl: string | null;
+  current: boolean;
+}
+
+interface ProjectListResponse {
+  projects: ProjectSummary[];
+}
+
+interface ProjectMutationResponse {
+  projects: ProjectSummary[];
+  current: LibrarySnapshot;
+}
+
+interface ProjectImageSummary {
+  id: string;
+  title: string;
+  url: string;
+}
+
+interface ProjectImagesResponse {
+  images: ProjectImageSummary[];
 }
 
 interface LibraryManifest {
@@ -275,6 +302,7 @@ interface InputNodeChip {
   type: string;
   previewUrl: string | null;
   color?: string;
+  activeStackIndex?: number;
 }
 
 interface StackItemMenu {
@@ -289,6 +317,17 @@ interface LibraryAssetMenu {
   y: number;
   nodeId: string;
   assetId: string;
+}
+
+interface ProjectMenu {
+  x: number;
+  y: number;
+  project: ProjectSummary;
+}
+
+interface CoverPickerState {
+  project: ProjectSummary;
+  images: ProjectImageSummary[];
 }
 
 interface SelectionMenu {
@@ -375,10 +414,11 @@ function App() {
   const [theme, setTheme] = useStoredSetting<ThemeName>(themeStorageKey, "night", ["day", "night"]);
   const [background, setBackground] = useStoredSetting<BackgroundName>(backgroundStorageKey, "gears", backgroundOptions.map((option) => option.value));
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState("Opening local library...");
   const [isDragging, setIsDragging] = useState(false);
-  const [libraryOpen, setLibraryOpen] = useState(true);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [viewport, setViewport] = useStoredJsonSetting<CanvasViewport>("snarkroute.canvasViewport", { x: 0, y: 0, scale: 1 });
   const [dragState, setDragState] = useState<DragState | null>(null);
@@ -390,6 +430,8 @@ function App() {
   const [openStackNodeId, setOpenStackNodeId] = useState<string | null>(null);
   const [stackItemMenu, setStackItemMenu] = useState<StackItemMenu | null>(null);
   const [libraryAssetMenu, setLibraryAssetMenu] = useState<LibraryAssetMenu | null>(null);
+  const [projectMenu, setProjectMenu] = useState<ProjectMenu | null>(null);
+  const [coverPicker, setCoverPicker] = useState<CoverPickerState | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
   const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(fallbackModels);
@@ -617,9 +659,10 @@ function App() {
     function closeFloatingMenus(event: PointerEvent) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.closest(".stackItemMenu, .nodeCreateMenu, .selectionMenu, .stackBoard, .modelMenu")) return;
+      if (target.closest(".stackItemMenu, .nodeCreateMenu, .selectionMenu, .projectMenu, .stackBoard, .modelMenu")) return;
       setStackItemMenu(null);
       setSelectionMenu(null);
+      setProjectMenu(null);
     }
 
     window.addEventListener("pointerdown", closeFloatingMenus);
@@ -656,8 +699,12 @@ function App() {
   async function refreshLibrary() {
     try {
       setLoading(true);
-      const snapshot = await apiGet<LibrarySnapshot>("/api/libraries/current");
+      const [snapshot, projectList] = await Promise.all([
+        apiGet<LibrarySnapshot>("/api/libraries/current"),
+        apiGet<ProjectListResponse>("/api/libraries/projects")
+      ]);
       setLibrary(snapshot);
+      setProjects(projectList.projects);
       setStatus(snapshot.canvas ? "Canvas ready" : "Library has no canvas");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not open local library.");
@@ -796,18 +843,20 @@ function App() {
       setStatus(apiUnavailableMessage);
       return;
     }
-    const file = [...event.dataTransfer.files].find((item) => /\.(png|jpe?g|webp|mp4|webm|mov)$/i.test(item.name));
+    const files = [...event.dataTransfer.files];
+    const file = files.find((item) => isImageFile(item) || isVideoFile(item) || isTextFile(item));
     const canvas = canvasRef.current;
     if (!file || !canvas) {
-      setStatus("Drop a PNG, JPG, WEBP image or MP4, WEBM, MOV video.");
+      setStatus("Drop an image, text file, or video. Folders use Add Folder so SnarkRoute can ask what typed node to create.");
       return;
     }
 
     const bounds = canvas.getBoundingClientRect();
     const dropX = (event.clientX - bounds.left + canvas.scrollLeft - viewport.x) / viewportScale;
     const dropY = (event.clientY - bounds.top + canvas.scrollTop - viewport.y) / viewportScale;
-    if (isVideoFile(file)) await importVideoFileAt(file, { x: dropX, y: dropY });
-    else await importImageFileAt(file, { x: dropX, y: dropY });
+    if (isImageFile(file)) await importImageFileAt(file, { x: dropX, y: dropY });
+    else if (isTextFile(file)) await importTextFileAt(file, { x: dropX, y: dropY });
+    else await importVideoFileAt(file, { x: dropX, y: dropY });
   }
 
   async function importImageFileAt(file: File, point: { x: number; y: number }) {
@@ -827,6 +876,7 @@ function App() {
         height: imageNodeHeight
       });
       setLibrary(snapshot);
+      void refreshProjects();
       setStatus("Image node imported");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Image import failed.");
@@ -1142,6 +1192,149 @@ function App() {
     }
   }
 
+  async function refreshProjects() {
+    try {
+      const projectList = await apiGet<ProjectListResponse>("/api/libraries/projects");
+      setProjects(projectList.projects);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not load projects.");
+    }
+  }
+
+  function applyProjectMutation(result: ProjectMutationResponse, message: string) {
+    setLibrary(result.current);
+    setProjects(result.projects);
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setSelectedEdgeId(null);
+    setProjectMenu(null);
+    setStatus(message);
+  }
+
+  async function addProject() {
+    try {
+      setStatus("Selecting project folder...");
+      const picked = await apiPost<{ path: string | null }>("/api/libraries/projects/pick-folder", {});
+      if (!picked.path) {
+        setStatus("Project selection canceled.");
+        return;
+      }
+      const result = await apiPost<ProjectMutationResponse>("/api/libraries/projects/add", { path: picked.path });
+      applyProjectMutation(result, "Project added.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not add project.");
+    }
+  }
+
+  async function openProject(project: ProjectSummary) {
+    try {
+      const result = await apiPost<ProjectMutationResponse>("/api/libraries/projects/open", { path: project.path });
+      applyProjectMutation(result, `Opened ${project.title}.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not open project.");
+    }
+  }
+
+  async function copyProject(project: ProjectSummary) {
+    try {
+      await navigator.clipboard.writeText(project.path);
+      setProjectMenu(null);
+      setStatus("Project path copied.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not copy project.");
+    }
+  }
+
+  async function pasteProject() {
+    try {
+      const path = (await navigator.clipboard.readText()).trim();
+      if (!path) {
+        setStatus("Clipboard does not contain a project path.");
+        return;
+      }
+      const result = await apiPost<ProjectMutationResponse>("/api/libraries/projects/add", { path });
+      applyProjectMutation(result, "Project pasted.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not paste project.");
+    }
+  }
+
+  async function removeProject(project: ProjectSummary) {
+    if (!window.confirm(`Remove "${project.title}" from the project list? Files on disk will stay in place.`)) return;
+    try {
+      const result = await apiPost<ProjectMutationResponse>("/api/libraries/projects/remove", { path: project.path });
+      applyProjectMutation(result, "Project removed from the list.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not remove project.");
+    }
+  }
+
+  async function openProjectInExplorer(project: ProjectSummary) {
+    try {
+      await apiPost("/api/libraries/projects/open-folder", { path: project.path });
+      setProjectMenu(null);
+      setStatus("Project opened in Explorer.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not open project folder.");
+    }
+  }
+
+  async function importProject(project: ProjectSummary) {
+    await openProject(project);
+  }
+
+  function exportProject(project: ProjectSummary) {
+    const data = new Blob([`${JSON.stringify(project, null, 2)}\n`], { type: "application/json" });
+    downloadBlob(data, `${safeDownloadName(project.title)}.snarkproject.json`);
+    setProjectMenu(null);
+    setStatus("Project descriptor exported.");
+  }
+
+  async function openCoverPicker(project: ProjectSummary) {
+    try {
+      const result = await apiGet<ProjectImagesResponse>(`/api/libraries/projects/${encodeURIComponent(project.id)}/images`);
+      setProjectMenu(null);
+      setCoverPicker({ project, images: result.images });
+      setStatus(result.images.length ? "Choose a project cover." : "No images found in this project.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not load project images.");
+    }
+  }
+
+  async function chooseProjectCover(project: ProjectSummary, image: ProjectImageSummary) {
+    try {
+      const result = await apiPost<ProjectListResponse>(`/api/libraries/projects/${encodeURIComponent(project.id)}/cover`, { imageId: image.id });
+      setProjects(result.projects);
+      setCoverPicker(null);
+      setStatus("Project cover updated.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not update project cover.");
+    }
+  }
+
+  async function importTextFileAt(file: File, point: { x: number; y: number }) {
+    if (!library) {
+      setStatus(apiUnavailableMessage);
+      return;
+    }
+    setStatus(`Importing ${file.name || "text"}...`);
+    try {
+      const text = await file.text();
+      const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/current/import-text", {
+        filename: file.name || `text-${Date.now()}.txt`,
+        text,
+        dropX: point.x,
+        dropY: point.y,
+        width: imageNodeWidth,
+        height: 180
+      });
+      setLibrary(snapshot);
+      setStatus("Text node imported");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Text import failed.");
+    }
+  }
+
   async function refreshLibraryContents() {
     try {
       setLibrary(await apiGet<LibrarySnapshot>("/api/libraries/current"));
@@ -1231,13 +1424,30 @@ function App() {
     if (!sourcePath?.trim()) return;
     try {
       const point = viewportCenterWorldPoint();
-      const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/current/import-local-library", {
+      const scan = await apiPost<LocalLibraryScanResult>("/api/libraries/scan-local-library", { sourcePath: sourcePath.trim() });
+      const action = chooseLocalFolderAction(scan);
+      if (!action) return;
+      if (action === "open") {
+        const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/current/import-local-library", {
+          sourcePath: sourcePath.trim(),
+          viewMode: "media-folder",
+          dropX: point.x,
+          dropY: point.y
+        });
+        setLibrary(snapshot);
+        setStatus("Folder opened as library");
+        return;
+      }
+      const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/current/import-local-folder-stack", {
         sourcePath: sourcePath.trim(),
+        stackKind: action,
         dropX: point.x,
-        dropY: point.y
+        dropY: point.y,
+        width: imageNodeWidth,
+        height: action === "text" ? 180 : imageNodeHeight
       });
       setLibrary(snapshot);
-      setStatus("Local library added to canvas");
+      setStatus(`${action === "image" ? "Image" : action === "video" ? "Video" : "Text"} stack node created`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not add local library folder.");
     }
@@ -1344,6 +1554,7 @@ function App() {
         parameters
       });
       setLibrary(snapshot);
+      if (type === "image") void refreshProjects();
       setSelectedNodeId(nodeId);
       setSelectedNodeIds([nodeId]);
       setStatus("Generation added to stack");
@@ -1543,28 +1754,37 @@ function App() {
           </div>
           <div className="panelTitle">
             <Folder size={17} />
-            <h2>Library</h2>
+            <h2>Projects</h2>
             <button className="panelCollapseButton" type="button" onClick={() => setLibraryOpen(false)} title="Collapse library">
               <PanelRight size={16} />
             </button>
           </div>
-          <div className="libraryCard">
-            <strong>{library?.manifest.title ?? "Local library"}</strong>
-            <span>{library?.path ?? "Loading..."}</span>
-          </div>
-          <button className="addLibraryButton" type="button" onClick={() => void addLocalLibraryFolder()}>
-            <Folder size={15} />
-            Add local library folder
+          <button className="addLibraryButton" type="button" onClick={() => void addProject()}>
+            <FolderPlus size={15} />
+            Add Project
           </button>
-          <div className="nestedList">
-            {library?.nestedLibraries.length ? library.nestedLibraries.map((entry) => (
-              <button key={`${entry.id}-${entry.path}`} type="button" onClick={() => void openNestedLibrary(entry.path)}>
-                <Folder size={15} />
-                <span>{entry.title}</span>
-                <small>{entry.hasCanvas ? "canvas" : entry.defaultView}</small>
+          {projects.length ? (
+          <div className="projectList">
+            {projects.map((project) => (
+              <button
+                key={`${project.id}-${project.path}`}
+                className={`projectItem${project.current ? " isCurrent" : ""}`}
+                type="button"
+                onClick={() => void openProject(project)}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setProjectMenu({ x: event.clientX, y: event.clientY, project });
+                }}
+                title={project.title}
+              >
+                <span className="projectThumb">
+                  {project.coverUrl ? <img src={`${apiBase}${project.coverUrl}`} alt="" /> : <Folder size={42} />}
+                </span>
+                <span>{project.title}</span>
               </button>
-            )) : <p>No nested libraries yet.</p>}
+            ))}
           </div>
+          ) : null}
         </aside>
       )}
       {!libraryOpen && (
@@ -1755,6 +1975,36 @@ function App() {
           ) : null}
         </div>
       )}
+      {projectMenu && (
+        <div className="projectMenu" style={{ left: projectMenu.x, top: projectMenu.y }}>
+          <button type="button" onClick={() => void copyProject(projectMenu.project)}><Copy size={14} /> Copy</button>
+          <button type="button" onClick={() => void pasteProject()}><Clipboard size={14} /> Paste</button>
+          <button type="button" onClick={() => void openCoverPicker(projectMenu.project)}><ImageIcon size={14} /> Choose Cover</button>
+          <button type="button" onClick={() => void removeProject(projectMenu.project)}><Trash2 size={14} /> Delete</button>
+          <button type="button" onClick={() => void openProjectInExplorer(projectMenu.project)}><ExternalLink size={14} /> Open in Explorer</button>
+          <button type="button" onClick={() => void importProject(projectMenu.project)}><FileUp size={14} /> Import</button>
+          <button type="button" onClick={() => exportProject(projectMenu.project)}><FileDown size={14} /> Export</button>
+        </div>
+      )}
+      {coverPicker && (
+        <div className="coverPickerOverlay" role="dialog" aria-modal="true" onClick={() => setCoverPicker(null)}>
+          <div className="coverPickerDialog" onClick={(event) => event.stopPropagation()}>
+            <header>
+              <strong>{coverPicker.project.title}</strong>
+              <button type="button" onClick={() => setCoverPicker(null)}>Close</button>
+            </header>
+            <div className="coverPickerGrid">
+              {coverPicker.images.map((image) => (
+                <button key={image.id} type="button" onClick={() => void chooseProjectCover(coverPicker.project, image)} title={image.title}>
+                  <img src={`${apiBase}${image.url}`} alt="" />
+                  <span>{image.title}</span>
+                </button>
+              ))}
+              {coverPicker.images.length === 0 ? <p>No images found in this project.</p> : null}
+            </div>
+          </div>
+        </div>
+      )}
       {libraryAssetMenu && (
         <div className="stackItemMenu" style={{ left: libraryAssetMenu.x, top: libraryAssetMenu.y }}>
           <button type="button" onClick={() => void deleteLibraryAsset(libraryAssetMenu.nodeId, libraryAssetMenu.assetId)}>Delete from library</button>
@@ -1763,8 +2013,8 @@ function App() {
       {selectionMenu && selectedNodeIds.length > 0 && (
         <div className="selectionMenu" style={{ left: selectionMenu.x, top: selectionMenu.y }}>
           <button type="button" onClick={() => void duplicateNode(selectionMenu.nodeId)}>Duplicate node</button>
-          <button type="button" onClick={() => copyNode(selectionMenu.nodeId)}>Copy</button>
-          <button type="button" disabled={!copiedNodeId} onClick={() => copiedNodeId && void duplicateNode(copiedNodeId, selectionMenu.nodeId, "pasted")}>Paste</button>
+          <button type="button" onClick={() => copyNode(selectionMenu.nodeId)}>Copy node</button>
+          <button type="button" disabled={!copiedNodeId} onClick={() => copiedNodeId && void duplicateNode(copiedNodeId, selectionMenu.nodeId, "pasted")}>Paste node</button>
           <button type="button" onClick={() => void openNodeAsFolder(selectionMenu.nodeId)}>Open folder</button>
           <button type="button" onClick={() => void deleteSelectedNodes(selectedNodeIds)}>
             Delete {selectedNodeIds.length > 1 ? `${selectedNodeIds.length} nodes` : "node"}
@@ -2180,17 +2430,28 @@ function CanvasEdges({
   onSelectEdge: (edgeId: string) => void;
 }) {
   const nodeById = new Map(nodes.map((node) => [node.canvas.id, node.canvas]));
+  const viewById = new Map(nodes.map((node) => [node.canvas.id, node]));
+  const previewSourceNode = preview ? viewById.get(preview.direction === "fromOutput" ? preview.fromNodeId : preview.toNodeId ?? preview.fromNodeId) : undefined;
   return (
     <svg className="canvasEdges">
       {edges.map((edge) => {
         const from = nodeById.get(edge.fromNodeId);
         const to = nodeById.get(edge.toNodeId);
+        const sourceNode = viewById.get(edge.fromNodeId);
         if (!from || !to) return null;
         const start = nodeOutputPoint(from);
         const end = nodeInputPoint(to);
-        return <path key={edge.id} className={selectedEdgeId === edge.id ? "isSelected" : ""} d={edgePath(start, end)} onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }} />;
+        return (
+          <path
+            key={edge.id}
+            className={selectedEdgeId === edge.id ? "isSelected" : ""}
+            d={edgePath(start, end)}
+            style={{ "--edge-color": nodeTypeWireColor(sourceNode) } as React.CSSProperties}
+            onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
+          />
+        );
       })}
-      {preview && <path className="edgePreview" d={edgePath({ x: preview.startX, y: preview.startY }, { x: preview.currentX, y: preview.currentY })} />}
+      {preview && <path className="edgePreview" d={edgePath({ x: preview.startX, y: preview.startY }, { x: preview.currentX, y: preview.currentY })} style={{ "--edge-color": nodeTypeWireColor(previewSourceNode) } as React.CSSProperties} />}
     </svg>
   );
 }
@@ -2274,10 +2535,7 @@ function ImageNode({
   const [routeSettingsOpen, setRouteSettingsOpen] = useState(false);
   const [promptInsertRequest, setPromptInsertRequest] = useState<{ token: string; sequence: number } | null>(null);
   const promptInsertSequence = useRef(0);
-  const textPreviewRef = useRef<HTMLDivElement | null>(null);
-  const textOutputRef = useRef<HTMLDivElement | null>(null);
   const textBaseHeight = node.manifest.type === "text" ? Math.min(node.canvas.height, textNodeBaseHeight) : node.canvas.height;
-  const [textPreviewHeight, setTextPreviewHeight] = useState(textBaseHeight);
   const needsImageInput = inputNodes.some((input) => input.type === "image") || (node.manifest.type === "image" && node.manifest.stack.length > 0);
   const compatibleModels = needsImageInput ? models.filter((model) => model.accepts.includes("image") || model.acceptsImageInput === true) : models;
   const displayModels = mergeModelsForDisplay(compatibleModels);
@@ -2315,16 +2573,6 @@ function ImageNode({
   useEffect(() => {
     if (node.manifest.type === "text") setDraftText(node.manifest.text);
   }, [node.manifest.id, node.manifest.type === "text" ? node.manifest.text : ""]);
-  useLayoutEffect(() => {
-    if (node.manifest.type !== "text") return;
-    const preview = textPreviewRef.current;
-    const output = textOutputRef.current;
-    if (!preview || !output) return;
-    const styles = window.getComputedStyle(preview);
-    const nonTextHeight = output.offsetTop + Number.parseFloat(styles.paddingBottom) + Number.parseFloat(styles.borderBottomWidth);
-    const requiredHeight = Math.ceil(output.scrollHeight + nonTextHeight);
-    setTextPreviewHeight(Math.min(textBaseHeight * 2, Math.max(textBaseHeight, requiredHeight)));
-  }, [textBaseHeight, node.canvas.width, node.manifest.type === "text" ? (node as TextNodeView).outputText : ""]);
 
   function insertInputToken(input: InputNodeChip) {
     const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
@@ -2347,14 +2595,17 @@ function ImageNode({
   }
   if (node.manifest.type === "text") {
     const textNode = node as TextNodeView;
+    const textStackIsEmpty = textNode.stack.length === 0;
+    const unsavedDraftText = draftText.trim();
+    const outputText = textStackIsEmpty ? draftText : textNode.outputText;
     return (
       <article
         className={`textNode${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
         style={{
-          "--image-height": `${textPreviewHeight}px`,
+          "--image-height": `${textBaseHeight}px`,
           transform: `translate(${node.canvas.x}px, ${node.canvas.y}px)`,
           width: node.canvas.width,
-          height: textPreviewHeight + nodeTitleHeight
+          height: textBaseHeight + nodeTitleHeight
         } as React.CSSProperties}
         onPointerDown={(event) => onPointerDown(event, node)}
         onClick={(event) => onClick(event, node)}
@@ -2378,9 +2629,10 @@ function ImageNode({
         <div className="nodeHandleLine nodeHandleLineOutput" />
         <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
         <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
-        <div ref={textPreviewRef} className={`textNodePreview textColor-${node.manifest.color ?? "mint"}`}>
+        <div className={`textNodePreview textColor-${node.manifest.color ?? "mint"}`}>
           <small className="textOutputLabel">Output text</small>
-          <div ref={textOutputRef} className="textNodeOutput" data-canvas-wheel-scroll>{textNode.outputText || "No text selected"}</div>
+          <div className="textNodeOutput" data-canvas-wheel-scroll>{outputText || "No text selected"}</div>
+          {textStackIsEmpty && unsavedDraftText ? <small className="textStackDraftNotice">Input field, not saved in stack</small> : null}
           {active ? (
             <>
               <button
@@ -2410,7 +2662,13 @@ function ImageNode({
                       <strong>{item.title}</strong>
                       <span>{item.text}</span>
                     </button>
-                  )) : <span className="stackBoardEmpty">Empty stack</span>}
+                  )) : (
+                    <div className="textStackDraftFallback">
+                      <strong>Input field</strong>
+                      <span>{unsavedDraftText || "Empty stack"}</span>
+                      {unsavedDraftText ? <small>Not saved in stack</small> : null}
+                    </div>
+                  )}
                 </div>
               ) : null}
               <div className="textColorSwatches" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
@@ -2436,7 +2694,8 @@ function ImageNode({
                 return (
                   <button
                     type="button"
-                    className={`inputChip${inactive ? " isInactive" : ""}`}
+                    className={`inputChip${input.type === "text" ? ` textColor-${input.color ?? "mint"}` : ""}${inactive ? " isInactive" : ""}`}
+                    style={input.type === "text" ? inputTextChipStyle(input) : undefined}
                     key={input.id}
                     draggable
                     title={inactive ? "Model image input limit exceeded" : `Insert ${input.title} into prompt`}
@@ -2448,18 +2707,19 @@ function ImageNode({
                     }}
                     onClick={() => insertInputToken(input)}
                   >
-                    {input.previewUrl ? input.type === "video" ? <Video size={15} /> : <img src={`${apiBase}${input.previewUrl}`} alt="" /> : input.type === "image" ? <ImageIcon size={15} /> : input.type === "video" ? <Video size={15} /> : <span className={`textChipThumb textColor-${input.color ?? "mint"}`}>T</span>}
+                    <InputChipThumb input={input} />
                   </button>
                 );
               }) : <span className="inputChip isEmpty">No inputs</span>}
             </div>
             <div className="textPromptEditor">
-              <small className="textDraftLabel">New text</small>
               <PromptComposer
                 value={draftText}
                 inputNodes={orderedInputNodes}
                 maxImageInputs={maxImageInputs}
                 insertRequest={promptInsertRequest}
+                onInsertRequestHandled={() => setPromptInsertRequest(null)}
+                onOpenInputPreview={(input) => input.type === "image" && onOpenPreview(input.id, input.activeStackIndex ?? 0, input.title)}
                 onChange={setDraftText}
                 onBlur={() => onSaveText(node.manifest.id, draftText)}
               />
@@ -2470,7 +2730,7 @@ function ImageNode({
                 disabled={!draftText.trim()}
                 onClick={() => onAddTextToStack(node.manifest.id, draftText)}
               >
-                <Check size={17} />
+                <Save size={16} />
               </button>
             </div>
             <div className="promptMeta">
@@ -2528,7 +2788,9 @@ function ImageNode({
                 ) : null}
               </div>
               {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"}>{generationFeedback.message}</span> : null}
-              <button type="button" aria-label="Run" disabled={!draftText.trim() || !selectedModel.id || generationFeedback?.busy} onClick={() => onRunTextGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), draftText, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax)}><ArrowUp size={16} /></button>
+              <button type="button" aria-label="Run" disabled={!draftText.trim() || !selectedModel.id || generationFeedback?.busy} onClick={() => onRunTextGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), draftText, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax)}>
+                {generationFeedback?.busy ? <BusyGears /> : <ArrowUp size={16} />}
+              </button>
             </div>
           </footer>
         ) : null}
@@ -2641,7 +2903,8 @@ function ImageNode({
               return (
               <button
                 type="button"
-                className={`inputChip${inactive ? " isInactive" : ""}`}
+                className={`inputChip${input.type === "text" ? ` textColor-${input.color ?? "mint"}` : ""}${inactive ? " isInactive" : ""}`}
+                style={input.type === "text" ? inputTextChipStyle(input) : undefined}
                 key={input.id}
                 draggable
                 title={inactive ? "Model image input limit exceeded" : `Insert ${input.title} into prompt`}
@@ -2653,7 +2916,7 @@ function ImageNode({
                 }}
                 onClick={() => insertInputToken(input)}
               >
-                {input.previewUrl ? input.type === "video" ? <Video size={15} /> : <img src={`${apiBase}${input.previewUrl}`} alt="" /> : input.type === "image" ? <ImageIcon size={15} /> : input.type === "video" ? <Video size={15} /> : <span className={`textChipThumb textColor-${input.color ?? "mint"}`}>T</span>}
+                <InputChipThumb input={input} />
               </button>
             ); }) : <span className="inputChip isEmpty">No inputs</span>}
           </div>
@@ -2662,6 +2925,8 @@ function ImageNode({
             inputNodes={orderedInputNodes}
             maxImageInputs={maxImageInputs}
             insertRequest={promptInsertRequest}
+            onInsertRequestHandled={() => setPromptInsertRequest(null)}
+            onOpenInputPreview={(input) => input.type === "image" && onOpenPreview(input.id, input.activeStackIndex ?? 0, input.title)}
             onChange={setPrompt}
             onBlur={() => onSavePrompt(node.manifest.id, prompt)}
           />
@@ -2767,7 +3032,9 @@ function ImageNode({
               )}
             </div>
             {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"}>{generationFeedback.message}</span> : null}
-            <button type="button" aria-label="Run" disabled={!selectedModel.id || generationFeedback?.busy} onClick={() => onRunGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), prompt, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters)}><ArrowUp size={16} /></button>
+            <button type="button" aria-label="Run" disabled={!selectedModel.id || generationFeedback?.busy} onClick={() => onRunGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), prompt, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters)}>
+              {generationFeedback?.busy ? <BusyGears /> : <ArrowUp size={16} />}
+            </button>
           </div>
         </footer>
       )}
@@ -2789,6 +3056,8 @@ function PromptComposer({
   inputNodes,
   maxImageInputs,
   insertRequest,
+  onInsertRequestHandled,
+  onOpenInputPreview,
   onChange,
   onBlur
 }: {
@@ -2796,6 +3065,8 @@ function PromptComposer({
   inputNodes: InputNodeChip[];
   maxImageInputs?: number;
   insertRequest: { token: string; sequence: number } | null;
+  onInsertRequestHandled: () => void;
+  onOpenInputPreview?: (input: InputNodeChip) => void;
   onChange: (value: string) => void;
   onBlur: () => void;
 }) {
@@ -2816,6 +3087,7 @@ function PromptComposer({
     if (!editor || !input) return;
     insertChipAtRange(editor, input, insertRequest.token, inputNodes, maxImageInputs, savedRangeRef.current);
     onChange(serializePromptContent(editor));
+    onInsertRequestHandled();
     editor.focus();
     saveEditorRange(editor, savedRangeRef);
   }, [insertRequest?.sequence]);
@@ -2861,8 +3133,22 @@ function PromptComposer({
         saveEditorRange(event.currentTarget, savedRangeRef);
       }}
       onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        event.stopPropagation();
+        const chip = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".promptInlineChip") : null;
+        const input = chip?.dataset.promptToken ? inputForPromptToken(chip.dataset.promptToken, inputNodes) : undefined;
+        if (input?.type === "image") onOpenInputPreview?.(input);
+      }}
     />
+  );
+}
+
+function BusyGears() {
+  return (
+    <span className="nodeBusyGears buttonBusyGears" aria-label="Generating">
+      <Cog size={14} className="nodeBusyGearLarge" />
+      <Cog size={10} className="nodeBusyGearSmall" />
+    </span>
   );
 }
 
@@ -2947,12 +3233,23 @@ function renderPromptContent(editor: HTMLElement, value: string, inputNodes: Inp
 
 function promptInlineChip(token: string, input: InputNodeChip, inactive: boolean): HTMLElement {
   const chip = document.createElement("span");
-  chip.className = `promptInlineChip${inactive ? " isInactive" : ""}`;
+  chip.className = `promptInlineChip${input.type === "text" ? ` textColor-${input.color ?? "mint"}` : ""}${inactive ? " isInactive" : ""}`;
   chip.contentEditable = "false";
   chip.draggable = true;
   chip.dataset.promptToken = token;
   chip.title = input.title;
-  if (input.previewUrl && input.type !== "video") {
+  if (input.type === "text") {
+    const textColor = inputTextChipColor(input);
+    chip.style.setProperty("--text-node-color", textColor);
+    chip.style.borderColor = textColor;
+    const thumbnail = document.createElement("span");
+    thumbnail.className = `textChipThumb${input.previewUrl ? " hasPreview" : ""}`;
+    thumbnail.style.borderColor = textColor;
+    thumbnail.style.color = textColor;
+    if (input.previewUrl) thumbnail.style.backgroundImage = `linear-gradient(rgba(246, 247, 242, 0.24), rgba(246, 247, 242, 0.24)), url(${apiBase}${input.previewUrl})`;
+    thumbnail.textContent = "T";
+    chip.append(thumbnail);
+  } else if (input.previewUrl && input.type !== "video") {
     const image = document.createElement("img");
     image.src = `${apiBase}${input.previewUrl}`;
     image.alt = "";
@@ -2964,6 +3261,31 @@ function promptInlineChip(token: string, input: InputNodeChip, inactive: boolean
     chip.append(thumbnail);
   }
   return chip;
+}
+
+function InputChipThumb({ input }: { input: InputNodeChip }) {
+  if (input.type === "text") {
+    return <span className={`textChipThumb${input.previewUrl ? " hasPreview" : ""}`} style={textChipThumbStyle(input)}>T</span>;
+  }
+  if (input.previewUrl) return input.type === "video" ? <Video size={15} /> : <img src={`${apiBase}${input.previewUrl}`} alt="" />;
+  return input.type === "image" ? <ImageIcon size={15} /> : input.type === "video" ? <Video size={15} /> : <span className="promptInlineImageFallback">I</span>;
+}
+
+function inputTextChipColor(input: InputNodeChip): string {
+  return textNodeWireColor(input.color as TextNodeManifest["color"]);
+}
+
+function inputTextChipStyle(input: InputNodeChip): React.CSSProperties {
+  const color = inputTextChipColor(input);
+  return { "--text-node-color": color, borderColor: color, color } as React.CSSProperties;
+}
+
+function textChipThumbStyle(input: InputNodeChip): React.CSSProperties {
+  const color = inputTextChipColor(input);
+  const previewStyle = input.previewUrl
+    ? { backgroundImage: `linear-gradient(rgba(246, 247, 242, 0.24), rgba(246, 247, 242, 0.24)), url(${apiBase}${input.previewUrl})` }
+    : {};
+  return { ...previewStyle, borderColor: color, color };
 }
 
 function serializePromptContent(editor: HTMLElement): string {
@@ -3087,8 +3409,25 @@ function inputChipsForNode(nodeId: string, edges: CanvasEdge[], nodeById: Map<st
       title: node.manifest.title,
       type: node.manifest.type,
       previewUrl: node.previewUrl,
-      color: node.manifest.type === "text" ? node.manifest.color : undefined
+      color: node.manifest.type === "text" ? node.manifest.color : undefined,
+      activeStackIndex: node.manifest.type === "image" || node.manifest.type === "video" ? node.manifest.activeStackIndex : undefined
     }));
+}
+
+function nodeTypeWireColor(node: NodeView | undefined): string {
+  if (!node) return "#8f9aaa";
+  if (node.manifest.type === "text") return textNodeWireColor(node.manifest.color);
+  if (node.manifest.type === "image") return "#9fc4ff";
+  if (node.manifest.type === "video") return "#f3bf45";
+  if (node.manifest.type === "library") return "#c7d2fe";
+  return "#8f9aaa";
+}
+
+function textNodeWireColor(color: TextNodeManifest["color"]): string {
+  if (color === "violet") return "#ff6bd6";
+  if (color === "amber") return "#d8ff4f";
+  if (color === "rose") return "#ff8a5b";
+  return "#2dd4bf";
 }
 
 function stackMediaUrl(type: "image" | "video", nodeId: string, stackItemId: string): string {
@@ -3133,6 +3472,20 @@ async function downloadPreview(previewUrl: string, title: string) {
   link.click();
   URL.revokeObjectURL(link.href);
   link.remove();
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  URL.revokeObjectURL(link.href);
+  link.remove();
+}
+
+function safeDownloadName(value: string): string {
+  return (value || "project").replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-").replace(/\s+/g, " ").trim() || "project";
 }
 
 function useStoredSetting<T extends string>(key: string, fallback: T, allowed: readonly T[]): [T, (value: T) => void] {
@@ -3296,8 +3649,34 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function isImageFile(file: File): boolean {
+  return file.type.startsWith("image/") || /\.(png|jpe?g|webp)$/i.test(file.name);
+}
+
 function isVideoFile(file: File): boolean {
   return file.type.startsWith("video/") || /\.(mp4|webm|mov)$/i.test(file.name);
+}
+
+function isTextFile(file: File): boolean {
+  return file.type.startsWith("text/") || /\.(md|txt)$/i.test(file.name);
+}
+
+function chooseLocalFolderAction(scan: LocalLibraryScanResult): "open" | "image" | "text" | "video" | null {
+  const actions: Array<{ key: "open" | "image" | "text" | "video"; label: string }> = [
+    { key: "open", label: "Open as Library" }
+  ];
+  if (scan.assets.some((asset) => asset.kind === "image" && /\.(png|jpe?g|webp)$/i.test(asset.relativePath))) actions.push({ key: "image", label: "Create Image Stack from folder" });
+  if (scan.assets.some((asset) => asset.kind === "text" || Boolean(asset.embeddedPrompt))) actions.push({ key: "text", label: "Create Text Stack from folder" });
+  if (scan.assets.some((asset) => asset.kind === "video")) actions.push({ key: "video", label: "Create Video Stack from folder" });
+
+  const message = [
+    `${scan.title} contains ${scan.assets.length} artifact(s). Choose what to create:`,
+    ...actions.map((action, index) => `${index + 1}. ${action.label}`),
+    `${actions.length + 1}. Cancel`
+  ].join("\n");
+  const choice = window.prompt(message, actions.length > 1 ? "2" : "1")?.trim();
+  const index = Number(choice) - 1;
+  return Number.isInteger(index) && index >= 0 && index < actions.length ? actions[index].key : null;
 }
 
 createRoot(document.getElementById("root")!).render(

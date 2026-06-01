@@ -1,37 +1,77 @@
 # SnarkRoute
 
-SnarkRoute is the larger project: a local-first reference implementation for portable Open Route Protocol workflows.
+Open, local-first visual workflow system for portable AI/model/API routes.
 
-SnarkRoute is the object/workspace layer: artifacts, boards, versions, relations, libraries, and user-facing actions. BoojumRoute is the process-authoring layer: blocks, routes, ports, execution, compound nodes, and model/API orchestration.
+SnarkRoute helps artists and developers build AI workflows as portable,
+inspectable route documents instead of locking them inside one platform.
 
-BoojumRoute Lab is the working block editor and tool lab you can try today. It is the low-level graph interface for building tools from blocks, routes, providers, executors, schemas, and prompt/library assets.
+## What Is It?
 
-BoojumRoute Lab now includes a first Dialogue Workbench block for conversation-heavy route steps. It opens as a large editor, stores manual/model-assisted messages, exposes selected outputs as graph ports, and emits `conversation_text`, `conversation_json`, and `conversation_capsule`. The first Model Registry layer defines portable Model Profiles and Agent Presets while provider credentials stay in local settings. SnarkRoute also includes a provider-neutral Model Gateway v0: model-executing nodes call registered provider adapters through the gateway, while route files remain provider-agnostic where possible and never store raw provider secrets. Model Gateway can show advisory pricing quotes when provider pricing metadata is available; OpenRouter and Polza pricing catalogs refresh automatically from machine-readable model catalogs, while manual prices are fallback overrides with freshness metadata. Unknown pricing is preferred over stale or guessed estimates, and the gateway still does not automatically pick the cheapest provider or guarantee final cost before execution. See `docs/model-registry-principles.md`, `docs/model-gateway-v0.md`, and `docs/dialogue-workbench.md`.
+SnarkRoute is an early open-source project for creating, inspecting,
+remixing, validating, and executing visual AI/model/API workflows.
 
-SnarkRoute Living Canvas is an early experimental shell for the future higher-level creative interface. It is not the main public preview yet.
+The current working public preview is **BoojumRoute Lab**: a local block editor
+for building routes from nodes, ports, providers, executors, schemas, prompt
+library assets, and installable `.snarknode` packages.
 
-Both interfaces share the same Open Route Protocol engine/runtime. The current working system lives in BoojumRoute Lab while the SnarkRoute name covers the broader project and the experimental Living Canvas direction.
+The broader SnarkRoute project also includes **SnarkRoute Living Canvas**, an
+experimental shell for a future higher-level creative workspace. It is not the
+main public preview yet.
 
-It allows users to create, inspect, remix, validate, and execute portable AI/model/API routes. Routes describe graphs of operations. Reusable external resources are referenced through AssetRef and resolved by the host through configured AssetSources. This keeps routes portable, auditable, and safer than directly loading arbitrary files or URLs.
+Both interfaces share the same Open Route Protocol engine/runtime. The route is
+the primary artifact: a readable workflow document that can describe models,
+APIs, assets, provenance, and execution metadata without embedding provider
+secrets.
 
-Open Route Protocol is a portable route format for describing AI/model/API workflows as graphs. Routes can reference external assets, but only through the AssetRef system. The host application controls how asset references are resolved, validated, cached, embedded, bundled, or blocked.
+## Why It Matters
 
-## Terminology
+Most AI workflow tools make workflows hard to reproduce, hard to inspect, or
+hard to move between runtimes. Some hide execution details inside a hosted
+platform. Others are excellent for one creative domain, but do not try to define
+a portable route format across models, APIs, assets, providers, and local
+execution.
 
-Node is an umbrella term for a generic graph item, not only an executable process block. Current and future node kinds include:
+SnarkRoute starts from a different idea: the workflow itself should be portable.
 
-- ArtifactNode: a creative content/media object on a SnarkRoute board, such as an image, video, audio clip, text, prompt, mask, reference, or generated output. ArtifactNodes can carry versions/stacks, a current version, provenance, prompt/model/style context, and attached input or reference materials. In the SnarkRoute UI, visible creative objects should preferably be called Artifacts.
-- BlockNode: an executable operation or process block, such as generate image, edit image, upscale, crop, animate, extract frame, transcribe audio, call model, or call API. In BoojumRoute, most traditional route nodes are BlockNodes.
+A route should not belong to a platform. It should be a readable, shareable,
+inspectable document that can connect models, APIs, assets, and tools across
+providers without directly loading arbitrary external resources from the route
+itself.
 
-An Action is a user-facing invocation of a BlockNode or Boojum route. In SnarkRoute, Actions usually appear as contextual buttons on an Artifact card: Edit, Animate, Upscale, Crop, and similar commands. A Boojum compound route/block maps naturally to a SnarkRoute action button, and its result can become a new ArtifactNode or a new version in the source Artifact stack.
+The model is not the center. The route is.
 
-A Board is an editable visual workspace/composition containing nodes, artifact cards, optional block nodes, relations, layout, groups/comments, versions/stacks, provenance, action history, and selected libraries/imports. A Route is an executable graph/process. Do not collapse Board and Route into the same concept.
+## What You Can Try Today
 
-A Library is a portable reusable collection that may contain or reference artifacts, blocks, routes, boards, prompt chips, styles, model presets, and assets. Library imports are dependency/reference links rather than only nested folders; circular imports are invalid.
+Ready to try:
 
-Prompt Chips are reusable prompt fragments shown as visual chips in the prompt editor. A prompt may combine library prompt chips, inline text, inherited style/context, and references from the current artifact. Prompt chips are references to reusable prompt fragments, not just copied text.
+- BoojumRoute Lab
+- route creation and execution
+- prompt library nodes
+- installable `.snarknode` packages
+- drag-and-drop node import
+- missing-node placeholders
+- provider-backed nodes when local provider settings are configured
 
-See `docs/terminology.md` for the full conceptual model.
+Experimental:
+
+- SnarkRoute Living Canvas
+- installer polish
+- provider setup UX
+- video/audio workflows
+
+## Demo
+
+![BoojumRoute Lab: image route with Clarity Upscaler](docs/images/snarkroute-clarity-demo.png)
+
+A simple image-processing route:
+
+```text
+local image input -> Replicate Clarity Upscaler -> local output preview
+```
+
+[Watch a short demo video](docs/videos/snarkroute-clarity-demo.mp4)
+
+See `docs/demo-script.md` for a short recording plan.
 
 ## Windows Quick Start
 
@@ -52,19 +92,118 @@ If you downloaded the GitHub archive instead of cloning with Git:
 
 Optional: run `setup.bat` to create a local Windows shortcut for BoojumRoute Lab.
 
-## Codex Skill
+## Who Is It For?
 
-The Codex skill for creating Boojum `.snarknode` packages is included in this repository at `docs/boojum-node-builder/`.
+- AI artists who want workflows they can inspect and keep.
+- Creative technologists building local or hybrid AI pipelines.
+- ComfyUI and node-graph users who care about portable route documents.
+- TouchDesigner and creative coding people exploring model/API pipelines.
+- Local-first AI users who do not want routes tied to one hosted account.
+- Developers building provider/model routing, adapters, and reusable nodes.
+- People who care about reproducible creative workflows.
 
-To install it in Codex on Windows:
+## Core Ideas
 
-1. Download this repository as a GitHub archive or clone it.
-2. Copy the `docs/boojum-node-builder` folder to `%USERPROFILE%\.codex\skills\boojum-node-builder`.
-3. Restart Codex.
+- Portable route documents: workflows are files, not only platform state.
+- Local-first execution: credentials, runs, assets, and settings stay on the host
+  unless a route explicitly calls an external provider.
+- Provider-agnostic model routing: Replicate, Gemini, OpenRouter, Polza.ai, and
+  future providers are provider layers inside routes.
+- Provenance and run ledger: routes and runs can preserve authorship,
+  execution, economics, and provider metadata.
+- AssetRef instead of unsafe direct external loading: routes reference assets;
+  the host decides how to resolve, cache, validate, embed, bundle, or block them.
+- Reusable nodes and `.snarknode` packages: community nodes should be
+  declarative manifests with explicit permissions, not arbitrary downloaded
+  JavaScript.
+- Route as the unit of value: the workflow is the thing to share, remix, audit,
+  and execute.
 
-The skill entry file is `docs/boojum-node-builder/SKILL.md`.
+## How It Differs From Other Tools
 
-## Why This Exists
+Different focus, not a claim of superiority:
+
+- **ComfyUI** is a great image-generation graph tool. SnarkRoute aims to be
+  broader route/protocol infrastructure across models, APIs, assets, provenance,
+  and execution providers.
+- **n8n** is a great automation tool. SnarkRoute focuses on portable
+  AI/model routes and creative pipelines where model outputs, assets, and run
+  metadata matter.
+- **Dify, LangChain-style tools, and agent app builders** are useful for apps,
+  chatbots, and agents. SnarkRoute focuses on inspectable visual routes,
+  local-first execution, and creative workflow portability.
+- **Closed AI workflow platforms** can be convenient. SnarkRoute is trying to
+  keep the workflow artifact readable, portable, and host-controlled.
+
+## Current Status
+
+BoojumRoute Lab is the working block editor and tool lab you can try today. It
+is the low-level graph interface for building tools from blocks, routes,
+providers, executors, schemas, and prompt/library assets.
+
+BoojumRoute Lab includes a first Dialogue Workbench block for
+conversation-heavy route steps. It opens as a large editor, stores
+manual/model-assisted messages, exposes selected outputs as graph ports, and
+emits `conversation_text`, `conversation_json`, and `conversation_capsule`.
+
+The first Model Registry layer defines portable Model Profiles and Agent
+Presets while provider credentials stay in local settings. SnarkRoute also
+includes a provider-neutral Model Gateway v0: model-executing nodes call
+registered provider adapters through the gateway, while route files remain
+provider-agnostic where possible and never store raw provider secrets.
+
+Model Gateway can show advisory pricing quotes when provider pricing metadata
+is available. OpenRouter and Polza pricing catalogs refresh automatically from
+machine-readable model catalogs, while manual prices are fallback overrides with
+freshness metadata. Unknown pricing is preferred over stale or guessed
+estimates, and the gateway still does not automatically pick the cheapest
+provider or guarantee final cost before execution.
+
+See `docs/model-registry-principles.md`, `docs/model-gateway-v0.md`, and
+`docs/dialogue-workbench.md`.
+
+## Feedback Wanted
+
+This is an early project, and feedback is especially useful from:
+
+- ComfyUI users
+- TouchDesigner users
+- local model users
+- creative coding people
+- people building reproducible AI pipelines
+
+Useful feedback: what feels unclear, what workflow formats you already use,
+what would make a route worth sharing, and which local/provider integrations
+matter first.
+
+## What Is Open Route Protocol?
+
+Open Route Protocol is a portable route format for describing AI/model/API
+workflows as graphs. Routes can reference external assets, but only through the
+AssetRef system. The host application controls how asset references are
+resolved, validated, cached, embedded, bundled, or blocked.
+
+Open Route Protocol uses explicit file extensions for portable route documents.
+`.orp` is the canonical user-facing extension for complete Open Route Protocol
+route documents; `.orp.json` and `.orp.yaml` are explicit developer-friendly
+variants; `.route` remains supported as a human-readable compatibility alias.
+
+Route files contain node instances, edges, params, provenance, economics
+metadata, and AssetRefs. In Open Route Protocol v0.1 these route nodes are
+executable BlockNodes unless a later documented protocol extension says
+otherwise. Reusable external resources are assets resolved by the host, not raw
+files or URLs loaded directly by the route.
+
+Node definition files such as `.node.json` describe reusable low-level
+BoojumRoute block types. Future Node Definition Assets may also describe
+interfaces and execution adapters through AssetRef, but they must not inject
+arbitrary executable code into the shared runtime.
+
+SnarkRoute is not a wrapper for any single provider. Replicate, Gemini,
+OpenRouter, Polza.ai, and future providers are provider layers inside routes;
+the route/workflow is the primary unit of value.
+
+## Commons Principle
 
 AI tools are becoming the new creative infrastructure. But most of that infrastructure is being built inside closed platforms: models, workflows, prompts, assets, APIs, billing systems, and execution environments are locked into separate services.
 
@@ -81,32 +220,6 @@ The long-term goal is to support a freer ecosystem of neural tools: not one cent
 We think of Open Route Protocol as infrastructure for a "free city" of AI tools: many providers, many creators, many routes, no single owner of the road.
 
 SnarkRoute, including BoojumRoute Lab, is the first reference implementation of this idea.
-
-## Demo
-
-![BoojumRoute Lab: image route with Clarity Upscaler](docs/images/snarkroute-clarity-demo.png)
-
-A simple image-processing route:
-
-```text
-local image input -> Replicate Clarity Upscaler -> local output preview
-```
-
-[Watch a short demo video](docs/videos/snarkroute-clarity-demo.mp4)
-
-See `docs/demo-script.md` for a short recording plan.
-
-## What Is Open Route Protocol?
-
-Open Route Protocol uses explicit file extensions for portable route documents. `.orp` is the canonical user-facing extension for complete Open Route Protocol route documents; `.orp.json` and `.orp.yaml` are explicit developer-friendly variants; `.route` remains supported as a human-readable compatibility alias.
-
-Route files contain node instances, edges, params, provenance, economics metadata, and AssetRefs. In Open Route Protocol v0.1 these route nodes are executable BlockNodes unless a later documented protocol extension says otherwise. Reusable external resources are assets resolved by the host, not raw files or URLs loaded directly by the route.
-
-Node definition files such as `.node.json` describe reusable low-level BoojumRoute block types. Future Node Definition Assets may also describe interfaces and execution adapters through AssetRef, but they must not inject arbitrary executable code into the shared runtime.
-
-SnarkRoute is not a wrapper for any single provider. Replicate, Gemini, OpenRouter, Polza.ai, and future providers are provider layers inside routes; the route/workflow is the primary unit of value.
-
-## Commons Principle
 
 SnarkRoute is designed as a portable route language, not a closed platform. Protocol block nodes are free components; paid value belongs to execution, services, APIs, support, route authorship, and final products. See `docs/commons-principle.md`.
 
@@ -132,23 +245,22 @@ AssetSources can be local folders, embedded route assets, bundles, remote manife
 
 See `docs/assets.md`.
 
-## Current Status
+## Terminology
 
-Ready to try:
+Node is an umbrella term for a generic graph item, not only an executable process block. Current and future node kinds include:
 
-- BoojumRoute Lab
-- route creation and execution
-- prompt library nodes
-- installable `.snarknode` packages
-- drag-and-drop node import
-- missing-node placeholders
-- provider-backed nodes when local provider settings are configured
+- ArtifactNode: a creative content/media object on a SnarkRoute board, such as an image, video, audio clip, text, prompt, mask, reference, or generated output. ArtifactNodes can carry versions/stacks, a current version, provenance, prompt/model/style context, and attached input or reference materials. In the SnarkRoute UI, visible creative objects should preferably be called Artifacts.
+- BlockNode: an executable operation or process block, such as generate image, edit image, upscale, crop, animate, extract frame, transcribe audio, call model, or call API. In BoojumRoute, most traditional route nodes are BlockNodes.
 
-Early/experimental:
+An Action is a user-facing invocation of a BlockNode or Boojum route. In SnarkRoute, Actions usually appear as contextual buttons on an Artifact card: Edit, Animate, Upscale, Crop, and similar commands. A Boojum compound route/block maps naturally to a SnarkRoute action button, and its result can become a new ArtifactNode or a new version in the source Artifact stack.
 
-- SnarkRoute Living Canvas
-- installer polish
-- provider setup UX
+A Board is an editable visual workspace/composition containing nodes, artifact cards, optional block nodes, relations, layout, groups/comments, versions/stacks, provenance, action history, and selected libraries/imports. A Route is an executable graph/process. Do not collapse Board and Route into the same concept.
+
+A Library is a portable reusable collection that may contain or reference artifacts, blocks, routes, boards, prompt chips, styles, model presets, and assets. Library imports are dependency/reference links rather than only nested folders; circular imports are invalid.
+
+Prompt Chips are reusable prompt fragments shown as visual chips in the prompt editor. A prompt may combine library prompt chips, inline text, inherited style/context, and references from the current artifact. Prompt chips are references to reusable prompt fragments, not just copied text.
+
+See `docs/terminology.md` for the full conceptual model.
 
 ## Current MVP Features
 
@@ -220,6 +332,18 @@ For checks:
 corepack pnpm test
 corepack pnpm build
 ```
+
+## Codex Skill
+
+The Codex skill for creating Boojum `.snarknode` packages is included in this repository at `docs/boojum-node-builder/`.
+
+To install it in Codex on Windows:
+
+1. Download this repository as a GitHub archive or clone it.
+2. Copy the `docs/boojum-node-builder` folder to `%USERPROFILE%\.codex\skills\boojum-node-builder`.
+3. Restart Codex.
+
+The skill entry file is `docs/boojum-node-builder/SKILL.md`.
 
 ## Dev Ports
 

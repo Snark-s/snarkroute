@@ -205,10 +205,16 @@ type ProviderLinks = Record<string, Record<string, string>>;
 
 type OpenRouterModel = {
   id: string;
+  provider?: "openrouter";
+  kind?: "text" | "image" | "video";
   name?: string;
   pricing?: Record<string, unknown>;
   supported_parameters?: string[];
   architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
+  supported_durations?: string[];
+  supported_aspect_ratios?: string[];
+  supported_resolutions?: string[];
+  supported_frame_image_modes?: string[];
 };
 
 type PolzaModel = {
@@ -266,7 +272,7 @@ type OpenRouterSettings = {
   maskedApiKey?: string;
   defaultModel?: string;
   budgetWarningUsd?: number | null;
-  catalog?: { refreshedAt?: string | null; modelCount?: number };
+  catalog?: { refreshedAt?: string | null; modelCount?: number; sourceCounts?: { models?: number; videoModels?: number } };
   defaultModelStatus?: string;
 };
 
@@ -1603,7 +1609,11 @@ function DialogueWorkbenchEditor({
 }
 
 function DialoguePartView({ part, compact = false, renderMarkdown = false }: { part: DialogueContentPart; compact?: boolean; renderMarkdown?: boolean }) {
-  if (part.type === "text") return renderMarkdown ? <MarkdownDocument content={part.text} /> : <p>{part.text}</p>;
+  if (part.type === "text") {
+    const backgroundSrc = part.chipBackgroundAssetRef ? imagePreviewSrc(part.chipBackgroundAssetRef) : null;
+    if (backgroundSrc && !renderMarkdown) return <TextChipView text={part.text} backgroundSrc={backgroundSrc} compact={compact} />;
+    return renderMarkdown ? <MarkdownDocument content={part.text} /> : <p>{part.text}</p>;
+  }
   if (part.type === "image") {
     const src = imagePreviewSrc(part.assetRef);
     return src ? <img className={`dialogueMessageImage ${compact ? "compact" : ""}`} src={src} alt={part.alt ?? "dialogue image"} /> : <p>image: {part.assetRef}</p>;
@@ -1613,9 +1623,20 @@ function DialoguePartView({ part, compact = false, renderMarkdown = false }: { p
 }
 
 function DialogueInputPreview({ input }: { input: DialogueConnectedInput }) {
+  const chipBackgroundSrc = input.type === "text" && input.chipBackgroundAssetRef ? imagePreviewSrc(input.chipBackgroundAssetRef) : null;
+  if (chipBackgroundSrc) return <TextChipView text={input.preview} backgroundSrc={chipBackgroundSrc} />;
   const src = input.type === "image" ? imagePreviewSrc(input.value) ?? imagePreviewSrc(input.preview) : null;
   if (src) return <img className="dialogueInputImage" src={src} alt={input.id} />;
   return <pre>{input.preview}</pre>;
+}
+
+function TextChipView({ text, backgroundSrc, compact = false }: { text: string; backgroundSrc: string; compact?: boolean }) {
+  return (
+    <div className={`dialogueTextChip ${compact ? "compact" : ""}`} style={{ backgroundImage: `linear-gradient(rgba(13, 17, 24, 0.9), rgba(13, 17, 24, 0.92)), url(${backgroundSrc})` }}>
+      <span aria-hidden="true">T</span>
+      <pre>{text}</pre>
+    </div>
+  );
 }
 
 function ModelCapabilityBadges({ profile }: { profile: ModelProfile }) {
@@ -1649,7 +1670,7 @@ function ModelSelectWithLogo({ logo, children }: { logo: ModelLogo; children: Re
 function dialogueContentPartFromInput(input: DialogueConnectedInput): DialogueContentPart {
   if (input.type === "image") return { type: "image", assetRef: imageAssetRef(input.value) ?? input.preview, alt: input.id };
   if (input.type === "file") return { type: "file", assetRef: imageAssetRef(input.value) ?? input.preview, filename: input.id };
-  if (input.type === "text") return { type: "text", text: input.preview };
+  if (input.type === "text") return { type: "text", text: input.preview, chipBackgroundAssetRef: input.chipBackgroundAssetRef };
   return { type: "json", value: input.value };
 }
 
@@ -3517,6 +3538,7 @@ type DialogueConnectedInput = {
   sourcePort?: string;
   preview: string;
   value: unknown;
+  chipBackgroundAssetRef?: string;
 };
 
 function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDoc["nodes"][number]): { inputs: PortSpec[]; outputs: PortSpec[] } {
@@ -3936,9 +3958,11 @@ function modelSortScore(profile: ModelProfile): number {
 function openRouterModelCapabilities(model: OpenRouterModel): ModelProfile["capabilities"] {
   const input = model.architecture?.input_modalities ?? [];
   const output = model.architecture?.output_modalities ?? [];
-  const capabilities: ModelProfile["capabilities"] = ["text"];
+  const capabilities: ModelProfile["capabilities"] = [];
+  if (modelSupportsText(model)) capabilities.push("text");
   if (input.includes("image")) capabilities.push("vision");
   if (output.includes("image")) capabilities.push("image_generation");
+  if (output.includes("video") || model.kind === "video" || modalityOutputModalities(model.architecture?.modality ?? "").includes("video")) capabilities.push("video_generation");
   if (model.supported_parameters?.includes("tools")) capabilities.push("tool_calling");
   if (model.supported_parameters?.includes("response_format")) capabilities.push("json_output");
   return [...new Set(capabilities)];
@@ -3959,15 +3983,25 @@ function connectedInputSummaries(
       const sourceManifest = sourceRouteNode ? nodeCatalog.find((entry) => entry.type === sourceRouteNode.type)?.manifest : undefined;
       const sourcePort = sourceRouteNode ? getNodePorts(sourceRouteNode.type, sourceManifest, sourceRouteNode).outputs.find((port) => port.id === edge.sourceHandle) : undefined;
       const value = readPreviewPort(runResult?.nodeResults?.[edge.source]?.output, edge.sourceHandle) ?? sourceParamPreview(sourceRouteNode, edge.sourceHandle);
+      const type = connectedDialogueInputType(edge.targetHandle, sourcePort?.kind ?? "json");
+      const textValue = type === "text" ? textConnectedInputValue(value, sourceRouteNode) : value;
       return {
         id: edge.targetHandle ?? edge.source,
-        type: edge.targetHandle === "context" ? "conversation_context" : sourcePort?.kind ?? "json",
+        type,
         sourceNodeId: edge.source,
         sourcePort: edge.sourceHandle ?? undefined,
-        preview: previewValue(value),
-        value
+        preview: type === "text" ? textPreviewValue(textValue) : previewValue(value),
+        value,
+        chipBackgroundAssetRef: type === "text" ? imageAssetRef(value) ?? imageAssetRef(sourceParamPreview(sourceRouteNode, edge.sourceHandle)) ?? undefined : undefined
       };
     });
+}
+
+function connectedDialogueInputType(targetHandle: string | null | undefined, sourceKind: PortKind): PortKind {
+  if (targetHandle === "context") return "conversation_context";
+  if (sourceKind === "text") return "text";
+  if (targetHandle === "text" || targetHandle === "image" || targetHandle === "json") return targetHandle;
+  return sourceKind;
 }
 
 function readPreviewPort(output: unknown, port?: string | null): unknown {
@@ -3996,6 +4030,29 @@ function sourceAssetParamPreview(node: RouteDoc["nodes"][number] | undefined): u
 function previewValue(value: unknown): string {
   if (typeof value === "string") return value.length > 700 ? `${value.slice(0, 697)}...` : value;
   return JSON.stringify(value ?? "", null, 2).slice(0, 900);
+}
+
+function textPreviewValue(value: unknown): string {
+  if (typeof value === "string") return previewValue(value);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const text = record.text ?? record.prompt ?? record.value ?? record.description;
+    if (typeof text === "string") return previewValue(text);
+  }
+  return previewValue(value);
+}
+
+function textConnectedInputValue(value: unknown, sourceNode: RouteDoc["nodes"][number] | undefined): unknown {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (typeof record.text === "string" || typeof record.prompt === "string" || typeof record.value === "string" || typeof record.description === "string") return value;
+  }
+  const params = sourceNode?.params;
+  if (params && typeof params === "object" && !Array.isArray(params)) {
+    const record = params as Record<string, unknown>;
+    return record.text ?? record.prompt ?? record.value ?? record.description ?? value;
+  }
+  return value;
 }
 
 function defaultParamsFromManifest(manifest?: NodeManifest): Record<string, unknown> {
@@ -5271,6 +5328,10 @@ function App() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "OpenRouter model cache unavailable.");
       setOpenRouterModels(Array.isArray(result.models) ? result.models : []);
+      const sourceCounts = result.sourceCounts ? ` (/models: ${result.sourceCounts.models ?? 0}, /videos/models: ${result.sourceCounts.videoModels ?? 0})` : "";
+      const klingModels = Array.isArray(result.models) ? result.models.filter((model: OpenRouterModel) => /kling/i.test(`${model.id} ${model.name ?? ""}`)) : [];
+      if (klingModels.length > 0) setLogs((current) => [`OpenRouter catalog Kling models: ${klingModels.map((model: OpenRouterModel) => `${model.id} [${model.kind ?? "unknown"}]`).join(", ")}`, ...current]);
+      if (sourceCounts) setLogs((current) => [`OpenRouter catalog loaded${sourceCounts}.`, ...current]);
     } catch {
       setOpenRouterModels([]);
     }
@@ -5754,9 +5815,15 @@ function App() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "OpenRouter catalog refresh failed.");
       setOpenRouterModels(Array.isArray(result.models) ? result.models : []);
-      setOpenRouterSettings((current) => ({ ...current, catalog: { refreshedAt: result.refreshedAt, modelCount: result.modelCount } }));
-      setSettingsMessage(`OpenRouter catalog refreshed: ${result.modelCount ?? 0} models.`);
-      setLogs((current) => [`OpenRouter catalog refreshed: ${result.modelCount ?? 0} models.`, ...current]);
+      setOpenRouterSettings((current) => ({ ...current, catalog: { refreshedAt: result.refreshedAt, modelCount: result.modelCount, sourceCounts: result.sourceCounts } }));
+      const sourceCounts = result.sourceCounts ? ` (/models: ${result.sourceCounts.models ?? 0}, /videos/models: ${result.sourceCounts.videoModels ?? 0})` : "";
+      const klingModels = Array.isArray(result.models) ? result.models.filter((model: OpenRouterModel) => /kling/i.test(`${model.id} ${model.name ?? ""}`)) : [];
+      setSettingsMessage(`OpenRouter catalog refreshed: ${result.modelCount ?? 0} models${sourceCounts}.`);
+      setLogs((current) => [
+        `OpenRouter catalog refreshed: ${result.modelCount ?? 0} models${sourceCounts}.`,
+        `OpenRouter catalog Kling models: ${klingModels.length ? klingModels.map((model: OpenRouterModel) => `${model.id} [${model.kind ?? "unknown"}]`).join(", ") : "none"}`,
+        ...current
+      ]);
       await loadSettings();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -9201,6 +9268,7 @@ function geminiLlmPricingLabel(modelValue: string): string {
 }
 
 function modelSupportsText(model: OpenRouterModel): boolean {
+  if (model.kind === "video" || model.kind === "image") return false;
   const output = model.architecture?.output_modalities ?? [];
   const modality = model.architecture?.modality ?? "";
   return output.length === 0 || output.includes("text") || modality.includes("text");
@@ -9208,9 +9276,17 @@ function modelSupportsText(model: OpenRouterModel): boolean {
 
 function modelSupportsImage(model: OpenRouterModel): boolean {
   if (isOpenRouterRoutingAlias(model.id)) return false;
+  if (model.kind === "video") return false;
   const output = model.architecture?.output_modalities ?? [];
   const modality = model.architecture?.modality ?? "";
   return output.includes("image") || modalityOutputModalities(modality).includes("image");
+}
+
+function modelSupportsVideo(model: OpenRouterModel): boolean {
+  if (isOpenRouterRoutingAlias(model.id)) return false;
+  const output = model.architecture?.output_modalities ?? [];
+  const modality = model.architecture?.modality ?? "";
+  return model.kind === "video" || output.includes("video") || modalityOutputModalities(modality).includes("video");
 }
 
 function openRouterModelSupportsVisionInput(model: OpenRouterModel): boolean {

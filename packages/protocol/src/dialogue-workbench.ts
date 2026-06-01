@@ -5,7 +5,7 @@ export type DialogueOutputType = "text" | "image" | "json" | "file";
 export type DialogueOutputStatus = "draft" | "selected" | "locked";
 
 export type DialogueContentPart =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; chipBackgroundAssetRef?: string }
   | { type: "image"; assetRef: string; alt?: string }
   | { type: "file"; assetRef: string; filename?: string }
   | { type: "json"; value: unknown };
@@ -251,7 +251,7 @@ function normalizeMessage(input: unknown): DialogueMessage[] {
 
 function normalizeContentPart(input: unknown): DialogueContentPart[] {
   if (!isRecord(input)) return [];
-  if (input.type === "text") return [{ type: "text", text: String(input.text ?? "") }];
+  if (input.type === "text") return [{ type: "text", text: String(input.text ?? ""), chipBackgroundAssetRef: stringField(input.chipBackgroundAssetRef) || undefined }];
   if (input.type === "image" && typeof input.assetRef === "string") return [{ type: "image", assetRef: input.assetRef, alt: stringField(input.alt) || undefined }];
   if (input.type === "file" && typeof input.assetRef === "string") return [{ type: "file", assetRef: input.assetRef, filename: stringField(input.filename) || undefined }];
   if (input.type === "json") return [{ type: "json", value: input.value }];

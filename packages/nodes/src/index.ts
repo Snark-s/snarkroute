@@ -1183,7 +1183,11 @@ export function parsePromptFile(text: string, path = "<prompt>"): { prompt: Prom
 export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { prompt: PromptLibraryPrompt } | { diagnostic: PromptLibraryDiagnostic } {
   try {
     const text = readPngTextChunk(buffer, "snarkroute:prompt");
-    if (!text) return { diagnostic: { path, severity: "error", message: "Prompt PNG requires snarkroute:prompt metadata." } };
+    if (!text) {
+      const canonical = parseImageMetadataPrompt(buffer, path);
+      if (canonical) return { prompt: canonical };
+      return { diagnostic: { path, severity: "error", message: "Prompt PNG requires snarkroute:prompt metadata." } };
+    }
     const metadata = JSON.parse(text) as Record<string, unknown>;
     const id = stringField(metadata, "id");
     const title = stringField(metadata, "title");
@@ -1220,6 +1224,59 @@ export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { pro
   } catch (error) {
     return { diagnostic: { path, severity: "error", message: `Invalid prompt PNG metadata: ${errorMessage(error)}` } };
   }
+}
+
+function parseImageMetadataPrompt(buffer: Buffer, path: string): PromptLibraryPrompt | undefined {
+  const text = readPngTextChunk(buffer, "snarkroute.provenance") ?? readPngTextChunk(buffer, "snarkroute.provenance_json");
+  if (!text) return undefined;
+  const metadata = JSON.parse(text) as Record<string, unknown>;
+  const normalized = normalizeImagePromptMetadata(metadata);
+  if (!normalized) return undefined;
+  const library = normalized.library && typeof normalized.library === "object" && !Array.isArray(normalized.library) ? normalized.library as Record<string, unknown> : {};
+  const generation = normalized.generation as Record<string, unknown>;
+  const prompt = generation.prompt as Record<string, unknown>;
+  const modelId = stringField(generation, "modelId");
+  const title = stringField(library, "title") || "Generated Image";
+  const category = stringField(library, "category") || "generated";
+  const id = stringField(normalized, "id") || basename(path).replace(/\.[^.]+$/u, "");
+  const modelHints = Array.isArray(library.modelHints)
+    ? library.modelHints.filter((hint): hint is string => typeof hint === "string" && Boolean(hint.trim()))
+    : modelId ? [modelId] : undefined;
+  return {
+    id,
+    title,
+    category,
+    kind: "text/prompt",
+    status: stringField(library, "status") || "candidate",
+    previewImage: basename(path),
+    source: normalized.source && typeof normalized.source === "object" && !Array.isArray(normalized.source) ? normalized.source as Record<string, unknown> : undefined,
+    modelHints,
+    ref: `${category}/${id}`,
+    path,
+    text: stringField(prompt, "text") || ""
+  };
+}
+
+function normalizeImagePromptMetadata(metadata: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (metadata.schema === "snarkroute.image-metadata.v1" && metadata.kind === "generated-image") return metadata;
+  if (metadata.format !== "snarkroute.image-provenance" || metadata.version !== "0.1") return undefined;
+  const parameters = metadata.parameters && typeof metadata.parameters === "object" && !Array.isArray(metadata.parameters) ? metadata.parameters as Record<string, unknown> : {};
+  const modelId = stringField(metadata, "modelId") || stringField(parameters, "model") || "";
+  const prompt = stringField(metadata, "prompt") || stringField(parameters, "prompt") || "";
+  return {
+    schema: "snarkroute.image-metadata.v1",
+    kind: "generated-image",
+    id: stringField(metadata, "id") || `${stringField(metadata, "nodeId") || "image"}-legacy`,
+    source: { nodeId: stringField(metadata, "nodeId") || "", outputId: stringField(metadata, "outputId") || "image", runId: stringField(metadata, "runId") },
+    generation: {
+      providerId: stringField(metadata, "providerId") || stringField(parameters, "executionProvider"),
+      modelId,
+      prompt: { text: prompt, template: stringField(parameters, "promptTemplate") },
+      inputImages: [],
+      parameters: {}
+    },
+    library: { title: "Generated Image", category: "generated", status: "candidate", modelHints: modelId ? [modelId] : undefined }
+  };
 }
 
 export function summarizePromptLibrary(library: PromptLibrary): PromptLibrary {
