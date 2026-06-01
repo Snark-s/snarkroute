@@ -1,5 +1,5 @@
 import "./styles.css";
-import { ArrowUp, ChevronLeft, ChevronRight, Clipboard, Cog, Copy, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, Save, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Clipboard, Cog, Copy, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, RefreshCw, Save, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -99,6 +99,7 @@ interface CanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
+  kind?: "representation";
 }
 
 interface ImageNodeView {
@@ -357,6 +358,7 @@ interface GenerationFeedback {
 }
 
 type ProviderId = "polza" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
+type NodeRepresentationType = "image" | "video" | "text";
 
 interface ProviderDefinition {
   id: ProviderId;
@@ -409,6 +411,11 @@ const backgroundOptions: { value: BackgroundName; label: string }[] = [
   { value: "dots", label: "Dots" },
   { value: "grid", label: "Grid" },
   { value: "gears", label: "Gears" }
+];
+const nodeRepresentationOptions: Array<{ type: NodeRepresentationType; label: string }> = [
+  { type: "image", label: "Image" },
+  { type: "video", label: "Video" },
+  { type: "text", label: "Text" }
 ];
 function App() {
   const [theme, setTheme] = useStoredSetting<ThemeName>(themeStorageKey, "night", ["day", "night"]);
@@ -1149,8 +1156,19 @@ function App() {
     }
   }
 
+  async function syncRepresentationEdge(edgeId: string) {
+    try {
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/edges/${encodeURIComponent(edgeId)}/sync-representation`, {});
+      setLibrary(snapshot);
+      setStatus("Representation refreshed");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not refresh representation.");
+    }
+  }
+
   async function createConnectedNode(type: "image" | "video" | "text") {
     if (!nodeCreateMenu) return;
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
     setNodeCreateMenu(null);
     try {
       pushUndoSnapshot();
@@ -1163,13 +1181,46 @@ function App() {
         connectFromNodeId: nodeCreateMenu.fromNodeId
       });
       setLibrary(snapshot);
-      const createdNodeId = snapshot.nodes[snapshot.nodes.length - 1]?.canvas.id ?? null;
+      const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
       setSelectedNodeId(createdNodeId);
       setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
       setStatus(`${type === "image" ? "Image" : type === "video" ? "Video" : "Text"} node created`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not create node.");
     }
+  }
+
+  async function createConnectedRepresentation(type: NodeRepresentationType) {
+    if (!nodeCreateMenu?.fromNodeId) return;
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    setNodeCreateMenu(null);
+    try {
+      pushUndoSnapshot();
+      const width = imageNodeWidth;
+      const height = type === "text" ? 180 : imageNodeHeight;
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeCreateMenu.fromNodeId)}/duplicate-as`, {
+        type,
+        x: Math.round(nodeCreateMenu.worldX - width / 2),
+        y: Math.round(nodeCreateMenu.worldY - height / 2),
+        width,
+        height,
+        connectFromNodeId: nodeCreateMenu.fromNodeId
+      });
+      const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
+      setLibrary(snapshot);
+      setSelectedNodeId(createdNodeId);
+      setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
+      setStatus(`${representationLabel(type)} representation created`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not create representation.");
+    }
+  }
+
+  function handleNodeCreatePointerDown(event: React.PointerEvent<HTMLButtonElement>, action: () => void) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    action();
   }
 
   async function saveTextNode(nodeId: string, text: string) {
@@ -1375,6 +1426,11 @@ function App() {
   }
 
   async function runTextGeneration(nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) {
+    setModelSearchNodeId(null);
+    setOpenStackNodeId(null);
+    setStackItemMenu(null);
+    setSelectionMenu(null);
+    setNodeCreateMenu(null);
     try {
       setStatus("Generating text...");
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: true, message: "Generating..." } }));
@@ -1539,6 +1595,11 @@ function App() {
   }
 
   async function runMediaGeneration(type: "image" | "video", nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string, parameters?: ImageGenerationParameters) {
+    setModelSearchNodeId(null);
+    setOpenStackNodeId(null);
+    setStackItemMenu(null);
+    setSelectionMenu(null);
+    setNodeCreateMenu(null);
     try {
       setStatus(`Generating ${type}...`);
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: true, message: "Generating..." } }));
@@ -1653,6 +1714,33 @@ function App() {
       setStatus(`Node ${action}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not duplicate node.");
+    }
+  }
+
+  async function duplicateNodeAsRepresentation(nodeId: string, type: NodeRepresentationType) {
+    setSelectionMenu(null);
+    const sourceNode = nodes.find((node) => node.canvas.id === nodeId);
+    if (!sourceNode) {
+      setStatus("Could not find node to represent.");
+      return;
+    }
+    try {
+      pushUndoSnapshot();
+      const existingIds = new Set(nodes.map((node) => node.canvas.id));
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/duplicate-as`, {
+        type,
+        x: sourceNode.canvas.x + 28,
+        y: sourceNode.canvas.y + 28,
+        width: imageNodeWidth,
+        height: type === "text" ? 180 : imageNodeHeight
+      });
+      const created = snapshot.nodes.find((node) => !existingIds.has(node.canvas.id));
+      setLibrary(snapshot);
+      setSelectedNodeId(created?.canvas.id ?? null);
+      setSelectedNodeIds(created ? [created.canvas.id] : []);
+      setStatus(`${representationLabel(type)} representation created`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not create representation.");
     }
   }
 
@@ -1817,6 +1905,7 @@ function App() {
             edges={edges}
             preview={connectionPreview}
             selectedEdgeId={selectedEdgeId}
+            onSyncRepresentation={(edgeId) => void syncRepresentationEdge(edgeId)}
             onSelectEdge={(edgeId) => {
               setSelectedEdgeId(edgeId);
               setSelectedNodeId(null);
@@ -1936,9 +2025,27 @@ function App() {
         </div>
         {nodeCreateMenu && (
           <div className="nodeCreateMenu" style={{ left: nodeCreateMenu.x, top: nodeCreateMenu.y }}>
-            <button type="button" onClick={() => void createConnectedNode("image")}>Create image node</button>
-            <button type="button" onClick={() => void createConnectedNode("video")}>Create video node</button>
-            <button type="button" onClick={() => void createConnectedNode("text")}>Create text node</button>
+            <button type="button" onPointerDown={(event) => handleNodeCreatePointerDown(event, () => void createConnectedNode("image"))} onClick={() => void createConnectedNode("image")}>Create image node</button>
+            <button type="button" onPointerDown={(event) => handleNodeCreatePointerDown(event, () => void createConnectedNode("video"))} onClick={() => void createConnectedNode("video")}>Create video node</button>
+            <button type="button" onPointerDown={(event) => handleNodeCreatePointerDown(event, () => void createConnectedNode("text"))} onClick={() => void createConnectedNode("text")}>Create text node</button>
+            {(() => {
+              const sourceNode = nodeCreateMenu.fromNodeId ? nodes.find((node) => node.canvas.id === nodeCreateMenu.fromNodeId) : null;
+              if (!sourceNode || sourceNode.manifest.type === "text") return null;
+              return (
+                <div className="nodeCreateSubmenu">
+                  <button type="button" className="nodeCreateSubmenuTrigger">Change representation to...</button>
+                  <div className="nodeCreateSubmenuPanel">
+                    {nodeRepresentationOptions
+                      .filter((option) => option.type !== sourceNode.manifest.type)
+                      .map((option) => (
+                        <button key={option.type} type="button" onPointerDown={(event) => handleNodeCreatePointerDown(event, () => void createConnectedRepresentation(option.type))} onClick={() => void createConnectedRepresentation(option.type)}>
+                          {option.label}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
         {dragState?.kind === "selection" && (
@@ -2013,6 +2120,24 @@ function App() {
       {selectionMenu && selectedNodeIds.length > 0 && (
         <div className="selectionMenu" style={{ left: selectionMenu.x, top: selectionMenu.y }}>
           <button type="button" onClick={() => void duplicateNode(selectionMenu.nodeId)}>Duplicate node</button>
+          {(() => {
+            const sourceNode = nodes.find((node) => node.canvas.id === selectionMenu.nodeId);
+            if (!sourceNode || sourceNode.manifest.type === "text") return null;
+            return (
+              <div className="nodeCreateSubmenu">
+                <button type="button" className="nodeCreateSubmenuTrigger">Change representation to...</button>
+                <div className="nodeCreateSubmenuPanel">
+                  {nodeRepresentationOptions
+                    .filter((option) => option.type !== sourceNode.manifest.type)
+                    .map((option) => (
+                      <button key={option.type} type="button" onClick={() => void duplicateNodeAsRepresentation(selectionMenu.nodeId, option.type)}>
+                        {option.label}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            );
+          })()}
           <button type="button" onClick={() => copyNode(selectionMenu.nodeId)}>Copy node</button>
           <button type="button" disabled={!copiedNodeId} onClick={() => copiedNodeId && void duplicateNode(copiedNodeId, selectionMenu.nodeId, "pasted")}>Paste node</button>
           <button type="button" onClick={() => void openNodeAsFolder(selectionMenu.nodeId)}>Open folder</button>
@@ -2421,12 +2546,14 @@ function CanvasEdges({
   edges,
   preview,
   selectedEdgeId,
+  onSyncRepresentation,
   onSelectEdge
 }: {
   nodes: NodeView[];
   edges: CanvasEdge[];
   preview: Extract<DragState, { kind: "connection" }> | null;
   selectedEdgeId: string | null;
+  onSyncRepresentation: (edgeId: string) => void;
   onSelectEdge: (edgeId: string) => void;
 }) {
   const nodeById = new Map(nodes.map((node) => [node.canvas.id, node.canvas]));
@@ -2441,14 +2568,31 @@ function CanvasEdges({
         if (!from || !to) return null;
         const start = nodeOutputPoint(from);
         const end = nodeInputPoint(to);
+        const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
         return (
-          <path
-            key={edge.id}
-            className={selectedEdgeId === edge.id ? "isSelected" : ""}
-            d={edgePath(start, end)}
-            style={{ "--edge-color": nodeTypeWireColor(sourceNode) } as React.CSSProperties}
-            onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
-          />
+          <React.Fragment key={edge.id}>
+            <path
+              className={selectedEdgeId === edge.id ? "isSelected" : ""}
+              d={edgePath(start, end)}
+              style={{ "--edge-color": nodeTypeWireColor(sourceNode) } as React.CSSProperties}
+              onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
+            />
+            {edge.kind === "representation" ? (
+              <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
+                <button
+                  className="edgeSyncButton"
+                  type="button"
+                  title="Refresh representation"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSyncRepresentation(edge.id);
+                  }}
+                >
+                  <RefreshCw size={13} />
+                </button>
+              </foreignObject>
+            ) : null}
+          </React.Fragment>
         );
       })}
       {preview && <path className="edgePreview" d={edgePath({ x: preview.startX, y: preview.startY }, { x: preview.currentX, y: preview.currentY })} style={{ "--edge-color": nodeTypeWireColor(previewSourceNode) } as React.CSSProperties} />}
@@ -2788,7 +2932,15 @@ function ImageNode({
                 ) : null}
               </div>
               {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"}>{generationFeedback.message}</span> : null}
-              <button type="button" aria-label="Run" disabled={!draftText.trim() || !selectedModel.id || generationFeedback?.busy} onClick={() => onRunTextGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), draftText, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax)}>
+              <button
+                type="button"
+                aria-label="Run"
+                disabled={!draftText.trim() || !selectedModel.id || generationFeedback?.busy}
+                onClick={() => {
+                  setRouteSettingsOpen(false);
+                  onRunTextGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), draftText, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax);
+                }}
+              >
                 {generationFeedback?.busy ? <BusyGears /> : <ArrowUp size={16} />}
               </button>
             </div>
@@ -3032,7 +3184,16 @@ function ImageNode({
               )}
             </div>
             {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"}>{generationFeedback.message}</span> : null}
-            <button type="button" aria-label="Run" disabled={!selectedModel.id || generationFeedback?.busy} onClick={() => onRunGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), prompt, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters)}>
+            <button
+              type="button"
+              aria-label="Run"
+              disabled={!selectedModel.id || generationFeedback?.busy}
+              onClick={() => {
+                setRouteSettingsOpen(false);
+                setParametersOpen(false);
+                onRunGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), prompt, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters);
+              }}
+            >
               {generationFeedback?.busy ? <BusyGears /> : <ArrowUp size={16} />}
             </button>
           </div>
@@ -3432,6 +3593,12 @@ function textNodeWireColor(color: TextNodeManifest["color"]): string {
 
 function stackMediaUrl(type: "image" | "video", nodeId: string, stackItemId: string): string {
   return `${apiBase}/api/libraries/current/${type}-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}?v=${encodeURIComponent(stackItemId)}`;
+}
+
+function representationLabel(type: NodeRepresentationType): string {
+  if (type === "image") return "Image";
+  if (type === "video") return "Video";
+  return "Text";
 }
 
 function isTextEditingTarget(target: EventTarget | null): boolean {

@@ -10,6 +10,7 @@ import {
   createVideoStackReadStream,
   createLocalLibraryAssetReadStream,
   duplicateCanvasNode,
+  duplicateCanvasNodeAsRepresentation,
   createEmptyCanvasNode,
   createLibrary,
   deleteCanvasEdge,
@@ -48,6 +49,7 @@ import {
   setTextNodeActiveStackItem,
   setVideoNodeActiveStackItem,
   setLibraryProjectCover,
+  syncRepresentationEdge,
   updateLibraryNodeViewMode,
   updateImageNodePrompt,
   updateMediaNodeRouteSettings,
@@ -345,6 +347,23 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
+  app.post<{ Params: { nodeId: string }; Body: { type?: "image" | "video" | "text"; x?: number; y?: number; width?: number; height?: number; connectFromNodeId?: string } }>("/api/libraries/current/nodes/:nodeId/duplicate-as", async (request, reply) => {
+    try {
+      if (request.body?.type !== "image" && request.body?.type !== "video" && request.body?.type !== "text") return reply.code(400).send({ error: "type must be image, video, or text." });
+      return await duplicateCanvasNodeAsRepresentation({
+        nodeId: request.params.nodeId,
+        type: request.body.type,
+        x: Number(request.body?.x ?? 0),
+        y: Number(request.body?.y ?? 0),
+        width: request.body?.width,
+        height: request.body?.height,
+        connectFromNodeId: request.body?.connectFromNodeId
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
   app.post<{ Params: { nodeId: string } }>("/api/libraries/current/nodes/:nodeId/open-folder", async (request, reply) => {
     try {
       const path = await canvasNodeFolderPath(request.params.nodeId);
@@ -614,6 +633,14 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
   app.delete<{ Params: { edgeId: string } }>("/api/libraries/current/edges/:edgeId", async (request, reply) => {
     try {
       return await deleteCanvasEdge(request.params.edgeId);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { edgeId: string } }>("/api/libraries/current/edges/:edgeId/sync-representation", async (request, reply) => {
+    try {
+      return await syncRepresentationEdge(request.params.edgeId);
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }

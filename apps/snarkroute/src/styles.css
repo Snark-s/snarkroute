@@ -735,6 +735,30 @@ dd {
   stroke-dasharray: 8 8;
 }
 
+.canvasEdges foreignObject {
+  overflow: visible;
+  pointer-events: auto;
+}
+
+.edgeSyncButton {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 22px var(--shadow);
+  pointer-events: auto;
+}
+
+.edgeSyncButton:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .imageNode {
   position: absolute;
   left: 0;
@@ -1742,24 +1766,26 @@ dd {
   display: inline-block;
   position: relative;
   color: #8fd7b5;
+  filter: drop-shadow(0 0 2px color-mix(in srgb, var(--canvas) 92%, transparent));
 }
 
 .nodeBusyGearLarge,
 .nodeBusyGearSmall {
   position: absolute;
+  stroke-width: 2.8;
 }
 
 .nodeBusyGearLarge {
   left: 0;
   top: 0;
-  color: #8fd7b5;
+  color: #7fffe2;
   animation: nodeBusySpin 0.9s linear infinite;
 }
 
 .nodeBusyGearSmall {
   right: 0;
   bottom: 0;
-  color: #f3bf45;
+  color: #ffe45c;
   animation: nodeBusyCounterSpin 0.7s linear infinite;
 }
 
@@ -1872,13 +1898,25 @@ dd {
 
 .promptMeta button:disabled {
   cursor: wait;
-  opacity: 0.58;
+  opacity: 0.86;
 }
 
 .buttonBusyGears {
   flex: 0 0 18px;
   width: 18px;
   height: 18px;
+  filter: drop-shadow(0 0 2px #000) drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 55%, transparent));
+}
+
+.promptMeta button:disabled .buttonBusyGears {
+  opacity: 1;
+}
+
+.promptMeta button:has(.buttonBusyGears) {
+  border: 1px solid color-mix(in srgb, var(--accent) 82%, #ffffff);
+  background: color-mix(in srgb, var(--canvas) 78%, #000000);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--canvas) 78%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .modelPicker {
@@ -2132,6 +2170,34 @@ dd {
   min-height: 34px;
   border-radius: 7px;
   text-align: left;
+}
+
+.nodeCreateSubmenu {
+  position: relative;
+}
+
+.nodeCreateSubmenuTrigger {
+  width: 100%;
+}
+
+.nodeCreateSubmenuPanel {
+  position: absolute;
+  left: calc(100% + 6px);
+  top: 0;
+  z-index: 35;
+  display: none;
+  min-width: 150px;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 16px 42px var(--shadow);
+}
+
+.nodeCreateSubmenu:hover .nodeCreateSubmenuPanel,
+.nodeCreateSubmenu:focus-within .nodeCreateSubmenuPanel {
+  display: grid;
 }
 
 dl {

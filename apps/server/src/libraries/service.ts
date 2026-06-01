@@ -96,6 +96,7 @@ export interface SnarkCanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
+  kind?: "representation";
 }
 
 export interface ImageNodeManifest {
@@ -348,6 +349,13 @@ export interface DuplicateCanvasNodeInput {
   y: number;
 }
 
+export interface DuplicateCanvasNodeAsRepresentationInput extends DuplicateCanvasNodeInput {
+  type: "image" | "video" | "text";
+  width?: number;
+  height?: number;
+  connectFromNodeId?: string;
+}
+
 export interface ImportLocalLibraryInput {
   sourcePath: string;
   viewMode?: LibraryViewMode;
@@ -373,6 +381,7 @@ const projectRegistryFilename = "projects.json";
 const defaultNodeWidth = 320;
 const defaultNodeHeight = 240;
 let currentLibraryPath = process.env.SNARKROUTE_LIBRARY_PATH ? resolve(process.env.SNARKROUTE_LIBRARY_PATH) : join(librariesDirectory, "default");
+let currentLibraryInitialized = false;
 
 export async function getCurrentLibrarySnapshot(): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
@@ -1318,9 +1327,14 @@ export async function generateTextNodeStackItem(input: GenerateTextNodeInput): P
   const libraryPath = await ensureCurrentLibrary();
   const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
   const orderedInputs = orderConnectedInputs(connectedInputs, input.inputNodeIds);
+  const promptImageNodeIds = imageNodeIdsFromPromptTemplate(promptTemplate);
   const inputImages = orderedInputs.filter((entry) => entry.image).map((entry) => entry.image!);
   const images = limitImages(
-    inputImages.filter((image, index, all) => all.findIndex((candidate) => candidate.path === image.path) === index),
+    inputImages.filter((image, index, all) =>
+      image.nodeId
+      && promptImageNodeIds.has(image.nodeId)
+      && all.findIndex((candidate) => candidate.path === image.path) === index
+    ),
     positiveInteger(input.maxImageInputs)
   );
   const prompt = resolveInputTokens(promptTemplate, orderedInputs, images, input.imageReferenceSyntax);
@@ -1383,25 +1397,48 @@ async function runTextModelForStackItem(input: { nodeId: string; modelId: string
     throw new Error(`Execution provider "${input.executionProvider}" is not available for text generation.`);
   }
   const autoOnlyPolza = input.executionProvider === "auto" && input.availableExecutionProviders?.length === 1 && input.availableExecutionProviders[0] === "polza";
-  const nodeType = input.executionProvider === "polza" || autoOnlyPolza ? "polza.text" : "ai.text";
+  const directPolza = input.executionProvider === "polza" || autoOnlyPolza;
+  const canFallbackFromPolza = input.executionProvider === "polza"
+    && input.fallbackAllowed !== false
+    && (input.availableExecutionProviders?.some((provider) => provider !== "polza") ?? true);
   const executor = await createRouteExecutor();
-  return executor.executeRoute({
-    routeVersion: "0.1",
-    route: { id: `snarkroute-text-generation-${input.nodeId}`, title: "SnarkRoute Text Generation", author: { name: "SnarkRoute" } },
-    nodes: [{
-      id: "generate",
-      type: nodeType,
-      params: {
-        model: input.modelId,
-        executionProvider: input.executionProvider,
-        providerMode: input.executionProvider === "openrouter" ? "openrouter" : input.executionProvider === "gemini" ? "direct" : "auto",
-        fallbackAllowed: input.fallbackAllowed !== false,
-        prompt: input.prompt,
-        images: input.images
-      }
-    }],
-    edges: []
-  });
+  const executeTextRoute = (nodeType: "ai.text" | "polza.text", executionProvider: string, providerMode: string) => executor.executeRoute({
+      routeVersion: "0.1",
+      route: { id: `snarkroute-text-generation-${input.nodeId}`, title: "SnarkRoute Text Generation", author: { name: "SnarkRoute" } },
+      nodes: [{
+        id: "generate",
+        type: nodeType,
+        params: {
+          model: input.modelId,
+          executionProvider,
+          providerMode,
+          fallbackAllowed: input.fallbackAllowed !== false,
+          prompt: input.prompt,
+          images: input.images
+        }
+      }],
+      edges: []
+    });
+
+  if (!directPolza) {
+    return executeTextRoute(
+      "ai.text",
+      input.executionProvider,
+      input.executionProvider === "openrouter" ? "openrouter" : input.executionProvider === "gemini" ? "direct" : "auto"
+    );
+  }
+
+  try {
+    const directResult = await executeTextRoute("polza.text", input.executionProvider, "auto");
+    if (!canFallbackFromPolza || !generationRunFailed(directResult)) return directResult;
+  } catch (error) {
+    if (!canFallbackFromPolza) throw error;
+  }
+  return executeTextRoute("ai.text", "auto", "auto");
+}
+
+function generationRunFailed(runResult: { status?: string; nodeResults?: Record<string, { status?: string } | undefined> }): boolean {
+  return runResult.status === "failed" || runResult.nodeResults?.generate?.status === "failed";
 }
 
 async function runVideoModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
@@ -1731,6 +1768,62 @@ export async function duplicateCanvasNode(input: DuplicateCanvasNodeInput): Prom
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function duplicateCanvasNodeAsRepresentation(input: DuplicateCanvasNodeAsRepresentationInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const sourceCanvasNode = canvas.nodes.find((node) => node.id === input.nodeId);
+  if (!sourceCanvasNode) throw new Error(`Node "${input.nodeId}" was not found.`);
+
+  const sourcePath = resolvePortablePath(libraryPath, sourceCanvasNode.nodePath);
+  const sourceManifest = JSON.parse(await readFile(join(sourcePath, "snark.node.json"), "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
+  const now = new Date().toISOString();
+  const id = `${input.type}_${shortId()}`;
+  const targetLabel = input.type === "image" ? "Image" : input.type === "video" ? "Video" : "Text";
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, `${sourceManifest.title || sourceManifest.type} ${targetLabel}`);
+  const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
+  await cp(sourcePath, nodePath, { recursive: true });
+
+  const promptText = sourceManifest.type === "image" || sourceManifest.type === "video" ? await readCurrentPrompt(sourcePath) : sourcePromptText(sourceManifest);
+  await writeJson(join(nodePath, "snark.node.json"), representationManifestFromSource(sourceManifest, input.type, id, title, now, promptText));
+  if (input.type === "image" || input.type === "video") await writeCurrentPrompt(nodePath, promptText);
+
+  const width = input.width ?? (input.type === "text" ? defaultNodeWidth : sourceCanvasNode.width);
+  const height = input.height ?? (input.type === "text" ? 180 : sourceCanvasNode.height);
+  canvas.nodes.push({
+    id,
+    type: input.type,
+    nodePath: nodeRelativePath,
+    x: Math.round(input.x),
+    y: Math.round(input.y),
+    width,
+    height
+  });
+  const sourceId = input.connectFromNodeId ?? input.nodeId;
+  if (sourceId) canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: sourceId, toNodeId: id, kind: "representation" }];
+  await writeCanvas(libraryPath, canvas);
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function syncRepresentationEdge(edgeId: string): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const edge = (canvas.edges ?? []).find((candidate) => candidate.id === edgeId);
+  if (!edge) throw new Error(`Edge "${edgeId}" was not found.`);
+  if (edge.kind !== "representation") throw new Error(`Edge "${edgeId}" is not a representation link.`);
+  const sourceNode = canvas.nodes.find((node) => node.id === edge.fromNodeId);
+  const targetNode = canvas.nodes.find((node) => node.id === edge.toNodeId);
+  if (!sourceNode || !targetNode) throw new Error("Representation source or target node was not found.");
+
+  const sourcePath = resolvePortablePath(libraryPath, sourceNode.nodePath);
+  const targetPath = resolvePortablePath(libraryPath, targetNode.nodePath);
+  await copyMissingNodeContent(sourcePath, targetPath);
+
+  const manifestPath = join(targetPath, "snark.node.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
+  await writeJson(manifestPath, { ...manifest, updatedAt: new Date().toISOString() });
+  return readLibrarySnapshot(libraryPath);
+}
+
 export async function updateTextNode(nodeId: string, updates: { text?: string; color?: string; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean }): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const canvas = await ensureCanvas(libraryPath);
@@ -2055,7 +2148,13 @@ function projectImageId(path: string): string {
 
 async function ensureCurrentLibrary(): Promise<string> {
   const envPath = process.env.SNARKROUTE_LIBRARY_PATH ? resolve(process.env.SNARKROUTE_LIBRARY_PATH) : "";
-  if (envPath && envPath !== currentLibraryPath) currentLibraryPath = envPath;
+  if (envPath) {
+    if (envPath !== currentLibraryPath) currentLibraryPath = envPath;
+  } else if (!currentLibraryInitialized) {
+    const lastProjectPath = (await readProjectRegistry()).projects[0]?.path;
+    if (lastProjectPath) currentLibraryPath = resolve(lastProjectPath);
+  }
+  currentLibraryInitialized = true;
   await mkdir(currentLibraryPath, { recursive: true });
   await ensureLibraryManifest(currentLibraryPath, { title: "SnarkRoute Library", libraryKind: "workspace", contentKind: "mixed", defaultView: "canvas" });
   await ensureCanvas(currentLibraryPath);
@@ -2354,6 +2453,62 @@ function textStackItemId(file: string): string {
   return `text_${Buffer.from(file, "utf8").toString("base64url")}`;
 }
 
+function representationManifestFromSource(
+  source: ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest,
+  type: "image" | "video" | "text",
+  id: string,
+  title: string,
+  now: string,
+  promptText = ""
+): ImageNodeManifest | VideoNodeManifest | TextNodeManifest {
+  if (type === "text") {
+    return {
+      format: "snarkroute.node",
+      version: "0.1",
+      id,
+      type,
+      title,
+      text: sourcePromptText(source, promptText),
+      stackPath: "content",
+      color: source.type === "text" ? source.color ?? "mint" : "mint",
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+  return {
+    format: "snarkroute.node",
+    version: "0.1",
+    id,
+    type,
+    title,
+    stack: source.type === type ? structuredClone(source.stack) : [],
+    activeStackIndex: source.type === type ? source.activeStackIndex : 0,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function sourcePromptText(source: ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest, promptText = ""): string {
+  if (source.type === "text") return source.text ?? "";
+  if (source.type === "library") return source.sourcePath ?? "";
+  return promptText;
+}
+
+async function copyMissingNodeContent(sourceNodePath: string, targetNodePath: string): Promise<void> {
+  const sourceContent = join(sourceNodePath, "content");
+  const targetContent = join(targetNodePath, "content");
+  const entries = await readdir(sourceContent, { withFileTypes: true }).catch(() => []);
+  if (!entries.length) return;
+  await mkdir(targetContent, { recursive: true });
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const sourceFile = join(sourceContent, entry.name);
+    const targetFile = join(targetContent, entry.name);
+    if (await pathExists(targetFile)) continue;
+    await copyFile(sourceFile, targetFile);
+  }
+}
+
 function cleanTextTitle(value: unknown): string {
   return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, 96);
 }
@@ -2585,6 +2740,10 @@ function resolveInputTokens(
 function stripLeadingImageReferenceBlock(promptTemplate: string): string {
   const match = promptTemplate.match(/^(\s*(?:\[\[image:[^\]]+\]\][^\r\n]*(?:\r?\n|[ \t])*)+)(?:\r?\n)+/u);
   return match ? promptTemplate.slice(match[0].length).trimStart() : promptTemplate;
+}
+
+function imageNodeIdsFromPromptTemplate(promptTemplate: string): Set<string> {
+  return new Set([...promptTemplate.matchAll(/\[\[image:([^\]]+)\]\]/g)].map((match) => match[1]).filter(Boolean));
 }
 
 function imageMetadataInputs(promptTemplate: string, inputs: ConnectedCanvasInput[], sentImages: GenerationImageInput[]): SnarkImageMetadata["generation"]["inputImages"] {

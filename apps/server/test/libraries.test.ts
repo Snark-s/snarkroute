@@ -97,6 +97,32 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("creates the first empty text node in a blank canvas", async () => {
+    const app = await testServer();
+    try {
+      await app.inject({ method: "GET", url: "/api/libraries/current" });
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 500, y: 300, width: 320, height: 180 }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().nodes).toHaveLength(1);
+      expect(response.json().nodes[0]).toMatchObject({
+        canvas: { type: "text", x: 340, y: 210, width: 320, height: 180 },
+        manifest: { type: "text", title: "Text", text: "" },
+        stack: [],
+        outputText: ""
+      });
+      const canvas = JSON.parse(await readFile(join(libraryPath, "canvas.json"), "utf8"));
+      expect(canvas.nodes).toHaveLength(1);
+      expect(canvas.nodes[0].nodePath).toBe("nodes/Text.node");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("imports an image into a title-matched node folder with stack[0] copied into content", async () => {
     const app = await testServer();
     try {
@@ -353,6 +379,43 @@ describe("SnarkRoute libraries", () => {
       expect(duplicate.manifest.stack[0]).toMatchObject({ file: "content/000-import.png", mimeType: "image/png" });
       expect(response.json().canvas.edges ?? []).toEqual([]);
       await expect(readFile(join(libraryPath, duplicate.canvas.nodePath, "content", "000-import.png"))).resolves.toBeInstanceOf(Buffer);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("duplicates a canvas node folder as a different representation", async () => {
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Source.png");
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/image-nodes/${source.manifest.id}/prompt`,
+        payload: { prompt: "Copied prompt" }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/nodes/${source.manifest.id}/duplicate-as`,
+        payload: { type: "text", x: 420, y: 220, width: 320, height: 180, connectFromNodeId: source.manifest.id }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const duplicate = response.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id !== source.manifest.id);
+      expect(duplicate.canvas).toMatchObject({ type: "text", x: 420, y: 220, width: 320, height: 180 });
+      expect(duplicate.manifest).toMatchObject({ type: "text", title: "Source Text", text: "Copied prompt", stackPath: "content" });
+      expect(duplicate.canvas.nodePath).toBe("nodes/Source Text.node");
+      const representationEdge = response.json().canvas.edges.find((edge: { fromNodeId: string; toNodeId: string }) => edge.fromNodeId === source.manifest.id && edge.toNodeId === duplicate.manifest.id);
+      expect(representationEdge).toMatchObject({ kind: "representation" });
+      await expect(readFile(join(libraryPath, duplicate.canvas.nodePath, "content", "000-import.png"))).resolves.toBeInstanceOf(Buffer);
+
+      await writeFile(join(libraryPath, source.canvas.nodePath, "content", "001-new-object.txt"), "Fresh source object", "utf8");
+      const syncResponse = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/edges/${representationEdge.id}/sync-representation`
+      });
+      expect(syncResponse.statusCode).toBe(200);
+      await expect(readFile(join(libraryPath, duplicate.canvas.nodePath, "content", "001-new-object.txt"), "utf8")).resolves.toBe("Fresh source object");
     } finally {
       await app.close();
     }
@@ -615,6 +678,91 @@ describe("SnarkRoute libraries", () => {
       expect(generated.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id).activeStackItem.text).toBe("Generated library text");
       expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
         nodes: [expect.objectContaining({ type: "ai.text", params: expect.objectContaining({ prompt: "Draft instruction reference 1", images: [expect.objectContaining({ mimeType: "image/png" })] }) })]
+      }));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("falls back from a failed Polza text route when fallback is allowed", async () => {
+    const app = await testServer();
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      executeRouteMock
+        .mockResolvedValueOnce({
+          status: "failed",
+          nodeResults: { generate: { status: "failed", error: "Polza.ai account has insufficient funds." } }
+        })
+        .mockResolvedValueOnce({
+          status: "succeeded",
+          nodeResults: { generate: { status: "succeeded", output: { text: "Generated through fallback" } } }
+        });
+
+      const generated = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/generate`,
+        payload: {
+          modelId: "anthropic/claude-opus-4.8-fast",
+          prompt: "Draft a caption",
+          executionProvider: "polza",
+          fallbackAllowed: true,
+          availableExecutionProviders: ["polza", "openrouter"]
+        }
+      });
+
+      expect(generated.statusCode).toBe(200);
+      expect(generated.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id).activeStackItem.text).toBe("Generated through fallback");
+      expect(executeRouteMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
+        nodes: [expect.objectContaining({ type: "polza.text" })]
+      }));
+      expect(executeRouteMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
+        nodes: [expect.objectContaining({ type: "ai.text", params: expect.objectContaining({ executionProvider: "auto", providerMode: "auto" }) })]
+      }));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("does not send connected images to text generation unless the prompt references them", async () => {
+    const app = await testServer();
+    try {
+      const sourceImage = await importNode(app, "Hidden context.png");
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_hidden_image", fromNodeId: sourceImage.manifest.id, toNodeId: node.manifest.id }] }
+      });
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: { generate: { status: "succeeded", output: { text: "Generated without hidden image" } } }
+      });
+
+      const generated = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/generate`,
+        payload: {
+          modelId: "text.default",
+          prompt: "Describe the idea in words",
+          executionProvider: "auto",
+          inputNodeIds: [sourceImage.manifest.id]
+        }
+      });
+
+      expect(generated.statusCode).toBe(200);
+      expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
+        nodes: [expect.objectContaining({ type: "ai.text", params: expect.objectContaining({ prompt: "Describe the idea in words", images: [] }) })]
       }));
     } finally {
       await app.close();
