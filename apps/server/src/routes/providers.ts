@@ -117,7 +117,7 @@ app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/ap
     const nodeType = typeof request.body?.nodeType === "string" ? request.body.nodeType : "";
     const params = sanitizeQuoteParams(request.body?.params);
     const polzaModels = nodeType.startsWith("polza.") && isPolzaEnabled()
-      ? await createPolzaClient().getModels(nodeType === "polza.text" ? "chat" : "image").catch(() => [])
+      ? await createPolzaClient().getModels(nodeType === "polza.text" ? "chat" : nodeType === "polza.video.generate" ? "video" : "image").catch(() => [])
       : [];
     const openRouterPricingCatalog = nodeType === "ai.text" || nodeType === "ai.image.generate" ? await ensurePricingCatalog("openrouter") : null;
     const polzaPricingCatalog = nodeType.startsWith("polza.") ? await ensurePricingCatalog("polza") : null;

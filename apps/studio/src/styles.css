@@ -109,6 +109,59 @@ button:disabled {
   width: 32px;
 }
 
+.adminRoute {
+  background: #111318;
+  display: grid;
+  gap: 18px;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.adminRouteHeader {
+  align-items: center;
+  border-bottom: 1px solid #2b313d;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  padding-bottom: 18px;
+}
+
+.adminRouteHeader h1 {
+  margin: 0 0 8px;
+}
+
+.adminRouteHeader p {
+  color: #aeb6c5;
+  margin: 0;
+}
+
+.adminRouteActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.adminDashboardPanel,
+.accessDeniedPanel {
+  background: #161a22;
+  border: 1px solid #2b313d;
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  max-width: 1180px;
+  padding: 16px;
+}
+
+.accessDeniedPanel {
+  max-width: 560px;
+}
+
+.accessDeniedPanel h2 {
+  margin-top: 0;
+}
+
 .githubLink {
   color: #f4f6fb;
   text-decoration: none;
@@ -1473,6 +1526,33 @@ h2 {
   white-space: nowrap;
 }
 
+.devIdentitySwitcher {
+  align-items: center;
+  background: #171d27;
+  border: 1px solid #394355;
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 4px;
+  min-height: 34px;
+  padding: 4px 6px;
+}
+
+.devIdentitySwitcher span {
+  color: #aeb6c5;
+  font-size: 11px;
+  margin-right: 3px;
+}
+
+.devIdentitySwitcher button {
+  min-height: 24px;
+  padding: 3px 7px;
+}
+
+.devIdentitySwitcher button.active {
+  border-color: #67c5ad;
+  color: #87e7c1;
+}
+
 .react-flow__node-route {
   background: transparent;
   border: 0;
@@ -1612,6 +1692,12 @@ h2 {
 
 .react-flow__edge.selectedRouteEdge .react-flow__edge-interaction {
   stroke-width: 18;
+}
+
+.react-flow__edge.inactiveRouteEdge .react-flow__edge-path {
+  opacity: 0.48;
+  stroke: #667085;
+  stroke-dasharray: 6 6;
 }
 
 .nodeStatus {
@@ -2156,6 +2242,95 @@ h2 {
   margin-top: 8px;
 }
 
+.chooseCameraParams {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.nodeActionRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nodeActionRow .nodeSmallButton {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.chooseCameraViewer {
+  display: grid;
+  gap: 7px;
+}
+
+.chooseCameraSplatViewer {
+  display: grid;
+  gap: 7px;
+  max-width: 100%;
+  width: 100%;
+  z-index: 6;
+}
+
+.chooseCameraSplatViewer.floating {
+  background: #171c25;
+  border: 1px solid #67c5ad;
+  border-radius: 8px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+  left: 50%;
+  max-width: min(980px, calc(100vw - 48px));
+  padding: 10px;
+  position: fixed;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(980px, calc(100vw - 48px));
+  z-index: 40;
+}
+
+.chooseCameraSplatMount {
+  aspect-ratio: 16 / 9;
+  background: #090d14;
+  border: 1px solid #263142;
+  border-radius: 6px;
+  max-height: 220px;
+  min-height: 160px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.chooseCameraSplatViewer.floating .chooseCameraSplatMount {
+  max-height: calc(100vh - 180px);
+  min-height: min(520px, calc(100vh - 180px));
+}
+
+.chooseCameraSplatCanvas {
+  display: block;
+  height: 100%;
+  outline: none;
+  width: 100%;
+}
+
+.chooseCameraCanvas {
+  aspect-ratio: 16 / 9;
+  background: #090d14;
+  border: 1px solid #263142;
+  border-radius: 6px;
+  cursor: grab;
+  max-height: 180px;
+  outline: none;
+  width: 100%;
+}
+
+.chooseCameraCanvas:active {
+  cursor: grabbing;
+}
+
+.chooseCameraCanvas:focus {
+  border-color: #67c5ad;
+  box-shadow: 0 0 0 2px rgba(103, 197, 173, 0.18);
+}
+
 .nodeSliderField {
   align-items: center;
   display: grid;
@@ -2410,6 +2585,20 @@ h2 {
   font-size: 11px;
 }
 
+.nodeWarningButton {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+}
+
+.nodeWarningButton:hover {
+  border-color: #ffd166;
+  color: #ffe3a3;
+  text-decoration: underline;
+}
+
 .nodeTokenLink,
 .settingsLink {
   color: #8ec5ff;
@@ -2423,9 +2612,11 @@ h2 {
   text-decoration: underline;
 }
 
-.nodeImagePreview {
+.nodeImagePreview,
+.nodeImagePreviewButton > img {
   border: 1px solid #394456;
   border-radius: 5px;
+  display: block;
   max-height: 110px;
   object-fit: contain;
   width: 100%;
@@ -2444,6 +2635,15 @@ h2 {
 
 .nodeImagePreviewButton:hover .nodeImagePreview {
   border-color: #7dd3c0;
+}
+
+.nodeVideoPreview {
+  background: #050910;
+  border: 1px solid #394456;
+  border-radius: 5px;
+  display: block;
+  max-height: 180px;
+  width: 100%;
 }
 
 .nodeResult {
@@ -3537,6 +3737,86 @@ textarea {
 
 .economicsGrid strong {
   color: #eef4ff;
+}
+
+.creditSummary,
+.costDetails {
+  background: #111722;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  display: grid;
+  font-size: 12px;
+  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 9px;
+}
+
+.creditSummary span,
+.costDetails span {
+  color: #aeb6c5;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creditSummary strong,
+.costDetails strong {
+  color: #eef4ff;
+}
+
+.developerDiagnostics {
+  display: grid;
+  gap: 8px;
+}
+
+.developerDiagnostics summary {
+  color: #aeb6c5;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.adminPanel {
+  gap: 10px;
+}
+
+.adminMetricGrid {
+  background: #111722;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  display: grid;
+  font-size: 12px;
+  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 9px;
+}
+
+.adminMetricGrid span,
+.adminListRow span {
+  color: #aeb6c5;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminMetricGrid strong {
+  color: #eef4ff;
+}
+
+.adminList {
+  display: grid;
+  gap: 6px;
+}
+
+.adminListRow {
+  background: #111722;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  display: grid;
+  font-size: 11px;
+  gap: 4px;
+  padding: 7px;
 }
 
 .miniPre {

@@ -1,0 +1,32 @@
+routeVersion: "0.1"
+route:
+  id: boojum-cloud-polza-image-demo
+  title: Boojum Cloud Polza Image Demo
+  description: Demo-safe Boojum Cloud route for guest image generation.
+  author:
+    name: BoojumRoute Lab
+  license: CC-BY-SA-4.0
+  tags:
+    - boojum
+    - cloud
+    - demo-safe
+economics:
+  enabled: true
+  mode: accounting-only
+nodes:
+  - id: polza_image_generate_1
+    type: polza.image.generate
+    title: Polza Image
+    params:
+      model: openai/gpt-5-image-mini
+      prompt: A friendly orange cat sitting on a windowsill, polished product demo style
+      aspectRatio: "1:1"
+      imageResolution: 2K
+      quality: high
+      outputFormat: png
+edges: []
+provenance:
+  createdAt: "2026-06-02T00:00:00.000Z"
+  tool: boojumroute-lab
+  demoSafe: true
+  events: []

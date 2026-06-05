@@ -40,6 +40,7 @@ export interface PolzaModelInfo {
   name?: string;
   type?: string;
   short_description?: string;
+  supported_parameters?: string[];
   architecture?: {
     input_modalities?: string[];
     output_modalities?: string[];
@@ -178,6 +179,7 @@ function parsePolzaModel(input: unknown): PolzaModelInfo | null {
     name: typeof record.name === "string" ? record.name : undefined,
     type: typeof record.type === "string" ? record.type : undefined,
     short_description: typeof record.short_description === "string" ? record.short_description : undefined,
+    supported_parameters: stringArray(record.supported_parameters),
     architecture: {
       input_modalities: stringArray(architecture.input_modalities),
       output_modalities: stringArray(architecture.output_modalities),
@@ -301,7 +303,6 @@ export function createPolzaVideoNodeRunner(options: PolzaClientOptions = {}): No
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     if (!prompt.trim()) throw new Error("Polza Video requires a prompt.");
     const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
-    if (images.length > 1) throw new Error(`Polza Video accepts at most 1 input image, got ${images.length}.`);
     const gateway = options.modelGateway ?? createPolzaModelGateway(options, model, "video.generate");
     const gatewayResult = await gateway.invoke({
       capability: "video.generate",
@@ -560,7 +561,10 @@ export function buildMediaVideoRequestBody(model: string, prompt: string, params
     duration: String(numberParam(params.duration) ?? stringParam(params.duration) ?? "5"),
     multi_shots: params.multi_shots === true || stringParam(params.multi_shots) === "true" ? "true" : "false"
   };
-  if (imageInputs.length > 0) input.images = imageInputs.slice(0, 1);
+  if (params.generate_audio !== undefined || params.audio !== undefined || params.sound !== undefined || supportsVideoAudioModel(model)) {
+    input.generate_audio = booleanParam(params.generate_audio ?? params.audio ?? params.sound);
+  }
+  if (imageInputs.length > 0) input.images = imageInputs;
   return { model, input, async: true, user: stringParam(params.user) };
 }
 
@@ -909,6 +913,18 @@ function filterDefined(value: Record<string, unknown>): Record<string, unknown> 
 function numberParam(value: unknown): number | undefined {
   const number = typeof value === "string" ? Number(value) : typeof value === "number" ? value : NaN;
   return Number.isFinite(number) ? number : undefined;
+}
+
+function booleanParam(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  const text = stringParam(value)?.toLowerCase();
+  return text === "true" || text === "1" || text === "yes" || text === "on";
+}
+
+function supportsVideoAudioModel(model: string): boolean {
+  return /(^|\/|[-_])veo-?3/i.test(model);
 }
 
 function sizeFromAspectRatio(value: unknown): string | undefined {

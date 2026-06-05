@@ -1,16 +1,19 @@
 import type { FastifyInstance } from "fastify";
-import { isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
+import { appCapabilities, isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, isWorldLabsEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterSettingsStatus } from "../providers/openrouter";
 import { normalizeSeedanceBackend, seedanceSettingsStatus, SEEDANCE_BACKENDS } from "../providers/seedance";
 export async function registerSettingsRoutes(app: FastifyInstance) {
-app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), polzaEnabled: isPolzaEnabled(), seedanceEnabled: isSeedanceEnabled() }));
+app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), polzaEnabled: isPolzaEnabled(), seedanceEnabled: isSeedanceEnabled(), worldLabsEnabled: isWorldLabsEnabled() }));
+
+app.get("/api/capabilities", async () => appCapabilities());
 
 app.get("/api/settings", async () => ({
   replicate: { configured: isReplicateEnabled() },
   gemini: { configured: isGeminiEnabled() },
   polza: { configured: isPolzaEnabled(), maskedApiKey: isPolzaEnabled() ? maskSecret(process.env.POLZA_AI_API_KEY) : "" },
   openai: { configured: isOpenAiEnabled(), maskedApiKey: isOpenAiEnabled() ? maskSecret(process.env.OPENAI_API_KEY) : "" },
+  worldlabs: { configured: isWorldLabsEnabled(), maskedApiKey: isWorldLabsEnabled() ? maskSecret(process.env.WORLDS_API_KEY) : "" },
   seedance: seedanceSettingsStatus(),
   openrouter: await openRouterSettingsStatus()
 }));
@@ -86,6 +89,18 @@ app.post<{ Body: { openAiApiKey?: string } }>("/api/settings/openai-token", asyn
     await writeEnvValue("OPENAI_API_KEY", token);
     process.env.OPENAI_API_KEY = token;
     return { ok: true, openai: { configured: true, maskedApiKey: maskSecret(token) } };
+  } catch (error) {
+    return reply.code(500).send({ error: errorMessage(error) });
+  }
+});
+
+app.post<{ Body: { worldsApiKey?: string } }>("/api/settings/worldlabs-token", async (request, reply) => {
+  const token = request.body?.worldsApiKey?.trim();
+  if (!token) return reply.code(400).send({ error: "WORLDS_API_KEY cannot be empty." });
+  try {
+    await writeEnvValue("WORLDS_API_KEY", token);
+    process.env.WORLDS_API_KEY = token;
+    return { ok: true, worldlabs: { configured: true, maskedApiKey: maskSecret(token) } };
   } catch (error) {
     return reply.code(500).send({ error: errorMessage(error) });
   }

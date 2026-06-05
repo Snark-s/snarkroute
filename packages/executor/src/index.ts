@@ -31,6 +31,39 @@ export interface NodeRunnerResult {
 
 export type NodeRunner = (input: NodeRunnerInput) => Promise<NodeRunnerResult> | NodeRunnerResult;
 
+export interface CostEstimate {
+  nodeId: string;
+  nodeType: string;
+  estimatedCredits: number;
+  estimatedProviderCostAmount: number | null;
+  providerCostCurrency: string | null;
+  usageUnits: ActualUsage;
+  provider?: string;
+  model?: string;
+  usageSource: "provider" | "estimated" | "unknown";
+}
+
+export interface ActualUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  imageCount?: number;
+  videoSeconds?: number;
+  requestCount?: number;
+}
+
+export interface NodeCostModel {
+  estimateNode: (node: RouteNode) => CostEstimate;
+  actualNode?: (node: RouteNode, result: NodeRunnerResult, providerUsage: ProviderUsageEvent[]) => Partial<CostEstimate> & { actualCredits?: number; actualProviderCostAmount?: number | null; usageUnits?: ActualUsage };
+}
+
+export interface RunCostSummary {
+  estimates: CostEstimate[];
+  actuals: Array<CostEstimate & { actualCredits: number; actualProviderCostAmount: number | null }>;
+  totalEstimatedCredits: number;
+  totalActualCredits: number;
+  refundedCredits: number;
+}
+
 export interface NodeResult {
   nodeId: string;
   type: string;
@@ -40,6 +73,12 @@ export interface NodeResult {
   logs: string[];
   metrics?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
+  costEstimate?: CostEstimate;
+  actualUsage?: ActualUsage;
+  actualCredits?: number;
+  actualProviderCostAmount?: number | null;
+  usageSource?: "provider" | "estimated" | "unknown";
+  providerUsage?: ProviderUsageEvent[];
   startedAt: string;
   completedAt: string;
 }
@@ -59,6 +98,7 @@ export interface RunResult {
   logs: RunLogEntry[];
   provenance: Record<string, unknown>;
   economics: RunEconomicsSummary;
+  costSummary: RunCostSummary;
   outputDirectory: string;
 }
 
@@ -69,6 +109,7 @@ export interface ExecuteOptions {
   ledgerPath?: string;
   initialNodeOutputs?: Record<string, unknown>;
   onNodeResult?: (result: NodeResult) => void;
+  costModel?: NodeCostModel;
 }
 
 export interface ProviderUsageEvent {
@@ -171,21 +212,27 @@ export function createExecutor(): RouteExecutor {
       const logs: RunLogEntry[] = [];
       const providersUsed: ProviderUsageEvent[] = [];
       const routeNodes = route.nodes as RouteNode[];
+      const costModel = options.costModel ?? DEFAULT_NODE_COST_MODEL;
+      const costEstimates = estimateRouteCost(route, costModel);
       const nodeResults: Record<string, NodeResult> = Object.fromEntries(
-        routeNodes.map((node: RouteNode) => [
-          node.id,
-          {
+        routeNodes.map((node: RouteNode) => {
+          const estimate = costEstimates.estimates.find((entry) => entry.nodeId === node.id);
+          return [
+            node.id,
+            {
             nodeId: node.id,
             type: node.type,
             status: "pending" as RunStatus,
             logs: [],
+            costEstimate: estimate,
             startedAt: "",
             completedAt: ""
           }
-        ])
+          ];
+        })
       );
       const nodeOutputs: Record<string, unknown> = { ...(options.initialNodeOutputs ?? {}) };
-      const log = (message: string, nodeId?: string) => logs.push({ timestamp: new Date().toISOString(), message, nodeId });
+      const log = (message: string, nodeId?: string) => logs.push({ timestamp: new Date().toISOString(), message: redactSecrets(message), nodeId });
 
       const context: NodeExecutionContext = { runId, route, outputDirectory, nodeOutputs, log };
 
@@ -205,6 +252,11 @@ export function createExecutor(): RouteExecutor {
               status: "succeeded",
               output: nodeOutputs[node.id],
               logs: ["Using existing output"],
+              costEstimate: nodeResults[node.id]?.costEstimate,
+              actualUsage: { requestCount: 0 },
+              actualCredits: 0,
+              actualProviderCostAmount: 0,
+              usageSource: "estimated",
               startedAt: now,
               completedAt: now
             };
@@ -219,8 +271,9 @@ export function createExecutor(): RouteExecutor {
               nodeId: node.id,
               type: node.type,
               status: "failed",
-              error: `No runner registered for node type "${node.type}" (${node.id})`,
-              logs: [`No runner registered for node type "${node.type}" (${node.id})`],
+              error: redactSecrets(`No runner registered for node type "${node.type}" (${node.id})`),
+              logs: [redactSecrets(`No runner registered for node type "${node.type}" (${node.id})`)],
+              costEstimate: nodeResults[node.id]?.costEstimate,
               startedAt: new Date().toISOString(),
               completedAt: new Date().toISOString()
             };
@@ -234,6 +287,7 @@ export function createExecutor(): RouteExecutor {
             type: node.type,
             status: "running",
             logs: [],
+            costEstimate: nodeResults[node.id]?.costEstimate,
             startedAt: nodeStartedAt,
             completedAt: ""
           };
@@ -244,7 +298,9 @@ export function createExecutor(): RouteExecutor {
             const inputs = collectInputs(route, node, nodeOutputs);
             const result = await runner({ node, params, inputs, context });
             const output = result.output ?? {};
-            providersUsed.push(...normalizeProviderUsage(result.providerUsage, node));
+            const nodeProviderUsage = normalizeProviderUsage(result.providerUsage, node);
+            providersUsed.push(...nodeProviderUsage);
+            const actualCost = actualNodeCost(node, result, nodeProviderUsage, nodeResults[node.id]?.costEstimate, costModel);
             nodeOutputs[node.id] = output;
             for (const [internalNodeId, internalResult] of Object.entries(result.internalNodeResults ?? {})) {
               nodeResults[`${node.id}/${internalNodeId}`] = {
@@ -262,9 +318,15 @@ export function createExecutor(): RouteExecutor {
               type: node.type,
               status: "succeeded",
               output,
-              logs: result.logs ?? [],
+              logs: (result.logs ?? []).map(redactSecrets),
               metrics: result.metrics,
               provenance: result.provenance,
+              costEstimate: nodeResults[node.id]?.costEstimate,
+              actualUsage: actualCost.usageUnits,
+              actualCredits: actualCost.actualCredits,
+              actualProviderCostAmount: actualCost.actualProviderCostAmount,
+              usageSource: actualCost.usageSource,
+              providerUsage: nodeProviderUsage,
               startedAt: nodeStartedAt,
               completedAt: new Date().toISOString()
             };
@@ -272,7 +334,7 @@ export function createExecutor(): RouteExecutor {
             for (const entry of result.logs ?? []) log(entry, node.id);
             log(`Completed ${node.id}`, node.id);
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = redactSecrets(error instanceof Error ? error.message : String(error));
             if (error instanceof CompoundExecutionError) {
               providersUsed.push(...error.providersUsed);
               for (const [internalNodeId, internalResult] of Object.entries(error.internalNodeResults)) {
@@ -293,6 +355,7 @@ export function createExecutor(): RouteExecutor {
               status: "failed",
               error: message,
               logs: [message],
+              costEstimate: nodeResults[node.id]?.costEstimate,
               startedAt: nodeStartedAt,
               completedAt: new Date().toISOString()
             };
@@ -301,14 +364,14 @@ export function createExecutor(): RouteExecutor {
           }
         }
 
-        const completed = completeRun(runId, "succeeded", startedAt, nodeResults, logs, route, outputDirectory, providersUsed, options.activeProfile);
+        const completed = completeRun(runId, "succeeded", startedAt, nodeResults, logs, route, outputDirectory, providersUsed, options.activeProfile, costEstimates);
         await appendRunLedger(completed, options.ledgerPath);
         await persistRunResult(completed);
         return completed;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = redactSecrets(error instanceof Error ? error.message : String(error));
         log(message);
-        const completed = completeRun(runId, "failed", startedAt, nodeResults, logs, route, outputDirectory, providersUsed, options.activeProfile);
+        const completed = completeRun(runId, "failed", startedAt, nodeResults, logs, route, outputDirectory, providersUsed, options.activeProfile, costEstimates);
         await appendRunLedger(completed, options.ledgerPath);
         await persistRunResult(completed);
         return completed;
@@ -522,10 +585,12 @@ function completeRun(
   route: OpenRoute,
   outputDirectory: string,
   providersUsed: ProviderUsageEvent[],
-  activeProfile?: string
+  activeProfile: string | undefined,
+  estimateSummary: RunCostSummary
 ): RunResult {
   const completedAt = new Date().toISOString();
   const economics = buildRunEconomics(route, providersUsed, activeProfile);
+  const costSummary = finalizeRunCostSummary(estimateSummary, nodeResults);
   return {
     runId,
     status,
@@ -540,8 +605,132 @@ function completeRun(
       sourceProvenance: route.provenance ?? {}
     },
     economics,
+    costSummary,
     outputDirectory
   };
+}
+
+export function estimateRouteCost(route: OpenRoute, costModel: NodeCostModel = DEFAULT_NODE_COST_MODEL): RunCostSummary {
+  const estimates = (route.nodes as RouteNode[]).map((node) => costModel.estimateNode(node));
+  return {
+    estimates,
+    actuals: [],
+    totalEstimatedCredits: sum(estimates.map((entry) => entry.estimatedCredits)),
+    totalActualCredits: 0,
+    refundedCredits: 0
+  };
+}
+
+export const DEFAULT_NODE_COST_MODEL: NodeCostModel = {
+  estimateNode(node) {
+    const kind = nodeCostKind(node.type);
+    const estimatedCredits = kind === "free" ? 0 : kind === "video" ? 80 : kind === "image" ? 40 : kind === "transform" ? 2 : 1;
+    return {
+      nodeId: node.id,
+      nodeType: node.type,
+      estimatedCredits,
+      estimatedProviderCostAmount: null,
+      providerCostCurrency: null,
+      usageUnits: {
+        requestCount: 1,
+        imageCount: kind === "image" ? 1 : undefined,
+        videoSeconds: kind === "video" ? 5 : undefined
+      },
+      provider: providerFromNodeType(node.type),
+      model: stringParam((node.params ?? {}).model),
+      usageSource: "estimated"
+    };
+  }
+};
+
+function actualNodeCost(node: RouteNode, result: NodeRunnerResult, providerUsage: ProviderUsageEvent[], estimate: CostEstimate | undefined, costModel: NodeCostModel) {
+  const custom = costModel.actualNode?.(node, result, providerUsage);
+  const usage = providerUsage[0];
+  const metrics = result.metrics ?? usage?.metrics ?? {};
+  const inputTokens = numberMetric(metrics, "inputTokens") ?? numberMetric(metrics, "input_tokens");
+  const outputTokens = numberMetric(metrics, "outputTokens") ?? numberMetric(metrics, "output_tokens");
+  const imageCount = numberMetric(metrics, "imageCount") ?? numberMetric(metrics, "image_count");
+  const videoSeconds = numberMetric(metrics, "videoSeconds") ?? numberMetric(metrics, "video_seconds");
+  const actualProviderCostAmount = custom?.actualProviderCostAmount ?? usage?.actualCost ?? usage?.estimatedCost ?? estimate?.estimatedProviderCostAmount ?? null;
+  return {
+    actualCredits: custom?.actualCredits ?? estimate?.estimatedCredits ?? 0,
+    actualProviderCostAmount,
+    usageUnits: custom?.usageUnits ?? {
+      inputTokens,
+      outputTokens,
+      imageCount,
+      videoSeconds,
+      requestCount: 1
+    },
+    usageSource: custom?.usageSource ?? (usage?.actualCost != null ? "provider" : estimate ? "estimated" : "unknown")
+  } satisfies { actualCredits: number; actualProviderCostAmount: number | null; usageUnits: ActualUsage; usageSource: "provider" | "estimated" | "unknown" };
+}
+
+function finalizeRunCostSummary(estimateSummary: RunCostSummary, nodeResults: Record<string, NodeResult>): RunCostSummary {
+  const actuals = Object.values(nodeResults)
+    .filter((result) => result.actualCredits !== undefined || result.costEstimate)
+    .map((result) => ({
+      ...(result.costEstimate ?? {
+        nodeId: result.nodeId,
+        nodeType: result.type,
+        estimatedCredits: 0,
+        estimatedProviderCostAmount: null,
+        providerCostCurrency: null,
+        usageUnits: {},
+        usageSource: "unknown" as const
+      }),
+      actualCredits: result.actualCredits ?? result.costEstimate?.estimatedCredits ?? 0,
+      actualProviderCostAmount: result.actualProviderCostAmount ?? result.costEstimate?.estimatedProviderCostAmount ?? null,
+      usageUnits: result.actualUsage ?? result.costEstimate?.usageUnits ?? {},
+      usageSource: result.usageSource ?? result.costEstimate?.usageSource ?? "unknown"
+    }));
+  const totalActualCredits = sum(actuals.map((entry) => entry.actualCredits));
+  return {
+    ...estimateSummary,
+    actuals,
+    totalActualCredits,
+    refundedCredits: Math.max(0, Number((estimateSummary.totalEstimatedCredits - totalActualCredits).toFixed(6)))
+  };
+}
+
+export function redactSecrets(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, "Bearer [redacted]")
+    .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*['\"]?[^'\"\s,}]+/gi, "$1=[redacted]")
+    .replace(/\b(sk-[A-Za-z0-9_-]{8,}|sk-or-[A-Za-z0-9_-]{8,})\b/g, "[redacted]");
+}
+
+function nodeCostKind(type: string): "free" | "text" | "image" | "video" | "transform" {
+  if (isFreeNodeType(type)) return "free";
+  if (/video/i.test(type)) return "video";
+  if (/image|upscale|stableDiffusion|replicate|gemini|seedance/i.test(type)) return "image";
+  if (/transform|template|input|output|debug|preview/i.test(type)) return "transform";
+  return "text";
+}
+
+function isFreeNodeType(type: string): boolean {
+  return type.startsWith("input.")
+    || type.startsWith("output.")
+    || type.startsWith("preview.")
+    || type.startsWith("debug.")
+    || type.startsWith("utility.")
+    || type.startsWith("library.")
+    || type.startsWith("compound.")
+    || type === "text.promptCompose";
+}
+
+function providerFromNodeType(type: string): string | undefined {
+  if (/openrouter/i.test(type)) return "openrouter";
+  if (/polza/i.test(type)) return "polza";
+  if (/gemini/i.test(type)) return "gemini";
+  if (/replicate/i.test(type)) return "replicate";
+  if (/seedance/i.test(type)) return "seedance";
+  return undefined;
+}
+
+function numberMetric(metrics: Record<string, unknown>, key: string): number | undefined {
+  const value = metrics[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 async function persistRunResult(result: RunResult): Promise<void> {

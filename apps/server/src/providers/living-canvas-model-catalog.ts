@@ -25,6 +25,7 @@ const outputFormats = parameter("outputFormat", "Format", ["png", "jpg", "webp"]
 const videoResolutions = parameter("resolution", "Resolution", ["720p", "1080p"], "720p");
 const videoDurations = parameter("duration", "Duration", ["5", "10", "15"], "5");
 const videoMultiShots = parameter("multi_shots", "Multi-shot", ["false", "true"], "false");
+const videoGenerateAudio = parameter("generate_audio", "Sound", ["false", "true"], "true");
 
 export function livingCanvasModelMetadata(modelId: string, providerId: string, contentType?: string): LivingCanvasModelMetadata {
   const id = modelId.toLowerCase();
@@ -33,7 +34,7 @@ export function livingCanvasModelMetadata(modelId: string, providerId: string, c
       return { generationParameters: [], maxImageInputs: 1 };
     }
     if (providerId === "polza") {
-      return { generationParameters: [videoResolutions, videoDurations, videoMultiShots] };
+      return { generationParameters: [videoResolutions, videoDurations, videoMultiShots, ...(supportsVideoAudio(id) ? [videoGenerateAudio] : [])], maxImageInputs: polzaVideoMaxImageInputs(id) };
     }
     return { generationParameters: [] };
   }
@@ -61,6 +62,18 @@ export function livingCanvasModelMetadata(modelId: string, providerId: string, c
     return { generationParameters: [aspectRatios, imageSizes] };
   }
   return { generationParameters: [] };
+}
+
+function supportsVideoAudio(modelId: string): boolean {
+  return /(^|\/|[-_])veo-?3/i.test(modelId);
+}
+
+function polzaVideoMaxImageInputs(modelId: string): number {
+  if (/(^|\/)(video-)?upscale|upscaler|topaz/.test(modelId)) return 1;
+  if (/veo[-_]?3/.test(modelId)) return 2;
+  if (/seedance/.test(modelId)) return 9;
+  if (/wan/.test(modelId)) return 2;
+  return 14;
 }
 
 function parameter(id: string, label: string, options: string[], defaultValue: string): LivingCanvasParameterDefinition {

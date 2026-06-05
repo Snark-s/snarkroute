@@ -1,6 +1,95 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { envPath } from "../server-paths";
 
+export type AppProduct = "boojum" | "snark";
+export type AppMode = "local" | "cloud" | "self_hosted";
+
+export type AppCapabilities = {
+  product: AppProduct;
+  mode: AppMode;
+  authRequiredForSave: boolean;
+  supportsCredits: boolean;
+  supportsGuestDemo: boolean;
+  supportsUserApiKeys: boolean;
+  supportsBrowserVault: boolean;
+  supportsCloudStoredUserKeys: boolean;
+  supportsLocalFilesystem: boolean;
+  supportsPublicSharing: boolean;
+  supportsDeveloperDiagnostics: boolean;
+};
+
+export function appProduct(): AppProduct {
+  const value = process.env.APP_PRODUCT?.trim().toLowerCase();
+  return value === "snark" ? "snark" : "boojum";
+}
+
+export function appMode(): AppMode {
+  const value = process.env.APP_MODE?.trim().toLowerCase();
+  if (value === "cloud" || value === "self_hosted") return value;
+  return "local";
+}
+
+export function appCapabilities(): AppCapabilities {
+  const product = appProduct();
+  const mode = appMode();
+  return {
+    product,
+    mode,
+    authRequiredForSave: mode === "cloud",
+    supportsCredits: mode === "cloud",
+    supportsGuestDemo: true,
+    supportsUserApiKeys: mode !== "cloud",
+    supportsBrowserVault: false,
+    supportsCloudStoredUserKeys: false,
+    supportsLocalFilesystem: product === "boojum" || mode !== "cloud",
+    supportsPublicSharing: false,
+    supportsDeveloperDiagnostics: appDevUi() && !isProduction()
+  };
+}
+
+export function appDevUi(): boolean {
+  const value = process.env.APP_DEV_UI?.trim().toLowerCase();
+  return value === "true" || value === "1" || value === "yes";
+}
+
+export function isProduction(): boolean {
+  return process.env.NODE_ENV?.trim().toLowerCase() === "production";
+}
+
+export function assertProductionSafety(): void {
+  if (appDevUi() && isProduction()) {
+    throw new Error("APP_DEV_UI must not be enabled in production");
+  }
+  if (!isProduction() || appMode() !== "cloud") return;
+  const authSecret = process.env.AUTH_HASH_SECRET?.trim() ?? "";
+  if (!authSecret) throw new Error("AUTH_HASH_SECRET is required in production cloud mode");
+  if (authSecret.length < 32) throw new Error("AUTH_HASH_SECRET must be at least 32 characters in production cloud mode");
+  const authBaseUrl = process.env.AUTH_BASE_URL?.trim() ?? "";
+  const appWebUrl = process.env.APP_WEB_URL?.trim() ?? "";
+  if (!authBaseUrl) throw new Error("AUTH_BASE_URL is required in production cloud mode");
+  if (!appWebUrl) throw new Error("APP_WEB_URL is required in production cloud mode");
+  assertProductionPublicUrl(authBaseUrl, "AUTH_BASE_URL");
+  assertProductionPublicUrl(appWebUrl, "APP_WEB_URL");
+}
+
+function assertProductionPublicUrl(value: string, name: string): void {
+  const hostname = urlHostname(value);
+  if (!hostname) throw new Error(`${name} must be a valid URL in production cloud mode`);
+  if (isLocalhost(hostname)) throw new Error(`${name} must not point to localhost in production cloud mode`);
+}
+
+function urlHostname(value: string): string | null {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function isLocalhost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith(".localhost");
+}
+
 export function isReplicateEnabled(): boolean {
   return Boolean(process.env.REPLICATE_API_TOKEN?.trim());
 }
@@ -19,6 +108,10 @@ export function isOpenRouterEnabled(): boolean {
 
 export function isPolzaEnabled(): boolean {
   return Boolean(process.env.POLZA_AI_API_KEY?.trim());
+}
+
+export function isWorldLabsEnabled(): boolean {
+  return Boolean(process.env.WORLDS_API_KEY?.trim());
 }
 
 export function isSeedanceEnabled(): boolean {

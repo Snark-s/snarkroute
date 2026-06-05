@@ -22,7 +22,8 @@
     "@snarkroute/replicate": "workspace:*",
     "@snarkroute/storage": "workspace:*",
     "dotenv": "^16.4.5",
-    "fastify": "^4.27.0"
+    "fastify": "^4.27.0",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "tsx": "^4.11.0",

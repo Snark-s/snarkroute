@@ -12,7 +12,7 @@ import {
   type OpenRouterModelInfo,
   type ProviderMode
 } from "@snarkroute/openrouter";
-import { estimatePolzaPricingQuote, POLZA_IMAGE_DEFAULT_MODEL, POLZA_TEXT_DEFAULT_MODEL, type PolzaModelInfo } from "@snarkroute/polza";
+import { estimatePolzaPricingQuote, POLZA_IMAGE_DEFAULT_MODEL, POLZA_TEXT_DEFAULT_MODEL, POLZA_VIDEO_DEFAULT_MODEL, type PolzaModelInfo } from "@snarkroute/polza";
 
 type PricingQuote = {
   logicalModel?: string;
@@ -182,9 +182,9 @@ export async function quoteModelExecutingNode(options: {
     return { selected: geminiQuote("gemini.nano-banana-2", NANO_BANANA_2_DEFAULT_MODEL, "image.generate", params, geminiPricingConfig), alternatives: [], warnings };
   }
 
-  if (options.nodeType === "polza.text" || options.nodeType === "polza.image.generate") {
-    const capability = options.nodeType === "polza.text" ? "text.generate" : "image.generate";
-    const defaultModel = options.nodeType === "polza.text" ? POLZA_TEXT_DEFAULT_MODEL : POLZA_IMAGE_DEFAULT_MODEL;
+  if (options.nodeType === "polza.text" || options.nodeType === "polza.image.generate" || options.nodeType === "polza.video.generate") {
+    const capability = options.nodeType === "polza.text" ? "text.generate" : options.nodeType === "polza.video.generate" ? "video.generate" : "image.generate";
+    const defaultModel = options.nodeType === "polza.text" ? POLZA_TEXT_DEFAULT_MODEL : options.nodeType === "polza.video.generate" ? POLZA_VIDEO_DEFAULT_MODEL : POLZA_IMAGE_DEFAULT_MODEL;
     const modelId = stringValue(params.model) ?? defaultModel;
     const catalogModel = options.polzaModels?.find((model) => model.id === modelId);
     const pricing = pricingForModel(polzaPricing, modelId) ?? catalogModel?.pricing;

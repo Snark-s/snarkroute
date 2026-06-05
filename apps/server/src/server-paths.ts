@@ -21,8 +21,8 @@ export function findExistingFile(...parts: string[]): string {
     directory = parent;
   }
 }
-export const envPath = join(process.cwd(), ".env");
 export const repoRoot = resolve(findExistingDirectory("apps"), "..");
+export const envPath = join(repoRoot, ".env");
 export const assetsDirectory = join(process.cwd(), "data", "assets");
 export const librariesDirectory = join(process.cwd(), "data", "libraries");
 export const providerLinksPath = findExistingFile("data", "provider-links.json");
