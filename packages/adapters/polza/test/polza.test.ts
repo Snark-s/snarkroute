@@ -87,7 +87,7 @@ describe("Polza adapter", () => {
   it("refreshes Polza pricing catalog when model catalog contains pricing", async () => {
     const directory = await mkdtemp(join(tmpdir(), "sr-polza-pricing-"));
     const cachePath = join(directory, "polza.json");
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ id: "openai/gpt-4o", pricing: { prompt: "0.1", completion: "0.2", currency: "RUB" } }] }));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ id: "openai/gpt-4o", top_provider: { pricing: { prompt: "0.1", completion: "0.2", currency: "RUB" } } }] }));
     const catalog = await refreshPolzaPricingCatalog({ apiKey: "pza-test", fetchImpl, cachePath, type: "chat" });
     expect(catalog.models["openai/gpt-4o"].pricing).toMatchObject({ prompt: "0.1" });
     expect(await readPolzaPricingCatalogCache(cachePath)).toMatchObject({ provider: "polza", source: "polza_models_catalog" });

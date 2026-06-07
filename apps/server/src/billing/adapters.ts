@@ -2,6 +2,7 @@ import type { OpenRoute } from "@snarkroute/protocol";
 import { estimateRouteCost, type RunCostSummary } from "@snarkroute/executor";
 import { appMode } from "../services/env";
 import { getCloudStorage } from "../services/cloud-storage";
+import { getEffectivePricingState } from "./pricing-service";
 
 export interface CreditBillingAdapter {
   getBalance(userId: string): Promise<{ balance: number; currency: string }>;
@@ -17,6 +18,7 @@ export class NoopBillingAdapter implements CreditBillingAdapter {
   }
 
   async estimateRunCost(route: OpenRoute): Promise<RunCostSummary> {
+    await getEffectivePricingState();
     const estimate = estimateRouteCost(route);
     return {
       ...estimate,
@@ -45,6 +47,7 @@ export class CloudCreditBillingAdapter implements CreditBillingAdapter {
   }
 
   async estimateRunCost(route: OpenRoute): Promise<RunCostSummary> {
+    await getEffectivePricingState();
     const estimate = estimateRouteCost(route);
     if (billingMode(route) === "byok") {
       return {

@@ -72,11 +72,15 @@ app.post<{ Body: RunRequestBody }>("/api/routes/run", async (request, reply) => 
     );
     await Promise.all(bookkeeping);
     if (actor.user && reservation.amount === 0) zeroRunCreditCharges(result);
+    result.costSummary.reservedCredits = reservation.amount;
     if (actor.user && reservationId) {
       const billing = await getBillingAdapter().commitCredits(reservationId, result.costSummary.totalActualCredits);
       result.costSummary.refundedCredits = billing.refunded;
+      result.costSummary.balanceAfter = (await getBillingAdapter().getBalance(actor.user.id)).balance;
     }
-    if (cloudRunId) await finishCloudRunSafely({ runId: cloudRunId, status: "completed", outputs: sanitizeCloudJson(result) });
+    if (!actor.user) result.costSummary.balanceAfter = null;
+    attachBillingSummary(result);
+    if (cloudRunId) await finishCloudRunSafely({ runId: cloudRunId, status: result.status === "succeeded" ? "completed" : "failed", outputs: sanitizeCloudJson(result) });
     return result;
   } catch (error) {
     if (reservationId && reservationAmount > 0) await getBillingAdapter().refundCredits(reservationId, reservationAmount).catch(() => undefined);
@@ -131,11 +135,15 @@ app.post<{ Body: RunRequestBody }>("/api/routes/run/stream", async (request, rep
     );
     await Promise.all(bookkeeping);
     if (actor.user && reservation.amount === 0) zeroRunCreditCharges(result);
+    result.costSummary.reservedCredits = reservation.amount;
     if (actor.user && reservationId) {
       const billing = await getBillingAdapter().commitCredits(reservationId, result.costSummary.totalActualCredits);
       result.costSummary.refundedCredits = billing.refunded;
+      result.costSummary.balanceAfter = (await getBillingAdapter().getBalance(actor.user.id)).balance;
     }
-    if (cloudRunId) await finishCloudRunSafely({ runId: cloudRunId, status: "completed", outputs: sanitizeCloudJson(result) });
+    if (!actor.user) result.costSummary.balanceAfter = null;
+    attachBillingSummary(result);
+    if (cloudRunId) await finishCloudRunSafely({ runId: cloudRunId, status: result.status === "succeeded" ? "completed" : "failed", outputs: sanitizeCloudJson(result) });
     sendEvent({ type: "runCompleted", result });
   } catch (error) {
     if (reservationId && reservationAmount > 0) await getBillingAdapter().refundCredits(reservationId, reservationAmount).catch(() => undefined);
@@ -237,6 +245,23 @@ function zeroRunCreditCharges(result: { costSummary?: { actuals: Array<{ actualC
   for (const node of Object.values(result.nodeResults ?? {})) node.actualCredits = 0;
 }
 
+function attachBillingSummary(result: { costSummary?: any; billingSummary?: unknown }) {
+  const summary = result.costSummary;
+  if (!summary) return;
+  result.billingSummary = {
+    estimatedCredits: summary.totalEstimatedCredits,
+    reservedCredits: summary.reservedCredits ?? 0,
+    actualCredits: summary.totalActualCredits,
+    refundedCredits: summary.refundedCredits,
+    balanceAfter: summary.balanceAfter ?? null,
+    pricingBreakdown: (summary.estimates ?? []).map((entry: any) => entry.pricingBreakdown ?? {
+      nodeId: entry.nodeId,
+      nodeType: entry.nodeType,
+      finalCredits: entry.estimatedCredits
+    })
+  };
+}
+
 async function persistCloudNodeResult(runId: string, nodeResult: NodeResult, options: { user: AuthUser | null; recordCredits: boolean }): Promise<void> {
   const storage = getCloudStorage();
   const nodeRun = await storage.saveNodeRun(nodeRunInput(runId, nodeResult, options.recordCredits));
@@ -277,6 +302,8 @@ async function saveProviderUsageEventsForNodeResult(runId: string, nodeRunId: st
   for (const event of events) {
     const provider = event.provider;
     if (!provider) continue;
+    const chargeCredits = options.recordCredits && isBillableNodeResult(nodeResult, event.status);
+    const pricing = nodeResult.costEstimate?.pricingBreakdown;
     await getCloudStorage().saveProviderUsageEvent({
       runId,
       nodeRunId,
@@ -289,10 +316,16 @@ async function saveProviderUsageEventsForNodeResult(runId: string, nodeRunId: st
       status: event.status ?? nodeResult.status,
       usage: safeJson(event.metrics ?? nodeResult.actualUsage ?? {}),
       estimatedCredits: estimate?.estimatedCredits ?? null,
-      actualCredits: options.recordCredits ? nodeResult.actualCredits ?? null : 0,
+      actualCredits: chargeCredits ? nodeResult.actualCredits ?? 0 : 0,
       usageSource: nodeResult.usageSource ?? estimate?.usageSource ?? "unknown",
       providerCostEstimateAmount: event.estimatedCost ?? estimate?.estimatedProviderCostAmount ?? null,
       providerCostActualAmount: event.actualCost ?? nodeResult.actualProviderCostAmount ?? null,
+      providerCostMicrousd: event.providerCostMicrousd ?? pricing?.providerCostMicrousd ?? null,
+      baseCredits: event.baseCredits ?? pricing?.baseCredits ?? null,
+      markupCredits: event.markupCredits ?? pricing?.markupCredits ?? null,
+      finalCredits: event.finalCredits ?? pricing?.finalCredits ?? null,
+      pricingSource: event.pricingSource ?? pricing?.pricingSource ?? null,
+      pricingConfidence: event.pricingConfidence ?? pricing?.pricingConfidence ?? null,
       currency: event.actualCostCurrency ?? estimate?.providerCostCurrency ?? null,
       providerRequestId: event.externalId ?? null,
       metadata: safeJson({ pricingHint: event.pricingHint, pricingSource: event.pricingSource, pricingQuote: event.pricingQuote })
@@ -369,6 +402,7 @@ async function finishCloudRunSafely(input: { runId: string; status: string; outp
 function nodeRunInput(runId: string, nodeResult: NodeResult, chargeCredits: boolean) {
   const estimate = nodeResult.costEstimate;
   const usage = nodeResult.actualUsage ?? {};
+  const actualCredits = chargeCredits && isBillableNodeResult(nodeResult) ? nodeResult.actualCredits ?? 0 : 0;
   return {
     runId,
     nodeId: nodeResult.nodeId,
@@ -379,7 +413,7 @@ function nodeRunInput(runId: string, nodeResult: NodeResult, chargeCredits: bool
     outputs: nodeResult.output ?? null,
     error: nodeResult.error ?? null,
     estimatedCredits: estimate?.estimatedCredits ?? null,
-    actualCredits: chargeCredits ? nodeResult.actualCredits ?? null : 0,
+    actualCredits,
     estimatedProviderCostAmount: estimate?.estimatedProviderCostAmount ?? null,
     actualProviderCostAmount: nodeResult.actualProviderCostAmount ?? null,
     providerCostCurrency: estimate?.providerCostCurrency ?? null,
@@ -390,6 +424,12 @@ function nodeRunInput(runId: string, nodeResult: NodeResult, chargeCredits: bool
     requestCount: usage.requestCount ?? null,
     usageSource: nodeResult.usageSource ?? estimate?.usageSource ?? "unknown"
   };
+}
+
+function isBillableNodeResult(nodeResult: NodeResult, providerStatus?: unknown): boolean {
+  if (nodeResult.status !== "succeeded") return false;
+  if (providerStatus && /^(failed|failure|error|errored|cancelled|canceled|timeout|timed_out|unavailable|auth_error|quota_exceeded)$/i.test(String(providerStatus))) return false;
+  return true;
 }
 
 export async function registerRunResultRoutes(app: FastifyInstance) {

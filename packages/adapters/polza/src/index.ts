@@ -116,11 +116,11 @@ export function parsePolzaModelCatalog(input: unknown): PolzaModelInfo[] {
   return data.map(parsePolzaModel).filter((model): model is PolzaModelInfo => Boolean(model));
 }
 
-export async function refreshPolzaPricingCatalog(options: PolzaClientOptions & { cachePath?: string; ttlHours?: number; type?: "chat" | "image" | "embedding" } = {}): Promise<PricingCatalog> {
+export async function refreshPolzaPricingCatalog(options: PolzaClientOptions & { cachePath?: string; ttlHours?: number; type?: "chat" | "image" | "video" | "embedding" } = {}): Promise<PricingCatalog> {
   const client = createPolzaClient(options);
   const modelGroups = options.type
     ? [await client.getModels(options.type)]
-    : await Promise.all([client.getModels("chat").catch(() => []), client.getModels("image").catch(() => []), client.getModels("embedding").catch(() => [])]);
+    : await Promise.all([client.getModels("chat").catch(() => []), client.getModels("image").catch(() => []), client.getModels("video").catch(() => []), client.getModels("embedding").catch(() => [])]);
   const catalog = polzaPricingCatalogFromModels(modelGroups.flat(), options.ttlHours);
   const cachePath = options.cachePath ?? join(process.cwd(), "data", "cache", "model-pricing", "polza.json");
   await writePricingCatalog(cachePath, catalog);
@@ -174,6 +174,9 @@ function parsePolzaModel(input: unknown): PolzaModelInfo | null {
   const id = typeof record.id === "string" ? record.id : "";
   if (!id) return null;
   const architecture = record.architecture && typeof record.architecture === "object" ? record.architecture as Record<string, unknown> : {};
+  const topProvider = record.top_provider && typeof record.top_provider === "object" ? record.top_provider as Record<string, unknown> : undefined;
+  const directPricing = record.pricing && typeof record.pricing === "object" ? record.pricing as Record<string, unknown> : undefined;
+  const topProviderPricing = topProvider?.pricing && typeof topProvider.pricing === "object" ? topProvider.pricing as Record<string, unknown> : undefined;
   return {
     id,
     name: typeof record.name === "string" ? record.name : undefined,
@@ -185,8 +188,8 @@ function parsePolzaModel(input: unknown): PolzaModelInfo | null {
       output_modalities: stringArray(architecture.output_modalities),
       modality: typeof architecture.modality === "string" ? architecture.modality : undefined
     },
-    pricing: record.pricing && typeof record.pricing === "object" ? record.pricing as Record<string, unknown> : undefined,
-    top_provider: record.top_provider && typeof record.top_provider === "object" ? record.top_provider as Record<string, unknown> : undefined
+    pricing: directPricing ?? topProviderPricing,
+    top_provider: topProvider
   };
 }
 

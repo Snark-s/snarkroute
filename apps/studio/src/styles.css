@@ -40,6 +40,18 @@ button:hover,
   border-color: #4fa58d;
 }
 
+.runIconOnly {
+  color: #c8ffea;
+  min-width: 34px;
+  padding: 7px;
+}
+
+.runIconOnly:disabled {
+  background: #2f6f5e;
+  border-color: #4fa58d;
+  opacity: 1;
+}
+
 .danger {
   background: #4b2530;
   border-color: #8b4a58;
@@ -1415,6 +1427,51 @@ h2 {
   flex: 0 0 auto;
 }
 
+.topbarCreditBadge,
+.topbarRunEstimate {
+  align-items: start;
+  background: #171d27;
+  border: 1px solid #394355;
+  border-radius: 6px;
+  color: #dce8ff;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 2px;
+  min-height: 34px;
+  padding: 5px 9px;
+}
+
+.topbarCreditBadge strong,
+.topbarRunEstimate strong {
+  color: #eef4ff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.topbarCreditBadge span,
+.topbarRunEstimate span {
+  color: #aeb6c5;
+  font-size: 10px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.topbarCreditBadge.guest strong {
+  color: #9ddcff;
+}
+
+.topbarCreditBadge.warning,
+.topbarRunEstimate.warning {
+  background: #2a1f18;
+  border-color: #8a5d26;
+}
+
+.topbarCreditBadge.warning strong,
+.topbarRunEstimate.warning strong {
+  color: #ffd28a;
+}
+
 .routeBreadcrumbs {
   align-items: center;
   background: #171d27;
@@ -2203,6 +2260,60 @@ h2 {
   font-size: 11px;
 }
 
+.nodeFieldTitle {
+  align-items: center;
+  display: inline-flex;
+  gap: 7px;
+}
+
+.modelCreditBadge {
+  align-items: center;
+  color: #f8d680;
+  display: inline-flex;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.nodeField .modelCreditBadge span,
+.nodeFixedModelLine .modelCreditBadge span {
+  color: #f8d680;
+  font-size: 11px;
+}
+
+.modelCreditDot {
+  background: #f8d680;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 2px rgba(16, 22, 32, 0.28);
+  height: 12px;
+  width: 12px;
+}
+
+.nodeFixedModelLine {
+  align-items: center;
+  color: #9da8ba;
+  display: flex;
+  gap: 7px;
+  margin-top: 10px;
+  min-width: 0;
+}
+
+.nodeFixedModelLine span {
+  font-size: 11px;
+}
+
+.nodeFixedModelLine strong {
+  color: #dfe7f4;
+  font-size: 12px;
+  font-weight: 650;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .nodeInlineFields {
   align-items: end;
   display: grid;
@@ -2493,43 +2604,6 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-.nodePricingPreview {
-  border: 1px solid #33475d;
-  border-radius: 8px;
-  display: grid;
-  gap: 5px;
-  margin: 2px 0 8px;
-  padding: 8px;
-}
-
-.nodePricingPreview div,
-.nodeQuoteAlternatives div {
-  align-items: start;
-  display: grid;
-  gap: 6px;
-  grid-template-columns: minmax(82px, 0.9fr) minmax(0, 1.1fr);
-}
-
-.nodePricingPreview span,
-.nodeQuoteAlternatives span,
-.nodeQuoteAlternatives summary {
-  color: #9da8ba;
-  font-size: 10px;
-}
-
-.nodePricingPreview strong,
-.nodeQuoteAlternatives strong {
-  color: #f8d680;
-  font-size: 10px;
-  font-weight: 650;
-  overflow-wrap: anywhere;
-}
-
-.nodeQuoteAlternatives {
-  display: grid;
-  gap: 5px;
-}
-
 .assetParams {
   display: grid;
   gap: 8px;
@@ -2673,12 +2747,32 @@ h2 {
 }
 
 .nodeCost {
+  align-items: center;
+  background: rgba(248, 214, 128, 0.08);
+  border: 1px solid rgba(248, 214, 128, 0.22);
+  border-radius: 999px;
   color: #f8d680;
-  display: block;
-  font-size: 11px;
+  display: inline-flex;
+  gap: 5px;
+  font-size: 12px;
   font-weight: 700;
   margin-bottom: 6px;
-  padding-right: 30px;
+  padding: 3px 8px;
+  width: fit-content;
+}
+
+.nodeCost span {
+  line-height: 1.15;
+}
+
+.nodeCost svg {
+  flex: 0 0 auto;
+}
+
+.nodeCost.warning {
+  background: rgba(255, 185, 96, 0.12);
+  border-color: rgba(255, 185, 96, 0.42);
+  color: #ffd28a;
 }
 
 .nodeImageActions {
@@ -3765,6 +3859,72 @@ textarea {
   color: #eef4ff;
 }
 
+.creditMiniList,
+.creditHistoryPanel {
+  background: #111722;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.creditMiniList {
+  grid-column: 1 / -1;
+}
+
+.creditMiniList strong,
+.creditHistoryHeader strong {
+  color: #eef4ff;
+  font-size: 12px;
+}
+
+.creditMiniList span {
+  color: #aeb6c5;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.creditHistoryDetails summary {
+  color: #f8d680;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  margin: 2px 0 8px;
+}
+
+.creditHistoryHeader {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.creditHistoryRows {
+  display: grid;
+  gap: 5px;
+}
+
+.creditHistoryRow {
+  border-top: 1px solid #253142;
+  display: grid;
+  gap: 4px 8px;
+  grid-template-columns: minmax(92px, 1.1fr) minmax(68px, 0.7fr) minmax(62px, 0.7fr) minmax(72px, 0.8fr) minmax(0, 1.4fr);
+  padding-top: 6px;
+}
+
+.creditHistoryRow span,
+.creditHistoryRow strong {
+  color: #aeb6c5;
+  font-size: 11px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.creditHistoryRow strong {
+  color: #eef4ff;
+}
+
 .developerDiagnostics {
   display: grid;
   gap: 8px;
@@ -3778,6 +3938,182 @@ textarea {
 
 .adminPanel {
   gap: 10px;
+}
+
+.adminUsersBilling {
+  border-bottom: 1px solid #2f3948;
+  display: grid;
+  gap: 10px;
+  padding-bottom: 14px;
+}
+
+.adminSectionHeader {
+  align-items: start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.adminSectionHeader h3 {
+  color: #eef4ff;
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+
+.adminFilters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.adminFilters input,
+.adminFilters select,
+.adminCreditForms input {
+  background: #111722;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  color: #eef4ff;
+  min-height: 32px;
+  padding: 6px 8px;
+}
+
+.adminUsersGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1.4fr) minmax(340px, 0.8fr);
+}
+
+.adminUsersTable {
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  display: grid;
+  max-height: 560px;
+  overflow: auto;
+}
+
+.adminUsersTableHeader,
+.adminUsersTableRow {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(120px, 1.1fr) 54px 92px 118px 72px 72px 72px 72px 86px 48px 118px 160px;
+  min-width: 1180px;
+  padding: 8px;
+}
+
+.adminUsersTableHeader.pricing,
+.adminUsersTableRow.pricing {
+  grid-template-columns: 88px 120px minmax(130px, 1.1fr) 92px 74px 104px 104px 84px minmax(130px, 1fr);
+  min-width: 980px;
+}
+
+.pricingConfig,
+.pricingOverride {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.adminUsersTableHeader {
+  background: #171d27;
+  color: #aeb6c5;
+  font-size: 10px;
+  font-weight: 700;
+  position: sticky;
+  text-transform: uppercase;
+  top: 0;
+  z-index: 1;
+}
+
+.adminUsersTableRow {
+  background: #111722;
+  border-top: 1px solid #253142;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.adminUsersTableRow:hover,
+.adminUsersTableRow.selected {
+  background: #1a2330;
+}
+
+.adminUsersTableRow span,
+.adminUsersTableRow strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.adminUsersTableRow strong {
+  color: #eef4ff;
+}
+
+.adminInlineActions {
+  display: flex;
+  gap: 4px;
+}
+
+.adminInlineActions button {
+  font-size: 10px;
+  min-height: 24px;
+  padding: 3px 6px;
+}
+
+.adminUserCard {
+  align-self: start;
+  background: #111722;
+  border: 1px solid #2f3948;
+  border-radius: 6px;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.adminUserCard header h3 {
+  color: #eef4ff;
+  font-size: 13px;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.adminUserCard header p {
+  color: #aeb6c5;
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+
+.adminMetricGrid.compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.adminCreditForms {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+}
+
+.adminCreditForms label {
+  display: grid;
+  gap: 4px;
+}
+
+.adminCreditForms label span {
+  color: #aeb6c5;
+  font-size: 11px;
+}
+
+.adminTabs {
+  display: flex;
+  gap: 6px;
+}
+
+.adminTabs button {
+  font-size: 11px;
+  min-height: 28px;
+}
+
+.adminTabs button.active {
+  background: #2f6f5e;
+  border-color: #4fa58d;
 }
 
 .adminMetricGrid {

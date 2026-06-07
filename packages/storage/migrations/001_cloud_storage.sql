@@ -149,6 +149,9 @@ create table if not exists credit_accounts (
   unique (user_id, currency)
 );
 
+alter table credit_accounts drop constraint if exists credit_accounts_non_negative_balance;
+alter table credit_accounts add constraint credit_accounts_non_negative_balance check (balance_minor >= 0);
+
 create table if not exists credit_transactions (
   id uuid primary key default gen_random_uuid(),
   account_id uuid not null references credit_accounts(id) on delete cascade,
@@ -164,6 +167,23 @@ alter table credit_transactions add column if not exists run_id uuid references 
 alter table credit_transactions add column if not exists reservation_id uuid;
 alter table credit_transactions add column if not exists status text not null default 'posted';
 
+create or replace function prevent_credit_transaction_mutation()
+returns trigger as $$
+begin
+  raise exception 'credit_transactions is immutable; insert a correcting transaction instead';
+end;
+$$ language plpgsql;
+
+drop trigger if exists credit_transactions_no_update on credit_transactions;
+create trigger credit_transactions_no_update
+before update on credit_transactions
+for each row execute function prevent_credit_transaction_mutation();
+
+drop trigger if exists credit_transactions_no_delete on credit_transactions;
+create trigger credit_transactions_no_delete
+before delete on credit_transactions
+for each row execute function prevent_credit_transaction_mutation();
+
 create table if not exists pricing_catalog (
   id uuid primary key default gen_random_uuid(),
   provider text not null,
@@ -175,6 +195,47 @@ create table if not exists pricing_catalog (
   refreshed_at timestamptz not null default now(),
   expires_at timestamptz,
   unique (provider, model_id, capability)
+);
+
+create table if not exists billing_pricing_config (
+  id text primary key default 'default',
+  global_markup_percent integer not null default 0,
+  global_markup_credits bigint not null default 0,
+  min_charge_credits bigint not null default 0,
+  rounding_mode text not null default 'ceil',
+  updated_at timestamptz not null default now(),
+  updated_by uuid references users(id) on delete set null,
+  constraint billing_pricing_config_singleton check (id = 'default'),
+  constraint billing_pricing_config_non_negative check (
+    global_markup_percent >= 0
+    and global_markup_credits >= 0
+    and min_charge_credits >= 0
+  )
+);
+
+create table if not exists billing_pricing_overrides (
+  id uuid primary key default gen_random_uuid(),
+  provider text,
+  operation text,
+  model text,
+  node_type text,
+  markup_percent integer not null default 0,
+  markup_credits bigint not null default 0,
+  enabled boolean not null default true,
+  reason text,
+  updated_at timestamptz not null default now(),
+  updated_by uuid references users(id) on delete set null,
+  constraint billing_pricing_overrides_non_negative check (
+    markup_percent >= 0
+    and markup_credits >= 0
+  )
+);
+
+create unique index if not exists billing_pricing_overrides_scope_idx on billing_pricing_overrides(
+  coalesce(provider, ''),
+  coalesce(operation, ''),
+  coalesce(model, ''),
+  coalesce(node_type, '')
 );
 
 create table if not exists provider_usage_events (
@@ -200,6 +261,12 @@ alter table provider_usage_events add column if not exists actual_credits numeri
 alter table provider_usage_events add column if not exists usage_source text;
 alter table provider_usage_events add column if not exists provider_cost_estimate_amount numeric(18, 8);
 alter table provider_usage_events add column if not exists provider_cost_actual_amount numeric(18, 8);
+alter table provider_usage_events add column if not exists provider_cost_microusd bigint;
+alter table provider_usage_events add column if not exists base_credits bigint;
+alter table provider_usage_events add column if not exists markup_credits bigint;
+alter table provider_usage_events add column if not exists final_credits bigint;
+alter table provider_usage_events add column if not exists pricing_source text;
+alter table provider_usage_events add column if not exists pricing_confidence text;
 alter table provider_usage_events add column if not exists metadata jsonb not null default '{}'::jsonb;
 
 create table if not exists audit_events (
@@ -218,5 +285,7 @@ create index if not exists runs_route_id_idx on runs(route_id);
 create index if not exists node_runs_run_id_idx on node_runs(run_id);
 create index if not exists artifacts_run_id_idx on artifacts(run_id);
 create index if not exists credit_transactions_account_id_idx on credit_transactions(account_id);
+create index if not exists credit_transactions_run_id_idx on credit_transactions(run_id);
+create unique index if not exists credit_transactions_capture_once_idx on credit_transactions(reservation_id) where transaction_type = 'capture' and reservation_id is not null;
 create index if not exists provider_usage_events_run_id_idx on provider_usage_events(run_id);
 create index if not exists audit_events_actor_user_id_idx on audit_events(actor_user_id);

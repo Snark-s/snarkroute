@@ -5,6 +5,7 @@ import { createOpenRouterClient, readOpenRouterModelCatalogCache, readOpenRouter
 import { createPolzaClient, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "@snarkroute/polza";
 import { openRouterCatalogCachePath, openRouterPricingCachePath, polzaPricingCachePath, providerLinksPath } from "../server-paths";
 import { createModelResolver } from "@snarkroute/openrouter";
+import { invalidatePricingCache } from "../billing/pricing-service";
 import { loadModelRouteMappings, quoteModelExecutingNode } from "../execution/model-gateway-runners";
 import { isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled } from "../services/env";
 import { errorMessage } from "../services/errors";
@@ -103,6 +104,7 @@ app.post<{ Body: { provider?: "openrouter" | "polza" | "gemini" | "all" | string
     }
     failed.push({ provider: target, error: "Unsupported pricing provider." });
   }
+  if (refreshed.length > 0) invalidatePricingCache();
   return { refreshed, failed, warnings };
 });
 

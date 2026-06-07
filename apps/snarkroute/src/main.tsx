@@ -454,6 +454,7 @@ function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const interactionMovedRef = useRef(false);
   const undoStackRef = useRef<CanvasDocument[]>([]);
+  const libraryMutationSeqRef = useRef(0);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -504,6 +505,17 @@ function App() {
     ...localProviders.flatMap((provider) => localProviderModelOptions(provider))
   ], [models, customModels, localProviders]);
   const viewportScale = viewport.scale ?? 1;
+
+  function beginLibraryMutation(): number {
+    libraryMutationSeqRef.current += 1;
+    return libraryMutationSeqRef.current;
+  }
+
+  function applyLibrarySnapshot(snapshot: LibrarySnapshot, mutationSeq?: number): boolean {
+    if (mutationSeq !== undefined && mutationSeq < libraryMutationSeqRef.current) return false;
+    setLibrary(snapshot);
+    return true;
+  }
 
   useEffect(() => {
     if (!dragState) return;
@@ -710,7 +722,7 @@ function App() {
         apiGet<LibrarySnapshot>("/api/libraries/current"),
         apiGet<ProjectListResponse>("/api/libraries/projects")
       ]);
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setProjects(projectList.projects);
       setStatus(snapshot.canvas ? "Canvas ready" : "Library has no canvas");
     } catch (error) {
@@ -836,7 +848,7 @@ function App() {
   async function openNestedLibrary(path: string) {
     try {
       const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/open", { path });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus(snapshot.canvas ? "Opened nested canvas" : "Opened collection library");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not open nested library.");
@@ -882,7 +894,7 @@ function App() {
         width: imageNodeWidth,
         height: imageNodeHeight
       });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       void refreshProjects();
       setStatus("Image node imported");
     } catch (error) {
@@ -1159,7 +1171,7 @@ function App() {
   async function syncRepresentationEdge(edgeId: string) {
     try {
       const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/edges/${encodeURIComponent(edgeId)}/sync-representation`, {});
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Representation refreshed");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not refresh representation.");
@@ -1169,6 +1181,7 @@ function App() {
   async function createConnectedNode(type: "image" | "video" | "text") {
     if (!nodeCreateMenu) return;
     const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
     setNodeCreateMenu(null);
     try {
       pushUndoSnapshot();
@@ -1180,7 +1193,7 @@ function App() {
         height: type === "text" ? 180 : imageNodeHeight,
         connectFromNodeId: nodeCreateMenu.fromNodeId
       });
-      setLibrary(snapshot);
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
       const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
       setSelectedNodeId(createdNodeId);
       setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
@@ -1193,6 +1206,7 @@ function App() {
   async function createConnectedRepresentation(type: NodeRepresentationType) {
     if (!nodeCreateMenu?.fromNodeId) return;
     const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
     setNodeCreateMenu(null);
     try {
       pushUndoSnapshot();
@@ -1207,7 +1221,7 @@ function App() {
         connectFromNodeId: nodeCreateMenu.fromNodeId
       });
       const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
-      setLibrary(snapshot);
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
       setSelectedNodeId(createdNodeId);
       setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
       setStatus(`${representationLabel(type)} representation created`);
@@ -1216,17 +1230,10 @@ function App() {
     }
   }
 
-  function handleNodeCreatePointerDown(event: React.PointerEvent<HTMLButtonElement>, action: () => void) {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.stopPropagation();
-    action();
-  }
-
   async function saveTextNode(nodeId: string, text: string) {
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, { text });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Text saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save text.");
@@ -1236,7 +1243,7 @@ function App() {
   async function saveTextNodeColor(nodeId: string, color: string) {
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, { color });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Text color saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save text color.");
@@ -1379,7 +1386,7 @@ function App() {
         width: imageNodeWidth,
         height: 180
       });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Text node imported");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Text import failed.");
@@ -1388,7 +1395,7 @@ function App() {
 
   async function refreshLibraryContents() {
     try {
-      setLibrary(await apiGet<LibrarySnapshot>("/api/libraries/current"));
+      applyLibrarySnapshot(await apiGet<LibrarySnapshot>("/api/libraries/current"));
     } catch {
       // Keep the current canvas visible when an external refresh is transiently unavailable.
     }
@@ -1398,7 +1405,7 @@ function App() {
     try {
       await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, { text });
       const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/stack`, { text });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Text added to stack");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not add text to stack.");
@@ -1406,9 +1413,10 @@ function App() {
   }
 
   async function setActiveTextStackItem(nodeId: string, selectedStackItemId: string | null) {
+    const mutationSeq = beginLibraryMutation();
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/stack/active`, { selectedStackItemId });
-      setLibrary(snapshot);
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
       setStatus(selectedStackItemId ? "Stack text selected" : "Draft text selected");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not select text.");
@@ -1419,7 +1427,7 @@ function App() {
     setModelSelections({ ...modelSelections, [nodeId]: selection });
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, selection);
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save text generation route.");
     }
@@ -1445,7 +1453,7 @@ function App() {
         maxImageInputs,
         imageReferenceSyntax
       });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Generated text added to stack");
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message: "Added to stack" } }));
     } catch (error) {
@@ -1458,7 +1466,7 @@ function App() {
   async function saveMediaPrompt(nodeId: string, prompt: string) {
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/prompt`, { prompt });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Prompt saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save prompt.");
@@ -1469,7 +1477,7 @@ function App() {
     setModelSelections({ ...modelSelections, [nodeId]: selection });
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${type}-nodes/${encodeURIComponent(nodeId)}/route-settings`, selection);
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Execution route saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save execution route.");
@@ -1478,6 +1486,7 @@ function App() {
   async function addLocalLibraryFolder() {
     const sourcePath = window.prompt("Add local library folder path");
     if (!sourcePath?.trim()) return;
+    const mutationSeq = beginLibraryMutation();
     try {
       const point = viewportCenterWorldPoint();
       const scan = await apiPost<LocalLibraryScanResult>("/api/libraries/scan-local-library", { sourcePath: sourcePath.trim() });
@@ -1490,7 +1499,7 @@ function App() {
           dropX: point.x,
           dropY: point.y
         });
-        setLibrary(snapshot);
+        if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
         setStatus("Folder opened as library");
         return;
       }
@@ -1502,7 +1511,10 @@ function App() {
         width: imageNodeWidth,
         height: action === "text" ? 180 : imageNodeHeight
       });
-      setLibrary(snapshot);
+      const createdNodeId = snapshot.nodes.find((node) => !nodes.some((currentNode) => currentNode.canvas.id === node.canvas.id))?.canvas.id ?? null;
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      setSelectedNodeId(createdNodeId);
+      setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
       setStatus(`${action === "image" ? "Image" : action === "video" ? "Video" : "Text"} stack node created`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not add local library folder.");
@@ -1512,7 +1524,7 @@ function App() {
   async function setLibraryViewMode(nodeId: string, viewMode: LibraryViewMode) {
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/library-nodes/${encodeURIComponent(nodeId)}/view-mode`, { viewMode });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus(`Opened library as ${libraryViewLabel(viewMode)}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not change library view.");
@@ -1535,7 +1547,7 @@ function App() {
         width: imageNodeWidth,
         height: imageNodeHeight
       });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Video node imported");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Video import failed.");
@@ -1545,7 +1557,7 @@ function App() {
   async function renameNode(nodeId: string, title: string) {
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/title`, { title });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Node renamed");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not rename node.");
@@ -1571,7 +1583,7 @@ function App() {
           filename: file.name,
           dataBase64
         });
-        setLibrary(snapshot);
+        applyLibrarySnapshot(snapshot);
         setSelectedNodeId(nodeId);
         setSelectedNodeIds([nodeId]);
         setStatus(`${isVideo ? "Video" : "Image"} added to stack`);
@@ -1583,9 +1595,10 @@ function App() {
   }
 
   async function setActiveStackImage(nodeId: string, activeStackIndex: number) {
+    const mutationSeq = beginLibraryMutation();
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack/active`, { activeStackIndex });
-      setLibrary(snapshot);
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
       setSelectedNodeId(nodeId);
       setSelectedNodeIds([nodeId]);
       setStatus("Stack item selected");
@@ -1614,7 +1627,7 @@ function App() {
         imageReferenceSyntax,
         parameters
       });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       if (type === "image") void refreshProjects();
       setSelectedNodeId(nodeId);
       setSelectedNodeIds([nodeId]);
@@ -1628,6 +1641,8 @@ function App() {
   }
 
   async function duplicateStackItemNode(nodeId: string, stackItemId: string, point: { x: number; y: number }) {
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
     setStackItemMenu(null);
     try {
       pushUndoSnapshot();
@@ -1637,8 +1652,11 @@ function App() {
         `/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}/duplicate-node`,
         { x: point.x, y: point.y, width: imageNodeWidth, height: imageNodeHeight }
       );
-      setLibrary(snapshot);
+      const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
       setOpenStackNodeId(null);
+      setSelectedNodeId(createdNodeId);
+      setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
       setStatus("Stack item pulled into a new node");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not create node from stack item.");
@@ -1651,7 +1669,7 @@ function App() {
       const nodeType = nodes.find((node) => node.canvas.id === nodeId)?.manifest.type;
       const route = nodeType === "text" ? "text-nodes" : mediaNodeRoute(nodeId);
       const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`);
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Stack item deleted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete stack item.");
@@ -1662,7 +1680,7 @@ function App() {
     setLibraryAssetMenu(null);
     try {
       const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/library-nodes/${encodeURIComponent(nodeId)}/assets/${encodeURIComponent(assetId)}`);
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setStatus("Library asset deleted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete library asset.");
@@ -1684,7 +1702,7 @@ function App() {
     }
     try {
       const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, { text: item.text });
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setSelectedNodeId(nodeId);
       setSelectedNodeIds([nodeId]);
       setStatus("Text copied into input field");
@@ -1708,7 +1726,7 @@ function App() {
         y: targetNode.canvas.y + 28
       });
       const created = snapshot.nodes.find((node) => !existingIds.has(node.canvas.id));
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setSelectedNodeId(created?.canvas.id ?? null);
       setSelectedNodeIds(created ? [created.canvas.id] : []);
       setStatus(`Node ${action}`);
@@ -1735,7 +1753,7 @@ function App() {
         height: type === "text" ? 180 : imageNodeHeight
       });
       const created = snapshot.nodes.find((node) => !existingIds.has(node.canvas.id));
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setSelectedNodeId(created?.canvas.id ?? null);
       setSelectedNodeIds(created ? [created.canvas.id] : []);
       setStatus(`${representationLabel(type)} representation created`);
@@ -1764,7 +1782,7 @@ function App() {
     try {
       pushUndoSnapshot();
       const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}`);
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setSelectedNodeId(null);
       setSelectedNodeIds([]);
       setSelectedEdgeId(null);
@@ -1783,7 +1801,7 @@ function App() {
       for (const nodeId of nodeIds) {
         snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}`);
       }
-      if (snapshot) setLibrary(snapshot);
+      if (snapshot) applyLibrarySnapshot(snapshot);
       setSelectedNodeId(null);
       setSelectedNodeIds([]);
       setSelectedEdgeId(null);
@@ -1797,7 +1815,7 @@ function App() {
     try {
       pushUndoSnapshot();
       const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/edges/${encodeURIComponent(edgeId)}`);
-      setLibrary(snapshot);
+      applyLibrarySnapshot(snapshot);
       setSelectedEdgeId(null);
       setStatus("Connection deleted");
     } catch (error) {
@@ -2024,10 +2042,10 @@ function App() {
           ) : null}
         </div>
         {nodeCreateMenu && (
-          <div className="nodeCreateMenu" style={{ left: nodeCreateMenu.x, top: nodeCreateMenu.y }}>
-            <button type="button" onPointerDown={(event) => handleNodeCreatePointerDown(event, () => void createConnectedNode("image"))} onClick={() => void createConnectedNode("image")}>Create image node</button>
-            <button type="button" onPointerDown={(event) => handleNodeCreatePointerDown(event, () => void createConnectedNode("video"))} onClick={() => void createConnectedNode("video")}>Create video node</button>
-            <button type="button" onPointerDown={(event) => handleNodeCreatePointerDown(event, () => void createConnectedNode("text"))} onClick={() => void createConnectedNode("text")}>Create text node</button>
+          <div className="nodeCreateMenu" style={{ left: nodeCreateMenu.x, top: nodeCreateMenu.y }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+            <button type="button" onClick={() => void createConnectedNode("image")}>Create image node</button>
+            <button type="button" onClick={() => void createConnectedNode("video")}>Create video node</button>
+            <button type="button" onClick={() => void createConnectedNode("text")}>Create text node</button>
             {(() => {
               const sourceNode = nodeCreateMenu.fromNodeId ? nodes.find((node) => node.canvas.id === nodeCreateMenu.fromNodeId) : null;
               if (!sourceNode || sourceNode.manifest.type === "text") return null;
@@ -2038,7 +2056,7 @@ function App() {
                     {nodeRepresentationOptions
                       .filter((option) => option.type !== sourceNode.manifest.type)
                       .map((option) => (
-                        <button key={option.type} type="button" onPointerDown={(event) => handleNodeCreatePointerDown(event, () => void createConnectedRepresentation(option.type))} onClick={() => void createConnectedRepresentation(option.type)}>
+                        <button key={option.type} type="button" onClick={() => void createConnectedRepresentation(option.type)}>
                           {option.label}
                         </button>
                       ))}

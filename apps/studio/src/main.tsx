@@ -41,7 +41,7 @@ import {
   type ModelProfile,
   type OpenRoute
 } from "@snarkroute/protocol";
-import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -154,7 +154,45 @@ type CostEstimate = {
   usageUnits: ActualUsage;
   provider?: string;
   model?: string;
-  usageSource: "provider" | "estimated" | "unknown";
+  operation?: string;
+  free?: boolean;
+  baseCostMicrousd?: number;
+  baseCredits?: number;
+  globalMarkupPercent?: number;
+  globalMarkupCredits?: number;
+  nodeMarkupPercent?: number;
+  nodeMarkupCredits?: number;
+  markupCredits?: number;
+  finalCredits?: number;
+  maxChargeCredits?: number;
+  pricingSource?: string;
+  pricingConfidence?: string;
+  pricingBreakdown?: PricingBreakdown;
+  usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate";
+};
+
+type PricingBreakdown = {
+  nodeId: string;
+  title?: string;
+  nodeType?: string;
+  provider?: string;
+  operation?: string;
+  model?: string;
+  free?: boolean;
+  providerCostMicrousd?: number;
+  baseCostMicrousd?: number;
+  baseCredits?: number;
+  globalMarkupPercent?: number;
+  globalMarkupCredits?: number;
+  nodeMarkupPercent?: number;
+  nodeMarkupCredits?: number;
+  markupCredits?: number;
+  finalCredits?: number;
+  maxChargeCredits?: number;
+  pricingSource?: string;
+  pricingConfidence?: string;
+  source?: string;
+  notes?: string;
 };
 
 type RunCostSummary = {
@@ -163,6 +201,21 @@ type RunCostSummary = {
   totalEstimatedCredits: number;
   totalActualCredits: number;
   refundedCredits: number;
+  nodes?: PricingBreakdown[];
+};
+
+type CreditTransaction = {
+  id: string;
+  createdAt: string;
+  type: "grant" | "reserve" | "capture" | "release" | "refund" | "adjustment" | "demo_grant" | "expired" | "purchase_placeholder" | string;
+  amount: number;
+  status?: string;
+  balanceAfter?: number | null;
+  reason?: string | null;
+  runId?: string | null;
+  nodeTitle?: string | null;
+  provider?: string | null;
+  maxChargeCredits?: number | null;
 };
 
 type RunDisplayResult = {
@@ -277,6 +330,29 @@ type AdminOverview = {
   providerKeyStatus: Record<string, boolean>;
 };
 
+type AdminBillingUser = {
+  id: string;
+  role: "user" | "admin";
+  createdAt: string;
+  authProviders: string[];
+  providerSubjectHashPrefix?: string | null;
+  currentBalance: number;
+  totalGranted: number;
+  totalCaptured: number;
+  totalReleased: number;
+  totalRefunded: number;
+  activeReserved: number;
+  runsCount: number;
+  lastActivityAt?: string | null;
+};
+
+type AdminUserCard = AdminBillingUser & {
+  providerUsageCount: number;
+  recentRuns: Array<Record<string, unknown>>;
+  recentCreditTransactions: Array<Record<string, unknown>>;
+  recentProviderUsage: Array<Record<string, unknown>>;
+};
+
 const DEFAULT_APP_CAPABILITIES: AppCapabilities = {
   product: "boojum",
   mode: "local",
@@ -356,6 +432,18 @@ type ImageModelOption = {
   disabled?: boolean;
   note?: string;
   pricing?: Record<string, unknown>;
+};
+
+type VideoModelOption = {
+  id: string;
+  name?: string;
+  providerId: "polza" | "openrouter";
+  providerLabel: string;
+  pricing?: Record<string, unknown>;
+  short_description?: string;
+  supported_parameters?: string[];
+  generationParameters?: PolzaModel["generationParameters"];
+  architecture?: PolzaModel["architecture"];
 };
 
 type OpenRouterSettings = {
@@ -933,7 +1021,10 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onRefreshPricing = data.onRefreshPricing as ((provider: string) => void) | undefined;
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
   const connectedInputCounts = (data.connectedInputCounts as Record<string, number> | undefined) ?? {};
+  const creditBalance = data.creditBalance as { balance: number; currency: string } | null | undefined;
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
+  const nodeNeedsCredits = Number(costEstimate?.estimatedCredits ?? 0);
+  const nodeHasEnoughCredits = !creditBalance || creditBalance.balance >= nodeNeedsCredits;
   const ports = getNodePorts(type, manifest, routeNode);
   const outputPinned = pinnedOutputFromParams(params) !== undefined;
   const collapsedInputImagePath = type === "input.image" ? String(params.path ?? "").trim() : "";
@@ -1196,7 +1287,6 @@ function RouteNodeCard({ id, data }: NodeProps) {
           ) : null}
         </div>
       ) : null}
-      {!paramsCollapsed && costEstimate && costEstimate.estimatedCredits > 0 ? <div className="nodeCost">≈ {formatCredits(costEstimate.estimatedCredits)} credits</div> : null}
       {!paramsCollapsed ? (
         <NodeInlineParams
           type={type}
@@ -2721,6 +2811,7 @@ function NodeInlineParams({
 }) {
   const pendingTextSelectionRef = useRef<PendingTextSelection | null>(null);
   const resizeInputDimensions = useImageDimensions(type === "transform.imageResize" ? resizeInputImage : undefined);
+  const modelCreditBadge = <ModelCreditBadge costEstimate={costEstimate} />;
 
   useEffect(() => {
     if (type !== "polza.video.generate") return;
@@ -2998,7 +3089,7 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={modelLogoFor("replicate", String(params.model ?? ""))}>
             <input className="nodrag nopan nodeInput" value={String(params.model ?? "")} onChange={(event) => updateTextParam("model", event)} />
           </ModelSelectWithLogo>
@@ -3081,7 +3172,7 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={modelLogoFor("openrouter", model)}>
             <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
               <option value="text.default">Auto / default text model</option>
@@ -3093,7 +3184,6 @@ function NodeInlineParams({
           </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{openRouterCostLabel(openRouterModels.find((entry) => entry.id === model))}</small>
         </label>
-        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
         <label className="nodeField">
           <span>system prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
@@ -3135,7 +3225,7 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={modelLogoFor(selectedModel?.provider, selectedModel?.slug ?? model)}>
             <select
               className="nodrag nopan nodeInput nodeSelect"
@@ -3211,7 +3301,7 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
             <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
               {modelOptions.map((entry) => (
@@ -3221,7 +3311,6 @@ function NodeInlineParams({
           </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Text model via Polza.ai")}</small>
         </label>
-        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
         <label className="nodeField">
           <span>system prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
@@ -3255,7 +3344,7 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
             <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
               {modelOptions.map((entry) => (
@@ -3286,7 +3375,6 @@ function NodeInlineParams({
         </div>
         <details className="nodeAdvanced">
           <summary>Advanced</summary>
-          <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
           <div className="nodeGridFields">
             <label className="nodeField">
               <span>quality</span>
@@ -3309,8 +3397,10 @@ function NodeInlineParams({
   if (type === "polza.video.generate") {
     const promptConnected = connectedInputPorts.has("prompt");
     const model = isPolzaVideoUpscaleModelId(String(params.model ?? "")) ? POLZA_VIDEO_MODEL_OPTIONS[0].id : String(params.model ?? POLZA_VIDEO_MODEL_OPTIONS[0].id);
-    const modelOptions = polzaModelOptions(polzaVideoModels.filter(isPolzaVideoGenerationModel), POLZA_VIDEO_MODEL_OPTIONS, model);
-    const selectedModel = modelOptions.find((entry) => entry.id === model);
+    const executionProvider = String(params.executionProvider ?? "polza") === "openrouter" ? "openrouter" : "polza";
+    const modelOptions = videoGenerationModelOptions(openRouterModels, polzaVideoModels, model);
+    const selectedModel = modelOptions.find((entry) => entry.id === model && entry.providerId === executionProvider) ?? modelOptions.find((entry) => entry.id === model);
+    const selectedModelKey = selectedModel ? videoModelOptionKey(selectedModel) : `polza:${model}`;
     const resolution = supportedOptionValue(params.resolution, POLZA_VIDEO_RESOLUTIONS);
     const duration = supportedOptionValue(params.duration, POLZA_VIDEO_DURATIONS);
     const supportsAudio = polzaVideoSupportsAudio(selectedModel ?? { id: model });
@@ -3318,21 +3408,23 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
-          <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
+          <ModelSelectWithLogo logo={modelLogoFor(selectedModel?.providerId ?? "polza", selectedModel?.id ?? model)}>
             <select
               className="nodrag nopan nodeInput nodeSelect"
-              value={model}
+              value={selectedModelKey}
               onChange={(event) => {
-                onChange({ model: event.target.value });
+                const nextModel = modelOptions.find((entry) => videoModelOptionKey(entry) === event.target.value);
+                if (!nextModel) return;
+                onChange({ model: nextModel.id, executionProvider: nextModel.providerId });
               }}
             >
               {modelOptions.map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
+                <option key={videoModelOptionKey(entry)} value={videoModelOptionKey(entry)}>{entry.name ? `${entry.name} (${entry.id}) - ${entry.providerLabel}` : `${entry.id} - ${entry.providerLabel}`}</option>
               ))}
             </select>
           </ModelSelectWithLogo>
-          <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Video model via Polza.ai")}</small>
+          <small className="nodeConnectedHint">{videoModelHint(selectedModel, "Video model")}</small>
         </label>
         <label className="nodeField">
           <span>prompt</span>
@@ -3355,7 +3447,6 @@ function NodeInlineParams({
         </div>
         <details className="nodeAdvanced">
           <summary>Advanced</summary>
-          <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
           {supportsAudio ? (
             <label className="nodeCheckField">
               <input className="nodrag nopan" type="checkbox" checked={generateAudio} onChange={(event) => onChange({ generate_audio: event.target.checked })} />
@@ -3375,6 +3466,11 @@ function NodeInlineParams({
     const promptConnected = connectedInputPorts.has("prompt");
     return (
       <>
+        <div className="nodeFixedModelLine">
+          <span>model</span>
+          <strong>gemini-3.1-flash-image-preview</strong>
+          {modelCreditBadge}
+        </div>
         <label className="nodeField">
           <span>prompt</span>
           <textarea
@@ -3411,7 +3507,6 @@ function NodeInlineParams({
             </select>
           </label>
         </div>
-        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
       </>
     );
   }
@@ -3442,7 +3537,7 @@ function NodeInlineParams({
           {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
         </label>
         <label className="nodeField">
-          <span>model</span>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={modelLogoFor("gemini", String(params.model ?? "gemini-2.5-flash-lite"))}>
             <select
               className="nodrag nopan nodeInput nodeSelect"
@@ -4850,6 +4945,16 @@ function inputConnectionCountsForActiveEdges(nodeId: string, edges: Edge[], acti
   return inputConnectionCounts(nodeId, edges.filter((edge) => activeEdgeIds.has(edge.id)));
 }
 
+function ModelCreditBadge({ costEstimate }: { costEstimate?: CostEstimate }) {
+  if (!costEstimate || costEstimate.estimatedCredits <= 0) return null;
+  return (
+    <span className="modelCreditBadge" title={creditPriceExplanation(costEstimate)}>
+      <span className="modelCreditDot" aria-hidden="true" />
+      <span>{formatCredits(costEstimate.estimatedCredits)}</span>
+    </span>
+  );
+}
+
 function manifestInputPortSpec(port: NodeManifest["inputs"][number]): PortSpec {
   const kind = portKindFromManifest(port.type);
   return {
@@ -4858,72 +4963,6 @@ function manifestInputPortSpec(port: NodeManifest["inputs"][number]): PortSpec {
     label: port.label,
     maxConnections: port.id === "images" && kind === "image" ? 14 : undefined
   };
-}
-
-function ModelPricingPreview({ quotePreview, onRefreshPricing }: { quotePreview?: ModelQuotePreview; onRefreshPricing?: (provider: string) => void }) {
-  const selected = quotePreview?.selected;
-  if (!selected) {
-    return (
-      <div className="nodePricingPreview">
-        <div><span>Estimated cost</span><strong>Unknown</strong></div>
-        <div><span>Provider route</span><strong>Not configured</strong></div>
-      </div>
-    );
-  }
-  return (
-    <div className="nodePricingPreview">
-      <div><span>Estimated cost</span><strong>{pricingAmountLabel(selected)}</strong></div>
-      <div><span>Provider route</span><strong>{providerRouteLabel(selected)}</strong></div>
-      <div><span>Confidence</span><strong>{selected.confidence || "unknown"}</strong></div>
-      <div><span>Pricing source</span><strong>{selected.pricingSource || "unknown"}</strong></div>
-      <div><span>Pricing status</span><strong>{pricingStatusLabel(selected)}</strong></div>
-      <div><span>Last pricing update</span><strong>{pricingUpdateLabel(selected)}</strong></div>
-      {onRefreshPricing && ["openrouter", "polza"].includes(selected.provider) ? (
-        <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onRefreshPricing(selected.provider)}>
-          <RefreshCw size={13} /> Refresh pricing
-        </button>
-      ) : null}
-      {selected.warnings?.length ? <div><span>Note</span><strong>{selected.warnings[0]}</strong></div> : null}
-      {quotePreview.alternatives.length > 0 ? (
-        <details className="nodeQuoteAlternatives">
-          <summary>Alternative route quotes</summary>
-          {quotePreview.alternatives.map((quote) => (
-            <div key={`${quote.provider}:${quote.providerModel}`}>
-              <span>{quote.provider}</span>
-              <strong>{pricingAmountLabel(quote)} · {quote.providerModel}</strong>
-            </div>
-          ))}
-        </details>
-      ) : null}
-    </div>
-  );
-}
-
-function pricingAmountLabel(quote: PricingQuote): string {
-  if (typeof quote.estimatedCost !== "number") {
-    if (quote.pricingStatus === "stale") return "Unknown, pricing catalog stale";
-    return "Unknown, pricing unavailable";
-  }
-  const currency = quote.currency ?? "";
-  return `${currency ? `${currency} ` : ""}${quote.estimatedCost.toFixed(quote.estimatedCost < 0.01 ? 6 : 4)}`;
-}
-
-function pricingStatusLabel(quote: PricingQuote): string {
-  const status = quote.pricingStatus ?? (quote.estimatedCost === null ? "unknown" : "fresh");
-  if (status === "fresh") return "Fresh";
-  if (status === "stale") return "Stale";
-  return "Unknown";
-}
-
-function pricingUpdateLabel(quote: PricingQuote): string {
-  if (!quote.pricingUpdatedAt) return "Unknown";
-  const date = new Date(quote.pricingUpdatedAt);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString() : "Unknown";
-}
-
-function providerRouteLabel(quote: PricingQuote): string {
-  const provider = quote.provider === "openrouter" ? "OpenRouter" : quote.provider === "gemini" ? "Direct Gemini" : quote.provider === "polza" ? "Polza.ai" : quote.provider;
-  return `${provider}: ${quote.providerModel}`;
 }
 
 function isModelQuoteableNodeType(type: string): boolean {
@@ -6029,6 +6068,8 @@ function App() {
   const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
   const [adminMessage, setAdminMessage] = useState("");
   const [creditBalance, setCreditBalance] = useState<{ balance: number; currency: string } | null>(null);
+  const [creditTransactions, setCreditTransactions] = useState<CreditTransaction[]>([]);
+  const [creditHistoryOpen, setCreditHistoryOpen] = useState(false);
   const [runCostEstimate, setRunCostEstimate] = useState<RunCostSummary | null>(null);
   const [userSessionCredentials, setUserSessionCredentials] = useState<Record<string, string>>({});
   const [apiConnected, setApiConnected] = useState(false);
@@ -6091,6 +6132,13 @@ function App() {
   const showDeveloperDiagnostics = capabilities.supportsDeveloperDiagnostics && (!isCloudMode || isAdmin);
   const productLabel = capabilities.product === "snark" ? "SnarkRoute" : "Boojum";
   const currentUserLabel = currentUser ? (currentUser.displayName || currentUser.email || currentUser.id) : "Guest";
+  const routeEstimatedCredits = Math.max(0, Math.ceil(runCostEstimate?.totalEstimatedCredits ?? 0));
+  const routeHasPaidEstimate = routeEstimatedCredits > 0;
+  const routeHasEnoughCredits = !isCloudMode || !currentUser || !creditBalance || creditBalance.balance >= routeEstimatedCredits;
+  const routeBalanceAfter = currentUser && creditBalance ? creditBalance.balance - routeEstimatedCredits : null;
+  const runDisabledReason = isCloudMode && currentUser && creditBalance && routeHasPaidEstimate && !routeHasEnoughCredits
+    ? `Not enough credits: need ${formatCredits(routeEstimatedCredits)}, balance ${formatCredits(creditBalance.balance)}`
+    : "";
 
   useEffect(() => {
     nodesRef.current = nodes;
@@ -6274,6 +6322,7 @@ function App() {
           polzaVideoModels,
           quotePreview: modelQuotePreviews[node.id],
           onRefreshPricing: refreshPricingCatalog,
+          creditBalance: currentUser ? creditBalance : null,
           openAiConfigured,
           seedanceConfigured,
           seedanceStatusText: seedanceSettings.statusText,
@@ -6282,13 +6331,14 @@ function App() {
           result: staleResultNodeIds.has(node.id) ? undefined : readyNodeResult(node.data.routeNode as RouteDoc["nodes"][number], runResult?.nodeResults?.[node.id], nodes, edges, runResult)
         }
       })),
-    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
     void loadCapabilities();
     void loadCurrentUser();
     void loadCreditBalance();
+    void loadCreditTransactions();
     void loadSettings();
     void loadSystemUpdateStatus();
     void loadProviderLinks();
@@ -6426,6 +6476,18 @@ function App() {
     }
   }
 
+  async function loadCreditTransactions(limit = 25) {
+    try {
+      const response = await apiFetch(`${apiBase}/api/billing/transactions?limit=${limit}`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Credit history unavailable.");
+      const rows = Array.isArray(result.transactions) ? result.transactions : Array.isArray(result) ? result : [];
+      setCreditTransactions(rows.map(normalizeCreditTransaction).filter(Boolean) as CreditTransaction[]);
+    } catch {
+      setCreditTransactions([]);
+    }
+  }
+
   async function loadAdminOverview() {
     try {
       const response = await apiFetch(`${apiBase}/api/admin/overview`);
@@ -6451,6 +6513,7 @@ function App() {
       setDevIdentity(identity);
       await loadCurrentUser();
       void loadCreditBalance();
+      void loadCreditTransactions();
       if (identity === "admin") void loadAdminOverview();
       else setAdminOverview(null);
     } catch (error) {
@@ -6480,6 +6543,7 @@ function App() {
       if (!response.ok) throw new Error(result.error ?? "Login unavailable.");
       setCurrentUser(result.user ?? null);
       void loadCreditBalance();
+      void loadCreditTransactions();
       setSettingsMessage(result.user ? `Logged in as ${result.user.displayName ?? result.user.email ?? result.user.id}.` : "Local mode does not require login.");
     } catch (error) {
       setSettingsMessage(error instanceof Error ? error.message : String(error));
@@ -6497,6 +6561,7 @@ function App() {
       if (!response.ok) throw new Error(result.error ?? "Logout unavailable.");
       await loadCurrentUser();
       void loadCreditBalance();
+      setCreditTransactions([]);
       setSettingsMessage("Logged out.");
     } catch (error) {
       setSettingsMessage(error instanceof Error ? error.message : String(error));
@@ -8888,6 +8953,7 @@ function App() {
       markNodeResultsFresh(Object.keys(finalResult.nodeResults ?? {}));
       void loadLedgerSummary();
       void loadCreditBalance();
+      void loadCreditTransactions();
       const runLogs = Array.isArray(finalResult.logs) ? finalResult.logs.map((entry: { message: string }) => entry.message) : [finalResult.error ?? "Run failed."];
       setLogs((current) => [...runLogs.reverse(), ...current]);
       return finalResult;
@@ -8924,6 +8990,7 @@ function App() {
       markNodeResultsFresh(Object.keys(result.nodeResults ?? {}));
       void loadLedgerSummary();
       void loadCreditBalance();
+      void loadCreditTransactions();
       const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
       setLogs((current) => [...runLogs.reverse(), ...current]);
       return result as RunDisplayResult;
@@ -8959,6 +9026,10 @@ function App() {
   }
 
   async function run() {
+    if (runDisabledReason) {
+      setLogs((current) => [runDisabledReason, ...current]);
+      return;
+    }
     const route = routeWithOnlyActiveEdges(flowToRoute(nodes, edges, routeBase), nodeCatalog);
     await refreshRunCostEstimate(route);
     await loadCreditBalance();
@@ -9486,15 +9557,54 @@ function App() {
               <button onClick={() => addNode("compound.output", positionRightOfAllNodes())}>Tool Output <ChevronRight size={16} /></button>
             </>
           ) : null}
-          <button className="primary" onClick={() => void run()}><Play size={16} /> Run</button>
+          <button
+            className={`primary ${runDisabledReason ? "runIconOnly" : ""}`.trim()}
+            onClick={() => void run()}
+            disabled={Boolean(runDisabledReason)}
+            title={runDisabledReason || "Run current route"}
+            aria-label={runDisabledReason || "Run current route"}
+          >
+            <Play size={16} />
+            {runDisabledReason ? null : "Run"}
+          </button>
+          {isCloudMode && capabilities.supportsCredits ? (
+            <div className={`topbarCreditBadge ${currentUser ? "" : "guest"} ${runDisabledReason ? "warning" : ""}`.trim()}>
+              {currentUser ? (
+                <>
+                  <strong>Credits: {creditBalance ? formatCredits(creditBalance.balance) : "unknown"}</strong>
+                  {routeHasPaidEstimate ? (
+                    <span>{runDisabledReason ? `Need ${formatCredits(routeEstimatedCredits)}, balance ${creditBalance ? formatCredits(creditBalance.balance) : "unknown"}` : `This run: ≈${formatCredits(routeEstimatedCredits)} credits`}</span>
+                  ) : <span>This run: Free</span>}
+                </>
+              ) : (
+                <>
+                  <strong>Guest demo</strong>
+                  <span>{capabilities.supportsGuestDemo ? "Demo routes only" : "Login required"}</span>
+                </>
+              )}
+            </div>
+          ) : null}
+          {isCloudMode && currentUser && capabilities.supportsCredits && routeHasPaidEstimate ? (
+            <div className={`topbarRunEstimate ${runDisabledReason ? "warning" : ""}`.trim()}>
+              <span>This run: ≈{formatCredits(routeEstimatedCredits)} credits</span>
+              <strong>
+                {routeBalanceAfter === null
+                  ? "After run: unknown"
+                  : routeBalanceAfter < 0
+                    ? `${formatCredits(creditBalance?.balance ?? 0)} -> ${formatCredits(routeBalanceAfter)} impossible`
+                    : `After run: ${formatCredits(routeBalanceAfter)} credits`}
+              </strong>
+            </div>
+          ) : null}
           {isCloudMode ? (
             <>
               <button onClick={() => { setRightCollapsed(false); void login(); }}><KeyRound size={16} /> {currentUser ? "User" : "Login"}</button>
               {capabilities.supportsCredits ? (
                 <button onClick={() => {
                   setRightCollapsed(false);
-                  setSettingsMessage(`${productLabel} Cloud credits placeholder. Credit balance and checkout are planned, but not wired yet.`);
-                }}><Sparkles size={16} /> Credits</button>
+                  setCreditHistoryOpen(true);
+                  void loadCreditTransactions(25);
+                }}><Sparkles size={16} /> Credit history</button>
               ) : null}
             </>
           ) : null}
@@ -9847,17 +9957,19 @@ function App() {
                 {!currentUser ? <button onClick={() => startProviderLogin("google")}><KeyRound size={16} /> Войти через Google</button> : null}
                 {!currentUser ? <button onClick={() => startProviderLogin("yandex")}><KeyRound size={16} /> Войти через Яндекс</button> : null}
                 {currentUser ? <button onClick={() => void logout()}><Lock size={16} /> Logout</button> : null}
-                {capabilities.supportsCredits ? <button onClick={() => setSettingsMessage(`${productLabel} Cloud credits placeholder. Credit balance and checkout are planned, but not wired yet.`)}><Sparkles size={16} /> Credits</button> : null}
+                {capabilities.supportsCredits ? <button onClick={() => { setCreditHistoryOpen((value) => !value); void loadCreditTransactions(25); }}><Clock3 size={16} /> Credit history</button> : null}
               </div>
               <div className="providerStatus">
                 <span>{currentUser ? `User: ${currentUserLabel}` : "Sign in to save routes and keep generated results."}</span>
                 <span>Balance: {creditBalance ? `${formatCredits(creditBalance.balance)} credits` : "unknown"}</span>
+                {capabilities.supportsCredits && currentUser ? <CreditTransactionMiniList transactions={creditTransactions.slice(0, 5)} /> : null}
                 {showDeveloperDiagnostics ? <span>User ID: {currentUser?.id ?? "none"}</span> : null}
                 {showDeveloperDiagnostics ? <span>Guest demo: {capabilities.supportsGuestDemo ? "available" : "disabled"}</span> : null}
                 {showDeveloperDiagnostics ? <span>Save: {capabilities.authRequiredForSave && !currentUser ? "login required" : "available"}</span> : null}
                 {showDeveloperDiagnostics ? <span>Local filesystem: {capabilities.supportsLocalFilesystem ? "available" : "hidden"}</span> : null}
                 {showDeveloperDiagnostics ? <span>Public sharing: {capabilities.supportsPublicSharing ? "available" : "not wired"}</span> : null}
               </div>
+              {creditHistoryOpen && currentUser ? <CreditHistoryPanel transactions={creditTransactions} onRefresh={() => void loadCreditTransactions(25)} /> : null}
             </div>
           ) : null}
           <div className="providerCard">
@@ -10269,7 +10381,7 @@ function App() {
         ) : null}
 
         <h2>Economics</h2>
-        <EconomicsPanel route={flowToRoute(nodes, edges, routeBase)} runResult={runResult} ledgerSummary={ledgerSummary} runCostEstimate={runCostEstimate} creditBalance={creditBalance} showDeveloperDiagnostics={showDeveloperDiagnostics} isCloudMode={isCloudMode} currentUser={currentUser} />
+        <EconomicsPanel route={flowToRoute(nodes, edges, routeBase)} runResult={runResult} ledgerSummary={ledgerSummary} runCostEstimate={runCostEstimate} creditBalance={creditBalance} creditTransactions={creditTransactions} showDeveloperDiagnostics={showDeveloperDiagnostics} isCloudMode={isCloudMode} currentUser={currentUser} />
         </>
         ) : null}
       </aside>
@@ -10407,12 +10519,50 @@ function App() {
   );
 }
 
+function CreditTransactionMiniList({ transactions }: { transactions: CreditTransaction[] }) {
+  return (
+    <div className="creditMiniList">
+      <strong>Last transactions</strong>
+      {transactions.length > 0 ? transactions.map((transaction) => (
+        <span key={transaction.id}>{creditTransactionLine(transaction)}</span>
+      )) : <span>No credit transactions yet.</span>}
+    </div>
+  );
+}
+
+function CreditHistoryPanel({ transactions, onRefresh }: { transactions: CreditTransaction[]; onRefresh?: () => void }) {
+  return (
+    <div className="creditHistoryPanel">
+      <div className="creditHistoryHeader">
+        <strong>Credit history</strong>
+        {onRefresh ? <button className="nodeSmallButton" type="button" onClick={onRefresh}><RefreshCw size={13} /> Refresh</button> : null}
+      </div>
+      {transactions.length > 0 ? (
+        <div className="creditHistoryRows">
+          {transactions.map((transaction) => (
+            <div className="creditHistoryRow" key={transaction.id}>
+              <span>{formatDateTime(transaction.createdAt)}</span>
+              <strong>{transaction.type}</strong>
+              <span>{formatSignedCredits(transaction.amount)}</span>
+              <span>{transaction.balanceAfter === null || transaction.balanceAfter === undefined ? "-" : `balance ${formatCredits(transaction.balanceAfter)}`}</span>
+              <span>{creditTransactionDetails(transaction)}</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="muted">No credit transactions yet.</p>
+      )}
+    </div>
+  );
+}
+
 function EconomicsPanel({
   route,
   runResult,
   ledgerSummary,
   runCostEstimate,
   creditBalance,
+  creditTransactions,
   showDeveloperDiagnostics,
   isCloudMode,
   currentUser
@@ -10422,6 +10572,7 @@ function EconomicsPanel({
   ledgerSummary: LedgerSummary | null;
   runCostEstimate: RunCostSummary | null;
   creditBalance: { balance: number; currency: string } | null;
+  creditTransactions: CreditTransaction[];
   showDeveloperDiagnostics: boolean;
   isCloudMode: boolean;
   currentUser: CurrentUser | null;
@@ -10457,6 +10608,12 @@ function EconomicsPanel({
       </div>
       {creditBalance && !hasEnoughCredits ? <p className="errorText">Not enough credits for this run.</p> : null}
       {isCloudMode && !currentUser ? <p className="muted">Sign in to save routes and keep generated results.</p> : null}
+      {isCloudMode && currentUser ? (
+        <details className="creditHistoryDetails">
+          <summary>Credit history</summary>
+          <CreditHistoryPanel transactions={creditTransactions} />
+        </details>
+      ) : null}
       <h3>Details</h3>
       {details.length > 0 ? (
         <div className="costDetails">
@@ -10781,6 +10938,314 @@ function DevIdentitySwitcher({ identity, onSwitch }: { identity: "guest" | "user
   );
 }
 
+function AdminUsersBilling({ onRefreshOverview }: { onRefreshOverview: () => void }) {
+  const [users, setUsers] = useState<AdminBillingUser[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedUser, setSelectedUser] = useState<AdminUserCard | null>(null);
+  const [tab, setTab] = useState<"transactions" | "runs" | "provider">("transactions");
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"all" | "user" | "admin">("all");
+  const [sort, setSort] = useState<"createdAt" | "balance">("createdAt");
+  const [message, setMessage] = useState("");
+  const [grantAmount, setGrantAmount] = useState("");
+  const [grantReason, setGrantReason] = useState("");
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+
+  useEffect(() => {
+    void loadUsers();
+  }, []);
+
+  async function loadUsers() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/users`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Admin users unavailable.");
+      setUsers(Array.isArray(result.users) ? result.users : []);
+      setMessage("");
+    } catch (error) {
+      setUsers([]);
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function loadUser(userId: string) {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/users/${encodeURIComponent(userId)}`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "User card unavailable.");
+      setSelectedUser(result as AdminUserCard);
+      setSelectedUserId(userId);
+      setMessage("");
+    } catch (error) {
+      setSelectedUser(null);
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function submitCreditAction(kind: "grant" | "adjust") {
+    const amount = Number(kind === "grant" ? grantAmount : adjustAmount);
+    const reason = (kind === "grant" ? grantReason : adjustReason).trim();
+    if (!selectedUserId || !Number.isInteger(amount) || !reason || (kind === "grant" && amount <= 0) || (kind === "adjust" && amount === 0)) {
+      setMessage(kind === "grant" ? "Grant requires a positive integer amount and reason." : "Adjustment requires a non-zero integer amount and reason.");
+      return;
+    }
+    try {
+      const path = kind === "grant" ? "grant-credits" : "adjust-credits";
+      const response = await apiFetch(`${apiBase}/api/admin/users/${encodeURIComponent(selectedUserId)}/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount, reason })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Credit action failed.");
+      if (kind === "grant") {
+        setGrantAmount("");
+        setGrantReason("");
+      } else {
+        setAdjustAmount("");
+        setAdjustReason("");
+      }
+      setMessage(`Balance updated: ${formatCredits(Number(result.balance ?? 0))} credits.`);
+      await loadUsers();
+      await loadUser(selectedUserId);
+      onRefreshOverview();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const filteredUsers = users
+    .filter((user) => roleFilter === "all" || user.role === roleFilter)
+    .filter((user) => !query.trim() || user.id.toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((left, right) => sort === "balance"
+      ? right.currentBalance - left.currentBalance
+      : new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+
+  return (
+    <section className="adminUsersBilling">
+      <div className="adminSectionHeader">
+        <div>
+          <h3>Users / Credits</h3>
+          <p className="muted">Ledger-backed balances. No email, name, avatar, or raw OAuth subject is shown.</p>
+        </div>
+        <button type="button" onClick={() => void loadUsers()}><RefreshCw size={14} /> Refresh users</button>
+      </div>
+      <div className="adminFilters">
+        <input value={query} placeholder="Search user id" onChange={(event) => setQuery(event.target.value)} />
+        <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as "all" | "user" | "admin")}>
+          <option value="all">All roles</option>
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+        </select>
+        <select value={sort} onChange={(event) => setSort(event.target.value as "createdAt" | "balance")}>
+          <option value="createdAt">Created desc</option>
+          <option value="balance">Balance desc</option>
+        </select>
+      </div>
+      {message ? <p className={message.includes("failed") || message.includes("required") || message.includes("Insufficient") ? "errorText" : "muted"}>{message}</p> : null}
+      <div className="adminUsersGrid">
+        <div className="adminUsersTable">
+          <div className="adminUsersTableHeader">
+            <span>User ID</span><span>Role</span><span>Auth</span><span>Created</span><span>Balance</span><span>Granted</span><span>Spent</span><span>Released</span><span>Active reserved</span><span>Runs</span><span>Last activity</span><span>Actions</span>
+          </div>
+          {filteredUsers.map((user) => (
+            <div className={`adminUsersTableRow ${selectedUserId === user.id ? "selected" : ""}`.trim()} key={user.id} onClick={() => void loadUser(user.id)}>
+              <span title={user.id}>{shortAdminValue(user.id)}</span>
+              <span>{user.role}</span>
+              <span>{adminAuthProviderLabel(user)}</span>
+              <span>{formatDateTime(user.createdAt)}</span>
+              <strong>{formatCredits(user.currentBalance)}</strong>
+              <span>{formatCredits(user.totalGranted)}</span>
+              <span>{formatCredits(user.totalCaptured)}</span>
+              <span>{formatCredits(user.totalReleased + user.totalRefunded)}</span>
+              <span>{formatCredits(user.activeReserved)}</span>
+              <span>{user.runsCount}</span>
+              <span>{user.lastActivityAt ? formatDateTime(user.lastActivityAt) : "-"}</span>
+              <span className="adminInlineActions">
+                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); }}>View</button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); setGrantAmount("100"); }}>Grant</button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); setAdjustAmount("-20"); }}>Adjust</button>
+              </span>
+            </div>
+          ))}
+          {filteredUsers.length === 0 ? <p className="muted">No users match this filter.</p> : null}
+        </div>
+        {selectedUser ? (
+          <div className="adminUserCard">
+            <header>
+              <div>
+                <h3>{selectedUser.id}</h3>
+                <p>{selectedUser.role} / balance {formatCredits(selectedUser.currentBalance)} credits</p>
+              </div>
+            </header>
+            <div className="adminMetricGrid compact">
+              <span>Current balance</span><strong>{formatCredits(selectedUser.currentBalance)}</strong>
+              <span>Total granted</span><strong>{formatCredits(selectedUser.totalGranted)}</strong>
+              <span>Total spent</span><strong>{formatCredits(selectedUser.totalCaptured)}</strong>
+              <span>Total refunded</span><strong>{formatCredits(selectedUser.totalReleased + selectedUser.totalRefunded)}</strong>
+              <span>Runs count</span><strong>{selectedUser.runsCount}</strong>
+              <span>Provider usage</span><strong>{selectedUser.providerUsageCount}</strong>
+            </div>
+            <div className="adminCreditForms">
+              <label><span>Grant credits</span><input value={grantAmount} inputMode="numeric" placeholder="100" onChange={(event) => setGrantAmount(event.target.value)} /></label>
+              <label><span>Reason</span><input value={grantReason} placeholder="Manual admin grant" onChange={(event) => setGrantReason(event.target.value)} /></label>
+              <button type="button" onClick={() => void submitCreditAction("grant")}>Grant credits</button>
+              <label><span>Adjust credits</span><input value={adjustAmount} inputMode="numeric" placeholder="-20" onChange={(event) => setAdjustAmount(event.target.value)} /></label>
+              <label><span>Reason</span><input value={adjustReason} placeholder="Correction reason" onChange={(event) => setAdjustReason(event.target.value)} /></label>
+              <button type="button" onClick={() => void submitCreditAction("adjust")}>Adjust credits</button>
+            </div>
+            <div className="adminTabs">
+              {(["transactions", "runs", "provider"] as const).map((entry) => (
+                <button key={entry} className={tab === entry ? "active" : ""} type="button" onClick={() => setTab(entry)}>{entry === "provider" ? "Provider usage" : entry[0].toUpperCase() + entry.slice(1)}</button>
+              ))}
+            </div>
+            {tab === "transactions" ? <AdminList title="Transactions" rows={selectedUser.recentCreditTransactions} fields={["createdAt", "type", "amount", "reason", "runId", "provider", "operation", "balanceAfter"]} /> : null}
+            {tab === "runs" ? <AdminList title="Runs" rows={selectedUser.recentRuns} fields={["id", "status", "route_id", "created_at"]} /> : null}
+            {tab === "provider" ? <AdminList title="Provider Usage" rows={selectedUser.recentProviderUsage} fields={["provider", "operation", "node_id", "actual_credits", "status", "created_at"]} /> : null}
+          </div>
+        ) : (
+          <div className="adminUserCard empty"><p className="muted">Select a user to view billing history.</p></div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function adminAuthProviderLabel(user: AdminBillingUser): string {
+  const providers = user.authProviders.length ? user.authProviders.join(", ") : "unknown";
+  return user.providerSubjectHashPrefix ? `${providers} / ${user.providerSubjectHashPrefix}` : providers;
+}
+
+function AdminPricing() {
+  const [pricing, setPricing] = useState<PricingBreakdown[]>([]);
+  const [globalMarkupPercent, setGlobalMarkupPercent] = useState("0");
+  const [globalMarkupCredits, setGlobalMarkupCredits] = useState("0");
+  const [minChargeCredits, setMinChargeCredits] = useState("0");
+  const [configSource, setConfigSource] = useState("env_default");
+  const [overrideProvider, setOverrideProvider] = useState("polza");
+  const [overrideOperation, setOverrideOperation] = useState("image.generate");
+  const [overrideModel, setOverrideModel] = useState("");
+  const [overrideNodeType, setOverrideNodeType] = useState("");
+  const [overrideMarkupPercent, setOverrideMarkupPercent] = useState("0");
+  const [overrideMarkupCredits, setOverrideMarkupCredits] = useState("5");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void loadPricing();
+  }, []);
+
+  async function loadPricing() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/pricing/catalog`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Pricing unavailable.");
+      setPricing(Array.isArray(result.pricing) ? result.pricing : []);
+      setGlobalMarkupPercent(String(result.config?.globalMarkupPercent ?? 0));
+      setGlobalMarkupCredits(String(result.config?.globalMarkupCredits ?? 0));
+      setMinChargeCredits(String(result.config?.minChargeCredits ?? 0));
+      setConfigSource(String(result.source ?? "env_default"));
+      setMessage("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function savePricingConfig() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/pricing/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          globalMarkupPercent: Number(globalMarkupPercent),
+          globalMarkupCredits: Number(globalMarkupCredits),
+          minChargeCredits: Number(minChargeCredits),
+          reason: "Admin pricing UI update"
+        })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Pricing config save failed.");
+      setMessage("Pricing config saved in database.");
+      await loadPricing();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function savePricingOverride() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/pricing/overrides`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: overrideProvider.trim() || undefined,
+          operation: overrideOperation.trim() || undefined,
+          model: overrideModel.trim() || undefined,
+          nodeType: overrideNodeType.trim() || undefined,
+          markupPercent: Number(overrideMarkupPercent),
+          markupCredits: Number(overrideMarkupCredits),
+          enabled: true,
+          reason: overrideReason.trim() || "Admin pricing override"
+        })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Pricing override save failed.");
+      setMessage("Pricing override saved in database.");
+      await loadPricing();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <section className="adminUsersBilling adminPricingPanel">
+      <div className="adminSectionHeader">
+        <div>
+          <h3>Pricing</h3>
+          <p className="muted">Credit unit: 1000 credits = $1. Prices are integer credits from provider API cost plus markup. Source: {configSource}.</p>
+        </div>
+        <button type="button" onClick={() => void loadPricing()}><RefreshCw size={14} /> Refresh pricing</button>
+      </div>
+      <div className="adminCreditForms pricingConfig">
+        <label><span>Global markup %</span><input value={globalMarkupPercent} inputMode="decimal" onChange={(event) => setGlobalMarkupPercent(event.target.value)} /></label>
+        <label><span>Global markup credits</span><input value={globalMarkupCredits} inputMode="numeric" onChange={(event) => setGlobalMarkupCredits(event.target.value)} /></label>
+        <label><span>Min charge credits</span><input value={minChargeCredits} inputMode="numeric" onChange={(event) => setMinChargeCredits(event.target.value)} /></label>
+        <button type="button" onClick={() => void savePricingConfig()}>Save pricing</button>
+      </div>
+      <div className="adminCreditForms pricingOverride">
+        <label><span>Provider</span><input value={overrideProvider} onChange={(event) => setOverrideProvider(event.target.value)} /></label>
+        <label><span>Operation</span><input value={overrideOperation} onChange={(event) => setOverrideOperation(event.target.value)} /></label>
+        <label><span>Model</span><input value={overrideModel} placeholder="optional" onChange={(event) => setOverrideModel(event.target.value)} /></label>
+        <label><span>Node type</span><input value={overrideNodeType} placeholder="optional" onChange={(event) => setOverrideNodeType(event.target.value)} /></label>
+        <label><span>Override markup %</span><input value={overrideMarkupPercent} inputMode="decimal" onChange={(event) => setOverrideMarkupPercent(event.target.value)} /></label>
+        <label><span>Override credits</span><input value={overrideMarkupCredits} inputMode="numeric" onChange={(event) => setOverrideMarkupCredits(event.target.value)} /></label>
+        <label><span>Reason</span><input value={overrideReason} placeholder="Why this override changed" onChange={(event) => setOverrideReason(event.target.value)} /></label>
+        <button type="button" onClick={() => void savePricingOverride()}>Save override</button>
+      </div>
+      {message ? <p className={message.includes("failed") || message.includes("unavailable") ? "errorText" : "muted"}>{message}</p> : null}
+      <div className="adminUsersTable pricingTable">
+        <div className="adminUsersTableHeader pricing">
+          <span>Provider</span><span>Operation</span><span>Model</span><span>Base API cost</span><span>Base credits</span><span>Global markup</span><span>Node markup</span><span>Final estimated</span><span>Source</span>
+        </div>
+        {pricing.map((entry) => (
+          <div className="adminUsersTableRow pricing" key={`${entry.provider}-${entry.operation}-${entry.model ?? "*"}`}>
+            <span>{entry.provider ?? "-"}</span>
+            <span>{entry.operation ?? "-"}</span>
+            <span>{entry.model ?? "*"}</span>
+            <span>${formatMicrousd(entry.baseCostMicrousd ?? 0)}</span>
+            <span>{formatCredits(entry.baseCredits ?? 0)}</span>
+            <span>+{formatCredits(entry.globalMarkupPercent ?? 0)}% +{formatCredits(entry.globalMarkupCredits ?? 0)}</span>
+            <span>+{formatCredits(entry.nodeMarkupPercent ?? 0)}% +{formatCredits(entry.nodeMarkupCredits ?? 0)}</span>
+            <strong>{formatCredits(entry.finalCredits ?? 0)}</strong>
+            <span title={entry.notes ?? ""}>{entry.source ?? entry.pricingSource ?? "-"}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function AdminPanel({ overview, message, onRefresh, currentUser, standalone = false }: { overview: AdminOverview | null; message: string; onRefresh: () => void; currentUser?: CurrentUser | null; standalone?: boolean }) {
   return (
     <div className={`${standalone ? "adminDashboardPanel" : "providerCard"} adminPanel`}>
@@ -10794,6 +11259,8 @@ function AdminPanel({ overview, message, onRefresh, currentUser, standalone = fa
       {message ? <p className={message.includes("required") || message.includes("unavailable") ? "errorText" : "muted"}>{message}</p> : null}
       {overview ? (
         <>
+          <AdminPricing />
+          <AdminUsersBilling onRefreshOverview={onRefresh} />
           {currentUser ? (
             <div className="adminMetricGrid">
               <span>Current user id</span><strong>{currentUser.id}</strong>
@@ -10882,6 +11349,95 @@ function formatOutputs(outputs: unknown): string {
 function formatCredits(value: number): string {
   if (!Number.isFinite(value)) return "unlimited";
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function formatSignedCredits(value: number): string {
+  return `${value > 0 ? "+" : ""}${formatCredits(value)} credits`;
+}
+
+function formatMicrousd(value: number): string {
+  if (!Number.isFinite(value)) return "0.000000";
+  return (value / 1_000_000).toFixed(6).replace(/\.?0+$/, "") || "0";
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
+}
+
+function normalizeCreditTransaction(value: unknown): CreditTransaction | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id : `${record.createdAt ?? ""}:${record.type ?? ""}:${record.amount ?? ""}`;
+  const createdAt = typeof record.createdAt === "string" ? record.createdAt : typeof record.created_at === "string" ? record.created_at : "";
+  const type = typeof record.type === "string" ? record.type : typeof record.transactionType === "string" ? record.transactionType : "";
+  const amount = Number(record.amount ?? 0);
+  if (!id || !createdAt || !type || !Number.isFinite(amount)) return null;
+  return {
+    id,
+    createdAt,
+    type,
+    amount,
+    status: typeof record.status === "string" ? record.status : undefined,
+    balanceAfter: typeof record.balanceAfter === "number" ? record.balanceAfter : null,
+    reason: typeof record.reason === "string" ? record.reason : null,
+    runId: typeof record.runId === "string" ? record.runId : null,
+    nodeTitle: typeof record.nodeTitle === "string" ? record.nodeTitle : null,
+    provider: typeof record.provider === "string" ? record.provider : null,
+    maxChargeCredits: typeof record.maxChargeCredits === "number" ? record.maxChargeCredits : null
+  };
+}
+
+function creditTransactionLine(transaction: CreditTransaction): string {
+  const balance = transaction.balanceAfter === null || transaction.balanceAfter === undefined ? "" : ` -> ${formatCredits(transaction.balanceAfter)}`;
+  return `${transaction.type} ${formatSignedCredits(transaction.amount)}${balance}`;
+}
+
+function creditTransactionDetails(transaction: CreditTransaction): string {
+  const details = [
+    transaction.reason,
+    transaction.nodeTitle,
+    transaction.provider,
+    transaction.runId ? `run ${transaction.runId}` : null
+  ].filter((item): item is string => Boolean(item));
+  return details.length ? details.join(" / ") : "-";
+}
+
+function creditPriceExplanation(costEstimate: CostEstimate): string {
+  const provider = costEstimate.provider ?? providerFromNodeType(costEstimate.nodeType) ?? "unknown";
+  const operation = costEstimate.operation ?? operationFromNodeType(costEstimate.nodeType);
+  const breakdown = costEstimate.pricingBreakdown;
+  if (breakdown) {
+    return [
+      `Base API cost: ${formatCredits(breakdown.baseCredits ?? 0)} credits`,
+      `Global markup: +${formatCredits(breakdown.globalMarkupPercent ?? 0)}% +${formatCredits(breakdown.globalMarkupCredits ?? 0)} credits`,
+      `Node markup: +${formatCredits(breakdown.nodeMarkupPercent ?? 0)}% +${formatCredits(breakdown.nodeMarkupCredits ?? 0)} credits`,
+      `Final: ${formatCredits(breakdown.finalCredits ?? costEstimate.estimatedCredits)} credits`,
+      `Source: ${breakdown.pricingSource ?? costEstimate.pricingSource ?? "pricing catalog"}`,
+      `Confidence: ${breakdown.pricingConfidence ?? costEstimate.pricingConfidence ?? "unknown"}`
+    ].join("\n");
+  }
+  return [
+    `provider=${provider}`,
+    `operation=${operation}`,
+    `source=${costEstimate.pricingSource ?? "pricing catalog"}`,
+    `maxChargeCredits=${formatCredits(costEstimate.estimatedCredits)}`
+  ].join("\n");
+}
+
+function providerFromNodeType(nodeType: string): string | null {
+  if (nodeType.startsWith("polza.")) return "polza";
+  if (nodeType.startsWith("replicate.")) return "replicate";
+  if (nodeType.startsWith("gemini.")) return "gemini";
+  return null;
+}
+
+function operationFromNodeType(nodeType: string): string {
+  if (nodeType === "polza.image.generate" || nodeType.includes("image.generate")) return "image.generate";
+  if (nodeType === "polza.video.generate" || nodeType.includes("video.generate")) return "video.generate";
+  if (nodeType.includes("upscaler") || nodeType.includes("upscale")) return "image.upscale";
+  if (nodeType.includes("text") || nodeType.includes("llm")) return "text.generate";
+  return nodeType;
 }
 
 function userFacingCostEstimates(route: RouteDoc, summary: RunCostSummary | null): Array<CostEstimate & { label: string }> {
@@ -11442,21 +11998,56 @@ function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaMod
   });
 }
 
+function videoGenerationModelOptions(openRouterModels: OpenRouterModel[], polzaVideoModels: PolzaModel[], selectedModelId: string): VideoModelOption[] {
+  const polzaOptions = polzaModelOptions(polzaVideoModels.filter(isPolzaVideoGenerationModel), POLZA_VIDEO_MODEL_OPTIONS, selectedModelId)
+    .map((model): VideoModelOption => ({
+      ...model,
+      providerId: "polza",
+      providerLabel: "Polza.ai"
+    }));
+  const byKey = new Map(polzaOptions.map((model) => [`polza:${model.id}`, model]));
+  for (const model of openRouterModels.filter(modelSupportsVideo)) {
+    byKey.set(`openrouter:${model.id}`, {
+      id: model.id,
+      name: model.name,
+      providerId: "openrouter",
+      providerLabel: "OpenRouter",
+      pricing: model.pricing,
+      supported_parameters: model.supported_parameters,
+      architecture: model.architecture
+    });
+  }
+  const hasSelected = [...byKey.values()].some((model) => model.id === selectedModelId);
+  if (selectedModelId && !hasSelected) {
+    const selectedOpenRouterModel = openRouterModels.find((model) => model.id === selectedModelId);
+    byKey.set(`${selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "openrouter" : "polza"}:${selectedModelId}`, {
+      id: selectedModelId,
+      name: selectedOpenRouterModel?.name ?? selectedModelId,
+      providerId: selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "openrouter" : "polza",
+      providerLabel: selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "OpenRouter" : "Polza.ai",
+      pricing: selectedOpenRouterModel?.pricing,
+      supported_parameters: selectedOpenRouterModel?.supported_parameters,
+      architecture: selectedOpenRouterModel?.architecture
+    });
+  }
+  return [...byKey.values()].sort((left, right) => {
+    const leftProvider = left.providerId === "polza" ? 0 : 1;
+    const rightProvider = right.providerId === "polza" ? 0 : 1;
+    return leftProvider - rightProvider || (left.name ?? left.id).localeCompare(right.name ?? right.id);
+  });
+}
+
+function videoModelOptionKey(model: Pick<VideoModelOption, "providerId" | "id">): string {
+  return `${model.providerId}:${model.id}`;
+}
+
 function polzaModelHint(model: PolzaModel | undefined, fallback: string): string {
-  return model?.short_description || modelCostLabel(model?.pricing) || fallback;
+  return model?.short_description || fallback;
 }
 
-function modelCostLabel(pricing: Record<string, unknown> | undefined): string {
-  if (!pricing) return "";
-  const tokenPrice = pricing.input_per_million ?? pricing.prompt ?? pricing.input;
-  const outputPrice = pricing.output_per_million ?? pricing.completion ?? pricing.output;
-  if (tokenPrice !== undefined || outputPrice !== undefined) return `Pricing: input ${rubPricingValue(tokenPrice)} / output ${rubPricingValue(outputPrice)}`;
-  const request = pricing.per_request ?? pricing.image ?? pricing.request;
-  return request !== undefined ? `Pricing: ${rubPricingValue(request)} per request` : "";
-}
-
-function rubPricingValue(value: unknown): string {
-  return typeof value === "string" || typeof value === "number" ? `${value} RUB` : "unknown";
+function videoModelHint(model: VideoModelOption | undefined, fallback: string): string {
+  if (!model) return fallback;
+  return model.short_description || `Video model via ${model.providerLabel}`;
 }
 
 function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], selectedModelId: string): ImageModelOption[] {
@@ -11591,24 +12182,12 @@ function providerFromSlug(slug: string): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
-function openRouterCostLabel(model: OpenRouterModel | undefined): string {
-  if (!model?.pricing) return "Estimated cost: unknown";
-  const prompt = model.pricing.prompt;
-  const completion = model.pricing.completion;
-  if (prompt !== undefined || completion !== undefined) return `Estimated cost: prompt ${pricingValue(prompt)} / completion ${pricingValue(completion)}`;
-  const request = model.pricing.request ?? model.pricing.image;
-  return request !== undefined ? `Estimated cost: ${pricingValue(request)} per request` : "Estimated cost: unknown";
+function openRouterCostLabel(_model: OpenRouterModel | undefined): string {
+  return "";
 }
 
 function imageModelCostLabel(model: ImageModelOption | undefined): string {
-  if (!model?.pricing) return "Estimated cost: unknown unless provider pricing is verified.";
-  const request = model.pricing.image ?? model.pricing.request;
-  if (request !== undefined) return `Estimated image cost: ${pricingValue(request)} per request`;
-  return "Estimated image cost: unknown";
-}
-
-function pricingValue(value: unknown): string {
-  return typeof value === "string" || typeof value === "number" ? `$${value}` : "unknown";
+  return model?.provider ? `Provider: ${model.provider}` : "";
 }
 
 function numericParam(value: string): unknown {

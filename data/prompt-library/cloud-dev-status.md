@@ -6,4 +6,4 @@ Known postponed:
 - UI DOM smoke через Playwright
 - real Google/Yandex auth
 - production deployment
-- payments
+- payments![[README]]
