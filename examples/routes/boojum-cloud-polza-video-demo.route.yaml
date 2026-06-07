@@ -1,0 +1,31 @@
+routeVersion: "0.1"
+route:
+  id: boojum-cloud-polza-video-demo
+  title: Boojum Cloud Polza Video Demo
+  description: Demo-safe Boojum Cloud route for guest video generation.
+  author:
+    name: BoojumRoute Lab
+  license: CC-BY-SA-4.0
+  tags:
+    - boojum
+    - cloud
+    - demo-safe
+economics:
+  enabled: true
+  mode: accounting-only
+nodes:
+  - id: polza_video_generate_1
+    type: polza.video.generate
+    title: Polza Video
+    params:
+      model: wan/2.6
+      prompt: A friendly orange cat looks out of a window as warm sunlight moves across the room, polished product demo style
+      resolution: 720p
+      duration: "5"
+      multi_shots: false
+edges: []
+provenance:
+  createdAt: "2026-06-03T00:00:00.000Z"
+  tool: boojumroute-lab
+  demoSafe: true
+  events: []

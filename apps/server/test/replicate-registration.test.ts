@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 describe("Replicate runner registration", () => {
   it("registers clarity runner even when token is missing", async () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previousAppMode = process.env.APP_MODE;
     const previousToken = process.env.REPLICATE_API_TOKEN;
+    process.env.APP_MODE = "local";
     const { buildServer } = await import("../src/index");
     process.env.REPLICATE_API_TOKEN = "";
     const app = buildServer();
@@ -29,6 +31,8 @@ describe("Replicate runner registration", () => {
       await app.close();
       if (previousToken === undefined) delete process.env.REPLICATE_API_TOKEN;
       else process.env.REPLICATE_API_TOKEN = previousToken;
+      if (previousAppMode === undefined) delete process.env.APP_MODE;
+      else process.env.APP_MODE = previousAppMode;
       delete process.env.SNARKROUTE_NO_LISTEN;
     }
   });
@@ -37,7 +41,9 @@ describe("Replicate runner registration", () => {
 describe("Polza runner registration", () => {
   it("registers Polza runners even when token is missing", async () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previousAppMode = process.env.APP_MODE;
     const previousToken = process.env.POLZA_AI_API_KEY;
+    process.env.APP_MODE = "local";
     const { buildServer } = await import("../src/index");
     process.env.POLZA_AI_API_KEY = "";
     const app = buildServer();
@@ -63,6 +69,8 @@ describe("Polza runner registration", () => {
       await app.close();
       if (previousToken === undefined) delete process.env.POLZA_AI_API_KEY;
       else process.env.POLZA_AI_API_KEY = previousToken;
+      if (previousAppMode === undefined) delete process.env.APP_MODE;
+      else process.env.APP_MODE = previousAppMode;
       delete process.env.SNARKROUTE_NO_LISTEN;
     }
   });

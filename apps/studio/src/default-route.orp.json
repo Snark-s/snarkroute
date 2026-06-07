@@ -19,46 +19,284 @@
   },
   "nodes": [
     {
-      "id": "polza_image_generate_2",
-      "type": "polza.image.generate",
-      "title": "Polza Image",
+      "id": "transform_chooseCameraPoint_3",
+      "type": "transform.chooseCameraPoint",
+      "title": "Выбрать точку камеры",
       "params": {
-        "model": "openai/gpt-5.4-image-2",
-        "prompt": "поверни людей на 30 градусов влево. Лица должны смотреть туда же куда тела. Референсы персонажей приложены",
-        "aspectRatio": "16:9",
-        "imageResolution": "2K",
-        "quality": "high",
-        "outputFormat": "png"
+        "provider": "worldlabs-marble",
+        "model": "marble-1.0-draft",
+        "regenerateWorld": false,
+        "outputMode": "perspective",
+        "resolution": "1024x576",
+        "fov": 70,
+        "cameraPose": {
+          "position": {
+            "x": -7.72,
+            "y": 1.69,
+            "z": -6.49
+          },
+          "rotation": {
+            "yaw": 77.25379771994972,
+            "pitch": 4.7746541211850175,
+            "roll": -4.787445519845337e-15
+          },
+          "fov": 70
+        },
+        "output": {
+          "mode": "perspective",
+          "width": 1024,
+          "height": 576,
+          "panoramaProjection": "equirectangular"
+        },
+        "marbleWorld": {
+          "provider": "worldlabs-marble",
+          "model": null,
+          "generationStatus": "ready",
+          "sourceImageHash": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\runs\\run_1780576922842\\assets\\transform_imageResize_3-resize-1780576923134.png",
+          "operation_id": "94e1ebf9-2eeb-4e3c-92a0-c51acd9f0f83",
+          "operationId": "94e1ebf9-2eeb-4e3c-92a0-c51acd9f0f83",
+          "world_id": "5327241e-50bb-4fd4-a914-79e90d83c8d0",
+          "worldId": "5327241e-50bb-4fd4-a914-79e90d83c8d0",
+          "worldMarbleUrl": "https://marble.worldlabs.ai/world/5327241e-50bb-4fd4-a914-79e90d83c8d0",
+          "createdAt": "2026-06-04T12:42:17.224Z",
+          "operation": {
+            "operation_id": "94e1ebf9-2eeb-4e3c-92a0-c51acd9f0f83",
+            "created_at": "2026-06-04T12:42:14Z",
+            "updated_at": "2026-06-04T12:42:43Z",
+            "expires_at": "2026-06-04T15:42:14Z",
+            "done": true,
+            "error": null,
+            "metadata": {
+              "progress": {
+                "status": "SUCCEEDED",
+                "description": "World generation completed successfully"
+              },
+              "world_id": "5327241e-50bb-4fd4-a914-79e90d83c8d0",
+              "operation_type": "world_generation",
+              "public_model_name": "marble-1.0-draft"
+            },
+            "response": {
+              "world_id": "5327241e-50bb-4fd4-a914-79e90d83c8d0",
+              "display_name": "",
+              "tags": null,
+              "assets": {
+                "mesh": {
+                  "collider_mesh_url": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/9adf7b00.glb"
+                },
+                "imagery": {
+                  "pano_url": null
+                },
+                "splats": {
+                  "spz_urls": {
+                    "500k": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/40e77524-83e7-45ff-bf76-c563b37dc0f0_sand_500k.spz",
+                    "100k": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/8c1cca8e-ab4b-425e-b16b-d953b21fd0eb_sand_100k.spz",
+                    "full_res": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/934aad37-d477-4dd4-8044-073b0c017ddc_sand.spz"
+                  },
+                  "semantics_metadata": null
+                },
+                "thumbnail_url": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/b743187b-e92c-4378-afb5-71177c4317f4_sand_mpi/thumbnail.webp",
+                "caption": "The scene is a vibrant and realistic depiction of a coastal sunrise, rendered with exceptional detail that captures the serene beauty of the natural landscape and architectural elements. The overall tone is tranquil and inspiring, evoking a sense of peacefulness and natural grandeur. A well-trodden dirt path winds along the rugged coastline, guiding the viewer through fields of purple and pink wildflowers that carpet the rocky terrain. The path originates from a higher vantage point, descending gently towards the iconic white lighthouse, which stands prominently on a rocky promontory overlooking the ocean. This lighthouse, with its distinctive red-roofed keeper's house, is a central feature of the landscape, its beacon a warm glow against the early morning sky. The sun, a brilliant orb of orange and yellow, is just beginning its ascent over the expansive ocean, casting long, shimmering reflections across the water's surface, creating a path of light that extends towards the horizon. In the distance, a small, dark island interrupts the smooth expanse of the ocean, adding depth to the seascape. The sky above is a canvas of soft blues, oranges, and pinks, with wispy clouds painted in streaks across the horizon, illuminated by the rising sun. The rocky coastline extends further, showing more wild blooms, creating a continuous natural landscape. The ocean stretches far beyond the visible horizon, its surface calm and reflecting the hues of the dawn. The path continues its gentle curve, leading away from the lighthouse and deeper into the coastal flora, suggesting an extended trail along the rugged shore. The 360 scene is faultless."
+              },
+              "created_at": null,
+              "updated_at": null,
+              "permission": {
+                "public": false,
+                "allowed_readers": [],
+                "allowed_writers": [],
+                "allow_id_access": false
+              },
+              "world_prompt": null,
+              "world_marble_url": "https://marble.worldlabs.ai/world/5327241e-50bb-4fd4-a914-79e90d83c8d0",
+              "model": null
+            },
+            "cost": {
+              "total_credits": 150,
+              "line_items": [
+                {
+                  "name": "Pano generation (image, pano)",
+                  "credits": 0
+                },
+                {
+                  "name": "Draft world generation",
+                  "credits": 150
+                }
+              ]
+            }
+          },
+          "display_name": "",
+          "tags": null,
+          "assets": {
+            "mesh": {
+              "collider_mesh_url": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/9adf7b00.glb"
+            },
+            "imagery": {
+              "pano_url": null
+            },
+            "splats": {
+              "spz_urls": {
+                "500k": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/40e77524-83e7-45ff-bf76-c563b37dc0f0_sand_500k.spz",
+                "100k": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/8c1cca8e-ab4b-425e-b16b-d953b21fd0eb_sand_100k.spz",
+                "full_res": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/934aad37-d477-4dd4-8044-073b0c017ddc_sand.spz"
+              },
+              "semantics_metadata": null
+            },
+            "thumbnail_url": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/b743187b-e92c-4378-afb5-71177c4317f4_sand_mpi/thumbnail.webp",
+            "caption": "The scene is a vibrant and realistic depiction of a coastal sunrise, rendered with exceptional detail that captures the serene beauty of the natural landscape and architectural elements. The overall tone is tranquil and inspiring, evoking a sense of peacefulness and natural grandeur. A well-trodden dirt path winds along the rugged coastline, guiding the viewer through fields of purple and pink wildflowers that carpet the rocky terrain. The path originates from a higher vantage point, descending gently towards the iconic white lighthouse, which stands prominently on a rocky promontory overlooking the ocean. This lighthouse, with its distinctive red-roofed keeper's house, is a central feature of the landscape, its beacon a warm glow against the early morning sky. The sun, a brilliant orb of orange and yellow, is just beginning its ascent over the expansive ocean, casting long, shimmering reflections across the water's surface, creating a path of light that extends towards the horizon. In the distance, a small, dark island interrupts the smooth expanse of the ocean, adding depth to the seascape. The sky above is a canvas of soft blues, oranges, and pinks, with wispy clouds painted in streaks across the horizon, illuminated by the rising sun. The rocky coastline extends further, showing more wild blooms, creating a continuous natural landscape. The ocean stretches far beyond the visible horizon, its surface calm and reflecting the hues of the dawn. The path continues its gentle curve, leading away from the lighthouse and deeper into the coastal flora, suggesting an extended trail along the rugged shore. The 360 scene is faultless."
+          },
+          "created_at": null,
+          "updated_at": null,
+          "permission": {
+            "public": false,
+            "allowed_readers": [],
+            "allowed_writers": [],
+            "allow_id_access": false
+          },
+          "world_prompt": null,
+          "world_marble_url": "https://marble.worldlabs.ai/world/5327241e-50bb-4fd4-a914-79e90d83c8d0"
+        },
+        "pinnedMarbleWorld": {
+          "provider": "worldlabs-marble",
+          "model": null,
+          "generationStatus": "ready",
+          "sourceImageHash": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\runs\\run_1780576922842\\assets\\transform_imageResize_3-resize-1780576923134.png",
+          "operation_id": "94e1ebf9-2eeb-4e3c-92a0-c51acd9f0f83",
+          "operationId": "94e1ebf9-2eeb-4e3c-92a0-c51acd9f0f83",
+          "world_id": "5327241e-50bb-4fd4-a914-79e90d83c8d0",
+          "worldId": "5327241e-50bb-4fd4-a914-79e90d83c8d0",
+          "worldMarbleUrl": "https://marble.worldlabs.ai/world/5327241e-50bb-4fd4-a914-79e90d83c8d0",
+          "createdAt": "2026-06-04T12:42:17.224Z",
+          "operation": {
+            "operation_id": "94e1ebf9-2eeb-4e3c-92a0-c51acd9f0f83",
+            "created_at": "2026-06-04T12:42:14Z",
+            "updated_at": "2026-06-04T12:42:43Z",
+            "expires_at": "2026-06-04T15:42:14Z",
+            "done": true,
+            "error": null,
+            "metadata": {
+              "progress": {
+                "status": "SUCCEEDED",
+                "description": "World generation completed successfully"
+              },
+              "world_id": "5327241e-50bb-4fd4-a914-79e90d83c8d0",
+              "operation_type": "world_generation",
+              "public_model_name": "marble-1.0-draft"
+            },
+            "response": {
+              "world_id": "5327241e-50bb-4fd4-a914-79e90d83c8d0",
+              "display_name": "",
+              "tags": null,
+              "assets": {
+                "mesh": {
+                  "collider_mesh_url": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/9adf7b00.glb"
+                },
+                "imagery": {
+                  "pano_url": null
+                },
+                "splats": {
+                  "spz_urls": {
+                    "500k": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/40e77524-83e7-45ff-bf76-c563b37dc0f0_sand_500k.spz",
+                    "100k": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/8c1cca8e-ab4b-425e-b16b-d953b21fd0eb_sand_100k.spz",
+                    "full_res": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/934aad37-d477-4dd4-8044-073b0c017ddc_sand.spz"
+                  },
+                  "semantics_metadata": null
+                },
+                "thumbnail_url": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/b743187b-e92c-4378-afb5-71177c4317f4_sand_mpi/thumbnail.webp",
+                "caption": "The scene is a vibrant and realistic depiction of a coastal sunrise, rendered with exceptional detail that captures the serene beauty of the natural landscape and architectural elements. The overall tone is tranquil and inspiring, evoking a sense of peacefulness and natural grandeur. A well-trodden dirt path winds along the rugged coastline, guiding the viewer through fields of purple and pink wildflowers that carpet the rocky terrain. The path originates from a higher vantage point, descending gently towards the iconic white lighthouse, which stands prominently on a rocky promontory overlooking the ocean. This lighthouse, with its distinctive red-roofed keeper's house, is a central feature of the landscape, its beacon a warm glow against the early morning sky. The sun, a brilliant orb of orange and yellow, is just beginning its ascent over the expansive ocean, casting long, shimmering reflections across the water's surface, creating a path of light that extends towards the horizon. In the distance, a small, dark island interrupts the smooth expanse of the ocean, adding depth to the seascape. The sky above is a canvas of soft blues, oranges, and pinks, with wispy clouds painted in streaks across the horizon, illuminated by the rising sun. The rocky coastline extends further, showing more wild blooms, creating a continuous natural landscape. The ocean stretches far beyond the visible horizon, its surface calm and reflecting the hues of the dawn. The path continues its gentle curve, leading away from the lighthouse and deeper into the coastal flora, suggesting an extended trail along the rugged shore. The 360 scene is faultless."
+              },
+              "created_at": null,
+              "updated_at": null,
+              "permission": {
+                "public": false,
+                "allowed_readers": [],
+                "allowed_writers": [],
+                "allow_id_access": false
+              },
+              "world_prompt": null,
+              "world_marble_url": "https://marble.worldlabs.ai/world/5327241e-50bb-4fd4-a914-79e90d83c8d0",
+              "model": null
+            },
+            "cost": {
+              "total_credits": 150,
+              "line_items": [
+                {
+                  "name": "Pano generation (image, pano)",
+                  "credits": 0
+                },
+                {
+                  "name": "Draft world generation",
+                  "credits": 150
+                }
+              ]
+            }
+          },
+          "display_name": "",
+          "tags": null,
+          "assets": {
+            "mesh": {
+              "collider_mesh_url": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/9adf7b00.glb"
+            },
+            "imagery": {
+              "pano_url": null
+            },
+            "splats": {
+              "spz_urls": {
+                "500k": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/40e77524-83e7-45ff-bf76-c563b37dc0f0_sand_500k.spz",
+                "100k": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/8c1cca8e-ab4b-425e-b16b-d953b21fd0eb_sand_100k.spz",
+                "full_res": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/934aad37-d477-4dd4-8044-073b0c017ddc_sand.spz"
+              },
+              "semantics_metadata": null
+            },
+            "thumbnail_url": "https://cdn.marble.worldlabs.ai/5327241e-50bb-4fd4-a914-79e90d83c8d0/b743187b-e92c-4378-afb5-71177c4317f4_sand_mpi/thumbnail.webp",
+            "caption": "The scene is a vibrant and realistic depiction of a coastal sunrise, rendered with exceptional detail that captures the serene beauty of the natural landscape and architectural elements. The overall tone is tranquil and inspiring, evoking a sense of peacefulness and natural grandeur. A well-trodden dirt path winds along the rugged coastline, guiding the viewer through fields of purple and pink wildflowers that carpet the rocky terrain. The path originates from a higher vantage point, descending gently towards the iconic white lighthouse, which stands prominently on a rocky promontory overlooking the ocean. This lighthouse, with its distinctive red-roofed keeper's house, is a central feature of the landscape, its beacon a warm glow against the early morning sky. The sun, a brilliant orb of orange and yellow, is just beginning its ascent over the expansive ocean, casting long, shimmering reflections across the water's surface, creating a path of light that extends towards the horizon. In the distance, a small, dark island interrupts the smooth expanse of the ocean, adding depth to the seascape. The sky above is a canvas of soft blues, oranges, and pinks, with wispy clouds painted in streaks across the horizon, illuminated by the rising sun. The rocky coastline extends further, showing more wild blooms, creating a continuous natural landscape. The ocean stretches far beyond the visible horizon, its surface calm and reflecting the hues of the dawn. The path continues its gentle curve, leading away from the lighthouse and deeper into the coastal flora, suggesting an extended trail along the rugged shore. The 360 scene is faultless."
+          },
+          "created_at": null,
+          "updated_at": null,
+          "permission": {
+            "public": false,
+            "allowed_readers": [],
+            "allowed_writers": [],
+            "allow_id_access": false
+          },
+          "world_prompt": null,
+          "world_marble_url": "https://marble.worldlabs.ai/world/5327241e-50bb-4fd4-a914-79e90d83c8d0"
+        },
+        "pinnedMarbleWorldAt": "2026-06-04T21:15:48.934Z",
+        "renderedImage": {
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1780608228325-choose-camera-splat-view.png",
+          "filename": "1780608228325-choose-camera-splat-view.png",
+          "mimeType": "image/png",
+          "sizeBytes": 35532,
+          "width": 136,
+          "height": 108
+        },
+        "outputImage": {
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1780608228325-choose-camera-splat-view.png",
+          "filename": "1780608228325-choose-camera-splat-view.png",
+          "mimeType": "image/png",
+          "sizeBytes": 35532,
+          "width": 136,
+          "height": 108
+        },
+        "renderedPanorama": {
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1780608228342-choose-camera-splat-panorama.png",
+          "filename": "1780608228342-choose-camera-splat-panorama.png",
+          "mimeType": "image/png",
+          "sizeBytes": 1065640,
+          "width": 1024,
+          "height": 512
+        },
+        "panoramaImage": {
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1780608228342-choose-camera-splat-panorama.png",
+          "filename": "1780608228342-choose-camera-splat-panorama.png",
+          "mimeType": "image/png",
+          "sizeBytes": 1065640,
+          "width": 1024,
+          "height": 512
+        }
       },
       "ui": {
-        "x": 138.78270532100663,
-        "y": 223.91935766968192
-      }
-    },
-    {
-      "id": "input_image_3",
-      "type": "input.image",
-      "title": "Input Image",
-      "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779393230313-t_7edfc5c2b4f1ec70.png"
-      },
-      "ui": {
-        "x": -283.7876120078995,
-        "y": 259.2065514520508,
-        "collapsed": true
-      }
-    },
-    {
-      "id": "input_image_3_2",
-      "type": "input.image",
-      "title": "Input Image",
-      "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779395154839-девочка.png"
-      },
-      "ui": {
-        "x": -289.63114280639763,
-        "y": 353.35474496456703,
-        "collapsed": true
+        "x": 364.38372967359817,
+        "y": 291.34262035820547
       }
     },
     {
@@ -66,40 +304,112 @@
       "type": "input.image",
       "title": "Input Image",
       "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779395791131-image.png"
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1780521606791-360.png"
       },
       "ui": {
-        "collapsed": true,
-        "x": -322.34172465023437,
-        "y": 456.4282462424886
+        "x": -178.31106064898705,
+        "y": 200.6938393805737,
+        "paramsCollapsed": true
+      }
+    },
+    {
+      "id": "preview_image_5",
+      "type": "preview.image",
+      "title": "Image Preview",
+      "params": {},
+      "ui": {
+        "x": 739.0058528138583,
+        "y": 548.6454888577006
+      }
+    },
+    {
+      "id": "polza_image_generate_7",
+      "type": "polza.image.generate",
+      "title": "Polza Image",
+      "params": {
+        "model": "openai/gpt-5.4-image-2",
+        "prompt": "Перерисуй начисто 360 панораму 2 исправив все ошибки и сделай ее в стилистике 360 панорамы 1",
+        "aspectRatio": "16:9",
+        "imageResolution": "1K",
+        "quality": "high",
+        "outputFormat": "png"
+      },
+      "ui": {
+        "x": 1111.8230336228494,
+        "y": 221.10343827439232
+      }
+    },
+    {
+      "id": "preview_panorama360_8",
+      "type": "preview.panorama360",
+      "title": "360 Panorama Viewer",
+      "params": {
+        "fov": 55
+      },
+      "ui": {
+        "x": 1502.1522894665638,
+        "y": 508.64525805840464
+      }
+    },
+    {
+      "id": "preview_panorama360_9",
+      "type": "preview.panorama360",
+      "title": "360 Panorama Viewer",
+      "params": {
+        "fov": 55
+      },
+      "ui": {
+        "x": 1501.071369459671,
+        "y": 121.08213027365497
       }
     }
   ],
   "edges": [
     {
-      "id": "xy-edge__input_image_3image-polza_image_generate_2images",
-      "from": "input_image_3",
-      "to": "polza_image_generate_2",
+      "id": "xy-edge__transform_chooseCameraPoint_3panorama-preview_image_5image",
+      "from": "transform_chooseCameraPoint_3",
+      "to": "preview_image_5",
+      "fromPort": "panorama",
+      "toPort": "image"
+    },
+    {
+      "id": "xy-edge__transform_chooseCameraPoint_3view-polza_image_generate_7images",
+      "from": "transform_chooseCameraPoint_3",
+      "to": "polza_image_generate_7",
+      "fromPort": "view",
+      "toPort": "images"
+    },
+    {
+      "id": "xy-edge__preview_image_5image-polza_image_generate_7images",
+      "from": "preview_image_5",
+      "to": "polza_image_generate_7",
       "fromPort": "image",
       "toPort": "images"
     },
     {
-      "id": "xy-edge__input_image_3_2image-polza_image_generate_2images",
-      "from": "input_image_3_2",
-      "to": "polza_image_generate_2",
+      "id": "xy-edge__polza_image_generate_7image-preview_panorama360_8image",
+      "from": "polza_image_generate_7",
+      "to": "preview_panorama360_8",
       "fromPort": "image",
-      "toPort": "images"
+      "toPort": "image"
     },
     {
-      "id": "xy-edge__input_image_4image-polza_image_generate_2images",
+      "id": "xy-edge__input_image_4image-preview_panorama360_9image",
       "from": "input_image_4",
-      "to": "polza_image_generate_2",
+      "to": "preview_panorama360_9",
       "fromPort": "image",
-      "toPort": "images"
+      "toPort": "image"
+    },
+    {
+      "id": "xy-edge__input_image_4image-transform_chooseCameraPoint_3image",
+      "from": "input_image_4",
+      "to": "transform_chooseCameraPoint_3",
+      "fromPort": "image",
+      "toPort": "image"
     }
   ],
   "provenance": {
-    "updatedAt": "2026-05-21T20:49:49.068Z",
+    "updatedAt": "2026-06-05T20:16:56.392Z",
     "tool": "snarkroute-studio"
   }
 }

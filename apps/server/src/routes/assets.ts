@@ -16,9 +16,9 @@ app.get<{ Querystring: { path?: string; kind?: LocalAssetKind } }>("/api/assets/
   }
 });
 
-app.get<{ Querystring: { path?: string } }>("/api/assets/preview", async (request, reply) => {
+app.get<{ Querystring: { path?: string; kind?: LocalAssetKind } }>("/api/assets/preview", async (request, reply) => {
   try {
-    const metadata = await getLocalAssetMetadata(request.query.path ?? "", "image");
+    const metadata = await getLocalAssetMetadata(request.query.path ?? "", request.query.kind ?? "image");
     reply.header("Content-Type", metadata.mimeType);
     return reply.send(createReadStream(metadata.path));
   } catch (error) {

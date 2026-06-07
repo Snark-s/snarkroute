@@ -2,6 +2,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { readPngTextChunk, writePngTextChunk } from "@snarkroute/nodes";
 
 describe("prompt library API", () => {
   afterEach(() => {
@@ -37,7 +38,7 @@ describe("prompt library API", () => {
     }
   });
 
-  it("creates generated image prompt assets as markdown with a sibling preview", async () => {
+  it("creates generated image prompt assets as embedded prompt PNGs by default", async () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
     const directory = join(tmpdir(), `sr-server-prompt-asset-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     await mkdir(directory, { recursive: true });
@@ -63,15 +64,23 @@ describe("prompt library API", () => {
         }
       });
       expect(created.statusCode).toBe(200);
-      const promptPath = join(directory, "image-generation", "crystal-forest.prompt.md");
-      const previewPath = join(directory, "image-generation", "crystal-forest.preview.png");
-      await access(previewPath);
-      const text = await readFile(promptPath, "utf8");
-      expect(text).toContain("status: candidate");
-      expect(text).toContain("previewImage: crystal-forest.preview.png");
-      expect(text).toContain("type: generated-image");
-      expect(text).toContain("A crystal forest at sunrise.");
-      expect(created.json().library.categories[0].prompts[0]).toMatchObject({ id: "crystal-forest", status: "candidate", text: "A crystal forest at sunrise." });
+      const promptPath = join(directory, "image-generation", "crystal-forest.prompt.png");
+      await access(promptPath);
+      await expect(access(join(directory, "image-generation", "crystal-forest.prompt.md"))).rejects.toThrow();
+      await expect(access(join(directory, "image-generation", "crystal-forest.preview.png"))).rejects.toThrow();
+      const metadata = JSON.parse(readPngTextChunk(await readFile(promptPath), "snarkroute:prompt") ?? "{}");
+      expect(metadata).toMatchObject({
+        id: "crystal-forest",
+        status: "candidate",
+        prompt: "A crystal forest at sunrise.",
+        source: { type: "generated-image", runId: "run-1", routeId: "route-1", nodeId: "node-1", outputId: "image" }
+      });
+      expect(created.json().library.categories[0].prompts[0]).toMatchObject({
+        id: "crystal-forest",
+        status: "candidate",
+        text: "A crystal forest at sunrise.",
+        previewImage: "crystal-forest.prompt.png"
+      });
 
       const duplicate = await app.inject({
         method: "POST",
@@ -86,6 +95,41 @@ describe("prompt library API", () => {
       });
       expect(duplicate.statusCode).toBe(400);
       expect(duplicate.json().error).toContain("already exists");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("can create generated image prompt assets as canonical embedded prompt PNGs", async () => {
+    process.env.SNARKROUTE_NO_LISTEN = "1";
+    const directory = join(tmpdir(), `sr-server-prompt-png-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    await mkdir(directory, { recursive: true });
+    process.env.SNARKROUTE_PROMPT_LIBRARY_PATH = directory;
+
+    const { buildServer } = await import("../src/index");
+    const app = buildServer();
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/prompt-library/generated-image",
+        payload: {
+          title: "Embedded Forest",
+          slug: "embedded-forest",
+          category: "image-generation",
+          prompt: "A forest carried inside PNG metadata.",
+          negativePrompt: "blur",
+          assetFormat: "png",
+          imageDataBase64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        }
+      });
+      expect(created.statusCode).toBe(200);
+      expect(created.json().promptPath).toContain("embedded-forest.prompt.png");
+      expect(created.json().library.categories[0].prompts[0]).toMatchObject({
+        title: "Embedded Forest",
+        text: "A forest carried inside PNG metadata.",
+        negativePrompt: "blur",
+        previewImage: "embedded-forest.prompt.png"
+      });
     } finally {
       await app.close();
     }
@@ -116,6 +160,45 @@ describe("prompt library API", () => {
       expect(text).toContain("category: published");
       expect(text).toContain("status: approved");
       expect(updated.json().library.categories[0].prompts[0]).toMatchObject({ id: "demo", category: "published", status: "approved" });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("updates embedded prompt PNG status and category without splitting metadata into a sidecar", async () => {
+    process.env.SNARKROUTE_NO_LISTEN = "1";
+    const directory = join(tmpdir(), `sr-server-prompt-png-move-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    await mkdir(join(directory, "drafts"), { recursive: true });
+    process.env.SNARKROUTE_PROMPT_LIBRARY_PATH = directory;
+    const png = writePngTextChunk(
+      Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=", "base64"),
+      "snarkroute:prompt",
+      JSON.stringify({
+        schema: "snarkroute.prompt-image.v0",
+        id: "demo",
+        title: "Demo",
+        category: "drafts",
+        status: "draft",
+        prompt: "Prompt body."
+      })
+    );
+    await writeFile(join(directory, "drafts", "demo.prompt.png"), png);
+
+    const { buildServer } = await import("../src/index");
+    const app = buildServer();
+    try {
+      const updated = await app.inject({
+        method: "PATCH",
+        url: "/api/prompt-library/drafts/demo",
+        payload: { status: "approved", category: "published" }
+      });
+      expect(updated.statusCode).toBe(200);
+      const movedPath = join(directory, "published", "demo.prompt.png");
+      const metadata = JSON.parse(readPngTextChunk(await readFile(movedPath), "snarkroute:prompt") ?? "{}");
+      expect(metadata).toMatchObject({ category: "published", status: "approved", prompt: "Prompt body." });
+      await expect(access(join(directory, "published", "demo.prompt.md"))).rejects.toThrow();
+      await expect(access(join(directory, "published", "demo.preview.png"))).rejects.toThrow();
+      expect(updated.json().library.categories[0].prompts[0]).toMatchObject({ id: "demo", category: "published", status: "approved", previewImage: "demo.prompt.png" });
     } finally {
       await app.close();
     }

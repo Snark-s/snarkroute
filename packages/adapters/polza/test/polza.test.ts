@@ -2,7 +2,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildImageRequestBody, buildMediaImageRequestBody, createPolzaImageNodeRunner, createPolzaTextNodeRunner, estimatePolzaPricingQuote, estimatePolzaPricingQuoteFromCatalog, polzaPricingCatalogFromModels, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "../src/index";
+import { buildImageRequestBody, buildMediaImageRequestBody, buildMediaVideoRequestBody, createPolzaImageNodeRunner, createPolzaTextNodeRunner, createPolzaVideoNodeRunner, estimatePolzaPricingQuote, estimatePolzaPricingQuoteFromCatalog, polzaPricingCatalogFromModels, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "../src/index";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -43,6 +43,27 @@ describe("Polza adapter", () => {
     });
   });
 
+  it("builds Wan video payload with video-specific parameters", () => {
+    expect(buildMediaVideoRequestBody("wan/2.6", "pan across the skyline", { resolution: "1080p", duration: "10", multi_shots: "true", generate_audio: true }, [
+      { type: "base64", data: "data:image/png;base64,aaa" },
+      { type: "url", data: "https://cdn.polza.ai/reference.png" }
+    ])).toMatchObject({
+      model: "wan/2.6",
+      input: {
+        prompt: "pan across the skyline",
+        resolution: "1080p",
+        duration: "10",
+        images: [
+          { type: "base64", data: "data:image/png;base64,aaa" },
+          { type: "url", data: "https://cdn.polza.ai/reference.png" }
+        ],
+        generate_audio: true,
+        multi_shots: "true"
+      },
+      async: true
+    });
+  });
+
   it("catalog pricing returns a Polza image quote", () => {
     expect(estimatePolzaPricingQuote({
       provider: "polza",
@@ -66,7 +87,7 @@ describe("Polza adapter", () => {
   it("refreshes Polza pricing catalog when model catalog contains pricing", async () => {
     const directory = await mkdtemp(join(tmpdir(), "sr-polza-pricing-"));
     const cachePath = join(directory, "polza.json");
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ id: "openai/gpt-4o", pricing: { prompt: "0.1", completion: "0.2", currency: "RUB" } }] }));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ id: "openai/gpt-4o", top_provider: { pricing: { prompt: "0.1", completion: "0.2", currency: "RUB" } } }] }));
     const catalog = await refreshPolzaPricingCatalog({ apiKey: "pza-test", fetchImpl, cachePath, type: "chat" });
     expect(catalog.models["openai/gpt-4o"].pricing).toMatchObject({ prompt: "0.1" });
     expect(await readPolzaPricingCatalogCache(cachePath)).toMatchObject({ provider: "polza", source: "polza_models_catalog" });
@@ -343,5 +364,47 @@ describe("Polza adapter", () => {
       originalUrl: "https://cdn.polza.ai/out.png",
       status: "succeeded"
     });
+  });
+
+  it("generates a video through Polza media and writes the returned asset", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-video-"));
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ data: { url: "https://cdn.polza.ai/out.mp4" }, status: "completed" }))
+      .mockResolvedValueOnce(new Response(Buffer.from("video"), { status: 200, headers: { "content-type": "video/mp4" } }));
+    const runner = createPolzaVideoNodeRunner({ apiKey: "pza-test", fetchImpl });
+
+    const result = await runner({
+      node: { id: "video", type: "polza.video.generate", params: {} },
+      params: { model: "wan/2.6", prompt: "move slowly", resolution: "1080p", duration: "10" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://polza.ai/api/v1/media", expect.objectContaining({
+      body: expect.stringContaining("\"resolution\":\"1080p\"")
+    }));
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://polza.ai/api/v1/media", expect.objectContaining({
+      body: expect.stringContaining("\"duration\":\"10\"")
+    }));
+    expect(result.output).toMatchObject({ provider: "polza", video: { mimeType: "video/mp4", sizeBytes: 5 } });
+  });
+
+  it("polls a video generation when Polza returns its pending job token as text", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-video-pending-"));
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ data: "pending (gen_2170492913)" }))
+      .mockResolvedValueOnce(jsonResponse({ status: "completed", data: { url: "https://cdn.polza.ai/out.mp4" } }))
+      .mockResolvedValueOnce(new Response(Buffer.from("video"), { status: 200, headers: { "content-type": "video/mp4" } }));
+    const runner = createPolzaVideoNodeRunner({ apiKey: "pza-test", fetchImpl, mediaPollIntervalMs: 1 });
+
+    const result = await runner({
+      node: { id: "video", type: "polza.video.generate", params: {} },
+      params: { model: "wan/2.6", prompt: "fly through a doorway" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, "https://polza.ai/api/v1/media/gen_2170492913", expect.any(Object));
+    expect(result.output).toMatchObject({ video: { mimeType: "video/mp4", sizeBytes: 5 } });
   });
 });

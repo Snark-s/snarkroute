@@ -10,6 +10,7 @@ import {
   addEdge,
   useEdgesState,
   useNodesState,
+  useUpdateNodeInternals,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -40,7 +41,7 @@ import {
   type ModelProfile,
   type OpenRoute
 } from "@snarkroute/protocol";
-import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -55,6 +56,7 @@ import {
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
 import { studioDocs, type StudioDocEntry } from "./docsRegistry";
 import { MarkdownDocument } from "./MarkdownDocument";
+import { modelLogoFor, type ModelLogo } from "./modelLogos";
 import {
   availableCanvasThemes,
   loadCanvasBackgroundTheme,
@@ -63,6 +65,8 @@ import {
 } from "./canvasBackground";
 
 const STUDIO_FAVICON_HREF = "/boojumroute-icon.png";
+const apiFetch = (input: RequestInfo | URL, init: RequestInit = {}) => fetch(input, { credentials: "include", ...init });
+const isProductionBuild = import.meta.env.PROD;
 
 type CompoundPortMapping = {
   id: string;
@@ -124,8 +128,94 @@ type NodeRunResult = {
   output?: unknown;
   error?: string;
   logs?: string[];
+  costEstimate?: CostEstimate;
+  actualUsage?: ActualUsage;
+  actualCredits?: number;
+  actualProviderCostAmount?: number | null;
+  usageSource?: "provider" | "estimated" | "unknown";
   startedAt?: string;
   completedAt?: string;
+};
+
+type ActualUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  imageCount?: number;
+  videoSeconds?: number;
+  requestCount?: number;
+};
+
+type CostEstimate = {
+  nodeId: string;
+  nodeType: string;
+  estimatedCredits: number;
+  estimatedProviderCostAmount: number | null;
+  providerCostCurrency: string | null;
+  usageUnits: ActualUsage;
+  provider?: string;
+  model?: string;
+  operation?: string;
+  free?: boolean;
+  baseCostMicrousd?: number;
+  baseCredits?: number;
+  globalMarkupPercent?: number;
+  globalMarkupCredits?: number;
+  nodeMarkupPercent?: number;
+  nodeMarkupCredits?: number;
+  markupCredits?: number;
+  finalCredits?: number;
+  maxChargeCredits?: number;
+  pricingSource?: string;
+  pricingConfidence?: string;
+  pricingBreakdown?: PricingBreakdown;
+  usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate";
+};
+
+type PricingBreakdown = {
+  nodeId: string;
+  title?: string;
+  nodeType?: string;
+  provider?: string;
+  operation?: string;
+  model?: string;
+  free?: boolean;
+  providerCostMicrousd?: number;
+  baseCostMicrousd?: number;
+  baseCredits?: number;
+  globalMarkupPercent?: number;
+  globalMarkupCredits?: number;
+  nodeMarkupPercent?: number;
+  nodeMarkupCredits?: number;
+  markupCredits?: number;
+  finalCredits?: number;
+  maxChargeCredits?: number;
+  pricingSource?: string;
+  pricingConfidence?: string;
+  source?: string;
+  notes?: string;
+};
+
+type RunCostSummary = {
+  estimates: CostEstimate[];
+  actuals: Array<CostEstimate & { actualCredits: number; actualProviderCostAmount: number | null }>;
+  totalEstimatedCredits: number;
+  totalActualCredits: number;
+  refundedCredits: number;
+  nodes?: PricingBreakdown[];
+};
+
+type CreditTransaction = {
+  id: string;
+  createdAt: string;
+  type: "grant" | "reserve" | "capture" | "release" | "refund" | "adjustment" | "demo_grant" | "expired" | "purchase_placeholder" | string;
+  amount: number;
+  status?: string;
+  balanceAfter?: number | null;
+  reason?: string | null;
+  runId?: string | null;
+  nodeTitle?: string | null;
+  provider?: string | null;
+  maxChargeCredits?: number | null;
 };
 
 type RunDisplayResult = {
@@ -136,6 +226,7 @@ type RunDisplayResult = {
   nodeResults?: Record<string, NodeRunResult>;
   logs?: Array<{ timestamp?: string; nodeId?: string; message: string }>;
   economics?: unknown;
+  costSummary?: RunCostSummary;
   error?: string;
 };
 
@@ -145,7 +236,7 @@ type FixNodeOutputOptions = {
 };
 
 type RunStreamEvent =
-  | { type: "runStarted"; runId?: string; startedAt?: string }
+  | { type: "runStarted"; runId?: string; startedAt?: string; estimate?: RunCostSummary }
   | { type: "nodeResult"; nodeResult?: NodeRunResult & { nodeId?: string } }
   | { type: "runCompleted"; result?: RunDisplayResult }
   | { type: "runFailed"; error?: string };
@@ -201,12 +292,93 @@ type StableDiffusionModel = {
 
 type ProviderLinks = Record<string, Record<string, string>>;
 
+type AppCapabilities = {
+  product: "boojum" | "snark";
+  mode: "local" | "cloud" | "self_hosted";
+  authRequiredForSave: boolean;
+  supportsCredits: boolean;
+  supportsGuestDemo: boolean;
+  supportsUserApiKeys: boolean;
+  supportsBrowserVault: boolean;
+  supportsCloudStoredUserKeys: boolean;
+  supportsLocalFilesystem: boolean;
+  supportsPublicSharing: boolean;
+  supportsDeveloperDiagnostics: boolean;
+};
+
+type CurrentUser = {
+  id: string;
+  displayName?: string;
+  email?: string;
+  authProvider?: string;
+  role?: "user" | "admin";
+};
+
+type AdminOverview = {
+  usersCount: number;
+  runsCount?: number;
+  nodeRunsCount?: number;
+  creditTransactionsCount?: number;
+  providerUsageCount?: number;
+  runs: Array<Record<string, unknown>>;
+  nodeRuns: Array<Record<string, unknown>>;
+  creditTransactions: Array<Record<string, unknown>>;
+  providerUsage: Array<Record<string, unknown>>;
+  recentErrors: Array<Record<string, unknown>>;
+  artifactStats: unknown;
+  guestDemoUsage: unknown;
+  providerKeyStatus: Record<string, boolean>;
+};
+
+type AdminBillingUser = {
+  id: string;
+  role: "user" | "admin";
+  createdAt: string;
+  authProviders: string[];
+  providerSubjectHashPrefix?: string | null;
+  currentBalance: number;
+  totalGranted: number;
+  totalCaptured: number;
+  totalReleased: number;
+  totalRefunded: number;
+  activeReserved: number;
+  runsCount: number;
+  lastActivityAt?: string | null;
+};
+
+type AdminUserCard = AdminBillingUser & {
+  providerUsageCount: number;
+  recentRuns: Array<Record<string, unknown>>;
+  recentCreditTransactions: Array<Record<string, unknown>>;
+  recentProviderUsage: Array<Record<string, unknown>>;
+};
+
+const DEFAULT_APP_CAPABILITIES: AppCapabilities = {
+  product: "boojum",
+  mode: "local",
+  authRequiredForSave: false,
+  supportsCredits: false,
+  supportsGuestDemo: true,
+  supportsUserApiKeys: true,
+  supportsBrowserVault: false,
+  supportsCloudStoredUserKeys: false,
+  supportsLocalFilesystem: true,
+  supportsPublicSharing: false,
+  supportsDeveloperDiagnostics: false
+};
+
 type OpenRouterModel = {
   id: string;
+  provider?: "openrouter";
+  kind?: "text" | "image" | "video";
   name?: string;
   pricing?: Record<string, unknown>;
   supported_parameters?: string[];
   architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
+  supported_durations?: string[];
+  supported_aspect_ratios?: string[];
+  supported_resolutions?: string[];
+  supported_frame_image_modes?: string[];
 };
 
 type PolzaModel = {
@@ -214,6 +386,9 @@ type PolzaModel = {
   name?: string;
   type?: string;
   short_description?: string;
+  supported_parameters?: string[];
+  generationParameters?: Array<{ id?: string; label?: string; type?: string; options?: Array<{ value?: string; label?: string }> }>;
+  maxImageInputs?: number;
   pricing?: Record<string, unknown>;
   architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
 };
@@ -259,12 +434,24 @@ type ImageModelOption = {
   pricing?: Record<string, unknown>;
 };
 
+type VideoModelOption = {
+  id: string;
+  name?: string;
+  providerId: "polza" | "openrouter";
+  providerLabel: string;
+  pricing?: Record<string, unknown>;
+  short_description?: string;
+  supported_parameters?: string[];
+  generationParameters?: PolzaModel["generationParameters"];
+  architecture?: PolzaModel["architecture"];
+};
+
 type OpenRouterSettings = {
   configured: boolean;
   maskedApiKey?: string;
   defaultModel?: string;
   budgetWarningUsd?: number | null;
-  catalog?: { refreshedAt?: string | null; modelCount?: number };
+  catalog?: { refreshedAt?: string | null; modelCount?: number; sourceCounts?: { models?: number; videoModels?: number } };
   defaultModelStatus?: string;
 };
 
@@ -539,6 +726,20 @@ const library = [
   },
   { type: "preview.image", label: "Image Preview", params: {} },
   { type: "preview.panorama360", label: "360 Panorama Viewer", params: { fov: 55 } },
+  {
+    type: "transform.chooseCameraPoint",
+    label: "Выбрать точку камеры",
+    params: {
+      provider: "worldlabs-marble",
+      model: "marble-1.0-draft",
+      regenerateWorld: false,
+      resolution: "1536x864",
+      fov: 70,
+      cameraPose: { position: { x: 0, y: 0, z: 0 }, rotation: { yaw: 0, pitch: 0, roll: 0 }, fov: 70 },
+      output: { mode: "perspective", width: 1536, height: 864 },
+      marbleWorld: { provider: "worldlabs-marble", model: "marble-1.0-draft", generationStatus: "no world" }
+    }
+  },
   { type: "transform.panorama360ToFisheye", label: "360 Panorama to Fisheye", params: { fovDegrees: 200, yawDegrees: 0, pitchDegrees: -90 } },
   {
     type: "http.request",
@@ -569,7 +770,7 @@ const librarySections = [
   { id: "inputs-assets", title: "Inputs & Assets", types: ["input.text", "library.prompt", "input.image", "input.video", "input.file", "compound.input", "compound.output"] },
   { id: "text-prompting", title: "Text & Prompting", types: ["dialogue.workbench", "text.promptCompose", "transform.template", "ai.text", "gemini.llm"] },
   { id: "image-generation", title: "Image Generation", types: ["ai.image.generate", "gemini.nano-banana-2", "local.stableDiffusion.textToImage", "ai.image.sd15.qr_monster_hidden_control"] },
-  { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image", "preview.panorama360", "transform.panorama360ToFisheye"] },
+  { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image", "preview.panorama360", "transform.chooseCameraPoint", "transform.panorama360ToFisheye"] },
   { id: "api-integration", title: "API & Integration", types: ["http.request"] },
   { id: "outputs", title: "Outputs", types: ["output.text", "output.file"] },
   { id: "debug", title: "Debug", types: ["debug.log", "utility.null"] },
@@ -762,14 +963,18 @@ const studioExamples: StudioExample[] = [
 const exampleCategories: ExampleCategory[] = ["Basic Image", "AI Image", "Local AI", "Developer"];
 
 function RouteNodeCard({ id, data }: NodeProps) {
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const updateNodeInternals = useUpdateNodeInternals();
   const label = String(data.label ?? "");
   const [title, type] = label.split("\n");
   const routeNode = data.routeNode as RouteDoc["nodes"][number] | undefined;
-  const paramsCollapsed = routeNode?.ui?.collapsed === true;
+  const paramsCollapsed = Boolean(data.paramsCollapsed ?? routeNodeParamsCollapsed(routeNode));
   const params = routeNode?.params ?? {};
   const result = data.result as NodeRunResult | undefined;
   const onParamsChange = data.onParamsChange as ((nodeId: string, params: Record<string, unknown>) => void) | undefined;
+  const onParamsCollapsedChange = data.onParamsCollapsedChange as ((nodeId: string, collapsed: boolean) => void) | undefined;
   const onBrowseAsset = data.onBrowseAsset as ((nodeId: string, kind: AssetKind) => void) | undefined;
+  const supportsLocalFilesystem = data.supportsLocalFilesystem !== false;
   const replicateConfigured = Boolean(data.replicateConfigured);
   const geminiConfigured = Boolean(data.geminiConfigured);
   const openAiConfigured = Boolean(data.openAiConfigured);
@@ -781,6 +986,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onConfigureGemini = data.onConfigureGemini as (() => void) | undefined;
   const onConfigureOpenAi = data.onConfigureOpenAi as (() => void) | undefined;
   const onConfigureSeedance = data.onConfigureSeedance as (() => void) | undefined;
+  const onConfigureWorldLabs = data.onConfigureWorldLabs as (() => void) | undefined;
   const onConfigurePolza = data.onConfigurePolza as (() => void) | undefined;
   const onConfigureOpenRouter = data.onConfigureOpenRouter as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
@@ -793,6 +999,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onOpenDialogueWorkbench = data.onOpenDialogueWorkbench as ((nodeId: string) => void) | undefined;
   const onUncollapse = data.onUncollapse as ((nodeId: string) => void) | undefined;
   const onNodeUiChange = data.onNodeUiChange as ((nodeId: string, patch: Record<string, unknown>) => void) | undefined;
+  const onPublishNodeOutput = data.onPublishNodeOutput as ((nodeId: string, output: Record<string, unknown>) => void) | undefined;
   const promptLibrary = data.promptLibrary as PromptLibraryData | undefined;
   const onRefreshPromptLibrary = data.onRefreshPromptLibrary as (() => void) | undefined;
   const promptStatusFilter = (data.promptStatusFilter as PromptStatusFilter | undefined) ?? "all";
@@ -803,14 +1010,21 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const modelProfiles = (data.modelProfiles as ModelProfile[] | undefined) ?? DEFAULT_MODEL_PROFILES;
   const polzaTextModels = (data.polzaTextModels as PolzaModel[] | undefined) ?? [];
   const polzaImageModels = (data.polzaImageModels as PolzaModel[] | undefined) ?? [];
+  const polzaVideoModels = (data.polzaVideoModels as PolzaModel[] | undefined) ?? [];
   const quotePreview = data.quotePreview as ModelQuotePreview | undefined;
+  const costEstimate = data.costEstimate as CostEstimate | undefined;
+  const resizeInputImage = data.resizeInputImage;
+  const chooseCameraInputImage = data.chooseCameraInputImage;
   const manifest = data.manifest as NodeManifest | undefined;
   const isMissingNode = Boolean(data.isMissingNode);
   const onRefreshStableDiffusionModels = data.onRefreshStableDiffusionModels as ((endpoint: string) => void) | undefined;
   const onRefreshPricing = data.onRefreshPricing as ((provider: string) => void) | undefined;
   const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
   const connectedInputCounts = (data.connectedInputCounts as Record<string, number> | undefined) ?? {};
+  const creditBalance = data.creditBalance as { balance: number; currency: string } | null | undefined;
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
+  const nodeNeedsCredits = Number(costEstimate?.estimatedCredits ?? 0);
+  const nodeHasEnoughCredits = !creditBalance || creditBalance.balance >= nodeNeedsCredits;
   const ports = getNodePorts(type, manifest, routeNode);
   const outputPinned = pinnedOutputFromParams(params) !== undefined;
   const collapsedInputImagePath = type === "input.image" ? String(params.path ?? "").trim() : "";
@@ -830,6 +1044,25 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const collapsedPortSpacing = 20;
   const collapsedPortCount = Math.max(ports.inputs.length, ports.outputs.length);
   const collapsedMinHeight = paramsCollapsed ? Math.max(44, 30 + Math.max(0, collapsedPortCount - 1) * collapsedPortSpacing) : undefined;
+
+  useLayoutEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+
+    let animationFrame = 0;
+    const updateHandles = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => updateNodeInternals(id));
+    };
+    const observer = new ResizeObserver(updateHandles);
+    observer.observe(card);
+    updateHandles();
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+    };
+  }, [id, updateNodeInternals, paramsCollapsed, ports.inputs.length, ports.outputs.length]);
 
   function portLabelTop(index: number): number {
     return paramsCollapsed ? portHandleTop(index, 1) : portTopBase + index * 28;
@@ -851,11 +1084,12 @@ function RouteNodeCard({ id, data }: NodeProps) {
     GEMINI_API_KEY: onConfigureGemini,
     OPENAI_API_KEY: onConfigureOpenAi,
     POLZA_AI_API_KEY: onConfigurePolza,
-    SEEDANCE_API_KEY: onConfigureSeedance
+    SEEDANCE_API_KEY: onConfigureSeedance,
+    WORLDS_API_KEY: onConfigureWorldLabs
   });
 
   return (
-    <div className={`routeNodeCard ${compactNodeClass(type)} ${paramsCollapsed ? "paramsCollapsed" : ""}`.trim()} style={collapsedMinHeight ? { minHeight: `${collapsedMinHeight}px` } : undefined}>
+    <div ref={cardRef} className={`routeNodeCard ${compactNodeClass(type)} ${paramsCollapsed ? "paramsCollapsed" : ""}`.trim()} style={collapsedMinHeight ? { minHeight: `${collapsedMinHeight}px` } : undefined}>
       <span className={`nodeStatus ${statusClass(result?.status)}`} />
       {isMissingNode ? <div className="nodeWarning">Missing block package. Install "{type}" or remove this block.</div> : null}
       {shouldShowNodeRunButton(type) ? (
@@ -919,7 +1153,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           title={paramsCollapsed ? "Show parameters" : "Hide parameters"}
           onClick={(event) => {
             event.stopPropagation();
-            onNodeUiChange?.(id, { collapsed: !paramsCollapsed });
+            onParamsCollapsedChange?.(id, !paramsCollapsed);
           }}
         >
           {paramsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
@@ -1069,11 +1303,18 @@ function RouteNodeCard({ id, data }: NodeProps) {
           modelProfiles={modelProfiles}
           polzaTextModels={polzaTextModels}
           polzaImageModels={polzaImageModels}
+          polzaVideoModels={polzaVideoModels}
           quotePreview={quotePreview}
+          costEstimate={costEstimate}
+          resizeInputImage={resizeInputImage}
+          chooseCameraInputImage={chooseCameraInputImage}
+          onConfigureWorldLabs={onConfigureWorldLabs}
+          onPublishNodeOutput={onPublishNodeOutput ? (output) => onPublishNodeOutput(id, output) : undefined}
           onRefreshPricing={onRefreshPricing}
           onRefreshStableDiffusionModels={onRefreshStableDiffusionModels}
           onChange={patchParams}
           onBrowse={(kind) => onBrowseAsset?.(id, kind)}
+          canBrowseLocalFiles={supportsLocalFilesystem}
           onOpenImage={onOpenImage}
         />
       ) : null}
@@ -1118,7 +1359,10 @@ function DialogueNodeMeta({ routeNode, modelProfiles }: { routeNode: RouteDoc["n
   const profile = modelProfiles.find((entry) => entry.id === (state.defaultModelProfileId ?? routeNode.params?.defaultModelProfileId));
   return (
     <>
-      <div className="nodeMetaLine">{profile?.displayName ?? state.defaultModelProfileId ?? "No model profile"} · {state.messages.length} message(s)</div>
+      <div className="nodeMetaLine withLogo">
+        {profile ? <ModelLogoMark logo={modelLogoFor(profile.providerId, profile.modelId, profile.id)} size="tiny" /> : null}
+        <span>{profile?.displayName ?? state.defaultModelProfileId ?? "No model profile"} · {state.messages.length} message(s)</span>
+      </div>
       <div className="nodeMetaLine">{state.selectedOutputs.length} selected output(s)</div>
     </>
   );
@@ -1479,6 +1723,7 @@ function DialogueWorkbenchEditor({
               <label>
                 <span>Model</span>
                 <button className="dialogueModelPickerToggle" type="button" onClick={() => setModelPickerOpen((value) => !value)}>
+                  {selectedProfile ? <ModelLogoMark logo={modelLogoFor(selectedProfile.providerId, selectedProfile.modelId, selectedProfile.id)} /> : null}
                   <span>
                     <strong>{selectedProfile?.displayName ?? "No model selected"}</strong>
                     {selectedProfile ? <small>{selectedProfile.providerId}/{selectedProfile.modelId}</small> : null}
@@ -1506,6 +1751,7 @@ function DialogueWorkbenchEditor({
                           setModelPickerOpen(false);
                         }}
                       >
+                        <ModelLogoMark logo={modelLogoFor(profile.providerId, profile.modelId, profile.id)} />
                         <span>
                           <strong>{profile.displayName}</strong>
                           <small>{profile.providerId}/{profile.modelId}</small>
@@ -1574,7 +1820,11 @@ function DialogueWorkbenchEditor({
 }
 
 function DialoguePartView({ part, compact = false, renderMarkdown = false }: { part: DialogueContentPart; compact?: boolean; renderMarkdown?: boolean }) {
-  if (part.type === "text") return renderMarkdown ? <MarkdownDocument content={part.text} /> : <p>{part.text}</p>;
+  if (part.type === "text") {
+    const backgroundSrc = part.chipBackgroundAssetRef ? imagePreviewSrc(part.chipBackgroundAssetRef) : null;
+    if (backgroundSrc && !renderMarkdown) return <TextChipView text={part.text} backgroundSrc={backgroundSrc} compact={compact} />;
+    return renderMarkdown ? <MarkdownDocument content={part.text} /> : <p>{part.text}</p>;
+  }
   if (part.type === "image") {
     const src = imagePreviewSrc(part.assetRef);
     return src ? <img className={`dialogueMessageImage ${compact ? "compact" : ""}`} src={src} alt={part.alt ?? "dialogue image"} /> : <p>image: {part.assetRef}</p>;
@@ -1584,9 +1834,20 @@ function DialoguePartView({ part, compact = false, renderMarkdown = false }: { p
 }
 
 function DialogueInputPreview({ input }: { input: DialogueConnectedInput }) {
+  const chipBackgroundSrc = input.type === "text" && input.chipBackgroundAssetRef ? imagePreviewSrc(input.chipBackgroundAssetRef) : null;
+  if (chipBackgroundSrc) return <TextChipView text={input.preview} backgroundSrc={chipBackgroundSrc} />;
   const src = input.type === "image" ? imagePreviewSrc(input.value) ?? imagePreviewSrc(input.preview) : null;
   if (src) return <img className="dialogueInputImage" src={src} alt={input.id} />;
   return <pre>{input.preview}</pre>;
+}
+
+function TextChipView({ text, backgroundSrc, compact = false }: { text: string; backgroundSrc: string; compact?: boolean }) {
+  return (
+    <div className={`dialogueTextChip ${compact ? "compact" : ""}`} style={{ backgroundImage: `linear-gradient(rgba(13, 17, 24, 0.9), rgba(13, 17, 24, 0.92)), url(${backgroundSrc})` }}>
+      <span aria-hidden="true">T</span>
+      <pre>{text}</pre>
+    </div>
+  );
 }
 
 function ModelCapabilityBadges({ profile }: { profile: ModelProfile }) {
@@ -1604,10 +1865,23 @@ function ModelCapabilityBadges({ profile }: { profile: ModelProfile }) {
   );
 }
 
+function ModelLogoMark({ logo, size = "normal" }: { logo: ModelLogo; size?: "tiny" | "normal" }) {
+  return <img className={`modelLogoMark ${size}`} src={logo.src} alt="" title={logo.label} width={size === "tiny" ? 16 : 24} height={size === "tiny" ? 16 : 24} loading="lazy" />;
+}
+
+function ModelSelectWithLogo({ logo, children }: { logo: ModelLogo; children: React.ReactNode }) {
+  return (
+    <div className="nodeModelSelectRow">
+      <ModelLogoMark logo={logo} />
+      {children}
+    </div>
+  );
+}
+
 function dialogueContentPartFromInput(input: DialogueConnectedInput): DialogueContentPart {
   if (input.type === "image") return { type: "image", assetRef: imageAssetRef(input.value) ?? input.preview, alt: input.id };
   if (input.type === "file") return { type: "file", assetRef: imageAssetRef(input.value) ?? input.preview, filename: input.id };
-  if (input.type === "text") return { type: "text", text: input.preview };
+  if (input.type === "text") return { type: "text", text: input.preview, chipBackgroundAssetRef: input.chipBackgroundAssetRef };
   return { type: "json", value: input.value };
 }
 
@@ -1714,9 +1988,768 @@ function stringFromRecord(record: Record<string, unknown> | null | undefined, ke
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function firstStringFromRecord(record: Record<string, unknown> | null | undefined, preferredKeys: string[]): string | undefined {
+  for (const key of preferredKeys) {
+    const value = stringFromRecord(record, key);
+    if (value) return value;
+  }
+  const value = Object.values(record ?? {}).find((entry) => typeof entry === "string" && entry.trim());
+  return typeof value === "string" ? value.trim() : undefined;
+}
+
 function numberFromRecord(record: Record<string, unknown> | null | undefined, key: string): number | null {
   const value = record?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function ChooseCameraPointParams({
+  params,
+  inputImage,
+  onConfigureWorldLabs,
+  onPublishNodeOutput,
+  onChange,
+  onOpenImage
+}: {
+  params: Record<string, unknown>;
+  inputImage?: unknown;
+  onConfigureWorldLabs?: () => void;
+  onPublishNodeOutput?: (output: Record<string, unknown>) => void;
+  onChange: (patch: Record<string, unknown>) => void;
+  onOpenImage?: (image: ImageViewerState) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const dragRef = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [splatViewerOpen, setSplatViewerOpen] = useState(false);
+  const [splatViewerFloating, setSplatViewerFloating] = useState(false);
+  const autoFetchRef = useRef("");
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [view, setView] = useState({
+    yaw: numberParamValue(cameraPoseRecord(params).rotation?.yaw, 0),
+    pitch: numberParamValue(cameraPoseRecord(params).rotation?.pitch, 0),
+    fov: numberParamValue(params.fov, 70)
+  });
+  const [cameraPosition, setCameraPosition] = useState(() => {
+    const position = cameraPoseRecord(params).position;
+    return {
+      x: numberParamValue(position?.x, 0),
+      y: numberParamValue(position?.y, 0),
+      z: numberParamValue(position?.z, 0)
+    };
+  });
+  const sourceImage = params.image ?? params.sourceImage ?? params.sourceImageUrl ?? params.sourceImagePath ?? inputImage;
+  const source = imagePreviewSrc(sourceImage);
+  const sourcePath = imageLocalPath(sourceImage);
+  const pinnedMarbleWorld = recordParam(params.pinnedMarbleWorld);
+  const marbleWorld = Object.keys(pinnedMarbleWorld).length > 0 ? pinnedMarbleWorld : recordParam(params.marbleWorld);
+  const marbleWorldPinned = Object.keys(pinnedMarbleWorld).length > 0;
+  const marbleWorldId = stringFromRecord(marbleWorld, "worldId") ?? stringFromRecord(marbleWorld, "world_id");
+  const marbleOperationId = stringFromRecord(marbleWorld, "operationId") ?? stringFromRecord(marbleWorld, "operation_id") ?? stringFromRecord(marbleWorld, "name");
+  const generationStatus = String(marbleWorld.generationStatus ?? (marbleWorldId ? "ready" : "no world"));
+  const worldMarbleUrl = stringFromRecord(marbleWorld, "worldMarbleUrl") ?? stringFromRecord(marbleWorld, "world_marble_url");
+  const worldPanoUrl = worldPanoramaUrl(marbleWorld);
+  const worldSplatUrl = worldSplatAssetUrl(marbleWorld);
+  const effectiveWorldMarbleUrl = worldMarbleUrl ?? (marbleWorldId ? `https://marble.worldlabs.ai/world/${encodeURIComponent(marbleWorldId)}` : null);
+  const viewerSource = worldPanoUrl ?? source;
+  const worldLabsKeyMissing = /WORLDS_API_KEY|World Labs API key is not configured/i.test(error);
+  const sourceImageHash = String(params.sourceImageHash ?? sourcePath ?? source ?? "");
+  const cachedSourceHash = String(marbleWorld.sourceImageHash ?? "");
+  const cachedWorldStale = Boolean(cachedSourceHash && sourceImageHash && cachedSourceHash !== sourceImageHash);
+  const resolution = resolutionFromParam(params.resolution, params.output);
+
+  useEffect(() => {
+    if (!viewerOpen || !viewerSource) return;
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      imageRef.current = image;
+      draw();
+    };
+    image.onerror = () => setError("Could not load panorama preview.");
+    image.src = viewerSource;
+  }, [viewerOpen, viewerSource]);
+
+  useEffect(() => {
+    if (viewerOpen) draw();
+  }, [viewerOpen, view.yaw, view.pitch, view.fov, resolution.width, resolution.height]);
+
+  useEffect(() => {
+    if (!worldSplatUrl) return;
+    setSplatViewerOpen(true);
+  }, [worldSplatUrl]);
+
+  useEffect(() => {
+    if (!marbleOperationId || generationStatus !== "generating") return;
+    const poll = () => void pollOperation();
+    const timeout = window.setTimeout(poll, 1200);
+    const interval = window.setInterval(poll, 5000);
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearInterval(interval);
+    };
+  }, [marbleOperationId, generationStatus]);
+
+  useEffect(() => {
+    if (!marbleWorldId || worldSplatUrl) return;
+    if (generationStatus !== "ready" && generationStatus !== "world loaded") return;
+    const key = `${marbleWorldId}:${generationStatus}`;
+    if (autoFetchRef.current === key) return;
+    autoFetchRef.current = key;
+    const timeout = window.setTimeout(() => void fetchCurrentMarbleWorld(), 500);
+    return () => window.clearTimeout(timeout);
+  }, [marbleWorldId, generationStatus, worldSplatUrl]);
+
+  function draw() {
+    const canvas = canvasRef.current;
+    const image = imageRef.current;
+    if (!canvas || !image) return;
+    canvas.width = resolution.width;
+    canvas.height = resolution.height;
+    renderPanoramaFrame(canvas, image, {
+      yaw: degreesToRadians(view.yaw),
+      pitch: degreesToRadians(view.pitch),
+      fov: view.fov
+    });
+  }
+
+  function currentCameraPose() {
+    return {
+      position: cameraPosition,
+      rotation: { yaw: view.yaw, pitch: view.pitch, roll: numberParamValue(recordParam(recordParam(params.cameraPose).rotation).roll, 0) },
+      fov: view.fov
+    };
+  }
+
+  function togglePinnedWorld() {
+    if (marbleWorldPinned) {
+      onChange({ pinnedMarbleWorld: undefined, pinnedMarbleWorldAt: undefined });
+      setStatus("world unpinned");
+      return;
+    }
+    if (!marbleWorldId && !marbleOperationId) {
+      setError("Create or poll a Marble world before pinning it.");
+      return;
+    }
+    onChange({ pinnedMarbleWorld: marbleWorld, pinnedMarbleWorldAt: new Date().toISOString() });
+    setStatus("world pinned");
+  }
+
+  function moveCamera(key: string) {
+    const normalized = key.toLowerCase();
+    const rotationStep = 5;
+    const moveStep = 0.25;
+    if (normalized === "arrowleft") {
+      setView((current) => ({ ...current, yaw: wrapDegrees(current.yaw - rotationStep) }));
+      return true;
+    }
+    if (normalized === "arrowright") {
+      setView((current) => ({ ...current, yaw: wrapDegrees(current.yaw + rotationStep) }));
+      return true;
+    }
+    if (normalized === "arrowup") {
+      setView((current) => ({ ...current, pitch: clamp(current.pitch + rotationStep, -89, 89) }));
+      return true;
+    }
+    if (normalized === "arrowdown") {
+      setView((current) => ({ ...current, pitch: clamp(current.pitch - rotationStep, -89, 89) }));
+      return true;
+    }
+    if (!["w", "a", "s", "d", "q", "e"].includes(normalized)) return false;
+    const yaw = degreesToRadians(view.yaw);
+    const forward = { x: Math.sin(yaw), z: Math.cos(yaw) };
+    const right = { x: Math.cos(yaw), z: -Math.sin(yaw) };
+    const delta =
+      normalized === "w" ? { x: forward.x * moveStep, y: 0, z: forward.z * moveStep } :
+      normalized === "s" ? { x: -forward.x * moveStep, y: 0, z: -forward.z * moveStep } :
+      normalized === "d" ? { x: right.x * moveStep, y: 0, z: right.z * moveStep } :
+      normalized === "a" ? { x: -right.x * moveStep, y: 0, z: -right.z * moveStep } :
+      normalized === "e" ? { x: 0, y: moveStep, z: 0 } :
+      { x: 0, y: -moveStep, z: 0 };
+    setCameraPosition((current) => {
+      const next = {
+        x: roundCameraCoordinate(current.x + delta.x),
+        y: roundCameraCoordinate(current.y + delta.y),
+        z: roundCameraCoordinate(current.z + delta.z)
+      };
+      setStatus(`position ${next.x}, ${next.y}, ${next.z}`);
+      return next;
+    });
+    return true;
+  }
+
+  async function generateWorld() {
+    setError("");
+    if (!source && !sourcePath) {
+      setError("Connect or set a 360 equirectangular panorama image before generating a Marble world.");
+      return;
+    }
+    setIsGenerating(true);
+    setStatus("uploading panorama");
+    onChange({ marbleWorld: { ...marbleWorld, provider: "worldlabs-marble", model: String(params.model ?? "marble-1.0-draft"), sourceImageHash, generationStatus: "generating" } });
+    try {
+      const response = await apiFetch(`${apiBase}/api/worldlabs/marble/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          imagePath: sourcePath || undefined,
+          imageUrl: !sourcePath && source && /^https?:\/\//i.test(source) ? source : undefined,
+          isPano: true,
+          model: String(params.model ?? "marble-1.0-draft"),
+          sourceImageHash,
+          displayName: "SnarkRoute Choose Camera Point"
+        })
+      });
+      setStatus("waiting for World Labs");
+      const body = await response.json();
+      if (!response.ok) throw new Error(String(body.error ?? "Marble generation failed."));
+      const operationId = String(body.operation_id ?? body.name ?? body.operationId ?? body.id ?? "");
+      const world = worldRecordFromResponse(body);
+      const worldId = String(world.world_id ?? world.worldId ?? body.metadata?.world_id ?? body.world_id ?? body.worldId ?? "");
+      const worldUrl = String(world.world_marble_url ?? world.worldMarbleUrl ?? "");
+      const nextWorld = { ...marbleWorld, ...world, provider: "worldlabs-marble", model: String(params.model ?? "marble-1.0-draft"), sourceImageHash, operation_id: operationId, operationId, world_id: worldId, worldId, worldMarbleUrl: worldUrl, createdAt: new Date().toISOString(), generationStatus: body.done === true || worldUrl ? "ready" : "generating", operation: body };
+      onChange({ marbleWorld: nextWorld });
+      setStatus(String(nextWorld.generationStatus));
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : String(caught);
+      setError(message);
+      setStatus("failed");
+      onChange({ marbleWorld: { ...marbleWorld, generationStatus: "failed", error: message } });
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function pollOperation() {
+    const operationId = marbleOperationId ?? "";
+    if (!operationId) return;
+    setError("");
+    try {
+      const response = await apiFetch(`${apiBase}/api/worldlabs/marble/operations/${encodeURIComponent(operationId)}`);
+      const body = await response.json();
+      if (!response.ok) throw new Error(String(body.error ?? "Could not poll Marble operation."));
+      const done = body.done === true || body.status === "done" || body.status === "succeeded";
+      const world = worldRecordFromResponse(body);
+      const worldId = String(world.world_id ?? world.worldId ?? body.metadata?.world_id ?? body.world_id ?? marbleWorld.worldId ?? "");
+      let completeWorld = world;
+      if (done && worldId && !stringFromRecord(world, "world_marble_url") && !stringFromRecord(world, "worldMarbleUrl")) {
+        completeWorld = await fetchMarbleWorld(worldId);
+      }
+      onChange({ marbleWorld: { ...marbleWorld, ...completeWorld, operation: body, world_id: worldId, worldId, worldMarbleUrl: String(completeWorld.world_marble_url ?? completeWorld.worldMarbleUrl ?? marbleWorld.worldMarbleUrl ?? ""), generationStatus: done ? "ready" : "generating" } });
+      setStatus(done ? "ready" : "generating");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+    }
+  }
+
+  async function fetchMarbleWorld(worldId: string): Promise<Record<string, unknown>> {
+    const response = await apiFetch(`${apiBase}/api/worldlabs/marble/worlds/${encodeURIComponent(worldId)}`);
+    const body = await response.json();
+    if (!response.ok) throw new Error(String(body.error ?? "Could not fetch Marble world."));
+    return worldRecordFromResponse(body);
+  }
+
+  async function fetchCurrentMarbleWorld() {
+    if (!marbleWorldId) return;
+    setError("");
+    setStatus("fetching Marble world");
+    try {
+      const completeWorld = await fetchMarbleWorld(marbleWorldId);
+      const worldUrl = String(completeWorld.world_marble_url ?? completeWorld.worldMarbleUrl ?? "");
+      onChange({ marbleWorld: { ...marbleWorld, ...completeWorld, worldId: marbleWorldId, worldMarbleUrl: worldUrl, generationStatus: worldUrl ? "ready" : generationStatus } });
+      setStatus(worldUrl ? "ready" : "world loaded");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : String(caught));
+      setStatus("failed");
+    }
+  }
+
+  function saveCameraPose() {
+    onChange({ cameraPose: currentCameraPose(), fov: view.fov, output: { mode: String(params.outputMode ?? "perspective"), width: resolution.width, height: resolution.height } });
+    setStatus("camera saved");
+  }
+
+  async function renderFrame() {
+    draw();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let dataUrl = "";
+    try {
+      dataUrl = canvas.toDataURL("image/png");
+    } catch {
+      setError("Could not export this panorama frame. Save the camera point or open the 360 panorama directly.");
+      return;
+    }
+    const dataBase64 = dataUrl.split(",")[1] ?? "";
+    const response = await fetch(`${apiBase}/api/assets/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "image", filename: "choose-camera-point.png", dataBase64 })
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setError(String(body.error ?? "Could not save rendered frame."));
+      return;
+    }
+    const renderedImage = body.metadata ?? { path: body.path };
+    onChange({ renderedImage, outputImage: renderedImage, cameraPose: currentCameraPose(), output: { mode: "perspective", width: resolution.width, height: resolution.height } });
+    onOpenImage?.({ src: imagePreviewSrc(renderedImage) ?? dataUrl, title: "Choose Camera Point render", filename: "choose-camera-point.png" });
+  }
+
+  return (
+    <div className="chooseCameraParams">
+      {source ? <button className="nodeImagePreviewButton nodrag nopan" type="button" title="Input panorama preview" onClick={() => onOpenImage?.({ src: source, title: "Input panorama", filename: downloadFilename(sourceImage) })}><img className="nodeImagePreview" src={source} alt="" /></button> : null}
+      {!source ? <div className="nodeWarning">На первом этапе поддерживаются только 360 equirectangular panoramas. Set params.image/sourceImagePath or connect a prepared image output.</div> : null}
+      {cachedWorldStale ? <div className="nodeWarning">Исходное изображение изменилось. Черновой мир может больше не соответствовать входной панораме.</div> : null}
+      {error ? worldLabsKeyMissing && onConfigureWorldLabs ? (
+        <button className="nodeWarning nodeWarningButton nodrag nopan" type="button" onClick={onConfigureWorldLabs}>{error}</button>
+      ) : <div className="nodeWarning">{error}</div> : null}
+      <label className="nodeField">
+        <span>Marble model</span>
+        <select className="nodrag nopan nodeInput nodeSelect" value={String(params.model ?? "marble-1.0-draft")} onChange={(event) => onChange({ model: event.target.value })}>
+          <option value="marble-1.0-draft">Draft</option>
+          <option value="marble-1.1">Standard</option>
+        </select>
+      </label>
+      <label className="nodeField">
+        <span>resolution</span>
+        <select className="nodrag nopan nodeInput nodeSelect" value={String(params.resolution ?? "1536x864")} onChange={(event) => onChange({ resolution: event.target.value })}>
+          <option value="1024x576">1024x576</option>
+          <option value="1536x864">1536x864</option>
+          <option value="2048x1152">2048x1152</option>
+        </select>
+      </label>
+      <div className="nodeMetaLine">status: {status || generationStatus}</div>
+      {marbleWorldPinned ? <div className="nodeMetaLine">pinned world: {String(marbleWorldId ?? marbleOperationId ?? "cached")}</div> : null}
+      <div className="nodeActionRow">
+        <button className="nodeSmallButton nodrag nopan" type="button" disabled={isGenerating || !source} onClick={generateWorld}><Globe size={13} /> {isGenerating ? "Создаю мир..." : "Создать черновой мир"}</button>
+        <button className={`nodeSmallButton nodrag nopan ${marbleWorldPinned ? "pinned" : ""}`} type="button" aria-pressed={marbleWorldPinned} disabled={!marbleWorldId && !marbleOperationId} onClick={togglePinnedWorld}><Pin size={13} /> {marbleWorldPinned ? "Мир закреплен" : "Запинить мир"}</button>
+        {effectiveWorldMarbleUrl ? (
+          <a className="nodeSmallButton nodrag nopan" href={effectiveWorldMarbleUrl} target="_blank" rel="noreferrer"><Eye size={13} /> Открыть 3D viewer</a>
+        ) : (
+          <button className="nodeSmallButton nodrag nopan" type="button" disabled={!viewerSource} onClick={() => setViewerOpen((value) => !value)}><Eye size={13} /> Открыть viewer</button>
+        )}
+        {worldPanoUrl ? <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => setViewerOpen((value) => !value)}><Aperture size={13} /> 360 из мира</button> : null}
+      </div>
+      {splatViewerOpen && worldSplatUrl ? (
+        <WorldSplatViewer
+          splatUrl={worldSplatUrl}
+          initialCameraPose={currentCameraPose()}
+          floating={splatViewerFloating}
+          onToggleFloating={() => setSplatViewerFloating((value) => !value)}
+          onPublishOutputs={async ({ pose, viewDataUrl, panoramaDataUrl }) => {
+            const [viewImage, panoramaImage] = await Promise.all([
+              importImageDataUrl(viewDataUrl, "choose-camera-splat-view.png"),
+              importImageDataUrl(panoramaDataUrl, "choose-camera-splat-panorama.png")
+            ]);
+            onChange({
+              cameraPose: pose,
+              fov: pose.fov,
+              renderedImage: viewImage,
+              outputImage: viewImage,
+              renderedPanorama: panoramaImage,
+              panoramaImage,
+              output: { mode: String(params.outputMode ?? "perspective"), width: resolution.width, height: resolution.height, panoramaProjection: "equirectangular" }
+            });
+            onPublishNodeOutput?.({
+              image: viewImage,
+              view: viewImage,
+              panorama: panoramaImage,
+              panoramaMetadata: { projection: "equirectangular" },
+              cameraPose: pose,
+              output: { mode: String(params.outputMode ?? "perspective"), width: resolution.width, height: resolution.height, panoramaProjection: "equirectangular" },
+              marbleWorld
+            });
+            setCameraPosition(pose.position);
+            setView((current) => ({ ...current, yaw: pose.rotation.yaw, pitch: pose.rotation.pitch, fov: pose.fov }));
+            setStatus("view + 360 published");
+          }}
+        />
+      ) : null}
+      {viewerOpen ? (
+        <div className="chooseCameraViewer">
+          <>
+          <canvas
+            ref={canvasRef}
+            className="chooseCameraCanvas nodrag nopan"
+            tabIndex={0}
+            title="Drag to look around. WASD moves the saved camera point; arrows rotate."
+            onPointerEnter={(event) => event.currentTarget.focus()}
+            onPointerDown={(event) => {
+              event.currentTarget.focus();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              dragRef.current = { x: event.clientX, y: event.clientY, yaw: view.yaw, pitch: view.pitch };
+            }}
+            onPointerMove={(event) => {
+              const drag = dragRef.current;
+              if (!drag) return;
+              setView((current) => ({
+                ...current,
+                yaw: wrapDegrees(drag.yaw - (event.clientX - drag.x) * 0.35),
+                pitch: clamp(drag.pitch + (event.clientY - drag.y) * 0.28, -89, 89)
+              }));
+            }}
+            onPointerUp={(event) => {
+              dragRef.current = null;
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }}
+            onPointerCancel={() => {
+              dragRef.current = null;
+            }}
+            onWheel={(event) => {
+              event.preventDefault();
+              setView((current) => ({ ...current, fov: clamp(current.fov + Math.sign(event.deltaY) * 5, 35, 120) }));
+            }}
+            onKeyDown={(event) => {
+              if (!moveCamera(event.key)) return;
+              event.preventDefault();
+            }}
+          />
+          <div className="nodeMetaLine">camera: x {cameraPosition.x}, y {cameraPosition.y}, z {cameraPosition.z}</div>
+          <NodeSliderParam id="yaw" label="yaw" min={-180} max={180} step={1} value={view.yaw} onChange={(patch) => setView((current) => ({ ...current, yaw: numberParamValue(patch.yaw, current.yaw) }))} />
+          <NodeSliderParam id="pitch" label="pitch" min={-90} max={90} step={1} value={view.pitch} onChange={(patch) => setView((current) => ({ ...current, pitch: numberParamValue(patch.pitch, current.pitch) }))} />
+          <NodeSliderParam id="fov" label="fov" min={35} max={120} step={1} value={view.fov} onChange={(patch) => setView((current) => ({ ...current, fov: numberParamValue(patch.fov, current.fov) }))} />
+          </>
+          <div className="nodeActionRow">
+            <button className="nodeSmallButton nodrag nopan" type="button" onClick={saveCameraPose}><Save size={13} /> Сохранить точку</button>
+            <button className="nodeSmallButton nodrag nopan" type="button" onClick={renderFrame}><Aperture size={13} /> Отрендерить кадр</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type SavedCameraPose = {
+  position: { x: number; y: number; z: number };
+  rotation: { yaw: number; pitch: number; roll: number };
+  fov: number;
+};
+
+type SplatRuntime = {
+  renderer: import("three").WebGLRenderer;
+  scene: import("three").Scene;
+  camera: import("three").PerspectiveCamera;
+  control: import("three").Object3D;
+};
+
+async function importImageDataUrl(dataUrl: string, filename: string): Promise<unknown> {
+  const dataBase64 = dataUrl.split(",")[1] ?? "";
+  const response = await apiFetch(`${apiBase}/api/assets/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "image", filename, dataBase64 })
+  });
+  const body = await response.json();
+  if (!response.ok) throw new Error(String(body.error ?? `Could not save ${filename}.`));
+  return body.metadata ?? { path: body.path };
+}
+
+function WorldSplatViewer({
+  splatUrl,
+  initialCameraPose,
+  floating,
+  onToggleFloating,
+  onPublishOutputs
+}: {
+  splatUrl: string;
+  initialCameraPose: SavedCameraPose;
+  floating: boolean;
+  onToggleFloating: () => void;
+  onPublishOutputs: (outputs: { pose: SavedCameraPose; viewDataUrl: string; panoramaDataUrl: string }) => Promise<void>;
+}) {
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const splatRuntimeRef = useRef<SplatRuntime | null>(null);
+  const latestPoseRef = useRef<SavedCameraPose>(initialCameraPose);
+  const [loadStatus, setLoadStatus] = useState("loading splat");
+  const [isPublishing, setIsPublishing] = useState(false);
+
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount) return;
+
+    let disposed = false;
+    let renderer: import("three").WebGLRenderer | null = null;
+    let scene: import("three").Scene | null = null;
+    let splat: { dispose?: () => void } | null = null;
+    let spark: import("three").Object3D | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+
+    void (async () => {
+      const [THREE, sparkModule] = await Promise.all([import("three"), import("@sparkjsdev/spark")]);
+      if (disposed) return;
+
+      const { SparkControls, SparkRenderer, SplatMesh } = sparkModule;
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x090d14);
+
+      const camera = new THREE.PerspectiveCamera(initialCameraPose.fov || 70, 1, 0.01, 1000);
+      const control = new THREE.Object3D();
+      control.position.set(initialCameraPose.position.x, initialCameraPose.position.y, initialCameraPose.position.z);
+      control.rotation.set(degreesToRadians(initialCameraPose.rotation.pitch), degreesToRadians(initialCameraPose.rotation.yaw), degreesToRadians(initialCameraPose.rotation.roll), "YXZ");
+      control.add(camera);
+      scene.add(control);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.domElement.className = "chooseCameraSplatCanvas nodrag nopan";
+      renderer.domElement.tabIndex = 0;
+      mount.appendChild(renderer.domElement);
+
+      spark = new SparkRenderer({ renderer });
+      scene.add(spark);
+
+      splat = new SplatMesh({
+        url: splatUrl,
+        onLoad: () => {
+          if (!disposed) setLoadStatus("splat ready");
+        },
+        onProgress: (event: ProgressEvent) => {
+          if (disposed || !event.lengthComputable || event.total <= 0) return;
+          setLoadStatus(`loading splat ${Math.round((event.loaded / event.total) * 100)}%`);
+        }
+      });
+      (splat as unknown as import("three").Object3D).quaternion.set(1, 0, 0, 0);
+      scene.add(splat as unknown as import("three").Object3D);
+
+      const controls = new SparkControls({ canvas: renderer.domElement });
+      controls.fpsMovement.moveSpeed = 1.25;
+
+      const resize = () => {
+        if (!renderer) return;
+        const rect = mount.getBoundingClientRect();
+        const width = Math.max(1, Math.floor(rect.width));
+        const height = Math.max(1, Math.floor(rect.height));
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(width, height, false);
+      };
+      resizeObserver = new ResizeObserver(resize);
+      resizeObserver.observe(mount);
+      resize();
+
+      const euler = new THREE.Euler(0, 0, 0, "YXZ");
+      renderer.setAnimationLoop(() => {
+        if (!renderer || !scene) return;
+        controls.update(control, camera);
+        renderer.render(scene, camera);
+        euler.setFromQuaternion(control.quaternion, "YXZ");
+        latestPoseRef.current = {
+          position: {
+            x: roundCameraCoordinate(control.position.x),
+            y: roundCameraCoordinate(control.position.y),
+            z: roundCameraCoordinate(control.position.z)
+          },
+          rotation: {
+            yaw: wrapDegrees(radiansToDegrees(euler.y)),
+            pitch: clamp(radiansToDegrees(euler.x), -89, 89),
+            roll: radiansToDegrees(euler.z)
+          },
+          fov: camera.fov
+        };
+      });
+
+      splatRuntimeRef.current = { renderer, scene, camera, control };
+      renderer.domElement.focus();
+    })().catch((caught) => {
+      if (!disposed) setLoadStatus(caught instanceof Error ? caught.message : String(caught));
+    });
+
+    return () => {
+      disposed = true;
+      resizeObserver?.disconnect();
+      renderer?.setAnimationLoop(null);
+      if (scene && splat) scene.remove(splat as unknown as import("three").Object3D);
+      if (scene && spark) scene.remove(spark);
+      splatRuntimeRef.current = null;
+      splat?.dispose?.();
+      renderer?.dispose();
+      renderer?.domElement.remove();
+    };
+  }, [splatUrl]);
+
+  async function publishCurrentOutputs() {
+    const runtime = splatRuntimeRef.current;
+    if (isPublishing) return;
+    if (!runtime) {
+      setLoadStatus("splat viewer is not ready yet");
+      return;
+    }
+    setIsPublishing(true);
+    setLoadStatus("rendering view + 360");
+    try {
+      const viewDataUrl = captureCurrentSplatView(runtime);
+      const panoramaDataUrl = await renderSplatPanorama(runtime, mountRef.current);
+      await onPublishOutputs({ pose: latestPoseRef.current, viewDataUrl, panoramaDataUrl });
+      setLoadStatus("view + 360 published");
+    } catch (caught) {
+      setLoadStatus(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
+  return (
+    <div
+      className={`chooseCameraSplatViewer ${floating ? "floating" : ""}`}
+      onPointerEnter={() => splatRuntimeRef.current?.renderer.domElement.focus()}
+      onClick={() => splatRuntimeRef.current?.renderer.domElement.focus()}
+    >
+      <div ref={mountRef} className="chooseCameraSplatMount" />
+      <div className="nodeMetaLine">{loadStatus}</div>
+      <div className="nodeActionRow">
+        <button className="nodeSmallButton nodrag nopan" type="button" disabled={isPublishing} onClick={() => void publishCurrentOutputs()}><Save size={13} /> Отправить вид + 360 на выход</button>
+        <button className="nodeSmallButton nodrag nopan" type="button" onClick={onToggleFloating}>{floating ? "В ноду" : "В окно"}</button>
+      </div>
+    </div>
+  );
+}
+
+function captureCurrentSplatView(runtime: SplatRuntime): string {
+  runtime.renderer.render(runtime.scene, runtime.camera);
+  return runtime.renderer.domElement.toDataURL("image/png");
+}
+
+async function renderSplatPanorama(runtime: SplatRuntime, mount: HTMLElement | null): Promise<string> {
+  const THREE = await import("three");
+  const renderer = runtime.renderer;
+  const previousSize = renderer.getSize(new THREE.Vector2());
+  const previousPixelRatio = renderer.getPixelRatio();
+  const faceSize = 512;
+  const panoramaWidth = 1024;
+  const panoramaHeight = 512;
+  const faceCanvas = document.createElement("canvas");
+  faceCanvas.width = faceSize;
+  faceCanvas.height = faceSize;
+  const faceContext = faceCanvas.getContext("2d");
+  const panoramaCanvas = document.createElement("canvas");
+  panoramaCanvas.width = panoramaWidth;
+  panoramaCanvas.height = panoramaHeight;
+  const panoramaContext = panoramaCanvas.getContext("2d");
+  if (!faceContext || !panoramaContext) throw new Error("Could not create 360 panorama canvas.");
+
+  const origin = runtime.control.position.clone();
+  const baseQuaternion = runtime.control.quaternion.clone();
+  const faceDirections = {
+    right: { direction: new THREE.Vector3(1, 0, 0), up: new THREE.Vector3(0, 1, 0) },
+    left: { direction: new THREE.Vector3(-1, 0, 0), up: new THREE.Vector3(0, 1, 0) },
+    up: { direction: new THREE.Vector3(0, 1, 0), up: new THREE.Vector3(0, 0, 1) },
+    down: { direction: new THREE.Vector3(0, -1, 0), up: new THREE.Vector3(0, 0, -1) },
+    front: { direction: new THREE.Vector3(0, 0, -1), up: new THREE.Vector3(0, 1, 0) },
+    back: { direction: new THREE.Vector3(0, 0, 1), up: new THREE.Vector3(0, 1, 0) }
+  };
+
+  const faces: Record<string, ImageData> = {};
+  const captureCamera = new THREE.PerspectiveCamera(90, 1, 0.01, 1000);
+  renderer.setPixelRatio(1);
+  renderer.setSize(faceSize, faceSize, false);
+  captureCamera.position.copy(origin);
+
+  for (const [name, face] of Object.entries(faceDirections)) {
+    const direction = face.direction.clone().applyQuaternion(baseQuaternion);
+    const up = face.up.clone().applyQuaternion(baseQuaternion);
+    captureCamera.up.copy(up);
+    captureCamera.lookAt(origin.clone().add(direction));
+    captureCamera.updateProjectionMatrix();
+    runtime.renderer.render(runtime.scene, captureCamera);
+    faceContext.drawImage(renderer.domElement, 0, 0, faceSize, faceSize);
+    faces[name] = faceContext.getImageData(0, 0, faceSize, faceSize);
+  }
+
+  const panorama = panoramaContext.createImageData(panoramaWidth, panoramaHeight);
+  for (let y = 0; y < panoramaHeight; y += 1) {
+    const pitch = Math.PI / 2 - ((y + 0.5) / panoramaHeight) * Math.PI;
+    const cosPitch = Math.cos(pitch);
+    for (let x = 0; x < panoramaWidth; x += 1) {
+      const yaw = ((x + 0.5) / panoramaWidth) * Math.PI * 2 - Math.PI;
+      const direction = {
+        x: Math.sin(yaw) * cosPitch,
+        y: Math.sin(pitch),
+        z: -Math.cos(yaw) * cosPitch
+      };
+      const sample = sampleCubeFaces(faces, direction, faceSize);
+      const offset = (y * panoramaWidth + x) * 4;
+      panorama.data[offset] = sample[0];
+      panorama.data[offset + 1] = sample[1];
+      panorama.data[offset + 2] = sample[2];
+      panorama.data[offset + 3] = 255;
+    }
+  }
+  panoramaContext.putImageData(panorama, 0, 0);
+
+  renderer.setPixelRatio(previousPixelRatio);
+  const rect = mount?.getBoundingClientRect();
+  renderer.setSize(rect ? Math.max(1, Math.floor(rect.width)) : previousSize.x, rect ? Math.max(1, Math.floor(rect.height)) : previousSize.y, false);
+  renderer.render(runtime.scene, runtime.camera);
+
+  return panoramaCanvas.toDataURL("image/png");
+}
+
+function sampleCubeFaces(faces: Record<string, ImageData>, direction: { x: number; y: number; z: number }, faceSize: number): [number, number, number] {
+  const ax = Math.abs(direction.x);
+  const ay = Math.abs(direction.y);
+  const az = Math.abs(direction.z);
+  let face = "front";
+  let u = 0;
+  let v = 0;
+  if (ax >= ay && ax >= az) {
+    if (direction.x > 0) {
+      face = "right";
+      u = direction.z / ax;
+      v = -direction.y / ax;
+    } else {
+      face = "left";
+      u = -direction.z / ax;
+      v = -direction.y / ax;
+    }
+  } else if (ay >= ax && ay >= az) {
+    if (direction.y > 0) {
+      face = "up";
+      u = direction.x / ay;
+      v = -direction.z / ay;
+    } else {
+      face = "down";
+      u = direction.x / ay;
+      v = direction.z / ay;
+    }
+  } else if (direction.z > 0) {
+    face = "back";
+    u = -direction.x / az;
+    v = -direction.y / az;
+  } else {
+    face = "front";
+    u = direction.x / az;
+    v = -direction.y / az;
+  }
+  const image = faces[face];
+  return sampleImageDataBilinear(image, ((u + 1) / 2) * (faceSize - 1), ((v + 1) / 2) * (faceSize - 1));
+}
+
+function sampleImageDataBilinear(image: ImageData, x: number, y: number): [number, number, number] {
+  const width = image.width;
+  const height = image.height;
+  const x0 = clamp(Math.floor(x), 0, width - 1);
+  const y0 = clamp(Math.floor(y), 0, height - 1);
+  const x1 = clamp(x0 + 1, 0, width - 1);
+  const y1 = clamp(y0 + 1, 0, height - 1);
+  const tx = x - x0;
+  const ty = y - y0;
+  const c00 = imageDataRgb(image, x0, y0);
+  const c10 = imageDataRgb(image, x1, y0);
+  const c01 = imageDataRgb(image, x0, y1);
+  const c11 = imageDataRgb(image, x1, y1);
+  return [0, 1, 2].map((channel) => {
+    const top = c00[channel] * (1 - tx) + c10[channel] * tx;
+    const bottom = c01[channel] * (1 - tx) + c11[channel] * tx;
+    return Math.round(top * (1 - ty) + bottom * ty);
+  }) as [number, number, number];
+}
+
+function imageDataRgb(image: ImageData, x: number, y: number): [number, number, number] {
+  const offset = (y * image.width + x) * 4;
+  return [image.data[offset], image.data[offset + 1], image.data[offset + 2]];
 }
 
 function NodeInlineParams({
@@ -1733,12 +2766,19 @@ function NodeInlineParams({
   openRouterModels,
   polzaTextModels,
   polzaImageModels,
+  polzaVideoModels,
   quotePreview,
+  costEstimate,
+  resizeInputImage,
+  chooseCameraInputImage,
+  onConfigureWorldLabs,
+  onPublishNodeOutput,
   onRefreshPricing,
   modelProfiles,
   onRefreshStableDiffusionModels,
   onChange,
   onBrowse,
+  canBrowseLocalFiles,
   onOpenImage
 }: {
   type: string;
@@ -1754,19 +2794,44 @@ function NodeInlineParams({
   openRouterModels: OpenRouterModel[];
   polzaTextModels: PolzaModel[];
   polzaImageModels: PolzaModel[];
+  polzaVideoModels: PolzaModel[];
   quotePreview?: ModelQuotePreview;
+  costEstimate?: CostEstimate;
+  resizeInputImage?: unknown;
+  chooseCameraInputImage?: unknown;
+  onConfigureWorldLabs?: () => void;
+  onPublishNodeOutput?: (output: Record<string, unknown>) => void;
   onRefreshPricing?: (provider: string) => void;
   modelProfiles: ModelProfile[];
   onRefreshStableDiffusionModels?: (endpoint: string) => void;
   onChange: (patch: Record<string, unknown>) => void;
   onBrowse: (kind: AssetKind) => void;
+  canBrowseLocalFiles: boolean;
   onOpenImage?: (image: ImageViewerState) => void;
 }) {
   const pendingTextSelectionRef = useRef<PendingTextSelection | null>(null);
+  const resizeInputDimensions = useImageDimensions(type === "transform.imageResize" ? resizeInputImage : undefined);
+  const modelCreditBadge = <ModelCreditBadge costEstimate={costEstimate} />;
+
+  useEffect(() => {
+    if (type !== "polza.video.generate") return;
+    const model = String(params.model ?? "");
+    if (!isPolzaVideoUpscaleModelId(model)) return;
+    onChange({ model: POLZA_VIDEO_MODEL_OPTIONS[0].id });
+  }, [type, params.model, onChange]);
 
   useLayoutEffect(() => {
     restorePendingTextSelection(pendingTextSelectionRef);
   }, [params]);
+
+  useEffect(() => {
+    if (type !== "transform.imageResize" || !resizeInputDimensions.dimensions) return;
+    const { width, height } = resizeInputDimensions.dimensions;
+    const patch: Record<string, unknown> = {};
+    if (isUnsetOrManifestDefaultResizeDimension(params.width) && Number(params.width) !== width) patch.width = width;
+    if (isUnsetOrManifestDefaultResizeDimension(params.height) && Number(params.height) !== height) patch.height = height;
+    if (Object.keys(patch).length > 0) onChange(patch);
+  }, [type, resizeInputDimensions.dimensions?.width, resizeInputDimensions.dimensions?.height, params.width, params.height, onChange]);
 
   function updateTextParam(key: string, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>, transform: (value: string) => unknown = (value) => value) {
     updateTextFieldPreservingCaret(event, pendingTextSelectionRef, (value) => onChange({ [key]: transform(value) }));
@@ -1873,6 +2938,23 @@ function NodeInlineParams({
     );
   }
 
+  if (type === "transform.chooseCameraPoint") {
+    return <ChooseCameraPointParams params={params} inputImage={chooseCameraInputImage} onConfigureWorldLabs={onConfigureWorldLabs} onPublishNodeOutput={onPublishNodeOutput} onChange={onChange} onOpenImage={onOpenImage} />;
+  }
+
+  if (type === "transform.imageResize" && manifest?.params?.length) {
+    const dimensions = resizeInputDimensions.dimensions;
+    const status = resizeInputDimensions.status;
+    return (
+      <>
+        <div className="nodeMetaLine">
+          Input image: {dimensions ? `${dimensions.width} x ${dimensions.height}px` : status === "loading" ? "loading size..." : status === "error" ? "size unavailable" : "not connected"}
+        </div>
+        <GenericManifestParams manifest={manifest} params={params} onChange={onChange} updateTextParam={updateTextParam} />
+      </>
+    );
+  }
+
   if (type === "library.prompt") {
     const categories = filterPromptLibraryByStatus(promptLibrary, promptStatusFilter).categories;
     const selectedCategory = categories.find((category) => category.id === String(params.category ?? "")) ?? categories[0];
@@ -1885,7 +2967,7 @@ function NodeInlineParams({
     if (categories.length === 0) {
       return (
         <div className="assetParams">
-          <div className="nodeWarning">{promptLibrary.categories.length === 0 ? "No prompts found. Add .prompt.md files to data/prompt-library/ and refresh." : "No prompts match the selected status filter."}</div>
+          <div className="nodeWarning">{promptLibrary.categories.length === 0 ? "No prompts found. Add .prompt.png or .prompt.md files to data/prompt-library/ and refresh." : "No prompts match the selected status filter."}</div>
           <label className="nodeField">
             <span>status</span>
             <select
@@ -1928,7 +3010,7 @@ function NodeInlineParams({
             ))}
           </select>
         </label>
-        <div className="nodePromptCards">
+        <div className="nodePromptCards nowheel">
           {prompts.map((prompt) => (
             <PromptLibraryPromptCard
               key={prompt.id}
@@ -1987,7 +3069,7 @@ function NodeInlineParams({
             readOnly
           />
         </label>
-        <button className="nodeSmallButton nodrag nopan" onClick={() => onBrowse(kind)}>Browse...</button>
+        {canBrowseLocalFiles ? <button className="nodeSmallButton nodrag nopan" onClick={() => onBrowse(kind)}>Browse...</button> : null}
         {!path ? <div className="nodeWarning">Path required</div> : null}
         {imageSrc ? (
           <button
@@ -2007,8 +3089,10 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
-        <input className="nodrag nopan nodeInput" value={String(params.model ?? "")} onChange={(event) => updateTextParam("model", event)} />
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
+          <ModelSelectWithLogo logo={modelLogoFor("replicate", String(params.model ?? ""))}>
+            <input className="nodrag nopan nodeInput" value={String(params.model ?? "")} onChange={(event) => updateTextParam("model", event)} />
+          </ModelSelectWithLogo>
         </label>
         <label className="nodeField">
           <span>input</span>
@@ -2088,17 +3172,18 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
-            <option value="text.default">Auto / default text model</option>
-            {openRouterModels.filter((entry) => modelSupportsText(entry)).map((entry) => (
-              <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, openRouterModelSupportsVisionInput(entry))}</option>
-            ))}
-            {model && model !== "text.default" && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
-          </select>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
+          <ModelSelectWithLogo logo={modelLogoFor("openrouter", model)}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+              <option value="text.default">Auto / default text model</option>
+              {openRouterModels.filter((entry) => modelSupportsText(entry)).map((entry) => (
+                <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, openRouterModelSupportsVisionInput(entry))}</option>
+              ))}
+              {model && model !== "text.default" && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{openRouterCostLabel(openRouterModels.find((entry) => entry.id === model))}</small>
         </label>
-        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
         <label className="nodeField">
           <span>system prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
@@ -2140,28 +3225,29 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
-          <select
-            className="nodrag nopan nodeInput nodeSelect"
-            value={model}
-            onChange={(event) => {
-              const nextModel = modelOptions.find((entry) => entry.id === event.target.value);
-              const nextAspectRatios = imageAspectRatioOptions(nextModel);
-              const nextImageSizes = imageSizeOptionsForModel(nextModel);
-              onChange({
-                model: event.target.value,
-                aspectRatio: supportedOptionValue(params.aspectRatio, nextAspectRatios),
-                imageSize: supportedOptionValue(params.imageSize, nextImageSizes)
-              });
-            }}
-          >
-            {modelOptions.map((entry) => (
-              <option key={entry.id} value={entry.id} disabled={entry.disabled}>{imageModelOptionLabel(entry)}</option>
-            ))}
-          </select>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
+          <ModelSelectWithLogo logo={modelLogoFor(selectedModel?.provider, selectedModel?.slug ?? model)}>
+            <select
+              className="nodrag nopan nodeInput nodeSelect"
+              value={model}
+              onChange={(event) => {
+                const nextModel = modelOptions.find((entry) => entry.id === event.target.value);
+                const nextAspectRatios = imageAspectRatioOptions(nextModel);
+                const nextImageSizes = imageSizeOptionsForModel(nextModel);
+                onChange({
+                  model: event.target.value,
+                  aspectRatio: supportedOptionValue(params.aspectRatio, nextAspectRatios),
+                  imageSize: supportedOptionValue(params.imageSize, nextImageSizes)
+                });
+              }}
+            >
+              {modelOptions.map((entry) => (
+                <option key={entry.id} value={entry.id} disabled={entry.disabled}>{imageModelOptionLabel(entry)}</option>
+              ))}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{imageModelCostLabel(selectedModel)}</small>
         </label>
-        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
         <label className="nodeField">
           <span>prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
@@ -2215,15 +3301,16 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
-            {modelOptions.map((entry) => (
-              <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, polzaModelSupportsVisionInput(entry))}</option>
-            ))}
-          </select>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
+          <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+              {modelOptions.map((entry) => (
+                <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, polzaModelSupportsVisionInput(entry))}</option>
+              ))}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Text model via Polza.ai")}</small>
         </label>
-        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
         <label className="nodeField">
           <span>system prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
@@ -2257,12 +3344,14 @@ function NodeInlineParams({
     return (
       <>
         <label className="nodeField">
-          <span>model</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
-            {modelOptions.map((entry) => (
-              <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
-            ))}
-          </select>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
+          <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+              {modelOptions.map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
+              ))}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Image model via Polza.ai")}</small>
         </label>
         <label className="nodeField">
@@ -2286,7 +3375,6 @@ function NodeInlineParams({
         </div>
         <details className="nodeAdvanced">
           <summary>Advanced</summary>
-          <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
           <div className="nodeGridFields">
             <label className="nodeField">
               <span>quality</span>
@@ -2306,10 +3394,83 @@ function NodeInlineParams({
     );
   }
 
+  if (type === "polza.video.generate") {
+    const promptConnected = connectedInputPorts.has("prompt");
+    const model = isPolzaVideoUpscaleModelId(String(params.model ?? "")) ? POLZA_VIDEO_MODEL_OPTIONS[0].id : String(params.model ?? POLZA_VIDEO_MODEL_OPTIONS[0].id);
+    const executionProvider = String(params.executionProvider ?? "polza") === "openrouter" ? "openrouter" : "polza";
+    const modelOptions = videoGenerationModelOptions(openRouterModels, polzaVideoModels, model);
+    const selectedModel = modelOptions.find((entry) => entry.id === model && entry.providerId === executionProvider) ?? modelOptions.find((entry) => entry.id === model);
+    const selectedModelKey = selectedModel ? videoModelOptionKey(selectedModel) : `polza:${model}`;
+    const resolution = supportedOptionValue(params.resolution, POLZA_VIDEO_RESOLUTIONS);
+    const duration = supportedOptionValue(params.duration, POLZA_VIDEO_DURATIONS);
+    const supportsAudio = polzaVideoSupportsAudio(selectedModel ?? { id: model });
+    const generateAudio = params.generate_audio !== false;
+    return (
+      <>
+        <label className="nodeField">
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
+          <ModelSelectWithLogo logo={modelLogoFor(selectedModel?.providerId ?? "polza", selectedModel?.id ?? model)}>
+            <select
+              className="nodrag nopan nodeInput nodeSelect"
+              value={selectedModelKey}
+              onChange={(event) => {
+                const nextModel = modelOptions.find((entry) => videoModelOptionKey(entry) === event.target.value);
+                if (!nextModel) return;
+                onChange({ model: nextModel.id, executionProvider: nextModel.providerId });
+              }}
+            >
+              {modelOptions.map((entry) => (
+                <option key={videoModelOptionKey(entry)} value={videoModelOptionKey(entry)}>{entry.name ? `${entry.name} (${entry.id}) - ${entry.providerLabel}` : `${entry.id} - ${entry.providerLabel}`}</option>
+              ))}
+            </select>
+          </ModelSelectWithLogo>
+          <small className="nodeConnectedHint">{videoModelHint(selectedModel, "Video model")}</small>
+        </label>
+        <label className="nodeField">
+          <span>prompt</span>
+          <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
+          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
+        </label>
+        <div className="nodeGridFields">
+          <label className="nodeField">
+            <span>resolution</span>
+            <select className="nodrag nopan nodeInput nodeSelect" value={resolution} onChange={(event) => onChange({ resolution: event.target.value })}>
+              {POLZA_VIDEO_RESOLUTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label className="nodeField">
+            <span>duration</span>
+            <select className="nodrag nopan nodeInput nodeSelect" value={duration} onChange={(event) => onChange({ duration: event.target.value })}>
+              {POLZA_VIDEO_DURATIONS.map((value) => <option key={value} value={value}>{value}s</option>)}
+            </select>
+          </label>
+        </div>
+        <details className="nodeAdvanced">
+          <summary>Advanced</summary>
+          {supportsAudio ? (
+            <label className="nodeCheckField">
+              <input className="nodrag nopan" type="checkbox" checked={generateAudio} onChange={(event) => onChange({ generate_audio: event.target.checked })} />
+              <span>sound</span>
+            </label>
+          ) : null}
+          <label className="nodeCheckField">
+            <input className="nodrag nopan" type="checkbox" checked={Boolean(params.multi_shots)} onChange={(event) => onChange({ multi_shots: event.target.checked })} />
+            <span>multi shots</span>
+          </label>
+        </details>
+      </>
+    );
+  }
+
   if (type === "gemini.nano-banana-2") {
     const promptConnected = connectedInputPorts.has("prompt");
     return (
       <>
+        <div className="nodeFixedModelLine">
+          <span>model</span>
+          <strong>gemini-3.1-flash-image-preview</strong>
+          {modelCreditBadge}
+        </div>
         <label className="nodeField">
           <span>prompt</span>
           <textarea
@@ -2346,7 +3507,6 @@ function NodeInlineParams({
             </select>
           </label>
         </div>
-        <ModelPricingPreview quotePreview={quotePreview} onRefreshPricing={onRefreshPricing} />
       </>
     );
   }
@@ -2377,18 +3537,20 @@ function NodeInlineParams({
           {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
         </label>
         <label className="nodeField">
-          <span>model</span>
-          <select
-            className="nodrag nopan nodeInput nodeSelect"
-            value={String(params.model ?? "gemini-2.5-flash-lite")}
-            onChange={(event) => onChange({ model: event.target.value })}
-          >
-            {GEMINI_LLM_MODEL_OPTIONS.map((model) => (
-              <option key={model.value} value={model.value}>
-                {llmModelOptionLabel(model.label, model.value, model.supportsVision)}
-              </option>
-            ))}
-          </select>
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
+          <ModelSelectWithLogo logo={modelLogoFor("gemini", String(params.model ?? "gemini-2.5-flash-lite"))}>
+            <select
+              className="nodrag nopan nodeInput nodeSelect"
+              value={String(params.model ?? "gemini-2.5-flash-lite")}
+              onChange={(event) => onChange({ model: event.target.value })}
+            >
+              {GEMINI_LLM_MODEL_OPTIONS.map((model) => (
+                <option key={model.value} value={model.value}>
+                  {llmModelOptionLabel(model.label, model.value, model.supportsVision)}
+                </option>
+              ))}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{geminiLlmPricingLabel(String(params.model ?? "gemini-2.5-flash-lite"))}</small>
         </label>
       </>
@@ -2408,17 +3570,19 @@ function NodeInlineParams({
         </label>
         <label className="nodeField">
           <span>model</span>
-          <select
-            className="nodrag nopan nodeInput nodeSelect"
-            value={selectedModel}
-            onChange={(event) => onChange({ model: event.target.value })}
-          >
-            <option value="">current WebUI model</option>
-            {stableDiffusionModels.map((model) => (
-              <option key={model.title} value={model.title}>{model.title}</option>
-            ))}
-            {selectedModel && !stableDiffusionModels.some((model) => model.title === selectedModel) ? <option value={selectedModel}>{selectedModel}</option> : null}
-          </select>
+          <ModelSelectWithLogo logo={modelLogoFor("local", selectedModel || "stable-diffusion")}>
+            <select
+              className="nodrag nopan nodeInput nodeSelect"
+              value={selectedModel}
+              onChange={(event) => onChange({ model: event.target.value })}
+            >
+              <option value="">current WebUI model</option>
+              {stableDiffusionModels.map((model) => (
+                <option key={model.title} value={model.title}>{model.title}</option>
+              ))}
+              {selectedModel && !stableDiffusionModels.some((model) => model.title === selectedModel) ? <option value={selectedModel}>{selectedModel}</option> : null}
+            </select>
+          </ModelSelectWithLogo>
           <small className="nodeConnectedHint">Sent as sd_model_checkpoint for this request.</small>
         </label>
         <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onRefreshStableDiffusionModels?.(endpoint)}>Refresh models</button>
@@ -2575,6 +3739,7 @@ function NodeSliderParam({
   value: number;
   onChange: (patch: Record<string, unknown>) => void;
 }) {
+  const displayValue = formatSliderValue(value);
   return (
     <label className="nodeSliderField">
       <span>{label}</span>
@@ -2587,7 +3752,7 @@ function NodeSliderParam({
         value={value}
         onChange={(event) => onChange({ [id]: numericParam(event.target.value) })}
       />
-      <output>{value}°</output>
+      <output>{displayValue}°</output>
     </label>
   );
 }
@@ -2684,6 +3849,7 @@ function GenericManifestParams({
   };
   const visibleParams = (manifest.params ?? []).filter((param) => manifest.ui?.params?.[param.id]?.advanced !== true);
   const advancedParams = (manifest.params ?? []).filter((param) => manifest.ui?.params?.[param.id]?.advanced === true);
+  const requiredEnv = manifest.permissions?.env ?? [];
   const packageMeta = [manifest.author?.name, manifest.version, manifest.origin, manifest.source].filter(Boolean).join(" · ");
   const renderParamList = (items: NonNullable<NodeManifest["params"]>) => {
     const rendered: React.ReactNode[] = [];
@@ -2705,13 +3871,11 @@ function GenericManifestParams({
   };
   return (
     <>
-      {manifest.permissions?.env?.length ? (
-        <div className="nodeHint">Requires env: {manifest.permissions.env.join(", ")}</div>
-      ) : null}
       {renderParamList(visibleParams)}
-      {advancedParams.length > 0 || packageMeta ? (
+      {advancedParams.length > 0 || packageMeta || requiredEnv.length > 0 ? (
         <details className="nodeAdvanced compact">
           <summary>Advanced</summary>
+          {requiredEnv.length > 0 ? <div className="nodeHint">Requires env: {requiredEnv.join(", ")}</div> : null}
           {packageMeta ? <div className="nodeMetaLine nodePackageMetaLine">{packageMeta}</div> : null}
           {renderParamList(advancedParams)}
         </details>
@@ -2859,7 +4023,11 @@ function NodeInlineResult({
     );
   }
   const imageSrc = versionedAssetPreviewSrc(imagePreviewSrc(result.output), previewVersion);
+  const videoSrc = versionedAssetPreviewSrc(videoPreviewSrc(result.output), previewVersion);
   const cost = costLabel(result.output);
+  const creditCost = result.actualCredits !== undefined && result.actualCredits > 0
+    ? `Spent: ${formatCredits(result.actualCredits)} credits${result.costEstimate?.provider ? ` · Provider: ${result.costEstimate.provider}` : ""} · Usage: ${result.usageSource ?? "unknown"}`
+    : result.costEstimate && result.costEstimate.estimatedCredits > 0 ? `≈ ${formatCredits(result.costEstimate.estimatedCredits)} credits` : "";
   const statusText = result.status && result.status !== "succeeded" ? result.status : null;
   const imageTitle = imageLabel(result.output);
   const panoramaSrc = type === "preview.panorama360" ? versionedAssetPreviewSrc(panoramaSourceSrc(result.output), previewVersion) ?? imageSrc : null;
@@ -2867,6 +4035,7 @@ function NodeInlineResult({
     return (
       <div className={`nodeResult panoramaResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
+        {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
         {cost ? <span className="nodeCost">{cost}</span> : null}
         <Panorama360Viewer
           src={panoramaSrc}
@@ -2881,6 +4050,7 @@ function NodeInlineResult({
     return (
       <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
+        {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
         {cost ? <span className="nodeCost">{cost}</span> : null}
         <div className="nodeImageActions">
           <button
@@ -2934,11 +4104,45 @@ function NodeInlineResult({
       </div>
     );
   }
+  if (videoSrc) {
+    const filename = downloadFilename(result.output, "snarkroute-video.mp4");
+    return (
+      <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
+        {statusText ? <div>{statusText}</div> : null}
+        {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
+        {cost ? <span className="nodeCost">{cost}</span> : null}
+        <div className="nodeImageActions">
+          <button
+            className="nodeImageActionButton nodrag nopan"
+            type="button"
+            title="Download video"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDownloadImage?.(videoSrc, filename);
+            }}
+          >
+            <Download size={14} />
+          </button>
+          <button
+            className={`nodeImageActionButton nodrag nopan ${outputPinned ? "pinned" : ""}`}
+            type="button"
+            title={outputPinned ? "Output is pinned for this project" : "Pin output for this project"}
+            aria-pressed={outputPinned}
+            onClick={(event) => { event.stopPropagation(); onFixNodeOutput?.(nodeId, result.output); }}
+          >
+            <Pin size={14} />
+          </button>
+        </div>
+        <video className="nodeVideoPreview nodrag nopan" src={videoSrc} controls preload="metadata" />
+      </div>
+    );
+  }
   const textOutput = result.status !== "failed" ? outputText(result.output) : null;
-  const preview = result.error ? truncateText(result.error, 420) : result.output === undefined ? "" : truncateText(JSON.stringify(result.output, null, 2), 420);
+  const preview = result.error ? truncateText(userFacingErrorMessage(result.error), 420) : result.output === undefined ? "" : truncateText(JSON.stringify(result.output, null, 2), 420);
   return (
     <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
       {statusText ? <div>{statusText}</div> : null}
+      {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
       {cost ? <span className="nodeCost">{cost}</span> : null}
       {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : preview ? <pre>{preview}</pre> : null}
       {result.status === "failed" && onConfigureMissingSecret ? <button className="nodeSmallButton nodrag nopan" onClick={onConfigureMissingSecret}><KeyRound size={14} /> Configure key</button> : null}
@@ -3462,6 +4666,7 @@ type DialogueConnectedInput = {
   sourcePort?: string;
   preview: string;
   value: unknown;
+  chipBackgroundAssetRef?: string;
 };
 
 function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDoc["nodes"][number]): { inputs: PortSpec[]; outputs: PortSpec[] } {
@@ -3568,7 +4773,7 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
   if (type === "ai.image.sd15.qr_monster_hidden_control") {
     return {
       inputs: [
-        { id: "controlImage", kind: "image", label: "control" },
+        { id: "controlImage", kind: "image", label: "image" },
         { id: "prompt", kind: "text" },
         { id: "negativePrompt", kind: "text", label: "negative" }
       ],
@@ -3590,6 +4795,15 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
         { id: "responseJson", kind: "json", label: "JSON" },
         { id: "responseText", kind: "text", label: "text" },
         { id: "output", kind: "json", label: "output" }
+      ]
+    };
+  }
+  if (type === "transform.chooseCameraPoint") {
+    return {
+      inputs: [{ id: "image", kind: "image", label: "Image" }],
+      outputs: [
+        { id: "view", kind: "image", label: "View" },
+        { id: "panorama", kind: "image", label: "360" }
       ]
     };
   }
@@ -3631,6 +4845,18 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
       ]
     };
   }
+  if (type === "polza.video.generate") {
+    return {
+      inputs: [
+        { id: "images", kind: "image", label: "Images", maxConnections: polzaVideoImageInputLimit(routeNode) },
+        { id: "prompt", kind: "text" }
+      ],
+      outputs: [
+        { id: "video", kind: "video" },
+        { id: "output", kind: "json", label: "JSON" }
+      ]
+    };
+  }
   if (type === "polza.text") {
     return {
       inputs: [
@@ -3657,6 +4883,30 @@ function portLabel(port: PortSpec, connectedCount: number): string {
   return typeof port.maxConnections === "number" ? `${base} ${connectedCount}/${port.maxConnections}` : base;
 }
 
+function polzaVideoImageInputLimit(routeNode?: RouteDoc["nodes"][number]): number {
+  return polzaVideoImageInputLimitForModel({ id: String(routeNode?.params?.model ?? "") });
+}
+
+function polzaVideoImageInputLimitForModel(modelInfo: Pick<PolzaModel, "id" | "maxImageInputs">): number {
+  const explicit = Number(modelInfo.maxImageInputs);
+  if (Number.isFinite(explicit) && explicit > 0 && !isPolzaVideoUpscaleModelId(modelInfo.id)) return Math.max(1, Math.floor(explicit));
+  const model = String(modelInfo.id ?? "").toLowerCase();
+  if (!model) return 14;
+  if (isPolzaVideoUpscaleModelId(model)) return 1;
+  if (/veo[-_]?3/.test(model)) return 2;
+  if (/seedance/.test(model)) return 9;
+  if (/wan/.test(model)) return 2;
+  return 14;
+}
+
+function isPolzaVideoUpscaleModelId(modelId: string | undefined): boolean {
+  return /(^|\/)(video-)?upscale|upscaler|topaz/i.test(String(modelId ?? ""));
+}
+
+function isPolzaVideoGenerationModel(model: PolzaModel): boolean {
+  return !isPolzaVideoUpscaleModelId(model.id);
+}
+
 function inputConnectionCounts(nodeId: string, edges: Edge[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const edge of edges) {
@@ -3664,6 +4914,45 @@ function inputConnectionCounts(nodeId: string, edges: Edge[]): Record<string, nu
     counts[edge.targetHandle] = (counts[edge.targetHandle] ?? 0) + 1;
   }
   return counts;
+}
+
+function activeFlowEdgeIds(nodes: Node[], edges: Edge[], nodeCatalog: NodeCatalogItem[]): Set<string> {
+  const routeNodeById = new Map<string, RouteDoc["nodes"][number]>();
+  for (const node of nodes) {
+    if (isCompoundInterfaceNode(node)) continue;
+    routeNodeById.set(node.id, node.data.routeNode as RouteDoc["nodes"][number]);
+  }
+  const seenByPort = new Map<string, number>();
+  const active = new Set<string>();
+  for (const edge of edges) {
+    const targetRouteNode = routeNodeById.get(edge.target);
+    if (!targetRouteNode || !edge.targetHandle) {
+      active.add(edge.id);
+      continue;
+    }
+    const targetManifest = nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest;
+    const targetPort = getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === edge.targetHandle);
+    const maxConnections = targetPort?.maxConnections ?? 1;
+    const key = `${edge.target}:${edge.targetHandle}`;
+    const index = seenByPort.get(key) ?? 0;
+    seenByPort.set(key, index + 1);
+    if (index < maxConnections) active.add(edge.id);
+  }
+  return active;
+}
+
+function inputConnectionCountsForActiveEdges(nodeId: string, edges: Edge[], activeEdgeIds: Set<string>): Record<string, number> {
+  return inputConnectionCounts(nodeId, edges.filter((edge) => activeEdgeIds.has(edge.id)));
+}
+
+function ModelCreditBadge({ costEstimate }: { costEstimate?: CostEstimate }) {
+  if (!costEstimate || costEstimate.estimatedCredits <= 0) return null;
+  return (
+    <span className="modelCreditBadge" title={creditPriceExplanation(costEstimate)}>
+      <span className="modelCreditDot" aria-hidden="true" />
+      <span>{formatCredits(costEstimate.estimatedCredits)}</span>
+    </span>
+  );
 }
 
 function manifestInputPortSpec(port: NodeManifest["inputs"][number]): PortSpec {
@@ -3676,74 +4965,8 @@ function manifestInputPortSpec(port: NodeManifest["inputs"][number]): PortSpec {
   };
 }
 
-function ModelPricingPreview({ quotePreview, onRefreshPricing }: { quotePreview?: ModelQuotePreview; onRefreshPricing?: (provider: string) => void }) {
-  const selected = quotePreview?.selected;
-  if (!selected) {
-    return (
-      <div className="nodePricingPreview">
-        <div><span>Estimated cost</span><strong>Unknown</strong></div>
-        <div><span>Provider route</span><strong>Not configured</strong></div>
-      </div>
-    );
-  }
-  return (
-    <div className="nodePricingPreview">
-      <div><span>Estimated cost</span><strong>{pricingAmountLabel(selected)}</strong></div>
-      <div><span>Provider route</span><strong>{providerRouteLabel(selected)}</strong></div>
-      <div><span>Confidence</span><strong>{selected.confidence || "unknown"}</strong></div>
-      <div><span>Pricing source</span><strong>{selected.pricingSource || "unknown"}</strong></div>
-      <div><span>Pricing status</span><strong>{pricingStatusLabel(selected)}</strong></div>
-      <div><span>Last pricing update</span><strong>{pricingUpdateLabel(selected)}</strong></div>
-      {onRefreshPricing && ["openrouter", "polza"].includes(selected.provider) ? (
-        <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onRefreshPricing(selected.provider)}>
-          <RefreshCw size={13} /> Refresh pricing
-        </button>
-      ) : null}
-      {selected.warnings?.length ? <div><span>Note</span><strong>{selected.warnings[0]}</strong></div> : null}
-      {quotePreview.alternatives.length > 0 ? (
-        <details className="nodeQuoteAlternatives">
-          <summary>Alternative route quotes</summary>
-          {quotePreview.alternatives.map((quote) => (
-            <div key={`${quote.provider}:${quote.providerModel}`}>
-              <span>{quote.provider}</span>
-              <strong>{pricingAmountLabel(quote)} · {quote.providerModel}</strong>
-            </div>
-          ))}
-        </details>
-      ) : null}
-    </div>
-  );
-}
-
-function pricingAmountLabel(quote: PricingQuote): string {
-  if (typeof quote.estimatedCost !== "number") {
-    if (quote.pricingStatus === "stale") return "Unknown, pricing catalog stale";
-    return "Unknown, pricing unavailable";
-  }
-  const currency = quote.currency ?? "";
-  return `${currency ? `${currency} ` : ""}${quote.estimatedCost.toFixed(quote.estimatedCost < 0.01 ? 6 : 4)}`;
-}
-
-function pricingStatusLabel(quote: PricingQuote): string {
-  const status = quote.pricingStatus ?? (quote.estimatedCost === null ? "unknown" : "fresh");
-  if (status === "fresh") return "Fresh";
-  if (status === "stale") return "Stale";
-  return "Unknown";
-}
-
-function pricingUpdateLabel(quote: PricingQuote): string {
-  if (!quote.pricingUpdatedAt) return "Unknown";
-  const date = new Date(quote.pricingUpdatedAt);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString() : "Unknown";
-}
-
-function providerRouteLabel(quote: PricingQuote): string {
-  const provider = quote.provider === "openrouter" ? "OpenRouter" : quote.provider === "gemini" ? "Direct Gemini" : quote.provider === "polza" ? "Polza.ai" : quote.provider;
-  return `${provider}: ${quote.providerModel}`;
-}
-
 function isModelQuoteableNodeType(type: string): boolean {
-  return ["ai.text", "ai.image.generate", "gemini.nano-banana-2", "polza.text", "polza.image.generate"].includes(type);
+  return ["ai.text", "ai.image.generate", "gemini.nano-banana-2", "polza.text", "polza.image.generate", "polza.video.generate"].includes(type);
 }
 
 function unknownQuotePreview(node: RouteDoc["nodes"][number]): ModelQuotePreview {
@@ -3766,7 +4989,7 @@ function unknownQuotePreview(node: RouteDoc["nodes"][number]): ModelQuotePreview
 }
 
 function isKnownBuiltInPortType(type: string): boolean {
-  return type === "compound.subroute" || library.some((item) => item.type === type);
+  return type === "compound.subroute" || isPolzaNode(type) || library.some((item) => item.type === type);
 }
 
 function isCompoundInterfaceType(type: string): boolean {
@@ -3818,7 +5041,7 @@ function modelLabel(profileId: string, profiles: ModelProfile[], message: Dialog
   return [profileId, message.actualProviderId, message.actualModelId].filter(Boolean).join(" · ");
 }
 
-function buildStudioModelProfiles(openRouterModels: OpenRouterModel[], polzaTextModels: PolzaModel[], polzaImageModels: PolzaModel[]): ModelProfile[] {
+function buildStudioModelProfiles(openRouterModels: OpenRouterModel[], polzaTextModels: PolzaModel[], polzaImageModels: PolzaModel[], polzaVideoModels: PolzaModel[]): ModelProfile[] {
   const dynamicOpenRouter = openRouterModels.slice(0, 80).map((model): ModelProfile => ({
     id: `openrouter:${model.id}`,
     displayName: model.name ? `${model.name} (OpenRouter)` : model.id,
@@ -3828,7 +5051,7 @@ function buildStudioModelProfiles(openRouterModels: OpenRouterModel[], polzaText
     costClass: "unknown",
     privacyClass: "external"
   }));
-  const dynamicPolza = [...polzaTextModels, ...polzaImageModels].slice(0, 80).map((model): ModelProfile => ({
+  const dynamicPolza = [...polzaTextModels, ...polzaImageModels, ...polzaVideoModels].slice(0, 80).map((model): ModelProfile => ({
     id: `polza:${model.id}`,
     displayName: model.name ? `${model.name} (Polza)` : model.id,
     providerId: "polza",
@@ -3836,7 +5059,9 @@ function buildStudioModelProfiles(openRouterModels: OpenRouterModel[], polzaText
     capabilities: [...new Set<ModelProfile["capabilities"][number]>([
       "text",
       ...(polzaModelSupportsVisionInput(model) ? ["vision" as const] : []),
-      ...(model.type === "image" ? ["image_generation" as const] : ["json_output" as const])
+      ...(model.type === "image" ? ["image_generation" as const] : []),
+      ...(model.type === "video" && !isPolzaVideoUpscaleModelId(model.id) ? ["video_generation" as const] : []),
+      ...(model.type !== "image" && model.type !== "video" ? ["json_output" as const] : [])
     ])],
     costClass: "unknown",
     privacyClass: "external"
@@ -3881,9 +5106,11 @@ function modelSortScore(profile: ModelProfile): number {
 function openRouterModelCapabilities(model: OpenRouterModel): ModelProfile["capabilities"] {
   const input = model.architecture?.input_modalities ?? [];
   const output = model.architecture?.output_modalities ?? [];
-  const capabilities: ModelProfile["capabilities"] = ["text"];
+  const capabilities: ModelProfile["capabilities"] = [];
+  if (modelSupportsText(model)) capabilities.push("text");
   if (input.includes("image")) capabilities.push("vision");
   if (output.includes("image")) capabilities.push("image_generation");
+  if (output.includes("video") || model.kind === "video" || modalityOutputModalities(model.architecture?.modality ?? "").includes("video")) capabilities.push("video_generation");
   if (model.supported_parameters?.includes("tools")) capabilities.push("tool_calling");
   if (model.supported_parameters?.includes("response_format")) capabilities.push("json_output");
   return [...new Set(capabilities)];
@@ -3904,15 +5131,25 @@ function connectedInputSummaries(
       const sourceManifest = sourceRouteNode ? nodeCatalog.find((entry) => entry.type === sourceRouteNode.type)?.manifest : undefined;
       const sourcePort = sourceRouteNode ? getNodePorts(sourceRouteNode.type, sourceManifest, sourceRouteNode).outputs.find((port) => port.id === edge.sourceHandle) : undefined;
       const value = readPreviewPort(runResult?.nodeResults?.[edge.source]?.output, edge.sourceHandle) ?? sourceParamPreview(sourceRouteNode, edge.sourceHandle);
+      const type = connectedDialogueInputType(edge.targetHandle, sourcePort?.kind ?? "json");
+      const textValue = type === "text" ? textConnectedInputValue(value, sourceRouteNode) : value;
       return {
         id: edge.targetHandle ?? edge.source,
-        type: edge.targetHandle === "context" ? "conversation_context" : sourcePort?.kind ?? "json",
+        type,
         sourceNodeId: edge.source,
         sourcePort: edge.sourceHandle ?? undefined,
-        preview: previewValue(value),
-        value
+        preview: type === "text" ? textPreviewValue(textValue) : previewValue(value),
+        value,
+        chipBackgroundAssetRef: type === "text" ? imageAssetRef(value) ?? imageAssetRef(sourceParamPreview(sourceRouteNode, edge.sourceHandle)) ?? undefined : undefined
       };
     });
+}
+
+function connectedDialogueInputType(targetHandle: string | null | undefined, sourceKind: PortKind): PortKind {
+  if (targetHandle === "context") return "conversation_context";
+  if (sourceKind === "text") return "text";
+  if (targetHandle === "text" || targetHandle === "image" || targetHandle === "json") return targetHandle;
+  return sourceKind;
 }
 
 function readPreviewPort(output: unknown, port?: string | null): unknown {
@@ -3925,6 +5162,10 @@ function sourceParamPreview(node: RouteDoc["nodes"][number] | undefined, port?: 
   if (!node) return "";
   if (node.type === "input.text") return node.params?.value ?? "";
   if (node.type === "input.image" || node.type === "input.file" || node.type === "input.video") return node.params?.path ?? "";
+  if (node.type === "transform.chooseCameraPoint") {
+    if (port === "panorama") return node.params?.renderedPanorama ?? node.params?.panoramaImage ?? node.params?.outputPanorama ?? "";
+    if (port === "view" || port === "image") return node.params?.renderedImage ?? node.params?.outputImage ?? "";
+  }
   if (node.type === "dialogue.workbench" && port === "conversation_capsule") {
     const state = normalizeDialogueWorkbenchState(node.params?.state, { nodeId: node.id, defaultModelProfileId: String(node.params?.defaultModelProfileId ?? "text.default") });
     return buildDialogueWorkbenchOutputs({ nodeId: node.id, nodeTitle: node.title, state }).conversation_capsule;
@@ -3941,6 +5182,29 @@ function sourceAssetParamPreview(node: RouteDoc["nodes"][number] | undefined): u
 function previewValue(value: unknown): string {
   if (typeof value === "string") return value.length > 700 ? `${value.slice(0, 697)}...` : value;
   return JSON.stringify(value ?? "", null, 2).slice(0, 900);
+}
+
+function textPreviewValue(value: unknown): string {
+  if (typeof value === "string") return previewValue(value);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    const text = record.text ?? record.prompt ?? record.value ?? record.description;
+    if (typeof text === "string") return previewValue(text);
+  }
+  return previewValue(value);
+}
+
+function textConnectedInputValue(value: unknown, sourceNode: RouteDoc["nodes"][number] | undefined): unknown {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (typeof record.text === "string" || typeof record.prompt === "string" || typeof record.value === "string" || typeof record.description === "string") return value;
+  }
+  const params = sourceNode?.params;
+  if (params && typeof params === "object" && !Array.isArray(params)) {
+    const record = params as Record<string, unknown>;
+    return record.text ?? record.prompt ?? record.value ?? record.description ?? value;
+  }
+  return value;
 }
 
 function defaultParamsFromManifest(manifest?: NodeManifest): Record<string, unknown> {
@@ -4148,7 +5412,26 @@ function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
   };
 }
 
-function layoutBatchPosition(origin: { x: number; y: number }, index: number): { x: number; y: number } {
+
+function routeNodeParamsCollapsed(node: RouteDoc["nodes"][number] | undefined): boolean {
+  return node?.ui?.paramsCollapsed === true;
+}
+
+function withRouteNodeParamsCollapsed(
+  node: RouteDoc["nodes"][number],
+  collapsed: boolean
+): RouteDoc["nodes"][number] {
+  const { paramsCollapsed: _paramsCollapsed, ...ui } = node.ui ?? {};
+  return {
+    ...node,
+    ui: collapsed ? { ...ui, paramsCollapsed: true } : ui
+  };
+}
+
+function layoutBatchPosition(
+  origin: { x: number; y: number },
+  index: number
+): { x: number; y: number } {
   const columns = 3;
   return {
     x: origin.x + (index % columns) * 300,
@@ -4383,12 +5666,13 @@ function isRemoteAiNode(type: string): boolean {
 }
 
 function isPolzaNode(type: string): boolean {
-  return type === "polza.text" || type === "polza.image.generate";
+  return type === "polza.text" || type === "polza.image.generate" || type === "polza.video.generate";
 }
 
 function executorKind(type: string, manifest?: NodeManifest): string {
   if (manifest?.origin && manifest.origin !== "bundled") return "custom";
   if (manifest?.executor.type === "plugin") return "custom";
+  if (type === "ai.image.sd15.qr_monster_hidden_control") return "local";
   if (type.startsWith("local.")) return "local";
   if (type.startsWith("ai.")) return "openrouter";
   if (type.startsWith("polza.")) return "polza";
@@ -4413,6 +5697,7 @@ function executorLabel(type: string, manifest?: NodeManifest): string {
 }
 
 function shouldShowInlineResult(type: string): boolean {
+  if (type === "transform.chooseCameraPoint") return false;
   return !type.startsWith("input.") && type !== "library.prompt";
 }
 
@@ -4430,12 +5715,14 @@ function nodeIcon(type: string) {
   if (type === "compound.input") return <ChevronRight size={15} />;
   if (type === "compound.output") return <ChevronRight size={15} />;
   if (type === "transform.template") return <Braces size={15} />;
+  if (type === "transform.chooseCameraPoint") return <Globe size={15} />;
   if (type === "transform.panorama360ToFisheye") return <Aperture size={15} />;
   if (type === "replicate.clarity-upscaler") return <Wand2 size={15} />;
   if (type === "replicate.model") return <span className="providerGlyph">R</span>;
   if (type === "gemini.llm") return <Type size={15} />;
   if (type === "polza.text") return <span className="providerGlyph">P</span>;
   if (type === "polza.image.generate") return <ImageIcon size={15} />;
+  if (type === "polza.video.generate") return <Film size={15} />;
   if (type === "ai.text") return <Type size={15} />;
   if (type === "ai.image.generate") return <ImageIcon size={15} />;
   if (type.includes("seedance")) return <Film size={15} />;
@@ -4453,7 +5740,7 @@ function nodeIcon(type: string) {
 }
 
 function compactNodeClass(type: string): string {
-  return type === "transform.panorama360ToFisheye" ? "compactRouteNode" : "";
+  return type === "transform.panorama360ToFisheye" || type === "transform.chooseCameraPoint" ? "compactRouteNode" : "";
 }
 
 function nodeIconClass(type: string): string {
@@ -4499,6 +5786,25 @@ function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDo
       toPort: edge.targetHandle ?? undefined
     })),
     provenance: { tool: "snarkroute-studio", updatedAt: new Date().toISOString() }
+  };
+}
+
+function routeWithOnlyActiveEdges(route: RouteDoc, nodeCatalog: NodeCatalogItem[]): RouteDoc {
+  const routeNodeById = new Map(route.nodes.map((node) => [node.id, node]));
+  const seenByPort = new Map<string, number>();
+  return {
+    ...route,
+    edges: route.edges.filter((edge) => {
+      const targetRouteNode = routeNodeById.get(edge.to);
+      if (!targetRouteNode || !edge.toPort) return true;
+      const targetManifest = nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest;
+      const targetPort = getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === edge.toPort);
+      const maxConnections = targetPort?.maxConnections ?? 1;
+      const key = `${edge.to}:${edge.toPort}`;
+      const index = seenByPort.get(key) ?? 0;
+      seenByPort.set(key, index + 1);
+      return index < maxConnections;
+    })
   };
 }
 
@@ -4735,6 +6041,9 @@ function App() {
   const [openAiToken, setOpenAiToken] = useState("");
   const [openAiConfigured, setOpenAiConfigured] = useState(false);
   const [openAiMaskedKey, setOpenAiMaskedKey] = useState("");
+  const [worldLabsToken, setWorldLabsToken] = useState("");
+  const [worldLabsConfigured, setWorldLabsConfigured] = useState(false);
+  const [worldLabsMaskedKey, setWorldLabsMaskedKey] = useState("");
   const [seedanceToken, setSeedanceToken] = useState("");
   const [seedanceConfigured, setSeedanceConfigured] = useState(false);
   const [seedanceMaskedKey, setSeedanceMaskedKey] = useState("");
@@ -4749,9 +6058,20 @@ function App() {
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
   const [polzaTextModels, setPolzaTextModels] = useState<PolzaModel[]>([]);
   const [polzaImageModels, setPolzaImageModels] = useState<PolzaModel[]>([]);
+  const [polzaVideoModels, setPolzaVideoModels] = useState<PolzaModel[]>([]);
   const [openRouterDefaultModel, setOpenRouterDefaultModel] = useState("text.default");
   const [openRouterBudgetWarningUsd, setOpenRouterBudgetWarningUsd] = useState("");
   const [providerLinks, setProviderLinks] = useState<ProviderLinks>({});
+  const [capabilities, setCapabilities] = useState<AppCapabilities>(DEFAULT_APP_CAPABILITIES);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [devIdentity, setDevIdentity] = useState<"guest" | "user" | "admin">("guest");
+  const [adminOverview, setAdminOverview] = useState<AdminOverview | null>(null);
+  const [adminMessage, setAdminMessage] = useState("");
+  const [creditBalance, setCreditBalance] = useState<{ balance: number; currency: string } | null>(null);
+  const [creditTransactions, setCreditTransactions] = useState<CreditTransaction[]>([]);
+  const [creditHistoryOpen, setCreditHistoryOpen] = useState(false);
+  const [runCostEstimate, setRunCostEstimate] = useState<RunCostSummary | null>(null);
+  const [userSessionCredentials, setUserSessionCredentials] = useState<Record<string, string>>({});
   const [apiConnected, setApiConnected] = useState(false);
   const [apiError, setApiError] = useState("");
   const [shuttingDown, setShuttingDown] = useState(false);
@@ -4806,10 +6126,28 @@ function App() {
   const [promptAssetError, setPromptAssetError] = useState("");
   const [promptAssetSaving, setPromptAssetSaving] = useState(false);
   const [routeStack, setRouteStack] = useState<SubrouteFrame[]>([]);
+  const supportsLocalFilesystem = capabilities.supportsLocalFilesystem;
+  const isCloudMode = capabilities.mode === "cloud";
+  const isAdmin = currentUser?.role === "admin";
+  const showDeveloperDiagnostics = capabilities.supportsDeveloperDiagnostics && (!isCloudMode || isAdmin);
+  const productLabel = capabilities.product === "snark" ? "SnarkRoute" : "Boojum";
+  const currentUserLabel = currentUser ? (currentUser.displayName || currentUser.email || currentUser.id) : "Guest";
+  const routeEstimatedCredits = Math.max(0, Math.ceil(runCostEstimate?.totalEstimatedCredits ?? 0));
+  const routeHasPaidEstimate = routeEstimatedCredits > 0;
+  const routeHasEnoughCredits = !isCloudMode || !currentUser || !creditBalance || creditBalance.balance >= routeEstimatedCredits;
+  const routeBalanceAfter = currentUser && creditBalance ? creditBalance.balance - routeEstimatedCredits : null;
+  const runDisabledReason = isCloudMode && currentUser && creditBalance && routeHasPaidEstimate && !routeHasEnoughCredits
+    ? `Not enough credits: need ${formatCredits(routeEstimatedCredits)}, balance ${formatCredits(creditBalance.balance)}`
+    : "";
 
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes, quoteRefreshTick]);
+
+  useEffect(() => {
+    if (isAdmin) void loadAdminOverview();
+    else setAdminOverview(null);
+  }, [isAdmin]);
 
   useEffect(() => {
     edgesRef.current = edges;
@@ -4839,24 +6177,28 @@ function App() {
   const contextRouteNode = contextNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
   const selectedEdgeCount = edges.filter((edge) => edge.selected).length;
+  const activeEdgeIds = useMemo(() => activeFlowEdgeIds(nodes, edges, nodeCatalog), [nodes, edges, nodeCatalog]);
   const highlightedNodeIds = useMemo(() => new Set(nodes.filter((node) => node.selected || node.id === selectedId).map((node) => node.id)), [nodes, selectedId]);
   const displayEdges = useMemo(
     () => edges.map((edge) => {
       const selected = Boolean(edge.selected);
+      const inactive = !activeEdgeIds.has(edge.id);
       const highlighted = selected || highlightedNodeIds.has(edge.source) || highlightedNodeIds.has(edge.target);
-      if (!highlighted) return edge;
+      if (!highlighted && !inactive) return edge;
       return {
         ...edge,
-        className: [edge.className, "highlightedRouteEdge", selected ? "selectedRouteEdge" : ""].filter(Boolean).join(" "),
+        className: [edge.className, highlighted ? "highlightedRouteEdge" : "", selected ? "selectedRouteEdge" : "", inactive ? "inactiveRouteEdge" : ""].filter(Boolean).join(" "),
         style: {
           ...edge.style,
-          stroke: selected ? "#9ef5df" : "#7dd3c0",
-          strokeWidth: selected ? 3.5 : 2.5
+          stroke: inactive ? "#667085" : selected ? "#9ef5df" : "#7dd3c0",
+          strokeDasharray: inactive ? "6 6" : edge.style?.strokeDasharray,
+          strokeWidth: inactive ? 1.8 : selected ? 3.5 : 2.5,
+          opacity: inactive ? 0.48 : edge.style?.opacity
         },
         zIndex: selected ? 1001 : 1000
       };
     }),
-    [edges, highlightedNodeIds]
+    [edges, highlightedNodeIds, activeEdgeIds]
   );
   const canvasThemeConfig = availableCanvasThemes.find((theme) => theme.id === canvasBackgroundTheme) ?? availableCanvasThemes[0];
   const catalogSections = useMemo(() => groupNodeCatalog(nodeCatalog, nodeLibraryLayout), [nodeCatalog, nodeLibraryLayout]);
@@ -4909,7 +6251,7 @@ function App() {
         return leftStatus - rightStatus || left.order - right.order || left.node.title.localeCompare(right.node.title);
       });
   }, [installedNodes, libraryNodeMetadata, librarySearch, librarySortMode, libraryStatusFilter]);
-  const modelProfiles = useMemo(() => buildStudioModelProfiles(openRouterModels, polzaTextModels, polzaImageModels), [openRouterModels, polzaTextModels, polzaImageModels]);
+  const modelProfiles = useMemo(() => buildStudioModelProfiles(openRouterModels, polzaTextModels, polzaImageModels, polzaVideoModels), [openRouterModels, polzaTextModels, polzaImageModels, polzaVideoModels]);
   const agentPresets = DEFAULT_AGENT_PRESETS;
   const activeDialogueInputs = useMemo(
     () => activeDialogueWorkbenchId ? connectedInputSummaries(activeDialogueWorkbenchId, nodes, edges, runResult, nodeCatalog) : [],
@@ -4932,16 +6274,19 @@ function App() {
           manifest: nodeCatalog.find((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type))?.manifest,
           isMissingNode: !isKnownBuiltInPortType(String((node.data.routeNode as RouteDoc["nodes"][number]).type)) && !nodeCatalog.some((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type)),
           onParamsChange: updateNodeParams,
+          onParamsCollapsedChange: updateNodeParamsCollapsed,
+          paramsCollapsed: routeNodeParamsCollapsed(node.data.routeNode as RouteDoc["nodes"][number]),
           onBrowseAsset: browseAsset,
           onConfigureReplicate: openReplicateSettings,
           onConfigureGemini: openGeminiSettings,
           onConfigureOpenAi: openOpenAiSettings,
           onConfigureSeedance: openSeedanceSettings,
+          onConfigureWorldLabs: openWorldLabsSettings,
           onConfigurePolza: openPolzaSettings,
           onConfigureOpenRouter: openOpenRouterSettings,
           onOpenImage: setImageViewer,
           onDownloadImage: downloadImageSrc,
-          onImageResultContextMenu: openPromptAssetMenu,
+          onImageResultContextMenu: supportsLocalFilesystem ? openPromptAssetMenu : undefined,
           onFixNodeOutput: fixNodeOutput,
           onRunNodeOnly: runNodeOnly,
           onRunNodeWithDependencies: runNodeWithDependencies,
@@ -4949,13 +6294,22 @@ function App() {
           onOpenDialogueWorkbench: openDialogueWorkbench,
           onUncollapse: uncollapseCompoundNode,
           onNodeUiChange: updateNodeUi,
+          onPublishNodeOutput: publishNodeOutput,
           onRefreshPromptLibrary: refreshPromptLibraryData,
           promptStatusFilter: promptLibraryStatusFilter,
           onPromptStatusFilterChange: setPromptLibraryStatusFilter,
-          onPromptContextMenu: openPromptLibraryMenu,
+          onPromptContextMenu: supportsLocalFilesystem ? openPromptLibraryMenu : undefined,
           onRefreshStableDiffusionModels: refreshStableDiffusionModels,
+          supportsLocalFilesystem,
+          costEstimate: runCostEstimate?.estimates.find((estimate) => estimate.nodeId === node.id),
           connectedInputPorts: edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle).filter((handle): handle is string => Boolean(handle)),
-          connectedInputCounts: inputConnectionCounts(node.id, edges),
+          connectedInputCounts: inputConnectionCountsForActiveEdges(node.id, edges, activeEdgeIds),
+          resizeInputImage: String((node.data.routeNode as RouteDoc["nodes"][number]).type) === "transform.imageResize"
+            ? readyPreviewImageInput(node.data.routeNode as RouteDoc["nodes"][number], nodes, edges, runResult)?.value
+            : undefined,
+          chooseCameraInputImage: String((node.data.routeNode as RouteDoc["nodes"][number]).type) === "transform.chooseCameraPoint"
+            ? readyPreviewImageInput(node.data.routeNode as RouteDoc["nodes"][number], nodes, edges, runResult)?.value
+            : undefined,
           canRunNodeOnly: canRunNodeOnly(node.id),
           promptLibrary,
           stableDiffusionModels,
@@ -4965,8 +6319,10 @@ function App() {
           polzaConfigured,
           polzaTextModels,
           polzaImageModels,
+          polzaVideoModels,
           quotePreview: modelQuotePreviews[node.id],
           onRefreshPricing: refreshPricingCatalog,
+          creditBalance: currentUser ? creditBalance : null,
           openAiConfigured,
           seedanceConfigured,
           seedanceStatusText: seedanceSettings.statusText,
@@ -4975,10 +6331,14 @@ function App() {
           result: staleResultNodeIds.has(node.id) ? undefined : readyNodeResult(node.data.routeNode as RouteDoc["nodes"][number], runResult?.nodeResults?.[node.id], nodes, edges, runResult)
         }
       })),
-    [nodes, edges, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, modelQuotePreviews, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
+    void loadCapabilities();
+    void loadCurrentUser();
+    void loadCreditBalance();
+    void loadCreditTransactions();
     void loadSettings();
     void loadSystemUpdateStatus();
     void loadProviderLinks();
@@ -4988,6 +6348,13 @@ function App() {
     void loadPromptLibraryData();
     void loadLedgerSummary();
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void refreshRunCostEstimate();
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [nodes, edges, routeBase]);
 
   useEffect(() => {
     const quoteableNodes = nodes
@@ -5073,6 +6440,134 @@ function App() {
     }
   }
 
+  async function loadCapabilities() {
+    try {
+      const response = await fetch(`${apiBase}/api/capabilities`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Capabilities unavailable.");
+      setCapabilities({ ...DEFAULT_APP_CAPABILITIES, ...result });
+    } catch (error) {
+      setCapabilities(DEFAULT_APP_CAPABILITIES);
+      setLogs((current) => [`Capabilities unavailable: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  async function loadCurrentUser() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/auth/current`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Current user unavailable.");
+      setCurrentUser(result.user ?? null);
+      setDevIdentity(result.user?.role === "admin" ? "admin" : result.user ? "user" : "guest");
+    } catch {
+      setCurrentUser(null);
+      setDevIdentity("guest");
+    }
+  }
+
+  async function loadCreditBalance() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/billing/balance`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Balance unavailable.");
+      setCreditBalance({ balance: Number(result.balance ?? 0), currency: String(result.currency ?? "credits") });
+    } catch {
+      setCreditBalance(null);
+    }
+  }
+
+  async function loadCreditTransactions(limit = 25) {
+    try {
+      const response = await apiFetch(`${apiBase}/api/billing/transactions?limit=${limit}`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Credit history unavailable.");
+      const rows = Array.isArray(result.transactions) ? result.transactions : Array.isArray(result) ? result : [];
+      setCreditTransactions(rows.map(normalizeCreditTransaction).filter(Boolean) as CreditTransaction[]);
+    } catch {
+      setCreditTransactions([]);
+    }
+  }
+
+  async function loadAdminOverview() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/overview`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Admin overview unavailable.");
+      setAdminOverview(result as AdminOverview);
+      setAdminMessage("");
+    } catch (error) {
+      setAdminOverview(null);
+      setAdminMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function switchDevIdentity(identity: "guest" | "user" | "admin") {
+    try {
+      const response = await apiFetch(`${apiBase}/api/dev/switch-identity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Dev identity switch unavailable.");
+      setDevIdentity(identity);
+      await loadCurrentUser();
+      void loadCreditBalance();
+      void loadCreditTransactions();
+      if (identity === "admin") void loadAdminOverview();
+      else setAdminOverview(null);
+    } catch (error) {
+      setAdminMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function refreshRunCostEstimate(route: RouteDoc = routeWithOnlyActiveEdges(flowToRoute(nodesRef.current, edgesRef.current, routeBase), nodeCatalog)) {
+    try {
+      const response = await apiFetch(`${apiBase}/api/billing/estimate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(route)
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Estimate unavailable.");
+      setRunCostEstimate(result as RunCostSummary);
+    } catch {
+      setRunCostEstimate(null);
+    }
+  }
+
+  async function login() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/auth/login`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Login unavailable.");
+      setCurrentUser(result.user ?? null);
+      void loadCreditBalance();
+      void loadCreditTransactions();
+      setSettingsMessage(result.user ? `Logged in as ${result.user.displayName ?? result.user.email ?? result.user.id}.` : "Local mode does not require login.");
+    } catch (error) {
+      setSettingsMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  function startProviderLogin(provider: "google" | "yandex") {
+    window.location.href = `${apiBase}/api/auth/${provider}/start`;
+  }
+
+  async function logout() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/auth/logout`, { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Logout unavailable.");
+      await loadCurrentUser();
+      void loadCreditBalance();
+      setCreditTransactions([]);
+      setSettingsMessage("Logged out.");
+    } catch (error) {
+      setSettingsMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   async function loadSettings() {
     try {
       const response = await fetch(`${apiBase}/api/settings`);
@@ -5082,6 +6577,8 @@ function App() {
       setGeminiConfigured(Boolean(result.gemini?.configured ?? result.geminiConfigured));
       setOpenAiConfigured(Boolean(result.openai?.configured));
       setOpenAiMaskedKey(String(result.openai?.maskedApiKey ?? ""));
+      setWorldLabsConfigured(Boolean(result.worldlabs?.configured));
+      setWorldLabsMaskedKey(String(result.worldlabs?.maskedApiKey ?? ""));
       const nextSeedance = result.seedance ?? { configured: false };
       setSeedanceSettings(nextSeedance);
       setSeedanceConfigured(Boolean(nextSeedance.configured));
@@ -5102,6 +6599,8 @@ function App() {
       setGeminiConfigured(false);
       setOpenAiConfigured(false);
       setOpenAiMaskedKey("");
+      setWorldLabsConfigured(false);
+      setWorldLabsMaskedKey("");
       setSeedanceConfigured(false);
       setSeedanceMaskedKey("");
       setSeedanceSettings({ configured: false });
@@ -5194,6 +6693,10 @@ function App() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "OpenRouter model cache unavailable.");
       setOpenRouterModels(Array.isArray(result.models) ? result.models : []);
+      const sourceCounts = result.sourceCounts ? ` (/models: ${result.sourceCounts.models ?? 0}, /videos/models: ${result.sourceCounts.videoModels ?? 0})` : "";
+      const klingModels = Array.isArray(result.models) ? result.models.filter((model: OpenRouterModel) => /kling/i.test(`${model.id} ${model.name ?? ""}`)) : [];
+      if (klingModels.length > 0) setLogs((current) => [`OpenRouter catalog Kling models: ${klingModels.map((model: OpenRouterModel) => `${model.id} [${model.kind ?? "unknown"}]`).join(", ")}`, ...current]);
+      if (sourceCounts) setLogs((current) => [`OpenRouter catalog loaded${sourceCounts}.`, ...current]);
     } catch {
       setOpenRouterModels([]);
     }
@@ -5201,16 +6704,19 @@ function App() {
 
   async function loadPolzaModels() {
     try {
-      const [textResponse, imageResponse] = await Promise.all([
+      const [textResponse, imageResponse, videoResponse] = await Promise.all([
         fetch(`${apiBase}/api/providers/polza/models?type=chat`),
-        fetch(`${apiBase}/api/providers/polza/models?type=image`)
+        fetch(`${apiBase}/api/providers/polza/models?type=image`),
+        fetch(`${apiBase}/api/providers/polza/models?type=video`)
       ]);
-      const [textResult, imageResult] = await Promise.all([textResponse.json(), imageResponse.json()]);
+      const [textResult, imageResult, videoResult] = await Promise.all([textResponse.json(), imageResponse.json(), videoResponse.json()]);
       setPolzaTextModels(textResponse.ok && Array.isArray(textResult.models) ? textResult.models : []);
       setPolzaImageModels(imageResponse.ok && Array.isArray(imageResult.models) ? imageResult.models : []);
+      setPolzaVideoModels(videoResponse.ok && Array.isArray(videoResult.models) ? videoResult.models : []);
     } catch {
       setPolzaTextModels([]);
       setPolzaImageModels([]);
+      setPolzaVideoModels([]);
     }
   }
 
@@ -5438,7 +6944,8 @@ function App() {
             outputId: promptAssetDraft.sourceOutputId
           },
           imagePath: promptAssetDraft.imagePath,
-          imageDataBase64
+          imageDataBase64,
+          assetFormat: "png"
         })
       });
       const result = await response.json().catch(() => ({}));
@@ -5539,6 +7046,32 @@ function App() {
       setOpenAiToken("");
       setSettingsMessage("OpenAI key saved locally.");
       setLogs((current) => ["OpenAI key saved locally.", ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    }
+  }
+
+  async function saveWorldLabsToken() {
+    const token = worldLabsToken.trim();
+    if (!token) {
+      setSettingsMessage("WORLDS_API_KEY cannot be empty.");
+      return;
+    }
+    try {
+      const response = await fetch(`${apiBase}/api/settings/worldlabs-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ worldsApiKey: token })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to save World Labs key.");
+      setWorldLabsConfigured(Boolean(result.worldlabs?.configured));
+      setWorldLabsMaskedKey(String(result.worldlabs?.maskedApiKey ?? ""));
+      setWorldLabsToken("");
+      setSettingsMessage("World Labs key saved locally.");
+      setLogs((current) => ["World Labs key saved locally.", ...current]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSettingsMessage(message);
@@ -5676,9 +7209,15 @@ function App() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "OpenRouter catalog refresh failed.");
       setOpenRouterModels(Array.isArray(result.models) ? result.models : []);
-      setOpenRouterSettings((current) => ({ ...current, catalog: { refreshedAt: result.refreshedAt, modelCount: result.modelCount } }));
-      setSettingsMessage(`OpenRouter catalog refreshed: ${result.modelCount ?? 0} models.`);
-      setLogs((current) => [`OpenRouter catalog refreshed: ${result.modelCount ?? 0} models.`, ...current]);
+      setOpenRouterSettings((current) => ({ ...current, catalog: { refreshedAt: result.refreshedAt, modelCount: result.modelCount, sourceCounts: result.sourceCounts } }));
+      const sourceCounts = result.sourceCounts ? ` (/models: ${result.sourceCounts.models ?? 0}, /videos/models: ${result.sourceCounts.videoModels ?? 0})` : "";
+      const klingModels = Array.isArray(result.models) ? result.models.filter((model: OpenRouterModel) => /kling/i.test(`${model.id} ${model.name ?? ""}`)) : [];
+      setSettingsMessage(`OpenRouter catalog refreshed: ${result.modelCount ?? 0} models${sourceCounts}.`);
+      setLogs((current) => [
+        `OpenRouter catalog refreshed: ${result.modelCount ?? 0} models${sourceCounts}.`,
+        `OpenRouter catalog Kling models: ${klingModels.length ? klingModels.map((model: OpenRouterModel) => `${model.id} [${model.kind ?? "unknown"}]`).join(", ") : "none"}`,
+        ...current
+      ]);
       await loadSettings();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -5732,6 +7271,16 @@ function App() {
     setTimeout(() => document.getElementById("seedance-api-key-input")?.focus(), 0);
   }
 
+  function openWorldLabsSettings() {
+    setRightCollapsed(false);
+    setSettingsMessage("Paste your World Labs key in Settings -> Advanced / Direct Secrets -> World Labs.");
+    setTimeout(() => {
+      const input = document.getElementById("worldlabs-api-key-input");
+      input?.scrollIntoView({ block: "center" });
+      input?.focus();
+    }, 0);
+  }
+
   function openPolzaSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your Polza.ai API key in Settings -> AI Providers -> Polza.ai.");
@@ -5745,11 +7294,16 @@ function App() {
   }
 
   async function browseAsset(nodeId: string, kind: AssetKind) {
+    if (!supportsLocalFilesystem) {
+      setLogs((entries) => [`Local ${kind} browsing is disabled in ${capabilities.mode} mode.`, ...entries]);
+      return;
+    }
     setPendingBrowse({ nodeId, kind });
     setTimeout(() => document.getElementById("asset-file-picker")?.click(), 0);
   }
 
   async function applyLocalFile(nodeId: string, file: File, kind: AssetKind) {
+    if (!supportsLocalFilesystem) throw new Error(`Local ${kind} import is disabled in ${capabilities.mode} mode.`);
     const path = await importLocalAsset(file, kind);
     const current = nodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
     updateNodeParams(nodeId, { ...(current?.params ?? {}), path });
@@ -5822,6 +7376,10 @@ function App() {
     const files = Array.from(event.dataTransfer.files ?? []);
     const file = files[0];
     if (!file) return;
+    if (!supportsLocalFilesystem) {
+      setLogs((entries) => [`Local file drops are disabled in ${capabilities.mode} mode.`, ...entries]);
+      return;
+    }
     if (files.length === 1 && canImportNodePackageFile(file)) {
       await importNodePackageFile(file, flowPositionFromEvent(event));
       return;
@@ -5857,6 +7415,10 @@ function App() {
   }
 
   async function importNodePackageFile(file: File, position?: { x: number; y: number }) {
+    if (!supportsLocalFilesystem) {
+      setLogs((current) => [`Local block package files are disabled in ${capabilities.mode} mode.`, ...current]);
+      return;
+    }
     try {
       const payload = await readNodePackageFilePayload(file);
       const previewResponse = await fetch(`${apiBase}${NODE_PACKAGE_PREVIEW_PATH}`, {
@@ -5915,6 +7477,10 @@ function App() {
   }
 
   async function installNodeFromPath() {
+    if (!supportsLocalFilesystem) {
+      setLogs((current) => [`Local path installs are disabled in ${capabilities.mode} mode.`, ...current]);
+      return;
+    }
     try {
       const response = await fetch(`${apiBase}/api/node-packages/install-path`, {
         method: "POST",
@@ -6102,17 +7668,47 @@ function App() {
     const currentNode = currentNodes.find((node) => node.id === nodeId);
     const currentRouteNode = currentNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
     if (!currentRouteNode) return;
-    const nextUi = { ...(currentRouteNode.ui ?? {}), ...patch };
+
+    const nextUi = { ...(currentRouteNode.ui ?? {}) } as Record<string, unknown>;
+
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) {
+        delete nextUi[key];
+      } else {
+        nextUi[key] = value;
+      }
+    }
+
     const uiChanged = JSON.stringify(currentRouteNode.ui ?? {}) !== JSON.stringify(nextUi);
     if (!uiChanged) return;
+
     pushUndoSnapshot(`Update ${nodeId} view`);
+
     const nextNodes = currentNodes.map((node) => {
       if (node.id !== nodeId) return node;
+
       const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
-      return { ...node, data: { ...node.data, routeNode: { ...routeNode, ui: nextUi } } };
+      const dataPatch =
+        Object.prototype.hasOwnProperty.call(patch, "paramsCollapsed")
+          ? { paramsCollapsed: nextUi.paramsCollapsed === true }
+          : {};
+
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          ...dataPatch,
+          routeNode: { ...routeNode, ui: nextUi }
+        }
+      };
     });
+
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
+  }
+
+  function updateNodeParamsCollapsed(nodeId: string, collapsed: boolean) {
+    updateNodeUi(nodeId, { paramsCollapsed: collapsed ? true : undefined });
   }
 
   function updateDialogueWorkbenchState(nodeId: string, state: DialogueWorkbenchState, patch: Record<string, unknown> = {}) {
@@ -6167,6 +7763,30 @@ function App() {
     });
   }
 
+  function publishNodeOutput(nodeId: string, output: Record<string, unknown>) {
+    const now = new Date().toISOString();
+    markNodeResultsFresh([nodeId]);
+    markNodeResultsStale(downstreamNodeIds(nodeId));
+    setRunResult((current) => {
+      const nodeResults = { ...(current?.nodeResults ?? {}) };
+      nodeResults[nodeId] = {
+        ...(nodeResults[nodeId] ?? {}),
+        status: "succeeded",
+        output,
+        startedAt: nodeResults[nodeId]?.startedAt ?? now,
+        completedAt: now
+      };
+      return {
+        ...(current ?? {}),
+        status: current?.status ?? "succeeded",
+        runId: current?.runId ?? "local-preview",
+        startedAt: current?.startedAt ?? now,
+        completedAt: now,
+        nodeResults
+      };
+    });
+  }
+
   function downstreamNodeIds(nodeId: string): string[] {
     const visited = new Set<string>();
     const queue = [nodeId];
@@ -6189,6 +7809,7 @@ function App() {
   }
 
   function shouldKeepLiveResultOnParamChange(changedType: string, affectedType: string): boolean {
+    if (changedType === "transform.chooseCameraPoint") return affectedType === "transform.chooseCameraPoint" || affectedType === "preview.image";
     return changedType === "transform.panorama360ToFisheye" && (affectedType === "transform.panorama360ToFisheye" || affectedType === "preview.image");
   }
 
@@ -7265,7 +8886,7 @@ function App() {
 
   async function runRouteWithProgress(route: RouteDoc, initialNodeOutputs?: Record<string, unknown>) {
     try {
-      const response = await fetch(`${apiBase}/api/routes/run/stream`, {
+      const response = await apiFetch(`${apiBase}/api/routes/run/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(initialNodeOutputs ? { route, initialNodeOutputs } : route)
@@ -7279,6 +8900,7 @@ function App() {
 
       const handleEvent = (event: RunStreamEvent) => {
         if (event.type === "runStarted") {
+          if (event.estimate) setRunCostEstimate(event.estimate);
           setRunResult((current) => ({ ...(current ?? {}), status: "running", runId: event.runId, startedAt: event.startedAt }));
           return;
         }
@@ -7330,6 +8952,8 @@ function App() {
       }));
       markNodeResultsFresh(Object.keys(finalResult.nodeResults ?? {}));
       void loadLedgerSummary();
+      void loadCreditBalance();
+      void loadCreditTransactions();
       const runLogs = Array.isArray(finalResult.logs) ? finalResult.logs.map((entry: { message: string }) => entry.message) : [finalResult.error ?? "Run failed."];
       setLogs((current) => [...runLogs.reverse(), ...current]);
       return finalResult;
@@ -7348,7 +8972,7 @@ function App() {
 
   async function runRouteWithoutProgress(route: RouteDoc, initialNodeOutputs?: Record<string, unknown>) {
     try {
-      const response = await fetch(`${apiBase}/api/routes/run`, {
+      const response = await apiFetch(`${apiBase}/api/routes/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(initialNodeOutputs ? { route, initialNodeOutputs } : route)
@@ -7365,6 +8989,8 @@ function App() {
       }));
       markNodeResultsFresh(Object.keys(result.nodeResults ?? {}));
       void loadLedgerSummary();
+      void loadCreditBalance();
+      void loadCreditTransactions();
       const runLogs = Array.isArray(result.logs) ? result.logs.map((entry: { message: string }) => entry.message) : [result.error ?? "Run failed."];
       setLogs((current) => [...runLogs.reverse(), ...current]);
       return result as RunDisplayResult;
@@ -7400,19 +9026,26 @@ function App() {
   }
 
   async function run() {
-    const route = flowToRoute(nodes, edges, routeBase);
+    if (runDisabledReason) {
+      setLogs((current) => [runDisabledReason, ...current]);
+      return;
+    }
+    const route = routeWithOnlyActiveEdges(flowToRoute(nodes, edges, routeBase), nodeCatalog);
+    await refreshRunCostEstimate(route);
+    await loadCreditBalance();
     markNodeResultsFresh(nodes.map((node) => node.id));
     setRunResult({
       status: "running",
       nodeResults: Object.fromEntries(nodes.map((node) => [node.id, { status: "pending" }]))
     });
     await runRouteWithProgress(route, pinnedInitialNodeOutputs(route.nodes));
+    void loadCreditBalance();
   }
 
   async function runNodeWithDependencies(nodeId: string) {
     const target = nodes.find((node) => node.id === nodeId);
     if (!target) return;
-    const route = flowToNodeRoute(nodes, edges, routeBase, nodeId);
+    const route = routeWithOnlyActiveEdges(flowToNodeRoute(nodes, edges, routeBase, nodeId), nodeCatalog);
     markNodeResultsFresh(route.nodes.map((node) => node.id));
     setRunResult({
       status: "running",
@@ -7483,7 +9116,7 @@ function App() {
     const target = nodes.find((node) => node.id === nodeId);
     if (!target) return false;
     const targetNode = target.data.routeNode as RouteDoc["nodes"][number];
-    const incomingEdges = edges.filter((edge) => edge.target === nodeId);
+    const incomingEdges = edges.filter((edge) => edge.target === nodeId && activeEdgeIds.has(edge.id));
     const connectedInputsReady = incomingEdges.every((edge) => isReadySourceForNodeOnlyRun(edge.source));
     return connectedInputsReady && hasRequiredNodeOnlyInputs(targetNode, incomingEdges);
   }
@@ -7492,7 +9125,7 @@ function App() {
     const target = nodes.find((node) => node.id === nodeId);
     if (!target) return;
     const routeNode = target.data.routeNode as RouteDoc["nodes"][number];
-    const incomingEdges = edges.filter((edge) => edge.target === nodeId);
+    const incomingEdges = edges.filter((edge) => edge.target === nodeId && activeEdgeIds.has(edge.id));
     const initialNodeOutputs: Record<string, unknown> = {};
     const missing = new Set<string>();
 
@@ -7676,7 +9309,7 @@ function App() {
   }
 
   function saveProject() {
-    saveRouteDocument(buildCurrentRouteDocument(), { saveStartup: true, logMessage: "Saved current project locally and as startup route." });
+    saveRouteDocument(buildCurrentRouteDocument(), { saveStartup: true, logMessage: supportsLocalFilesystem ? "Saved current project locally and as startup route." : "Saved current project to cloud storage." });
   }
 
   function saveRouteDocument(route: RouteDoc, options: { saveStartup?: boolean; logMessage?: string } = {}) {
@@ -7694,14 +9327,14 @@ function App() {
 
   async function saveStartupRoute(text: string, filename: string) {
     try {
-      const response = await fetch(`${apiBase}/api/routes/startup`, {
+      const response = await apiFetch(`${apiBase}/api/routes/startup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, filename })
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(String(result.error ?? "Failed to save startup route."));
-      setLogs((current) => ["Saved startup route to repository default.", ...current]);
+      setLogs((current) => [supportsLocalFilesystem ? "Saved startup route to repository default." : "Saved route to Postgres cloud storage.", ...current]);
     } catch (error) {
       setLogs((current) => [`Startup route file save skipped: ${error instanceof Error ? error.message : String(error)}`, ...current]);
     }
@@ -7747,7 +9380,7 @@ function App() {
 
   return (
     <div className={`app ${leftCollapsed ? "leftCollapsed" : ""} ${rightCollapsed ? "rightCollapsed" : ""} ${bottomCollapsed ? "bottomCollapsed" : ""}`}>
-      <aside className="sidebar left">
+      <aside className="sidebar left nowheel">
         <div className="sidebarHeader">
           {!leftCollapsed ? (
             <h1 className="appBrand">
@@ -7799,14 +9432,18 @@ function App() {
               ))}
             </div>
           ) : null}
-          <button onClick={exportRoute} title="Export route"><Download size={16} /> Export</button>
-          <label className="fileButton" title="Import route"><Upload size={16} /> Import<input type="file" accept={ROUTE_FILE_ACCEPT} onChange={(event) => void importRoute(event.target.files?.[0] ?? null)} /></label>
-          <label className="fileButton" title="Import block package"><Plus size={16} /> Block<input type="file" accept=".snarknode,.json,.node.json,application/json" onChange={(event) => {
-            const file = event.target.files?.[0] ?? null;
-            if (file) void importNodePackageFile(file);
-          }} /></label>
+          {supportsLocalFilesystem ? (
+            <>
+              <button onClick={exportRoute} title="Export route"><Download size={16} /> Export</button>
+              <label className="fileButton" title="Import route"><Upload size={16} /> Import<input type="file" accept={ROUTE_FILE_ACCEPT} onChange={(event) => void importRoute(event.target.files?.[0] ?? null)} /></label>
+              <label className="fileButton" title="Import block package"><Plus size={16} /> Block<input type="file" accept=".snarknode,.json,.node.json,application/json" onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                if (file) void importNodePackageFile(file);
+              }} /></label>
+              <button onClick={loadSavedProject} title="Load saved project"><FolderOpen size={16} /> Load</button>
+            </>
+          ) : null}
           <button type="button" onClick={saveProject} title="Save current project"><Save size={16} /> Save</button>
-          <button onClick={loadSavedProject} title="Load saved project"><FolderOpen size={16} /> Load</button>
         </div>
         <div className="nodesHeading">
           <h2>Blocks</h2>
@@ -7836,7 +9473,7 @@ function App() {
           <span><i className="legendDot video" />Video</span>
           <span><i className="legendDot file" />File</span>
         </div>
-        <div className="librarySections">
+        <div className="librarySections nowheel">
           {visibleCatalogSections.map((section) => {
             const collapsed = nodeSearchQuery ? false : collapsedLibrarySections[section.id] ?? true;
             const items = section.items;
@@ -7920,20 +9557,93 @@ function App() {
               <button onClick={() => addNode("compound.output", positionRightOfAllNodes())}>Tool Output <ChevronRight size={16} /></button>
             </>
           ) : null}
-          <button className="primary" onClick={() => void run()}><Play size={16} /> Run</button>
-          <button onClick={collapseSelectedNodes} disabled={selectedNodeCount < 2}><Braces size={16} /> Collapse</button>
-          <button className="danger" onClick={deleteSelection} disabled={selectedNodeCount === 0 && selectedEdgeCount === 0 && !selectedId}><Trash2 size={16} /> Delete</button>
-          <button className="danger" onClick={clearCanvas} disabled={nodes.length === 0 && edges.length === 0}><Eraser size={16} /> Clear</button>
-          <button className="danger" onClick={() => void shutdownServices()} disabled={!apiConnected || shuttingDown} title="Close BoojumRoute Lab and stop local services"><Power size={16} /> {shuttingDown ? "Closing" : "Close"}</button>
-          <div className={`apiStatus ${apiConnected ? "connected" : "disconnected"}`} title={apiError || `API: ${apiBase}`}>
+          <button
+            className={`primary ${runDisabledReason ? "runIconOnly" : ""}`.trim()}
+            onClick={() => void run()}
+            disabled={Boolean(runDisabledReason)}
+            title={runDisabledReason || "Run current route"}
+            aria-label={runDisabledReason || "Run current route"}
+          >
+            <Play size={16} />
+            {runDisabledReason ? null : "Run"}
+          </button>
+          {isCloudMode && capabilities.supportsCredits ? (
+            <div className={`topbarCreditBadge ${currentUser ? "" : "guest"} ${runDisabledReason ? "warning" : ""}`.trim()}>
+              {currentUser ? (
+                <>
+                  <strong>Credits: {creditBalance ? formatCredits(creditBalance.balance) : "unknown"}</strong>
+                  {routeHasPaidEstimate ? (
+                    <span>{runDisabledReason ? `Need ${formatCredits(routeEstimatedCredits)}, balance ${creditBalance ? formatCredits(creditBalance.balance) : "unknown"}` : `This run: ≈${formatCredits(routeEstimatedCredits)} credits`}</span>
+                  ) : <span>This run: Free</span>}
+                </>
+              ) : (
+                <>
+                  <strong>Guest demo</strong>
+                  <span>{capabilities.supportsGuestDemo ? "Demo routes only" : "Login required"}</span>
+                </>
+              )}
+            </div>
+          ) : null}
+          {isCloudMode && currentUser && capabilities.supportsCredits && routeHasPaidEstimate ? (
+            <div className={`topbarRunEstimate ${runDisabledReason ? "warning" : ""}`.trim()}>
+              <span>This run: ≈{formatCredits(routeEstimatedCredits)} credits</span>
+              <strong>
+                {routeBalanceAfter === null
+                  ? "After run: unknown"
+                  : routeBalanceAfter < 0
+                    ? `${formatCredits(creditBalance?.balance ?? 0)} -> ${formatCredits(routeBalanceAfter)} impossible`
+                    : `After run: ${formatCredits(routeBalanceAfter)} credits`}
+              </strong>
+            </div>
+          ) : null}
+          {isCloudMode ? (
+            <>
+              <button onClick={() => { setRightCollapsed(false); void login(); }}><KeyRound size={16} /> {currentUser ? "User" : "Login"}</button>
+              {capabilities.supportsCredits ? (
+                <button onClick={() => {
+                  setRightCollapsed(false);
+                  setCreditHistoryOpen(true);
+                  void loadCreditTransactions(25);
+                }}><Sparkles size={16} /> Credit history</button>
+              ) : null}
+            </>
+          ) : null}
+          {(!isCloudMode || showDeveloperDiagnostics) ? (
+            <>
+              <button onClick={collapseSelectedNodes} disabled={selectedNodeCount < 2}><Braces size={16} /> Collapse</button>
+              <button className="danger" onClick={deleteSelection} disabled={selectedNodeCount === 0 && selectedEdgeCount === 0 && !selectedId}><Trash2 size={16} /> Delete</button>
+              <button className="danger" onClick={clearCanvas} disabled={nodes.length === 0 && edges.length === 0}><Eraser size={16} /> Clear</button>
+            </>
+          ) : null}
+          {supportsLocalFilesystem ? <button className="danger" onClick={() => void shutdownServices()} disabled={!apiConnected || shuttingDown} title="Close BoojumRoute Lab and stop local services"><Power size={16} /> {shuttingDown ? "Closing" : "Close"}</button> : null}
+          {capabilities.supportsDeveloperDiagnostics && !isProductionBuild ? (
+            <div className="devIdentitySwitcher" title="Dev identity is stored per browser in a cookie.">
+              <span>Dev identity</span>
+              {(["guest", "user", "admin"] as const).map((identity) => (
+                <button
+                  key={identity}
+                  className={devIdentity === identity ? "active" : ""}
+                  type="button"
+                  onClick={() => void switchDevIdentity(identity)}
+                >
+                  {identity[0].toUpperCase() + identity.slice(1)}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {isAdmin ? <button type="button" onClick={() => navigate("/admin")}><Lock size={16} /> Admin</button> : null}
+          {showDeveloperDiagnostics ? <div className={`apiStatus ${apiConnected ? "connected" : "disconnected"}`} title={apiError || `API: ${apiBase}`}>
             <span>API: {apiBase}</span>
             <strong>{apiConnected ? "connected" : "disconnected"}</strong>
+            <em>{productLabel}: {capabilities.mode}</em>
+            <em>user: {currentUserLabel}</em>
+            {isCloudMode ? <em>credits: {creditBalance ? formatCredits(creditBalance.balance) : "unknown"}</em> : null}
             <em>{apiConnected ? (replicateConfigured ? "replicate: configured" : "replicate: missing") : "replicate: unknown"}</em>
             <em>{apiConnected ? (geminiConfigured ? "gemini: configured" : "gemini: missing") : "gemini: unknown"}</em>
             <em>{apiConnected ? (openAiConfigured ? "openai: configured" : "openai: missing") : "openai: unknown"}</em>
             <em>{apiConnected ? (seedanceConfigured ? "seedance: configured" : `seedance: ${seedanceSettings.statusText ?? "missing"}`) : "seedance: unknown"}</em>
             <em>{apiConnected ? (polzaConfigured ? "polza: configured" : "polza: missing") : "polza: unknown"}</em>
-          </div>
+          </div> : null}
         </div>
         <ReactFlow
           nodes={displayNodes}
@@ -8092,11 +9802,15 @@ function App() {
                   <button onClick={() => setShowHiddenNodes((value) => !value)}>
                     {showHiddenNodes ? "Hide Hidden Blocks" : "Show Hidden Blocks"}
                   </button>
-                  <button onClick={() => void exportNodePackageFile(libraryItemMenu.type)}>Export Block Package</button>
-                  <button className="danger" disabled={!canDelete} title={canDelete ? "Delete installed block package" : "Bundled blocks cannot be deleted"} onClick={() => void deleteLibraryItem(libraryItemMenu.type)}>
-                    Delete Block Package
-                  </button>
-                  {!canDelete ? <span className="contextMenuHint">Bundled blocks can be hidden, but not deleted.</span> : null}
+                  {supportsLocalFilesystem ? <button onClick={() => void exportNodePackageFile(libraryItemMenu.type)}>Export Block Package</button> : null}
+                  {supportsLocalFilesystem ? (
+                    <>
+                      <button className="danger" disabled={!canDelete} title={canDelete ? "Delete installed block package" : "Bundled blocks cannot be deleted"} onClick={() => void deleteLibraryItem(libraryItemMenu.type)}>
+                        Delete Block Package
+                      </button>
+                      {!canDelete ? <span className="contextMenuHint">Bundled blocks can be hidden, but not deleted.</span> : null}
+                    </>
+                  ) : null}
                 </>
               );
             })()}
@@ -8127,7 +9841,7 @@ function App() {
             })()}
           </div>
         ) : null}
-        {promptAssetMenu ? (
+        {promptAssetMenu && supportsLocalFilesystem ? (
           <div className="contextMenu" style={{ left: promptAssetMenu.clientX, top: promptAssetMenu.clientY }} onClick={(event) => event.stopPropagation()}>
             {(() => {
               const warning = promptAssetMenuWarning(promptAssetMenu);
@@ -8161,7 +9875,7 @@ function App() {
         ) : null}
         {connectionNodeMenu ? (
           <div
-            className="connectionNodeMenu"
+            className="connectionNodeMenu nowheel"
             style={{ left: connectionNodeMenu.clientX, top: connectionNodeMenu.clientY }}
             onClick={(event) => event.stopPropagation()}
           >
@@ -8224,12 +9938,40 @@ function App() {
         {!rightCollapsed ? (
         <>
         <div className="settingsPanel">
-          <div className={`apiStatusPanel ${apiConnected ? "connected" : "disconnected"}`}>
+          {showDeveloperDiagnostics ? <div className={`apiStatusPanel ${apiConnected ? "connected" : "disconnected"}`}>
             <span>API</span>
             <strong>{apiBase}</strong>
             <em>{apiConnected ? "connected" : "disconnected"}</em>
+            <em>{productLabel}: {capabilities.mode}</em>
+            <em>User: {currentUserLabel}</em>
             {apiError ? <p>{apiError}</p> : null}
-          </div>
+          </div> : null}
+          {isCloudMode ? (
+            <div className="providerCard cloudPlaceholderCard">
+              <div className="providerHeader">
+                <h4>{productLabel} Cloud</h4>
+                <span>{currentUser ? "Signed in" : "Guest session"}</span>
+              </div>
+              <div className="settingsActions">
+                {currentUser ? <button onClick={() => void login()}><KeyRound size={16} /> Refresh User</button> : null}
+                {!currentUser ? <button onClick={() => startProviderLogin("google")}><KeyRound size={16} /> Войти через Google</button> : null}
+                {!currentUser ? <button onClick={() => startProviderLogin("yandex")}><KeyRound size={16} /> Войти через Яндекс</button> : null}
+                {currentUser ? <button onClick={() => void logout()}><Lock size={16} /> Logout</button> : null}
+                {capabilities.supportsCredits ? <button onClick={() => { setCreditHistoryOpen((value) => !value); void loadCreditTransactions(25); }}><Clock3 size={16} /> Credit history</button> : null}
+              </div>
+              <div className="providerStatus">
+                <span>{currentUser ? `User: ${currentUserLabel}` : "Sign in to save routes and keep generated results."}</span>
+                <span>Balance: {creditBalance ? `${formatCredits(creditBalance.balance)} credits` : "unknown"}</span>
+                {capabilities.supportsCredits && currentUser ? <CreditTransactionMiniList transactions={creditTransactions.slice(0, 5)} /> : null}
+                {showDeveloperDiagnostics ? <span>User ID: {currentUser?.id ?? "none"}</span> : null}
+                {showDeveloperDiagnostics ? <span>Guest demo: {capabilities.supportsGuestDemo ? "available" : "disabled"}</span> : null}
+                {showDeveloperDiagnostics ? <span>Save: {capabilities.authRequiredForSave && !currentUser ? "login required" : "available"}</span> : null}
+                {showDeveloperDiagnostics ? <span>Local filesystem: {capabilities.supportsLocalFilesystem ? "available" : "hidden"}</span> : null}
+                {showDeveloperDiagnostics ? <span>Public sharing: {capabilities.supportsPublicSharing ? "available" : "not wired"}</span> : null}
+              </div>
+              {creditHistoryOpen && currentUser ? <CreditHistoryPanel transactions={creditTransactions} onRefresh={() => void loadCreditTransactions(25)} /> : null}
+            </div>
+          ) : null}
           <div className="providerCard">
             <div className="providerHeader">
               <h4>Appearance</h4>
@@ -8245,7 +9987,7 @@ function App() {
               <small className="settingsHint">{canvasThemeConfig.description}</small>
             </label>
           </div>
-          <div className="providerCard">
+          {supportsLocalFilesystem ? <div className="providerCard">
             <div className="providerHeader">
               <h4>App Update</h4>
               <span>Pull the latest version from GitHub</span>
@@ -8276,7 +10018,9 @@ function App() {
             </div>
             {systemUpdateStatus?.dirty ? <small className="nodeWarning">Update is disabled because these are uncommitted local files. It will not reset or overwrite them.</small> : null}
             <small className="settingsHint">Uses a fast-forward-only git pull. Restart BoojumRoute after a successful update.</small>
-          </div>
+          </div> : null}
+          {capabilities.supportsUserApiKeys ? (
+          <>
           <h3>AI Providers</h3>
           <div className="providerCard">
             <div className="providerHeader">
@@ -8318,6 +10062,7 @@ function App() {
             <div className="providerStatus">
               <span>Text models: {polzaTextModels.length || POLZA_TEXT_MODEL_OPTIONS.length}</span>
               <span>Image models: {polzaImageModels.length || POLZA_IMAGE_MODEL_OPTIONS.length}</span>
+              <span>Video models: {polzaVideoModels.length || POLZA_VIDEO_MODEL_OPTIONS.length}</span>
             </div>
           </div>
           <div className="providerCard">
@@ -8440,6 +10185,26 @@ function App() {
             />
           </label>
           <button onClick={() => void saveOpenAiToken()}><Save size={16} /> Save Key</button>
+          <h4>World Labs</h4>
+          <div className={`settingsStatus ${worldLabsConfigured ? "configured" : ""}`}>
+            <KeyRound size={14} />
+            World Labs: {worldLabsConfigured ? `key configured (${worldLabsMaskedKey || "********"})` : "not configured"}
+          </div>
+          <div className="settingsLinks">
+            <a className="settingsLink" href={providerLinks.worldlabs?.apiKeysUrl ?? "https://worldlabs.ai"} target="_blank" rel="noreferrer">World Labs</a>
+          </div>
+          <label className="settingsField">
+            <span>WORLDS_API_KEY</span>
+            <input
+              id="worldlabs-api-key-input"
+              type="password"
+              value={worldLabsToken}
+              placeholder={worldLabsConfigured ? "***************" : "Paste key"}
+              onChange={(event) => setWorldLabsToken(event.target.value)}
+              autoComplete="off"
+            />
+          </label>
+          <button onClick={() => void saveWorldLabsToken()}><Save size={16} /> Save Key</button>
           <h4>Seedance</h4>
           <div className={`settingsStatus ${seedanceConfigured ? "configured" : ""}`}>
             <KeyRound size={14} />
@@ -8489,10 +10254,20 @@ function App() {
             <button onClick={() => void testSeedanceConfiguration()}><RefreshCw size={16} /> Check Config</button>
           </div>
           <p className="muted">Official Seedance access uses ByteDance cloud products: BytePlus ModelArk for international access, or Volcengine LAS for China-region access. Third-party aggregators are not official API key sources.</p>
+          </>
+          ) : showDeveloperDiagnostics ? (
+            <div className="providerCard">
+              <div className="providerHeader">
+                <h4>Provider Keys</h4>
+                <span>Cloud account storage is not wired yet</span>
+              </div>
+              <p className="muted">Cloud dev mode hides local `.env` key entry. Provider credentials will move behind login and account-scoped storage when that capability is implemented.</p>
+            </div>
+          ) : null}
           {settingsMessage ? <p className={settingsMessage.includes("error") || settingsMessage.includes("Failed") || settingsMessage.includes("empty") ? "errorText" : "muted"}>{settingsMessage}</p> : null}
         </div>
 
-        <div className="settingsPanel nodePackagePanel">
+        {supportsLocalFilesystem ? <div className="settingsPanel nodePackagePanel">
           <h3>Block / Tool Packages</h3>
           <label className="settingsField">
             <span>Install local .snarknode folder or block manifest path</span>
@@ -8586,8 +10361,10 @@ function App() {
               </div>
             ))}
           </div>
-        </div>
+        </div> : null}
 
+        {showDeveloperDiagnostics ? (
+        <>
         <h2>Inspector</h2>
         <p className="selectionHint">{selectedNodeCount} block(s), {selectedEdgeCount} edge(s) selected</p>
         {selectedNode ? (
@@ -8600,19 +10377,21 @@ function App() {
         ) : (
           <p className="muted">Select a block.</p>
         )}
+        </>
+        ) : null}
 
         <h2>Economics</h2>
-        <EconomicsPanel route={flowToRoute(nodes, edges, routeBase)} runResult={runResult} ledgerSummary={ledgerSummary} />
+        <EconomicsPanel route={flowToRoute(nodes, edges, routeBase)} runResult={runResult} ledgerSummary={ledgerSummary} runCostEstimate={runCostEstimate} creditBalance={creditBalance} creditTransactions={creditTransactions} showDeveloperDiagnostics={showDeveloperDiagnostics} isCloudMode={isCloudMode} currentUser={currentUser} />
         </>
         ) : null}
       </aside>
 
-      <section className="bottom">
+      {showDeveloperDiagnostics ? <section className="bottom">
         <div className="bottomHeader">
           <button className="iconButton" title={bottomCollapsed ? "Expand bottom panel" : "Collapse bottom panel"} onClick={() => setBottomCollapsed((value) => !value)}>
             {bottomCollapsed ? <ChevronUp size={17} /> : <ChevronDown size={17} />}
           </button>
-          <span>Logs / Outputs</span>
+          <span>Developer diagnostics</span>
         </div>
         {!bottomCollapsed ? (
         <>
@@ -8626,7 +10405,7 @@ function App() {
         </div>
         </>
         ) : null}
-      </section>
+      </section> : null}
 
       {imageViewer ? (
         <div className="imageViewerOverlay" role="dialog" aria-modal="true" aria-label="Image preview" onClick={() => setImageViewer(null)}>
@@ -8740,71 +10519,810 @@ function App() {
   );
 }
 
-function EconomicsPanel({ route, runResult, ledgerSummary }: { route: RouteDoc; runResult: RunDisplayResult | null; ledgerSummary: LedgerSummary | null }) {
-  const economics = route.economics ?? { enabled: false, mode: "disabled" };
-  const runEconomics = runResult?.economics && typeof runResult.economics === "object" ? (runResult.economics as Record<string, unknown>) : null;
-  const providersUsed = Array.isArray(runEconomics?.providersUsed) ? runEconomics.providersUsed : [];
+function CreditTransactionMiniList({ transactions }: { transactions: CreditTransaction[] }) {
   return (
-    <div className="economicsPanel">
-      <div className="economicsGrid">
-        <span>enabled</span>
-        <strong>{String(economics.enabled ?? false)}</strong>
-        <span>mode</span>
-        <strong>{String(economics.mode ?? (economics.enabled ? "metadata-only" : "disabled"))}</strong>
-        <span>payment</span>
-        <strong>false</strong>
+    <div className="creditMiniList">
+      <strong>Last transactions</strong>
+      {transactions.length > 0 ? transactions.map((transaction) => (
+        <span key={transaction.id}>{creditTransactionLine(transaction)}</span>
+      )) : <span>No credit transactions yet.</span>}
+    </div>
+  );
+}
+
+function CreditHistoryPanel({ transactions, onRefresh }: { transactions: CreditTransaction[]; onRefresh?: () => void }) {
+  return (
+    <div className="creditHistoryPanel">
+      <div className="creditHistoryHeader">
+        <strong>Credit history</strong>
+        {onRefresh ? <button className="nodeSmallButton" type="button" onClick={onRefresh}><RefreshCw size={13} /> Refresh</button> : null}
       </div>
-      <pre className="miniPre">
-        {JSON.stringify(
-          {
-            author: economics.author ?? route.route.author,
-            contributors: economics.contributors ?? [],
-            revenueSplits: economics.revenueSplits ?? []
-          },
-          null,
-          2
-        )}
-      </pre>
-      <h3>Last Run</h3>
-      {runEconomics ? (
-        <pre className="miniPre">
-          {JSON.stringify(
-            {
-              providersUsed,
-              costSummary: runEconomics.costSummary,
-              paymentExecuted: false
-            },
-            null,
-            2
-          )}
-        </pre>
+      {transactions.length > 0 ? (
+        <div className="creditHistoryRows">
+          {transactions.map((transaction) => (
+            <div className="creditHistoryRow" key={transaction.id}>
+              <span>{formatDateTime(transaction.createdAt)}</span>
+              <strong>{transaction.type}</strong>
+              <span>{formatSignedCredits(transaction.amount)}</span>
+              <span>{transaction.balanceAfter === null || transaction.balanceAfter === undefined ? "-" : `balance ${formatCredits(transaction.balanceAfter)}`}</span>
+              <span>{creditTransactionDetails(transaction)}</span>
+            </div>
+          ))}
+        </div>
       ) : (
-        <p className="muted">No run accounting yet.</p>
-      )}
-      <h3>Ledger</h3>
-      {ledgerSummary ? (
-        <pre className="miniPre">
-          {JSON.stringify(
-            {
-              totalRuns: ledgerSummary.totalRuns,
-              runsByProvider: ledgerSummary.runsByProvider,
-              runsByStatus: ledgerSummary.runsByStatus,
-              estimatedProviderCostTotal: ledgerSummary.estimatedProviderCostTotal,
-              actualProviderCostTotal: ledgerSummary.actualProviderCostTotal,
-              recentRuns: ledgerSummary.recentRuns.slice(0, 3)
-            },
-            null,
-            2
-          )}
-        </pre>
-      ) : (
-        <p className="muted">Ledger unavailable.</p>
+        <p className="muted">No credit transactions yet.</p>
       )}
     </div>
   );
 }
 
-createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
+function EconomicsPanel({
+  route,
+  runResult,
+  ledgerSummary,
+  runCostEstimate,
+  creditBalance,
+  creditTransactions,
+  showDeveloperDiagnostics,
+  isCloudMode,
+  currentUser
+}: {
+  route: RouteDoc;
+  runResult: RunDisplayResult | null;
+  ledgerSummary: LedgerSummary | null;
+  runCostEstimate: RunCostSummary | null;
+  creditBalance: { balance: number; currency: string } | null;
+  creditTransactions: CreditTransaction[];
+  showDeveloperDiagnostics: boolean;
+  isCloudMode: boolean;
+  currentUser: CurrentUser | null;
+}) {
+  const economics = route.economics ?? { enabled: false, mode: "disabled" };
+  const runEconomics = runResult?.economics && typeof runResult.economics === "object" ? (runResult.economics as Record<string, unknown>) : null;
+  const providersUsed = Array.isArray(runEconomics?.providersUsed) ? runEconomics.providersUsed : [];
+  const estimateEntries = userFacingCostEstimates(route, runCostEstimate);
+  const actualEntries = userFacingCostActuals(route, runResult?.costSummary);
+  const estimatedTotal = sumNumbers(estimateEntries.map((entry) => entry.estimatedCredits));
+  const spentTotal = runResult?.costSummary ? sumNumbers(actualEntries.map((entry) => entry.actualCredits)) : null;
+  const refunded = runResult?.costSummary ? Math.max(0, Number((estimatedTotal - (spentTotal ?? 0)).toFixed(6))) : 0;
+  const hasEnoughCredits = !creditBalance || creditBalance.balance >= estimatedTotal;
+  const details = actualEntries.length > 0
+    ? actualEntries.map((entry) => ({ label: entry.label, credits: entry.actualCredits }))
+    : estimateEntries.map((entry) => ({ label: entry.label, credits: entry.estimatedCredits }));
+  return (
+    <div className="economicsPanel">
+      <h3>Credits</h3>
+      <div className="creditSummary">
+        <span>Estimated</span>
+        <strong>{formatCredits(estimatedTotal)}</strong>
+        <span>Spent</span>
+        <strong>{spentTotal === null ? "-" : formatCredits(spentTotal)}</strong>
+        <span>Refunded</span>
+        <strong>{formatCredits(refunded)}</strong>
+        {creditBalance ? (
+          <>
+            <span>Balance</span>
+            <strong>{formatCredits(creditBalance.balance)}</strong>
+          </>
+        ) : null}
+      </div>
+      {creditBalance && !hasEnoughCredits ? <p className="errorText">Not enough credits for this run.</p> : null}
+      {isCloudMode && !currentUser ? <p className="muted">Sign in to save routes and keep generated results.</p> : null}
+      {isCloudMode && currentUser ? (
+        <details className="creditHistoryDetails">
+          <summary>Credit history</summary>
+          <CreditHistoryPanel transactions={creditTransactions} />
+        </details>
+      ) : null}
+      <h3>Details</h3>
+      {details.length > 0 ? (
+        <div className="costDetails">
+          {details.map((entry) => (
+            <React.Fragment key={entry.label}>
+              <span>{entry.label}</span>
+              <strong>{formatCredits(entry.credits)}</strong>
+            </React.Fragment>
+          ))}
+        </div>
+      ) : (
+        <p className="muted">No paid provider calls in this route.</p>
+      )}
+      {showDeveloperDiagnostics ? (
+        <details className="developerDiagnostics">
+          <summary>Developer diagnostics</summary>
+          <div className="economicsGrid">
+            <span>enabled</span>
+            <strong>{String(economics.enabled ?? false)}</strong>
+            <span>mode</span>
+            <strong>{String(economics.mode ?? (economics.enabled ? "metadata-only" : "disabled"))}</strong>
+            <span>payment</span>
+            <strong>false</strong>
+          </div>
+          <pre className="miniPre">
+            {JSON.stringify(
+              {
+                author: economics.author ?? route.route.author,
+                contributors: economics.contributors ?? [],
+                revenueSplits: economics.revenueSplits ?? []
+              },
+              null,
+              2
+            )}
+          </pre>
+          <h3>Last Run</h3>
+          {runEconomics ? (
+            <pre className="miniPre">
+              {JSON.stringify(
+                {
+                  providersUsed,
+                  costSummary: runEconomics.costSummary,
+                  paymentExecuted: false
+                },
+                null,
+                2
+              )}
+            </pre>
+          ) : (
+            <p className="muted">No run accounting yet.</p>
+          )}
+          <h3>Ledger</h3>
+          {ledgerSummary ? (
+            <pre className="miniPre">
+              {JSON.stringify(
+                {
+                  totalRuns: ledgerSummary.totalRuns,
+                  runsByProvider: ledgerSummary.runsByProvider,
+                  runsByStatus: ledgerSummary.runsByStatus,
+                  estimatedProviderCostTotal: ledgerSummary.estimatedProviderCostTotal,
+                  actualProviderCostTotal: ledgerSummary.actualProviderCostTotal,
+                  recentRuns: ledgerSummary.recentRuns.slice(0, 3)
+                },
+                null,
+                2
+              )}
+            </pre>
+          ) : (
+            <p className="muted">Ledger unavailable.</p>
+          )}
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
+function RootApp() {
+  const [path, setPath] = useState(window.location.pathname);
+
+  useEffect(() => {
+    const onPopState = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  if (path === "/admin") return <AdminDashboard />;
+  if (path === "/admin/login") return <AdminLoginPage />;
+  if (path === "/login") return <LoginPage />;
+  return <App />;
+}
+
+function navigate(path: string) {
+  window.history.pushState(null, "", path);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
+
+createRoot(document.getElementById("root")!).render(<React.StrictMode><RootApp /></React.StrictMode>);
+
+function AdminDashboard() {
+  const [capabilities, setCapabilities] = useState<AppCapabilities>(DEFAULT_APP_CAPABILITIES);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [devIdentity, setDevIdentity] = useState<"guest" | "user" | "admin">("guest");
+  const [overview, setOverview] = useState<AdminOverview | null>(null);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function refresh() {
+    await loadCapabilitiesForAdmin();
+    const user = await loadCurrentUserForAdmin();
+    if (user?.role === "admin") await loadOverview();
+    else setOverview(null);
+  }
+
+  async function loadCapabilitiesForAdmin() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/capabilities`);
+      const result = await response.json();
+      if (response.ok) setCapabilities({ ...DEFAULT_APP_CAPABILITIES, ...result });
+    } catch {
+      setCapabilities(DEFAULT_APP_CAPABILITIES);
+    }
+  }
+
+  async function loadCurrentUserForAdmin(): Promise<CurrentUser | null> {
+    try {
+      const response = await apiFetch(`${apiBase}/api/auth/current`);
+      const result = await response.json();
+      const user = response.ok ? result.user ?? null : null;
+      setCurrentUser(user);
+      setDevIdentity(user?.role === "admin" ? "admin" : user ? "user" : "guest");
+      return user;
+    } catch {
+      setCurrentUser(null);
+      setDevIdentity("guest");
+      return null;
+    }
+  }
+
+  async function loadOverview() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/overview`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Admin overview unavailable.");
+      setOverview(result as AdminOverview);
+      setMessage("");
+    } catch (error) {
+      setOverview(null);
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function switchIdentity(identity: "guest" | "user" | "admin") {
+    try {
+      const response = await apiFetch(`${apiBase}/api/dev/switch-identity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Dev identity switch unavailable.");
+      setDevIdentity(identity);
+      await refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const isAdmin = currentUser?.role === "admin";
+
+  return (
+    <main className="adminRoute">
+      <header className="adminRouteHeader">
+        <div>
+          <h1><img src="/boojumroute-icon.png" alt="" /> Boojum Admin</h1>
+          <p>{currentUser ? `Current user: ${currentUser.id} / ${currentUser.role ?? "user"}` : "Login required."}</p>
+        </div>
+        <div className="adminRouteActions">
+          <button type="button" onClick={() => navigate("/")}><ChevronLeft size={16} /> Canvas</button>
+          {capabilities.supportsDeveloperDiagnostics && !isProductionBuild ? <DevIdentitySwitcher identity={devIdentity} onSwitch={switchIdentity} /> : null}
+          {isAdmin ? <button type="button" onClick={() => void refresh()}><RefreshCw size={16} /> Refresh</button> : null}
+        </div>
+      </header>
+      {isAdmin ? (
+        <AdminPanel overview={overview} message={message} onRefresh={() => void loadOverview()} currentUser={currentUser} standalone />
+      ) : (
+        <section className="accessDeniedPanel">
+          <h2>{currentUser ? "Access denied" : "Login required"}</h2>
+          <p>{currentUser ? "Admin role is required to open this dashboard." : "Sign in as an admin to open this dashboard."}</p>
+          <button type="button" onClick={() => navigate("/admin/login")}><KeyRound size={16} /> Admin login</button>
+          {message ? <p className="errorText">{message}</p> : null}
+        </section>
+      )}
+    </main>
+  );
+}
+
+function AdminLoginPage() {
+  const [capabilities, setCapabilities] = useState<AppCapabilities>(DEFAULT_APP_CAPABILITIES);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [devIdentity, setDevIdentity] = useState<"guest" | "user" | "admin">("guest");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function refresh() {
+    try {
+      const capabilitiesResponse = await apiFetch(`${apiBase}/api/capabilities`);
+      const capabilitiesResult = await capabilitiesResponse.json();
+      if (capabilitiesResponse.ok) setCapabilities({ ...DEFAULT_APP_CAPABILITIES, ...capabilitiesResult });
+    } catch {
+      setCapabilities(DEFAULT_APP_CAPABILITIES);
+    }
+    try {
+      const userResponse = await apiFetch(`${apiBase}/api/auth/current`);
+      const userResult = await userResponse.json();
+      const user = userResponse.ok ? userResult.user ?? null : null;
+      setCurrentUser(user);
+      setDevIdentity(user?.role === "admin" ? "admin" : user ? "user" : "guest");
+    } catch {
+      setCurrentUser(null);
+      setDevIdentity("guest");
+    }
+  }
+
+  async function switchIdentity(identity: "guest" | "user" | "admin") {
+    try {
+      const response = await apiFetch(`${apiBase}/api/dev/switch-identity`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Dev identity switch unavailable.");
+      setDevIdentity(identity);
+      await refresh();
+      if (identity === "admin") navigate("/admin");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <main className="adminRoute">
+      <header className="adminRouteHeader">
+        <div>
+          <h1><img src="/boojumroute-icon.png" alt="" /> Admin Login</h1>
+          <p>{currentUser ? `Current user: ${currentUser.id} / ${currentUser.role ?? "user"}` : "No admin session."}</p>
+        </div>
+        <div className="adminRouteActions">
+          <button type="button" onClick={() => navigate("/")}><ChevronLeft size={16} /> Canvas</button>
+          <button type="button" onClick={() => navigate("/admin")}><Lock size={16} /> Admin</button>
+        </div>
+      </header>
+      <section className="accessDeniedPanel">
+        {capabilities.supportsDeveloperDiagnostics && !isProductionBuild ? (
+          <>
+            <h2>Development identity</h2>
+            <p className="muted">Choose Admin to open the dashboard in this browser window.</p>
+            <DevIdentitySwitcher identity={devIdentity} onSwitch={switchIdentity} />
+          </>
+        ) : (
+          <>
+            <h2>Admin sign in</h2>
+            <p className="muted">Sign in with an account that has the admin role.</p>
+            <div className="settingsActions">
+              <button type="button" onClick={() => startOAuthLogin("google")}><KeyRound size={16} /> Войти через Google</button>
+              <button type="button" onClick={() => startOAuthLogin("yandex")}><KeyRound size={16} /> Войти через Яндекс</button>
+            </div>
+          </>
+        )}
+        {message ? <p className="errorText">{message}</p> : null}
+      </section>
+    </main>
+  );
+}
+
+function LoginPage() {
+  return (
+    <main className="adminRoute">
+      <header className="adminRouteHeader">
+        <div>
+          <h1><img src="/boojumroute-icon.png" alt="" /> Boojum Login</h1>
+          <p>Sign in to save routes and keep generated results.</p>
+        </div>
+        <button type="button" onClick={() => navigate("/")}><ChevronLeft size={16} /> Canvas</button>
+      </header>
+      <section className="accessDeniedPanel">
+        <h2>Sign in</h2>
+        <div className="settingsActions">
+          <button type="button" onClick={() => startOAuthLogin("google")}><KeyRound size={16} /> Войти через Google</button>
+          <button type="button" onClick={() => startOAuthLogin("yandex")}><KeyRound size={16} /> Войти через Яндекс</button>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function startOAuthLogin(provider: "google" | "yandex") {
+  window.location.href = `${apiBase}/api/auth/${provider}/start`;
+}
+
+function DevIdentitySwitcher({ identity, onSwitch }: { identity: "guest" | "user" | "admin"; onSwitch: (identity: "guest" | "user" | "admin") => void }) {
+  return (
+    <div className="devIdentitySwitcher" title="Dev identity is stored per browser in a cookie.">
+      <span>Dev identity</span>
+      {(["guest", "user", "admin"] as const).map((entry) => (
+        <button
+          key={entry}
+          className={identity === entry ? "active" : ""}
+          type="button"
+          onClick={() => onSwitch(entry)}
+        >
+          {entry[0].toUpperCase() + entry.slice(1)}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function AdminUsersBilling({ onRefreshOverview }: { onRefreshOverview: () => void }) {
+  const [users, setUsers] = useState<AdminBillingUser[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedUser, setSelectedUser] = useState<AdminUserCard | null>(null);
+  const [tab, setTab] = useState<"transactions" | "runs" | "provider">("transactions");
+  const [query, setQuery] = useState("");
+  const [roleFilter, setRoleFilter] = useState<"all" | "user" | "admin">("all");
+  const [sort, setSort] = useState<"createdAt" | "balance">("createdAt");
+  const [message, setMessage] = useState("");
+  const [grantAmount, setGrantAmount] = useState("");
+  const [grantReason, setGrantReason] = useState("");
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+
+  useEffect(() => {
+    void loadUsers();
+  }, []);
+
+  async function loadUsers() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/users`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Admin users unavailable.");
+      setUsers(Array.isArray(result.users) ? result.users : []);
+      setMessage("");
+    } catch (error) {
+      setUsers([]);
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function loadUser(userId: string) {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/users/${encodeURIComponent(userId)}`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "User card unavailable.");
+      setSelectedUser(result as AdminUserCard);
+      setSelectedUserId(userId);
+      setMessage("");
+    } catch (error) {
+      setSelectedUser(null);
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function submitCreditAction(kind: "grant" | "adjust") {
+    const amount = Number(kind === "grant" ? grantAmount : adjustAmount);
+    const reason = (kind === "grant" ? grantReason : adjustReason).trim();
+    if (!selectedUserId || !Number.isInteger(amount) || !reason || (kind === "grant" && amount <= 0) || (kind === "adjust" && amount === 0)) {
+      setMessage(kind === "grant" ? "Grant requires a positive integer amount and reason." : "Adjustment requires a non-zero integer amount and reason.");
+      return;
+    }
+    try {
+      const path = kind === "grant" ? "grant-credits" : "adjust-credits";
+      const response = await apiFetch(`${apiBase}/api/admin/users/${encodeURIComponent(selectedUserId)}/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount, reason })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Credit action failed.");
+      if (kind === "grant") {
+        setGrantAmount("");
+        setGrantReason("");
+      } else {
+        setAdjustAmount("");
+        setAdjustReason("");
+      }
+      setMessage(`Balance updated: ${formatCredits(Number(result.balance ?? 0))} credits.`);
+      await loadUsers();
+      await loadUser(selectedUserId);
+      onRefreshOverview();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const filteredUsers = users
+    .filter((user) => roleFilter === "all" || user.role === roleFilter)
+    .filter((user) => !query.trim() || user.id.toLowerCase().includes(query.trim().toLowerCase()))
+    .sort((left, right) => sort === "balance"
+      ? right.currentBalance - left.currentBalance
+      : new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+
+  return (
+    <section className="adminUsersBilling">
+      <div className="adminSectionHeader">
+        <div>
+          <h3>Users / Credits</h3>
+          <p className="muted">Ledger-backed balances. No email, name, avatar, or raw OAuth subject is shown.</p>
+        </div>
+        <button type="button" onClick={() => void loadUsers()}><RefreshCw size={14} /> Refresh users</button>
+      </div>
+      <div className="adminFilters">
+        <input value={query} placeholder="Search user id" onChange={(event) => setQuery(event.target.value)} />
+        <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as "all" | "user" | "admin")}>
+          <option value="all">All roles</option>
+          <option value="user">User</option>
+          <option value="admin">Admin</option>
+        </select>
+        <select value={sort} onChange={(event) => setSort(event.target.value as "createdAt" | "balance")}>
+          <option value="createdAt">Created desc</option>
+          <option value="balance">Balance desc</option>
+        </select>
+      </div>
+      {message ? <p className={message.includes("failed") || message.includes("required") || message.includes("Insufficient") ? "errorText" : "muted"}>{message}</p> : null}
+      <div className="adminUsersGrid">
+        <div className="adminUsersTable">
+          <div className="adminUsersTableHeader">
+            <span>User ID</span><span>Role</span><span>Auth</span><span>Created</span><span>Balance</span><span>Granted</span><span>Spent</span><span>Released</span><span>Active reserved</span><span>Runs</span><span>Last activity</span><span>Actions</span>
+          </div>
+          {filteredUsers.map((user) => (
+            <div className={`adminUsersTableRow ${selectedUserId === user.id ? "selected" : ""}`.trim()} key={user.id} onClick={() => void loadUser(user.id)}>
+              <span title={user.id}>{shortAdminValue(user.id)}</span>
+              <span>{user.role}</span>
+              <span>{adminAuthProviderLabel(user)}</span>
+              <span>{formatDateTime(user.createdAt)}</span>
+              <strong>{formatCredits(user.currentBalance)}</strong>
+              <span>{formatCredits(user.totalGranted)}</span>
+              <span>{formatCredits(user.totalCaptured)}</span>
+              <span>{formatCredits(user.totalReleased + user.totalRefunded)}</span>
+              <span>{formatCredits(user.activeReserved)}</span>
+              <span>{user.runsCount}</span>
+              <span>{user.lastActivityAt ? formatDateTime(user.lastActivityAt) : "-"}</span>
+              <span className="adminInlineActions">
+                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); }}>View</button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); setGrantAmount("100"); }}>Grant</button>
+                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); setAdjustAmount("-20"); }}>Adjust</button>
+              </span>
+            </div>
+          ))}
+          {filteredUsers.length === 0 ? <p className="muted">No users match this filter.</p> : null}
+        </div>
+        {selectedUser ? (
+          <div className="adminUserCard">
+            <header>
+              <div>
+                <h3>{selectedUser.id}</h3>
+                <p>{selectedUser.role} / balance {formatCredits(selectedUser.currentBalance)} credits</p>
+              </div>
+            </header>
+            <div className="adminMetricGrid compact">
+              <span>Current balance</span><strong>{formatCredits(selectedUser.currentBalance)}</strong>
+              <span>Total granted</span><strong>{formatCredits(selectedUser.totalGranted)}</strong>
+              <span>Total spent</span><strong>{formatCredits(selectedUser.totalCaptured)}</strong>
+              <span>Total refunded</span><strong>{formatCredits(selectedUser.totalReleased + selectedUser.totalRefunded)}</strong>
+              <span>Runs count</span><strong>{selectedUser.runsCount}</strong>
+              <span>Provider usage</span><strong>{selectedUser.providerUsageCount}</strong>
+            </div>
+            <div className="adminCreditForms">
+              <label><span>Grant credits</span><input value={grantAmount} inputMode="numeric" placeholder="100" onChange={(event) => setGrantAmount(event.target.value)} /></label>
+              <label><span>Reason</span><input value={grantReason} placeholder="Manual admin grant" onChange={(event) => setGrantReason(event.target.value)} /></label>
+              <button type="button" onClick={() => void submitCreditAction("grant")}>Grant credits</button>
+              <label><span>Adjust credits</span><input value={adjustAmount} inputMode="numeric" placeholder="-20" onChange={(event) => setAdjustAmount(event.target.value)} /></label>
+              <label><span>Reason</span><input value={adjustReason} placeholder="Correction reason" onChange={(event) => setAdjustReason(event.target.value)} /></label>
+              <button type="button" onClick={() => void submitCreditAction("adjust")}>Adjust credits</button>
+            </div>
+            <div className="adminTabs">
+              {(["transactions", "runs", "provider"] as const).map((entry) => (
+                <button key={entry} className={tab === entry ? "active" : ""} type="button" onClick={() => setTab(entry)}>{entry === "provider" ? "Provider usage" : entry[0].toUpperCase() + entry.slice(1)}</button>
+              ))}
+            </div>
+            {tab === "transactions" ? <AdminList title="Transactions" rows={selectedUser.recentCreditTransactions} fields={["createdAt", "type", "amount", "reason", "runId", "provider", "operation", "balanceAfter"]} /> : null}
+            {tab === "runs" ? <AdminList title="Runs" rows={selectedUser.recentRuns} fields={["id", "status", "route_id", "created_at"]} /> : null}
+            {tab === "provider" ? <AdminList title="Provider Usage" rows={selectedUser.recentProviderUsage} fields={["provider", "operation", "node_id", "actual_credits", "status", "created_at"]} /> : null}
+          </div>
+        ) : (
+          <div className="adminUserCard empty"><p className="muted">Select a user to view billing history.</p></div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function adminAuthProviderLabel(user: AdminBillingUser): string {
+  const providers = user.authProviders.length ? user.authProviders.join(", ") : "unknown";
+  return user.providerSubjectHashPrefix ? `${providers} / ${user.providerSubjectHashPrefix}` : providers;
+}
+
+function AdminPricing() {
+  const [pricing, setPricing] = useState<PricingBreakdown[]>([]);
+  const [globalMarkupPercent, setGlobalMarkupPercent] = useState("0");
+  const [globalMarkupCredits, setGlobalMarkupCredits] = useState("0");
+  const [minChargeCredits, setMinChargeCredits] = useState("0");
+  const [configSource, setConfigSource] = useState("env_default");
+  const [overrideProvider, setOverrideProvider] = useState("polza");
+  const [overrideOperation, setOverrideOperation] = useState("image.generate");
+  const [overrideModel, setOverrideModel] = useState("");
+  const [overrideNodeType, setOverrideNodeType] = useState("");
+  const [overrideMarkupPercent, setOverrideMarkupPercent] = useState("0");
+  const [overrideMarkupCredits, setOverrideMarkupCredits] = useState("5");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void loadPricing();
+  }, []);
+
+  async function loadPricing() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/pricing/catalog`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Pricing unavailable.");
+      setPricing(Array.isArray(result.pricing) ? result.pricing : []);
+      setGlobalMarkupPercent(String(result.config?.globalMarkupPercent ?? 0));
+      setGlobalMarkupCredits(String(result.config?.globalMarkupCredits ?? 0));
+      setMinChargeCredits(String(result.config?.minChargeCredits ?? 0));
+      setConfigSource(String(result.source ?? "env_default"));
+      setMessage("");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function savePricingConfig() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/pricing/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          globalMarkupPercent: Number(globalMarkupPercent),
+          globalMarkupCredits: Number(globalMarkupCredits),
+          minChargeCredits: Number(minChargeCredits),
+          reason: "Admin pricing UI update"
+        })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Pricing config save failed.");
+      setMessage("Pricing config saved in database.");
+      await loadPricing();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function savePricingOverride() {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/pricing/overrides`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: overrideProvider.trim() || undefined,
+          operation: overrideOperation.trim() || undefined,
+          model: overrideModel.trim() || undefined,
+          nodeType: overrideNodeType.trim() || undefined,
+          markupPercent: Number(overrideMarkupPercent),
+          markupCredits: Number(overrideMarkupCredits),
+          enabled: true,
+          reason: overrideReason.trim() || "Admin pricing override"
+        })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Pricing override save failed.");
+      setMessage("Pricing override saved in database.");
+      await loadPricing();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return (
+    <section className="adminUsersBilling adminPricingPanel">
+      <div className="adminSectionHeader">
+        <div>
+          <h3>Pricing</h3>
+          <p className="muted">Credit unit: 1000 credits = $1. Prices are integer credits from provider API cost plus markup. Source: {configSource}.</p>
+        </div>
+        <button type="button" onClick={() => void loadPricing()}><RefreshCw size={14} /> Refresh pricing</button>
+      </div>
+      <div className="adminCreditForms pricingConfig">
+        <label><span>Global markup %</span><input value={globalMarkupPercent} inputMode="decimal" onChange={(event) => setGlobalMarkupPercent(event.target.value)} /></label>
+        <label><span>Global markup credits</span><input value={globalMarkupCredits} inputMode="numeric" onChange={(event) => setGlobalMarkupCredits(event.target.value)} /></label>
+        <label><span>Min charge credits</span><input value={minChargeCredits} inputMode="numeric" onChange={(event) => setMinChargeCredits(event.target.value)} /></label>
+        <button type="button" onClick={() => void savePricingConfig()}>Save pricing</button>
+      </div>
+      <div className="adminCreditForms pricingOverride">
+        <label><span>Provider</span><input value={overrideProvider} onChange={(event) => setOverrideProvider(event.target.value)} /></label>
+        <label><span>Operation</span><input value={overrideOperation} onChange={(event) => setOverrideOperation(event.target.value)} /></label>
+        <label><span>Model</span><input value={overrideModel} placeholder="optional" onChange={(event) => setOverrideModel(event.target.value)} /></label>
+        <label><span>Node type</span><input value={overrideNodeType} placeholder="optional" onChange={(event) => setOverrideNodeType(event.target.value)} /></label>
+        <label><span>Override markup %</span><input value={overrideMarkupPercent} inputMode="decimal" onChange={(event) => setOverrideMarkupPercent(event.target.value)} /></label>
+        <label><span>Override credits</span><input value={overrideMarkupCredits} inputMode="numeric" onChange={(event) => setOverrideMarkupCredits(event.target.value)} /></label>
+        <label><span>Reason</span><input value={overrideReason} placeholder="Why this override changed" onChange={(event) => setOverrideReason(event.target.value)} /></label>
+        <button type="button" onClick={() => void savePricingOverride()}>Save override</button>
+      </div>
+      {message ? <p className={message.includes("failed") || message.includes("unavailable") ? "errorText" : "muted"}>{message}</p> : null}
+      <div className="adminUsersTable pricingTable">
+        <div className="adminUsersTableHeader pricing">
+          <span>Provider</span><span>Operation</span><span>Model</span><span>Base API cost</span><span>Base credits</span><span>Global markup</span><span>Node markup</span><span>Final estimated</span><span>Source</span>
+        </div>
+        {pricing.map((entry) => (
+          <div className="adminUsersTableRow pricing" key={`${entry.provider}-${entry.operation}-${entry.model ?? "*"}`}>
+            <span>{entry.provider ?? "-"}</span>
+            <span>{entry.operation ?? "-"}</span>
+            <span>{entry.model ?? "*"}</span>
+            <span>${formatMicrousd(entry.baseCostMicrousd ?? 0)}</span>
+            <span>{formatCredits(entry.baseCredits ?? 0)}</span>
+            <span>+{formatCredits(entry.globalMarkupPercent ?? 0)}% +{formatCredits(entry.globalMarkupCredits ?? 0)}</span>
+            <span>+{formatCredits(entry.nodeMarkupPercent ?? 0)}% +{formatCredits(entry.nodeMarkupCredits ?? 0)}</span>
+            <strong>{formatCredits(entry.finalCredits ?? 0)}</strong>
+            <span title={entry.notes ?? ""}>{entry.source ?? entry.pricingSource ?? "-"}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AdminPanel({ overview, message, onRefresh, currentUser, standalone = false }: { overview: AdminOverview | null; message: string; onRefresh: () => void; currentUser?: CurrentUser | null; standalone?: boolean }) {
+  return (
+    <div className={`${standalone ? "adminDashboardPanel" : "providerCard"} adminPanel`}>
+      <div className="providerHeader">
+        <h4>Admin</h4>
+        <span>Cloud operations</span>
+      </div>
+      <div className="settingsActions">
+        <button onClick={onRefresh}><RefreshCw size={16} /> Refresh</button>
+      </div>
+      {message ? <p className={message.includes("required") || message.includes("unavailable") ? "errorText" : "muted"}>{message}</p> : null}
+      {overview ? (
+        <>
+          <AdminPricing />
+          <AdminUsersBilling onRefreshOverview={onRefresh} />
+          {currentUser ? (
+            <div className="adminMetricGrid">
+              <span>Current user id</span><strong>{currentUser.id}</strong>
+              <span>Role</span><strong>{currentUser.role ?? "user"}</strong>
+            </div>
+          ) : null}
+            <div className="adminMetricGrid">
+              <span>Users</span><strong>{overview.usersCount}</strong>
+            <span>Total runs</span><strong>{overview.runsCount ?? overview.runs.length}</strong>
+            <span>Total node runs</span><strong>{overview.nodeRunsCount ?? overview.nodeRuns.length}</strong>
+            <span>Total credit transactions</span><strong>{overview.creditTransactionsCount ?? overview.creditTransactions.length}</strong>
+            <span>Total provider usage</span><strong>{overview.providerUsageCount ?? overview.providerUsage.length}</strong>
+            </div>
+          <AdminList title="Runs" rows={overview.runs} fields={["id", "status", "user_id", "created_at"]} />
+          <AdminList title="Node Runs" rows={overview.nodeRuns} fields={["node_id", "node_type", "provider", "actual_credits", "usage_source"]} />
+          <AdminList title="Credit Transactions" rows={overview.creditTransactions} fields={["transaction_type", "amount_minor", "status", "created_at"]} />
+          <AdminList title="Provider Usage" rows={overview.providerUsage} fields={["provider", "model_id", "cost_minor", "currency", "created_at"]} />
+          <AdminList title="Recent Errors" rows={overview.recentErrors} fields={["source", "status", "error", "created_at"]} />
+          <h3>Artifact Stats</h3>
+          <pre className="miniPre">{JSON.stringify(overview.artifactStats, null, 2)}</pre>
+          <h3>Guest Demo Usage</h3>
+          <pre className="miniPre">{JSON.stringify(overview.guestDemoUsage, null, 2)}</pre>
+          <h3>Provider Key Status</h3>
+          <div className="providerStatus">
+            {Object.entries(overview.providerKeyStatus ?? {}).map(([provider, configured]) => (
+              <span key={provider}>{provider}: {configured ? "configured" : "missing"}</span>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="muted">Admin overview unavailable.</p>
+      )}
+    </div>
+  );
+}
+
+function AdminList({ title, rows, fields }: { title: string; rows: Array<Record<string, unknown>>; fields: string[] }) {
+  return (
+    <>
+      <h3>{title}</h3>
+      {rows.length > 0 ? (
+        <div className="adminList">
+          {rows.slice(0, 8).map((row, index) => (
+            <div className="adminListRow" key={`${title}-${index}`}>
+              {fields.map((field) => (
+                <span key={field} title={String(row[field] ?? "")}>{field}: {shortAdminValue(row[field])}</span>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="muted">No records.</p>
+      )}
+    </>
+  );
+}
+
+function shortAdminValue(value: unknown): string {
+  if (value === null || value === undefined) return "-";
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return truncateText(text, 80);
+}
 
 function truncateText(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
@@ -8828,6 +11346,238 @@ function formatOutputs(outputs: unknown): string {
   return cost ? `${cost}\n\n${body}` : body;
 }
 
+function formatCredits(value: number): string {
+  if (!Number.isFinite(value)) return "unlimited";
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function formatSignedCredits(value: number): string {
+  return `${value > 0 ? "+" : ""}${formatCredits(value)} credits`;
+}
+
+function formatMicrousd(value: number): string {
+  if (!Number.isFinite(value)) return "0.000000";
+  return (value / 1_000_000).toFixed(6).replace(/\.?0+$/, "") || "0";
+}
+
+function formatDateTime(value: string): string {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
+}
+
+function normalizeCreditTransaction(value: unknown): CreditTransaction | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id : `${record.createdAt ?? ""}:${record.type ?? ""}:${record.amount ?? ""}`;
+  const createdAt = typeof record.createdAt === "string" ? record.createdAt : typeof record.created_at === "string" ? record.created_at : "";
+  const type = typeof record.type === "string" ? record.type : typeof record.transactionType === "string" ? record.transactionType : "";
+  const amount = Number(record.amount ?? 0);
+  if (!id || !createdAt || !type || !Number.isFinite(amount)) return null;
+  return {
+    id,
+    createdAt,
+    type,
+    amount,
+    status: typeof record.status === "string" ? record.status : undefined,
+    balanceAfter: typeof record.balanceAfter === "number" ? record.balanceAfter : null,
+    reason: typeof record.reason === "string" ? record.reason : null,
+    runId: typeof record.runId === "string" ? record.runId : null,
+    nodeTitle: typeof record.nodeTitle === "string" ? record.nodeTitle : null,
+    provider: typeof record.provider === "string" ? record.provider : null,
+    maxChargeCredits: typeof record.maxChargeCredits === "number" ? record.maxChargeCredits : null
+  };
+}
+
+function creditTransactionLine(transaction: CreditTransaction): string {
+  const balance = transaction.balanceAfter === null || transaction.balanceAfter === undefined ? "" : ` -> ${formatCredits(transaction.balanceAfter)}`;
+  return `${transaction.type} ${formatSignedCredits(transaction.amount)}${balance}`;
+}
+
+function creditTransactionDetails(transaction: CreditTransaction): string {
+  const details = [
+    transaction.reason,
+    transaction.nodeTitle,
+    transaction.provider,
+    transaction.runId ? `run ${transaction.runId}` : null
+  ].filter((item): item is string => Boolean(item));
+  return details.length ? details.join(" / ") : "-";
+}
+
+function creditPriceExplanation(costEstimate: CostEstimate): string {
+  const provider = costEstimate.provider ?? providerFromNodeType(costEstimate.nodeType) ?? "unknown";
+  const operation = costEstimate.operation ?? operationFromNodeType(costEstimate.nodeType);
+  const breakdown = costEstimate.pricingBreakdown;
+  if (breakdown) {
+    return [
+      `Base API cost: ${formatCredits(breakdown.baseCredits ?? 0)} credits`,
+      `Global markup: +${formatCredits(breakdown.globalMarkupPercent ?? 0)}% +${formatCredits(breakdown.globalMarkupCredits ?? 0)} credits`,
+      `Node markup: +${formatCredits(breakdown.nodeMarkupPercent ?? 0)}% +${formatCredits(breakdown.nodeMarkupCredits ?? 0)} credits`,
+      `Final: ${formatCredits(breakdown.finalCredits ?? costEstimate.estimatedCredits)} credits`,
+      `Source: ${breakdown.pricingSource ?? costEstimate.pricingSource ?? "pricing catalog"}`,
+      `Confidence: ${breakdown.pricingConfidence ?? costEstimate.pricingConfidence ?? "unknown"}`
+    ].join("\n");
+  }
+  return [
+    `provider=${provider}`,
+    `operation=${operation}`,
+    `source=${costEstimate.pricingSource ?? "pricing catalog"}`,
+    `maxChargeCredits=${formatCredits(costEstimate.estimatedCredits)}`
+  ].join("\n");
+}
+
+function providerFromNodeType(nodeType: string): string | null {
+  if (nodeType.startsWith("polza.")) return "polza";
+  if (nodeType.startsWith("replicate.")) return "replicate";
+  if (nodeType.startsWith("gemini.")) return "gemini";
+  return null;
+}
+
+function operationFromNodeType(nodeType: string): string {
+  if (nodeType === "polza.image.generate" || nodeType.includes("image.generate")) return "image.generate";
+  if (nodeType === "polza.video.generate" || nodeType.includes("video.generate")) return "video.generate";
+  if (nodeType.includes("upscaler") || nodeType.includes("upscale")) return "image.upscale";
+  if (nodeType.includes("text") || nodeType.includes("llm")) return "text.generate";
+  return nodeType;
+}
+
+function userFacingCostEstimates(route: RouteDoc, summary: RunCostSummary | null): Array<CostEstimate & { label: string }> {
+  if (!summary) return [];
+  const labels = routeNodeLabels(route);
+  return summary.estimates
+    .filter((entry) => isUserFacingCostEntry(entry.nodeType, entry.estimatedCredits))
+    .map((entry) => ({ ...entry, label: labels.get(entry.nodeId) ?? humanizeNodeId(entry.nodeId) }));
+}
+
+function userFacingCostActuals(route: RouteDoc, summary: RunCostSummary | undefined): Array<CostEstimate & { actualCredits: number; actualProviderCostAmount: number | null; label: string }> {
+  if (!summary) return [];
+  const labels = routeNodeLabels(route);
+  return summary.actuals
+    .filter((entry) => isUserFacingCostEntry(entry.nodeType, entry.actualCredits))
+    .map((entry) => ({ ...entry, label: labels.get(entry.nodeId) ?? humanizeNodeId(entry.nodeId) }));
+}
+
+function routeNodeLabels(route: RouteDoc): Map<string, string> {
+  return new Map(route.nodes.map((node) => [node.id, node.title?.trim() || humanizeNodeId(node.id)]));
+}
+
+function isUserFacingCostEntry(nodeType: string, credits: number): boolean {
+  if (!Number.isFinite(credits) || credits <= 0) return false;
+  return !isFreeUserFacingNodeType(nodeType);
+}
+
+function isFreeUserFacingNodeType(type: string): boolean {
+  return type.startsWith("input.")
+    || type.startsWith("output.")
+    || type.startsWith("preview.")
+    || type.startsWith("debug.")
+    || type.startsWith("utility.")
+    || type.startsWith("library.")
+    || type.startsWith("compound.")
+    || type === "text.promptCompose";
+}
+
+function humanizeNodeId(id: string): string {
+  return id
+    .replace(/[_-]+\d+$/g, "")
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function sumNumbers(values: number[]): number {
+  return Number(values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0).toFixed(6));
+}
+
+function userFacingErrorMessage(message: string): string {
+  if (/ENOENT|no such file or directory/i.test(message)) {
+    if (/input|readFile|image|\.png|\.jpe?g|\.webp/i.test(message)) return "Input image not found. Please re-upload the image.";
+    return "Result could not be saved. Please retry.";
+  }
+  if (/[A-Z]:\\|\/Users\/|\/var\/|\/tmp\/|SnarkRoute|apps[\\/]/i.test(message)) return "Result could not be saved. Please retry.";
+  return message;
+}
+
+function formatRunCostEstimate(summary: RunCostSummary, balance: { balance: number; currency: string } | null, enough: boolean): string {
+  const lines = ["Estimated total:"];
+  for (const entry of summary.estimates) {
+    lines.push(`${entry.nodeId.padEnd(18)} ${formatCredits(entry.estimatedCredits)} credits`);
+  }
+  lines.push("--------------------------");
+  lines.push(`${"Total".padEnd(18)} ${formatCredits(summary.totalEstimatedCredits)} credits`);
+  lines.push("");
+  lines.push(`${"Balance".padEnd(18)} ${balance ? `${formatCredits(balance.balance)} credits` : "unknown"}`);
+  lines.push(enough ? "Enough credits" : "Not enough credits");
+  return lines.join("\n");
+}
+
+function formatRunCostActual(summary: RunCostSummary): string {
+  const lines = ["Actual total:"];
+  for (const entry of summary.actuals) {
+    lines.push(`${entry.nodeId.padEnd(18)} ${formatCredits(entry.actualCredits)} credits`);
+  }
+  lines.push("--------------------------");
+  lines.push(`${"Total".padEnd(18)} ${formatCredits(summary.totalActualCredits)} credits`);
+  lines.push(`${"Refunded".padEnd(18)} ${formatCredits(summary.refundedCredits)} credits`);
+  return lines.join("\n");
+}
+
+function useImageDimensions(value: unknown): { dimensions: { width: number; height: number } | null; status: "idle" | "loading" | "ready" | "error" } {
+  const directDimensions = imageDimensionsFromValue(value);
+  const src = imagePreviewSrc(value);
+  const [state, setState] = useState<{ src: string | null; dimensions: { width: number; height: number } | null; status: "idle" | "loading" | "ready" | "error" }>({
+    src: null,
+    dimensions: null,
+    status: "idle"
+  });
+
+  useEffect(() => {
+    if (directDimensions) {
+      setState({ src: src ?? null, dimensions: directDimensions, status: "ready" });
+      return;
+    }
+    if (!src) {
+      setState({ src: null, dimensions: null, status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setState((current) => current.src === src && current.status === "ready" ? current : { src, dimensions: null, status: "loading" });
+    const image = new Image();
+    image.onload = () => {
+      if (cancelled) return;
+      const width = image.naturalWidth || image.width;
+      const height = image.naturalHeight || image.height;
+      setState(width > 0 && height > 0 ? { src, dimensions: { width, height }, status: "ready" } : { src, dimensions: null, status: "error" });
+    };
+    image.onerror = () => {
+      if (!cancelled) setState({ src, dimensions: null, status: "error" });
+    };
+    image.src = src;
+    return () => {
+      cancelled = true;
+    };
+  }, [src, directDimensions?.width, directDimensions?.height]);
+
+  if (directDimensions) return { dimensions: directDimensions, status: "ready" };
+  return { dimensions: state.dimensions, status: state.status };
+}
+
+function imageDimensionsFromValue(value: unknown): { width: number; height: number } | null {
+  if (!value) return null;
+  if (Array.isArray(value)) return imageDimensionsFromValue(value[0]);
+  if (typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const nested = imageDimensionsFromValue(record.image ?? record.output);
+  if (nested) return nested;
+  const width = Number(record.width);
+  const height = Number(record.height);
+  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+    ? { width: Math.round(width), height: Math.round(height) }
+    : null;
+}
+
+function isUnsetOrManifestDefaultResizeDimension(value: unknown): boolean {
+  return value === undefined || value === null || value === "" || Number(value) === 1024;
+}
+
 function imagePreviewSrc(value: unknown): string | null {
   if (!value) return null;
   if (Array.isArray(value)) return imagePreviewSrc(value[0]);
@@ -8844,6 +11594,22 @@ function imagePreviewSrc(value: unknown): string | null {
     const portableMimeType = typeof record.mimeType === "string" && record.mimeType.trim() ? record.mimeType.trim() : "image/png";
     const portableBase64 = typeof record.base64 === "string" ? `data:${portableMimeType};base64,${record.base64}` : undefined;
     return imagePreviewSrc(record.image ?? imageUrl ?? base64 ?? portableBase64 ?? record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.output);
+  }
+  return null;
+}
+
+function videoPreviewSrc(value: unknown): string | null {
+  if (!value) return null;
+  if (Array.isArray(value)) return videoPreviewSrc(value[0]);
+  if (typeof value === "string") {
+    if (/^data:video\//i.test(value)) return value;
+    if (/^https?:\/\//i.test(value)) return value;
+    if (/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(value)) return `${apiBase}/api/assets/preview?kind=video&path=${encodeURIComponent(value)}`;
+    return null;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return videoPreviewSrc(record.video ?? record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.output);
   }
   return null;
 }
@@ -8922,12 +11688,14 @@ function imageLocalPath(value: unknown): string | null {
 function imageLabel(value: unknown): string {
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
-    const image = (record.image && typeof record.image === "object" ? record.image : record) as Record<string, unknown>;
+    const image = ((record.image && typeof record.image === "object" ? record.image : record.video && typeof record.video === "object" ? record.video : record) as Record<string, unknown>);
     if (typeof record.image === "string" && /^data:image\//i.test(record.image)) return "generated image";
+    if (typeof record.video === "string" && /^data:video\//i.test(record.video)) return "generated video";
     if (typeof image.base64 === "string") return String(image.filename ?? "generated image");
     return String(image.filename ?? image.localPath ?? image.path ?? image.originalUrl ?? "image");
   }
   if (typeof value === "string" && /^data:image\//i.test(value)) return "generated image";
+  if (typeof value === "string" && /^data:video\//i.test(value)) return "generated video";
   return String(value ?? "image");
 }
 
@@ -9065,6 +11833,28 @@ function positiveModulo(value: number, modulo: number): number {
   return ((value % modulo) + modulo) % modulo;
 }
 
+function degreesToRadians(value: number): number {
+  return (value * Math.PI) / 180;
+}
+
+function radiansToDegrees(value: number): number {
+  return (value * 180) / Math.PI;
+}
+
+function wrapDegrees(value: number): number {
+  const wrapped = positiveModulo(value + 180, 360) - 180;
+  return wrapped === -180 ? 180 : wrapped;
+}
+
+function roundCameraCoordinate(value: number): number {
+  return Number(value.toFixed(2));
+}
+
+function formatSliderValue(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  return Number(value.toFixed(2)).toString();
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
@@ -9093,6 +11883,7 @@ function geminiLlmPricingLabel(modelValue: string): string {
 }
 
 function modelSupportsText(model: OpenRouterModel): boolean {
+  if (model.kind === "video" || model.kind === "image") return false;
   const output = model.architecture?.output_modalities ?? [];
   const modality = model.architecture?.modality ?? "";
   return output.length === 0 || output.includes("text") || modality.includes("text");
@@ -9100,9 +11891,17 @@ function modelSupportsText(model: OpenRouterModel): boolean {
 
 function modelSupportsImage(model: OpenRouterModel): boolean {
   if (isOpenRouterRoutingAlias(model.id)) return false;
+  if (model.kind === "video") return false;
   const output = model.architecture?.output_modalities ?? [];
   const modality = model.architecture?.modality ?? "";
   return output.includes("image") || modalityOutputModalities(modality).includes("image");
+}
+
+function modelSupportsVideo(model: OpenRouterModel): boolean {
+  if (isOpenRouterRoutingAlias(model.id)) return false;
+  const output = model.architecture?.output_modalities ?? [];
+  const modality = model.architecture?.modality ?? "";
+  return model.kind === "video" || output.includes("video") || modalityOutputModalities(modality).includes("video");
 }
 
 function openRouterModelSupportsVisionInput(model: OpenRouterModel): boolean {
@@ -9110,6 +11909,21 @@ function openRouterModelSupportsVisionInput(model: OpenRouterModel): boolean {
   const input = model.architecture?.input_modalities ?? [];
   const modality = model.architecture?.modality ?? "";
   return input.includes("image") || modalityInputModalities(modality).includes("image");
+}
+
+function polzaVideoSupportsAudio(model: PolzaModel | undefined): boolean {
+  if (!model) return false;
+  const parameterIds = new Set((model.generationParameters ?? []).map((parameter) => String(parameter.id ?? "").toLowerCase()));
+  if (parameterIds.has("generate_audio") || parameterIds.has("audio") || parameterIds.has("sound")) return true;
+  const supported = new Set((model.supported_parameters ?? []).map((parameter) => parameter.toLowerCase()));
+  if (supported.has("generate_audio") || supported.has("audio") || supported.has("sound")) return true;
+  const outputModalities = [
+    ...(model.architecture?.output_modalities ?? []),
+    ...modalityOutputModalities(model.architecture?.modality ?? "")
+  ].map((entry) => entry.toLowerCase());
+  if (outputModalities.includes("audio")) return true;
+  const searchable = `${model.id} ${model.name ?? ""} ${model.short_description ?? ""}`.toLowerCase();
+  return /(^|[\/\s_-])veo-?3/.test(searchable) || /\baudio\b|\bsound\b/.test(searchable);
 }
 
 function polzaModelSupportsVisionInput(model: PolzaModel): boolean {
@@ -9158,10 +11972,19 @@ const POLZA_IMAGE_MODEL_OPTIONS: PolzaModel[] = [
   { id: "dall-e-3", name: "DALL-E 3", type: "image" },
   { id: "x-ai/grok-imagine-image", name: "Grok Imagine", type: "image" }
 ];
+const POLZA_VIDEO_MODEL_OPTIONS: PolzaModel[] = [
+  { id: "google/veo3_fast", name: "Veo 3 Fast", type: "video", short_description: "Supports video generation with sound." },
+  { id: "google/veo3", name: "Veo 3", type: "video", short_description: "Supports video generation with sound." },
+  { id: "wan/2.6", name: "Wan 2.6", type: "video" },
+  { id: "bytedance/seedance-2", name: "Seedance 2", type: "video" },
+  { id: "bytedance/seedance-2-fast", name: "Seedance 2 Fast", type: "video" }
+];
 const POLZA_IMAGE_ASPECT_RATIOS = ["auto", "1:1", "5:4", "4:5", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9"];
 const POLZA_IMAGE_RESOLUTIONS = ["1K", "2K"];
 const POLZA_IMAGE_QUALITIES = ["auto", "low", "medium", "high"];
 const POLZA_IMAGE_FORMATS = ["png", "jpeg", "webp"];
+const POLZA_VIDEO_RESOLUTIONS = ["720p", "1080p"];
+const POLZA_VIDEO_DURATIONS = ["5", "10"];
 
 function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaModel[], selectedModelId: string): PolzaModel[] {
   const byId = new Map<string, PolzaModel>();
@@ -9175,21 +11998,56 @@ function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaMod
   });
 }
 
+function videoGenerationModelOptions(openRouterModels: OpenRouterModel[], polzaVideoModels: PolzaModel[], selectedModelId: string): VideoModelOption[] {
+  const polzaOptions = polzaModelOptions(polzaVideoModels.filter(isPolzaVideoGenerationModel), POLZA_VIDEO_MODEL_OPTIONS, selectedModelId)
+    .map((model): VideoModelOption => ({
+      ...model,
+      providerId: "polza",
+      providerLabel: "Polza.ai"
+    }));
+  const byKey = new Map(polzaOptions.map((model) => [`polza:${model.id}`, model]));
+  for (const model of openRouterModels.filter(modelSupportsVideo)) {
+    byKey.set(`openrouter:${model.id}`, {
+      id: model.id,
+      name: model.name,
+      providerId: "openrouter",
+      providerLabel: "OpenRouter",
+      pricing: model.pricing,
+      supported_parameters: model.supported_parameters,
+      architecture: model.architecture
+    });
+  }
+  const hasSelected = [...byKey.values()].some((model) => model.id === selectedModelId);
+  if (selectedModelId && !hasSelected) {
+    const selectedOpenRouterModel = openRouterModels.find((model) => model.id === selectedModelId);
+    byKey.set(`${selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "openrouter" : "polza"}:${selectedModelId}`, {
+      id: selectedModelId,
+      name: selectedOpenRouterModel?.name ?? selectedModelId,
+      providerId: selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "openrouter" : "polza",
+      providerLabel: selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "OpenRouter" : "Polza.ai",
+      pricing: selectedOpenRouterModel?.pricing,
+      supported_parameters: selectedOpenRouterModel?.supported_parameters,
+      architecture: selectedOpenRouterModel?.architecture
+    });
+  }
+  return [...byKey.values()].sort((left, right) => {
+    const leftProvider = left.providerId === "polza" ? 0 : 1;
+    const rightProvider = right.providerId === "polza" ? 0 : 1;
+    return leftProvider - rightProvider || (left.name ?? left.id).localeCompare(right.name ?? right.id);
+  });
+}
+
+function videoModelOptionKey(model: Pick<VideoModelOption, "providerId" | "id">): string {
+  return `${model.providerId}:${model.id}`;
+}
+
 function polzaModelHint(model: PolzaModel | undefined, fallback: string): string {
-  return model?.short_description || modelCostLabel(model?.pricing) || fallback;
+  return model?.short_description || fallback;
 }
 
-function modelCostLabel(pricing: Record<string, unknown> | undefined): string {
-  if (!pricing) return "";
-  const tokenPrice = pricing.input_per_million ?? pricing.prompt ?? pricing.input;
-  const outputPrice = pricing.output_per_million ?? pricing.completion ?? pricing.output;
-  if (tokenPrice !== undefined || outputPrice !== undefined) return `Pricing: input ${rubPricingValue(tokenPrice)} / output ${rubPricingValue(outputPrice)}`;
-  const request = pricing.per_request ?? pricing.image ?? pricing.request;
-  return request !== undefined ? `Pricing: ${rubPricingValue(request)} per request` : "";
-}
-
-function rubPricingValue(value: unknown): string {
-  return typeof value === "string" || typeof value === "number" ? `${value} RUB` : "unknown";
+function videoModelHint(model: VideoModelOption | undefined, fallback: string): string {
+  if (!model) return fallback;
+  return model.short_description || `Video model via ${model.providerLabel}`;
 }
 
 function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], selectedModelId: string): ImageModelOption[] {
@@ -9240,8 +12098,7 @@ function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], select
 }
 
 function imageModelOptionLabel(model: ImageModelOption): string {
-  const formatNote = isOpenAiImageSlug(model.id) ? "square only" : "";
-  const notes = [formatNote, model.disabled ? model.note : ""].filter(Boolean);
+  const notes = [model.disabled ? model.note : ""].filter(Boolean);
   return notes.length > 0 ? `${model.label} (${notes.join(", ")})` : model.label;
 }
 
@@ -9325,24 +12182,12 @@ function providerFromSlug(slug: string): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
-function openRouterCostLabel(model: OpenRouterModel | undefined): string {
-  if (!model?.pricing) return "Estimated cost: unknown";
-  const prompt = model.pricing.prompt;
-  const completion = model.pricing.completion;
-  if (prompt !== undefined || completion !== undefined) return `Estimated cost: prompt ${pricingValue(prompt)} / completion ${pricingValue(completion)}`;
-  const request = model.pricing.request ?? model.pricing.image;
-  return request !== undefined ? `Estimated cost: ${pricingValue(request)} per request` : "Estimated cost: unknown";
+function openRouterCostLabel(_model: OpenRouterModel | undefined): string {
+  return "";
 }
 
 function imageModelCostLabel(model: ImageModelOption | undefined): string {
-  if (!model?.pricing) return "Estimated cost: unknown unless provider pricing is verified.";
-  const request = model.pricing.image ?? model.pricing.request;
-  if (request !== undefined) return `Estimated image cost: ${pricingValue(request)} per request`;
-  return "Estimated image cost: unknown";
-}
-
-function pricingValue(value: unknown): string {
-  return typeof value === "string" || typeof value === "number" ? `$${value}` : "unknown";
+  return model?.provider ? `Provider: ${model.provider}` : "";
 }
 
 function numericParam(value: string): unknown {
@@ -9356,6 +12201,67 @@ function numberParamValue(value: unknown, fallback: number): number {
   return Number.isFinite(number) ? number : fallback;
 }
 
+function recordParam(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function worldRecordFromResponse(value: unknown): Record<string, unknown> {
+  const record = recordParam(value);
+  const response = recordParam(record.response);
+  if (response.world_id || response.worldId || response.world_marble_url || response.worldMarbleUrl || worldPanoramaUrl(response) || worldSplatAssetUrl(response)) return withWorldPanoramaAlias(response);
+  const world = recordParam(record.world);
+  if (world.world_id || world.worldId || world.world_marble_url || world.worldMarbleUrl || world.id || worldPanoramaUrl(world) || worldSplatAssetUrl(world)) {
+    return withWorldPanoramaAlias({ ...world, worldId: world.world_id ?? world.worldId ?? world.id });
+  }
+  if (record.world_id || record.worldId || record.world_marble_url || record.worldMarbleUrl || worldPanoramaUrl(record) || worldSplatAssetUrl(record)) return withWorldPanoramaAlias(record);
+  return {};
+}
+
+function worldPanoramaUrl(world: Record<string, unknown>): string | undefined {
+  const assets = recordParam(world.assets);
+  const imagery = recordParam(assets.imagery);
+  return stringFromRecord(world, "panoUrl")
+    ?? stringFromRecord(world, "pano_url")
+    ?? stringFromRecord(imagery, "pano_url")
+    ?? stringFromRecord(imagery, "panoUrl");
+}
+
+function worldSplatAssetUrl(world: Record<string, unknown>): string | undefined {
+  const assets = recordParam(world.assets);
+  const splats = recordParam(assets.splats);
+  const spzUrls = recordParam(splats.spz_urls ?? splats.spzUrls);
+  return stringFromRecord(world, "splatUrl")
+    ?? stringFromRecord(world, "splat_url")
+    ?? stringFromRecord(splats, "spz_url")
+    ?? stringFromRecord(splats, "spzUrl")
+    ?? stringFromRecord(splats, "sog_url")
+    ?? stringFromRecord(splats, "sogUrl")
+    ?? firstStringFromRecord(spzUrls, ["full", "full_res", "fullResolution", "500k", "500K", "medium", "100k", "100K", "low"]);
+}
+
+function withWorldPanoramaAlias(world: Record<string, unknown>): Record<string, unknown> {
+  const panoUrl = worldPanoramaUrl(world);
+  return panoUrl ? { ...world, panoUrl, pano_url: panoUrl } : world;
+}
+
+function cameraPoseRecord(params: Record<string, unknown>): { position?: Record<string, unknown>; rotation?: Record<string, unknown>; fov?: unknown } {
+  const pose = recordParam(params.cameraPose);
+  return {
+    position: recordParam(pose.position),
+    rotation: recordParam(pose.rotation),
+    fov: pose.fov
+  };
+}
+
+function resolutionFromParam(resolution: unknown, output: unknown): { width: number; height: number } {
+  const outputRecord = recordParam(output);
+  const text = String(resolution ?? "");
+  const match = text.match(/^(\d+)x(\d+)$/i);
+  const width = match ? Number(match[1]) : numberParamValue(outputRecord.width, 1536);
+  const height = match ? Number(match[2]) : numberParamValue(outputRecord.height, 864);
+  return { width: Math.max(1, width), height: Math.max(1, height) };
+}
+
 function systemUpdateComparisonText(status: SystemUpdateStatus | null): string {
   if (!status || status.error) return "Git comparison: unavailable";
   if (status.ahead == null || status.behind == null) return "Git comparison: no upstream comparison";
@@ -9365,9 +12271,9 @@ function systemUpdateComparisonText(status: SystemUpdateStatus | null): string {
   return "Git comparison: matches GitHub";
 }
 
-function downloadFilename(value: unknown): string {
-  const label = imageLabel(value).split(/[\\/]/).pop() ?? "snarkroute-image.png";
-  return label || "snarkroute-image.png";
+function downloadFilename(value: unknown, fallback = "snarkroute-image.png"): string {
+  const label = imageLabel(value).split(/[\\/]/).pop() ?? fallback;
+  return label || fallback;
 }
 
 function filenameFromPath(path: string): string {
@@ -9382,7 +12288,7 @@ function stringParam(params: Record<string, unknown> | undefined, key: string): 
 function providerHintForNode(node: RouteDoc["nodes"][number] | undefined): string {
   if (!node) return "";
   if (node.type.startsWith("gemini.")) return "gemini";
-  if (node.type.startsWith("local.stableDiffusion.")) return "stable-diffusion";
+  if (node.type.startsWith("local.stableDiffusion.") || node.type === "ai.image.sd15.qr_monster_hidden_control") return "stable-diffusion";
   if (node.type.startsWith("replicate.")) return "replicate";
   return "";
 }

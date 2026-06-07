@@ -2,7 +2,7 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { OpenRoute, RouteEdge, RouteNode } from "@snarkroute/protocol";
 
-export type RunStatus = "pending" | "running" | "succeeded" | "failed";
+export type RunStatus = "pending" | "running" | "succeeded" | "failed" | "skipped";
 
 export interface NodeExecutionContext {
   runId: string;
@@ -31,6 +31,82 @@ export interface NodeRunnerResult {
 
 export type NodeRunner = (input: NodeRunnerInput) => Promise<NodeRunnerResult> | NodeRunnerResult;
 
+export interface CostEstimate {
+  nodeId: string;
+  nodeType: string;
+  estimatedCredits: number;
+  estimatedProviderCostAmount: number | null;
+  providerCostCurrency: string | null;
+  usageUnits: ActualUsage;
+  provider?: string;
+  model?: string;
+  operation?: string;
+  free?: boolean;
+  baseCostMicrousd?: number;
+  baseCredits?: number;
+  globalMarkupPercent?: number;
+  globalMarkupCredits?: number;
+  nodeMarkupPercent?: number;
+  nodeMarkupCredits?: number;
+  markupCredits?: number;
+  finalCredits?: number;
+  maxChargeCredits?: number;
+  pricingSource?: PricingSource;
+  pricingConfidence?: PricingConfidence;
+  pricingBreakdown?: PricingBreakdown;
+  usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate";
+}
+
+export type PricingSource = "provider_actual" | "pricing_catalog" | "fallback_estimate";
+export type PricingConfidence = "high" | "medium" | "low";
+
+export interface PricingBreakdown {
+  nodeId: string;
+  title?: string;
+  nodeType: string;
+  provider?: string;
+  operation: string;
+  model?: string;
+  free: boolean;
+  providerCostMicrousd: number;
+  baseCostMicrousd: number;
+  baseCredits: number;
+  globalMarkupPercent: number;
+  globalMarkupCredits: number;
+  nodeMarkupPercent: number;
+  nodeMarkupCredits: number;
+  markupCredits: number;
+  finalCredits: number;
+  maxChargeCredits: number;
+  pricingSource: PricingSource;
+  pricingConfidence: PricingConfidence;
+  source: string;
+  notes?: string;
+}
+
+export interface ActualUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  imageCount?: number;
+  videoSeconds?: number;
+  requestCount?: number;
+}
+
+export interface NodeCostModel {
+  estimateNode: (node: RouteNode) => CostEstimate;
+  actualNode?: (node: RouteNode, result: NodeRunnerResult, providerUsage: ProviderUsageEvent[]) => Partial<CostEstimate> & { actualCredits?: number; actualProviderCostAmount?: number | null; usageUnits?: ActualUsage };
+}
+
+export interface RunCostSummary {
+  estimates: CostEstimate[];
+  actuals: Array<CostEstimate & { actualCredits: number; actualProviderCostAmount: number | null }>;
+  totalEstimatedCredits: number;
+  totalActualCredits: number;
+  refundedCredits: number;
+  reservedCredits?: number;
+  balanceAfter?: number | null;
+}
+
 export interface NodeResult {
   nodeId: string;
   type: string;
@@ -40,6 +116,12 @@ export interface NodeResult {
   logs: string[];
   metrics?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
+  costEstimate?: CostEstimate;
+  actualUsage?: ActualUsage;
+  actualCredits?: number;
+  actualProviderCostAmount?: number | null;
+  usageSource?: "provider" | "estimated" | "unknown" | "catalog_estimate";
+  providerUsage?: ProviderUsageEvent[];
   startedAt: string;
   completedAt: string;
 }
@@ -59,6 +141,7 @@ export interface RunResult {
   logs: RunLogEntry[];
   provenance: Record<string, unknown>;
   economics: RunEconomicsSummary;
+  costSummary: RunCostSummary;
   outputDirectory: string;
 }
 
@@ -69,6 +152,7 @@ export interface ExecuteOptions {
   ledgerPath?: string;
   initialNodeOutputs?: Record<string, unknown>;
   onNodeResult?: (result: NodeResult) => void;
+  costModel?: NodeCostModel;
 }
 
 export interface ProviderUsageEvent {
@@ -87,6 +171,11 @@ export interface ProviderUsageEvent {
   pricingHint?: string;
   pricingSource?: string;
   pricingQuote?: unknown;
+  providerCostMicrousd?: number | null;
+  baseCredits?: number | null;
+  markupCredits?: number | null;
+  finalCredits?: number | null;
+  pricingConfidence?: PricingConfidence;
 }
 
 export interface RunEconomicsSummary {
@@ -171,21 +260,28 @@ export function createExecutor(): RouteExecutor {
       const logs: RunLogEntry[] = [];
       const providersUsed: ProviderUsageEvent[] = [];
       const routeNodes = route.nodes as RouteNode[];
+      const costModel = options.costModel ?? DEFAULT_NODE_COST_MODEL;
+      const costEstimates = estimateRouteCost(route, costModel);
       const nodeResults: Record<string, NodeResult> = Object.fromEntries(
-        routeNodes.map((node: RouteNode) => [
-          node.id,
-          {
+        routeNodes.map((node: RouteNode) => {
+          const estimate = costEstimates.estimates.find((entry) => entry.nodeId === node.id);
+          return [
+            node.id,
+            {
             nodeId: node.id,
             type: node.type,
             status: "pending" as RunStatus,
             logs: [],
+            costEstimate: estimate,
             startedAt: "",
             completedAt: ""
           }
-        ])
+          ];
+        })
       );
       const nodeOutputs: Record<string, unknown> = { ...(options.initialNodeOutputs ?? {}) };
-      const log = (message: string, nodeId?: string) => logs.push({ timestamp: new Date().toISOString(), message, nodeId });
+      const log = (message: string, nodeId?: string) => logs.push({ timestamp: new Date().toISOString(), message: redactSecrets(message), nodeId });
+      const nodesById = new Map(routeNodes.map((routeNode) => [routeNode.id, routeNode]));
 
       const context: NodeExecutionContext = { runId, route, outputDirectory, nodeOutputs, log };
 
@@ -197,6 +293,32 @@ export function createExecutor(): RouteExecutor {
         validateTemplateDependencies(route);
 
         for (const node of topologicalSort(route)) {
+          const blockedBy = upstreamBlockingNode(route, node, nodeResults, nodesById);
+          if (blockedBy) {
+            const now = new Date().toISOString();
+            const label = blockedBy.title ?? blockedBy.id;
+            const message = node.type.startsWith("preview.")
+              ? `Skipped because upstream node failed: ${label}`
+              : `Skipped because upstream node did not complete: ${label}`;
+            nodeResults[node.id] = {
+              nodeId: node.id,
+              type: node.type,
+              status: "skipped",
+              error: message,
+              logs: [message],
+              costEstimate: nodeResults[node.id]?.costEstimate,
+              actualUsage: { requestCount: 0 },
+              actualCredits: 0,
+              actualProviderCostAmount: 0,
+              usageSource: "estimated",
+              startedAt: now,
+              completedAt: now
+            };
+            options.onNodeResult?.(nodeResults[node.id]);
+            log(message, node.id);
+            continue;
+          }
+
           if (Object.prototype.hasOwnProperty.call(options.initialNodeOutputs ?? {}, node.id)) {
             const now = new Date().toISOString();
             nodeResults[node.id] = {
@@ -205,6 +327,11 @@ export function createExecutor(): RouteExecutor {
               status: "succeeded",
               output: nodeOutputs[node.id],
               logs: ["Using existing output"],
+              costEstimate: nodeResults[node.id]?.costEstimate,
+              actualUsage: { requestCount: 0 },
+              actualCredits: 0,
+              actualProviderCostAmount: 0,
+              usageSource: "estimated",
               startedAt: now,
               completedAt: now
             };
@@ -219,8 +346,9 @@ export function createExecutor(): RouteExecutor {
               nodeId: node.id,
               type: node.type,
               status: "failed",
-              error: `No runner registered for node type "${node.type}" (${node.id})`,
-              logs: [`No runner registered for node type "${node.type}" (${node.id})`],
+              error: redactSecrets(`No runner registered for node type "${node.type}" (${node.id})`),
+              logs: [redactSecrets(`No runner registered for node type "${node.type}" (${node.id})`)],
+              costEstimate: nodeResults[node.id]?.costEstimate,
               startedAt: new Date().toISOString(),
               completedAt: new Date().toISOString()
             };
@@ -234,6 +362,7 @@ export function createExecutor(): RouteExecutor {
             type: node.type,
             status: "running",
             logs: [],
+            costEstimate: nodeResults[node.id]?.costEstimate,
             startedAt: nodeStartedAt,
             completedAt: ""
           };
@@ -244,7 +373,32 @@ export function createExecutor(): RouteExecutor {
             const inputs = collectInputs(route, node, nodeOutputs);
             const result = await runner({ node, params, inputs, context });
             const output = result.output ?? {};
-            providersUsed.push(...normalizeProviderUsage(result.providerUsage, node));
+            const nodeProviderUsage = normalizeProviderUsage(result.providerUsage, node);
+            providersUsed.push(...nodeProviderUsage);
+            const nonBillableFailure = nonBillableProviderFailure(node, output, nodeProviderUsage, nodeResults[node.id]?.costEstimate);
+            if (nonBillableFailure) {
+              nodeResults[node.id] = {
+                nodeId: node.id,
+                type: node.type,
+                status: "failed",
+                error: nonBillableFailure,
+                logs: [nonBillableFailure, ...(result.logs ?? []).map(redactSecrets)],
+                metrics: result.metrics,
+                provenance: result.provenance,
+                costEstimate: nodeResults[node.id]?.costEstimate,
+                actualUsage: { requestCount: nodeProviderUsage.length > 0 ? 1 : 0 },
+                actualCredits: 0,
+                actualProviderCostAmount: 0,
+                usageSource: "provider",
+                providerUsage: nodeProviderUsage.map((event) => ({ ...event, status: providerFailureStatus(event.status) ? event.status : "error" })),
+                startedAt: nodeStartedAt,
+                completedAt: new Date().toISOString()
+              };
+              options.onNodeResult?.(nodeResults[node.id]);
+              log(nonBillableFailure, node.id);
+              continue;
+            }
+            const actualCost = actualNodeCost(node, result, nodeProviderUsage, nodeResults[node.id]?.costEstimate, costModel);
             nodeOutputs[node.id] = output;
             for (const [internalNodeId, internalResult] of Object.entries(result.internalNodeResults ?? {})) {
               nodeResults[`${node.id}/${internalNodeId}`] = {
@@ -262,9 +416,15 @@ export function createExecutor(): RouteExecutor {
               type: node.type,
               status: "succeeded",
               output,
-              logs: result.logs ?? [],
+              logs: (result.logs ?? []).map(redactSecrets),
               metrics: result.metrics,
               provenance: result.provenance,
+              costEstimate: nodeResults[node.id]?.costEstimate,
+              actualUsage: actualCost.usageUnits,
+              actualCredits: actualCost.actualCredits,
+              actualProviderCostAmount: actualCost.actualProviderCostAmount,
+              usageSource: actualCost.usageSource,
+              providerUsage: nodeProviderUsage,
               startedAt: nodeStartedAt,
               completedAt: new Date().toISOString()
             };
@@ -272,7 +432,9 @@ export function createExecutor(): RouteExecutor {
             for (const entry of result.logs ?? []) log(entry, node.id);
             log(`Completed ${node.id}`, node.id);
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const rawMessage = redactSecrets(error instanceof Error ? error.message : String(error));
+            const estimate = nodeResults[node.id]?.costEstimate;
+            const message = isPaidProviderEstimate(estimate, []) ? noChargeProviderMessage(rawMessage) : rawMessage;
             if (error instanceof CompoundExecutionError) {
               providersUsed.push(...error.providersUsed);
               for (const [internalNodeId, internalResult] of Object.entries(error.internalNodeResults)) {
@@ -293,22 +455,28 @@ export function createExecutor(): RouteExecutor {
               status: "failed",
               error: message,
               logs: [message],
+              costEstimate: nodeResults[node.id]?.costEstimate,
+              actualUsage: { requestCount: 0 },
+              actualCredits: 0,
+              actualProviderCostAmount: 0,
+              usageSource: "provider",
               startedAt: nodeStartedAt,
               completedAt: new Date().toISOString()
             };
             options.onNodeResult?.(nodeResults[node.id]);
-            throw error;
+            continue;
           }
         }
 
-        const completed = completeRun(runId, "succeeded", startedAt, nodeResults, logs, route, outputDirectory, providersUsed, options.activeProfile);
+        const status = Object.values(nodeResults).some((result) => result.status === "failed" || result.status === "skipped") ? "failed" : "succeeded";
+        const completed = completeRun(runId, status, startedAt, nodeResults, logs, route, outputDirectory, providersUsed, options.activeProfile, costEstimates);
         await appendRunLedger(completed, options.ledgerPath);
         await persistRunResult(completed);
         return completed;
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = redactSecrets(error instanceof Error ? error.message : String(error));
         log(message);
-        const completed = completeRun(runId, "failed", startedAt, nodeResults, logs, route, outputDirectory, providersUsed, options.activeProfile);
+        const completed = completeRun(runId, "failed", startedAt, nodeResults, logs, route, outputDirectory, providersUsed, options.activeProfile, costEstimates);
         await appendRunLedger(completed, options.ledgerPath);
         await persistRunResult(completed);
         return completed;
@@ -316,6 +484,14 @@ export function createExecutor(): RouteExecutor {
     }
   };
   return executor;
+}
+
+function upstreamBlockingNode(route: OpenRoute, node: RouteNode, nodeResults: Record<string, NodeResult>, nodesById: Map<string, RouteNode>): RouteNode | null {
+  for (const edge of (route.edges as RouteEdge[]).filter((candidate) => candidate.to === node.id)) {
+    const upstream = nodeResults[edge.from];
+    if (upstream?.status === "failed" || upstream?.status === "skipped") return nodesById.get(edge.from) ?? null;
+  }
+  return null;
 }
 
 class CompoundExecutionError extends Error {
@@ -522,10 +698,12 @@ function completeRun(
   route: OpenRoute,
   outputDirectory: string,
   providersUsed: ProviderUsageEvent[],
-  activeProfile?: string
+  activeProfile: string | undefined,
+  estimateSummary: RunCostSummary
 ): RunResult {
   const completedAt = new Date().toISOString();
   const economics = buildRunEconomics(route, providersUsed, activeProfile);
+  const costSummary = finalizeRunCostSummary(estimateSummary, nodeResults);
   return {
     runId,
     status,
@@ -540,8 +718,515 @@ function completeRun(
       sourceProvenance: route.provenance ?? {}
     },
     economics,
+    costSummary,
     outputDirectory
   };
+}
+
+export function estimateRouteCost(route: OpenRoute, costModel: NodeCostModel = DEFAULT_NODE_COST_MODEL): RunCostSummary {
+  const estimates = (route.nodes as RouteNode[]).map((node) => costModel.estimateNode(node));
+  return {
+    estimates,
+    actuals: [],
+    totalEstimatedCredits: sum(estimates.map((entry) => entry.estimatedCredits)),
+    totalActualCredits: 0,
+    refundedCredits: 0
+  };
+}
+
+export const DEFAULT_NODE_COST_MODEL: NodeCostModel = {
+  estimateNode(node) {
+    const kind = nodeCostKind(node.type);
+    const provider = providerFromNodeType(node.type);
+    const model = stringParam((node.params ?? {}).model);
+    const operation = operationFromNodeType(node.type, kind);
+    const pricingBreakdown = priceNode({ node, nodeType: node.type, provider, model, operation, kind });
+    return {
+      nodeId: node.id,
+      nodeType: node.type,
+      estimatedCredits: pricingBreakdown.finalCredits,
+      estimatedProviderCostAmount: null,
+      providerCostCurrency: null,
+      usageUnits: {
+        requestCount: 1,
+        imageCount: kind === "image" ? 1 : undefined,
+        videoSeconds: kind === "video" ? 5 : undefined
+      },
+      provider,
+      model,
+      operation,
+      free: pricingBreakdown.free,
+      baseCostMicrousd: pricingBreakdown.baseCostMicrousd,
+      baseCredits: pricingBreakdown.baseCredits,
+      globalMarkupPercent: pricingBreakdown.globalMarkupPercent,
+      globalMarkupCredits: pricingBreakdown.globalMarkupCredits,
+      nodeMarkupPercent: pricingBreakdown.nodeMarkupPercent,
+      nodeMarkupCredits: pricingBreakdown.nodeMarkupCredits,
+      markupCredits: pricingBreakdown.markupCredits,
+      finalCredits: pricingBreakdown.finalCredits,
+      maxChargeCredits: pricingBreakdown.maxChargeCredits,
+      pricingSource: pricingBreakdown.pricingSource,
+      pricingConfidence: pricingBreakdown.pricingConfidence,
+      pricingBreakdown,
+      usageSource: pricingBreakdown.pricingSource === "pricing_catalog" ? "catalog_estimate" : "estimated"
+    };
+  }
+};
+
+export type ProviderPricingCatalogEntry = {
+  provider: string;
+  model?: string;
+  operation: string;
+  parameterRules?: Record<string, unknown>;
+  baseCostMicrousd: number;
+  currency: "USD";
+  effectiveFrom: string;
+  source: string;
+  notes?: string;
+};
+
+export type BillingPricingConfig = {
+  globalMarkupPercent: number;
+  globalMarkupCredits: number;
+  roundingMode: "ceil";
+  minChargeCredits: number;
+  updatedAt?: string;
+  updatedBy?: string;
+};
+
+export type BillingPricingOverride = {
+  provider?: string;
+  operation?: string;
+  model?: string;
+  nodeType?: string;
+  markupPercent: number;
+  markupCredits: number;
+  enabled: boolean;
+  reason?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+};
+
+export type RuntimeProviderPricingCatalogEntry = ProviderPricingCatalogEntry;
+
+export const CREDIT_UNIT = { creditsPerUsd: 1000, microusdPerCredit: 1000 };
+
+export const PROVIDER_PRICING_CATALOG: ProviderPricingCatalogEntry[] = [
+  { provider: "polza", operation: "image.generate", model: "gpt-5.4-image-2", parameterRules: { resolution: "1K" }, baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate", notes: "Temporary until provider exact billing metadata is available." },
+  { provider: "polza", operation: "image.generate", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate", notes: "Temporary until provider exact billing metadata is available." },
+  { provider: "polza", operation: "video.generate", baseCostMicrousd: 80000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate", notes: "Temporary until provider exact billing metadata is available." },
+  { provider: "polza", operation: "text.generate", baseCostMicrousd: 1000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
+  { provider: "replicate", model: "clarity-upscaler", operation: "image.upscale", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
+  { provider: "replicate", operation: "image.generate", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
+  { provider: "gemini", operation: "image.generate", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
+  { provider: "gemini", operation: "text.generate", baseCostMicrousd: 1000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
+  { provider: "openrouter", operation: "image.generate", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
+  { provider: "openrouter", operation: "text.generate", baseCostMicrousd: 1000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
+  { provider: "seedance", operation: "video.generate", baseCostMicrousd: 80000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" }
+];
+
+export function currentRuntimeProviderPricingCatalog(): RuntimeProviderPricingCatalogEntry[] {
+  const raw = process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON?.trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(normalizeRuntimeProviderPricingEntry).filter((entry): entry is RuntimeProviderPricingCatalogEntry => Boolean(entry));
+  } catch {
+    return [];
+  }
+}
+
+function actualNodeCost(node: RouteNode, result: NodeRunnerResult, providerUsage: ProviderUsageEvent[], estimate: CostEstimate | undefined, costModel: NodeCostModel) {
+  const custom = costModel.actualNode?.(node, result, providerUsage);
+  const usage = providerUsage[0];
+  const metrics = result.metrics ?? usage?.metrics ?? {};
+  const inputTokens = numberMetric(metrics, "inputTokens") ?? numberMetric(metrics, "input_tokens");
+  const outputTokens = numberMetric(metrics, "outputTokens") ?? numberMetric(metrics, "output_tokens");
+  const imageCount = numberMetric(metrics, "imageCount") ?? numberMetric(metrics, "image_count");
+  const videoSeconds = numberMetric(metrics, "videoSeconds") ?? numberMetric(metrics, "video_seconds");
+  const actualProviderCostAmount = custom?.actualProviderCostAmount ?? usage?.actualCost ?? usage?.estimatedCost ?? estimate?.estimatedProviderCostAmount ?? null;
+  const actualCostMicrousd = microusdFromProviderCost(actualProviderCostAmount, usage?.actualCostCurrency ?? estimate?.providerCostCurrency ?? "USD");
+  const actualPricing = actualCostMicrousd !== null && estimate?.pricingBreakdown
+    ? applyPricingMarkup({
+      ...estimate.pricingBreakdown,
+      providerCostMicrousd: actualCostMicrousd,
+      baseCostMicrousd: actualCostMicrousd,
+      baseCredits: creditsFromMicrousd(actualCostMicrousd),
+      pricingSource: "provider_actual",
+      pricingConfidence: "high",
+      source: "provider_actual"
+    })
+    : null;
+  const maxChargeCredits = estimate?.maxChargeCredits ?? estimate?.estimatedCredits ?? Number.MAX_SAFE_INTEGER;
+  const calculatedActualCredits = actualPricing ? Math.min(actualPricing.finalCredits, maxChargeCredits) : estimate?.estimatedCredits ?? 0;
+  return {
+    actualCredits: integerCredits(custom?.actualCredits ?? calculatedActualCredits),
+    actualProviderCostAmount,
+    usageUnits: custom?.usageUnits ?? {
+      inputTokens,
+      outputTokens,
+      imageCount,
+      videoSeconds,
+      requestCount: 1
+    },
+    usageSource: custom?.usageSource ?? (usage?.actualCost != null ? "provider" : estimate ? "catalog_estimate" : "unknown")
+  } satisfies { actualCredits: number; actualProviderCostAmount: number | null; usageUnits: ActualUsage; usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate" };
+}
+
+function nonBillableProviderFailure(node: RouteNode, output: unknown, providerUsage: ProviderUsageEvent[], estimate: CostEstimate | undefined): string | null {
+  if (!isPaidProviderEstimate(estimate, providerUsage)) return null;
+  const paidEstimate = estimate as CostEstimate;
+  const failedUsage = providerUsage.find((event) => providerFailureStatus(event.status));
+  if (failedUsage) return noChargeProviderMessage(`${failedUsage.provider ?? paidEstimate.provider ?? providerFromNodeType(node.type) ?? "Provider"} call failed.`);
+  if (hasBillableProviderCompletion(output, providerUsage)) return null;
+  return noChargeProviderMessage(`${node.title ?? node.id} did not produce a billable result.`);
+}
+
+function isPaidProviderEstimate(estimate: CostEstimate | undefined, providerUsage: ProviderUsageEvent[]): boolean {
+  return Boolean(estimate && estimate.estimatedCredits > 0 && (estimate.provider || providerUsage.some((event) => event.provider)));
+}
+
+function hasBillableProviderCompletion(output: unknown, providerUsage: ProviderUsageEvent[]): boolean {
+  if (providerUsage.some((event) => providerSuccessStatus(event.status) || event.actualCost != null)) return true;
+  return hasUsableArtifact(output);
+}
+
+function providerSuccessStatus(status: unknown): boolean {
+  return /^(succeeded|success|completed|complete|billable)$/i.test(String(status ?? ""));
+}
+
+function providerFailureStatus(status: unknown): boolean {
+  return /^(failed|failure|error|errored|cancelled|canceled|timeout|timed_out|unavailable|auth_error|quota_exceeded)$/i.test(String(status ?? ""));
+}
+
+function hasUsableArtifact(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  if (Array.isArray(value)) return value.some(hasUsableArtifact);
+  const record = value as Record<string, unknown>;
+  const mimeType = typeof record.mimeType === "string" ? record.mimeType : "";
+  const path = typeof record.path === "string" && record.path.trim().length > 0;
+  const localPath = typeof record.localPath === "string" && record.localPath.trim().length > 0;
+  const originalUrl = typeof record.originalUrl === "string" && record.originalUrl.trim().length > 0;
+  if ((path || localPath || originalUrl) && /^(image|video|audio)\//i.test(mimeType)) return true;
+  return Object.values(record).some(hasUsableArtifact);
+}
+
+function noChargeProviderMessage(detail: string): string {
+  const trimmed = detail.trim() || "Provider did not return a usable result.";
+  if (/No credits were charged\.$/i.test(trimmed)) return trimmed;
+  return `${trimmed.replace(/[.。]\s*$/, "")}. No credits were charged.`;
+}
+
+function finalizeRunCostSummary(estimateSummary: RunCostSummary, nodeResults: Record<string, NodeResult>): RunCostSummary {
+  const actuals = Object.values(nodeResults)
+    .filter((result) => result.actualCredits !== undefined || result.costEstimate)
+    .map((result) => ({
+      ...(result.costEstimate ?? {
+        nodeId: result.nodeId,
+        nodeType: result.type,
+        estimatedCredits: 0,
+        estimatedProviderCostAmount: null,
+        providerCostCurrency: null,
+        usageUnits: {},
+        usageSource: "unknown" as const
+      }),
+      actualCredits: integerCredits(result.actualCredits ?? (result.status === "succeeded" ? result.costEstimate?.estimatedCredits ?? 0 : 0)),
+      actualProviderCostAmount: result.actualProviderCostAmount ?? result.costEstimate?.estimatedProviderCostAmount ?? null,
+      usageUnits: result.actualUsage ?? result.costEstimate?.usageUnits ?? {},
+      usageSource: result.usageSource ?? result.costEstimate?.usageSource ?? "unknown"
+    }));
+  const totalActualCredits = sum(actuals.map((entry) => entry.actualCredits));
+  return {
+    ...estimateSummary,
+    actuals,
+    totalActualCredits,
+    refundedCredits: Math.max(0, estimateSummary.totalEstimatedCredits - totalActualCredits)
+  };
+}
+
+export function redactSecrets(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, "Bearer [redacted]")
+    .replace(/\b(api[_-]?key|token|secret|password)\s*[:=]\s*['\"]?[^'\"\s,}]+/gi, "$1=[redacted]")
+    .replace(/\b(sk-[A-Za-z0-9_-]{8,}|sk-or-[A-Za-z0-9_-]{8,})\b/g, "[redacted]");
+}
+
+function nodeCostKind(type: string): "free" | "text" | "image" | "video" | "transform" {
+  if (isFreeNodeType(type)) return "free";
+  if (/video/i.test(type)) return "video";
+  if (/image|upscale|stableDiffusion|replicate|gemini|seedance/i.test(type)) return "image";
+  if (/transform|template|input|output|debug|preview/i.test(type)) return "transform";
+  return "text";
+}
+
+function isFreeNodeType(type: string): boolean {
+  return type.startsWith("input.")
+    || type.startsWith("asset.")
+    || type.startsWith("output.")
+    || type.startsWith("preview.")
+    || type.startsWith("debug.")
+    || type.startsWith("utility.")
+    || type.startsWith("library.")
+    || type.startsWith("compound.")
+    || type === "text.promptCompose"
+    || type === "text.static";
+}
+
+export function currentBillingPricingConfig(): BillingPricingConfig {
+  return {
+    globalMarkupPercent: numberFromEnv("BOOJUM_GLOBAL_MARKUP_PERCENT", 0),
+    globalMarkupCredits: integerCredits(numberFromEnv("BOOJUM_GLOBAL_MARKUP_CREDITS", 0)),
+    roundingMode: "ceil",
+    minChargeCredits: integerCredits(numberFromEnv("BOOJUM_MIN_CHARGE_CREDITS", 0)),
+    updatedAt: process.env.BOOJUM_PRICING_UPDATED_AT,
+    updatedBy: process.env.BOOJUM_PRICING_UPDATED_BY
+  };
+}
+
+export function currentBillingPricingOverrides(): BillingPricingOverride[] {
+  const raw = process.env.BOOJUM_PRICING_OVERRIDES_JSON?.trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((entry) => normalizePricingOverride(entry)).filter((entry): entry is BillingPricingOverride => Boolean(entry));
+  } catch {
+    return [];
+  }
+}
+
+export function pricingCatalogView(config = currentBillingPricingConfig(), overrides = currentBillingPricingOverrides()): PricingBreakdown[] {
+  return mergedProviderPricingCatalog().map((entry) => {
+    const override = matchingPricingOverride({ provider: entry.provider, operation: entry.operation, model: entry.model }, overrides);
+    return applyPricingMarkup({
+      nodeId: `${entry.provider}:${entry.operation}:${entry.model ?? "*"}`,
+      nodeType: "",
+      provider: entry.provider,
+      operation: entry.operation,
+      model: entry.model,
+      free: false,
+      providerCostMicrousd: entry.baseCostMicrousd,
+      baseCostMicrousd: entry.baseCostMicrousd,
+      baseCredits: creditsFromMicrousd(entry.baseCostMicrousd),
+      globalMarkupPercent: config.globalMarkupPercent,
+      globalMarkupCredits: config.globalMarkupCredits,
+      nodeMarkupPercent: override?.markupPercent ?? 0,
+      nodeMarkupCredits: override?.markupCredits ?? 0,
+      markupCredits: 0,
+      finalCredits: 0,
+      maxChargeCredits: 0,
+      pricingSource: "pricing_catalog",
+      pricingConfidence: entry.source === "manual_initial_estimate" ? "medium" : "high",
+      source: entry.source,
+      notes: entry.notes
+    }, config);
+  });
+}
+
+function priceNode(input: { node: RouteNode; nodeType: string; provider?: string; model?: string; operation: string; kind: "free" | "text" | "image" | "video" | "transform" }): PricingBreakdown {
+  const config = currentBillingPricingConfig();
+  if (input.kind === "free" || input.kind === "transform") {
+    return freePricingBreakdown(input.node, input.nodeType, input.operation, input.provider, input.model);
+  }
+  const catalogMatch = findPricingCatalogEntry(input.provider, input.operation, input.model, input.nodeType, input.node.params ?? {});
+  const fallbackMicrousd = fallbackCostMicrousd(input.kind);
+  const baseCostMicrousd = integerCredits(catalogMatch?.baseCostMicrousd ?? fallbackMicrousd);
+  const override = matchingPricingOverride({ provider: input.provider, operation: input.operation, model: input.model, nodeType: input.nodeType }, currentBillingPricingOverrides());
+  return applyPricingMarkup({
+    nodeId: input.node.id,
+    title: input.node.title,
+    nodeType: input.nodeType,
+    provider: input.provider,
+    operation: input.operation,
+    model: input.model,
+    free: false,
+    providerCostMicrousd: baseCostMicrousd,
+    baseCostMicrousd,
+    baseCredits: creditsFromMicrousd(baseCostMicrousd),
+    globalMarkupPercent: config.globalMarkupPercent,
+    globalMarkupCredits: config.globalMarkupCredits,
+    nodeMarkupPercent: override?.markupPercent ?? 0,
+    nodeMarkupCredits: override?.markupCredits ?? 0,
+    markupCredits: 0,
+    finalCredits: 0,
+    maxChargeCredits: 0,
+    pricingSource: catalogMatch ? "pricing_catalog" : "fallback_estimate",
+    pricingConfidence: catalogMatch ? catalogMatch.source === "manual_initial_estimate" ? "medium" : "high" : "low",
+    source: catalogMatch?.source ?? "fallback_estimate",
+    notes: catalogMatch?.notes ?? "Fallback estimate; replace with provider pricing catalog or actual billing metadata."
+  }, config);
+}
+
+function freePricingBreakdown(node: RouteNode, nodeType: string, operation: string, provider?: string, model?: string): PricingBreakdown {
+  return {
+    nodeId: node.id,
+    title: node.title,
+    nodeType,
+    provider,
+    operation,
+    model,
+    free: true,
+    providerCostMicrousd: 0,
+    baseCostMicrousd: 0,
+    baseCredits: 0,
+    globalMarkupPercent: 0,
+    globalMarkupCredits: 0,
+    nodeMarkupPercent: 0,
+    nodeMarkupCredits: 0,
+    markupCredits: 0,
+    finalCredits: 0,
+    maxChargeCredits: 0,
+    pricingSource: "pricing_catalog",
+    pricingConfidence: "high",
+    source: "free_node"
+  };
+}
+
+function applyPricingMarkup(input: PricingBreakdown, config: BillingPricingConfig = currentBillingPricingConfig()): PricingBreakdown {
+  const globalPercentCredits = percentMarkupCredits(input.baseCredits, input.globalMarkupPercent);
+  const nodePercentCredits = percentMarkupCredits(input.baseCredits, input.nodeMarkupPercent);
+  const markupCredits = integerCredits(globalPercentCredits + input.globalMarkupCredits + nodePercentCredits + input.nodeMarkupCredits);
+  const finalCredits = Math.max(0, input.free ? 0 : Math.max(config.minChargeCredits, input.baseCredits + markupCredits));
+  return { ...input, markupCredits, finalCredits, maxChargeCredits: finalCredits };
+}
+
+function creditsFromMicrousd(providerCostMicrousd: number): number {
+  return integerCredits(providerCostMicrousd / CREDIT_UNIT.microusdPerCredit);
+}
+
+function percentMarkupCredits(baseCredits: number, percent: number): number {
+  if (!Number.isFinite(percent) || percent === 0) return 0;
+  return Math.ceil((baseCredits * percent) / 100);
+}
+
+function findPricingCatalogEntry(provider: string | undefined, operation: string, model: string | undefined, nodeType: string, params: Record<string, unknown> = {}): ProviderPricingCatalogEntry | undefined {
+  const entries = mergedProviderPricingCatalog().filter((entry) => entry.provider === provider && entry.operation === operation);
+  const nodeTypeLower = nodeType.toLowerCase();
+  return entries.find((entry) => entry.model && entry.model === model && entry.parameterRules && pricingParameterRulesMatch(entry.parameterRules, params))
+    ?? entries.find((entry) => entry.model && entry.model === model && !entry.parameterRules)
+    ?? entries.find((entry) => entry.model && nodeTypeLower.includes(entry.model.toLowerCase()) && entry.parameterRules && pricingParameterRulesMatch(entry.parameterRules, params))
+    ?? entries.find((entry) => !entry.model && entry.parameterRules && pricingParameterRulesMatch(entry.parameterRules, params))
+    ?? entries.find((entry) => !entry.model);
+}
+
+function pricingParameterRulesMatch(rules: Record<string, unknown> | undefined, params: Record<string, unknown>): boolean {
+  if (!rules || Object.keys(rules).length === 0) return true;
+  return Object.entries(rules).every(([key, expected]) => String(pricingParamValue(params, key) ?? "").toLowerCase() === String(expected).toLowerCase());
+}
+
+function pricingParamValue(params: Record<string, unknown>, key: string): unknown {
+  if (key in params) return params[key];
+  const camel = key.replace(/_([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+  if (camel in params) return params[camel];
+  if (key === "image_resolution") return params.imageResolution ?? params.imageSize ?? params.resolution;
+  return undefined;
+}
+
+function matchingPricingOverride(input: { provider?: string; operation?: string; model?: string; nodeType?: string }, overrides: BillingPricingOverride[]): BillingPricingOverride | undefined {
+  return overrides.find((override) =>
+    override.enabled !== false
+    && (!override.provider || override.provider === input.provider)
+    && (!override.operation || override.operation === input.operation)
+    && (!override.model || override.model === input.model)
+    && (!override.nodeType || override.nodeType === input.nodeType)
+  );
+}
+
+function normalizePricingOverride(value: unknown): BillingPricingOverride | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  return {
+    provider: typeof record.provider === "string" ? record.provider : undefined,
+    operation: typeof record.operation === "string" ? record.operation : undefined,
+    model: typeof record.model === "string" ? record.model : undefined,
+    nodeType: typeof record.nodeType === "string" ? record.nodeType : undefined,
+    markupPercent: numberValue(record.markupPercent, 0),
+    markupCredits: integerCredits(numberValue(record.markupCredits, 0)),
+    enabled: record.enabled !== false,
+    reason: typeof record.reason === "string" ? record.reason : undefined,
+    updatedAt: typeof record.updatedAt === "string" ? record.updatedAt : undefined,
+    updatedBy: typeof record.updatedBy === "string" ? record.updatedBy : undefined
+  };
+}
+
+function mergedProviderPricingCatalog(): ProviderPricingCatalogEntry[] {
+  const runtime = currentRuntimeProviderPricingCatalog();
+  const runtimeKeys = new Set(runtime.map(pricingCatalogKey));
+  return [...runtime, ...PROVIDER_PRICING_CATALOG.filter((entry) => !runtimeKeys.has(pricingCatalogKey(entry)))];
+}
+
+function pricingCatalogKey(entry: Pick<ProviderPricingCatalogEntry, "provider" | "operation" | "model">): string {
+  return `${entry.provider}:${entry.operation}:${entry.model ?? "*"}`;
+}
+
+function normalizeRuntimeProviderPricingEntry(value: unknown): RuntimeProviderPricingCatalogEntry | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const provider = typeof record.provider === "string" ? record.provider.trim() : "";
+  const operation = typeof record.operation === "string" ? record.operation.trim() : "";
+  const baseCostMicrousd = integerCredits(numberValue(record.baseCostMicrousd, 0));
+  if (!provider || !operation || baseCostMicrousd <= 0) return null;
+  return {
+    provider,
+    operation,
+    model: typeof record.model === "string" && record.model.trim() ? record.model.trim() : undefined,
+    parameterRules: record.parameterRules && typeof record.parameterRules === "object" ? record.parameterRules as Record<string, unknown> : undefined,
+    baseCostMicrousd,
+    currency: "USD",
+    effectiveFrom: typeof record.effectiveFrom === "string" ? record.effectiveFrom : new Date(0).toISOString(),
+    source: typeof record.source === "string" ? record.source : "runtime_pricing_catalog",
+    notes: typeof record.notes === "string" ? record.notes : undefined
+  };
+}
+
+function fallbackCostMicrousd(kind: "free" | "text" | "image" | "video" | "transform"): number {
+  if (kind === "video") return 80000;
+  if (kind === "image") return 40000;
+  if (kind === "text") return 1000;
+  return 0;
+}
+
+function microusdFromProviderCost(cost: number | null | undefined, currency: string | null | undefined): number | null {
+  if (cost === null || cost === undefined || !Number.isFinite(cost) || cost < 0) return null;
+  if (currency && currency.toUpperCase() !== "USD") return null;
+  return Math.ceil(cost * 1_000_000);
+}
+
+function numberFromEnv(name: string, fallback: number): number {
+  return numberValue(process.env[name], fallback);
+}
+
+function numberValue(value: unknown, fallback: number): number {
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function operationFromNodeType(type: string, kind: "free" | "text" | "image" | "video" | "transform"): string {
+  if (/upscale/i.test(type)) return "image.upscale";
+  if (kind === "video") return "video.generate";
+  if (kind === "image") return "image.generate";
+  if (kind === "text") return "text.generate";
+  return "utility.local";
+}
+
+function integerCredits(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.ceil(value));
+}
+
+function providerFromNodeType(type: string): string | undefined {
+  if (/openrouter/i.test(type)) return "openrouter";
+  if (/polza/i.test(type)) return "polza";
+  if (/gemini/i.test(type)) return "gemini";
+  if (/replicate/i.test(type)) return "replicate";
+  if (/seedance/i.test(type)) return "seedance";
+  return undefined;
+}
+
+function numberMetric(metrics: Record<string, unknown>, key: string): number | undefined {
+  const value = metrics[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 async function persistRunResult(result: RunResult): Promise<void> {

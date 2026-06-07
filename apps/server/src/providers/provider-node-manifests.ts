@@ -174,6 +174,31 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
         { id: "quality", type: "text", label: "Quality", default: "high" },
         { id: "outputFormat", type: "text", label: "Output Format", default: "png" }
       ]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "polza.video.generate",
+      title: "Polza Video",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Video Generation",
+      description: "Runs Polza.ai video generation models.",
+      enabled: true,
+      permissions: { network: true, networkHosts: ["polza.ai", "cdn.polza.ai"], readFiles: true, writeOutputs: true, shell: false, env: ["POLZA_AI_API_KEY"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "polza.video.generate" },
+      inputs: [{ id: "images", type: "image", required: false, label: "Images" }, { id: "prompt", type: "text", required: false, label: "Prompt" }],
+      outputs: [{ id: "video", type: "video", label: "Video" }, { id: "output", type: "json", label: "JSON" }],
+      params: [
+        { id: "model", type: "text", label: "Model", default: "wan/2.6" },
+        { id: "prompt", type: "text", label: "Prompt", default: "Create a polished short video." },
+        { id: "resolution", type: "text", label: "Resolution", default: "720p" },
+        { id: "duration", type: "text", label: "Duration", default: "5" },
+        { id: "multi_shots", type: "boolean", label: "Multi Shots", default: false }
+      ]
     }
   ];
 }

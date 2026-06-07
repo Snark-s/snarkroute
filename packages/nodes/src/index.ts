@@ -39,6 +39,7 @@ export interface PromptLibraryPrompt {
   title: string;
   category: string;
   description?: string;
+  negativePrompt?: string;
   tags?: string[];
   kind?: string;
   status?: string;
@@ -101,6 +102,8 @@ export const builtInNodeDefinitions: NodeDefinition[] = [
   { type: "text.promptCompose", title: "Prompt Compose", description: "Combines multiple text inputs into one prompt.", economics: { license: "AGPL-3.0-or-later", notes: "Local text transform only; no payment execution." } },
   { type: "preview.image", title: "Image Preview", description: "Passes through an image value for Studio preview.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "preview.panorama360", title: "360 Panorama Viewer", description: "Passes through an equirectangular panorama image for interactive Studio viewing.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
+  { type: "transform.chooseCameraPoint", title: "Выбрать точку камеры", description: "Creates a cached World Labs Marble draft world from a 360 equirectangular panorama, stores camera pose, and emits a perspective image artifact.", economics: { license: "AGPL-3.0-or-later", notes: "World Labs provider metadata only; API keys are read from server environment variables." } },
+  { type: "transform.imageResize", title: "Resize Image", description: "Resizes a local PNG image with optional aspect-ratio preservation.", economics: { license: "AGPL-3.0-or-later", notes: "Local image transform only; no payment execution." } },
   { type: "transform.panorama360ToFisheye", title: "360 Panorama to Fisheye", description: "Projects a local equirectangular 360 panorama PNG into a circular fisheye image with a configurable field of view.", economics: { license: "AGPL-3.0-or-later", notes: "Local image transform only; no payment execution." } },
   { type: "transform.template", title: "Template Transform", description: "Produces text from params.template after route template resolution.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
   { type: "debug.log", title: "Debug Log", description: "Logs a message or value and passes the value through.", economics: { license: "AGPL-3.0-or-later", notes: "Metadata only; no payment execution." } },
@@ -116,7 +119,7 @@ export const builtInNodeDefinitions: NodeDefinition[] = [
   {
     type: "ai.image.sd15.qr_monster_hidden_control",
     title: "Double Image Illusion",
-    description: "Generates double-image hidden-picture or QR illusions through a local Automatic1111 API with the ControlNet extension and QR Code Monster model.",
+    description: "Generates double-image hidden-picture or QR illusions through a local Automatic1111 API with ControlNet QR Code Monster.",
     economics: { license: "AGPL-3.0-or-later", notes: "Local executor metadata only; no payment execution." },
     capabilities: [{ id: "image.create", title: "Create Image", priority: 9 }]
   },
@@ -216,6 +219,126 @@ export const previewPanorama360Runner: NodeRunner = ({ params, inputs }) => {
   const image = normalizePreviewImage(params.image ?? firstInputValue(inputs));
   return {
     output: { image, panorama: { projection: "equirectangular" } }
+  };
+};
+
+export const chooseCameraPointRunner: NodeRunner = ({ params, inputs }) => {
+  const rawRenderedImage = params.renderedImage ?? params.outputImage;
+  const renderedImage = rawRenderedImage ? normalizePreviewImage(rawRenderedImage) : null;
+  const rawPanoramaImage = params.renderedPanorama ?? params.panoramaImage ?? params.outputPanorama;
+  const renderedPanorama = rawPanoramaImage ? normalizePreviewImage(rawPanoramaImage) : null;
+  const marbleWorld = params.pinnedMarbleWorld ?? params.marbleWorld;
+  const worldPanoUrl = marbleWorldPanoramaUrl(marbleWorld);
+  if (String(params.outputMode ?? "perspective") === "equirectangular" && worldPanoUrl) {
+    const image = normalizePreviewImage({ originalUrl: worldPanoUrl, filename: "world-panorama.jpg" });
+    return {
+      output: {
+        image,
+        view: renderedImage,
+        panorama: image,
+        panoramaMetadata: { projection: "equirectangular" },
+        cameraPose: params.cameraPose,
+        output: { mode: "equirectangular" },
+        marbleWorld
+      },
+      provenance: { provider: "worldlabs-marble", transform: "chooseCameraPoint", renderMode: "equirectangular" }
+    };
+  }
+  const inputImage = normalizePreviewImage(params.image ?? inputs.image ?? firstInputValue(inputs));
+  if (renderedImage) {
+    return {
+      output: {
+        image: renderedImage,
+        view: renderedImage,
+        panorama: renderedPanorama,
+        panoramaMetadata: renderedPanorama ? { projection: "equirectangular" } : undefined,
+        cameraPose: params.cameraPose,
+        output: params.output,
+        marbleWorld
+      },
+      provenance: { provider: "worldlabs-marble", transform: "chooseCameraPoint", renderMode: "perspective" }
+    };
+  }
+  return {
+    output: {
+      image: inputImage,
+      view: inputImage,
+      panorama: renderedPanorama,
+      panoramaMetadata: renderedPanorama ? { projection: "equirectangular" } : undefined,
+      warning: "Choose Camera Point has no rendered perspective image yet. Use the Studio viewer to render a frame.",
+      cameraPose: params.cameraPose,
+      output: params.output,
+      marbleWorld
+    },
+    provenance: { provider: "worldlabs-marble", transform: "chooseCameraPoint", renderMode: "pending" }
+  };
+};
+
+function marbleWorldPanoramaUrl(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const assets = record.assets && typeof record.assets === "object" && !Array.isArray(record.assets) ? record.assets as Record<string, unknown> : {};
+  const imagery = assets.imagery && typeof assets.imagery === "object" && !Array.isArray(assets.imagery) ? assets.imagery as Record<string, unknown> : {};
+  const url = record.panoUrl ?? record.pano_url ?? imagery.pano_url ?? imagery.panoUrl;
+  return typeof url === "string" && url.trim() ? url.trim() : null;
+}
+
+export const imageResizeRunner: NodeRunner = async ({ node, params, inputs, context }) => {
+  const source = await readLocalPngImage(params.image ?? inputs.image ?? firstInputValue(inputs), "transform.imageResize");
+  const preserveAspectRatio = params.preserveAspectRatio !== false;
+  const requestedWidth = optionalNumberParam(params.width, "width");
+  const requestedHeight = optionalNumberParam(params.height, "height");
+  const { width, height } = resolveResizeDimensions(source, {
+    width: requestedWidth,
+    height: requestedHeight,
+    preserveAspectRatio
+  });
+  const resized = resizeRgbaImage(source, width, height, "Just Resize");
+  const bytes = encodeRgbaPng(resized.width, resized.height, resized.data);
+  const assetsDirectory = join(context.outputDirectory, "assets");
+  await mkdir(assetsDirectory, { recursive: true });
+  const filename = `${sanitizeFilename(node.id)}-resize-${Date.now()}.png`;
+  const localPath = join(assetsDirectory, filename);
+  await writeFile(localPath, bytes);
+
+  const upscaled = width > source.width || height > source.height;
+  const warnings = upscaled
+    ? [`Upscaling from ${source.width}x${source.height} to ${width}x${height} can soften details and reduce perceived image quality.`]
+    : [];
+  const image = {
+    localPath,
+    path: localPath,
+    filename,
+    mimeType: "image/png",
+    sizeBytes: bytes.length,
+    width,
+    height,
+    sourceNodeId: node.id,
+    transform: "imageResize"
+  };
+  await writeFile(join(assetsDirectory, `${filename}.json`), JSON.stringify(image, null, 2), "utf8");
+  return {
+    output: {
+      image,
+      localPath,
+      metadata: {
+        sourceWidth: source.width,
+        sourceHeight: source.height,
+        requestedWidth: requestedWidth ?? null,
+        requestedHeight: requestedHeight ?? null,
+        width,
+        height,
+        preserveAspectRatio,
+        upscaled
+      },
+      warnings,
+      status: "succeeded"
+    },
+    logs: [
+      `Resized PNG from ${source.width}x${source.height} to ${width}x${height} at ${localPath}.`,
+      ...warnings
+    ],
+    provenance: { transform: "imageResize", preserveAspectRatio, upscaled }
   };
 };
 
@@ -518,7 +641,8 @@ export const stableDiffusionHiddenControlImageRunner: NodeRunner = async ({ node
   const seed = info && typeof info === "object" && "seed" in info ? (info as Record<string, unknown>).seed : payload.seed;
   const warnings: string[] = [];
   if (String(params.mode ?? "hidden_image") === "qr_code" && payload.alwayson_scripts.controlnet.args[0].weight < 1) {
-    warnings.push("QR code mode usually needs controlWeight near or above 1.0 for readability.");
+
+    warnings.push("QR code mode usually needs illusion strength near or above 1.0 for readability.");
   }
 
   return {
@@ -554,7 +678,9 @@ export const stableDiffusionHiddenControlImageRunner: NodeRunner = async ({ node
       warnings,
       status: "succeeded"
     },
-    logs: [`Generated ${imageAssets.length} hidden-control image(s) with ControlNet model "${controlNetModel}".`],
+
+    logs: [`Generated ${imageAssets.length} double-image illusion image(s) with ControlNet model "${controlNetModel}".`],
+
     provenance: { provider: "local", localBackend: "automatic1111-controlnet", endpoint, controlNetModel },
     providerUsage: { provider: "local", model: controlNetModel, nodeId: node.id, nodeType: node.type, status: "succeeded", estimatedCost: null, actualCost: null }
   };
@@ -572,6 +698,8 @@ export function registerBuiltInNodeRunners(executor: RouteExecutor): void {
   executor.registerNodeRunner("text.promptCompose", promptComposeRunner);
   executor.registerNodeRunner("preview.image", previewImageRunner);
   executor.registerNodeRunner("preview.panorama360", previewPanorama360Runner);
+  executor.registerNodeRunner("transform.chooseCameraPoint", chooseCameraPointRunner);
+  executor.registerNodeRunner("transform.imageResize", imageResizeRunner);
   executor.registerNodeRunner("transform.panorama360ToFisheye", panorama360ToFisheyeRunner);
   executor.registerNodeRunner("transform.template", transformTemplateRunner);
   executor.registerNodeRunner("debug.log", debugLogRunner);
@@ -603,10 +731,10 @@ function builtInNodeCategory(type: string): string {
 
 function builtInPermissions(type: string) {
   return {
-    network: type === "http.request" || type === "local.stableDiffusion.textToImage" || type === "ai.image.sd15.qr_monster_hidden_control",
-    networkHosts: type === "local.stableDiffusion.textToImage" || type === "ai.image.sd15.qr_monster_hidden_control" ? ["127.0.0.1", "localhost"] : [],
-    readFiles: type === "input.file" || type === "input.image" || type === "input.video" || type === "transform.panorama360ToFisheye" || type === "ai.image.sd15.qr_monster_hidden_control",
-    writeOutputs: type === "output.file" || type === "local.stableDiffusion.textToImage" || type === "transform.panorama360ToFisheye" || type === "ai.image.sd15.qr_monster_hidden_control",
+    network: type === "http.request" || type === "transform.chooseCameraPoint" || type === "local.stableDiffusion.textToImage" || type === "ai.image.sd15.qr_monster_hidden_control",
+    networkHosts: type === "transform.chooseCameraPoint" ? ["api.worldlabs.ai"] : type === "local.stableDiffusion.textToImage" || type === "ai.image.sd15.qr_monster_hidden_control" ? ["127.0.0.1", "localhost"] : [],
+    readFiles: type === "input.file" || type === "input.image" || type === "input.video" || type === "transform.imageResize" || type === "transform.panorama360ToFisheye" || type === "ai.image.sd15.qr_monster_hidden_control",
+    writeOutputs: type === "output.file" || type === "local.stableDiffusion.textToImage" || type === "transform.imageResize" || type === "transform.panorama360ToFisheye" || type === "ai.image.sd15.qr_monster_hidden_control",
     shell: false,
     env: []
   };
@@ -628,7 +756,7 @@ function builtInInputs(type: string) {
       { id: "context", type: "conversation_context", required: false, label: "Context" }
     ];
   }
-  if (type === "preview.image" || type === "preview.panorama360" || type === "transform.panorama360ToFisheye") return [{ id: "image", type: "image", required: true, label: "Image" }];
+  if (type === "preview.image" || type === "preview.panorama360" || type === "transform.chooseCameraPoint" || type === "transform.imageResize" || type === "transform.panorama360ToFisheye") return [{ id: "image", type: "image", required: true, label: "Image" }];
   if (type === "debug.log") return [{ id: "value", type: "data", required: false, label: "Value" }];
   if (type === "utility.null") return [{ id: "input", type: "data", required: false, label: "Any" }];
   if (type === "output.text") return [{ id: "from", type: "data", required: false, label: "From" }];
@@ -636,7 +764,7 @@ function builtInInputs(type: string) {
   if (type === "local.stableDiffusion.textToImage") return [{ id: "prompt", type: "text", required: false, label: "Prompt" }];
   if (type === "ai.image.sd15.qr_monster_hidden_control") {
     return [
-      { id: "controlImage", type: "image", required: true, label: "Control Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
+      { id: "controlImage", type: "image", required: true, label: "Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
       { id: "prompt", type: "text", required: false, label: "Prompt" },
       { id: "negativePrompt", type: "text", required: false, label: "Negative Prompt" }
     ];
@@ -654,7 +782,11 @@ function builtInOutputs(type: string) {
     { id: "conversation_capsule", type: "conversation_context", label: "conversation_capsule" }
   ];
   if (type === "input.file" || type === "output.file") return [{ id: "file", type: "file", label: "File" }];
-  if (type === "input.image" || type === "preview.image" || type === "preview.panorama360" || type === "transform.panorama360ToFisheye" || type === "local.stableDiffusion.textToImage" || type === "ai.image.sd15.qr_monster_hidden_control") return [{ id: "image", type: "image", label: "Image" }];
+  if (type === "transform.chooseCameraPoint") return [
+    { id: "view", type: "image", label: "View" },
+    { id: "panorama", type: "image", label: "360" }
+  ];
+  if (type === "input.image" || type === "preview.image" || type === "preview.panorama360" || type === "transform.imageResize" || type === "transform.panorama360ToFisheye" || type === "local.stableDiffusion.textToImage" || type === "ai.image.sd15.qr_monster_hidden_control") return [{ id: "image", type: "image", label: "Image" }];
   if (type === "capability.image.create" || type === "capability.image.edit" || type === "capability.image.upscale") return [{ id: "image", type: "image", label: "Image" }];
   if (type === "capability.video.animate") return [{ id: "video", type: "video", label: "Video" }];
   if (type === "capability.character.create" || type === "capability.location.create") return [{ id: "resource", type: "json", label: "Resource" }];
@@ -685,11 +817,30 @@ function builtInParams(type: string) {
     ];
   }
   if (type === "input.file" || type === "input.image" || type === "input.video") return [{ id: "path", type: "file", label: "Path", default: "" }];
+  if (type === "transform.imageResize") {
+    return [
+      { id: "width", type: "number", label: "Width", default: 1024, description: "Target width in pixels." },
+      { id: "height", type: "number", label: "Height", default: 1024, description: "Target height in pixels." },
+      { id: "preserveAspectRatio", type: "boolean", label: "Keep proportions", default: true, description: "Fit inside the target size without stretching the image." }
+    ];
+  }
   if (type === "transform.panorama360ToFisheye") {
     return [
       { id: "fovDegrees", type: "number", label: "Angle", default: 200, description: "Fisheye field of view in degrees, from 1 to 360." },
       { id: "yawDegrees", type: "number", label: "Yaw", default: 0, description: "Horizontal view direction in degrees." },
       { id: "pitchDegrees", type: "number", label: "Pitch", default: -90, description: "Vertical view direction in degrees." }
+    ];
+  }
+  if (type === "transform.chooseCameraPoint") {
+    return [
+      { id: "provider", type: "text", label: "Provider", default: "worldlabs-marble" },
+      { id: "model", type: "enum", label: "Marble model", default: "marble-1.0-draft" },
+      { id: "regenerateWorld", type: "boolean", label: "Regenerate world", default: false },
+      { id: "resolution", type: "enum", label: "Resolution", default: "1536x864" },
+      { id: "fov", type: "number", label: "FOV", default: 70 },
+      { id: "marbleWorld", type: "json", label: "Cached Marble world", default: { provider: "worldlabs-marble", model: "marble-1.0-draft", generationStatus: "no world" } },
+      { id: "cameraPose", type: "json", label: "Camera pose", default: { position: { x: 0, y: 0, z: 0 }, rotation: { yaw: 0, pitch: 0, roll: 0 }, fov: 70 } },
+      { id: "output", type: "json", label: "Output settings", default: { mode: "perspective", width: 1536, height: 864 } }
     ];
   }
   if (type.startsWith("capability.")) return [{ id: "prompt", type: "text", label: "Prompt", default: "" }, { id: "provider", type: "text", label: "Provider", default: "" }];
@@ -727,6 +878,36 @@ function builtInParams(type: string) {
 }
 
 function builtInUi(type: string) {
+  if (type === "transform.imageResize") {
+    return {
+      params: {
+        width: { control: "number", min: 1, step: 1 },
+        height: { control: "number", min: 1, step: 1 },
+        preserveAspectRatio: { control: "checkbox" }
+      }
+    };
+  }
+  if (type === "transform.chooseCameraPoint") {
+    return {
+      params: {
+        model: {
+          control: "select",
+          options: [
+            { value: "marble-1.0-draft", label: "Draft" },
+            { value: "marble-1.1", label: "Standard" }
+          ]
+        },
+        resolution: {
+          control: "select",
+          options: ["1024x576", "1536x864", "2048x1152", "custom"]
+        },
+        fov: { control: "slider", min: 35, max: 120, step: 1 },
+        marbleWorld: { advanced: true },
+        cameraPose: { advanced: true },
+        output: { advanced: true }
+      }
+    };
+  }
   if (type === "ai.image.sd15.qr_monster_hidden_control") {
     return {
       params: {
@@ -739,7 +920,7 @@ function builtInUi(type: string) {
             { value: "qr_code", label: "QR code" }
           ]
         },
-        controlWeight: { control: "slider", min: 0, max: 3, step: 0.05, helperText: "Higher = hidden image / QR more readable; lower = image more creative." },
+        controlWeight: { control: "slider", min: 0, max: 2, step: 0.05, helperText: "Higher = hidden image / QR more readable; lower = image more creative." },
         endpoint: { advanced: true },
         steps: { control: "slider", min: 1, max: 80, step: 1, advanced: true },
         cfgScale: { control: "slider", min: 1, max: 20, step: 0.5, advanced: true },
@@ -868,7 +1049,7 @@ export async function buildStableDiffusionHiddenControlPayload(
           image: encodeRgbaPng(processed.width, processed.height, processed.data).toString("base64"),
           module: "none",
           model: controlNetModel,
-          weight: clampedNumberParam(params.controlWeight, 1.2, 0, 3, "controlWeight"),
+          weight: clampedNumberParam(params.controlWeight, 1.2, 0, 2, "controlWeight"),
           resize_mode: resizeMode,
           guidance_start: clampedNumberParam(params.guidanceStart, 0, 0, 1, "guidanceStart"),
           guidance_end: clampedNumberParam(params.guidanceEnd, 1, 0, 1, "guidanceEnd"),
@@ -1150,6 +1331,7 @@ export function parsePromptFile(text: string, path = "<prompt>"): { prompt: Prom
   const description = stringField(metadata, "description");
   const kind = stringField(metadata, "kind");
   const status = stringField(metadata, "status");
+  const negativePrompt = stringField(metadata, "negativePrompt");
   const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())) : undefined;
   const previewImage = stringField(metadata, "previewImage");
   const source = metadata.source && typeof metadata.source === "object" && !Array.isArray(metadata.source) ? metadata.source as Record<string, unknown> : undefined;
@@ -1161,6 +1343,7 @@ export function parsePromptFile(text: string, path = "<prompt>"): { prompt: Prom
       title,
       category,
       description: description || undefined,
+      negativePrompt: negativePrompt || undefined,
       tags,
       kind: kind || undefined,
       status: status || undefined,
@@ -1177,7 +1360,11 @@ export function parsePromptFile(text: string, path = "<prompt>"): { prompt: Prom
 export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { prompt: PromptLibraryPrompt } | { diagnostic: PromptLibraryDiagnostic } {
   try {
     const text = readPngTextChunk(buffer, "snarkroute:prompt");
-    if (!text) return { diagnostic: { path, severity: "error", message: "Prompt PNG requires snarkroute:prompt metadata." } };
+    if (!text) {
+      const canonical = parseImageMetadataPrompt(buffer, path);
+      if (canonical) return { prompt: canonical };
+      return { diagnostic: { path, severity: "error", message: "Prompt PNG requires snarkroute:prompt metadata." } };
+    }
     const metadata = JSON.parse(text) as Record<string, unknown>;
     const id = stringField(metadata, "id");
     const title = stringField(metadata, "title");
@@ -1189,6 +1376,7 @@ export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { pro
     const description = stringField(metadata, "description");
     const kind = stringField(metadata, "kind");
     const status = stringField(metadata, "status");
+    const negativePrompt = stringField(metadata, "negativePrompt");
     const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === "string" && Boolean(tag.trim())) : undefined;
     const source = metadata.source && typeof metadata.source === "object" && !Array.isArray(metadata.source) ? metadata.source as Record<string, unknown> : undefined;
     const modelHints = Array.isArray(metadata.modelHints) ? metadata.modelHints.filter((hint): hint is string => typeof hint === "string" && Boolean(hint.trim())) : undefined;
@@ -1198,6 +1386,7 @@ export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { pro
         title,
         category,
         description: description || undefined,
+        negativePrompt: negativePrompt || undefined,
         tags,
         kind: kind || undefined,
         status: status || undefined,
@@ -1212,6 +1401,59 @@ export function parsePromptPngFile(buffer: Buffer, path = "<prompt.png>"): { pro
   } catch (error) {
     return { diagnostic: { path, severity: "error", message: `Invalid prompt PNG metadata: ${errorMessage(error)}` } };
   }
+}
+
+function parseImageMetadataPrompt(buffer: Buffer, path: string): PromptLibraryPrompt | undefined {
+  const text = readPngTextChunk(buffer, "snarkroute.provenance") ?? readPngTextChunk(buffer, "snarkroute.provenance_json");
+  if (!text) return undefined;
+  const metadata = JSON.parse(text) as Record<string, unknown>;
+  const normalized = normalizeImagePromptMetadata(metadata);
+  if (!normalized) return undefined;
+  const library = normalized.library && typeof normalized.library === "object" && !Array.isArray(normalized.library) ? normalized.library as Record<string, unknown> : {};
+  const generation = normalized.generation as Record<string, unknown>;
+  const prompt = generation.prompt as Record<string, unknown>;
+  const modelId = stringField(generation, "modelId");
+  const title = stringField(library, "title") || "Generated Image";
+  const category = stringField(library, "category") || "generated";
+  const id = stringField(normalized, "id") || basename(path).replace(/\.[^.]+$/u, "");
+  const modelHints = Array.isArray(library.modelHints)
+    ? library.modelHints.filter((hint): hint is string => typeof hint === "string" && Boolean(hint.trim()))
+    : modelId ? [modelId] : undefined;
+  return {
+    id,
+    title,
+    category,
+    kind: "text/prompt",
+    status: stringField(library, "status") || "candidate",
+    previewImage: basename(path),
+    source: normalized.source && typeof normalized.source === "object" && !Array.isArray(normalized.source) ? normalized.source as Record<string, unknown> : undefined,
+    modelHints,
+    ref: `${category}/${id}`,
+    path,
+    text: stringField(prompt, "text") || ""
+  };
+}
+
+function normalizeImagePromptMetadata(metadata: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (metadata.schema === "snarkroute.image-metadata.v1" && metadata.kind === "generated-image") return metadata;
+  if (metadata.format !== "snarkroute.image-provenance" || metadata.version !== "0.1") return undefined;
+  const parameters = metadata.parameters && typeof metadata.parameters === "object" && !Array.isArray(metadata.parameters) ? metadata.parameters as Record<string, unknown> : {};
+  const modelId = stringField(metadata, "modelId") || stringField(parameters, "model") || "";
+  const prompt = stringField(metadata, "prompt") || stringField(parameters, "prompt") || "";
+  return {
+    schema: "snarkroute.image-metadata.v1",
+    kind: "generated-image",
+    id: stringField(metadata, "id") || `${stringField(metadata, "nodeId") || "image"}-legacy`,
+    source: { nodeId: stringField(metadata, "nodeId") || "", outputId: stringField(metadata, "outputId") || "image", runId: stringField(metadata, "runId") },
+    generation: {
+      providerId: stringField(metadata, "providerId") || stringField(parameters, "executionProvider"),
+      modelId,
+      prompt: { text: prompt, template: stringField(parameters, "promptTemplate") },
+      inputImages: [],
+      parameters: {}
+    },
+    library: { title: "Generated Image", category: "generated", status: "candidate", modelHints: modelId ? [modelId] : undefined }
+  };
 }
 
 export function summarizePromptLibrary(library: PromptLibrary): PromptLibrary {
@@ -1613,6 +1855,37 @@ function resizeRgbaImage(source: RgbaImage, targetWidth: number, targetHeight: n
     }
   }
   return { width: targetWidth, height: targetHeight, data: output };
+}
+
+function resolveResizeDimensions(source: RgbaImage, options: { width?: number; height?: number; preserveAspectRatio: boolean }): { width: number; height: number } {
+  const requestedWidth = options.width === undefined ? undefined : Math.round(options.width);
+  const requestedHeight = options.height === undefined ? undefined : Math.round(options.height);
+  if (requestedWidth !== undefined && requestedWidth <= 0) throw new Error("params.width must be a positive number.");
+  if (requestedHeight !== undefined && requestedHeight <= 0) throw new Error("params.height must be a positive number.");
+  if (!options.preserveAspectRatio) {
+    return {
+      width: requestedWidth ?? source.width,
+      height: requestedHeight ?? source.height
+    };
+  }
+  if (requestedWidth === undefined && requestedHeight === undefined) return { width: source.width, height: source.height };
+  if (requestedWidth !== undefined && requestedHeight === undefined) {
+    return {
+      width: requestedWidth,
+      height: Math.max(1, Math.round(requestedWidth * source.height / source.width))
+    };
+  }
+  if (requestedWidth === undefined && requestedHeight !== undefined) {
+    return {
+      width: Math.max(1, Math.round(requestedHeight * source.width / source.height)),
+      height: requestedHeight
+    };
+  }
+  const scale = Math.min(requestedWidth! / source.width, requestedHeight! / source.height);
+  return {
+    width: Math.max(1, Math.round(source.width * scale)),
+    height: Math.max(1, Math.round(source.height * scale))
+  };
 }
 
 function resampleRgbaImage(source: RgbaImage, targetWidth: number, targetHeight: number): RgbaImage {

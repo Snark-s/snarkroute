@@ -27,11 +27,14 @@ data/settings/secrets.json
 _tmp_*
 .env
 .env.local
+.env.production
 .env.*
 !.env.example
+!.env.production.example
 *.local
 *.secret
 *.secrets
+**/.obsidian/
 .DS_Store
 Thumbs.db
 desktop.ini
@@ -39,3 +42,9 @@ desktop.ini
 /SnarkRoute.png
 /Процесс/
 /START.lnk
+# Graphify generated files
+graphify-out/
+.graphify/
+.graphify-cache/
+.graphify-out/
+*.graphify.log

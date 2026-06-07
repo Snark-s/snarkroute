@@ -47,15 +47,37 @@ describe("built-in nodes", () => {
       category: "Local / Stable Diffusion",
       permissions: { network: true, networkHosts: ["127.0.0.1", "localhost"], readFiles: true, writeOutputs: true },
       inputs: [
-        { id: "controlImage", type: "image", required: true, label: "Control Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
+        { id: "controlImage", type: "image", required: true, label: "Image", description: "Hidden picture, silhouette, pattern, or QR code passed to ControlNet." },
         { id: "prompt", type: "text", required: false, label: "Prompt" },
         { id: "negativePrompt", type: "text", required: false, label: "Negative Prompt" }
-      ]
+
+      ],
+      ui: { params: { controlWeight: { control: "slider" }, endpoint: { advanced: true } } }
     });
     expect(builtInNodeManifests.find((manifest) => manifest.id === "capability.image.create")).toBeTruthy();
     expect(builtInNodeManifests.find((manifest) => manifest.id === "transform.panorama360ToFisheye")).toMatchObject({
       inputs: [{ id: "image", type: "image", required: true, label: "Image" }],
       outputs: [{ id: "image", type: "image", label: "Image" }]
+    });
+    expect(builtInNodeManifests.find((manifest) => manifest.id === "transform.imageResize")).toMatchObject({
+      title: "Resize Image",
+      permissions: { readFiles: true, writeOutputs: true },
+      inputs: [{ id: "image", type: "image", required: true, label: "Image" }],
+      outputs: [{ id: "image", type: "image", label: "Image" }],
+      params: [
+        { id: "width", type: "number", label: "Width", default: 1024 },
+        { id: "height", type: "number", label: "Height", default: 1024 },
+        { id: "preserveAspectRatio", type: "boolean", label: "Keep proportions", default: true }
+      ],
+      ui: { params: { preserveAspectRatio: { control: "checkbox" } } }
+    });
+    expect(builtInNodeManifests.find((manifest) => manifest.id === "transform.chooseCameraPoint")).toMatchObject({
+      title: "Выбрать точку камеры",
+      category: "Transform",
+      permissions: { network: true, networkHosts: ["api.worldlabs.ai"], readFiles: false, writeOutputs: false },
+      inputs: [{ id: "image", type: "image", required: true, label: "Image" }],
+      outputs: [{ id: "view", type: "image", label: "View" }, { id: "panorama", type: "image", label: "360" }],
+      ui: { params: { model: { control: "select" } } }
     });
   });
 
@@ -699,6 +721,53 @@ A reusable image prompt.
     expect(result.nodeResults.preview.error).toContain("expected an image");
   });
 
+  it("chooseCameraPoint passes through connected input before a perspective frame is rendered", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sr-choose-camera-"));
+    const panoramaPath = join(directory, "panorama.png");
+    await writeFile(panoramaPath, testRgbaPng(4, 2));
+
+    const result = await executeRoute({
+      nodes: [
+        { id: "input", type: "input.image", params: { path: panoramaPath } },
+        { id: "choose", type: "transform.chooseCameraPoint", params: { outputMode: "perspective" } }
+      ],
+      edges: [{ from: "input", to: "choose", fromPort: "image", toPort: "image" }]
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.choose.output).toMatchObject({
+      image: { path: panoramaPath },
+      warning: expect.stringContaining("no rendered perspective image yet")
+    });
+  });
+
+  it("chooseCameraPoint emits the Marble world panorama in equirectangular mode", async () => {
+    const panoUrl = "https://cdn.worldlabs.ai/worlds/example/pano.jpg";
+
+    const result = await executeRoute({
+      nodes: [
+        {
+          id: "choose",
+          type: "transform.chooseCameraPoint",
+          params: {
+            outputMode: "equirectangular",
+            marbleWorld: { worldId: "world-1", assets: { imagery: { pano_url: panoUrl } } }
+          }
+        }
+      ],
+      edges: []
+    });
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.choose.output).toMatchObject({
+      image: { originalUrl: panoUrl },
+      panorama: { originalUrl: panoUrl },
+      panoramaMetadata: { projection: "equirectangular" },
+      output: { mode: "equirectangular" }
+    });
+    expect(result.nodeResults.choose.provenance).toMatchObject({ renderMode: "equirectangular" });
+  });
+
   it("projects a local equirectangular panorama PNG to fisheye with a configurable angle", async () => {
     const directory = await mkdtemp(join(tmpdir(), "sr-panorama-fisheye-"));
     const panoramaPath = join(directory, "panorama.png");
@@ -714,6 +783,40 @@ A reusable image prompt.
     expect(output.image).toMatchObject({ width: 2, height: 2 });
     expect(output.metadata).toMatchObject({ fovDegrees: 220, outputSize: 2, pitchDegrees: -90 });
     expect((await readFile(output.image!.localPath!)).subarray(0, 4)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  });
+
+  it("resizes a local PNG and warns when upscaling", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sr-image-resize-"));
+    const imagePath = join(directory, "source.png");
+    await writeFile(imagePath, testRgbaPng(4, 2));
+
+    const result = await executeRoute({
+      nodes: [{ id: "resize", type: "transform.imageResize", params: { image: imagePath, width: 8, height: 8, preserveAspectRatio: true } }],
+      edges: []
+    });
+
+    expect(result.status).toBe("succeeded");
+    const output = result.nodeResults.resize.output as { image?: { localPath?: string; width?: number; height?: number }; metadata?: { preserveAspectRatio?: boolean; upscaled?: boolean }; warnings?: string[] };
+    expect(output.image).toMatchObject({ width: 8, height: 4 });
+    expect(output.metadata).toMatchObject({ preserveAspectRatio: true, upscaled: true });
+    expect(output.warnings?.[0]).toContain("Upscaling from 4x2 to 8x4");
+    expect((await readFile(output.image!.localPath!)).subarray(0, 4)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  });
+
+  it("can resize a local PNG without preserving aspect ratio", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sr-image-resize-free-"));
+    const imagePath = join(directory, "source.png");
+    await writeFile(imagePath, testRgbaPng(4, 2));
+
+    const result = await executeRoute({
+      nodes: [{ id: "resize", type: "transform.imageResize", params: { image: imagePath, width: 3, height: 5, preserveAspectRatio: false } }],
+      edges: []
+    });
+
+    expect(result.status).toBe("succeeded");
+    const output = result.nodeResults.resize.output as { image?: { width?: number; height?: number }; warnings?: string[] };
+    expect(output.image).toMatchObject({ width: 3, height: 5 });
+    expect(output.warnings?.[0]).toContain("Upscaling from 4x2 to 3x5");
   });
 
   it("http.request calls JSON endpoints through the runner", async () => {
@@ -778,8 +881,6 @@ A reusable image prompt.
         controlImage: `data:image/png;base64,${testRgbaPng(2, 2).toString("base64")}`,
         prompt: "ornate poster",
         negativePrompt: "blur",
-        width: 4,
-        height: 4,
         steps: 12,
         cfgScale: 6,
         samplerName: "Euler a",
@@ -800,8 +901,10 @@ A reusable image prompt.
     expect(payload).toMatchObject({
       prompt: "ornate poster",
       negative_prompt: "blur",
-      width: 4,
-      height: 4,
+
+      width: 2,
+      height: 2,
+
       steps: 12,
       cfg_scale: 6,
       sampler_name: "Euler a",
@@ -851,6 +954,7 @@ A reusable image prompt.
   });
 
   it("runs Stable Diffusion Hidden Control Image against a mocked A1111 API", async () => {
+
     let txt2imgBody = "";
     const server = createServer((request, response) => {
       response.setHeader("Content-Type", "application/json");
@@ -884,8 +988,10 @@ A reusable image prompt.
             endpoint,
             controlImage: `data:image/png;base64,${testRgbaPng(1, 1).toString("base64")}`,
             prompt: "ceramic tile",
+
             width: 1,
             height: 1,
+
             steps: 1,
             cfgScale: 1
           }

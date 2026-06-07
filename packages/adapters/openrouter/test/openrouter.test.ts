@@ -30,15 +30,16 @@ describe("OpenRouter adapter", () => {
     });
   });
 
-  it("passes OpenAI image aspect ratio and maps it to size", () => {
-    expect(buildImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "3:2", imageSize: "low" })).toMatchObject({
+  it("passes OpenAI image aspect ratio through OpenRouter image_config", () => {
+    const body = buildImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "16:9", imageSize: "low" });
+    expect(body).toMatchObject({
       model: "openai/gpt-5.4-image-2",
       messages: [{ role: "user", content: "draw" }],
       modalities: ["image", "text"],
-      aspect_ratio: "3:2",
-      size: "1536x1024",
+      image_config: { aspect_ratio: "16:9" },
       quality: "low"
     });
+    expect(body).not.toHaveProperty("aspect_ratio");
   });
 
   it("builds a Gemini-compatible image request with image_config", () => {
@@ -110,13 +111,47 @@ describe("OpenRouter adapter", () => {
     const dir = await mkdtemp(join(tmpdir(), "snarkroute-openrouter-"));
     try {
       const cachePath = join(dir, "openrouter-models.json");
-      const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: "openai/gpt-5.2", name: "GPT" }] }), { status: 200 })) as unknown as typeof fetch;
+      const fetchImpl = vi.fn(async (url: string | URL | Request) => {
+        const href = String(url);
+        if (href.endsWith("/videos/models")) {
+          return new Response(JSON.stringify({ data: [{ id: "kwaivgi/kling-video-o1", name: "Kling Video O1", pricing: { generation: "0.08" } }] }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ data: [{ id: "openai/gpt-5.2", name: "GPT" }] }), { status: 200 });
+      }) as unknown as typeof fetch;
       const cache = await refreshOpenRouterModelCatalog({ fetchImpl, cachePath });
-      expect(cache.models).toHaveLength(1);
+      expect(cache.models).toHaveLength(2);
+      expect(cache.sourceCounts).toEqual({ models: 1, videoModels: 1 });
       expect(await readFile(cachePath, "utf8")).toContain("openai/gpt-5.2");
+      expect(await readFile(cachePath, "utf8")).toContain("kwaivgi/kling-video-o1");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it("parses OpenRouter video model catalog metadata", () => {
+    expect(parseOpenRouterModelCatalog({
+      data: [{
+        id: "kwaivgi/kling-v3.0-pro",
+        name: "Kling v3.0 Pro",
+        architecture: { input_modalities: ["text", "image"], output_modalities: ["video"] },
+        supported_durations: ["5", "10"],
+        supported_aspect_ratios: ["16:9", "9:16"],
+        supported_resolutions: ["720p", "1080p"],
+        supported_frame_image_modes: ["first_frame"],
+        pricing: { generation: "0.1" }
+      }]
+    }, "video")).toEqual([expect.objectContaining({
+      provider: "openrouter",
+      kind: "video",
+      id: "kwaivgi/kling-v3.0-pro",
+      name: "Kling v3.0 Pro",
+      architecture: { input_modalities: ["text", "image"], output_modalities: ["video"], modality: undefined },
+      supported_durations: ["5", "10"],
+      supported_aspect_ratios: ["16:9", "9:16"],
+      supported_resolutions: ["720p", "1080p"],
+      supported_frame_image_modes: ["first_frame"],
+      pricing: { generation: "0.1" }
+    })]);
   });
 
   it("refreshes and saves the pricing catalog cache from /models pricing", async () => {
@@ -134,7 +169,7 @@ describe("OpenRouter adapter", () => {
 
   it("parses catalogs defensively when optional fields are missing", () => {
     expect(parseOpenRouterModelCatalog({ data: [{ id: "x/y" }, { name: "missing id" }] })).toEqual([
-      { id: "x/y", architecture: { input_modalities: undefined, output_modalities: undefined, modality: undefined }, context_length: undefined, description: undefined, name: undefined, pricing: undefined, supported_parameters: undefined, top_provider: undefined }
+      { id: "x/y", provider: "openrouter", kind: "text", architecture: { input_modalities: undefined, output_modalities: undefined, modality: undefined }, supported_durations: undefined, supported_aspect_ratios: undefined, supported_resolutions: undefined, supported_frame_image_modes: undefined, context_length: undefined, description: undefined, name: undefined, pricing: undefined, supported_parameters: undefined, top_provider: undefined }
     ]);
   });
 

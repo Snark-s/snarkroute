@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 describe("Image Generation route validation", () => {
   it("returns a clear error when OpenRouter is selected but not configured", async () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previousAppMode = process.env.APP_MODE;
     const previousOpenRouterToken = process.env.OPENROUTER_API_KEY;
+    process.env.APP_MODE = "local";
     process.env.OPENROUTER_API_KEY = "";
     const { buildServer } = await import("../src/index");
     const app = buildServer();
@@ -20,13 +22,17 @@ describe("Image Generation route validation", () => {
       await app.close();
       if (previousOpenRouterToken === undefined) delete process.env.OPENROUTER_API_KEY;
       else process.env.OPENROUTER_API_KEY = previousOpenRouterToken;
+      if (previousAppMode === undefined) delete process.env.APP_MODE;
+      else process.env.APP_MODE = previousAppMode;
       delete process.env.SNARKROUTE_NO_LISTEN;
     }
   });
 
   it("returns a clear error when Direct API is selected but credentials are missing", async () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previousAppMode = process.env.APP_MODE;
     const previousGeminiToken = process.env.GEMINI_API_KEY;
+    process.env.APP_MODE = "local";
     process.env.GEMINI_API_KEY = "";
     const { buildServer } = await import("../src/index");
     const app = buildServer();
@@ -43,6 +49,8 @@ describe("Image Generation route validation", () => {
       await app.close();
       if (previousGeminiToken === undefined) delete process.env.GEMINI_API_KEY;
       else process.env.GEMINI_API_KEY = previousGeminiToken;
+      if (previousAppMode === undefined) delete process.env.APP_MODE;
+      else process.env.APP_MODE = previousAppMode;
       delete process.env.SNARKROUTE_NO_LISTEN;
     }
   });

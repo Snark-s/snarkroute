@@ -16,6 +16,19 @@ export function normalizeStableDiffusionModels(value: unknown): Array<{ title: s
   return models;
 }
 
+export function normalizeComfyUiModels(value: unknown): Array<{ title: string; modelName: string }> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const checkpointLoader = (value as Record<string, unknown>).CheckpointLoaderSimple;
+  if (!checkpointLoader || typeof checkpointLoader !== "object" || Array.isArray(checkpointLoader)) return [];
+  const input = (checkpointLoader as Record<string, unknown>).input;
+  const required = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>).required : undefined;
+  const ckptName = required && typeof required === "object" && !Array.isArray(required) ? (required as Record<string, unknown>).ckpt_name : undefined;
+  const filenames = Array.isArray(ckptName) && Array.isArray(ckptName[0]) ? ckptName[0] : [];
+  return filenames.flatMap((filename) => typeof filename === "string" && filename.trim()
+    ? [{ title: filename, modelName: filename }]
+    : []);
+}
+
 export function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }

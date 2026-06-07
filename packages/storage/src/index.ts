@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+export { CloudPostgresStorageAdapter, runCloudPostgresMigrations, type CloudAdminUserListing, type CloudRouteRecord, type CloudRouteSummary, type CloudStorageUser, type SaveRouteInput, type SaveRouteVersionInput } from "./cloud-postgres";
 
 export interface LocalRunStorage {
   rootDirectory: string;

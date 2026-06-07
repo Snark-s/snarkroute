@@ -49,6 +49,8 @@ export type OpenRouterContentPart = { type: "text"; text: string } | { type: "im
 
 export interface OpenRouterModelInfo {
   id: string;
+  provider?: "openrouter";
+  kind?: "text" | "image" | "video";
   name?: string;
   description?: string;
   architecture?: {
@@ -56,6 +58,10 @@ export interface OpenRouterModelInfo {
     output_modalities?: string[];
     modality?: string;
   };
+  supported_durations?: string[];
+  supported_aspect_ratios?: string[];
+  supported_resolutions?: string[];
+  supported_frame_image_modes?: string[];
   context_length?: number;
   pricing?: Record<string, unknown>;
   supported_parameters?: string[];
@@ -65,6 +71,10 @@ export interface OpenRouterModelInfo {
 export interface OpenRouterCatalogCache {
   refreshedAt: string;
   models: OpenRouterModelInfo[];
+  sourceCounts?: {
+    models: number;
+    videoModels: number;
+  };
 }
 
 export const OPENROUTER_PRICING_CATALOG_SOURCE = "openrouter_models_catalog";
@@ -107,7 +117,11 @@ export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
     },
 
     async getModels(keyRequired = false): Promise<OpenRouterModelInfo[]> {
-      return parseOpenRouterModelCatalog(await request("/models", { method: "GET" }, keyRequired));
+      return parseOpenRouterModelCatalog(await request("/models", { method: "GET" }, keyRequired), "text");
+    },
+
+    async getVideoModels(keyRequired = false): Promise<OpenRouterModelInfo[]> {
+      return parseOpenRouterModelCatalog(await request("/videos/models", { method: "GET" }, keyRequired), "video");
     },
 
     async chatCompletions(body: Record<string, unknown>): Promise<unknown> {
@@ -408,9 +422,7 @@ export function buildImageRequestBody(model: string, prompt: string, params: Rec
   };
   if (isOpenAiImageModel(model)) {
     const aspectRatio = typeof params.aspectRatio === "string" && params.aspectRatio.trim() ? params.aspectRatio.trim() : "1:1";
-    body.aspect_ratio = aspectRatio;
-    const size = openAiImageSize(aspectRatio);
-    if (size) body.size = size;
+    body.image_config = { aspect_ratio: aspectRatio };
     const quality = openAiImageQuality(params.imageSize);
     if (quality) body.quality = quality;
     return body;
@@ -426,21 +438,6 @@ function isOpenAiImageModel(model: string): boolean {
   return model.startsWith("openai/") && /image/i.test(model);
 }
 
-function openAiImageSize(aspectRatio: unknown): string | null {
-  const ratio = typeof aspectRatio === "string" ? aspectRatio : "1:1";
-  if (ratio === "16:9") return "1792x1024";
-  if (ratio === "9:16") return "1024x1792";
-  if (ratio === "3:2") return "1536x1024";
-  if (ratio === "2:3") return "1024x1536";
-  const match = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(ratio);
-  if (!match) return null;
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
-  if (width === height) return "1024x1024";
-  return width > height ? "1536x1024" : "1024x1536";
-}
-
 function openAiImageQuality(imageSize: unknown): string | null {
   if (typeof imageSize !== "string") return null;
   if (["low", "medium", "high", "auto"].includes(imageSize)) return imageSize;
@@ -452,8 +449,16 @@ function openAiImageQuality(imageSize: unknown): string | null {
 
 export async function refreshOpenRouterModelCatalog(options: OpenRouterClientOptions & { cachePath?: string } = {}): Promise<OpenRouterCatalogCache> {
   const client = createOpenRouterClient(options);
-  const models = await client.getModels(false);
-  const cache = { refreshedAt: new Date().toISOString(), models };
+  const [textModels, videoModels] = await Promise.all([
+    client.getModels(false),
+    client.getVideoModels(false)
+  ]);
+  debugOpenRouterCatalogRefresh(textModels, videoModels);
+  const cache = {
+    refreshedAt: new Date().toISOString(),
+    models: [...textModels, ...videoModels],
+    sourceCounts: { models: textModels.length, videoModels: videoModels.length }
+  };
   const cachePath = options.cachePath ?? join(process.cwd(), "data", "cache", "openrouter-models.json");
   await mkdir(dirname(cachePath), { recursive: true });
   await writeFile(cachePath, `${JSON.stringify(cache, null, 2)}\n`, "utf8");
@@ -461,10 +466,15 @@ export async function refreshOpenRouterModelCatalog(options: OpenRouterClientOpt
 }
 
 export async function refreshOpenRouterPricingCatalog(options: OpenRouterClientOptions & { cachePath?: string; modelCatalogCachePath?: string; ttlHours?: number } = {}): Promise<PricingCatalog> {
-  const models = await createOpenRouterClient(options).getModels(false);
+  const client = createOpenRouterClient(options);
+  const [textModels, videoModels] = await Promise.all([
+    client.getModels(false),
+    client.getVideoModels(false).catch(() => [])
+  ]);
+  const models = [...textModels, ...videoModels];
   const modelCatalogCachePath = options.modelCatalogCachePath;
   if (modelCatalogCachePath) {
-    await writeOpenRouterModelCatalogCache({ refreshedAt: new Date().toISOString(), models }, modelCatalogCachePath);
+    await writeOpenRouterModelCatalogCache({ refreshedAt: new Date().toISOString(), models, sourceCounts: { models: textModels.length, videoModels: videoModels.length } }, modelCatalogCachePath);
   }
   const catalog = openRouterPricingCatalogFromModels(models, options.ttlHours);
   const cachePath = options.cachePath ?? join(process.cwd(), "data", "cache", "model-pricing", "openrouter.json");
@@ -528,7 +538,13 @@ export async function readOpenRouterModelCatalogCache(cachePath = join(process.c
     const record = parsed as Record<string, unknown>;
     return {
       refreshedAt: typeof record.refreshedAt === "string" ? record.refreshedAt : "",
-      models: Array.isArray(record.models) ? record.models.map(parseOpenRouterModel).filter((model): model is OpenRouterModelInfo => Boolean(model)) : []
+      models: Array.isArray(record.models) ? record.models.map((model) => parseOpenRouterModel(model)).filter((model): model is OpenRouterModelInfo => Boolean(model)) : [],
+      sourceCounts: record.sourceCounts && typeof record.sourceCounts === "object"
+        ? {
+            models: optionalNumber((record.sourceCounts as Record<string, unknown>).models) ?? 0,
+            videoModels: optionalNumber((record.sourceCounts as Record<string, unknown>).videoModels) ?? 0
+          }
+        : undefined
     };
   } catch {
     return null;
@@ -564,33 +580,93 @@ async function readPricingCatalog(cachePath: string, provider: string): Promise<
   }
 }
 
-export function parseOpenRouterModelCatalog(input: unknown): OpenRouterModelInfo[] {
+export function parseOpenRouterModelCatalog(input: unknown, kind?: OpenRouterModelInfo["kind"]): OpenRouterModelInfo[] {
   const data: unknown[] = input && typeof input === "object" && Array.isArray((input as Record<string, unknown>).data)
     ? ((input as Record<string, unknown>).data as unknown[])
     : Array.isArray(input) ? input : [];
-  return data.map(parseOpenRouterModel).filter((model): model is OpenRouterModelInfo => Boolean(model));
+  return data.map((model) => parseOpenRouterModel(model, kind)).filter((model): model is OpenRouterModelInfo => Boolean(model));
 }
 
-function parseOpenRouterModel(input: unknown): OpenRouterModelInfo | null {
+function parseOpenRouterModel(input: unknown, kind?: OpenRouterModelInfo["kind"]): OpenRouterModelInfo | null {
   if (!input || typeof input !== "object") return null;
   const record = input as Record<string, unknown>;
   const id = typeof record.id === "string" ? record.id : "";
   if (!id) return null;
   const architecture = record.architecture && typeof record.architecture === "object" ? record.architecture as Record<string, unknown> : {};
+  const topProvider = record.top_provider && typeof record.top_provider === "object" ? record.top_provider as Record<string, unknown> : {};
+  const recordKind = record.kind === "text" || record.kind === "image" || record.kind === "video" ? record.kind : undefined;
+  const inferredKind = kind ?? recordKind ?? inferOpenRouterModelKind(record, architecture);
   return {
     id,
+    provider: "openrouter",
+    kind: inferredKind,
     name: optionalString(record.name),
     description: optionalString(record.description),
     architecture: {
       input_modalities: stringArray(architecture.input_modalities),
-      output_modalities: stringArray(architecture.output_modalities),
+      output_modalities: inferredKind === "video" ? stringArray(architecture.output_modalities) ?? ["video"] : stringArray(architecture.output_modalities),
       modality: optionalString(architecture.modality)
     },
+    supported_durations: stringArrayFromKeys([record, architecture, topProvider], ["supported_durations", "durations", "duration"]),
+    supported_aspect_ratios: stringArrayFromKeys([record, architecture, topProvider], ["supported_aspect_ratios", "aspect_ratios", "aspect_ratio"]),
+    supported_resolutions: stringArrayFromKeys([record, architecture, topProvider], ["supported_resolutions", "resolutions", "resolution"]),
+    supported_frame_image_modes: stringArrayFromKeys([record, architecture, topProvider], ["supported_frame_image_modes", "frame_image_modes", "frame_image_mode"]),
     context_length: optionalNumber(record.context_length),
     pricing: record.pricing && typeof record.pricing === "object" ? record.pricing as Record<string, unknown> : undefined,
     supported_parameters: stringArray(record.supported_parameters),
-    top_provider: record.top_provider && typeof record.top_provider === "object" ? record.top_provider as Record<string, unknown> : undefined
+    top_provider: Object.keys(topProvider).length > 0 ? topProvider : undefined
   };
+}
+
+function inferOpenRouterModelKind(record: Record<string, unknown>, architecture: Record<string, unknown>): OpenRouterModelInfo["kind"] {
+  const output = stringArray(architecture.output_modalities) ?? [];
+  const modality = optionalString(architecture.modality) ?? "";
+  if (output.includes("video") || modalityOutputModalities(modality).includes("video")) return "video";
+  if (output.includes("image") || modalityOutputModalities(modality).includes("image")) return "image";
+  return "text";
+}
+
+function stringArrayFromKeys(sources: Array<Record<string, unknown>>, keys: string[]): string[] | undefined {
+  for (const key of keys) {
+    for (const source of sources) {
+      const array = stringOrNumberArray(source[key]) ?? stringArrayFromDelimited(source[key]);
+      if (array?.length) return array;
+      const nested = source[key] && typeof source[key] === "object" ? stringOrNumberArray(Object.values(source[key] as Record<string, unknown>)) : undefined;
+      if (nested?.length) return nested;
+    }
+  }
+  return undefined;
+}
+
+function modalityOutputModalities(modality: string): string[] {
+  if (!modality) return [];
+  const outputSide = modality.includes("->") ? modality.split("->").pop() ?? "" : modality;
+  return outputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
+}
+
+function debugOpenRouterCatalogRefresh(textModels: OpenRouterModelInfo[], videoModels: OpenRouterModelInfo[]): void {
+  const allKling = [...textModels, ...videoModels].filter((model) => /kling/i.test(`${model.id} ${model.name ?? ""}`));
+  console.info(`[OpenRouter catalog] /api/v1/models: ${textModels.length} models`);
+  console.info(`[OpenRouter catalog] /api/v1/videos/models: ${videoModels.length} models`);
+  console.info(`[OpenRouter catalog] kling models: ${allKling.map((model) => `${model.id} kind=${model.kind ?? "unknown"} output=${model.architecture?.output_modalities?.join(",") ?? ""}`).join("; ") || "none"}`);
+  for (const model of allKling) {
+    const reasons = openRouterVideoFilterReasons(model);
+    console.info(`[OpenRouter catalog] kling filter ${model.id}: ${reasons.length ? reasons.join("; ") : "included"}`);
+  }
+}
+
+function openRouterVideoFilterReasons(model: OpenRouterModelInfo): string[] {
+  const reasons: string[] = [];
+  if (model.kind !== "video") reasons.push(`kind=${model.kind ?? "missing"}`);
+  const output = model.architecture?.output_modalities ?? [];
+  const modality = model.architecture?.modality ?? "";
+  if (!output.includes("video") && !modalityOutputModalities(modality).includes("video")) reasons.push("no video output modality");
+  if (isOpenRouterRoutingAlias(model.id)) reasons.push("routing alias");
+  return reasons;
+}
+
+function isOpenRouterRoutingAlias(modelId: string): boolean {
+  return modelId === "openrouter/auto";
 }
 
 function firstOpenRouterText(response: unknown): string {
@@ -849,6 +925,20 @@ function stringParam(value: unknown): string | undefined {
 
 function stringArray(value: unknown): string[] | undefined {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : undefined;
+}
+
+function stringOrNumberArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .filter((item): item is string | number => typeof item === "string" || typeof item === "number")
+    .map((item) => String(item));
+  return items.length ? items : undefined;
+}
+
+function stringArrayFromDelimited(value: unknown): string[] | undefined {
+  if (typeof value !== "string") return undefined;
+  const items = value.split(/[,+\s/]+/).map((part) => part.trim()).filter(Boolean);
+  return items.length ? items : undefined;
 }
 
 function stringArrayFromUnknown(value: unknown): string[] | undefined {
