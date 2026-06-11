@@ -42,6 +42,7 @@
   "dependencies": {
     "@snarkroute/executor": "workspace:*",
     "@snarkroute/gemini": "workspace:*",
+    "@snarkroute/model-catalog": "workspace:*",
     "@snarkroute/model-registry": "workspace:*",
     "@snarkroute/nodes": "workspace:*",
     "@snarkroute/openrouter": "workspace:*",
