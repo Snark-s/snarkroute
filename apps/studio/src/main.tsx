@@ -56,6 +56,7 @@ import {
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
 import { studioDocs, type StudioDocEntry } from "./docsRegistry";
 import { MarkdownDocument } from "./MarkdownDocument";
+import { fetchImageCatalogModels } from "./modelCatalogClient";
 import { modelLogoFor, type ModelLogo } from "./modelLogos";
 import {
   availableCanvasThemes,
@@ -154,6 +155,7 @@ import type {
   StudioExample,
   SubrouteFrame,
   SystemUpdateStatus,
+  UnifiedModelInfo,
   VideoModelOption
 } from "./studioTypes";
 
@@ -562,6 +564,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const onPromptContextMenu = data.onPromptContextMenu as ((event: React.MouseEvent, prompt: PromptLibraryPrompt) => void) | undefined;
   const stableDiffusionModels = (data.stableDiffusionModels as StableDiffusionModel[] | undefined) ?? [];
   const openRouterModels = (data.openRouterModels as OpenRouterModel[] | undefined) ?? [];
+  const catalogImageModels = (data.catalogImageModels as UnifiedModelInfo[] | null | undefined) ?? null;
   const modelProfiles = (data.modelProfiles as ModelProfile[] | undefined) ?? DEFAULT_MODEL_PROFILES;
   const polzaTextModels = (data.polzaTextModels as PolzaModel[] | undefined) ?? [];
   const polzaImageModels = (data.polzaImageModels as PolzaModel[] | undefined) ?? [];
@@ -855,6 +858,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           onPromptContextMenu={onPromptContextMenu}
           stableDiffusionModels={stableDiffusionModels}
           openRouterModels={openRouterModels}
+          catalogImageModels={catalogImageModels}
           modelProfiles={modelProfiles}
           polzaTextModels={polzaTextModels}
           polzaImageModels={polzaImageModels}
@@ -2335,6 +2339,7 @@ function NodeInlineParams({
   onPromptContextMenu,
   stableDiffusionModels,
   openRouterModels,
+  catalogImageModels,
   polzaTextModels,
   polzaImageModels,
   polzaVideoModels,
@@ -2363,6 +2368,7 @@ function NodeInlineParams({
   onPromptContextMenu?: (event: React.MouseEvent, prompt: PromptLibraryPrompt) => void;
   stableDiffusionModels: StableDiffusionModel[];
   openRouterModels: OpenRouterModel[];
+  catalogImageModels: UnifiedModelInfo[] | null;
   polzaTextModels: PolzaModel[];
   polzaImageModels: PolzaModel[];
   polzaVideoModels: PolzaModel[];
@@ -2786,7 +2792,7 @@ function NodeInlineParams({
     const promptConnected = connectedInputPorts.has("prompt");
     const model = String(params.model ?? "image.nano-banana");
     const connectionRoute = String(params.providerMode ?? "auto");
-    const modelOptions = imageGenerationModelOptions(openRouterModels, model);
+    const modelOptions = catalogImageModels?.length ? imageCatalogModelOptions(catalogImageModels, model) : imageGenerationModelOptions(openRouterModels, model);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
     const aspectRatioOptions = imageAspectRatioOptions(selectedModel);
     const imageSizeOptions = imageSizeOptionsForModel(selectedModel);
@@ -2797,7 +2803,7 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span className="nodeFieldTitle">model {modelCreditBadge}</span>
-          <ModelSelectWithLogo logo={modelLogoFor(selectedModel?.provider, selectedModel?.slug ?? model)}>
+          <ModelSelectWithLogo logo={imageModelOptionLogo(selectedModel, model)}>
             <select
               className="nodrag nopan nodeInput nodeSelect"
               value={model}
@@ -5595,6 +5601,7 @@ function App() {
   const [openRouterToken, setOpenRouterToken] = useState("");
   const [openRouterSettings, setOpenRouterSettings] = useState<OpenRouterSettings>({ configured: false });
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
+  const [catalogImageModels, setCatalogImageModels] = useState<UnifiedModelInfo[] | null>(null);
   const [polzaTextModels, setPolzaTextModels] = useState<PolzaModel[]>([]);
   const [polzaImageModels, setPolzaImageModels] = useState<PolzaModel[]>([]);
   const [polzaVideoModels, setPolzaVideoModels] = useState<PolzaModel[]>([]);
@@ -5878,6 +5885,7 @@ function App() {
           stableDiffusionModels,
           openRouterConfigured: openRouterSettings.configured,
           openRouterModels,
+          catalogImageModels,
           modelProfiles,
           polzaConfigured,
           polzaTextModels,
@@ -5894,7 +5902,7 @@ function App() {
           result: staleResultNodeIds.has(node.id) ? undefined : readyNodeResult(node.data.routeNode as RouteDoc["nodes"][number], runResult?.nodeResults?.[node.id], nodes, edges, runResult)
         }
       })),
-    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, catalogImageModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
@@ -5905,6 +5913,7 @@ function App() {
     void loadSettings();
     void loadSystemUpdateStatus();
     void loadProviderLinks();
+    void loadCatalogImageModels();
     void loadOpenRouterModels();
     void loadPolzaModels();
     void loadNodeCatalog();
@@ -6247,6 +6256,16 @@ function App() {
       if (response.ok) setProviderLinks(result);
     } catch {
       setProviderLinks({});
+    }
+  }
+
+  async function loadCatalogImageModels() {
+    try {
+      const models = await fetchImageCatalogModels();
+      setCatalogImageModels(models.length > 0 ? models : null);
+      if (models.length > 0) setLogs((current) => [`Image model catalog loaded: ${models.length} models.`, ...current]);
+    } catch {
+      setCatalogImageModels(null);
     }
   }
 
@@ -11636,6 +11655,54 @@ function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], select
     });
   }
   return options;
+}
+
+function imageCatalogModelOptions(catalogModels: UnifiedModelInfo[], selectedModelId: string): ImageModelOption[] {
+  const options = catalogModels.map((entry): ImageModelOption => ({
+    id: entry.aliases?.[0] ?? entry.providerModelId,
+    slug: entry.providerModelId,
+    label: entry.displayName,
+    provider: entry.provider,
+    capabilities: entry.capabilities ?? [],
+    iconPath: entry.iconPath,
+    parameters: entry.parameters,
+    aspectRatios: selectParameterValues(entry.parameters, "aspectRatio"),
+    imageSizes: selectParameterValues(entry.parameters, "imageSize"),
+    supportsImageGeneration: "supported",
+    routeSupport: {
+      openrouter: entry.provider === "openrouter" ? "supported" : "unknown",
+      direct: entry.provider === "openrouter" ? "unknown" : "supported"
+    }
+  }));
+  if (selectedModelId && !options.some((entry) => entry.id === selectedModelId)) {
+    const selectedCatalogModel = catalogModels.find((entry) => entry.providerModelId === selectedModelId || entry.id === selectedModelId || entry.aliases?.includes(selectedModelId));
+    options.push({
+      id: selectedModelId,
+      slug: selectedCatalogModel?.providerModelId ?? selectedModelId,
+      label: selectedCatalogModel?.displayName ?? selectedModelId,
+      provider: selectedCatalogModel?.provider ?? "unknown",
+      capabilities: selectedCatalogModel?.capabilities ?? [],
+      iconPath: selectedCatalogModel?.iconPath,
+      parameters: selectedCatalogModel?.parameters,
+      aspectRatios: selectedCatalogModel ? selectParameterValues(selectedCatalogModel.parameters, "aspectRatio") : undefined,
+      imageSizes: selectedCatalogModel ? selectParameterValues(selectedCatalogModel.parameters, "imageSize") : undefined,
+      supportsImageGeneration: selectedCatalogModel ? "supported" : "unknown",
+      routeSupport: { openrouter: "unknown", direct: "unknown" },
+      disabled: !selectedCatalogModel,
+      note: selectedCatalogModel ? undefined : "image support unknown"
+    });
+  }
+  return options;
+}
+
+function selectParameterValues(parameters: UnifiedModelInfo["parameters"], parameterId: string): string[] | undefined {
+  const parameter = parameters.find((entry) => entry.id === parameterId && entry.type === "select");
+  return parameter?.options?.map((option) => option.value).filter(Boolean);
+}
+
+function imageModelOptionLogo(model: ImageModelOption | undefined, fallbackModelId: string): ModelLogo {
+  if (model?.iconPath) return { id: model.provider || "catalog", label: model.provider || "Model provider", src: `${apiBase}${model.iconPath}` };
+  return modelLogoFor(model?.provider, model?.slug ?? fallbackModelId);
 }
 
 function imageModelOptionLabel(model: ImageModelOption): string {

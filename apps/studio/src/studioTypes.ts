@@ -356,6 +356,8 @@ export type ImageModelOption = {
   label: string;
   provider: string;
   capabilities: string[];
+  iconPath?: string;
+  parameters?: ModelParameterDefinition[];
   aspectRatios?: string[];
   imageSizes?: string[];
   supportsImageGeneration: "supported" | "unsupported" | "unknown";
@@ -366,6 +368,33 @@ export type ImageModelOption = {
   disabled?: boolean;
   note?: string;
   pricing?: Record<string, unknown>;
+};
+
+export type ModelParameterDefinition = {
+  id: string;
+  label?: string;
+  type: "select" | "number" | "text" | "boolean";
+  default?: string | number | boolean;
+  options?: Array<{ value: string; label?: string }>;
+  min?: number;
+  max?: number;
+  step?: number;
+};
+
+export type UnifiedModelInfo = {
+  id: string;
+  provider: string;
+  providerModelId: string;
+  displayName: string;
+  outputType: string;
+  inputTypes: string[];
+  iconKey: string;
+  iconPath: string;
+  parameters: ModelParameterDefinition[];
+  catalogStatus: "known" | "unknown";
+  capabilities?: string[];
+  aliases?: string[];
+  metadata?: Record<string, unknown>;
 };
 
 export type VideoModelOption = {
