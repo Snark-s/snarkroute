@@ -2792,7 +2792,7 @@ function NodeInlineParams({
     const promptConnected = connectedInputPorts.has("prompt");
     const model = String(params.model ?? "image.nano-banana");
     const connectionRoute = String(params.providerMode ?? "auto");
-    const modelOptions = catalogImageModels?.length ? imageCatalogModelOptions(catalogImageModels, model) : imageGenerationModelOptions(openRouterModels, model);
+    const modelOptions = enrichImageGenerationModelOptions(imageGenerationModelOptions(openRouterModels, model), catalogImageModels ?? []);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
     const aspectRatioOptions = imageAspectRatioOptions(selectedModel);
     const imageSizeOptions = imageSizeOptionsForModel(selectedModel);
@@ -2911,8 +2911,8 @@ function NodeInlineParams({
 
   if (type === "polza.image.generate") {
     const promptConnected = connectedInputPorts.has("prompt");
-    const model = String(params.model ?? POLZA_IMAGE_MODEL_OPTIONS[0].id);
-    const modelOptions = polzaModelOptions(polzaImageModels, POLZA_IMAGE_MODEL_OPTIONS, model);
+    const model = polzaProviderModelId(String(params.model ?? POLZA_IMAGE_MODEL_OPTIONS[0].id));
+    const modelOptions = polzaModelOptions(polzaImageModels, POLZA_IMAGE_MODEL_OPTIONS, model, true);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
     const aspectRatio = supportedOptionValue(params.aspectRatio, POLZA_IMAGE_ASPECT_RATIOS);
     const imageResolution = supportedOptionValue(params.imageResolution ?? params.imageSize, POLZA_IMAGE_RESOLUTIONS);
@@ -4550,13 +4550,15 @@ function modelInfoToOpenRouterModel(record: Record<string, unknown>): OpenRouter
   const metadata = recordValue(record.metadata);
   const inputTypes = stringArrayValue(record.inputTypes);
   const outputTypes = stringArrayValue(record.outputTypes);
+  const kind = typeof record.kind === "string" ? record.kind : outputTypes.includes("video") ? "video" : outputTypes.includes("image") ? "image" : "text";
+  const architecture = recordValue(record.architecture);
   return {
     id: String(record.id ?? ""),
     provider: "openrouter",
     providerId: "openrouter",
-    kind: outputTypes.includes("video") ? "video" : outputTypes.includes("image") ? "image" : "text",
-    name: String(record.title ?? record.id ?? ""),
-    title: String(record.title ?? record.id ?? ""),
+    kind: kind === "image" || kind === "video" || kind === "text" ? kind : "text",
+    name: String(record.name ?? record.title ?? record.id ?? ""),
+    title: String(record.title ?? record.name ?? record.id ?? ""),
     capabilities: stringArrayValue(record.capabilities),
     inputTypes,
     outputTypes,
@@ -4564,31 +4566,40 @@ function modelInfoToOpenRouterModel(record: Record<string, unknown>): OpenRouter
     pricingHint: typeof record.pricingHint === "string" ? record.pricingHint : undefined,
     metadata,
     defaultParameters: recordValue(record.defaultParameters),
-    supported_parameters: stringArrayValue(metadata.supportedParameters),
-    supported_aspect_ratios: stringArrayValue(metadata.supportedAspectRatios),
-    supported_durations: stringArrayValue(metadata.supportedDurations),
-    supported_resolutions: stringArrayValue(metadata.supportedResolutions),
-    supported_frame_image_modes: stringArrayValue(metadata.supportedFrameImageModes),
-    architecture: { input_modalities: inputTypes, output_modalities: outputTypes }
+    supported_parameters: stringArrayValue(record.supported_parameters).length ? stringArrayValue(record.supported_parameters) : stringArrayValue(metadata.supportedParameters),
+    supported_aspect_ratios: stringArrayValue(record.supported_aspect_ratios).length ? stringArrayValue(record.supported_aspect_ratios) : stringArrayValue(metadata.supportedAspectRatios),
+    supported_durations: stringArrayValue(record.supported_durations).length ? stringArrayValue(record.supported_durations) : stringArrayValue(metadata.supportedDurations),
+    supported_resolutions: stringArrayValue(record.supported_resolutions).length ? stringArrayValue(record.supported_resolutions) : stringArrayValue(metadata.supportedResolutions),
+    supported_frame_image_modes: stringArrayValue(record.supported_frame_image_modes).length ? stringArrayValue(record.supported_frame_image_modes) : stringArrayValue(metadata.supportedFrameImageModes),
+    architecture: {
+      input_modalities: stringArrayValue(architecture.input_modalities).length ? stringArrayValue(architecture.input_modalities) : inputTypes,
+      output_modalities: stringArrayValue(architecture.output_modalities).length ? stringArrayValue(architecture.output_modalities) : outputTypes,
+      modality: typeof architecture.modality === "string" ? architecture.modality : undefined
+    }
   };
 }
 
 function modelInfoToPolzaModel(record: Record<string, unknown>, type: "chat" | "image" | "video"): PolzaModel {
   const metadata = recordValue(record.metadata);
+  const generationParameters = Array.isArray(record.generationParameters)
+    ? record.generationParameters as PolzaModel["generationParameters"]
+    : Array.isArray(metadata.generationParameters)
+      ? metadata.generationParameters as PolzaModel["generationParameters"]
+      : undefined;
   return {
-    id: String(record.id ?? ""),
-    name: String(record.title ?? record.id ?? ""),
-    title: String(record.title ?? record.id ?? ""),
+    id: String(record.providerModelId ?? record.id ?? ""),
+    name: String(record.name ?? record.title ?? record.providerModelId ?? record.id ?? ""),
+    title: String(record.title ?? record.name ?? record.providerModelId ?? record.id ?? ""),
     providerId: "polza",
     capabilities: stringArrayValue(record.capabilities),
     inputTypes: stringArrayValue(record.inputTypes),
     outputTypes: stringArrayValue(record.outputTypes),
     type,
-    short_description: typeof metadata.description === "string" ? metadata.description : undefined,
-    supported_parameters: stringArrayValue(metadata.supportedParameters),
-    generationParameters: Array.isArray(metadata.generationParameters) ? metadata.generationParameters as PolzaModel["generationParameters"] : undefined,
-    maxImageInputs: typeof metadata.maxImageInputs === "number" ? metadata.maxImageInputs : undefined,
-    pricing: recordValue(metadata.pricing),
+    short_description: typeof record.short_description === "string" ? record.short_description : typeof metadata.description === "string" ? metadata.description : undefined,
+    supported_parameters: stringArrayValue(record.supported_parameters).length ? stringArrayValue(record.supported_parameters) : stringArrayValue(metadata.supportedParameters),
+    generationParameters,
+    maxImageInputs: typeof record.maxImageInputs === "number" ? record.maxImageInputs : typeof metadata.maxImageInputs === "number" ? metadata.maxImageInputs : undefined,
+    pricing: Object.keys(recordValue(record.pricing)).length ? recordValue(record.pricing) : recordValue(metadata.pricing),
     pricingHint: typeof record.pricingHint === "string" ? record.pricingHint : undefined,
     metadata,
     defaultParameters: recordValue(record.defaultParameters),
@@ -6271,7 +6282,7 @@ function App() {
 
   async function loadOpenRouterModels() {
     try {
-      const response = await fetch(`${apiBase}/api/models?provider=openrouter`);
+      const response = await fetch(`${apiBase}/api/providers/openrouter/models`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "OpenRouter model cache unavailable.");
       const models = modelInfoItems(result).map(modelInfoToOpenRouterModel);
@@ -6288,12 +6299,12 @@ function App() {
     try {
       const [textResponse, imageResponse, videoResponse] = await Promise.all([
         fetch(`${apiBase}/api/models?provider=polza&capability=text.generate`),
-        fetch(`${apiBase}/api/models?provider=polza&capability=image.generate`),
+        fetch(`${apiBase}/api/providers/polza/models?type=image`),
         fetch(`${apiBase}/api/models?provider=polza&capability=video.generate`)
       ]);
       const [textResult, imageResult, videoResult] = await Promise.all([textResponse.json(), imageResponse.json(), videoResponse.json()]);
       setPolzaTextModels(textResponse.ok ? modelInfoItems(textResult).map((model) => modelInfoToPolzaModel(model, "chat")) : []);
-      setPolzaImageModels(imageResponse.ok ? modelInfoItems(imageResult).map((model) => modelInfoToPolzaModel(model, "image")) : []);
+      setPolzaImageModels(imageResponse.ok ? modelInfoItems(imageResult).map((model) => modelInfoToPolzaModel(model, "image")).filter((model) => !model.id.startsWith("polza:")) : []);
       setPolzaVideoModels(videoResponse.ok ? modelInfoItems(videoResult).map((model) => modelInfoToPolzaModel(model, "video")) : []);
     } catch {
       setPolzaTextModels([]);
@@ -11546,10 +11557,14 @@ function modalityOutputModalities(modality: string): string[] {
   return outputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
 }
 
-function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaModel[], selectedModelId: string): PolzaModel[] {
+function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaModel[], selectedModelId: string, normalizeProviderIds = false): PolzaModel[] {
   const byId = new Map<string, PolzaModel>();
   for (const model of fallbackModels) byId.set(model.id, model);
-  for (const model of catalogModels) byId.set(model.id, { ...byId.get(model.id), ...model });
+  for (const model of catalogModels) {
+    const id = normalizeProviderIds ? polzaProviderModelId(model.id) : model.id;
+    if (!id || (normalizeProviderIds && id.startsWith("polza:"))) continue;
+    byId.set(id, { ...byId.get(id), ...model, id });
+  }
   if (selectedModelId && !byId.has(selectedModelId)) byId.set(selectedModelId, { id: selectedModelId, name: selectedModelId });
   return [...byId.values()].sort((left, right) => {
     const leftFallback = fallbackModels.some((model) => model.id === left.id) ? 0 : 1;
@@ -11657,42 +11672,39 @@ function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], select
   return options;
 }
 
-function imageCatalogModelOptions(catalogModels: UnifiedModelInfo[], selectedModelId: string): ImageModelOption[] {
-  const options = catalogModels.map((entry): ImageModelOption => ({
-    id: entry.aliases?.[0] ?? entry.providerModelId,
-    slug: entry.providerModelId,
-    label: entry.displayName,
-    provider: entry.provider,
-    capabilities: entry.capabilities ?? [],
-    iconPath: entry.iconPath,
-    parameters: entry.parameters,
-    aspectRatios: selectParameterValues(entry.parameters, "aspectRatio"),
-    imageSizes: selectParameterValues(entry.parameters, "imageSize"),
-    supportsImageGeneration: "supported",
-    routeSupport: {
-      openrouter: entry.provider === "openrouter" ? "supported" : "unknown",
-      direct: entry.provider === "openrouter" ? "unknown" : "supported"
-    }
-  }));
-  if (selectedModelId && !options.some((entry) => entry.id === selectedModelId)) {
-    const selectedCatalogModel = catalogModels.find((entry) => entry.providerModelId === selectedModelId || entry.id === selectedModelId || entry.aliases?.includes(selectedModelId));
-    options.push({
-      id: selectedModelId,
-      slug: selectedCatalogModel?.providerModelId ?? selectedModelId,
-      label: selectedCatalogModel?.displayName ?? selectedModelId,
-      provider: selectedCatalogModel?.provider ?? "unknown",
-      capabilities: selectedCatalogModel?.capabilities ?? [],
-      iconPath: selectedCatalogModel?.iconPath,
-      parameters: selectedCatalogModel?.parameters,
-      aspectRatios: selectedCatalogModel ? selectParameterValues(selectedCatalogModel.parameters, "aspectRatio") : undefined,
-      imageSizes: selectedCatalogModel ? selectParameterValues(selectedCatalogModel.parameters, "imageSize") : undefined,
-      supportsImageGeneration: selectedCatalogModel ? "supported" : "unknown",
-      routeSupport: { openrouter: "unknown", direct: "unknown" },
-      disabled: !selectedCatalogModel,
-      note: selectedCatalogModel ? undefined : "image support unknown"
-    });
-  }
-  return options;
+function enrichImageGenerationModelOptions(options: ImageModelOption[], catalogModels: UnifiedModelInfo[]): ImageModelOption[] {
+  if (catalogModels.length === 0) return options;
+  return options.map((option) => {
+    const catalogModel = catalogModels.find((entry) => catalogModelMatchesImageOption(entry, option));
+    if (!catalogModel || !catalogModelSupportsImageGenerate(catalogModel)) return option;
+    return {
+      ...option,
+      label: catalogModel.displayName || option.label,
+      iconPath: catalogModel.iconPath,
+      parameters: catalogModel.parameters,
+      catalogModelId: catalogModel.id,
+      catalogProviderModelId: catalogModel.providerModelId,
+      aspectRatios: selectParameterValues(catalogModel.parameters, "aspectRatio") ?? option.aspectRatios,
+      imageSizes: selectParameterValues(catalogModel.parameters, "imageSize") ?? option.imageSizes
+    };
+  });
+}
+
+function polzaProviderModelId(modelId: string): string {
+  return modelId.startsWith("polza:") ? modelId.slice("polza:".length) : modelId;
+}
+
+function catalogModelMatchesImageOption(catalogModel: UnifiedModelInfo, option: ImageModelOption): boolean {
+  if (catalogModel.provider === "polza" && option.provider.toLowerCase() !== "polza") return false;
+  return catalogModel.providerModelId === option.slug
+    || catalogModel.providerModelId === option.id
+    || catalogModel.id === option.id
+    || Boolean(catalogModel.aliases?.includes(option.id));
+}
+
+function catalogModelSupportsImageGenerate(catalogModel: UnifiedModelInfo): boolean {
+  const capabilities = catalogModel.capabilities ?? [];
+  return capabilities.includes("image.generate") && !capabilities.every((capability) => capability === "image.upscale");
 }
 
 function selectParameterValues(parameters: UnifiedModelInfo["parameters"], parameterId: string): string[] | undefined {

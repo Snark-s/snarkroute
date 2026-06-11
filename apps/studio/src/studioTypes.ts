@@ -358,6 +358,8 @@ export type ImageModelOption = {
   capabilities: string[];
   iconPath?: string;
   parameters?: ModelParameterDefinition[];
+  catalogModelId?: string;
+  catalogProviderModelId?: string;
   aspectRatios?: string[];
   imageSizes?: string[];
   supportsImageGeneration: "supported" | "unsupported" | "unknown";

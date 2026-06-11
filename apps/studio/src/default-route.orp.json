@@ -84,8 +84,8 @@
         "timeoutMs": 120000
       },
       "ui": {
-        "x": 1491.568636458986,
-        "y": 316.18309587222643
+        "x": 1748.5515174658951,
+        "y": 311.1710138496254
       }
     },
     {
@@ -152,11 +152,27 @@
         "x": 648.1005518002985,
         "y": 765.5192143595432
       }
+    },
+    {
+      "id": "ai_image_generate_10",
+      "type": "ai.image.generate",
+      "title": "Image Generation",
+      "params": {
+        "model": "image.nano-banana",
+        "providerMode": "auto",
+        "prompt": "Create a polished image.",
+        "aspectRatio": "1:1",
+        "imageSize": "2K"
+      },
+      "ui": {
+        "x": 1424.3632436207542,
+        "y": 311.80668763838423
+      }
     }
   ],
   "edges": [],
   "provenance": {
-    "updatedAt": "2026-06-11T17:15:25.665Z",
+    "updatedAt": "2026-06-11T20:15:29.482Z",
     "tool": "snarkroute-studio"
   }
 }
