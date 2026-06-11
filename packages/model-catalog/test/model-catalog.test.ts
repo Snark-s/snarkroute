@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { defineModelCatalog, listKnownModels, normalizeProviderModel } from "../src/index.js";
+import { defineModelCatalog, getKnownModel, listKnownModels, normalizeProviderModel } from "../src/index.js";
+import { hasCapability, isUpscaleModel } from "../src/catalog.js";
 
 const allowedOutputTypes = new Set(["text", "image", "video", "audio", "embedding", "json", "unknown"]);
 
@@ -82,5 +83,22 @@ describe("@snarkroute/model-catalog", () => {
     expect(model.outputType).toBe("image");
     expect(model.iconKey).toBe("nano-banana");
     expect(model.catalogStatus).toBe("known");
+  });
+
+  it("classifies topaz/image-upscale as an image upscaler", () => {
+    const model = getKnownModel("polza", "topaz/image-upscale");
+    expect(model).toBeTruthy();
+    expect(model?.outputType).toBe("image");
+    expect(hasCapability(model!, "image.upscale")).toBe(true);
+    expect(isUpscaleModel(model!)).toBe(true);
+  });
+
+  it("keeps known Polza image-output edit models visible as non-upscalers", () => {
+    const model = getKnownModel("polza", "openai/gpt-image-1.5");
+    expect(model).toBeTruthy();
+    expect(model?.outputType).toBe("image");
+    expect(hasCapability(model!, "image.edit")).toBe(true);
+    expect(hasCapability(model!, "image.generate")).toBe(false);
+    expect(isUpscaleModel(model!)).toBe(false);
   });
 });

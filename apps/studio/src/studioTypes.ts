@@ -313,6 +313,10 @@ export type PolzaModel = {
   title?: string;
   providerId?: string;
   capabilities?: string[];
+  iconPath?: string;
+  catalogModelId?: string;
+  catalogProviderModelId?: string;
+  catalogParameters?: ModelParameterDefinition[];
   inputTypes?: string[];
   outputTypes?: string[];
   type?: string;

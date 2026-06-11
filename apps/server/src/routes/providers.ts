@@ -166,7 +166,7 @@ app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/ap
 app.get<{ Querystring: { type?: "chat" | "image" | "video" | "embedding"; format?: string } }>("/api/providers/polza/models", async (request, reply) => {
   try {
     if (!isPolzaEnabled()) return { ok: true, configured: false, modelCount: 0, models: [] };
-    const models = await createPolzaClient().getModels(request.query.type);
+    const models = filterPolzaProviderModels(await createPolzaClient().getModels(request.query.type), request.query.type);
     if (request.query.format === "model-info") {
       const normalizedModels = models.map((model) => enrichModelInfo(polzaModelInfoToModelInfo(model), "polza"));
       return { ok: true, configured: true, modelCount: normalizedModels.length, models: normalizedModels };
@@ -188,6 +188,25 @@ app.get<{ Querystring: { model?: string } }>("/api/replicate/schema", async (req
   }
 });
 
+}
+
+function filterPolzaProviderModels<T extends { id: string; type?: string; architecture?: { output_modalities?: string[] } }>(models: T[], type?: "chat" | "image" | "video" | "embedding"): T[] {
+  if (type !== "image") return models;
+  return models.filter(isExecutablePolzaImageModelForProviderList);
+}
+
+function isExecutablePolzaImageModelForProviderList(model: { id: string; type?: string; architecture?: { output_modalities?: string[] } }): boolean {
+  const outputTypes = model.architecture?.output_modalities?.length ? model.architecture.output_modalities : model.type === "image" ? ["image"] : [];
+  if (!outputTypes.includes("image")) return false;
+  if (model.id === "topaz/image-upscale") return false;
+  return model.id === "openai/gpt-5.4-image-2"
+    || model.id === "openai/gpt-image-1.5"
+    || model.id === "openai/gpt-5-image"
+    || model.id === "openai/gpt-5-image-mini"
+    || model.id === "dall-e-3"
+    || model.id === "dall-e-2"
+    || model.id === "gpt-image-1"
+    || model.id === "openai/gpt-image-1";
 }
 
 async function loadNormalizedModelCatalog(provider?: string, filters: { capability?: string; media?: string } = {}) {

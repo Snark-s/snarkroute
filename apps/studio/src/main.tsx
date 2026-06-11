@@ -2912,8 +2912,9 @@ function NodeInlineParams({
   if (type === "polza.image.generate") {
     const promptConnected = connectedInputPorts.has("prompt");
     const model = polzaProviderModelId(String(params.model ?? POLZA_IMAGE_MODEL_OPTIONS[0].id));
-    const modelOptions = polzaModelOptions(polzaImageModels, POLZA_IMAGE_MODEL_OPTIONS, model, true);
+    const modelOptions = enrichPolzaImageModelOptions(polzaModelOptions(polzaImageModels, polzaImageModels.length > 0 ? [] : POLZA_IMAGE_MODEL_OPTIONS, model, true, false), catalogImageModels ?? []);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
+    const selectedModelId = selectedModel?.id ?? modelOptions[0]?.id ?? model;
     const aspectRatio = supportedOptionValue(params.aspectRatio, POLZA_IMAGE_ASPECT_RATIOS);
     const imageResolution = supportedOptionValue(params.imageResolution ?? params.imageSize, POLZA_IMAGE_RESOLUTIONS);
     const quality = supportedOptionValue(params.quality, POLZA_IMAGE_QUALITIES);
@@ -2922,8 +2923,8 @@ function NodeInlineParams({
       <>
         <label className="nodeField">
           <span className="nodeFieldTitle">model {modelCreditBadge}</span>
-          <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
-            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+          <ModelSelectWithLogo logo={polzaImageModelLogo(selectedModel, model)}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={selectedModelId} onChange={(event) => onChange({ model: event.target.value })}>
               {modelOptions.map((entry) => (
                 <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
               ))}
@@ -11557,7 +11558,7 @@ function modalityOutputModalities(modality: string): string[] {
   return outputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
 }
 
-function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaModel[], selectedModelId: string, normalizeProviderIds = false): PolzaModel[] {
+function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaModel[], selectedModelId: string, normalizeProviderIds = false, includeMissingSelected = true): PolzaModel[] {
   const byId = new Map<string, PolzaModel>();
   for (const model of fallbackModels) byId.set(model.id, model);
   for (const model of catalogModels) {
@@ -11565,7 +11566,7 @@ function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaMod
     if (!id || (normalizeProviderIds && id.startsWith("polza:"))) continue;
     byId.set(id, { ...byId.get(id), ...model, id });
   }
-  if (selectedModelId && !byId.has(selectedModelId)) byId.set(selectedModelId, { id: selectedModelId, name: selectedModelId });
+  if (includeMissingSelected && selectedModelId && !byId.has(selectedModelId)) byId.set(selectedModelId, { id: selectedModelId, name: selectedModelId });
   return [...byId.values()].sort((left, right) => {
     const leftFallback = fallbackModels.some((model) => model.id === left.id) ? 0 : 1;
     const rightFallback = fallbackModels.some((model) => model.id === right.id) ? 0 : 1;
@@ -11690,8 +11691,31 @@ function enrichImageGenerationModelOptions(options: ImageModelOption[], catalogM
   });
 }
 
+function enrichPolzaImageModelOptions(options: PolzaModel[], catalogModels: UnifiedModelInfo[]): PolzaModel[] {
+  if (catalogModels.length === 0) return options;
+  return options.flatMap((option) => {
+    const catalogModel = catalogModels.find((entry) => catalogModelMatchesPolzaModel(entry, option));
+    if (!catalogModel) return [option];
+    if (catalogModelIsUpscaleOnly(catalogModel)) return [];
+    return [{
+      ...option,
+      name: catalogModel.displayName || option.name,
+      title: catalogModel.displayName || option.title,
+      capabilities: catalogModel.capabilities ?? option.capabilities,
+      iconPath: catalogModel.iconPath,
+      catalogModelId: catalogModel.id,
+      catalogProviderModelId: catalogModel.providerModelId,
+      catalogParameters: catalogModel.parameters
+    }];
+  });
+}
+
 function polzaProviderModelId(modelId: string): string {
   return modelId.startsWith("polza:") ? modelId.slice("polza:".length) : modelId;
+}
+
+function catalogModelMatchesPolzaModel(catalogModel: UnifiedModelInfo, model: PolzaModel): boolean {
+  return catalogModel.provider === "polza" && catalogModel.providerModelId === polzaProviderModelId(model.id);
 }
 
 function catalogModelMatchesImageOption(catalogModel: UnifiedModelInfo, option: ImageModelOption): boolean {
@@ -11707,6 +11731,11 @@ function catalogModelSupportsImageGenerate(catalogModel: UnifiedModelInfo): bool
   return capabilities.includes("image.generate") && !capabilities.every((capability) => capability === "image.upscale");
 }
 
+function catalogModelIsUpscaleOnly(catalogModel: UnifiedModelInfo): boolean {
+  const capabilities = catalogModel.capabilities ?? [];
+  return capabilities.includes("image.upscale") && !capabilities.some((capability) => capability.startsWith("image.") && capability !== "image.upscale");
+}
+
 function selectParameterValues(parameters: UnifiedModelInfo["parameters"], parameterId: string): string[] | undefined {
   const parameter = parameters.find((entry) => entry.id === parameterId && entry.type === "select");
   return parameter?.options?.map((option) => option.value).filter(Boolean);
@@ -11715,6 +11744,11 @@ function selectParameterValues(parameters: UnifiedModelInfo["parameters"], param
 function imageModelOptionLogo(model: ImageModelOption | undefined, fallbackModelId: string): ModelLogo {
   if (model?.iconPath) return { id: model.provider || "catalog", label: model.provider || "Model provider", src: `${apiBase}${model.iconPath}` };
   return modelLogoFor(model?.provider, model?.slug ?? fallbackModelId);
+}
+
+function polzaImageModelLogo(model: PolzaModel | undefined, fallbackModelId: string): ModelLogo {
+  if (model?.iconPath) return { id: "polza", label: model.name ?? model.title ?? "Polza", src: `${apiBase}${model.iconPath}` };
+  return modelLogoFor("polza", model?.id ?? fallbackModelId);
 }
 
 function imageModelOptionLabel(model: ImageModelOption): string {

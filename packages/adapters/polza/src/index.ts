@@ -81,6 +81,17 @@ export function polzaModelInfoToModelInfo(model: PolzaModelInfo): ModelInfo {
   };
 }
 
+export function isExecutablePolzaImageModel(model: Pick<PolzaModelInfo, "id" | "type" | "architecture">): boolean {
+  const type = polzaModelType(model.type);
+  const outputTypes = normalizedModalities(model.architecture?.output_modalities, polzaOutputTypes(type));
+  if (!outputTypes.includes("image")) return false;
+  if (isPolzaImageUpscaleModel(model.id)) return false;
+  return isPolzaGpt54Image2(model.id)
+    || isPolzaGptImage15(model.id)
+    || isPolzaOpenAiImageWithoutAspectRatio(model.id)
+    || usesPolzaImageGenerationsEndpoint(model.id);
+}
+
 type PolzaChatContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 type PolzaChatMessage = { role: string; content: string | PolzaChatContentPart[] };
 
@@ -642,6 +653,10 @@ export function buildMediaVideoRequestBody(model: string, prompt: string, params
 
 function isPolzaGpt54Image2(model: string): boolean {
   return model === "openai/gpt-5.4-image-2";
+}
+
+function isPolzaImageUpscaleModel(model: string): boolean {
+  return model === "topaz/image-upscale";
 }
 
 function isPolzaGptImage15(model: string): boolean {

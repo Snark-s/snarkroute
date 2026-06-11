@@ -64,6 +64,29 @@ const knownModels = defineModelCatalog([
   },
   {
     provider: "polza",
+    providerModelId: "openai/gpt-image-1.5",
+    displayName: "GPT Image 1.5",
+    outputType: "image",
+    inputTypes: ["text", "image"],
+    iconKey: "gpt",
+    capabilities: ["image.edit"],
+    maxImageInputs: 14,
+    parameters: [
+      selectParameter("aspectRatio", "Aspect ratio", ["1:1", "2:3", "3:2"], "1:1")
+    ]
+  },
+  {
+    provider: "polza",
+    providerModelId: "topaz/image-upscale",
+    displayName: "Topaz Image Upscale",
+    outputType: "image",
+    inputTypes: ["image"],
+    iconKey: "topaz",
+    capabilities: ["image.upscale"],
+    maxImageInputs: 1
+  },
+  {
+    provider: "polza",
     providerModelId: "wan/2.6",
     displayName: "Wan 2.6",
     outputType: "video",
@@ -140,6 +163,15 @@ export function normalizeProviderModel(provider: ModelProviderId, providerModel:
   };
 }
 
+export function hasCapability(model: Pick<UnifiedModelInfo, "capabilities">, capability: string): boolean {
+  return Boolean(model.capabilities?.includes(capability));
+}
+
+export function isUpscaleModel(model: Pick<UnifiedModelInfo, "capabilities">): boolean {
+  const capabilities = model.capabilities ?? [];
+  return capabilities.includes("image.upscale") && !capabilities.some((capability) => capability.startsWith("image.") && capability !== "image.upscale");
+}
+
 export function iconPathForKey(iconKey: string): string {
   const key = iconKey.trim();
   if (!key) throw new Error("Model icon key must be non-empty.");
@@ -202,7 +234,8 @@ function iconKeyForProvider(provider: ModelProviderId): string {
     openai: "gpt",
     openrouter: "openrouter",
     polza: "polza",
-    replicate: "replicate"
+    replicate: "replicate",
+    topaz: "topaz"
   };
   return icons[providerKey] ?? "unknown";
 }
@@ -216,6 +249,7 @@ function iconFilenameForKey(iconKey: string): string {
     openrouter: "openrouter.svg",
     polza: "polza.svg",
     replicate: "replicate.svg",
+    topaz: "topaz.svg",
     unknown: "unknown.svg",
     wan: "wan.svg"
   };
