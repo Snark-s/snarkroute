@@ -118,6 +118,25 @@ export type ProviderModelInfoV1 = {
   metadata?: Record<string, unknown>;
 };
 
+export type CuratedModelMetadataV1 = {
+  provider: ModelProviderIdV1;
+  providerModelId: string;
+  aliases?: string[];
+  originVendor?: ModelOriginVendorV1;
+  originModelId?: string;
+  displayName?: string;
+  description?: string;
+  iconKey?: string;
+  iconPath?: string;
+  inputTypes?: ModelInputTypeV1[];
+  outputTypes?: ModelOutputTypeV1[];
+  capabilities?: ModelCapabilityV1[];
+  roles?: ModelRoleV1[];
+  parameters?: ModelParameterDefinitionV1[];
+  pricing?: ModelPricingInfoV1;
+  metadata?: Record<string, unknown>;
+};
+
 export type ModelOptionForNodeV1 = ModelCatalogEntryV1 & {
   nodeType: string;
   storedModelId: string;

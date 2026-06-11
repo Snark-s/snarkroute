@@ -10,6 +10,7 @@ export type {
   ModelParameterOptionV1,
   ModelParameterValueV1,
   ModelPricingInfoV1,
+  CuratedModelMetadataV1,
   ProviderModelInfoV1,
   ModelProviderIdV1,
   ModelRoleV1
@@ -26,3 +27,10 @@ export {
 export type {
   ProviderModelToV1Input
 } from "./provider-normalization.js";
+
+export {
+  createUnknownCatalogEntryFromProviderModel,
+  findCuratedMetadataForProviderModel,
+  mergeProviderModelWithCuratedMetadata,
+  mergeProviderModelsWithCuratedMetadata
+} from "./catalog-merge.js";
