@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
+import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
@@ -48,6 +48,37 @@ export interface PolzaModelInfo {
   };
   pricing?: Record<string, unknown>;
   top_provider?: Record<string, unknown>;
+}
+
+export function polzaModelInfoToModelInfo(model: PolzaModelInfo): ModelInfo {
+  const type = polzaModelType(model.type);
+  const inputTypes = normalizedModalities(model.architecture?.input_modalities, ["text"]);
+  const outputTypes = normalizedModalities(model.architecture?.output_modalities, polzaOutputTypes(type));
+  const metadata: Record<string, unknown> = {
+    source: "polza_models_catalog",
+    providerModelType: type,
+    description: model.short_description,
+    pricing: model.pricing,
+    supportedParameters: model.supported_parameters,
+    topProvider: model.top_provider
+  };
+  return {
+    id: model.id,
+    providerId: "polza",
+    title: model.name ?? model.id,
+    capabilities: [polzaCapability(type)],
+    inputTypes,
+    outputTypes,
+    supportsImages: inputTypes.includes("image"),
+    supportsVideo: inputTypes.includes("video") || outputTypes.includes("video"),
+    supportsJson: Boolean(model.supported_parameters?.includes("response_format")),
+    ioContract: {
+      inputs: inputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: kind === "image" ? undefined : 1 })),
+      outputs: outputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: 1 }))
+    },
+    pricingHint: pricingHint(model.pricing),
+    metadata: compactRecord(metadata)
+  };
 }
 
 type PolzaChatContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
@@ -191,6 +222,44 @@ function parsePolzaModel(input: unknown): PolzaModelInfo | null {
     pricing: directPricing ?? topProviderPricing,
     top_provider: topProvider
   };
+}
+
+function polzaModelType(value: string | undefined): "chat" | "image" | "video" | "embedding" {
+  return value === "image" || value === "video" || value === "embedding" ? value : "chat";
+}
+
+function polzaCapability(type: "chat" | "image" | "video" | "embedding"): ModelInfo["capabilities"][number] {
+  if (type === "image") return "image.generate";
+  if (type === "video") return "video.generate";
+  if (type === "embedding") return "embedding.create";
+  return "text.generate";
+}
+
+function polzaOutputTypes(type: "chat" | "image" | "video" | "embedding"): string[] {
+  if (type === "image") return ["image"];
+  if (type === "video") return ["video"];
+  if (type === "embedding") return ["json"];
+  return ["text"];
+}
+
+function normalizedModalities(values: string[] | undefined, fallback: string[]): string[] {
+  const normalized = (values?.length ? values : fallback)
+    .map((value) => value.toLowerCase())
+    .filter((value) => value === "text" || value === "image" || value === "video" || value === "audio" || value === "file" || value === "json");
+  return [...new Set(normalized.length ? normalized : fallback)];
+}
+
+function pricingHint(pricing: Record<string, unknown> | undefined): string | undefined {
+  if (!pricing || Object.keys(pricing).length === 0) return undefined;
+  const compact = Object.entries(pricing)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .slice(0, 4)
+    .map(([key, value]) => `${key}: ${String(value)}`);
+  return compact.length ? compact.join(", ") : "pricing available";
+}
+
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0)));
 }
 
 export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): NodeRunner {

@@ -759,6 +759,47 @@ dd {
   color: var(--accent);
 }
 
+.edgeNoteBadge {
+  width: 18px;
+  height: 18px;
+  margin: 3px;
+  padding: 0;
+  border: 2px solid color-mix(in srgb, var(--canvas) 86%, transparent);
+  border-radius: 999px;
+  background: #8b5cf6;
+  box-shadow: 0 4px 12px var(--shadow);
+  pointer-events: auto;
+}
+
+.edgeNoteBadge.isSelected {
+  outline: 2px solid color-mix(in srgb, #ffffff 82%, transparent);
+}
+
+.edgeNoteEditor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 90;
+  width: 236px;
+  min-height: 84px;
+  pointer-events: auto;
+}
+
+.edgeNoteEditor textarea {
+  width: 100%;
+  min-height: 84px;
+  padding: 12px;
+  resize: vertical;
+  border: 2px solid color-mix(in srgb, #ffffff 82%, var(--line));
+  border-radius: 13px;
+  outline: 0;
+  background: color-mix(in srgb, #111813 94%, transparent);
+  color: var(--text);
+  box-shadow: 0 18px 48px var(--shadow);
+  font: 18px/1.35 inherit;
+  cursor: text;
+}
+
 .imageNode {
   position: absolute;
   left: 0;
@@ -775,6 +816,7 @@ dd {
 }
 
 .imageNode.isActive {
+  z-index: 20;
   grid-template-rows: 24px var(--image-height) 250px;
 }
 
@@ -893,6 +935,7 @@ dd {
 }
 
 .textNode.isActive {
+  z-index: 20;
   grid-template-rows: 24px var(--image-height) auto;
 }
 
@@ -1400,6 +1443,8 @@ dd {
 }
 
 .promptPanel {
+  position: relative;
+  z-index: 40;
   display: grid;
   grid-template-rows: 40px minmax(120px, 1fr) 38px;
   gap: 12px;
@@ -1566,6 +1611,169 @@ dd {
   object-fit: contain;
 }
 
+.cropOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(0, 0, 0, 0.68);
+}
+
+.cropWindow {
+  width: min(94vw, 1220px);
+  max-height: 90vh;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.56);
+}
+
+.cropWindow header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cropWindow header button {
+  width: 32px;
+  height: 32px;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.cropBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 230px;
+  min-height: 460px;
+}
+
+.cropStage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 460px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--canvas) 94%, #000000);
+}
+
+.cropFrame {
+  position: relative;
+  line-height: 0;
+  cursor: default;
+  touch-action: none;
+}
+
+.cropFrame img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(90vh - 92px);
+  user-select: none;
+  object-fit: contain;
+}
+
+.cropShade,
+.cropBox {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.cropShade {
+  background: rgba(0, 0, 0, 0.52);
+}
+
+.cropBox {
+  border: 2px solid var(--accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.62), inset 0 0 0 1px rgba(0, 0, 0, 0.62);
+  cursor: move;
+}
+
+.cropHandle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--accent);
+  border-radius: 3px;
+  background: var(--panel);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+.cropHandle.isNorthWest {
+  left: -7px;
+  top: -7px;
+}
+
+.cropHandle.isNorthEast {
+  right: -7px;
+  top: -7px;
+}
+
+.cropHandle.isSouthWest {
+  left: -7px;
+  bottom: -7px;
+}
+
+.cropHandle.isSouthEast {
+  right: -7px;
+  bottom: -7px;
+}
+
+.cropBody aside {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border-left: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 94%, var(--canvas));
+}
+
+.cropAspectGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cropAspectGrid button {
+  justify-content: center;
+  min-height: 34px;
+}
+
+.cropAspectGrid button.isSelected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.cropReadout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.cropApply {
+  justify-content: center;
+  margin-top: auto;
+}
+
+@media (max-width: 760px) {
+  .cropBody {
+    grid-template-columns: 1fr;
+  }
+
+  .cropBody aside {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+
 .previewImageWrap {
   position: relative;
 }
@@ -1700,6 +1908,7 @@ dd {
 .promptRichEditor {
   min-height: 120px;
   max-height: 240px;
+  cursor: text;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1720,6 +1929,21 @@ dd {
   cursor: grab;
 }
 
+.promptInlineChip.isExpanded {
+  width: auto;
+  max-width: min(100%, 420px);
+  height: auto;
+  min-height: 24px;
+  align-items: baseline;
+  padding: 0 2px 2px;
+  overflow: visible;
+  border: 0;
+  border-bottom: 2px solid var(--text-node-color, var(--accent));
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
 .promptInlineChip:active {
   cursor: grabbing;
 }
@@ -1738,6 +1962,14 @@ dd {
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+.promptInlineTextChip {
+  color: color-mix(in srgb, var(--text) 92%, var(--text-node-color, var(--accent)));
+  font-size: 16px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .promptInlineChip.isInactive {
@@ -1931,11 +2163,15 @@ dd {
   margin-left: 0;
   padding: 5px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, transparent);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--panel-soft) 84%, var(--text) 16%);
+  background: #0b0f0d;
   color: var(--text);
   box-shadow: 0 4px 14px var(--shadow);
+}
+
+.modelPickerButton:hover {
+  background: #111813;
 }
 
 .modelPickerButton img,
@@ -1944,7 +2180,7 @@ dd {
   width: 28px;
   height: 28px;
   object-fit: contain;
-  border-radius: 999px;
+  border-radius: 0;
 }
 
 .modelMenu {
@@ -2124,6 +2360,7 @@ dd {
 }
 
 .stackItemMenu,
+.contentMenu,
 .projectMenu {
   position: fixed;
   z-index: 30;
@@ -2157,6 +2394,7 @@ dd {
 }
 
 .stackItemMenu button,
+.contentMenu button,
 .projectMenu button {
   min-height: 34px;
   display: inline-flex;
@@ -2182,7 +2420,7 @@ dd {
 
 .nodeCreateSubmenuPanel {
   position: absolute;
-  left: calc(100% + 6px);
+  left: calc(100% - 1px);
   top: 0;
   z-index: 35;
   display: none;

@@ -63,548 +63,103 @@ import {
   saveCanvasBackgroundTheme,
   type CanvasBackgroundTheme
 } from "./canvasBackground";
+import {
+  DEFAULT_APP_CAPABILITIES,
+  DEFAULT_PROMPT_LIBRARY,
+  DEFAULT_ROUTE_FILENAME,
+  GEMINI_API_KEY_URL,
+  GEMINI_IMAGE_ASPECT_RATIOS,
+  GEMINI_IMAGE_SIZES,
+  GEMINI_LLM_MODEL_OPTIONS,
+  LIBRARY_NODE_METADATA_STORAGE_KEY,
+  NODE_DRAG_MIME,
+  NODE_LIBRARY_LAYOUT_STORAGE_KEY,
+  OPENAI_IMAGE_ASPECT_RATIOS,
+  OPENAI_IMAGE_QUALITIES,
+  POLZA_IMAGE_ASPECT_RATIOS,
+  POLZA_IMAGE_FORMATS,
+  POLZA_IMAGE_MODEL_OPTIONS,
+  POLZA_IMAGE_QUALITIES,
+  POLZA_IMAGE_RESOLUTIONS,
+  POLZA_TEXT_MODEL_OPTIONS,
+  POLZA_VIDEO_DURATIONS,
+  POLZA_VIDEO_MODEL_OPTIONS,
+  POLZA_VIDEO_RESOLUTIONS,
+  ROUTE_FILE_ACCEPT,
+  SAVED_PROJECT_STORAGE_KEY,
+  STUDIO_FAVICON_HREF,
+  SUBROUTE_INPUT_NODE_ID,
+  SUBROUTE_OUTPUT_NODE_ID,
+  apiBase,
+  isProductionBuild,
+  libraryNodeStatuses,
+  promptStatusOptions
+} from "./studioConfig";
+import type {
+  AdminBillingUser,
+  AdminOverview,
+  AdminUserCard,
+  AppCapabilities,
+  AssetKind,
+  CompoundInterface,
+  CompoundPortMapping,
+  ConnectionNodeEntry,
+  ConnectionNodeMenuState,
+  ContextMenuState,
+  CostEstimate,
+  CreditTransaction,
+  CurrentUser,
+  DialogueConnectedInput,
+  DialogueDraftContentPart,
+  ExampleCategory,
+  FixNodeOutputOptions,
+  ImageModelOption,
+  ImageViewerState,
+  LedgerSummary,
+  LibraryItemMenuState,
+  LibraryNodeMetadata,
+  LibraryNodeStatus,
+  LibrarySectionMenuState,
+  LibrarySortMode,
+  LibraryStatusFilter,
+  ModelQuotePreview,
+  NodeCatalogItem,
+  NodeLibraryLayout,
+  NodeLibraryPreview,
+  NodeManifest,
+  NodeRunResult,
+  OpenRouterModel,
+  OpenRouterSettings,
+  PendingConnectionStart,
+  PendingTextSelection,
+  PolzaModel,
+  PortKind,
+  PortSpec,
+  PricingBreakdown,
+  PromptAssetDraft,
+  PromptAssetMenuState,
+  PromptLibraryData,
+  PromptLibraryMenuState,
+  PromptLibraryPrompt,
+  PromptStatusFilter,
+  ProviderLinks,
+  RouteDoc,
+  RunCostSummary,
+  RunDisplayResult,
+  RunStreamEvent,
+  SavedCameraPose,
+  SeedanceSettings,
+  SplatRuntime,
+  StableDiffusionModel,
+  StudioExample,
+  SubrouteFrame,
+  SystemUpdateStatus,
+  VideoModelOption
+} from "./studioTypes";
 
-const STUDIO_FAVICON_HREF = "/boojumroute-icon.png";
 const apiFetch = (input: RequestInfo | URL, init: RequestInit = {}) => fetch(input, { credentials: "include", ...init });
-const isProductionBuild = import.meta.env.PROD;
-
-type CompoundPortMapping = {
-  id: string;
-  label?: string;
-  kind?: string;
-  nodeId: string;
-  port?: string;
-  targets?: Array<{ nodeId: string; port?: string }>;
-};
-
-type CompoundInterface = {
-  title?: string;
-  inputs?: CompoundPortMapping[];
-  outputs?: CompoundPortMapping[];
-};
-
-type SubrouteFrame = {
-  compoundId: string;
-  parentRoute: RouteDoc;
-  interfacePositions?: {
-    input?: { x: number; y: number };
-    output?: { x: number; y: number };
-  };
-};
-
-type RouteDoc = {
-  routeVersion: string;
-  route: { id: string; title: string; description?: string; author: Record<string, unknown>; tags?: string[] };
-  economics?: Record<string, unknown>;
-  nodes: Array<{
-    id: string;
-    type: string;
-    title?: string;
-    params?: Record<string, unknown>;
-    inputs?: Record<string, unknown>;
-    outputs?: Record<string, unknown>;
-    compound?: CompoundInterface;
-    subroute?: RouteDoc;
-    nodePackage?: Record<string, unknown>;
-    ui?: Record<string, unknown>;
-  }>;
-  edges: Array<{ id?: string; from: string; to: string; fromPort?: string; toPort?: string }>;
-  provenance?: Record<string, unknown>;
-};
-
-type ExampleCategory = "Basic Image" | "AI Image" | "Local AI" | "Developer";
-
-type StudioExample = {
-  route: RouteDoc;
-  title: string;
-  description: string;
-  provider: "Replicate" | "Gemini" | "Local" | "HTTP";
-  category: ExampleCategory;
-  milestone?: string;
-};
-
-type NodeRunResult = {
-  status?: string;
-  output?: unknown;
-  error?: string;
-  logs?: string[];
-  costEstimate?: CostEstimate;
-  actualUsage?: ActualUsage;
-  actualCredits?: number;
-  actualProviderCostAmount?: number | null;
-  usageSource?: "provider" | "estimated" | "unknown";
-  startedAt?: string;
-  completedAt?: string;
-};
-
-type ActualUsage = {
-  inputTokens?: number;
-  outputTokens?: number;
-  imageCount?: number;
-  videoSeconds?: number;
-  requestCount?: number;
-};
-
-type CostEstimate = {
-  nodeId: string;
-  nodeType: string;
-  estimatedCredits: number;
-  estimatedProviderCostAmount: number | null;
-  providerCostCurrency: string | null;
-  usageUnits: ActualUsage;
-  provider?: string;
-  model?: string;
-  operation?: string;
-  free?: boolean;
-  baseCostMicrousd?: number;
-  baseCredits?: number;
-  globalMarkupPercent?: number;
-  globalMarkupCredits?: number;
-  nodeMarkupPercent?: number;
-  nodeMarkupCredits?: number;
-  markupCredits?: number;
-  finalCredits?: number;
-  maxChargeCredits?: number;
-  pricingSource?: string;
-  pricingConfidence?: string;
-  pricingBreakdown?: PricingBreakdown;
-  usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate";
-};
-
-type PricingBreakdown = {
-  nodeId: string;
-  title?: string;
-  nodeType?: string;
-  provider?: string;
-  operation?: string;
-  model?: string;
-  free?: boolean;
-  providerCostMicrousd?: number;
-  baseCostMicrousd?: number;
-  baseCredits?: number;
-  globalMarkupPercent?: number;
-  globalMarkupCredits?: number;
-  nodeMarkupPercent?: number;
-  nodeMarkupCredits?: number;
-  markupCredits?: number;
-  finalCredits?: number;
-  maxChargeCredits?: number;
-  pricingSource?: string;
-  pricingConfidence?: string;
-  source?: string;
-  notes?: string;
-};
-
-type RunCostSummary = {
-  estimates: CostEstimate[];
-  actuals: Array<CostEstimate & { actualCredits: number; actualProviderCostAmount: number | null }>;
-  totalEstimatedCredits: number;
-  totalActualCredits: number;
-  refundedCredits: number;
-  nodes?: PricingBreakdown[];
-};
-
-type CreditTransaction = {
-  id: string;
-  createdAt: string;
-  type: "grant" | "reserve" | "capture" | "release" | "refund" | "adjustment" | "demo_grant" | "expired" | "purchase_placeholder" | string;
-  amount: number;
-  status?: string;
-  balanceAfter?: number | null;
-  reason?: string | null;
-  runId?: string | null;
-  nodeTitle?: string | null;
-  provider?: string | null;
-  maxChargeCredits?: number | null;
-};
-
-type RunDisplayResult = {
-  runId?: string;
-  status?: string;
-  startedAt?: string;
-  completedAt?: string;
-  nodeResults?: Record<string, NodeRunResult>;
-  logs?: Array<{ timestamp?: string; nodeId?: string; message: string }>;
-  economics?: unknown;
-  costSummary?: RunCostSummary;
-  error?: string;
-};
-
-type FixNodeOutputOptions = {
-  persist?: boolean;
-  logMessage?: string;
-};
-
-type RunStreamEvent =
-  | { type: "runStarted"; runId?: string; startedAt?: string; estimate?: RunCostSummary }
-  | { type: "nodeResult"; nodeResult?: NodeRunResult & { nodeId?: string } }
-  | { type: "runCompleted"; result?: RunDisplayResult }
-  | { type: "runFailed"; error?: string };
-
-type LedgerSummary = {
-  totalRuns: number;
-  runsByProvider: Record<string, number>;
-  runsByStatus: Record<string, number>;
-  estimatedProviderCostTotal: number | null;
-  actualProviderCostTotal: number | null;
-  paymentExecuted: false;
-  paymentExecutedCount: number;
-  recentRuns: Array<Record<string, unknown>>;
-};
-
-type AssetKind = "file" | "image" | "video";
-
-type PromptLibraryPrompt = {
-  id: string;
-  title: string;
-  category?: string;
-  description?: string;
-  tags?: string[];
-  kind?: string;
-  status?: string;
-  previewImage?: string;
-  source?: Record<string, unknown>;
-  modelHints?: string[];
-  ref?: string;
-  path?: string;
-  text: string;
-};
-
-type PromptLibraryCategory = {
-  id: string;
-  title: string;
-  prompts: PromptLibraryPrompt[];
-};
-
-type PromptLibraryData = {
-  categories: PromptLibraryCategory[];
-  diagnostics?: Array<{ path: string; message: string; severity: "warning" | "error" }>;
-};
-
-type PromptStatusFilter = "published" | "approved" | "candidate" | "draft" | "archived" | "all";
-
-type StableDiffusionModel = {
-  title: string;
-  modelName?: string;
-  filename?: string;
-  hash?: string;
-};
-
-type ProviderLinks = Record<string, Record<string, string>>;
-
-type AppCapabilities = {
-  product: "boojum" | "snark";
-  mode: "local" | "cloud" | "self_hosted";
-  authRequiredForSave: boolean;
-  supportsCredits: boolean;
-  supportsGuestDemo: boolean;
-  supportsUserApiKeys: boolean;
-  supportsBrowserVault: boolean;
-  supportsCloudStoredUserKeys: boolean;
-  supportsLocalFilesystem: boolean;
-  supportsPublicSharing: boolean;
-  supportsDeveloperDiagnostics: boolean;
-};
-
-type CurrentUser = {
-  id: string;
-  displayName?: string;
-  email?: string;
-  authProvider?: string;
-  role?: "user" | "admin";
-};
-
-type AdminOverview = {
-  usersCount: number;
-  runsCount?: number;
-  nodeRunsCount?: number;
-  creditTransactionsCount?: number;
-  providerUsageCount?: number;
-  runs: Array<Record<string, unknown>>;
-  nodeRuns: Array<Record<string, unknown>>;
-  creditTransactions: Array<Record<string, unknown>>;
-  providerUsage: Array<Record<string, unknown>>;
-  recentErrors: Array<Record<string, unknown>>;
-  artifactStats: unknown;
-  guestDemoUsage: unknown;
-  providerKeyStatus: Record<string, boolean>;
-};
-
-type AdminBillingUser = {
-  id: string;
-  role: "user" | "admin";
-  createdAt: string;
-  authProviders: string[];
-  providerSubjectHashPrefix?: string | null;
-  currentBalance: number;
-  totalGranted: number;
-  totalCaptured: number;
-  totalReleased: number;
-  totalRefunded: number;
-  activeReserved: number;
-  runsCount: number;
-  lastActivityAt?: string | null;
-};
-
-type AdminUserCard = AdminBillingUser & {
-  providerUsageCount: number;
-  recentRuns: Array<Record<string, unknown>>;
-  recentCreditTransactions: Array<Record<string, unknown>>;
-  recentProviderUsage: Array<Record<string, unknown>>;
-};
-
-const DEFAULT_APP_CAPABILITIES: AppCapabilities = {
-  product: "boojum",
-  mode: "local",
-  authRequiredForSave: false,
-  supportsCredits: false,
-  supportsGuestDemo: true,
-  supportsUserApiKeys: true,
-  supportsBrowserVault: false,
-  supportsCloudStoredUserKeys: false,
-  supportsLocalFilesystem: true,
-  supportsPublicSharing: false,
-  supportsDeveloperDiagnostics: false
-};
-
-type OpenRouterModel = {
-  id: string;
-  provider?: "openrouter";
-  kind?: "text" | "image" | "video";
-  name?: string;
-  pricing?: Record<string, unknown>;
-  supported_parameters?: string[];
-  architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
-  supported_durations?: string[];
-  supported_aspect_ratios?: string[];
-  supported_resolutions?: string[];
-  supported_frame_image_modes?: string[];
-};
-
-type PolzaModel = {
-  id: string;
-  name?: string;
-  type?: string;
-  short_description?: string;
-  supported_parameters?: string[];
-  generationParameters?: Array<{ id?: string; label?: string; type?: string; options?: Array<{ value?: string; label?: string }> }>;
-  maxImageInputs?: number;
-  pricing?: Record<string, unknown>;
-  architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
-};
-
-type PricingQuote = {
-  logicalModel?: string;
-  provider: string;
-  providerModel: string;
-  capability: string;
-  estimatedCost: number | null;
-  currency: string | null;
-  pricingSource: string;
-  confidence: string;
-  pricingStatus?: "fresh" | "stale" | "unknown" | string;
-  pricingUpdatedAt?: string | null;
-  pricingExpiresAt?: string | null;
-  unit?: string;
-  breakdown?: Record<string, unknown>;
-  warnings?: string[];
-};
-
-type ModelQuotePreview = {
-  selected: PricingQuote;
-  alternatives: PricingQuote[];
-  warnings: string[];
-};
-
-type ImageModelOption = {
-  id: string;
-  slug: string;
-  label: string;
-  provider: string;
-  capabilities: string[];
-  aspectRatios?: string[];
-  imageSizes?: string[];
-  supportsImageGeneration: "supported" | "unsupported" | "unknown";
-  routeSupport: {
-    openrouter: "supported" | "unsupported" | "unknown";
-    direct: "supported" | "unsupported" | "unknown";
-  };
-  disabled?: boolean;
-  note?: string;
-  pricing?: Record<string, unknown>;
-};
-
-type VideoModelOption = {
-  id: string;
-  name?: string;
-  providerId: "polza" | "openrouter";
-  providerLabel: string;
-  pricing?: Record<string, unknown>;
-  short_description?: string;
-  supported_parameters?: string[];
-  generationParameters?: PolzaModel["generationParameters"];
-  architecture?: PolzaModel["architecture"];
-};
-
-type OpenRouterSettings = {
-  configured: boolean;
-  maskedApiKey?: string;
-  defaultModel?: string;
-  budgetWarningUsd?: number | null;
-  catalog?: { refreshedAt?: string | null; modelCount?: number; sourceCounts?: { models?: number; videoModels?: number } };
-  defaultModelStatus?: string;
-};
-
-type SeedanceSettings = {
-  configured: boolean;
-  backend?: string;
-  backendLabel?: string;
-  maskedApiKey?: string;
-  apiKeyEnvKey?: string;
-  hasApiKey?: boolean;
-  baseUrl?: string;
-  baseUrlSource?: string;
-  diagnostics?: string[];
-  statusText?: string;
-};
-
-type SystemUpdateStatus = {
-  ok: boolean;
-  repoRoot?: string;
-  branch?: string | null;
-  commit?: string | null;
-  remote?: string | null;
-  upstream?: string | null;
-  ahead?: number | null;
-  behind?: number | null;
-  dirty?: boolean;
-  changes?: string[];
-  error?: string;
-};
-
-type NodeManifest = {
-  kind?: "snarkroute.node";
-  schemaVersion?: string;
-  id: string;
-  title: string;
-  version: string;
-  author: { name: string };
-  origin: string;
-  source?: string;
-  license: string;
-  category?: string;
-  description?: string;
-  tags?: string[];
-  permissions: { network: boolean; networkHosts?: string[]; readFiles: boolean; writeOutputs: boolean; shell: boolean; env: string[] };
-  executor: { type: string; runtime?: string; entry?: string; builtinRunner?: string };
-  inputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
-  outputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
-  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown }>;
-  generatedWith?: unknown;
-  ui?: {
-    params?: Record<string, {
-      control?: string;
-      options?: Array<string | { value: string; label?: string }>;
-      multiline?: boolean;
-      advanced?: boolean;
-      size?: "compact" | "large";
-      layout?: "inline";
-      placeholder?: string;
-      helperText?: string;
-      min?: number;
-      max?: number;
-      step?: number;
-    }>;
-  };
-  enabled?: boolean;
-};
-
-type NodeCatalogItem = {
-  type: string;
-  title: string;
-  description?: string;
-  enabled?: boolean;
-  manifest?: NodeManifest;
-  params?: Record<string, unknown>;
-};
-
-type NodeLibraryPreview = {
-  kind: "snarkroute.nodeLibrary";
-  id: string;
-  title: string;
-  version: string;
-  author: { name: string };
-  license: string;
-  nodes: Array<{ id: string; title: string; url: string; version?: string; description?: string; status?: string }>;
-};
-
-type LibraryNodeStatus = "draft" | "candidate" | "approved" | "published" | "archived";
-
-type LibraryStatusFilter = LibraryNodeStatus | "all";
-
-type LibraryNodeMetadata = Record<string, { status?: LibraryNodeStatus; order?: number }>;
-
-type LibrarySortMode = "status" | "manual" | "title";
-
-type NodeLibraryGroup = {
-  id: string;
-  title: string;
-  types: string[];
-};
-
-type NodeLibraryLayout = {
-  groups: NodeLibraryGroup[];
-  hiddenTypes: string[];
-};
-
-const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
-const NODE_DRAG_MIME = "application/x-snarkroute-node";
-const ROUTE_FILE_ACCEPT = ".orp,.opt,.orp.json,.opt.json,.orp.yaml,.opt.yaml,.orp.yml,.opt.yml,.route,.route.json,.route.yaml,.route.yml,.json,.yaml,.yml,application/json,application/yaml,text/yaml,text/x-yaml";
-const SAVED_PROJECT_STORAGE_KEY = "snarkroute-studio:saved-project";
-const LIBRARY_NODE_METADATA_STORAGE_KEY = "snarkroute-studio:node-library-metadata";
-const NODE_LIBRARY_LAYOUT_STORAGE_KEY = "snarkroute-studio:node-library-layout";
-const DEFAULT_ROUTE_FILENAME = "default-route.orp.json";
 // Compatibility note: storage keys and protocol fields keep the old node/studio names
 // so saved routes, installed node manifests, and local browser state continue to load.
-const GEMINI_API_KEY_URL = "https://aistudio.google.com/app/apikey";
-const libraryNodeStatuses: Array<{ id: LibraryNodeStatus; label: string }> = [
-  { id: "draft", label: "Draft" },
-  { id: "candidate", label: "Candidate" },
-  { id: "approved", label: "Approved" },
-  { id: "published", label: "Published" },
-  { id: "archived", label: "Archived" }
-];
-const promptStatusOptions: PromptStatusFilter[] = ["all", "published", "approved", "candidate", "draft", "archived"];
-const GEMINI_LLM_DEFAULT_SYSTEM_PROMPT = `Convert the user's rough idea into a clean image-generation prompt.
-Preserve the humor and core idea.
-Make risky wording safe and non-erotic.
-Do not include copyrighted characters, logos, or text.
-Output only the final image prompt.`;
-const GEMINI_LLM_MODEL_OPTIONS = [
-  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4, supportsVision: true },
-  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5, supportsVision: true },
-  { value: "gemini-2.5-flash-preview-09-2025", label: "Gemini 2.5 Flash Preview", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5, supportsVision: true },
-  { value: "gemini-2.5-flash-lite-preview-09-2025", label: "Gemini 2.5 Flash-Lite Preview", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4, supportsVision: true }
-];
-const DEFAULT_PROMPT_LIBRARY: PromptLibraryData = {
-  categories: [
-    {
-      id: "image-generation",
-      title: "Image generation",
-      prompts: [
-        {
-          id: "adapt-user-idea-for-image-generator",
-          title: "Adapt user idea for image generator",
-          category: "image-generation",
-          description: "Starter fallback prompt shown when the local prompt library API is unavailable.",
-          ref: "image-generation/adapt-user-idea-for-image-generator",
-          path: "data/prompt-library/image-generation/adapt-user-idea-for-image-generator.prompt.md",
-          text: GEMINI_LLM_DEFAULT_SYSTEM_PROMPT
-        }
-      ]
-    }
-  ]
-};
 
 const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
@@ -710,8 +265,8 @@ const library = [
       negative_prompt: "(worst quality, low quality, normal quality:2)",
       scale_factor: 2,
       dynamic: 6,
-      creativity: 0.35,
-      resemblance: 0.6,
+      creativity: 0.25,
+      resemblance: 1.5,
       tiling_width: 112,
       tiling_height: 144,
       scheduler: "DPM++ 3M SDE Karras",
@@ -867,7 +422,7 @@ const milestoneExamples: RouteDoc[] = [
     economics: { enabled: false, mode: "disabled", providerCosts: [{ provider: "replicate", model: "philz1337x/clarity-upscaler", nodeType: "replicate.clarity-upscaler", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null }] },
     nodes: [
       { id: "input_image", type: "input.image", title: "Input Image", params: { path: "examples/assets/clarity-input.png" }, ui: { x: 40, y: 160 } },
-      { id: "upscale", type: "replicate.clarity-upscaler", title: "Clarity Upscaler", params: { prompt: "masterpiece, best quality, highres", negative_prompt: "(worst quality, low quality, normal quality:2)", scale_factor: 2, dynamic: 6, creativity: 0.25, resemblance: 0.8, tiling_width: 112, tiling_height: 144, scheduler: "DPM++ 3M SDE Karras", num_inference_steps: 18, seed: 1337, downscaling: false, downscaling_resolution: 768, lora_links: "", pollingIntervalMs: 1000, timeoutMs: 120000 }, ui: { x: 420, y: 120 } },
+      { id: "upscale", type: "replicate.clarity-upscaler", title: "Clarity Upscaler", params: { prompt: "masterpiece, best quality, highres", negative_prompt: "(worst quality, low quality, normal quality:2)", scale_factor: 2, dynamic: 6, creativity: 0.25, resemblance: 1.5, tiling_width: 112, tiling_height: 144, scheduler: "DPM++ 3M SDE Karras", num_inference_steps: 18, seed: 1337, downscaling: false, downscaling_resolution: 768, lora_links: "", pollingIntervalMs: 1000, timeoutMs: 120000 }, ui: { x: 420, y: 120 } },
       { id: "preview", type: "preview.image", title: "Image Preview", params: { title: "Upscaled" }, ui: { x: 820, y: 140 } }
     ],
     edges: [{ from: "input_image", to: "upscale", fromPort: "image", toPort: "image" }, { from: "upscale", to: "preview", fromPort: "image", toPort: "image" }],
@@ -1390,7 +945,7 @@ function DialogueWorkbenchEditor({
   const [state, setState] = useState<DialogueWorkbenchState>(initialState);
   const [draftText, setDraftText] = useState("");
   const [draftRole, setDraftRole] = useState<DialogueMessage["role"]>("user");
-  const [draftAttachments, setDraftAttachments] = useState<DialogueContentPart[]>([]);
+  const [draftAttachments, setDraftAttachments] = useState<DialogueDraftContentPart[]>([]);
   const dialogueModelProfiles = useMemo(() => modelProfiles.filter(isDialogueModelProfile), [modelProfiles]);
   const initialModelProfileId = dialogueModelProfiles.some((profile) => profile.id === state.defaultModelProfileId)
     ? state.defaultModelProfileId ?? "text.default"
@@ -1466,7 +1021,7 @@ function DialogueWorkbenchEditor({
     const message: DialogueMessage = {
       id: `message_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`,
       role: "user",
-      content: [dialogueContentPartFromInput(input)],
+      content: [stripDialoguePartUi(dialogueContentPartFromInput(input))],
       createdAt: new Date().toISOString()
     };
     const index = afterMessageId ? state.messages.findIndex((entry) => entry.id === afterMessageId) : -1;
@@ -1822,7 +1377,8 @@ function DialogueWorkbenchEditor({
 function DialoguePartView({ part, compact = false, renderMarkdown = false }: { part: DialogueContentPart; compact?: boolean; renderMarkdown?: boolean }) {
   if (part.type === "text") {
     const backgroundSrc = part.chipBackgroundAssetRef ? imagePreviewSrc(part.chipBackgroundAssetRef) : null;
-    if (backgroundSrc && !renderMarkdown) return <TextChipView text={part.text} backgroundSrc={backgroundSrc} compact={compact} />;
+    if (backgroundSrc && !renderMarkdown) return <TextChipView text={part.text} backgroundSrc={backgroundSrc} compact={compact} accentColor={dialoguePartAccentColor(part)} />;
+    if (!renderMarkdown && dialoguePartIsChip(part)) return <TextChipView text={part.text} compact={compact} accentColor={dialoguePartAccentColor(part)} />;
     return renderMarkdown ? <MarkdownDocument content={part.text} /> : <p>{part.text}</p>;
   }
   if (part.type === "image") {
@@ -1835,19 +1391,42 @@ function DialoguePartView({ part, compact = false, renderMarkdown = false }: { p
 
 function DialogueInputPreview({ input }: { input: DialogueConnectedInput }) {
   const chipBackgroundSrc = input.type === "text" && input.chipBackgroundAssetRef ? imagePreviewSrc(input.chipBackgroundAssetRef) : null;
-  if (chipBackgroundSrc) return <TextChipView text={input.preview} backgroundSrc={chipBackgroundSrc} />;
+  if (chipBackgroundSrc) return <TextChipView text={input.preview} backgroundSrc={chipBackgroundSrc} accentColor={input.sourceAccentColor} />;
+  if (input.type === "text") return <TextChipView text={input.preview} accentColor={input.sourceAccentColor} />;
   const src = input.type === "image" ? imagePreviewSrc(input.value) ?? imagePreviewSrc(input.preview) : null;
   if (src) return <img className="dialogueInputImage" src={src} alt={input.id} />;
   return <pre>{input.preview}</pre>;
 }
 
-function TextChipView({ text, backgroundSrc, compact = false }: { text: string; backgroundSrc: string; compact?: boolean }) {
+function TextChipView({ text, backgroundSrc, compact = false, accentColor = "#7dd3c0" }: { text: string; backgroundSrc?: string | null; compact?: boolean; accentColor?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const backgroundImage = backgroundSrc && !expanded ? `linear-gradient(rgba(13, 17, 24, 0.9), rgba(13, 17, 24, 0.92)), url(${backgroundSrc})` : undefined;
   return (
-    <div className={`dialogueTextChip ${compact ? "compact" : ""}`} style={{ backgroundImage: `linear-gradient(rgba(13, 17, 24, 0.9), rgba(13, 17, 24, 0.92)), url(${backgroundSrc})` }}>
-      <span aria-hidden="true">T</span>
-      <pre>{text}</pre>
-    </div>
+    <button
+      className={`dialogueTextChip ${compact ? "compact" : ""} ${expanded ? "expanded" : ""}`.trim()}
+      style={{ "--dialogue-text-chip-accent": accentColor, backgroundImage } as React.CSSProperties}
+      type="button"
+      aria-expanded={expanded}
+      title={expanded ? "Collapse text chip" : "Expand text chip"}
+      onClick={() => setExpanded((value) => !value)}
+    >
+      {expanded ? <pre>{text}</pre> : (
+        <>
+          <span aria-hidden="true">T</span>
+          <pre>{text}</pre>
+        </>
+      )}
+    </button>
   );
+}
+
+function dialoguePartAccentColor(part: DialogueContentPart): string | undefined {
+  const value = (part as DialogueContentPart & { sourceAccentColor?: unknown }).sourceAccentColor;
+  return typeof value === "string" ? value : undefined;
+}
+
+function dialoguePartIsChip(part: DialogueContentPart): boolean {
+  return Boolean((part as DialogueContentPart & { sourceAccentColor?: unknown }).sourceAccentColor);
 }
 
 function ModelCapabilityBadges({ profile }: { profile: ModelProfile }) {
@@ -1878,18 +1457,23 @@ function ModelSelectWithLogo({ logo, children }: { logo: ModelLogo; children: Re
   );
 }
 
-function dialogueContentPartFromInput(input: DialogueConnectedInput): DialogueContentPart {
+function dialogueContentPartFromInput(input: DialogueConnectedInput): DialogueDraftContentPart {
   if (input.type === "image") return { type: "image", assetRef: imageAssetRef(input.value) ?? input.preview, alt: input.id };
   if (input.type === "file") return { type: "file", assetRef: imageAssetRef(input.value) ?? input.preview, filename: input.id };
-  if (input.type === "text") return { type: "text", text: input.preview, chipBackgroundAssetRef: input.chipBackgroundAssetRef };
+  if (input.type === "text") return { type: "text", text: input.preview, chipBackgroundAssetRef: input.chipBackgroundAssetRef, sourceAccentColor: input.sourceAccentColor };
   return { type: "json", value: input.value };
 }
 
-function dialogueMessageContent(text: string, attachments: DialogueContentPart[] = []): DialogueContentPart[] {
+function dialogueMessageContent(text: string, attachments: DialogueDraftContentPart[] = []): DialogueContentPart[] {
   return [
     ...(text.trim() ? [{ type: "text" as const, text }] : []),
-    ...attachments
+    ...attachments.map(stripDialoguePartUi)
   ];
+}
+
+function stripDialoguePartUi(part: DialogueDraftContentPart): DialogueContentPart {
+  const { sourceAccentColor: _sourceAccentColor, ...portablePart } = part;
+  return portablePart;
 }
 
 function autoAttachImagesForModel(inputs: DialogueConnectedInput[], profile: ModelProfile): DialogueContentPart[] {
@@ -2421,19 +2005,6 @@ function ChooseCameraPointParams({
     </div>
   );
 }
-
-type SavedCameraPose = {
-  position: { x: number; y: number; z: number };
-  rotation: { yaw: number; pitch: number; roll: number };
-  fov: number;
-};
-
-type SplatRuntime = {
-  renderer: import("three").WebGLRenderer;
-  scene: import("three").Scene;
-  camera: import("three").PerspectiveCamera;
-  control: import("three").Object3D;
-};
 
 async function importImageDataUrl(dataUrl: string, filename: string): Promise<unknown> {
   const dataBase64 = dataUrl.split(",")[1] ?? "";
@@ -3917,13 +3488,6 @@ function promptComposeFixedSlots(): Array<{ id: string; label: string }> {
   ];
 }
 
-type PendingTextSelection = {
-  target: HTMLInputElement | HTMLTextAreaElement;
-  selectionStart: number | null;
-  selectionEnd: number | null;
-  selectionDirection: "forward" | "backward" | "none" | null;
-};
-
 function updateTextFieldPreservingCaret(
   event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   pendingSelectionRef: React.MutableRefObject<PendingTextSelection | null>,
@@ -4538,9 +4102,6 @@ const nodeTypes = {
   route: RouteNodeCard
 };
 
-const SUBROUTE_INPUT_NODE_ID = "__subroute_input__";
-const SUBROUTE_OUTPUT_NODE_ID = "__subroute_output__";
-
 function InterfaceNodeCard({ data }: NodeProps) {
   const routeNode = data.routeNode as RouteDoc["nodes"][number] | undefined;
   const kind = routeNode?.type === "compound.output" ? "output" : "input";
@@ -4570,104 +4131,6 @@ function InterfaceNodeCard({ data }: NodeProps) {
     </div>
   );
 }
-
-type PortKind = "text" | "image" | "video" | "file" | "json" | "data" | "conversation_context";
-
-type ImageViewerState = {
-  src: string;
-  title: string;
-  filename: string;
-};
-
-type PromptAssetDraft = {
-  title: string;
-  slug: string;
-  category: string;
-  categoryMode: "existing" | "custom";
-  description: string;
-  tagsText: string;
-  prompt: string;
-  negativePrompt: string;
-  modelHintsText: string;
-  sourceNodeId: string;
-  sourceRouteId: string;
-  sourceRunId: string;
-  sourceOutputId: string;
-  imageSrc: string;
-  imagePath: string;
-  generalize: boolean;
-};
-
-type PendingConnectionStart = {
-  nodeId: string;
-  handleId: string;
-  handleType: "source" | "target";
-};
-
-type ConnectionNodeMenuState = {
-  clientX: number;
-  clientY: number;
-  flowPosition: { x: number; y: number };
-  sourceNodeId: string;
-  sourceHandle: string;
-};
-
-type ConnectionNodeEntry =
-  | { kind: "output"; inputPort: PortSpec }
-  | { kind: "catalog"; item: NodeCatalogItem; inputPort: PortSpec };
-
-type ContextMenuState = {
-  clientX: number;
-  clientY: number;
-  nodeId?: string;
-};
-
-type LibraryItemMenuState = {
-  clientX: number;
-  clientY: number;
-  type: string;
-  sectionId: string;
-  sectionTitle: string;
-  sectionTypes: string[];
-};
-
-type LibrarySectionMenuState = {
-  clientX: number;
-  clientY: number;
-  sectionId: string;
-  sectionTitle: string;
-  sectionTypes: string[];
-};
-
-type PromptAssetMenuState = {
-  clientX: number;
-  clientY: number;
-  nodeId: string;
-  result: NodeRunResult;
-};
-
-type PromptLibraryMenuState = {
-  clientX: number;
-  clientY: number;
-  prompt: PromptLibraryPrompt;
-};
-
-type PortSpec = {
-  id: string;
-  kind: PortKind;
-  label?: string;
-  maxConnections?: number;
-};
-
-type DialogueConnectedInput = {
-  id: string;
-  type: PortKind;
-  sourceNodeId: string;
-  sourcePort?: string;
-  preview: string;
-  value: unknown;
-  chipBackgroundAssetRef?: string;
-};
 
 function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDoc["nodes"][number]): { inputs: PortSpec[]; outputs: PortSpec[] } {
   if (type === "compound.subroute") {
@@ -5070,6 +4533,71 @@ function buildStudioModelProfiles(openRouterModels: OpenRouterModel[], polzaText
   return [...byId.values()];
 }
 
+function modelInfoItems(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && !Array.isArray(entry)));
+  if (!value || typeof value !== "object") return [];
+  const models = (value as Record<string, unknown>).models;
+  return Array.isArray(models) ? models.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && !Array.isArray(entry))) : [];
+}
+
+function modelInfoToOpenRouterModel(record: Record<string, unknown>): OpenRouterModel {
+  const metadata = recordValue(record.metadata);
+  const inputTypes = stringArrayValue(record.inputTypes);
+  const outputTypes = stringArrayValue(record.outputTypes);
+  return {
+    id: String(record.id ?? ""),
+    provider: "openrouter",
+    providerId: "openrouter",
+    kind: outputTypes.includes("video") ? "video" : outputTypes.includes("image") ? "image" : "text",
+    name: String(record.title ?? record.id ?? ""),
+    title: String(record.title ?? record.id ?? ""),
+    capabilities: stringArrayValue(record.capabilities),
+    inputTypes,
+    outputTypes,
+    pricing: recordValue(metadata.pricing),
+    pricingHint: typeof record.pricingHint === "string" ? record.pricingHint : undefined,
+    metadata,
+    defaultParameters: recordValue(record.defaultParameters),
+    supported_parameters: stringArrayValue(metadata.supportedParameters),
+    supported_aspect_ratios: stringArrayValue(metadata.supportedAspectRatios),
+    supported_durations: stringArrayValue(metadata.supportedDurations),
+    supported_resolutions: stringArrayValue(metadata.supportedResolutions),
+    supported_frame_image_modes: stringArrayValue(metadata.supportedFrameImageModes),
+    architecture: { input_modalities: inputTypes, output_modalities: outputTypes }
+  };
+}
+
+function modelInfoToPolzaModel(record: Record<string, unknown>, type: "chat" | "image" | "video"): PolzaModel {
+  const metadata = recordValue(record.metadata);
+  return {
+    id: String(record.id ?? ""),
+    name: String(record.title ?? record.id ?? ""),
+    title: String(record.title ?? record.id ?? ""),
+    providerId: "polza",
+    capabilities: stringArrayValue(record.capabilities),
+    inputTypes: stringArrayValue(record.inputTypes),
+    outputTypes: stringArrayValue(record.outputTypes),
+    type,
+    short_description: typeof metadata.description === "string" ? metadata.description : undefined,
+    supported_parameters: stringArrayValue(metadata.supportedParameters),
+    generationParameters: Array.isArray(metadata.generationParameters) ? metadata.generationParameters as PolzaModel["generationParameters"] : undefined,
+    maxImageInputs: typeof metadata.maxImageInputs === "number" ? metadata.maxImageInputs : undefined,
+    pricing: recordValue(metadata.pricing),
+    pricingHint: typeof record.pricingHint === "string" ? record.pricingHint : undefined,
+    metadata,
+    defaultParameters: recordValue(record.defaultParameters),
+    architecture: { input_modalities: stringArrayValue(record.inputTypes), output_modalities: stringArrayValue(record.outputTypes) }
+  };
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
 function isDialogueModelProfile(profile: ModelProfile): boolean {
   const capabilities = new Set(profile.capabilities);
   if (capabilities.has("text") || capabilities.has("vision") || capabilities.has("json_output") || capabilities.has("tool_calling")) return true;
@@ -5140,9 +4668,19 @@ function connectedInputSummaries(
         sourcePort: edge.sourceHandle ?? undefined,
         preview: type === "text" ? textPreviewValue(textValue) : previewValue(value),
         value,
-        chipBackgroundAssetRef: type === "text" ? imageAssetRef(value) ?? imageAssetRef(sourceParamPreview(sourceRouteNode, edge.sourceHandle)) ?? undefined : undefined
+        chipBackgroundAssetRef: type === "text" ? imageAssetRef(value) ?? imageAssetRef(sourceParamPreview(sourceRouteNode, edge.sourceHandle)) ?? undefined : undefined,
+        sourceAccentColor: type === "text" ? sourceNodeAccentColor(sourceRouteNode) : undefined
       };
     });
+}
+
+function sourceNodeAccentColor(sourceNode: RouteDoc["nodes"][number] | undefined): string | undefined {
+  const ui = sourceNode?.ui as Record<string, unknown> | undefined;
+  const explicit = typeof ui?.accentColor === "string" ? ui.accentColor : typeof ui?.color === "string" ? ui.color : "";
+  if (/^#[0-9a-f]{3,8}$/i.test(explicit.trim())) return explicit.trim();
+  if (sourceNode?.type === "input.text" || sourceNode?.type === "library.prompt") return "#7dd3c0";
+  if (sourceNode?.type.startsWith("text.")) return "#d8b4fe";
+  return undefined;
 }
 
 function connectedDialogueInputType(targetHandle: string | null | undefined, sourceKind: PortKind): PortKind {
@@ -6021,6 +5559,7 @@ function App() {
   const initialRouteState = useMemo(() => loadInitialRoute(), []);
   const initial = useMemo(() => routeToFlow(initialRouteState.route), [initialRouteState.route]);
   const canvasRef = useRef<HTMLElement | null>(null);
+  const promptAssetMenuRef = useRef<HTMLDivElement | null>(null);
   const [routeBase, setRouteBase] = useState<RouteDoc>(initialRouteState.route);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
@@ -6156,6 +5695,30 @@ function App() {
   useEffect(() => {
     saveCanvasBackgroundTheme(canvasBackgroundTheme);
   }, [canvasBackgroundTheme]);
+
+  useEffect(() => {
+    if (!promptAssetMenu) return;
+
+    const animationFrame = window.requestAnimationFrame(() => promptAssetMenuRef.current?.focus());
+    const closeIfOutside = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Node && promptAssetMenuRef.current?.contains(target)) return;
+      setPromptAssetMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPromptAssetMenu(null);
+    };
+
+    window.addEventListener("pointerdown", closeIfOutside, true);
+    window.addEventListener("focusin", closeIfOutside, true);
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("pointerdown", closeIfOutside, true);
+      window.removeEventListener("focusin", closeIfOutside, true);
+      window.removeEventListener("keydown", closeOnEscape, true);
+    };
+  }, [promptAssetMenu]);
 
   useEffect(() => {
     function handleUndoKey(event: KeyboardEvent) {
@@ -6689,14 +6252,14 @@ function App() {
 
   async function loadOpenRouterModels() {
     try {
-      const response = await fetch(`${apiBase}/api/providers/openrouter/models`);
+      const response = await fetch(`${apiBase}/api/models?provider=openrouter`);
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "OpenRouter model cache unavailable.");
-      setOpenRouterModels(Array.isArray(result.models) ? result.models : []);
-      const sourceCounts = result.sourceCounts ? ` (/models: ${result.sourceCounts.models ?? 0}, /videos/models: ${result.sourceCounts.videoModels ?? 0})` : "";
-      const klingModels = Array.isArray(result.models) ? result.models.filter((model: OpenRouterModel) => /kling/i.test(`${model.id} ${model.name ?? ""}`)) : [];
+      const models = modelInfoItems(result).map(modelInfoToOpenRouterModel);
+      setOpenRouterModels(models);
+      const klingModels = models.filter((model: OpenRouterModel) => /kling/i.test(`${model.id} ${model.name ?? ""}`));
       if (klingModels.length > 0) setLogs((current) => [`OpenRouter catalog Kling models: ${klingModels.map((model: OpenRouterModel) => `${model.id} [${model.kind ?? "unknown"}]`).join(", ")}`, ...current]);
-      if (sourceCounts) setLogs((current) => [`OpenRouter catalog loaded${sourceCounts}.`, ...current]);
+      if (models.length > 0) setLogs((current) => [`OpenRouter normalized model catalog loaded: ${models.length} models.`, ...current]);
     } catch {
       setOpenRouterModels([]);
     }
@@ -6705,14 +6268,14 @@ function App() {
   async function loadPolzaModels() {
     try {
       const [textResponse, imageResponse, videoResponse] = await Promise.all([
-        fetch(`${apiBase}/api/providers/polza/models?type=chat`),
-        fetch(`${apiBase}/api/providers/polza/models?type=image`),
-        fetch(`${apiBase}/api/providers/polza/models?type=video`)
+        fetch(`${apiBase}/api/models?provider=polza&capability=text.generate`),
+        fetch(`${apiBase}/api/models?provider=polza&capability=image.generate`),
+        fetch(`${apiBase}/api/models?provider=polza&capability=video.generate`)
       ]);
       const [textResult, imageResult, videoResult] = await Promise.all([textResponse.json(), imageResponse.json(), videoResponse.json()]);
-      setPolzaTextModels(textResponse.ok && Array.isArray(textResult.models) ? textResult.models : []);
-      setPolzaImageModels(imageResponse.ok && Array.isArray(imageResult.models) ? imageResult.models : []);
-      setPolzaVideoModels(videoResponse.ok && Array.isArray(videoResult.models) ? videoResult.models : []);
+      setPolzaTextModels(textResponse.ok ? modelInfoItems(textResult).map((model) => modelInfoToPolzaModel(model, "chat")) : []);
+      setPolzaImageModels(imageResponse.ok ? modelInfoItems(imageResult).map((model) => modelInfoToPolzaModel(model, "image")) : []);
+      setPolzaVideoModels(videoResponse.ok ? modelInfoItems(videoResult).map((model) => modelInfoToPolzaModel(model, "video")) : []);
     } catch {
       setPolzaTextModels([]);
       setPolzaImageModels([]);
@@ -9842,7 +9405,13 @@ function App() {
           </div>
         ) : null}
         {promptAssetMenu && supportsLocalFilesystem ? (
-          <div className="contextMenu" style={{ left: promptAssetMenu.clientX, top: promptAssetMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+          <div
+            ref={promptAssetMenuRef}
+            className="contextMenu"
+            style={{ left: promptAssetMenu.clientX, top: promptAssetMenu.clientY }}
+            tabIndex={-1}
+            onClick={(event) => event.stopPropagation()}
+          >
             {(() => {
               const warning = promptAssetMenuWarning(promptAssetMenu);
               return (
@@ -11883,30 +11452,33 @@ function geminiLlmPricingLabel(modelValue: string): string {
 }
 
 function modelSupportsText(model: OpenRouterModel): boolean {
+  if (model.capabilities?.includes("text.generate")) return true;
   if (model.kind === "video" || model.kind === "image") return false;
-  const output = model.architecture?.output_modalities ?? [];
+  const output = model.architecture?.output_modalities ?? model.outputTypes ?? [];
   const modality = model.architecture?.modality ?? "";
   return output.length === 0 || output.includes("text") || modality.includes("text");
 }
 
 function modelSupportsImage(model: OpenRouterModel): boolean {
   if (isOpenRouterRoutingAlias(model.id)) return false;
+  if (model.capabilities?.includes("image.generate")) return true;
   if (model.kind === "video") return false;
-  const output = model.architecture?.output_modalities ?? [];
+  const output = model.architecture?.output_modalities ?? model.outputTypes ?? [];
   const modality = model.architecture?.modality ?? "";
   return output.includes("image") || modalityOutputModalities(modality).includes("image");
 }
 
 function modelSupportsVideo(model: OpenRouterModel): boolean {
   if (isOpenRouterRoutingAlias(model.id)) return false;
-  const output = model.architecture?.output_modalities ?? [];
+  if (model.capabilities?.includes("video.generate")) return true;
+  const output = model.architecture?.output_modalities ?? model.outputTypes ?? [];
   const modality = model.architecture?.modality ?? "";
   return model.kind === "video" || output.includes("video") || modalityOutputModalities(modality).includes("video");
 }
 
 function openRouterModelSupportsVisionInput(model: OpenRouterModel): boolean {
   if (isOpenRouterRoutingAlias(model.id)) return false;
-  const input = model.architecture?.input_modalities ?? [];
+  const input = model.architecture?.input_modalities ?? model.inputTypes ?? [];
   const modality = model.architecture?.modality ?? "";
   return input.includes("image") || modalityInputModalities(modality).includes("image");
 }
@@ -11919,6 +11491,7 @@ function polzaVideoSupportsAudio(model: PolzaModel | undefined): boolean {
   if (supported.has("generate_audio") || supported.has("audio") || supported.has("sound")) return true;
   const outputModalities = [
     ...(model.architecture?.output_modalities ?? []),
+    ...(model.outputTypes ?? []),
     ...modalityOutputModalities(model.architecture?.modality ?? "")
   ].map((entry) => entry.toLowerCase());
   if (outputModalities.includes("audio")) return true;
@@ -11927,7 +11500,7 @@ function polzaVideoSupportsAudio(model: PolzaModel | undefined): boolean {
 }
 
 function polzaModelSupportsVisionInput(model: PolzaModel): boolean {
-  const input = model.architecture?.input_modalities ?? [];
+  const input = model.architecture?.input_modalities ?? model.inputTypes ?? [];
   const modality = model.architecture?.modality ?? "";
   if (input.includes("image") || modalityInputModalities(modality).includes("image")) return true;
   return /(^|[/.-])(gpt-4o|gpt-4\.1|gemini|claude-3|pixtral|llava|vision)([/.-]|$)/i.test(model.id);
@@ -11953,38 +11526,6 @@ function modalityOutputModalities(modality: string): string[] {
   const outputSide = modality.includes("->") ? modality.split("->").pop() ?? "" : modality;
   return outputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
 }
-
-const GEMINI_IMAGE_ASPECT_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
-const GEMINI_IMAGE_SIZES = ["1K", "2K", "4K"];
-const OPENAI_IMAGE_ASPECT_RATIOS = ["1:1", "3:2", "2:3", "16:9", "9:16"];
-const OPENAI_IMAGE_QUALITIES = ["low", "medium", "high"];
-const POLZA_TEXT_MODEL_OPTIONS: PolzaModel[] = [
-  { id: "openai/gpt-4o", name: "GPT-4o", type: "chat" },
-  { id: "anthropic/claude-3-5-sonnet", name: "Claude 3.5 Sonnet", type: "chat" },
-  { id: "google/gemini-2.5-pro-preview", name: "Gemini 2.5 Pro", type: "chat" },
-  { id: "meta-llama/llama-3.3-70b", name: "Llama 3.3 70B", type: "chat" }
-];
-const POLZA_IMAGE_MODEL_OPTIONS: PolzaModel[] = [
-  { id: "openai/gpt-5.4-image-2", name: "GPT-5.4 Image 2", type: "image", short_description: "Supports aspect_ratio: auto, 1:1, 5:4, 9:16, 21:9, 16:9, 4:3, 3:2, 4:5, 3:4, 2:3" },
-  { id: "openai/gpt-5-image-mini", name: "GPT-5 Image Mini", type: "image" },
-  { id: "openai/gpt-image-1.5", name: "GPT Image 1.5", type: "image", short_description: "Supports aspect_ratio: 1:1, 2:3, 3:2" },
-  { id: "gpt-image-1", name: "GPT Image 1", type: "image" },
-  { id: "dall-e-3", name: "DALL-E 3", type: "image" },
-  { id: "x-ai/grok-imagine-image", name: "Grok Imagine", type: "image" }
-];
-const POLZA_VIDEO_MODEL_OPTIONS: PolzaModel[] = [
-  { id: "google/veo3_fast", name: "Veo 3 Fast", type: "video", short_description: "Supports video generation with sound." },
-  { id: "google/veo3", name: "Veo 3", type: "video", short_description: "Supports video generation with sound." },
-  { id: "wan/2.6", name: "Wan 2.6", type: "video" },
-  { id: "bytedance/seedance-2", name: "Seedance 2", type: "video" },
-  { id: "bytedance/seedance-2-fast", name: "Seedance 2 Fast", type: "video" }
-];
-const POLZA_IMAGE_ASPECT_RATIOS = ["auto", "1:1", "5:4", "4:5", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9"];
-const POLZA_IMAGE_RESOLUTIONS = ["1K", "2K"];
-const POLZA_IMAGE_QUALITIES = ["auto", "low", "medium", "high"];
-const POLZA_IMAGE_FORMATS = ["png", "jpeg", "webp"];
-const POLZA_VIDEO_RESOLUTIONS = ["720p", "1080p"];
-const POLZA_VIDEO_DURATIONS = ["5", "10"];
 
 function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaModel[], selectedModelId: string): PolzaModel[] {
   const byId = new Map<string, PolzaModel>();
@@ -12182,8 +11723,8 @@ function providerFromSlug(slug: string): string {
   return provider.charAt(0).toUpperCase() + provider.slice(1);
 }
 
-function openRouterCostLabel(_model: OpenRouterModel | undefined): string {
-  return "";
+function openRouterCostLabel(model: OpenRouterModel | undefined): string {
+  return model?.pricingHint ? `Pricing: ${model.pricingHint}` : "";
 }
 
 function imageModelCostLabel(model: ImageModelOption | undefined): string {

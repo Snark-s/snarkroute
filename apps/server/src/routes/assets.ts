@@ -1,13 +1,28 @@
 import type { FastifyInstance } from "fastify";
 import { createReadStream } from "node:fs";
+import { access } from "node:fs/promises";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { getLocalAssetMetadata, type LocalAssetKind } from "@snarkroute/nodes";
-import { assetsDirectory } from "../server-paths";
+import { assetsDirectory, modelIconsDirectory } from "../server-paths";
 import { browseLocalFile, sanitizeFilename } from "../assets/service";
 import { errorMessage } from "../services/errors";
 
 export async function registerAssetRoutes(app: FastifyInstance) {
+app.get<{ Params: { filename: string } }>("/api/model-icons/:filename", async (request, reply) => {
+  try {
+    const filename = sanitizeFilename(basename(request.params.filename));
+    if (!/\.(png|jpe?g|webp|gif|svg)$/i.test(filename)) return reply.code(404).send({ error: "Model icon not found." });
+    const path = join(modelIconsDirectory, filename);
+    await access(path);
+    reply.header("Cache-Control", "no-cache");
+    reply.header("Content-Type", modelIconContentType(filename));
+    return reply.send(createReadStream(path));
+  } catch {
+    return reply.code(404).send({ error: "Model icon not found." });
+  }
+});
+
 app.get<{ Querystring: { path?: string; kind?: LocalAssetKind } }>("/api/assets/metadata", async (request, reply) => {
   try {
     return await getLocalAssetMetadata(request.query.path ?? "", request.query.kind ?? "file");
@@ -53,4 +68,12 @@ app.post<{ Body: { filename?: string; dataBase64?: string; kind?: LocalAssetKind
   }
 });
 
+}
+
+function modelIconContentType(filename: string): string {
+  if (/\.svg$/i.test(filename)) return "image/svg+xml";
+  if (/\.webp$/i.test(filename)) return "image/webp";
+  if (/\.gif$/i.test(filename)) return "image/gif";
+  if (/\.jpe?g$/i.test(filename)) return "image/jpeg";
+  return "image/png";
 }

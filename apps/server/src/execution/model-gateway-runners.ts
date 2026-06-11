@@ -188,7 +188,7 @@ export async function quoteModelExecutingNode(options: {
     const modelId = stringValue(params.model) ?? defaultModel;
     const catalogModel = options.polzaModels?.find((model) => model.id === modelId);
     const pricing = pricingForModel(polzaPricing, modelId) ?? catalogModel?.pricing;
-    // TODO: connect Polza as a logical Model Gateway route separately; explicit Polza nodes only are quoted here.
+    // TODO: route Polza through the logical Model Gateway using the normalized ModelInfo catalog; explicit Polza nodes only are quoted here for now.
     return {
       selected: withCatalogMetadata(
         estimatePolzaPricingQuote({ logicalModel: options.nodeType, provider: "polza", providerModel: modelId, capability, params: { ...params, pricing }, inputMetadata: {} }),

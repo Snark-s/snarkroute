@@ -1,5 +1,5 @@
 import "./styles.css";
-import { ArrowUp, ChevronLeft, ChevronRight, Clipboard, Cog, Copy, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, RefreshCw, Save, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Clipboard, Cog, Copy, Crop, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, RefreshCw, Save, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -9,7 +9,9 @@ import {
   localProviderModelOptions,
   mergeModelsForDisplay,
   modelGenerationParameters,
+  modelImageInputLimit,
   modelSelectionId,
+  modelsCompatibleWithNodeInputs,
   modelsForContentKind,
   providerDisplayName,
   type ContentKind,
@@ -99,7 +101,8 @@ interface CanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation";
+  kind?: "representation" | "crop";
+  note?: string;
 }
 
 interface ImageNodeView {
@@ -117,6 +120,7 @@ interface ImageNodeManifest {
   modelId?: string;
   executionProvider?: string;
   fallbackAllowed?: boolean;
+  crop?: CropMetadata;
   stack: ImageStackItem[];
   activeStackIndex: number;
 }
@@ -170,6 +174,35 @@ interface VideoNodeView {
   manifest: VideoNodeManifest;
   activeStackItem: ImageStackItem | null;
   previewUrl: string | null;
+}
+
+interface ContentContextMenu {
+  x: number;
+  y: number;
+  nodeId: string;
+  kind: "text" | "image" | "video";
+}
+
+interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface CropDraft {
+  sourceNodeId: string;
+  cropNodeId?: string;
+  title: string;
+  src: string;
+  rect: CropRect;
+  aspectRatio: number | null;
+}
+
+interface CropMetadata {
+  sourceNodeId: string;
+  rect: CropRect;
+  aspectRatio?: number | null;
 }
 
 interface LocalLibraryAsset {
@@ -301,7 +334,10 @@ interface InputNodeChip {
   id: string;
   title: string;
   type: string;
+  text?: string;
   previewUrl: string | null;
+  width?: number;
+  height?: number;
   color?: string;
   activeStackIndex?: number;
 }
@@ -367,6 +403,7 @@ interface ProviderDefinition {
   settingsEndpoint: string;
   keyField: string;
   testEndpoint?: string;
+  refreshModels?: boolean;
 }
 
 interface LocalProviderConnection {
@@ -380,8 +417,8 @@ interface LocalProviderConnection {
 }
 
 const providerDefinitions: ProviderDefinition[] = [
-  { id: "polza", title: "Polza", capabilityText: "Image generation catalog", settingsEndpoint: "/api/settings/polza-token", keyField: "polzaAiApiKey" },
-  { id: "openrouter", title: "OpenRouter", capabilityText: "Text and multimodal routed models", settingsEndpoint: "/api/settings/openrouter", keyField: "openRouterApiKey", testEndpoint: "/api/providers/openrouter/test" },
+  { id: "polza", title: "Polza", capabilityText: "Image generation catalog", settingsEndpoint: "/api/settings/polza-token", keyField: "polzaAiApiKey", refreshModels: true },
+  { id: "openrouter", title: "OpenRouter", capabilityText: "Text and multimodal routed models", settingsEndpoint: "/api/settings/openrouter", keyField: "openRouterApiKey", testEndpoint: "/api/providers/openrouter/test", refreshModels: true },
   { id: "gemini", title: "Gemini", capabilityText: "Image generation / multimodal", settingsEndpoint: "/api/settings/gemini-token", keyField: "geminiApiKey" },
   { id: "replicate", title: "Replicate", capabilityText: "Hosted model endpoints", settingsEndpoint: "/api/settings/replicate-token", keyField: "replicateApiToken" },
   { id: "seedance", title: "Seedance", capabilityText: "Video generation endpoints", settingsEndpoint: "/api/settings/seedance-token", keyField: "seedanceApiKey", testEndpoint: "/api/providers/seedance/test" },
@@ -418,6 +455,7 @@ const nodeRepresentationOptions: Array<{ type: NodeRepresentationType; label: st
   { type: "text", label: "Text" }
 ];
 function App() {
+  const contentMenuRef = useRef<HTMLDivElement | null>(null);
   const [theme, setTheme] = useStoredSetting<ThemeName>(themeStorageKey, "night", ["day", "night"]);
   const [background, setBackground] = useStoredSetting<BackgroundName>(backgroundStorageKey, "gears", backgroundOptions.map((option) => option.value));
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
@@ -434,8 +472,10 @@ function App() {
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [nodeCreateMenu, setNodeCreateMenu] = useState<NodeCreateMenu | null>(null);
   const [previewImage, setPreviewImage] = useState<{ nodeId: string; title: string; index: number } | null>(null);
+  const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
   const [openStackNodeId, setOpenStackNodeId] = useState<string | null>(null);
   const [stackItemMenu, setStackItemMenu] = useState<StackItemMenu | null>(null);
+  const [contentMenu, setContentMenu] = useState<ContentContextMenu | null>(null);
   const [libraryAssetMenu, setLibraryAssetMenu] = useState<LibraryAssetMenu | null>(null);
   const [projectMenu, setProjectMenu] = useState<ProjectMenu | null>(null);
   const [coverPicker, setCoverPicker] = useState<CoverPickerState | null>(null);
@@ -450,6 +490,7 @@ function App() {
   const [modelSearchNodeId, setModelSearchNodeId] = useState<string | null>(null);
   const [modelSelections, setModelSelections] = useStoredJsonSetting<Record<string, string | ModelRouteSelection>>("snarkroute.nodeModels", {});
   const [generationFeedback, setGenerationFeedback] = useState<Record<string, GenerationFeedback>>({});
+  const [edgeNoteDraft, setEdgeNoteDraft] = useState("");
   const generationRunning = Object.values(generationFeedback).some((feedback) => feedback.busy);
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const interactionMovedRef = useRef(false);
@@ -459,6 +500,11 @@ function App() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
+
+  useEffect(() => {
+    const edge = (library?.canvas?.edges ?? []).find((candidate) => candidate.id === selectedEdgeId);
+    setEdgeNoteDraft(edge?.note ?? "");
+  }, [library?.canvas?.edges, selectedEdgeId]);
 
   useEffect(() => {
     void refreshLibrary();
@@ -678,8 +724,9 @@ function App() {
     function closeFloatingMenus(event: PointerEvent) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.closest(".stackItemMenu, .nodeCreateMenu, .selectionMenu, .projectMenu, .stackBoard, .modelMenu")) return;
+      if (target.closest(".stackItemMenu, .contentMenu, .nodeCreateMenu, .selectionMenu, .projectMenu, .stackBoard, .modelMenu")) return;
       setStackItemMenu(null);
+      setContentMenu(null);
       setSelectionMenu(null);
       setProjectMenu(null);
     }
@@ -687,6 +734,22 @@ function App() {
     window.addEventListener("pointerdown", closeFloatingMenus);
     return () => window.removeEventListener("pointerdown", closeFloatingMenus);
   }, []);
+
+  useEffect(() => {
+    if (!contentMenu) return;
+    const animationFrame = window.requestAnimationFrame(() => contentMenuRef.current?.focus());
+    function closeOnFocusOutside(event: FocusEvent) {
+      const target = event.target;
+      if (target instanceof Node && contentMenuRef.current?.contains(target)) return;
+      setContentMenu(null);
+    }
+
+    window.addEventListener("focusin", closeOnFocusOutside, true);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("focusin", closeOnFocusOutside, true);
+    };
+  }, [contentMenu]);
 
   useEffect(() => {
     const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
@@ -792,10 +855,6 @@ function App() {
   async function refreshProviderModels(providerId: ProviderId) {
     try {
       if (providerId === "openrouter") await apiPost("/api/providers/openrouter/refresh-model-catalog", {});
-      if (providerId !== "openrouter" && providerId !== "polza") {
-        setProviderNotice((current) => ({ ...current, [providerId]: "A model catalog endpoint is not available for this source yet." }));
-        return;
-      }
       await refreshModelsAndProviders();
       setProviderNotice((current) => ({ ...current, [providerId]: "Model catalog refreshed." }));
     } catch (error) {
@@ -969,6 +1028,7 @@ function App() {
     if (event.target !== event.currentTarget) return;
     event.preventDefault();
     const point = screenToWorld(event.clientX, event.clientY);
+    setContentMenu(null);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
     setNodeCreateMenu({
@@ -1081,6 +1141,7 @@ function App() {
   function handleNodeContextMenu(event: React.MouseEvent<HTMLElement>, node: NodeView) {
     event.preventDefault();
     event.stopPropagation();
+    setContentMenu(null);
     const selection = selectedNodeIds.includes(node.canvas.id) ? selectedNodeIds : [node.canvas.id];
     setSelectedNodeId(node.canvas.id);
     setSelectedNodeIds(selection);
@@ -1175,6 +1236,25 @@ function App() {
       setStatus("Representation refreshed");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not refresh representation.");
+    }
+  }
+
+  async function saveEdgeNote(edgeId: string, note: string) {
+    if (!library?.canvas) return;
+    const normalizedNote = note.trim();
+    const canvas: CanvasDocument = {
+      ...library.canvas,
+      edges: (library.canvas.edges ?? []).map((edge) => edge.id === edgeId ? {
+        ...edge,
+        note: normalizedNote || undefined
+      } : edge)
+    };
+    setLibrary((current) => current ? { ...current, canvas } : current);
+    try {
+      await apiPut<CanvasDocument>("/api/libraries/current/canvas", canvas);
+      setStatus(normalizedNote ? "Edge note saved" : "Edge note cleared");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save edge note.");
     }
   }
 
@@ -1594,6 +1674,72 @@ function App() {
     input.click();
   }
 
+  async function openCropEditor(requestedSourceNodeId: string, cropNodeId?: string) {
+    const requestedNode = nodes.find((candidate) => candidate.canvas.id === requestedSourceNodeId && candidate.manifest.type === "image") as ImageNodeView | undefined;
+    const implicitCropNode = !cropNodeId && requestedNode?.manifest.crop?.sourceNodeId
+      ? requestedNode
+      : undefined;
+    const resolvedCropNodeId = cropNodeId ?? implicitCropNode?.canvas.id;
+    const sourceNodeId = implicitCropNode?.manifest.crop?.sourceNodeId ?? requestedSourceNodeId;
+    const sourceNode = nodes.find((candidate) => candidate.canvas.id === sourceNodeId && candidate.manifest.type === "image") as ImageNodeView | undefined;
+    const cropNode = resolvedCropNodeId ? nodes.find((candidate) => candidate.canvas.id === resolvedCropNodeId && candidate.manifest.type === "image") as ImageNodeView | undefined : undefined;
+    if (!sourceNode?.previewUrl) {
+      setStatus("Image node has no image to crop.");
+      return;
+    }
+    const src = `${apiBase}${sourceNode.previewUrl}?v=${encodeURIComponent(sourceNode.activeStackItem?.id ?? sourceNode.manifest.id)}`;
+    const response = await fetch(src);
+    if (!response.ok) {
+      setStatus("Could not load image for crop.");
+      return;
+    }
+    const savedCrop = cropNode?.manifest.crop?.sourceNodeId === sourceNodeId ? cropNode.manifest.crop : undefined;
+    setCropDraft({
+      sourceNodeId,
+      cropNodeId: resolvedCropNodeId,
+      title: cropNode?.manifest.title || sourceNode.manifest.title || "Image",
+      src: URL.createObjectURL(await response.blob()),
+      rect: savedCrop?.rect ?? { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
+      aspectRatio: savedCrop?.aspectRatio ?? null
+    });
+  }
+
+  async function applyCropResult(draft: CropDraft, dataUrl: string) {
+    const sourceNode = nodes.find((node) => node.canvas.id === draft.sourceNodeId);
+    if (!sourceNode) return;
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
+    try {
+      pushUndoSnapshot();
+      const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+      const crop = { sourceNodeId: draft.sourceNodeId, rect: draft.rect, aspectRatio: draft.aspectRatio };
+      const snapshot = draft.cropNodeId
+        ? await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(draft.cropNodeId)}/stack`, {
+          filename: `${safeDownloadName(draft.title)} crop.png`,
+          dataBase64: base64,
+          crop
+        })
+        : await apiPost<LibrarySnapshot>("/api/libraries/current/import-image", {
+          filename: `${safeDownloadName(draft.title)} crop.png`,
+          dataBase64: base64,
+          dropX: sourceNode.canvas.x + sourceNode.canvas.width + imageNodeWidth / 2 + 80,
+          dropY: sourceNode.canvas.y + imageNodeHeight / 2,
+          width: imageNodeWidth,
+          height: imageNodeHeight,
+          connectFromNodeId: draft.sourceNodeId,
+          crop
+        });
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      const cropNodeId = draft.cropNodeId ?? snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
+      setSelectedNodeId(cropNodeId);
+      setSelectedNodeIds(cropNodeId ? [cropNodeId] : []);
+      setCropDraft(null);
+      setStatus(draft.cropNodeId ? "Crop added to stack" : "Crop created");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not crop image.");
+    }
+  }
+
   async function setActiveStackImage(nodeId: string, activeStackIndex: number) {
     const mutationSeq = beginLibraryMutation();
     try {
@@ -1690,6 +1836,42 @@ function App() {
   async function saveStackItem(nodeId: string, stackItemId: string) {
     setStackItemMenu(null);
     await downloadPreview(`${apiBase}/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`, "stack-item");
+  }
+
+  async function copyContent(menu: ContentContextMenu) {
+    setContentMenu(null);
+    const node = nodes.find((candidate) => candidate.canvas.id === menu.nodeId);
+    try {
+      if (menu.kind === "text") {
+        const text = node?.manifest.type === "text" ? textNodeDisplayText(node as TextNodeView) : "";
+        await navigator.clipboard.writeText(text);
+        setStatus("Text copied");
+        return;
+      }
+      const src = contentPreviewUrl(node);
+      if (!src || menu.kind !== "image") return;
+      await copyImageToClipboard(src);
+      setStatus("Image copied");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not copy content.");
+    }
+  }
+
+  async function saveContent(menu: ContentContextMenu) {
+    setContentMenu(null);
+    const node = nodes.find((candidate) => candidate.canvas.id === menu.nodeId);
+    try {
+      if (menu.kind === "text") {
+        const text = node?.manifest.type === "text" ? textNodeDisplayText(node as TextNodeView) : "";
+        downloadBlob(new Blob([text], { type: "text/plain;charset=utf-8" }), `${safeDownloadName(node?.manifest.title ?? "text")}.txt`);
+        setStatus("Text saved");
+        return;
+      }
+      await downloadPreview(contentPreviewUrl(node), node?.manifest.title ?? menu.kind);
+      setStatus(`${menu.kind === "video" ? "Video" : "Image"} saved`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save content.");
+    }
   }
 
   async function useTextStackItemAsDraft(nodeId: string, stackItemId: string) {
@@ -1847,6 +2029,9 @@ function App() {
     return screenToWorld(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
   }
 
+  const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
+  const selectedEdgeNotePosition = selectedEdge ? edgeMidpoint(selectedEdge, new Map(nodes.map((node) => [node.canvas.id, node.canvas]))) : null;
+
   return (
     <main className={`livingCanvasShell${libraryOpen ? "" : " libraryCollapsed"}${inspectorOpen ? " inspectorOpen" : ""}`}>
       {libraryOpen && (
@@ -1924,6 +2109,7 @@ function App() {
             preview={connectionPreview}
             selectedEdgeId={selectedEdgeId}
             onSyncRepresentation={(edgeId) => void syncRepresentationEdge(edgeId)}
+            onOpenCrop={(nodeId, cropNodeId) => void openCropEditor(nodeId, cropNodeId)}
             onSelectEdge={(edgeId) => {
               setSelectedEdgeId(edgeId);
               setSelectedNodeId(null);
@@ -1956,9 +2142,17 @@ function App() {
               onPointerDown={handleNodePointerDown}
               onClick={handleNodeClick}
               onContextMenu={handleNodeContextMenu}
+              onContentContextMenu={(event, targetNode, kind) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setSelectionMenu(null);
+                setStackItemMenu(null);
+                setContentMenu({ x: event.clientX, y: event.clientY, nodeId: targetNode.canvas.id, kind });
+              }}
               onInputPointerDown={handleInputPointerDown}
               onOutputPointerDown={handleOutputPointerDown}
               onOpenPreview={(nodeId, index, title) => setPreviewImage({ nodeId, index, title })}
+              onOpenCrop={openCropEditor}
               onUploadStackImage={(nodeId) => void uploadImageToNodeStack(nodeId)}
               openStack={openStackNodeId === node.canvas.id}
               onToggleStack={(nodeId) => setOpenStackNodeId((current) => current === nodeId ? null : nodeId)}
@@ -2002,9 +2196,9 @@ function App() {
               modelSearchOpen={modelSearchNodeId === node.canvas.id}
               onToggleModelSearch={(nodeId) => setModelSearchNodeId((current) => current === nodeId ? null : nodeId)}
               onOpenModels={() => setInspectorOpen(true)}
-              onSelectModel={(nodeId, modelId) => {
-                if (node.manifest.type === "text") void saveTextRouteSettings(nodeId, { modelId, executionProvider: "auto", fallbackAllowed: true });
-                else void saveMediaRouteSettings(node.manifest.type as "image" | "video", nodeId, { modelId, executionProvider: "auto", fallbackAllowed: true });
+              onSelectModel={(nodeId, selection) => {
+                if (node.manifest.type === "text") void saveTextRouteSettings(nodeId, selection);
+                else void saveMediaRouteSettings(node.manifest.type as "image" | "video", nodeId, selection);
                 setModelSearchNodeId(null);
               }}
               onChangeRouteSettings={(nodeId, selection) => {
@@ -2028,6 +2222,29 @@ function App() {
               onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
             />
           ))}
+          {selectedEdge && selectedEdgeNotePosition ? (
+            <div
+              className="edgeNoteEditor"
+              style={{ transform: `translate(${selectedEdgeNotePosition.x - 118}px, ${selectedEdgeNotePosition.y + 24}px)` }}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <textarea
+                value={edgeNoteDraft}
+                placeholder="Заметка"
+                autoFocus
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setEdgeNoteDraft(value);
+                  void saveEdgeNote(selectedEdge.id, value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setSelectedEdgeId(null);
+                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") setSelectedEdgeId(null);
+                }}
+              />
+            </div>
+          ) : null}
           {dragState?.kind === "stackItem" && interactionMovedRef.current ? (
             <div
               className="stackItemDragPreview"
@@ -2086,6 +2303,13 @@ function App() {
           </div>
         </div>
       )}
+      {cropDraft ? (
+        <CropEditor
+          draft={cropDraft}
+          onClose={() => setCropDraft(null)}
+          onApply={(draft, dataUrl) => void applyCropResult(draft, dataUrl)}
+        />
+      ) : null}
       {stackItemMenu && (
         <div className="stackItemMenu" style={{ left: stackItemMenu.x, top: stackItemMenu.y }}>
           <button type="button" onClick={() => void duplicateStackItemNode(stackItemMenu.nodeId, stackItemMenu.stackItemId, screenToWorld(stackItemMenu.x, stackItemMenu.y))}>
@@ -2098,6 +2322,14 @@ function App() {
           {nodes.find((node) => node.canvas.id === stackItemMenu.nodeId)?.manifest.type !== "text" ? (
             <button type="button" onClick={() => void saveStackItem(stackItemMenu.nodeId, stackItemMenu.stackItemId)}>Save</button>
           ) : null}
+        </div>
+      )}
+      {contentMenu && (
+        <div ref={contentMenuRef} className="contentMenu" style={{ left: contentMenu.x, top: contentMenu.y }} tabIndex={-1}>
+          {contentMenu.kind !== "video" ? (
+            <button type="button" onClick={() => void copyContent(contentMenu)}><Copy size={14} /> Copy</button>
+          ) : null}
+          <button type="button" onClick={() => void saveContent(contentMenu)}><Save size={14} /> Save</button>
         </div>
       )}
       {projectMenu && (
@@ -2331,7 +2563,7 @@ function ProviderConnectionCard({
       <div className="providerActions">
         <button type="button" onClick={() => setEditing((value) => !value)}>{configured ? "Edit" : "Подключить"}</button>
         <button type="button" onClick={() => void onTest(definition.id)}>Test</button>
-        <button type="button" onClick={() => void onRefresh(definition.id)}>Refresh models</button>
+        {definition.refreshModels ? <button type="button" onClick={() => void onRefresh(definition.id)}>Refresh models</button> : null}
       </div>
     </article>
   );
@@ -2339,10 +2571,10 @@ function ProviderConnectionCard({
 
 function AvailableModels({ models }: { models: ModelOption[] }) {
   const groups: Array<{ label: string; includes: (model: ModelOption) => boolean }> = [
-    { label: "Image", includes: (model) => !model.role && model.produces.includes("image") },
-    { label: "Video", includes: (model) => !model.role && model.produces.includes("video") },
-    { label: "Text", includes: (model) => !model.role && model.produces.includes("text") },
-    { label: "Audio", includes: (model) => !model.role && model.produces.includes("audio") },
+    { label: "Image", includes: (model) => modelsForContentKind([model], "image").length > 0 },
+    { label: "Video", includes: (model) => modelsForContentKind([model], "video").length > 0 },
+    { label: "Text", includes: (model) => modelsForContentKind([model], "text").length > 0 },
+    { label: "Audio", includes: (model) => modelsForContentKind([model], "audio").length > 0 },
     { label: "Image upscalers", includes: (model) => model.role === "image-upscaler" },
     { label: "Video upscalers", includes: (model) => model.role === "video-upscaler" }
   ];
@@ -2565,6 +2797,7 @@ function CanvasEdges({
   preview,
   selectedEdgeId,
   onSyncRepresentation,
+  onOpenCrop,
   onSelectEdge
 }: {
   nodes: NodeView[];
@@ -2572,6 +2805,7 @@ function CanvasEdges({
   preview: Extract<DragState, { kind: "connection" }> | null;
   selectedEdgeId: string | null;
   onSyncRepresentation: (edgeId: string) => void;
+  onOpenCrop: (nodeId: string, cropNodeId?: string) => void;
   onSelectEdge: (edgeId: string) => void;
 }) {
   const nodeById = new Map(nodes.map((node) => [node.canvas.id, node.canvas]));
@@ -2610,11 +2844,258 @@ function CanvasEdges({
                 </button>
               </foreignObject>
             ) : null}
+            {edge.kind === "crop" ? (
+              <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
+                <button
+                  className="edgeSyncButton"
+                  type="button"
+                  title="Crop again"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenCrop(edge.fromNodeId, edge.toNodeId);
+                  }}
+                >
+                  <Crop size={13} />
+                </button>
+              </foreignObject>
+            ) : null}
+            {edge.note ? (
+              <foreignObject x={midpoint.x - 12} y={midpoint.y + 12} width={24} height={24}>
+                <button
+                  type="button"
+                  className={`edgeNoteBadge${selectedEdgeId === edge.id ? " isSelected" : ""}`}
+                  title={edge.note}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onSelectEdge(edge.id);
+                  }}
+                />
+              </foreignObject>
+            ) : null}
           </React.Fragment>
         );
       })}
       {preview && <path className="edgePreview" d={edgePath({ x: preview.startX, y: preview.startY }, { x: preview.currentX, y: preview.currentY })} style={{ "--edge-color": nodeTypeWireColor(previewSourceNode) } as React.CSSProperties} />}
     </svg>
+  );
+}
+
+const cropAspectOptions: Array<{ label: string; ratio: number | null }> = [
+  { label: "Free", ratio: null },
+  { label: "1:1", ratio: 1 },
+  { label: "4:3", ratio: 4 / 3 },
+  { label: "3:4", ratio: 3 / 4 },
+  { label: "16:9", ratio: 16 / 9 },
+  { label: "9:16", ratio: 9 / 16 },
+  { label: "3:2", ratio: 3 / 2 },
+  { label: "2:3", ratio: 2 / 3 }
+];
+
+type CropCorner = "nw" | "ne" | "sw" | "se";
+
+type CropDragState =
+  | { kind: "move"; start: { x: number; y: number }; startRect: CropRect }
+  | { kind: "resize"; corner: CropCorner; startRect: CropRect };
+
+function CropEditor({
+  draft,
+  onClose,
+  onApply
+}: {
+  draft: CropDraft;
+  onClose: () => void;
+  onApply: (draft: CropDraft, dataUrl: string) => void;
+}) {
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const dragStateRef = useRef<CropDragState | null>(null);
+  const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
+  const [rect, setRect] = useState(draft.rect);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(draft.aspectRatio);
+
+  useEffect(() => {
+    setRect(draft.rect);
+    setAspectRatio(draft.aspectRatio);
+  }, [draft]);
+
+  function pointerPoint(event: React.PointerEvent<HTMLDivElement>) {
+    const image = imageRef.current;
+    if (!image) return null;
+    const bounds = image.getBoundingClientRect();
+    return {
+      x: clamp((event.clientX - bounds.left) / bounds.width, 0, 1),
+      y: clamp((event.clientY - bounds.top) / bounds.height, 0, 1)
+    };
+  }
+
+  function pointInRect(point: { x: number; y: number }, target: CropRect) {
+    return point.x >= target.x && point.x <= target.x + target.width && point.y >= target.y && point.y <= target.y + target.height;
+  }
+
+  function cornerAt(point: { x: number; y: number }): CropCorner | null {
+    const image = imageRef.current;
+    if (!image) return null;
+    const bounds = image.getBoundingClientRect();
+    const thresholdX = Math.max(14 / Math.max(bounds.width, 1), 0.018);
+    const thresholdY = Math.max(14 / Math.max(bounds.height, 1), 0.018);
+    const corners: Array<{ corner: CropCorner; x: number; y: number }> = [
+      { corner: "nw", x: rect.x, y: rect.y },
+      { corner: "ne", x: rect.x + rect.width, y: rect.y },
+      { corner: "sw", x: rect.x, y: rect.y + rect.height },
+      { corner: "se", x: rect.x + rect.width, y: rect.y + rect.height }
+    ];
+    return corners.find((candidate) => Math.abs(point.x - candidate.x) <= thresholdX && Math.abs(point.y - candidate.y) <= thresholdY)?.corner ?? null;
+  }
+
+  function moveRect(state: Extract<CropDragState, { kind: "move" }>, point: { x: number; y: number }): CropRect {
+    const dx = point.x - state.start.x;
+    const dy = point.y - state.start.y;
+    return {
+      ...state.startRect,
+      x: clamp(state.startRect.x + dx, 0, Math.max(0, 1 - state.startRect.width)),
+      y: clamp(state.startRect.y + dy, 0, Math.max(0, 1 - state.startRect.height))
+    };
+  }
+
+  function resizeRect(state: Extract<CropDragState, { kind: "resize" }>, point: { x: number; y: number }): CropRect {
+    const minSize = 0.02;
+    const start = state.startRect;
+    const growsRight = state.corner === "ne" || state.corner === "se";
+    const growsDown = state.corner === "sw" || state.corner === "se";
+    const anchor = {
+      x: growsRight ? start.x : start.x + start.width,
+      y: growsDown ? start.y : start.y + start.height
+    };
+    const maxWidth = growsRight ? 1 - anchor.x : anchor.x;
+    const maxHeight = growsDown ? 1 - anchor.y : anchor.y;
+    let width = clamp(Math.abs(point.x - anchor.x), minSize, Math.max(minSize, maxWidth));
+    let height = clamp(Math.abs(point.y - anchor.y), minSize, Math.max(minSize, maxHeight));
+
+    if (aspectRatio && naturalSize.width > 0 && naturalSize.height > 0) {
+      const normalizedRatio = aspectRatio * naturalSize.height / naturalSize.width;
+      if (width / Math.max(height, 0.001) > normalizedRatio) width = height * normalizedRatio;
+      else height = width / normalizedRatio;
+      if (width > maxWidth) {
+        width = Math.max(minSize, maxWidth);
+        height = width / normalizedRatio;
+      }
+      if (height > maxHeight) {
+        height = Math.max(minSize, maxHeight);
+        width = height * normalizedRatio;
+      }
+    }
+
+    return {
+      x: growsRight ? anchor.x : anchor.x - width,
+      y: growsDown ? anchor.y : anchor.y - height,
+      width,
+      height
+    };
+  }
+
+  function applyAspect(ratio: number | null) {
+    setAspectRatio(ratio);
+    if (!ratio || naturalSize.width <= 0 || naturalSize.height <= 0) return;
+    const normalizedRatio = ratio * naturalSize.height / naturalSize.width;
+    let width = rect.width;
+    let height = width / normalizedRatio;
+    if (height > 1) {
+      height = rect.height;
+      width = height * normalizedRatio;
+    }
+    setRect({
+      x: clamp(rect.x + rect.width / 2 - width / 2, 0, Math.max(0, 1 - width)),
+      y: clamp(rect.y + rect.height / 2 - height / 2, 0, Math.max(0, 1 - height)),
+      width: clamp(width, 0.02, 1),
+      height: clamp(height, 0.02, 1)
+    });
+  }
+
+  function crop() {
+    const image = imageRef.current;
+    if (!image || naturalSize.width <= 0 || naturalSize.height <= 0) return;
+    const sourceX = Math.round(rect.x * naturalSize.width);
+    const sourceY = Math.round(rect.y * naturalSize.height);
+    const sourceWidth = Math.max(1, Math.round(rect.width * naturalSize.width));
+    const sourceHeight = Math.max(1, Math.round(rect.height * naturalSize.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = sourceWidth;
+    canvas.height = sourceHeight;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, sourceWidth, sourceHeight);
+    onApply({ ...draft, rect, aspectRatio }, canvas.toDataURL("image/png"));
+  }
+
+  return (
+    <div className="cropOverlay" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="cropWindow" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <strong>{draft.title}</strong>
+          <button type="button" onClick={onClose}>×</button>
+        </header>
+        <div className="cropBody">
+          <div className="cropStage">
+            <div
+              className="cropFrame"
+              onPointerDown={(event) => {
+                const point = pointerPoint(event);
+                if (!point) return;
+                const corner = cornerAt(point);
+                if (corner) dragStateRef.current = { kind: "resize", corner, startRect: rect };
+                else if (pointInRect(point, rect)) dragStateRef.current = { kind: "move", start: point, startRect: rect };
+                else return;
+                event.currentTarget.setPointerCapture(event.pointerId);
+              }}
+              onPointerMove={(event) => {
+                const state = dragStateRef.current;
+                const point = pointerPoint(event);
+                if (!state || !point) return;
+                setRect(state.kind === "move" ? moveRect(state, point) : resizeRect(state, point));
+              }}
+              onPointerUp={() => { dragStateRef.current = null; }}
+              onPointerCancel={() => { dragStateRef.current = null; }}
+            >
+              <img
+                ref={imageRef}
+                src={draft.src}
+                alt=""
+                draggable={false}
+                onLoad={(event) => setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+              />
+              <div className="cropShade" style={{ clipPath: `polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 ${rect.y * 100}%, ${rect.x * 100}% ${rect.y * 100}%, ${rect.x * 100}% ${(rect.y + rect.height) * 100}%, ${(rect.x + rect.width) * 100}% ${(rect.y + rect.height) * 100}%, ${(rect.x + rect.width) * 100}% ${rect.y * 100}%, 0 ${rect.y * 100}%)` }} />
+              <div className="cropBox" style={{ left: `${rect.x * 100}%`, top: `${rect.y * 100}%`, width: `${rect.width * 100}%`, height: `${rect.height * 100}%` }}>
+                <span className="cropHandle isNorthWest" />
+                <span className="cropHandle isNorthEast" />
+                <span className="cropHandle isSouthWest" />
+                <span className="cropHandle isSouthEast" />
+              </div>
+            </div>
+          </div>
+          <aside>
+            <span>Format</span>
+            <div className="cropAspectGrid">
+              {cropAspectOptions.map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  className={option.ratio === aspectRatio ? "isSelected" : ""}
+                  onClick={() => applyAspect(option.ratio)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="cropReadout">
+              <span>x {Math.round(rect.x * naturalSize.width)}</span>
+              <span>y {Math.round(rect.y * naturalSize.height)}</span>
+              <span>w {Math.round(rect.width * naturalSize.width)}</span>
+              <span>h {Math.round(rect.height * naturalSize.height)}</span>
+            </div>
+            <button type="button" className="cropApply" onClick={crop}><Crop size={16} /> Crop</button>
+          </aside>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2626,9 +3107,11 @@ function ImageNode({
   onPointerDown,
   onClick,
   onContextMenu,
+  onContentContextMenu,
   onInputPointerDown,
   onOutputPointerDown,
   onOpenPreview,
+  onOpenCrop,
   onUploadStackImage,
   openStack,
   onToggleStack,
@@ -2659,9 +3142,11 @@ function ImageNode({
   onPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
   onClick: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
   onContextMenu: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onContentContextMenu: (event: React.MouseEvent<HTMLElement>, node: EditableNodeView, kind: "text" | "image" | "video") => void;
   onInputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
   onOutputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
   onOpenPreview: (nodeId: string, index: number, title: string) => void;
+  onOpenCrop: (nodeId: string) => void;
   onUploadStackImage: (nodeId: string) => void;
   openStack: boolean;
   onToggleStack: (nodeId: string) => void;
@@ -2674,7 +3159,7 @@ function ImageNode({
   modelSearchOpen: boolean;
   onToggleModelSearch: (nodeId: string) => void;
   onOpenModels: () => void;
-  onSelectModel: (nodeId: string, modelId: string) => void;
+  onSelectModel: (nodeId: string, selection: ModelRouteSelection) => void;
   onChangeRouteSettings: (nodeId: string, selection: ModelRouteSelection) => void;
   onRunGeneration: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string, parameters?: ImageGenerationParameters) => void;
   onSavePrompt: (nodeId: string, prompt: string) => void;
@@ -2698,10 +3183,13 @@ function ImageNode({
   const [promptInsertRequest, setPromptInsertRequest] = useState<{ token: string; sequence: number } | null>(null);
   const promptInsertSequence = useRef(0);
   const textBaseHeight = node.manifest.type === "text" ? Math.min(node.canvas.height, textNodeBaseHeight) : node.canvas.height;
-  const needsImageInput = inputNodes.some((input) => input.type === "image") || (node.manifest.type === "image" && node.manifest.stack.length > 0);
-  const compatibleModels = needsImageInput ? models.filter((model) => model.accepts.includes("image") || model.acceptsImageInput === true) : models;
+  const hasImageInput = inputNodes.some((input) => input.type === "image") || (node.manifest.type === "image" && node.manifest.stack.length > 0);
+  const compatibleModels = modelsCompatibleWithNodeInputs(models, node.manifest.type as ContentKind, hasImageInput);
   const displayModels = mergeModelsForDisplay(compatibleModels);
-  const selectedRoutes = displayModels.find((entry) => entry.model.id === modelSelection.modelId)?.routes ?? [];
+  const selectedDisplayModel = displayModels.find((entry) =>
+    entry.routes.some((route) => route.id === modelSelection.modelId && (modelSelection.executionProvider === "auto" || route.providerId === modelSelection.executionProvider))
+  ) ?? displayModels.find((entry) => entry.model.id === modelSelection.modelId);
+  const selectedRoutes = selectedDisplayModel?.routes ?? [];
   const selectedModel: ModelOption = selectedRoutes.find((model) => model.providerId === modelSelection.executionProvider) ?? selectedRoutes[0] ?? compatibleModels[0] ?? {
     id: "",
     title: "Select model",
@@ -2715,13 +3203,21 @@ function ImageNode({
   const effectiveSelection: ModelRouteSelection = selectedRoutes.length && selectedModel.id !== modelSelection.modelId
     ? { modelId: selectedModel.id, executionProvider: "auto", fallbackAllowed: true }
     : modelSelection;
-  const visibleModels = displayModels.filter(({ model }) => model.title.toLowerCase().includes(modelQuery.toLowerCase()) || model.id.toLowerCase().includes(modelQuery.toLowerCase()));
+  const normalizedModelQuery = modelQuery.toLowerCase();
+  const visibleModels = displayModels.filter(({ model, providers, routes }) =>
+    model.title.toLowerCase().includes(normalizedModelQuery)
+    || model.id.toLowerCase().includes(normalizedModelQuery)
+    || providers.some((provider) => provider.toLowerCase().includes(normalizedModelQuery) || providerDisplayName(provider).toLowerCase().includes(normalizedModelQuery))
+    || routes.some((route) => route.title.toLowerCase().includes(normalizedModelQuery) || route.id.toLowerCase().includes(normalizedModelQuery))
+  );
   const selectedModelLogo = modelLogoFor(selectedModel.providerId, selectedModel.id);
   const selectedModelKey = `${selectedModel.id}:${effectiveSelection.executionProvider}`;
-  const [generationParameters, setGenerationParameters] = useState<ImageGenerationParameters>(() => modelGenerationParameters(selectedModel));
   const parameterDefinitions = selectedModel.generationParameters ?? [];
   const imageInputs = orderedInputNodes.filter((input) => input.type === "image");
-  const maxImageInputs = selectedModel.maxImageInputs;
+  const inputAspectRatio = node.manifest.type === "text" ? undefined : aspectRatioFromInputs(orderedInputNodes) ?? "16:9";
+  const [generationParameters, setGenerationParameters] = useState<ImageGenerationParameters>(() => defaultGenerationParametersForNode(selectedModel, parameterDefinitions, inputAspectRatio));
+  const maxImageInputs = modelImageInputLimit(selectedModel);
+  const activeInputNodes = orderedInputNodes.filter((input) => !inputChipInactive(input, imageInputs, maxImageInputs));
   useEffect(() => {
     setOrderedInputNodes((current) => {
       const byId = new Map(inputNodes.map((input) => [input.id, input]));
@@ -2729,16 +3225,15 @@ function ImageNode({
     });
   }, [inputNodes]);
   useEffect(() => {
-    setGenerationParameters(modelGenerationParameters(selectedModel));
+    setGenerationParameters(defaultGenerationParametersForNode(selectedModel, parameterDefinitions, inputAspectRatio));
     setParametersOpen(false);
-  }, [selectedModelKey]);
+  }, [selectedModelKey, inputAspectRatio]);
   useEffect(() => {
     if (node.manifest.type === "text") setDraftText(node.manifest.text);
   }, [node.manifest.id, node.manifest.type === "text" ? node.manifest.text : ""]);
 
   function insertInputToken(input: InputNodeChip) {
-    const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
-    if (input.type === "image" && maxImageInputs !== undefined && imageIndex >= maxImageInputs) return;
+    if (inputChipInactive(input, imageInputs, maxImageInputs)) return;
     const token = `[[${input.type === "text" ? "text" : input.type === "video" ? "video" : "image"}:${input.id}]]`;
     promptInsertSequence.current += 1;
     setPromptInsertRequest({ token, sequence: promptInsertSequence.current });
@@ -2791,7 +3286,7 @@ function ImageNode({
         <div className="nodeHandleLine nodeHandleLineOutput" />
         <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
         <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
-        <div className={`textNodePreview textColor-${node.manifest.color ?? "mint"}`}>
+        <div className={`textNodePreview textColor-${node.manifest.color ?? "mint"}`} onContextMenu={(event) => onContentContextMenu(event, node, "text")}>
           <small className="textOutputLabel">Output text</small>
           <div className="textNodeOutput" data-canvas-wheel-scroll>{outputText || "No text selected"}</div>
           {textStackIsEmpty && unsavedDraftText ? <small className="textStackDraftNotice">Input field, not saved in stack</small> : null}
@@ -2851,8 +3346,7 @@ function ImageNode({
           <footer className="promptPanel textPromptPanel" onPointerDown={(event) => event.stopPropagation()}>
             <div className="inputChips">
               {orderedInputNodes.length ? orderedInputNodes.map((input) => {
-                const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
-                const inactive = input.type === "image" && maxImageInputs !== undefined && imageIndex >= maxImageInputs;
+                const inactive = inputChipInactive(input, imageInputs, maxImageInputs);
                 return (
                   <button
                     type="button"
@@ -2911,10 +3405,10 @@ function ImageNode({
                   <div className="modelMenu" onPointerDown={(event) => event.stopPropagation()}>
                     <input value={modelQuery} placeholder="Search model" onChange={(event) => setModelQuery(event.currentTarget.value)} />
                     <div className="modelMenuList" data-canvas-wheel-scroll>
-                      {visibleModels.map(({ model }) => (
-                        <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, model.id)}>
+                      {visibleModels.map(({ model, providers }) => (
+                        <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
                           <img src={modelLogoFor(model.providerId, model.id).src} alt="" />
-                          <span><strong>{model.title}</strong><small>{model.id}</small></span>
+                          <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
                         </button>
                       ))}
                       {visibleModels.length === 0 ? (
@@ -2956,7 +3450,7 @@ function ImageNode({
                 disabled={!draftText.trim() || !selectedModel.id || generationFeedback?.busy}
                 onClick={() => {
                   setRouteSettingsOpen(false);
-                  onRunTextGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), draftText, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax);
+                  onRunTextGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), draftText, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax);
                 }}
               >
                 {generationFeedback?.busy ? <BusyGears /> : <ArrowUp size={16} />}
@@ -2984,6 +3478,7 @@ function ImageNode({
       {active && (
         <div className="nodeToolbar" onPointerDown={(event) => event.stopPropagation()}>
           <button type="button" aria-label={`Download ${isVideoNode ? "video" : "image"}`} onClick={() => void downloadPreview(previewUrl, node.manifest.title)}><Download size={16} /></button>
+          {!isVideoNode ? <button type="button" aria-label="Crop image" onClick={() => { if (previewUrl) void onOpenCrop(mediaNode.manifest.id); }}><Crop size={16} /></button> : null}
           <button type="button" aria-label={`Expand ${isVideoNode ? "video" : "image"}`} onClick={() => previewUrl && onOpenPreview(mediaNode.manifest.id, mediaNode.manifest.activeStackIndex, mediaNode.manifest.title)}><Expand size={16} /></button>
         </div>
       )}
@@ -3011,7 +3506,7 @@ function ImageNode({
       <div className="nodeHandleLine nodeHandleLineOutput" />
       <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
       <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
-      <div className="imagePreview">
+      <div className="imagePreview" onContextMenu={(event) => onContentContextMenu(event, node, isVideoNode ? "video" : "image")}>
         {previewUrl ? isVideoNode ? <video src={previewUrl} controls preload="metadata" onPointerDown={(event) => event.stopPropagation()} /> : <img src={previewUrl} alt={node.manifest.title} draggable={false} /> : (
           <div className="emptyNodePreview">
             {isVideoNode ? <Video size={32} /> : <ImageIcon size={32} />}
@@ -3068,8 +3563,7 @@ function ImageNode({
         <footer className="promptPanel" onPointerDown={(event) => event.stopPropagation()}>
           <div className="inputChips">
             {orderedInputNodes.length ? orderedInputNodes.map((input) => {
-              const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
-              const inactive = input.type === "image" && maxImageInputs !== undefined && imageIndex >= maxImageInputs;
+              const inactive = inputChipInactive(input, imageInputs, maxImageInputs);
               return (
               <button
                 type="button"
@@ -3119,12 +3613,12 @@ function ImageNode({
                     onChange={(event) => setModelQuery(event.currentTarget.value)}
                   />
                   <div className="modelMenuList" data-canvas-wheel-scroll>
-                    {visibleModels.map(({ model }) => (
-                      <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, model.id)}>
+                    {visibleModels.map(({ model, providers }) => (
+                      <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
                         <img src={modelLogoFor(model.providerId, model.id).src} alt="" />
                         <span>
                           <strong>{model.title}</strong>
-                          <small>{model.id}</small>
+                          <small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>
                         </span>
                       </button>
                     ))}
@@ -3209,7 +3703,7 @@ function ImageNode({
               onClick={() => {
                 setRouteSettingsOpen(false);
                 setParametersOpen(false);
-                onRunGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), prompt, orderedInputNodes.map((input) => input.id), selectedModel.maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters);
+                onRunGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), prompt, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters);
               }}
             >
               {generationFeedback?.busy ? <BusyGears /> : <ArrowUp size={16} />}
@@ -3316,6 +3810,12 @@ function PromptComposer({
         event.stopPropagation();
         const chip = event.target instanceof HTMLElement ? event.target.closest<HTMLElement>(".promptInlineChip") : null;
         const input = chip?.dataset.promptToken ? inputForPromptToken(chip.dataset.promptToken, inputNodes) : undefined;
+        if (chip && input?.type === "text") {
+          event.preventDefault();
+          togglePromptTextChip(chip, input);
+          saveEditorRange(editorRef.current, savedRangeRef);
+          return;
+        }
         if (input?.type === "image") onOpenInputPreview?.(input);
       }}
     />
@@ -3357,6 +3857,70 @@ function executionRouteDisplayName(providerId: string): string {
   const directProviders = new Set(["gemini", "openai", "anthropic", "google", "xai"]);
   const name = providerDisplayName(providerId);
   return directProviders.has(providerId.toLowerCase()) ? `${name} direct` : name;
+}
+
+function defaultGenerationParametersForNode(
+  model: ModelOption,
+  definitions: ModelParameterDefinition[],
+  inputAspectRatio: string | undefined
+): ImageGenerationParameters {
+  const parameters = modelGenerationParameters(model);
+  if (!inputAspectRatio) return parameters;
+  for (const definition of definitions) {
+    if (!isAspectRatioParameter(definition.id)) continue;
+    parameters[definition.id] = supportedAspectRatio(inputAspectRatio, definition);
+  }
+  return parameters;
+}
+
+function isAspectRatioParameter(id: string): boolean {
+  return id === "aspectRatio" || id === "aspect_ratio" || id.toLowerCase() === "aspectratio";
+}
+
+function supportedAspectRatio(aspectRatio: string, definition: ModelParameterDefinition): string {
+  const options = (definition.options ?? []).map((option) => option.value);
+  if (options.length === 0 || options.includes(aspectRatio)) return aspectRatio;
+  const target = aspectRatioValue(aspectRatio);
+  const best = options
+    .map((option) => ({ option, distance: Math.abs(aspectRatioValue(option) - target) }))
+    .sort((a, b) => a.distance - b.distance)[0];
+  return best?.option ?? aspectRatio;
+}
+
+function aspectRatioFromInputs(inputs: InputNodeChip[]): string | undefined {
+  const input = inputs.find((candidate) =>
+    (candidate.type === "image" || candidate.type === "video")
+    && positiveFinite(candidate.width)
+    && positiveFinite(candidate.height)
+  );
+  if (!input || !input.width || !input.height) return undefined;
+  const width = Math.round(input.width);
+  const height = Math.round(input.height);
+  const divisor = greatestCommonDivisor(width, height);
+  return `${Math.round(width / divisor)}:${Math.round(height / divisor)}`;
+}
+
+function aspectRatioValue(value: string): number {
+  const match = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(value.trim());
+  if (!match) return 16 / 9;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return positiveFinite(width) && positiveFinite(height) ? width / height : 16 / 9;
+}
+
+function greatestCommonDivisor(a: number, b: number): number {
+  let x = Math.abs(a);
+  let y = Math.abs(b);
+  while (y) {
+    const next = x % y;
+    x = y;
+    y = next;
+  }
+  return x || 1;
+}
+
+function positiveFinite(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function GenerationParameterControl({
@@ -3442,12 +4006,38 @@ function promptInlineChip(token: string, input: InputNodeChip, inactive: boolean
   return chip;
 }
 
+function togglePromptTextChip(chip: HTMLElement, input: InputNodeChip) {
+  const expanded = chip.classList.toggle("isExpanded");
+  chip.replaceChildren();
+  if (!expanded) {
+    const thumbnail = document.createElement("span");
+    thumbnail.className = `textChipThumb${input.previewUrl ? " hasPreview" : ""}`;
+    const textColor = inputTextChipColor(input);
+    thumbnail.style.borderColor = textColor;
+    thumbnail.style.color = textColor;
+    if (input.previewUrl) thumbnail.style.backgroundImage = `linear-gradient(rgba(246, 247, 242, 0.24), rgba(246, 247, 242, 0.24)), url(${apiBase}${input.previewUrl})`;
+    thumbnail.textContent = "T";
+    chip.append(thumbnail);
+    return;
+  }
+  const text = document.createElement("span");
+  text.className = "promptInlineTextChip";
+  text.textContent = input.text?.trim() || input.title;
+  chip.append(text);
+}
+
 function InputChipThumb({ input }: { input: InputNodeChip }) {
   if (input.type === "text") {
     return <span className={`textChipThumb${input.previewUrl ? " hasPreview" : ""}`} style={textChipThumbStyle(input)}>T</span>;
   }
   if (input.previewUrl) return input.type === "video" ? <Video size={15} /> : <img src={`${apiBase}${input.previewUrl}`} alt="" />;
   return input.type === "image" ? <ImageIcon size={15} /> : input.type === "video" ? <Video size={15} /> : <span className="promptInlineImageFallback">I</span>;
+}
+
+function inputChipInactive(input: InputNodeChip, imageInputs: InputNodeChip[], maxImageInputs: number | undefined): boolean {
+  if (input.type !== "image" || maxImageInputs === undefined) return false;
+  const imageIndex = imageInputs.findIndex((candidate) => candidate.id === input.id);
+  return imageIndex >= maxImageInputs;
 }
 
 function inputTextChipColor(input: InputNodeChip): string {
@@ -3468,7 +4058,7 @@ function textChipThumbStyle(input: InputNodeChip): React.CSSProperties {
 }
 
 function serializePromptContent(editor: HTMLElement): string {
-  return [...editor.childNodes].map((node) => serializePromptNode(node)).join("");
+  return ensureTextTokenSpacing([...editor.childNodes].map((node) => serializePromptNode(node)).join(""));
 }
 
 function serializePromptNode(node: ChildNode): string {
@@ -3490,6 +4080,10 @@ function tokenForInputId(inputId: string, inputs: InputNodeChip[]): string {
   return input ? `[[${input.type === "text" ? "text" : input.type === "video" ? "video" : "image"}:${input.id}]]` : "";
 }
 
+function ensureTextTokenSpacing(value: string): string {
+  return value.replace(/[ \t]*\[\[text:([^\]]+)\]\][ \t]*/g, " [[text:$1]] ");
+}
+
 function insertChipAtRange(
   editor: HTMLElement,
   input: InputNodeChip,
@@ -3508,8 +4102,16 @@ function insertChipAtRange(
   }
   range.deleteContents();
   const chip = promptInlineChip(token, input, inactive);
-  range.insertNode(chip);
-  range.setStartAfter(chip);
+  if (input.type === "text") {
+    const fragment = document.createDocumentFragment();
+    const trailingSpace = document.createTextNode(" ");
+    fragment.append(document.createTextNode(" "), chip, trailingSpace);
+    range.insertNode(fragment);
+    range.setStartAfter(trailingSpace);
+  } else {
+    range.insertNode(chip);
+    range.setStartAfter(chip);
+  }
   range.collapse(true);
   const selection = window.getSelection();
   selection?.removeAllRanges();
@@ -3583,14 +4185,21 @@ function inputChipsForNode(nodeId: string, edges: CanvasEdge[], nodeById: Map<st
     .filter((edge) => edge.toNodeId === nodeId)
     .map((edge) => nodeById.get(edge.fromNodeId))
     .filter((node): node is NodeView => Boolean(node))
-    .map((node) => ({
-      id: node.canvas.id,
-      title: node.manifest.title,
-      type: node.manifest.type,
-      previewUrl: node.previewUrl,
-      color: node.manifest.type === "text" ? node.manifest.color : undefined,
-      activeStackIndex: node.manifest.type === "image" || node.manifest.type === "video" ? node.manifest.activeStackIndex : undefined
-    }));
+    .map((node) => {
+      const textNode = node.manifest.type === "text" ? node as TextNodeView : null;
+      const mediaNode = node.manifest.type === "image" || node.manifest.type === "video" ? node as ImageNodeView | VideoNodeView : null;
+      return {
+        id: node.canvas.id,
+        title: node.manifest.title,
+        type: node.manifest.type,
+        previewUrl: node.previewUrl,
+        text: textNode ? textNode.outputText || textNode.manifest.text : undefined,
+        width: mediaNode?.activeStackItem?.width,
+        height: mediaNode?.activeStackItem?.height,
+        color: textNode ? textNode.manifest.color : undefined,
+        activeStackIndex: mediaNode?.manifest.activeStackIndex
+      };
+    });
 }
 
 function nodeTypeWireColor(node: NodeView | undefined): string {
@@ -3611,6 +4220,38 @@ function textNodeWireColor(color: TextNodeManifest["color"]): string {
 
 function stackMediaUrl(type: "image" | "video", nodeId: string, stackItemId: string): string {
   return `${apiBase}/api/libraries/current/${type}-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}?v=${encodeURIComponent(stackItemId)}`;
+}
+
+function textNodeDisplayText(node: TextNodeView): string {
+  if (node.stack.length === 0) return node.manifest.text;
+  return node.outputText || node.manifest.text;
+}
+
+function contentPreviewUrl(node: NodeView | undefined): string {
+  if (!node || node.manifest.type === "text" || node.manifest.type === "library") return "";
+  return node.previewUrl ? `${apiBase}${node.previewUrl}?v=${encodeURIComponent(node.activeStackItem?.id ?? node.manifest.id)}` : "";
+}
+
+async function copyImageToClipboard(src: string) {
+  if (!navigator.clipboard || typeof ClipboardItem === "undefined") throw new Error("Image clipboard is not available in this browser.");
+  const response = await fetch(src);
+  const sourceBlob = await response.blob();
+  const blob = sourceBlob.type === "image/png" ? sourceBlob : await imageBlobAsPng(sourceBlob);
+  await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
+}
+
+async function imageBlobAsPng(blob: Blob): Promise<Blob> {
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement("canvas");
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not prepare image for clipboard.");
+  context.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  return await new Promise((resolve, reject) => {
+    canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Could not convert image to PNG.")), "image/png");
+  });
 }
 
 function representationLabel(type: NodeRepresentationType): string {
@@ -3757,6 +4398,15 @@ function nodeInputPoint(node: CanvasNode) {
 
 function nodeOutputPoint(node: CanvasNode) {
   return { x: node.x + node.width, y: node.y + nodeTitleHeight + node.height / 2 };
+}
+
+function edgeMidpoint(edge: CanvasEdge, nodeById: Map<string, CanvasNode>): { x: number; y: number } | null {
+  const from = nodeById.get(edge.fromNodeId);
+  const to = nodeById.get(edge.toNodeId);
+  if (!from || !to) return null;
+  const start = nodeOutputPoint(from);
+  const end = nodeInputPoint(to);
+  return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
 }
 
 function edgePath(start: { x: number; y: number }, end: { x: number; y: number }) {

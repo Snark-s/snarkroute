@@ -81,26 +81,52 @@ export async function loadModelCatalog(
 ): Promise<ModelCatalogResult> {
   const errors: Partial<Record<string, string>> = {};
   const sources = [
-    { endpoint: "/api/providers/openrouter/models", providerId: "openrouter", configured: Boolean(settings?.openrouter?.configured) },
-    { endpoint: "/api/providers/polza/models?type=image", providerId: "polza", configured: Boolean(settings?.polza?.configured) },
-    { endpoint: "/api/providers/polza/models?type=video", providerId: "polza", configured: Boolean(settings?.polza?.configured) },
-    { endpoint: "/api/providers/polza/models?type=chat", providerId: "polza", configured: Boolean(settings?.polza?.configured) }
+    { endpoint: "/api/models?provider=openrouter&capability=image.generate", fallbackEndpoint: "/api/providers/openrouter/models", providerId: "openrouter", configured: Boolean(settings?.openrouter?.configured) },
+    { endpoint: "/api/models?provider=openrouter&capability=video.generate", fallbackEndpoint: "/api/providers/openrouter/models", providerId: "openrouter", configured: Boolean(settings?.openrouter?.configured) },
+    { endpoint: "/api/models?provider=openrouter&capability=text.generate", fallbackEndpoint: "/api/providers/openrouter/models", providerId: "openrouter", configured: Boolean(settings?.openrouter?.configured) },
+    { endpoint: "/api/models?provider=polza&capability=image.generate", fallbackEndpoint: "/api/providers/polza/models?type=image", providerId: "polza", configured: Boolean(settings?.polza?.configured) },
+    { endpoint: "/api/models?provider=polza&capability=video.generate", fallbackEndpoint: "/api/providers/polza/models?type=video", providerId: "polza", configured: Boolean(settings?.polza?.configured) },
+    { endpoint: "/api/models?provider=polza&capability=text.generate", fallbackEndpoint: "/api/providers/polza/models?type=chat", providerId: "polza", configured: Boolean(settings?.polza?.configured) }
   ];
   const loaded: ModelOption[] = [];
   for (const source of sources) {
     if (!source.configured) continue;
     try {
       const response = await getJson(source.endpoint);
-      loaded.push(...normalizeModelOptions(response, source.providerId));
+      const normalized = normalizeModelOptions(response, source.providerId);
+      if (normalized.length > 0) {
+        loaded.push(...normalized);
+        continue;
+      }
+      const fallback = await getJson(source.fallbackEndpoint);
+      loaded.push(...normalizeModelOptions(fallback, source.providerId));
     } catch (error) {
-      errors[source.providerId] = error instanceof Error ? error.message : "Catalog request failed.";
+      try {
+        const fallback = await getJson(source.fallbackEndpoint);
+        loaded.push(...normalizeModelOptions(fallback, source.providerId));
+      } catch {
+        errors[source.providerId] = error instanceof Error ? error.message : "Catalog request failed.";
+      }
     }
   }
   return { models: mergeModelOptions([...fallbackModels, ...configuredBuiltInModels(settings), ...loaded]), errors };
 }
 
 export function modelsForContentKind(models: ModelOption[], kind: ContentKind): ModelOption[] {
-  return models.filter((model) => model.isAvailable && !model.role && model.produces.includes(kind));
+  return models.filter((model) => model.isAvailable && !model.role && modelProducesOnlyKind(model, kind));
+}
+
+function modelProducesOnlyKind(model: Pick<ModelOption, "produces">, kind: ContentKind): boolean {
+  return model.produces.length === 1 && model.produces[0] === kind;
+}
+
+export function modelsCompatibleWithNodeInputs(models: ModelOption[], kind: ContentKind, hasImageInput: boolean): ModelOption[] {
+  if (!hasImageInput || kind === "image") return models;
+  return models.filter((model) => model.accepts.includes("image") || model.acceptsImageInput === true);
+}
+
+export function modelImageInputLimit(model: Pick<ModelOption, "accepts" | "acceptsImageInput" | "maxImageInputs">): number | undefined {
+  return model.accepts.includes("image") || model.acceptsImageInput === true ? model.maxImageInputs : 0;
 }
 
 export function modelSelectionId(model: ModelOption | undefined): string {
@@ -143,8 +169,11 @@ export function normalizeModelOptions(value: unknown, providerId: string): Model
     if (!entry || typeof entry !== "object") return [];
     const record = entry as Record<string, unknown>;
     const id = String(record.id ?? record.modelId ?? record.slug ?? record.name ?? "");
-    if (!id || seen.has(id)) return [];
-    seen.add(id);
+    const entryProviderId = String(record.providerId ?? record.provider ?? providerId);
+    if (isProviderRoutingAlias(entryProviderId, id)) return [];
+    const seenKey = `${entryProviderId}:${id}`;
+    if (!id || seen.has(seenKey)) return [];
+    seen.add(seenKey);
     const produces = inferProducedKinds(record, providerId);
     if (produces.length === 0) return [];
     const role = inferModelRole(record, produces);
@@ -153,7 +182,7 @@ export function normalizeModelOptions(value: unknown, providerId: string): Model
     return [{
       id,
       title: String(record.title ?? record.label ?? record.displayName ?? record.name ?? id),
-      providerId: String(record.providerId ?? record.provider ?? providerId),
+      providerId: entryProviderId,
       contentKinds: produces,
       accepts,
       produces,
@@ -204,6 +233,12 @@ export function generationParameterSummary(definitions: ModelParameterDefinition
   return definitions.slice(0, 2).map((definition) => String(values[definition.id] ?? definition.default ?? "")).filter(Boolean).join(" / ") || "Parameters";
 }
 
+function isProviderRoutingAlias(providerId: string, modelId: string): boolean {
+  const provider = providerId.toLowerCase();
+  const model = modelId.toLowerCase();
+  return provider === "openrouter" && (model === "openrouter/auto" || model === "auto");
+}
+
 function mergeModelOptions(options: ModelOption[]): ModelOption[] {
   const byId = new Map<string, ModelOption>();
   for (const option of options) {
@@ -228,6 +263,7 @@ function inferProducedKinds(record: Record<string, unknown>, providerId: string)
   const architecture = objectValue(record.architecture);
   const outputModalities = [
     architecture.output_modalities,
+    record.outputTypes,
     record.outputModalities,
     record.outputs,
     record.produces
@@ -236,7 +272,8 @@ function inferProducedKinds(record: Record<string, unknown>, providerId: string)
   if (/(video|text-to-video|image-to-video|video-generation)/.test(outputModalities)) explicitOutputs.push("video");
   if (/(image|img|text-to-image|image-generation)/.test(outputModalities)) explicitOutputs.push("image");
   if (/(audio|speech|music|sound)/.test(outputModalities)) explicitOutputs.push("audio");
-  if (/(text|chat|language|message)/.test(outputModalities)) explicitOutputs.push("text");
+  const textOutputModalities = outputModalities.replace(/(?:text|image)-to-(?:image|video|audio)/g, "");
+  if (/(^|[\s,_-])(text|chat|language|message)([\s,_-]|$)/.test(textOutputModalities)) explicitOutputs.push("text");
   if (explicitOutputs.length) return [...new Set(explicitOutputs)];
   if (explicitType === "video") return ["video"];
   if (explicitType === "image") return ["image"];
@@ -277,9 +314,12 @@ function configuredBuiltInModels(settings: ProviderSettings | null): ModelOption
 
 function inferAcceptedKinds(record: Record<string, unknown>): ContentKind[] {
   const architecture = objectValue(record.architecture);
-  const values = Array.isArray(architecture.input_modalities) ? architecture.input_modalities.map(String) : [];
+  const values = [
+    ...(Array.isArray(architecture.input_modalities) ? architecture.input_modalities.map(String) : []),
+    ...(Array.isArray(record.inputTypes) ? record.inputTypes.map(String) : [])
+  ];
   const matched = values.flatMap((value) => contentKind(value));
-  if (matched.length) return [...new Set(matched)];
+  if (matched.length) return [...new Set([...matched, ...(modelAcceptsImageInput(record) ? ["image" as const] : [])])];
   return modelAcceptsImageInput(record) ? ["text", "image"] : ["text"];
 }
 
@@ -290,19 +330,23 @@ function inferCapabilities(record: Record<string, unknown>, produces: ContentKin
 
 function modelMetadataText(record: Record<string, unknown>): string {
   const architecture = objectValue(record.architecture);
+  const metadata = objectValue(record.metadata);
   return [
     record.nodeTypes, record.nodeType, record.type, record.capabilities, record.modalities,
     record.inputModalities, record.outputModalities, architecture.input_modalities,
     architecture.output_modalities, architecture.modality, record.tasks, record.kind,
-    record.category, record.family, record.id
+    record.category, record.family, record.description, metadata.description,
+    metadata.supportedFrameImageModes, metadata.supportedParameters, record.id
   ].flatMap((field) => Array.isArray(field) ? field : [field]).filter(Boolean).map(String).join(" ").toLowerCase();
 }
 
 function modelOutputMetadataText(record: Record<string, unknown>): string {
   const architecture = objectValue(record.architecture);
+  const metadata = objectValue(record.metadata);
   return [
     record.nodeTypes, record.nodeType, record.type, record.outputModalities, architecture.output_modalities,
-    record.outputs, record.produces, record.tasks, record.kind, record.category, record.family, record.id
+    record.outputTypes, record.outputs, record.produces, record.tasks, record.kind, record.category, record.family,
+    record.description, metadata.description, record.id
   ].flatMap((field) => Array.isArray(field) ? field : [field]).filter(Boolean).map(String).join(" ").toLowerCase();
 }
 
@@ -315,15 +359,25 @@ function contentKind(value: string): ContentKind[] {
 
 function modelAcceptsImageInput(record: Record<string, unknown>): boolean {
   const architecture = objectValue(record.architecture);
+  const metadata = objectValue(record.metadata);
   const provider = objectValue(record.top_provider);
   const parameters = objectValue(provider.parameters);
   const inputModalities = Array.isArray(architecture.input_modalities) ? architecture.input_modalities.map(String) : [];
-  return inputModalities.some((modality) => modality.toLowerCase() === "image") || Object.hasOwn(parameters, "images");
+  const inputTypes = Array.isArray(record.inputTypes) ? record.inputTypes.map(String) : [];
+  if ([...inputModalities, ...inputTypes].some((modality) => modality.toLowerCase() === "image") || Object.hasOwn(parameters, "images")) return true;
+  if (positiveNumber(record.maxImageInputs) || positiveNumber(metadata.maxImageInputs)) return true;
+  if (Array.isArray(record.supported_frame_image_modes) && record.supported_frame_image_modes.length > 0) return true;
+  if (Array.isArray(metadata.supportedFrameImageModes) && metadata.supportedFrameImageModes.length > 0) return true;
+  const searchable = modelMetadataText(record);
+  return /\bimage[- ]to[- ]video\b|\bimage inputs?\b|\bimage references?\b|\bfirst frame\b|\blast frame\b/.test(searchable);
 }
 
 function modelMaxImageInputs(record: Record<string, unknown>): number | undefined {
+  const metadata = objectValue(record.metadata);
   const direct = Number(record.maxImageInputs ?? record.maxImages);
   if (Number.isInteger(direct) && direct > 0) return direct;
+  const metadataDirect = Number(metadata.maxImageInputs ?? metadata.maxImages);
+  if (Number.isInteger(metadataDirect) && metadataDirect > 0) return metadataDirect;
   const inputs = Array.isArray(objectValue(record.ioContract).inputs) ? objectValue(record.ioContract).inputs as unknown[] : [];
   const imageInput = inputs.find((input) => objectValue(input).kind === "image");
   const contracted = Number(objectValue(imageInput).maxItems);
@@ -336,8 +390,12 @@ function modelImageReferenceSyntax(record: Record<string, unknown>): string | un
 }
 
 function modelGenerationParameterDefinitions(record: Record<string, unknown>): ModelParameterDefinition[] | undefined {
-  if (!Array.isArray(record.generationParameters)) return undefined;
-  const definitions = record.generationParameters.flatMap((source) => {
+  const metadata = objectValue(record.metadata);
+  const sourceParameters = Array.isArray(record.generationParameters)
+    ? record.generationParameters
+    : Array.isArray(metadata.generationParameters) ? metadata.generationParameters : undefined;
+  if (!sourceParameters) return undefined;
+  const definitions = sourceParameters.flatMap((source) => {
     const definition = objectValue(source);
     const id = stringParameter(definition.id);
     const label = stringParameter(definition.label);
@@ -379,6 +437,11 @@ function stringParameter(value: unknown): string | undefined {
 
 function numberParameter(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function positiveNumber(value: unknown): boolean {
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(number) && number > 0;
 }
 
 function parameterValue(value: unknown): GenerationParameterValue | undefined {

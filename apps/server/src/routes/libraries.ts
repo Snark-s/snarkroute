@@ -218,7 +218,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Body: { filename?: string; dataBase64?: string; dropX?: number; dropY?: number; width?: number; height?: number } }>("/api/libraries/current/import-image", async (request, reply) => {
+  app.post<{ Body: { filename?: string; dataBase64?: string; dropX?: number; dropY?: number; width?: number; height?: number; connectFromNodeId?: string; crop?: { sourceNodeId: string; rect: { x: number; y: number; width: number; height: number }; aspectRatio?: number | null } } }>("/api/libraries/current/import-image", async (request, reply) => {
     try {
       if (!request.body?.filename) return reply.code(400).send({ error: "filename is required." });
       if (!request.body.dataBase64) return reply.code(400).send({ error: "dataBase64 is required." });
@@ -228,7 +228,9 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
         dropX: Number(request.body.dropX ?? 0),
         dropY: Number(request.body.dropY ?? 0),
         width: request.body.width,
-        height: request.body.height
+        height: request.body.height,
+        connectFromNodeId: request.body.connectFromNodeId,
+        crop: request.body.crop
       });
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
@@ -383,14 +385,15 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string }; Body: { filename?: string; dataBase64?: string } }>("/api/libraries/current/image-nodes/:nodeId/stack", async (request, reply) => {
+  app.post<{ Params: { nodeId: string }; Body: { filename?: string; dataBase64?: string; crop?: { sourceNodeId: string; rect: { x: number; y: number; width: number; height: number }; aspectRatio?: number | null } } }>("/api/libraries/current/image-nodes/:nodeId/stack", async (request, reply) => {
     try {
       if (!request.body?.filename) return reply.code(400).send({ error: "filename is required." });
       if (!request.body.dataBase64) return reply.code(400).send({ error: "dataBase64 is required." });
       return await appendImageToNodeStack({
         nodeId: request.params.nodeId,
         filename: request.body.filename,
-        dataBase64: request.body.dataBase64
+        dataBase64: request.body.dataBase64,
+        crop: request.body.crop
       });
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });

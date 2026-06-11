@@ -1390,7 +1390,7 @@ export function detectCycles(route: OpenRoute): string[] {
 
 export function resolveTemplates(value: unknown, context: Record<string, unknown>): unknown {
   if (typeof value === "string") {
-    return value.replace(TEMPLATE_REF_PATTERN, (match, nodeId: string, path: string) => {
+    const resolvedTemplates = value.replace(TEMPLATE_REF_PATTERN, (match, nodeId: string, path: string) => {
       if (!(nodeId in context)) {
         throw new Error(`Template reference "${match}" points to missing or not-yet-executed node "${nodeId}". Add an edge from "${nodeId}" to this node.`);
       }
@@ -1400,6 +1400,7 @@ export function resolveTemplates(value: unknown, context: Record<string, unknown
       }
       return resolved === null ? "" : String(resolved);
     });
+    return resolveTextChipReferences(resolvedTemplates, context);
   }
   if (Array.isArray(value)) {
     return value.map((item) => resolveTemplates(item, context));
@@ -1418,6 +1419,7 @@ export interface TemplateReference {
 
 const TEMPLATE_REF_PATTERN = /\{\{\s*([A-Za-z0-9_-]+)\.output\.([A-Za-z0-9_.-]+)\s*\}\}/g;
 const ANY_TEMPLATE_PATTERN = /\{\{\s*([^}]+?)\s*\}\}/g;
+const TEXT_CHIP_REF_PATTERN = /\[\[text:([^\]]+)\]\]/g;
 
 export function extractTemplateReferences(value: unknown): TemplateReference[] {
   const refs: TemplateReference[] = [];
@@ -1445,6 +1447,10 @@ export function validateTemplateDependencies(route: OpenRoute): void {
 
 function collectTemplateReferences(value: unknown, refs: TemplateReference[]): void {
   if (typeof value === "string") {
+    for (const match of value.matchAll(TEXT_CHIP_REF_PATTERN)) {
+      const ref = parseTextChipReference(match[1].trim());
+      refs.push({ nodeId: ref.nodeId, path: ref.path, raw: match[0] });
+    }
     for (const match of value.matchAll(ANY_TEMPLATE_PATTERN)) {
       const raw = match[0];
       const parsed = /^\s*([A-Za-z0-9_-]+)\.output\.([A-Za-z0-9_.-]+)\s*$/.exec(match[1]);
@@ -1462,6 +1468,26 @@ function collectTemplateReferences(value: unknown, refs: TemplateReference[]): v
   if (value && typeof value === "object") {
     for (const item of Object.values(value)) collectTemplateReferences(item, refs);
   }
+}
+
+function resolveTextChipReferences(value: string, context: Record<string, unknown>): string {
+  return value.replace(TEXT_CHIP_REF_PATTERN, (match, rawRef: string) => {
+    const ref = parseTextChipReference(rawRef.trim());
+    if (!(ref.nodeId in context)) {
+      throw new Error(`Text chip reference "${match}" points to missing or not-yet-executed node "${ref.nodeId}". Add an edge from "${ref.nodeId}" to this node.`);
+    }
+    const resolved = readOutputPort(context[ref.nodeId], ref.path);
+    if (resolved === undefined) {
+      throw new Error(`Text chip reference "${match}" points to missing output field "${ref.path}" on node "${ref.nodeId}".`);
+    }
+    return resolved === null ? "" : String(resolved);
+  });
+}
+
+function parseTextChipReference(rawRef: string): { nodeId: string; path: string } {
+  const separatorIndex = Math.max(rawRef.lastIndexOf(":"), rawRef.lastIndexOf("."));
+  if (separatorIndex <= 0) return { nodeId: rawRef, path: "text" };
+  return { nodeId: rawRef.slice(0, separatorIndex), path: rawRef.slice(separatorIndex + 1) || "text" };
 }
 
 function collectInputs(route: OpenRoute, node: RouteNode, nodeOutputs: Record<string, unknown>): Record<string, unknown> {

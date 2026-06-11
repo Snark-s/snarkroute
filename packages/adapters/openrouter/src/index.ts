@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
+import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 import {
   createModelResolver,
@@ -79,6 +79,55 @@ export interface OpenRouterCatalogCache {
 
 export const OPENROUTER_PRICING_CATALOG_SOURCE = "openrouter_models_catalog";
 const PRICING_TTL_HOURS = 12;
+
+export function openRouterModelInfoToModelInfo(model: OpenRouterModelInfo): ModelInfo {
+  const inputTypes = withOptionalImageInput(
+    normalizedModalities(model.architecture?.input_modalities, ["text"]),
+    openRouterModelAcceptsImageInput(model)
+  );
+  const outputTypes = normalizedModalities(model.architecture?.output_modalities, openRouterDefaultOutputs(model));
+  const capabilities = openRouterModelCapabilities(model, outputTypes);
+  const metadata: Record<string, unknown> = {
+    source: "openrouter_models_catalog",
+    providerModelKind: model.kind,
+    description: model.description,
+    pricing: model.pricing,
+    supportedParameters: model.supported_parameters,
+    supportedAspectRatios: model.supported_aspect_ratios,
+    supportedDurations: model.supported_durations,
+    supportedResolutions: model.supported_resolutions,
+    supportedFrameImageModes: model.supported_frame_image_modes,
+    topProvider: model.top_provider,
+    generationParameters: generationParameterDefinitions({
+      aspectRatios: model.supported_aspect_ratios,
+      durations: model.supported_durations,
+      resolutions: model.supported_resolutions
+    })
+  };
+  return {
+    id: model.id,
+    providerId: "openrouter",
+    title: model.name ?? model.id,
+    capabilities,
+    inputTypes,
+    outputTypes,
+    contextWindow: model.context_length,
+    supportsImages: inputTypes.includes("image"),
+    supportsVideo: inputTypes.includes("video") || outputTypes.includes("video"),
+    supportsJson: Boolean(model.supported_parameters?.includes("response_format")),
+    ioContract: {
+      inputs: inputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: kind === "image" ? undefined : 1 })),
+      outputs: outputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: 1 }))
+    },
+    defaultParameters: defaultGenerationParameters({
+      aspectRatios: model.supported_aspect_ratios,
+      durations: model.supported_durations,
+      resolutions: model.supported_resolutions
+    }),
+    pricingHint: pricingHint(model.pricing),
+    metadata: compactRecord(metadata)
+  };
+}
 
 export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
   const fetcher = options.fetchImpl ?? fetch;
@@ -624,6 +673,77 @@ function inferOpenRouterModelKind(record: Record<string, unknown>, architecture:
   if (output.includes("video") || modalityOutputModalities(modality).includes("video")) return "video";
   if (output.includes("image") || modalityOutputModalities(modality).includes("image")) return "image";
   return "text";
+}
+
+function openRouterDefaultOutputs(model: OpenRouterModelInfo): string[] {
+  const modalityOutputs = modalityOutputModalities(model.architecture?.modality ?? "");
+  if (modalityOutputs.length) return modalityOutputs;
+  if (model.kind === "image") return ["image"];
+  if (model.kind === "video") return ["video"];
+  return ["text"];
+}
+
+function openRouterModelCapabilities(model: OpenRouterModelInfo, outputTypes: string[]): ModelInfo["capabilities"] {
+  const capabilities: ModelInfo["capabilities"] = [];
+  if (model.kind === "text" || outputTypes.includes("text")) capabilities.push("text.generate");
+  if (outputTypes.includes("image")) capabilities.push("image.generate");
+  if (outputTypes.includes("video")) capabilities.push("video.generate");
+  return [...new Set(capabilities.length ? capabilities : ["text.generate"])];
+}
+
+function openRouterModelAcceptsImageInput(model: OpenRouterModelInfo): boolean {
+  const input = model.architecture?.input_modalities ?? [];
+  if (input.some((modality) => modality.toLowerCase() === "image")) return true;
+  if (model.supported_frame_image_modes?.length) return true;
+  const text = `${model.id} ${model.name ?? ""} ${model.description ?? ""} ${model.architecture?.modality ?? ""}`.toLowerCase();
+  return /\bimage[- ]to[- ]video\b|\bimage inputs?\b|\bimage references?\b|\bfirst frame\b|\blast frame\b/.test(text);
+}
+
+function withOptionalImageInput(inputTypes: string[], acceptsImageInput: boolean): string[] {
+  return acceptsImageInput && !inputTypes.includes("image") ? [...inputTypes, "image"] : inputTypes;
+}
+
+function normalizedModalities(values: string[] | undefined, fallback: string[]): string[] {
+  const normalized = (values?.length ? values : fallback)
+    .map((value) => value.toLowerCase())
+    .filter((value) => value === "text" || value === "image" || value === "video" || value === "audio" || value === "file" || value === "json");
+  return [...new Set(normalized.length ? normalized : fallback)];
+}
+
+function pricingHint(pricing: Record<string, unknown> | undefined): string | undefined {
+  if (!pricing || Object.keys(pricing).length === 0) return undefined;
+  const compact = Object.entries(pricing)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .slice(0, 4)
+    .map(([key, value]) => `${key}: ${String(value)}`);
+  return compact.length ? compact.join(", ") : "pricing available";
+}
+
+function generationParameterDefinitions(options: { aspectRatios?: string[]; durations?: string[]; resolutions?: string[] }): Array<Record<string, unknown>> | undefined {
+  const definitions = [
+    selectDefinition("aspectRatio", "Aspect ratio", options.aspectRatios),
+    selectDefinition("duration", "Duration", options.durations),
+    selectDefinition("resolution", "Resolution", options.resolutions)
+  ].filter((definition): definition is Record<string, unknown> => Boolean(definition));
+  return definitions.length ? definitions : undefined;
+}
+
+function selectDefinition(id: string, label: string, values: string[] | undefined): Record<string, unknown> | undefined {
+  if (!values?.length) return undefined;
+  return { id, label, type: "select", default: values[0], options: values.map((value) => ({ value })) };
+}
+
+function defaultGenerationParameters(options: { aspectRatios?: string[]; durations?: string[]; resolutions?: string[] }): Record<string, unknown> | undefined {
+  const defaults = compactRecord({
+    aspectRatio: options.aspectRatios?.[0],
+    duration: options.durations?.[0],
+    resolution: options.resolutions?.[0]
+  });
+  return Object.keys(defaults).length ? defaults : undefined;
+}
+
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0)));
 }
 
 function stringArrayFromKeys(sources: Array<Record<string, unknown>>, keys: string[]): string[] | undefined {

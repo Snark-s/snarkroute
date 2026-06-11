@@ -96,7 +96,8 @@ export interface SnarkCanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation";
+  kind?: "representation" | "crop";
+  note?: string;
 }
 
 export interface ImageNodeManifest {
@@ -109,10 +110,24 @@ export interface ImageNodeManifest {
   modelId?: string;
   executionProvider?: string;
   fallbackAllowed?: boolean;
+  crop?: CropMetadata;
   stack: ImageStackItem[];
   activeStackIndex: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface CropMetadata {
+  sourceNodeId: string;
+  rect: CropRect;
+  aspectRatio?: number | null;
 }
 
 export interface VideoNodeManifest {
@@ -266,6 +281,8 @@ export interface ImportImageInput {
   dropY: number;
   width?: number;
   height?: number;
+  connectFromNodeId?: string;
+  crop?: CropMetadata;
 }
 
 export interface ImportVideoInput extends ImportImageInput {}
@@ -293,6 +310,7 @@ export interface AppendImageStackInput {
   filename: string;
   dataBase64?: string;
   sourcePath?: string;
+  crop?: CropMetadata;
 }
 
 export interface AppendVideoStackInput extends AppendImageStackInput {}
@@ -585,6 +603,7 @@ export async function importImageAsNode(input: ImportImageInput): Promise<Librar
     id,
     type: "image",
     title,
+    crop: input.crop,
     stack: [{
       id: `stack_${shortId()}`,
       file: imageRelativePath,
@@ -614,6 +633,9 @@ export async function importImageAsNode(input: ImportImageInput): Promise<Librar
     width,
     height
   });
+  if (input.connectFromNodeId) {
+    canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.connectFromNodeId, toNodeId: id, kind: "crop" }];
+  }
   await writeCanvas(libraryPath, canvas);
   return readLibrarySnapshot(libraryPath);
 }
@@ -1009,6 +1031,7 @@ export async function appendImageToNodeStack(input: AppendImageStackInput): Prom
   const now = new Date().toISOString();
   const updatedManifest: ImageNodeManifest = {
     ...manifest,
+    crop: input.crop ?? manifest.crop,
     stack: [...manifest.stack, {
       id: `stack_${shortId()}`,
       file: imageRelativePath,
@@ -1442,7 +1465,8 @@ function generationRunFailed(runResult: { status?: string; nodeResults?: Record<
 }
 
 async function runVideoModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
-  if (input.executionProvider !== "auto" && input.executionProvider !== "polza") throw new Error("Video generation is currently available through polza.ai.");
+  if (input.executionProvider === "openrouter") return runOpenRouterVideoModelForStackItem(input);
+  if (input.executionProvider !== "auto" && input.executionProvider !== "polza") throw new Error("Video generation is currently available through polza.ai or OpenRouter.");
   const executor = await createRouteExecutor();
   const route = {
     routeVersion: "0.1",
@@ -1459,6 +1483,45 @@ async function runVideoModelForStackItem(input: { nodeId: string; modelId: strin
     edges: []
   };
   return executor.executeRoute(route);
+}
+
+async function runOpenRouterVideoModelForStackItem(input: { nodeId: string; modelId: string; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }): Promise<any> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) throw new Error("OpenRouter is selected, but OpenRouter is not configured.");
+  const baseUrl = (process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/+$/u, "");
+  const createResponse = await fetch(`${baseUrl}/videos`, {
+    method: "POST",
+    headers: openRouterVideoHeaders(apiKey),
+    body: JSON.stringify(await openRouterVideoRequestBody(input))
+  });
+  const created = await openRouterVideoJson(createResponse, "submit video generation request");
+  const jobId = stringRecordValue(created, "id") ?? stringRecordValue(created, "generation_id");
+  if (!jobId) throw new Error("OpenRouter video generation did not return a job id.");
+  const completed = await pollOpenRouterVideoJob(baseUrl, apiKey, jobId);
+  const videoUrl = Array.isArray(completed.unsigned_urls) ? completed.unsigned_urls.find((url): url is string => typeof url === "string" && url.trim().length > 0) : undefined;
+  if (!videoUrl) throw new Error("OpenRouter video generation completed without a downloadable video URL.");
+  return {
+    status: "succeeded",
+    logs: [{ nodeId: "generate", message: `Generated video with OpenRouter ${input.modelId}`, timestamp: new Date().toISOString() }],
+    nodeResults: {
+      generate: {
+        status: "succeeded",
+        output: {
+          video: {
+            path: videoUrl,
+            localPath: videoUrl,
+            filename: `${input.modelId.split("/").pop() || "openrouter-video"}.mp4`,
+            mimeType: "video/mp4"
+          },
+          provider: "openrouter",
+          model: input.modelId,
+          providerModel: input.modelId,
+          output: completed,
+          status: "succeeded"
+        }
+      }
+    }
+  };
 }
 
 interface ConnectedCanvasInput {
@@ -2796,6 +2859,81 @@ function imageGenerationParameters(
     images,
     ...settings
   };
+}
+
+async function openRouterVideoRequestBody(input: { modelId: string; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }): Promise<Record<string, unknown>> {
+  const body: Record<string, unknown> = {
+    model: input.modelId,
+    prompt: input.prompt
+  };
+  if (input.parameters.aspectRatio !== undefined) body.aspect_ratio = input.parameters.aspectRatio;
+  if (input.parameters.resolution !== undefined) body.resolution = input.parameters.resolution;
+  if (input.parameters.duration !== undefined) body.duration = Number(input.parameters.duration) || input.parameters.duration;
+  if (input.parameters.generate_audio !== undefined) body.generate_audio = input.parameters.generate_audio;
+  if (input.parameters.seed !== undefined) body.seed = Number(input.parameters.seed) || input.parameters.seed;
+  const frameImages = await Promise.all(input.images.slice(0, 2).map(async (image, index) => ({
+    frame_type: index === 0 ? "first_frame" : "last_frame",
+    image_url: await imageInputAsOpenRouterUrl(image)
+  })));
+  if (frameImages.length > 0) body.frame_images = frameImages;
+  return body;
+}
+
+async function imageInputAsOpenRouterUrl(image: GenerationImageInput): Promise<string> {
+  const path = image.localPath ?? image.path;
+  if (isRemoteUrl(path)) return path;
+  const mimeType = image.mimeType ?? mimeTypeFromExtension(extname(path).toLowerCase());
+  const buffer = await readFile(path);
+  return `data:${mimeType};base64,${buffer.toString("base64")}`;
+}
+
+function openRouterVideoHeaders(apiKey: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Authorization": `Bearer ${apiKey}`,
+    "Content-Type": "application/json"
+  };
+  if (process.env.SNARKROUTE_SITE_URL) headers["HTTP-Referer"] = process.env.SNARKROUTE_SITE_URL;
+  headers["X-OpenRouter-Title"] = process.env.OPENROUTER_APP_TITLE ?? "SnarkRoute";
+  return headers;
+}
+
+async function pollOpenRouterVideoJob(baseUrl: string, apiKey: string, jobId: string): Promise<Record<string, unknown>> {
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await delay(3000);
+    const response = await fetch(`${baseUrl}/videos/${encodeURIComponent(jobId)}`, { headers: openRouterVideoHeaders(apiKey) });
+    const status = await openRouterVideoJson(response, "poll video generation status");
+    const state = stringRecordValue(status, "status")?.toLowerCase();
+    if (state === "completed" || state === "succeeded") return status;
+    if (state === "failed" || state === "cancelled" || state === "canceled") throw new Error(stringRecordValue(status, "error") ?? `OpenRouter video generation ${state}.`);
+  }
+  throw new Error("OpenRouter video generation timed out.");
+}
+
+async function openRouterVideoJson(response: Response, action: string): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  let parsed: unknown = {};
+  try {
+    parsed = text ? JSON.parse(text) : {};
+  } catch {
+    parsed = { error: text };
+  }
+  if (!response.ok) {
+    const errorValue = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>).error : undefined;
+    const error = typeof errorValue === "string" ? errorValue : errorValue && typeof errorValue === "object" ? stringRecordValue(errorValue as Record<string, unknown>, "message") : undefined;
+    throw new Error(`Could not ${action}: ${error ?? (response.statusText || String(response.status))}`);
+  }
+  if (!parsed || typeof parsed !== "object") throw new Error(`Could not ${action}: invalid OpenRouter response.`);
+  return parsed as Record<string, unknown>;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
+
+function stringRecordValue(record: Record<string, unknown>, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function providerModeForExecutionProvider(executionProvider: string): string {

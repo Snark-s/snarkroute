@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 import { createReplicateClient } from "@snarkroute/replicate";
-import { createOpenRouterClient, readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache, refreshOpenRouterModelCatalog, refreshOpenRouterPricingCatalog, refreshOpenRouterPricingCatalogFromModelCache } from "@snarkroute/openrouter";
-import { createPolzaClient, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "@snarkroute/polza";
+import { createOpenRouterClient, openRouterModelInfoToModelInfo, readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache, refreshOpenRouterModelCatalog, refreshOpenRouterPricingCatalog, refreshOpenRouterPricingCatalogFromModelCache } from "@snarkroute/openrouter";
+import { createPolzaClient, polzaModelInfoToModelInfo, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "@snarkroute/polza";
 import { openRouterCatalogCachePath, openRouterPricingCachePath, polzaPricingCachePath, providerLinksPath } from "../server-paths";
 import { createModelResolver } from "@snarkroute/openrouter";
 import { invalidatePricingCache } from "../billing/pricing-service";
@@ -108,10 +108,23 @@ app.post<{ Body: { provider?: "openrouter" | "polza" | "gemini" | "all" | string
   return { refreshed, failed, warnings };
 });
 
-app.get("/api/providers/openrouter/models", async () => {
+app.get<{ Querystring: { format?: string } }>("/api/providers/openrouter/models", async (request) => {
   const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
+  if (request.query.format === "model-info") {
+    const models = (cache?.models ?? []).map((model) => enrichModelInfo(openRouterModelInfoToModelInfo(model), "openrouter"));
+    return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, sourceCounts: cache?.sourceCounts, models };
+  }
   const models = (cache?.models ?? []).map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "openrouter") }));
   return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, sourceCounts: cache?.sourceCounts, models };
+});
+
+app.get<{ Querystring: { provider?: string; capability?: string; media?: string } }>("/api/models", async (request, reply) => {
+  try {
+    const models = await loadNormalizedModelCatalog(request.query.provider, { capability: request.query.capability, media: request.query.media });
+    return filterNormalizedModels(models, { capability: request.query.capability, media: request.query.media });
+  } catch (error) {
+    return reply.code(400).send({ error: errorMessage(error) });
+  }
 });
 
 app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/api/model-gateway/quote", async (request, reply) => {
@@ -150,10 +163,14 @@ app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/ap
   }
 });
 
-app.get<{ Querystring: { type?: "chat" | "image" | "video" | "embedding" } }>("/api/providers/polza/models", async (request, reply) => {
+app.get<{ Querystring: { type?: "chat" | "image" | "video" | "embedding"; format?: string } }>("/api/providers/polza/models", async (request, reply) => {
   try {
     if (!isPolzaEnabled()) return { ok: true, configured: false, modelCount: 0, models: [] };
     const models = await createPolzaClient().getModels(request.query.type);
+    if (request.query.format === "model-info") {
+      const normalizedModels = models.map((model) => enrichModelInfo(polzaModelInfoToModelInfo(model), "polza"));
+      return { ok: true, configured: true, modelCount: normalizedModels.length, models: normalizedModels };
+    }
     const livingCanvasModels = models.map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "polza", request.query.type) }));
     return { ok: true, configured: true, modelCount: livingCanvasModels.length, models: livingCanvasModels };
   } catch (error) {
@@ -171,6 +188,85 @@ app.get<{ Querystring: { model?: string } }>("/api/replicate/schema", async (req
   }
 });
 
+}
+
+async function loadNormalizedModelCatalog(provider?: string, filters: { capability?: string; media?: string } = {}) {
+  const normalizedProvider = typeof provider === "string" ? provider.trim().toLowerCase() : "";
+  const models = [];
+  if (!normalizedProvider || normalizedProvider === "openrouter") {
+    const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
+    models.push(...(cache?.models ?? []).map((model) => enrichModelInfo(openRouterModelInfoToModelInfo(model), "openrouter")));
+  }
+  if ((!normalizedProvider || normalizedProvider === "polza") && isPolzaEnabled()) {
+    const client = createPolzaClient();
+    const modelGroups = await Promise.all(polzaTypesForFilters(filters).map((type) => client.getModels(type).catch(() => [])));
+    models.push(...dedupeByProviderModel(modelGroups.flat()).map((model) => enrichModelInfo(polzaModelInfoToModelInfo(model), "polza")));
+  }
+  return models;
+}
+
+function polzaTypesForFilters(filters: { capability?: string; media?: string }): Array<"chat" | "image" | "video" | "embedding"> {
+  const capability = typeof filters.capability === "string" ? filters.capability.trim() : "";
+  const media = typeof filters.media === "string" ? filters.media.trim().toLowerCase() : "";
+  if (capability === "image.generate" || media === "image") return ["image"];
+  if (capability === "video.generate" || media === "video") return ["video"];
+  if (capability === "embedding.create") return ["embedding"];
+  if (capability === "text.generate" || media === "text") return ["chat"];
+  return ["chat", "image", "video", "embedding"];
+}
+
+function dedupeByProviderModel<T extends { id: string }>(models: T[]): T[] {
+  const seen = new Set<string>();
+  return models.filter((model) => {
+    if (seen.has(model.id)) return false;
+    seen.add(model.id);
+    return true;
+  });
+}
+
+function enrichModelInfo(model: ReturnType<typeof openRouterModelInfoToModelInfo> | ReturnType<typeof polzaModelInfoToModelInfo>, providerId: string) {
+  const primaryMedia = model.outputTypes?.[0] ?? capabilityMedia(model.capabilities[0]) ?? "text";
+  const livingCanvas = livingCanvasModelMetadata(model.id, providerId, primaryMedia);
+  const metadata = {
+    ...(model.metadata ?? {}),
+    generationParameters: livingCanvas.generationParameters.length ? livingCanvas.generationParameters : (model.metadata ?? {}).generationParameters,
+    maxImageInputs: livingCanvas.maxImageInputs,
+    imageReferenceSyntax: livingCanvas.imageReferenceSyntax
+  };
+  return {
+    ...model,
+    defaultParameters: { ...(model.defaultParameters ?? {}), ...(livingCanvas.defaultParameters ?? {}) },
+    metadata: compactRecord(metadata)
+  };
+}
+
+function filterNormalizedModels(models: Awaited<ReturnType<typeof loadNormalizedModelCatalog>>, filters: { capability?: string; media?: string }) {
+  const capability = typeof filters.capability === "string" ? filters.capability.trim() : "";
+  const media = typeof filters.media === "string" ? filters.media.trim().toLowerCase() : "";
+  return models.filter((model) => {
+    if (capability && !model.capabilities.includes(capability)) return false;
+    if (!media) return true;
+    const ioKinds = [
+      ...(model.inputTypes ?? []),
+      ...(model.outputTypes ?? []),
+      ...(model.ioContract?.inputs ?? []).map((item: { kind?: unknown }) => item.kind),
+      ...(model.ioContract?.outputs ?? []).map((item: { kind?: unknown }) => item.kind)
+    ].map((value) => String(value).toLowerCase());
+    return ioKinds.includes(media);
+  });
+}
+
+function capabilityMedia(capability: string | undefined): string | undefined {
+  if (!capability) return undefined;
+  if (capability.startsWith("image.")) return "image";
+  if (capability.startsWith("video.")) return "video";
+  if (capability.startsWith("audio.")) return "audio";
+  if (capability.startsWith("embedding.")) return "json";
+  return "text";
+}
+
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0)));
 }
 
 function sanitizeQuoteParams(params: unknown): Record<string, unknown> {

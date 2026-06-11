@@ -574,6 +574,27 @@ A reusable image prompt.
     expect(result.nodeResults.output.output).toEqual({ text: "hello text" });
   });
 
+  it("output.text resolves text chip references in params", async () => {
+    const executor = createExecutor();
+    registerBuiltInNodeRunners(executor);
+    const result = await executor.executeRoute(
+      {
+        routeVersion: "0.1",
+        route: { id: "text-chip-output-test", title: "Text Chip Output Test", author: {} },
+        economics: { enabled: false },
+        nodes: [
+          { id: "input", type: "input.text", params: { value: "a white sphere under a black cube" } },
+          { id: "output", type: "output.text", params: { from: "Нарисуй [[text:input]]" } }
+        ],
+        edges: [{ from: "input", to: "output", fromPort: "text", toPort: "from" }]
+      },
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-text-chip-output-")) }
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.output.output).toEqual({ text: "Нарисуй a white sphere under a black cube" });
+  });
+
   it("utility.null accepts any input and passes it through", async () => {
     const executor = createExecutor();
     registerBuiltInNodeRunners(executor);

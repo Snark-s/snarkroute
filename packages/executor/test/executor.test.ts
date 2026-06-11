@@ -359,6 +359,10 @@ describe("executor", () => {
     expect(resolveTemplates("Say {{input_prompt.output.text}}", { input_prompt: { text: "hi" } })).toBe("Say hi");
   });
 
+  it("resolves text chip references", () => {
+    expect(resolveTemplates("Say [[text:input_prompt]]", { input_prompt: { text: "hi" } })).toBe("Say hi");
+  });
+
   it("fails clearly when a template references a missing node", async () => {
     const executor = createExecutor();
     executor.registerNodeRunner("transform.template", ({ params }) => ({ output: { text: params.template } }));
