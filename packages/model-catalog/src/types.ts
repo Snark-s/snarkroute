@@ -10,7 +10,7 @@ export type ModelProviderId =
   | "unknown"
   | (string & {});
 
-export type ModelOutputType = "text" | "image" | "video" | "audio" | "embedding" | "json";
+export type ModelOutputType = "text" | "image" | "video" | "audio" | "embedding" | "json" | "unknown";
 export type ModelInputType = "text" | "image" | "video" | "audio" | "file" | "json";
 
 export type ModelParameterValue = string | number | boolean;
@@ -51,7 +51,7 @@ export interface UnifiedModelInfo extends ModelCatalogEntry {
   inputTypes: ModelInputType[];
   parameters: ModelParameterDefinition[];
   iconPath: string;
-  source: "known" | "provider";
+  catalogStatus: "known" | "unknown";
 }
 
 export type ProviderModelLike = Record<string, unknown>;

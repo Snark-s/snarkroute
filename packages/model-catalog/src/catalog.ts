@@ -8,7 +8,7 @@ import type {
   UnifiedModelInfo
 } from "./types.js";
 
-const allowedOutputTypes = new Set<ModelOutputType>(["text", "image", "video", "audio", "embedding", "json"]);
+const allowedOutputTypes = new Set<ModelOutputType>(["text", "image", "video", "audio", "embedding", "json", "unknown"]);
 const allowedInputTypes = new Set<ModelInputType>(["text", "image", "video", "audio", "file", "json"]);
 const iconBasePath = "/api/model-icons";
 
@@ -113,24 +113,30 @@ export function normalizeProviderModel(provider: ModelProviderId, providerModel:
   const known = getKnownModel(provider, providerModelId);
   if (known) return known;
 
-  const outputType = inferOutputType(providerModel);
-  const inputTypes = inferInputTypes(providerModel);
-  const iconKey = iconKeyForProviderModel(provider, providerModelId, providerModel);
+  const iconKey = iconKeyForProvider(provider);
   return {
     id: `${provider}:${providerModelId}`,
     provider,
     providerModelId,
     displayName: stringField(providerModel, "displayName") ?? stringField(providerModel, "title") ?? stringField(providerModel, "label") ?? stringField(providerModel, "name") ?? providerModelId,
-    outputType,
-    inputTypes,
-    parameters: normalizeParameters(providerModel.generationParameters ?? objectField(providerModel, "metadata").generationParameters),
+    outputType: "unknown",
+    inputTypes: [],
+    parameters: [],
     iconKey,
     iconPath: iconPathForKey(iconKey),
     aliases: [],
-    capabilities: stringArray(providerModel.capabilities),
-    maxImageInputs: numberField(providerModel, "maxImageInputs"),
-    metadata: { source: "provider" },
-    source: "provider"
+    capabilities: [],
+    metadata: {
+      providerRawHints: {
+        capabilities: stringArray(providerModel.capabilities),
+        generationParameters: providerModel.generationParameters ?? objectField(providerModel, "metadata").generationParameters,
+        inputTypes: providerModel.inputTypes,
+        outputTypes: providerModel.outputTypes,
+        architecture: providerModel.architecture,
+        maxImageInputs: providerModel.maxImageInputs
+      }
+    },
+    catalogStatus: "unknown"
   };
 }
 
@@ -158,7 +164,7 @@ function toUnifiedKnownModel(entry: ModelCatalogEntry): UnifiedModelInfo {
     inputTypes: entry.inputTypes ?? ["text"],
     parameters: entry.parameters ?? [],
     iconPath: entry.iconPath ?? iconPathForKey(entry.iconKey),
-    source: "known"
+    catalogStatus: "known"
   };
 }
 
@@ -188,70 +194,17 @@ function validateParameter(parameter: ModelParameterDefinition): void {
   }
 }
 
-function inferOutputType(model: ProviderModelLike): ModelOutputType {
-  const explicit = stringField(model, "outputType") ?? firstString(model.outputTypes) ?? firstString(objectField(model, "architecture").output_modalities);
-  const text = [
-    explicit,
-    stringField(model, "type"),
-    stringField(model, "kind"),
-    stringField(model, "description"),
-    stringField(objectField(model, "architecture"), "modality")
-  ].filter(Boolean).join(" ").toLowerCase();
-  if (/\bvideo\b/.test(text)) return "video";
-  if (/\bimage\b/.test(text)) return "image";
-  if (/\baudio|speech|music\b/.test(text)) return "audio";
-  if (/\bembedding\b/.test(text)) return "embedding";
-  if (/\bjson\b/.test(text)) return "json";
-  return "text";
-}
-
-function inferInputTypes(model: ProviderModelLike): ModelInputType[] {
-  const architecture = objectField(model, "architecture");
-  const values = [
-    ...stringArray(model.inputTypes),
-    ...stringArray(architecture.input_modalities)
-  ].map((value) => value.toLowerCase()).filter((value): value is ModelInputType => allowedInputTypes.has(value as ModelInputType));
-  return [...new Set<ModelInputType>(values.length ? values : ["text"])];
-}
-
-function normalizeParameters(value: unknown): ModelParameterDefinition[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    const record = objectField(item);
-    const id = stringField(record, "id");
-    if (!id) return [];
-    const type = record.type === "number" || record.type === "text" || record.type === "boolean" ? record.type : "select";
-    const options = Array.isArray(record.options)
-      ? record.options.flatMap((option) => {
-          const optionRecord = objectField(option);
-          const optionValue = stringField(optionRecord, "value");
-          return optionValue ? [{ value: optionValue, label: stringField(optionRecord, "label") }] : [];
-        })
-      : undefined;
-    return [{
-      id,
-      label: stringField(record, "label"),
-      type,
-      default: parameterDefault(record.default),
-      options,
-      min: numberField(record, "min"),
-      max: numberField(record, "max"),
-      step: numberField(record, "step")
-    }];
-  });
-}
-
-function iconKeyForProviderModel(provider: ModelProviderId, modelId: string, model: ProviderModelLike): string {
-  const text = `${provider} ${modelId} ${stringField(model, "name") ?? ""} ${stringField(model, "displayName") ?? ""}`.toLowerCase();
-  if (/claude|anthropic/.test(text)) return "claude";
-  if (/nano[-_\s]?banana/.test(text)) return "nano-banana";
-  if (/gemini|google/.test(text)) return "gemini";
-  if (/gpt|dall-?e|openai/.test(text)) return "gpt";
-  if (/wan/.test(text)) return "wan";
-  if (/replicate/.test(text)) return "replicate";
-  if (/polza/.test(text)) return "polza";
-  if (/openrouter/.test(text)) return "openrouter";
-  return "unknown";
+function iconKeyForProvider(provider: ModelProviderId): string {
+  const providerKey = normalizeKey(provider);
+  const icons: Record<string, string> = {
+    anthropic: "claude",
+    gemini: "gemini",
+    openai: "gpt",
+    openrouter: "openrouter",
+    polza: "polza",
+    replicate: "replicate"
+  };
+  return icons[providerKey] ?? "unknown";
 }
 
 function iconFilenameForKey(iconKey: string): string {
@@ -302,12 +255,4 @@ function numberField(record: ProviderModelLike, key: string): number | undefined
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-}
-
-function firstString(value: unknown): string | undefined {
-  return stringArray(value)[0];
-}
-
-function parameterDefault(value: unknown) {
-  return typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
