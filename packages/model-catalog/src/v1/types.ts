@@ -104,6 +104,20 @@ export type ModelCatalogEntryV1 = {
   metadata?: Record<string, unknown>;
 };
 
+export type ProviderModelInfoV1 = {
+  provider: ModelProviderIdV1;
+  providerModelId: string;
+  id: string;
+  originVendor: ModelOriginVendorV1;
+  displayName: string;
+  inputTypes: ModelInputTypeV1[];
+  outputTypes: ModelOutputTypeV1[];
+  capabilities: ModelCapabilityV1[];
+  roles: ModelRoleV1[];
+  availability: ModelAvailabilityV1;
+  metadata?: Record<string, unknown>;
+};
+
 export type ModelOptionForNodeV1 = ModelCatalogEntryV1 & {
   nodeType: string;
   storedModelId: string;
