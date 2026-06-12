@@ -109,6 +109,9 @@ app.post<{ Body: { provider?: "openrouter" | "polza" | "gemini" | "all" | string
 });
 
 app.get<{ Querystring: { format?: string } }>("/api/providers/openrouter/models", async (request) => {
+  // Provider raw endpoint: expose the cached live OpenRouter catalog.
+  // Unified V1 catalog semantics live at /api/models/v1.
+  // Node-specific executability filtering belongs in /api/models/for-node/:nodeType.
   const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
   if (request.query.format === "model-info") {
     const models = (cache?.models ?? []).map((model) => enrichModelInfo(openRouterModelInfoToModelInfo(model), "openrouter"));
@@ -116,15 +119,6 @@ app.get<{ Querystring: { format?: string } }>("/api/providers/openrouter/models"
   }
   const models = (cache?.models ?? []).map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "openrouter") }));
   return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, sourceCounts: cache?.sourceCounts, models };
-});
-
-app.get<{ Querystring: { provider?: string; capability?: string; media?: string } }>("/api/models", async (request, reply) => {
-  try {
-    const models = await loadNormalizedModelCatalog(request.query.provider, { capability: request.query.capability, media: request.query.media });
-    return filterNormalizedModels(models, { capability: request.query.capability, media: request.query.media });
-  } catch (error) {
-    return reply.code(400).send({ error: errorMessage(error) });
-  }
 });
 
 app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/api/model-gateway/quote", async (request, reply) => {
@@ -166,7 +160,8 @@ app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/ap
 app.get<{ Querystring: { type?: "chat" | "image" | "video" | "embedding"; format?: string } }>("/api/providers/polza/models", async (request, reply) => {
   try {
     if (!isPolzaEnabled()) return { ok: true, configured: false, modelCount: 0, models: [] };
-    // Provider endpoint semantics: return the live Polza provider catalog for the requested type.
+    // Provider raw endpoint: return the live Polza provider catalog for the requested type.
+    // Unified V1 catalog semantics live at /api/models/v1.
     // Node-specific executability filtering belongs in /api/models/for-node/:nodeType.
     const models = await createPolzaClient().getModels(request.query.type);
     if (request.query.format === "model-info") {
@@ -192,40 +187,6 @@ app.get<{ Querystring: { model?: string } }>("/api/replicate/schema", async (req
 
 }
 
-async function loadNormalizedModelCatalog(provider?: string, filters: { capability?: string; media?: string } = {}) {
-  const normalizedProvider = typeof provider === "string" ? provider.trim().toLowerCase() : "";
-  const models = [];
-  if (!normalizedProvider || normalizedProvider === "openrouter") {
-    const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
-    models.push(...(cache?.models ?? []).map((model) => enrichModelInfo(openRouterModelInfoToModelInfo(model), "openrouter")));
-  }
-  if ((!normalizedProvider || normalizedProvider === "polza") && isPolzaEnabled()) {
-    const client = createPolzaClient();
-    const modelGroups = await Promise.all(polzaTypesForFilters(filters).map((type) => client.getModels(type).catch(() => [])));
-    models.push(...dedupeByProviderModel(modelGroups.flat()).map((model) => enrichModelInfo(polzaModelInfoToModelInfo(model), "polza")));
-  }
-  return models;
-}
-
-function polzaTypesForFilters(filters: { capability?: string; media?: string }): Array<"chat" | "image" | "video" | "embedding"> {
-  const capability = typeof filters.capability === "string" ? filters.capability.trim() : "";
-  const media = typeof filters.media === "string" ? filters.media.trim().toLowerCase() : "";
-  if (capability === "image.generate" || media === "image") return ["image"];
-  if (capability === "video.generate" || media === "video") return ["video"];
-  if (capability === "embedding.create") return ["embedding"];
-  if (capability === "text.generate" || media === "text") return ["chat"];
-  return ["chat", "image", "video", "embedding"];
-}
-
-function dedupeByProviderModel<T extends { id: string }>(models: T[]): T[] {
-  const seen = new Set<string>();
-  return models.filter((model) => {
-    if (seen.has(model.id)) return false;
-    seen.add(model.id);
-    return true;
-  });
-}
-
 function enrichModelInfo(model: ReturnType<typeof openRouterModelInfoToModelInfo> | ReturnType<typeof polzaModelInfoToModelInfo>, providerId: string) {
   const primaryMedia = model.outputTypes?.[0] ?? capabilityMedia(model.capabilities[0]) ?? "text";
   const livingCanvas = livingCanvasModelMetadata(model.id, providerId, primaryMedia);
@@ -240,22 +201,6 @@ function enrichModelInfo(model: ReturnType<typeof openRouterModelInfoToModelInfo
     defaultParameters: { ...(model.defaultParameters ?? {}), ...(livingCanvas.defaultParameters ?? {}) },
     metadata: compactRecord(metadata)
   };
-}
-
-function filterNormalizedModels(models: Awaited<ReturnType<typeof loadNormalizedModelCatalog>>, filters: { capability?: string; media?: string }) {
-  const capability = typeof filters.capability === "string" ? filters.capability.trim() : "";
-  const media = typeof filters.media === "string" ? filters.media.trim().toLowerCase() : "";
-  return models.filter((model) => {
-    if (capability && !model.capabilities.includes(capability)) return false;
-    if (!media) return true;
-    const ioKinds = [
-      ...(model.inputTypes ?? []),
-      ...(model.outputTypes ?? []),
-      ...(model.ioContract?.inputs ?? []).map((item: { kind?: unknown }) => item.kind),
-      ...(model.ioContract?.outputs ?? []).map((item: { kind?: unknown }) => item.kind)
-    ].map((value) => String(value).toLowerCase());
-    return ioKinds.includes(media);
-  });
 }
 
 function capabilityMedia(capability: string | undefined): string | undefined {

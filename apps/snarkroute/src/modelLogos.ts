@@ -5,6 +5,7 @@ export type ModelLogo = {
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 const modelIcon = (filename: string) => `${apiBase}/api/model-icons/${encodeURIComponent(filename)}`;
+const unknownLogo = () => logos.unknown;
 
 const logos = {
   anthropic: { label: "Anthropic", src: modelIcon("claude.png") },
@@ -105,4 +106,24 @@ export function modelLogoFor(providerId: string | undefined, modelId: string | u
     if (pattern.test(providerText)) return logos[key];
   }
   return logos.unknown;
+}
+
+export function modelLogoForCatalogOption(option: {
+  providerId?: string;
+  id?: string;
+  title?: string;
+  iconPath?: string;
+}): ModelLogo {
+  const iconPath = resolvedIconPath(option.iconPath);
+  if (iconPath) return { label: option.title || "Model", src: iconPath };
+  const fallback = modelLogoFor(option.providerId, undefined);
+  return fallback.src ? fallback : unknownLogo();
+}
+
+function resolvedIconPath(value: string | undefined): string | undefined {
+  const path = value?.trim();
+  if (!path) return undefined;
+  if (/^(?:https?:|data:|blob:)/i.test(path)) return path;
+  if (path.startsWith("/")) return `${apiBase}${path}`;
+  return `${apiBase}/${path}`;
 }

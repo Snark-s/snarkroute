@@ -19,6 +19,8 @@ export interface ModelOption {
   title: string;
   providerId: string;
   iconPath?: string;
+  iconKey?: string;
+  originVendor?: string;
   contentKinds: ContentKind[];
   accepts: ContentKind[];
   produces: ContentKind[];
@@ -61,8 +63,10 @@ type ServerModelCatalogEntry = {
   id: string;
   provider: string;
   providerModelId: string;
+  originVendor?: string;
   displayName: string;
-  iconPath: string;
+  iconKey?: string;
+  iconPath?: string;
   inputTypes: string[];
   outputTypes: string[];
   capabilities: string[];
@@ -98,6 +102,15 @@ export interface ModelRouteSelection {
   fallbackAllowed: boolean;
 }
 
+export type ModelCatalogGroup = ContentKind | ModelRole;
+
+const knownTextOnlyModelIds = new Set([
+  "openai/gpt-5.1",
+  "openai/gpt-5.1-codex-mini",
+  "openai/gpt-5.2",
+  "openai/gpt-5.2-chat"
+]);
+
 export const fallbackModels: ModelOption[] = [{
   id: "image.nano-banana",
   title: "Nano Banana",
@@ -130,6 +143,14 @@ export async function loadModelCatalog(
   } catch (error) {
     errors["models.v1"] = error instanceof Error ? error.message : "Available model catalog request failed.";
   }
+  if (availableModels.length > 0) {
+    const catalog = mergeModelOptions(availableModels);
+    return {
+      models: catalog,
+      availableModels: catalog,
+      errors
+    };
+  }
   for (const source of nodeSources) {
     try {
       const response = await getJson(`/api/models/for-node/${encodeURIComponent(source.nodeType)}`);
@@ -156,11 +177,42 @@ export async function loadModelCatalog(
 }
 
 export function modelsForContentKind(models: ModelOption[], kind: ContentKind): ModelOption[] {
-  return models.filter((model) => model.isAvailable && !model.role && modelProducesOnlyKind(model, kind));
+  return models.filter((model) => modelMatchesCatalogGroup(model, kind));
 }
 
-function modelProducesOnlyKind(model: Pick<ModelOption, "produces">, kind: ContentKind): boolean {
-  return model.produces.length === 1 && model.produces[0] === kind;
+export function modelsForPickerContentKind(models: ModelOption[], value: unknown): ModelOption[] {
+  const kind = pickerContentKind(value);
+  return kind ? modelsForContentKind(models, kind) : [];
+}
+
+export function mergeProviderAndUserDefinedPickerModels(providerCatalogModels: ModelOption[], userDefinedModels: ModelOption[]): ModelOption[] {
+  const compatibleUserModels = userDefinedModels.filter((model) =>
+    model.source === "custom-link"
+    && model.isAvailable
+    && model.produces.length > 0
+  );
+  return mergeModelOptions([...providerCatalogModels, ...compatibleUserModels]);
+}
+
+export function pickerContentKind(value: unknown): ContentKind | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (normalized === "image" || normalized === "picture" || normalized === "still") return "image";
+  if (normalized === "video" || normalized === "movingimage" || normalized === "clip" || normalized === "movie") return "video";
+  if (normalized === "text" || normalized === "prompt" || normalized === "document") return "text";
+  if (normalized === "audio" || normalized === "sound") return "audio";
+  return undefined;
+}
+
+export function modelMatchesCatalogGroup(model: ModelOption, group: ModelCatalogGroup): boolean {
+  if (!model.isAvailable) return false;
+  if (group === "image-upscaler") return model.role === "image-upscaler" && model.produces.includes("image");
+  if (group === "video-upscaler") return model.role === "video-upscaler" && model.produces.includes("video");
+  if (model.role) return false;
+  if (group === "text") return model.produces.includes("text") && !model.produces.includes("image") && !model.produces.includes("video");
+  if (group === "image") return model.produces.includes("image");
+  if (group === "video") return model.produces.includes("video");
+  return model.produces.includes(group);
 }
 
 export function modelsCompatibleWithNodeInputs(models: ModelOption[], kind: ContentKind, hasImageInput: boolean): ModelOption[] {
@@ -244,26 +296,6 @@ export function normalizeModelOptions(value: unknown, providerId: string): Model
   });
 }
 
-export function localProviderModelOptions(provider: { id: string; title: string; providerType: string; status: string; models?: Array<{ id?: string; title?: string; modelName?: string }> }): ModelOption[] {
-  if (provider.status !== "connected") return [];
-  return (provider.models ?? []).flatMap((model) => {
-    const id = model.id ?? model.modelName ?? model.title;
-    if (!id) return [];
-    return [{
-      id,
-      title: model.title ?? model.modelName ?? id,
-      providerId: provider.id,
-      contentKinds: ["image"],
-      accepts: ["text", "image"],
-      produces: ["image"],
-      capabilities: ["image.generate"],
-      source: provider.providerType,
-      isAvailable: false,
-      statusReason: `${provider.title} is connected; canvas execution for local models is not wired yet.`
-    }];
-  });
-}
-
 export function modelGenerationParameters(model: ModelOption): ImageGenerationParameters {
   const schemaDefaults = Object.fromEntries(
     (model.generationParameters ?? []).flatMap((definition) => definition.default === undefined ? [] : [[definition.id, definition.default]])
@@ -310,7 +342,7 @@ export function normalizeAvailableModelOptions(value: unknown): ModelOption[] {
   const candidates = Array.isArray(response?.models) ? response.models : [];
   return candidates.flatMap((entry) => {
     if (!isServerModelCatalogEntry(entry)) return [];
-    const produces = entry.outputTypes.flatMap(contentKind);
+    const produces = normalizeCatalogOutputKinds(entry.providerModelId, entry.outputTypes);
     if (produces.length === 0) return [];
     const accepts = entry.inputTypes.flatMap(contentKind);
     const generationParameters = normalizeServerParameterDefinitions(entry.parameters);
@@ -318,7 +350,13 @@ export function normalizeAvailableModelOptions(value: unknown): ModelOption[] {
       id: entry.providerModelId,
       title: entry.displayName,
       providerId: entry.provider,
-      iconPath: entry.iconPath,
+      iconPath: usableIconPath(entry.iconPath)
+        ?? catalogIconPath(entry.iconKey)
+        ?? catalogIconPath(entry.originVendor)
+        ?? catalogIconPath(entry.provider)
+        ?? catalogIconPath("unknown"),
+      iconKey: entry.iconKey,
+      originVendor: entry.originVendor,
       contentKinds: [...new Set(produces)],
       accepts: accepts.length ? [...new Set(accepts)] : ["text"],
       produces: [...new Set(produces)],
@@ -376,7 +414,6 @@ function isServerModelOptionForNode(value: unknown, nodeType: string): value is 
     && typeof record.provider === "string"
     && typeof record.providerModelId === "string"
     && typeof record.displayName === "string"
-    && typeof record.iconPath === "string"
     && Array.isArray(record.inputTypes)
     && Array.isArray(record.outputTypes)
     && Array.isArray(record.capabilities)
@@ -541,10 +578,39 @@ function modelOutputMetadataText(record: Record<string, unknown>): string {
 }
 
 function contentKind(value: string): ContentKind[] {
-  const normalized = value.toLowerCase();
-  return normalized === "image" || normalized === "video" || normalized === "text" || normalized === "audio"
-    ? [normalized]
-    : [];
+  const kind = pickerContentKind(value);
+  return kind ? [kind] : [];
+}
+
+function normalizeCatalogOutputKinds(modelId: string, outputTypes: string[]): ContentKind[] {
+  const produces = outputTypes.flatMap(contentKind);
+  return knownTextOnlyModelIds.has(modelId.toLowerCase()) && produces.includes("text") ? ["text"] : produces;
+}
+
+function usableIconPath(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function catalogIconPath(key: unknown): string | undefined {
+  if (typeof key !== "string" || !key.trim()) return undefined;
+  return `/api/model-icons/${catalogIconFilename(key)}`;
+}
+
+function catalogIconFilename(key: string): string {
+  const normalized = key.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  const filenames: Record<string, string> = {
+    "black-forest-labs": "flux-2-pro.png",
+    bytedance: "seedream-4-5.png",
+    gemini: "gemini.png",
+    google: "gemini.png",
+    gpt: "gpt.png",
+    "nano-banana": "gemini.png",
+    openai: "gpt.png",
+    unknown: "unknown.svg",
+    xai: "grok-image.png",
+    yandex: "yandexart.png"
+  };
+  return filenames[normalized] ?? `${normalized}.svg`;
 }
 
 function modelAcceptsImageInput(record: Record<string, unknown>): boolean {

@@ -6,13 +6,16 @@ import {
   fallbackModels,
   generationParameterSummary,
   loadModelCatalog,
-  localProviderModelOptions,
   mergeModelsForDisplay,
+  mergeProviderAndUserDefinedPickerModels,
+  modelMatchesCatalogGroup,
   modelGenerationParameters,
   modelImageInputLimit,
   modelSelectionId,
   modelsCompatibleWithNodeInputs,
   modelsForContentKind,
+  modelsForPickerContentKind,
+  pickerContentKind,
   providerDisplayName,
   type ContentKind,
   type GenerationParameterValue,
@@ -23,7 +26,7 @@ import {
   type ModelRouteSelection,
   type ProviderSettings
 } from "./modelCatalog";
-import { modelLogoFor } from "./modelLogos";
+import { modelLogoForCatalogOption } from "./modelLogos";
 
 type ThemeName = "day" | "night";
 type BackgroundName = "plain" | "dots" | "grid" | "gears";
@@ -482,7 +485,6 @@ function App() {
   const [coverPicker, setCoverPicker] = useState<CoverPickerState | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
   const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
-  const [models, setModels] = useState<ModelOption[]>(fallbackModels);
   const [availableModels, setAvailableModels] = useState<ModelOption[]>(fallbackModels);
   const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
   const [providerErrors, setProviderErrors] = useState<Partial<Record<string, string>>>({});
@@ -547,12 +549,8 @@ function App() {
   const nodes = useMemo(() => library?.nodes ?? [], [library]);
   const edges = library?.canvas?.edges ?? [];
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.canvas.id, node])), [nodes]);
-  const catalogModels = useMemo(() => [
-    ...models,
-    ...customModels,
-    ...localProviders.flatMap((provider) => localProviderModelOptions(provider))
-  ], [models, customModels, localProviders]);
   const availableCatalogModels = useMemo(() => availableModels, [availableModels]);
+  const pickerCatalogModels = useMemo(() => mergeProviderAndUserDefinedPickerModels(availableCatalogModels, customModels), [availableCatalogModels, customModels]);
   const viewportScale = viewport.scale ?? 1;
 
   function beginLibraryMutation(): number {
@@ -811,13 +809,11 @@ function App() {
         }
       }
       const catalog = await loadModelCatalog(apiGet, settings);
-      setModels(catalog.models);
       setAvailableModels(catalog.availableModels);
       setProviderErrors({ ...catalog.errors, ...refreshErrors });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not load model sources.";
       setProviderErrors({ settings: message });
-      setModels(fallbackModels);
       setAvailableModels(fallbackModels);
     }
   }
@@ -870,7 +866,7 @@ function App() {
   function addCustomModel(profile: Omit<ModelOption, "isAvailable" | "statusReason">) {
     setCustomModels([
       ...customModels.filter((model) => model.id !== profile.id || model.providerId !== profile.providerId),
-      { ...profile, isAvailable: false, statusReason: "Execution adapter is not configured for custom profiles yet." }
+      { ...profile, isAvailable: true, statusReason: "User-defined model profile." }
     ]);
   }
 
@@ -2121,24 +2117,30 @@ function App() {
               setSelectedNodeIds([]);
             }}
           />
-          {nodes.map((node) => node.manifest.type === "library" ? (
-            <LibraryCardNode
-              key={node.manifest.id}
-              node={node as LibraryNodeView}
-              active={selectedNodeIds.length === 1 && selectedNodeId === node.canvas.id}
-              selected={selectedNodeIds.includes(node.canvas.id)}
-              onPointerDown={handleNodePointerDown}
-              onClick={handleNodeClick}
-              onContextMenu={handleNodeContextMenu}
-              onViewModeChange={(viewMode) => void setLibraryViewMode(node.manifest.id, viewMode)}
-              onAssetContextMenu={(event, nodeId, assetId) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setLibraryAssetMenu({ x: event.clientX, y: event.clientY, nodeId, assetId });
-              }}
-            />
-          ) : (
-            <ImageNode
+          {nodes.map((node) => {
+            if (node.manifest.type === "library") {
+              return (
+                <LibraryCardNode
+                  key={node.manifest.id}
+                  node={node as LibraryNodeView}
+                  active={selectedNodeIds.length === 1 && selectedNodeId === node.canvas.id}
+                  selected={selectedNodeIds.includes(node.canvas.id)}
+                  onPointerDown={handleNodePointerDown}
+                  onClick={handleNodeClick}
+                  onContextMenu={handleNodeContextMenu}
+                  onViewModeChange={(viewMode) => void setLibraryViewMode(node.manifest.id, viewMode)}
+                  onAssetContextMenu={(event, nodeId, assetId) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setLibraryAssetMenu({ x: event.clientX, y: event.clientY, nodeId, assetId });
+                  }}
+                />
+              );
+            }
+            const nodeKind = pickerContentKind(node.manifest.type) ?? pickerContentKind(node.canvas.type);
+            const nodeModels = modelsForPickerContentKind(pickerCatalogModels, nodeKind);
+            return (
+              <ImageNode
               key={node.manifest.id}
               node={node as ImageNodeView | VideoNodeView | TextNodeView}
               active={selectedNodeIds.length === 1 && selectedNodeId === node.canvas.id}
@@ -2191,12 +2193,12 @@ function App() {
                 event.stopPropagation();
                 setStackItemMenu({ x: event.clientX, y: event.clientY, nodeId, stackItemId });
               }}
-              models={modelsForContentKind(catalogModels, node.manifest.type as ContentKind)}
+              models={nodeModels}
               modelSelection={normalizedModelRouteSelection("modelId" in node.manifest && node.manifest.modelId ? {
                 modelId: node.manifest.modelId,
                 executionProvider: node.manifest.executionProvider ?? "auto",
                 fallbackAllowed: node.manifest.fallbackAllowed !== false
-              } : modelSelections[node.canvas.id], modelsForContentKind(catalogModels, node.manifest.type as ContentKind)[0])}
+              } : modelSelections[node.canvas.id], nodeModels[0])}
               generationFeedback={generationFeedback[node.canvas.id]}
               modelSearchOpen={modelSearchNodeId === node.canvas.id}
               onToggleModelSearch={(nodeId) => setModelSearchNodeId((current) => current === nodeId ? null : nodeId)}
@@ -2226,7 +2228,8 @@ function App() {
               onRunTextGeneration={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => void runTextGeneration(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
               onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
             />
-          ))}
+            );
+          })}
           {selectedEdge && selectedEdgeNotePosition ? (
             <div
               className="edgeNoteEditor"
@@ -2613,12 +2616,7 @@ function AvailableModels({ models }: { models: ModelOption[] }) {
 }
 
 function modelMatchesAvailableGroup(model: ModelOption, group: ContentKind | ModelRole): boolean {
-  if (!model.isAvailable) return false;
-  if (group === "image-upscaler") return model.role === "image-upscaler" && model.produces.includes("image");
-  if (group === "video-upscaler") return model.role === "video-upscaler" && model.produces.includes("video");
-  if (model.role) return false;
-  if (group === "text") return model.produces.includes("text") && !model.produces.includes("image") && !model.produces.includes("video");
-  return model.produces.includes(group);
+  return modelMatchesCatalogGroup(model, group);
 }
 
 function CustomModelForm({ onAdd }: { onAdd: (profile: Omit<ModelOption, "isAvailable" | "statusReason">) => void }) {
@@ -2640,6 +2638,7 @@ function CustomModelForm({ onAdd }: { onAdd: (profile: Omit<ModelOption, "isAvai
     if (!title.trim() || !url.trim()) return;
     const accepts = parseKinds(inputKinds);
     const produces = parseKinds(outputKinds);
+    if (produces.length === 0) return;
     onAdd({
       id: `custom:${url.trim()}`,
       title: title.trim(),
@@ -2669,7 +2668,7 @@ function CustomModelForm({ onAdd }: { onAdd: (profile: Omit<ModelOption, "isAvai
               <label>Input kinds<input value={inputKinds} onChange={(event) => setInputKinds(event.currentTarget.value)} /></label>
               <label>Output kinds<input value={outputKinds} onChange={(event) => setOutputKinds(event.currentTarget.value)} /></label>
               <label>Capabilities<input value={capabilities} onChange={(event) => setCapabilities(event.currentTarget.value)} /></label>
-              <button type="button" disabled={!title.trim()} onClick={addProfile}>Save custom profile</button>
+              <button type="button" disabled={!title.trim() || parseKinds(outputKinds).length === 0} onClick={addProfile}>Save custom profile</button>
             </div>
           )}
         </>
@@ -3938,7 +3937,7 @@ function positiveFinite(value: unknown): value is number {
 }
 
 function modelLogoForOption(model: Pick<ModelOption, "providerId" | "id" | "title" | "iconPath">) {
-  return model.iconPath ? { label: model.title, src: model.iconPath } : modelLogoFor(model.providerId, model.id);
+  return modelLogoForCatalogOption(model);
 }
 
 function GenerationParameterControl({

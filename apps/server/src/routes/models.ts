@@ -18,7 +18,7 @@ app.addHook("onRequest", async (request, reply) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url, "http://localhost");
   if (url.pathname === "/api/models/v1") {
-    // V1 assembled catalog: live provider records merged with curated metadata overlays.
+    // Model Catalog V1: live provider catalogs merged with curated metadata overlays.
     // Curated metadata is not an availability whitelist.
     const models = filterModelsV1(await loadLiveModelCatalogV1(), {
       provider: normalizeQueryValue(url.searchParams.get("provider")),
@@ -31,13 +31,16 @@ app.addHook("onRequest", async (request, reply) => {
 
   const nodeType = nodeTypeFromForNodePath(url.pathname);
   if (nodeType) {
-    // Node-compatible options: executor-safe selectable models for a specific nodeType.
+    // Node-compatible endpoint: executor-safe selectable models for a specific nodeType.
     // Provider-native selectors must use storedModelId, not the unified catalog id.
     const models = modelOptionsForNodeV1(nodeType, await loadLiveModelCatalogV1(nodeType));
     return reply.send({ ok: true, nodeType, modelCount: models.length, models });
   }
 
   if (url.pathname !== "/api/models") return;
+  // Legacy compatibility endpoint for Studio callers that still consume UnifiedModelInfo
+  // with singular outputType. Do not merge live provider catalogs here; use /api/models/v1
+  // for the unified live catalog and /api/models/for-node/:nodeType for selectors.
   const query: ModelCatalogQuery = {
     provider: url.searchParams.get("provider") ?? undefined,
     outputType: url.searchParams.get("outputType") ?? undefined,

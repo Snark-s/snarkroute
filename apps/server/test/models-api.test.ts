@@ -31,6 +31,48 @@ describe("model catalog API", () => {
     }
   });
 
+  it("serves /api/models from the single explicit legacy implementation", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models?media=image" });
+      const body = response.json();
+
+      expect(response.statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.modelCount).toBe(listKnownModels().length);
+      expect(body.models.length).toBe(body.modelCount);
+      expect(body.models.every((model: { outputType: string; outputTypes?: unknown }) =>
+        typeof model.outputType === "string" && model.outputTypes === undefined
+      )).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns the Model Catalog V1 shape from /api/models/v1", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/v1" });
+      const body = response.json();
+
+      expect(response.statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.modelCount).toBeGreaterThan(0);
+      expect(body.models.length).toBe(body.modelCount);
+      expect(body.models[0]).toMatchObject({
+        id: expect.any(String),
+        provider: expect.any(String),
+        providerModelId: expect.any(String),
+        outputTypes: expect.any(Array),
+        inputTypes: expect.any(Array),
+        capabilities: expect.any(Array),
+        roles: expect.any(Array)
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("filters image models by outputType", async () => {
     const app = buildServer();
     try {
@@ -86,6 +128,26 @@ describe("model catalog API", () => {
       expect(body.models.length).toBe(body.modelCount);
       expect(body.models.length).toBeGreaterThan(0);
       expect(body.models.every((model: { capabilities?: string[] }) => model.capabilities?.includes("image.generate"))).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns provider-native ai.image.generate options with the direct fallback", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/for-node/ai.image.generate" });
+      const body = response.json();
+      const optionIds = body.models.map((model: { storedModelId: string }) => model.storedModelId);
+
+      expect(response.statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.nodeType).toBe("ai.image.generate");
+      expect(optionIds).toContain("image.nano-banana");
+      expect(optionIds).not.toContain("openrouter/auto");
+      expect(body.models.every((model: { storedModelId: string; providerModelId: string }) =>
+        model.storedModelId === model.providerModelId
+      )).toBe(true);
     } finally {
       await app.close();
     }
