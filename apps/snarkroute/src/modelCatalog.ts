@@ -104,13 +104,6 @@ export interface ModelRouteSelection {
 
 export type ModelCatalogGroup = ContentKind | ModelRole;
 
-const knownTextOnlyModelIds = new Set([
-  "openai/gpt-5.1",
-  "openai/gpt-5.1-codex-mini",
-  "openai/gpt-5.2",
-  "openai/gpt-5.2-chat"
-]);
-
 export const fallbackModels: ModelOption[] = [{
   id: "image.nano-banana",
   title: "Nano Banana",
@@ -342,7 +335,7 @@ export function normalizeAvailableModelOptions(value: unknown): ModelOption[] {
   const candidates = Array.isArray(response?.models) ? response.models : [];
   return candidates.flatMap((entry) => {
     if (!isServerModelCatalogEntry(entry)) return [];
-    const produces = normalizeCatalogOutputKinds(entry.providerModelId, entry.outputTypes);
+    const produces = entry.outputTypes.flatMap(contentKind);
     if (produces.length === 0) return [];
     const accepts = entry.inputTypes.flatMap(contentKind);
     const generationParameters = normalizeServerParameterDefinitions(entry.parameters);
@@ -580,11 +573,6 @@ function modelOutputMetadataText(record: Record<string, unknown>): string {
 function contentKind(value: string): ContentKind[] {
   const kind = pickerContentKind(value);
   return kind ? [kind] : [];
-}
-
-function normalizeCatalogOutputKinds(modelId: string, outputTypes: string[]): ContentKind[] {
-  const produces = outputTypes.flatMap(contentKind);
-  return knownTextOnlyModelIds.has(modelId.toLowerCase()) && produces.includes("text") ? ["text"] : produces;
 }
 
 function usableIconPath(value: unknown): string | undefined {

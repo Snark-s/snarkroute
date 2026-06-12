@@ -43,10 +43,10 @@ describe("Living Canvas model catalog", () => {
   it("uses V1 output types for generic rendered picker choices", async () => {
     const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
       ? { models: [
-          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.1", displayName: "GPT 5.1", inputTypes: ["text", "image"], outputTypes: ["text", "image"], capabilities: ["text.generate", "image.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.1", displayName: "GPT 5.1", inputTypes: ["text", "image"], outputTypes: ["text"], capabilities: ["text.generate"] }),
           v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.1-codex-mini", displayName: "GPT 5.1 Codex Mini", outputTypes: ["text"], capabilities: ["text.generate"] }),
           v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.2", displayName: "GPT 5.2", outputTypes: ["text"], capabilities: ["text.generate"] }),
-          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.2-chat", displayName: "GPT 5.2 Chat", outputTypes: ["text", "image"], capabilities: ["text.generate", "image.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.2-chat", displayName: "GPT 5.2 Chat", outputTypes: ["text"], capabilities: ["text.generate"] }),
           v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.2-mixed-output", displayName: "GPT 5.2 Mixed", outputTypes: ["text", "image"], capabilities: ["text.generate"] }),
           v1Model({ provider: "polza", providerModelId: "openai/gpt-5.4-image-2", displayName: "GPT Image", outputTypes: ["image"], capabilities: ["image.generate"] }),
           v1Model({ provider: "polza", providerModelId: "qwen/image-2", displayName: "Qwen Image", outputTypes: ["image"], capabilities: ["image.generate"] }),

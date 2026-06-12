@@ -39,6 +39,13 @@ export type AssembleModelCatalogV1Input = {
   curatedMetadata?: CuratedModelMetadataV1[];
 };
 
+const textOnlyProviderModelIds = new Set([
+  "openai/gpt-5.1",
+  "openai/gpt-5.1-codex-mini",
+  "openai/gpt-5.2",
+  "openai/gpt-5.2-chat"
+]);
+
 export function assembleModelCatalogV1(input: AssembleModelCatalogV1Input): ModelCatalogEntryV1[] {
   return assembleProviderModelsV1([
     ...normalizePolzaModelsForCatalogV1(input.polzaModels ?? []),
@@ -157,6 +164,8 @@ function inputTypesForModel(model: RawProviderModelV1): ModelInputTypeV1[] {
 }
 
 function outputTypesForModel(model: RawProviderModelV1): ModelOutputTypeV1[] {
+  const providerModelId = stringValue(model.id)?.toLowerCase();
+  if (providerModelId && textOnlyProviderModelIds.has(providerModelId)) return ["text"];
   const explicit = normalizeOutputTypes([
     ...stringArray(model.outputTypes),
     ...stringArray(model.architecture?.output_modalities),

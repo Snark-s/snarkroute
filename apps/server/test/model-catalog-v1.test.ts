@@ -144,6 +144,27 @@ describe("server Model Catalog V1 assembly", () => {
     expect(options.every((entry) => entry.providerModelId === entry.storedModelId)).toBe(true);
   });
 
+  it("normalizes known text-only GPT models to text output even when provider metadata also lists image", () => {
+    const textModelIds = [
+      "openai/gpt-5.1",
+      "openai/gpt-5.1-codex-mini",
+      "openai/gpt-5.2",
+      "openai/gpt-5.2-chat"
+    ];
+    const catalog = assembleModelCatalogV1({
+      polzaModels: textModelIds.map((id) => ({
+        id,
+        type: "chat",
+        outputTypes: ["text", "image"],
+        capabilities: ["text.generate", "image.generate"]
+      }))
+    });
+
+    for (const id of textModelIds) {
+      expect(catalog.find((entry) => entry.providerModelId === id)?.outputTypes).toEqual(["text"]);
+    }
+  });
+
   it("keeps OpenRouter image options for ai.image.generate", () => {
     const catalog = assembleModelCatalogV1({
       openRouterModels: [
