@@ -56,7 +56,7 @@ import {
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
 import { studioDocs, type StudioDocEntry } from "./docsRegistry";
 import { MarkdownDocument } from "./MarkdownDocument";
-import { fetchImageCatalogModels } from "./modelCatalogClient";
+import { fetchImageCatalogModels, fetchModelsForNode } from "./modelCatalogClient";
 import { modelLogoFor, type ModelLogo } from "./modelLogos";
 import {
   availableCanvasThemes,
@@ -124,6 +124,7 @@ import type {
   LibrarySortMode,
   LibraryStatusFilter,
   ModelQuotePreview,
+  ModelOptionForNodeV1,
   NodeCatalogItem,
   NodeLibraryLayout,
   NodeLibraryPreview,
@@ -565,6 +566,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
   const stableDiffusionModels = (data.stableDiffusionModels as StableDiffusionModel[] | undefined) ?? [];
   const openRouterModels = (data.openRouterModels as OpenRouterModel[] | undefined) ?? [];
   const catalogImageModels = (data.catalogImageModels as UnifiedModelInfo[] | null | undefined) ?? null;
+  const modelOptionsForNodes = (data.modelOptionsForNodes as Record<string, ModelOptionForNodeV1[] | undefined> | undefined) ?? {};
   const modelProfiles = (data.modelProfiles as ModelProfile[] | undefined) ?? DEFAULT_MODEL_PROFILES;
   const polzaTextModels = (data.polzaTextModels as PolzaModel[] | undefined) ?? [];
   const polzaImageModels = (data.polzaImageModels as PolzaModel[] | undefined) ?? [];
@@ -859,6 +861,7 @@ function RouteNodeCard({ id, data }: NodeProps) {
           stableDiffusionModels={stableDiffusionModels}
           openRouterModels={openRouterModels}
           catalogImageModels={catalogImageModels}
+          modelOptionsForNodes={modelOptionsForNodes}
           modelProfiles={modelProfiles}
           polzaTextModels={polzaTextModels}
           polzaImageModels={polzaImageModels}
@@ -2340,6 +2343,7 @@ function NodeInlineParams({
   stableDiffusionModels,
   openRouterModels,
   catalogImageModels,
+  modelOptionsForNodes,
   polzaTextModels,
   polzaImageModels,
   polzaVideoModels,
@@ -2369,6 +2373,7 @@ function NodeInlineParams({
   stableDiffusionModels: StableDiffusionModel[];
   openRouterModels: OpenRouterModel[];
   catalogImageModels: UnifiedModelInfo[] | null;
+  modelOptionsForNodes: Record<string, ModelOptionForNodeV1[] | undefined>;
   polzaTextModels: PolzaModel[];
   polzaImageModels: PolzaModel[];
   polzaVideoModels: PolzaModel[];
@@ -2746,17 +2751,22 @@ function NodeInlineParams({
     const systemPromptConnected = connectedInputPorts.has("systemPrompt");
     const promptConnected = connectedInputPorts.has("prompt");
     const model = String(params.model ?? "text.default");
+    const nodeModelOptions = modelOptionsForNodes["ai.text"] ?? [];
+    const selectedNodeModel = nodeModelOptions.find((entry) => entry.storedModelId === model);
     return (
       <>
         <label className="nodeField">
           <span className="nodeFieldTitle">model {modelCreditBadge}</span>
-          <ModelSelectWithLogo logo={modelLogoFor("openrouter", model)}>
+          <ModelSelectWithLogo logo={modelOptionForNodeLogo(selectedNodeModel) ?? modelLogoFor("openrouter", model)}>
             <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
               <option value="text.default">Auto / default text model</option>
-              {openRouterModels.filter((entry) => modelSupportsText(entry)).map((entry) => (
-                <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, openRouterModelSupportsVisionInput(entry))}</option>
-              ))}
-              {model && model !== "text.default" && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
+              {(nodeModelOptions.length > 0
+                ? nodeModelOptions.map((entry) => <option key={entry.id} value={entry.storedModelId}>{modelOptionForNodeLabel(entry)}</option>)
+                : openRouterModels.filter((entry) => modelSupportsText(entry)).map((entry) => (
+                  <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, openRouterModelSupportsVisionInput(entry))}</option>
+                ))
+              )}
+              {model && model !== "text.default" && !nodeModelOptions.some((entry) => entry.storedModelId === model) && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
             </select>
           </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{openRouterCostLabel(openRouterModels.find((entry) => entry.id === model))}</small>
@@ -2792,7 +2802,10 @@ function NodeInlineParams({
     const promptConnected = connectedInputPorts.has("prompt");
     const model = String(params.model ?? "image.nano-banana");
     const connectionRoute = String(params.providerMode ?? "auto");
-    const modelOptions = enrichImageGenerationModelOptions(imageGenerationModelOptions(openRouterModels, model), catalogImageModels ?? []);
+    const nodeModelOptions = modelOptionsForNodes["ai.image.generate"] ?? [];
+    const modelOptions = nodeModelOptions.length > 0
+      ? imageModelOptionsFromNodeOptions(nodeModelOptions, model)
+      : enrichImageGenerationModelOptions(imageGenerationModelOptions(openRouterModels, model), catalogImageModels ?? []);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
     const aspectRatioOptions = imageAspectRatioOptions(selectedModel);
     const imageSizeOptions = imageSizeOptionsForModel(selectedModel);
@@ -2873,7 +2886,10 @@ function NodeInlineParams({
     const systemPromptConnected = connectedInputPorts.has("systemPrompt");
     const promptConnected = connectedInputPorts.has("prompt");
     const model = String(params.model ?? POLZA_TEXT_MODEL_OPTIONS[0].id);
-    const modelOptions = polzaModelOptions(polzaTextModels, POLZA_TEXT_MODEL_OPTIONS, model);
+    const nodeModelOptions = modelOptionsForNodes["polza.text"] ?? [];
+    const modelOptions = nodeModelOptions.length > 0
+      ? polzaModelsFromNodeOptions(nodeModelOptions, model)
+      : polzaModelOptions(polzaTextModels, POLZA_TEXT_MODEL_OPTIONS, model);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
     return (
       <>
@@ -2912,7 +2928,10 @@ function NodeInlineParams({
   if (type === "polza.image.generate") {
     const promptConnected = connectedInputPorts.has("prompt");
     const model = polzaProviderModelId(String(params.model ?? POLZA_IMAGE_MODEL_OPTIONS[0].id));
-    const modelOptions = enrichPolzaImageModelOptions(polzaModelOptions(polzaImageModels, polzaImageModels.length > 0 ? [] : POLZA_IMAGE_MODEL_OPTIONS, model, true, false), catalogImageModels ?? []);
+    const nodeModelOptions = modelOptionsForNodes["polza.image.generate"] ?? [];
+    const modelOptions = nodeModelOptions.length > 0
+      ? polzaModelsFromNodeOptions(nodeModelOptions, model)
+      : enrichPolzaImageModelOptions(polzaModelOptions(polzaImageModels, polzaImageModels.length > 0 ? [] : POLZA_IMAGE_MODEL_OPTIONS, model, true, false), catalogImageModels ?? []);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
     const selectedModelId = selectedModel?.id ?? modelOptions[0]?.id ?? model;
     const aspectRatio = supportedOptionValue(params.aspectRatio, POLZA_IMAGE_ASPECT_RATIOS);
@@ -2976,7 +2995,10 @@ function NodeInlineParams({
     const promptConnected = connectedInputPorts.has("prompt");
     const model = isPolzaVideoUpscaleModelId(String(params.model ?? "")) ? POLZA_VIDEO_MODEL_OPTIONS[0].id : String(params.model ?? POLZA_VIDEO_MODEL_OPTIONS[0].id);
     const executionProvider = String(params.executionProvider ?? "polza") === "openrouter" ? "openrouter" : "polza";
-    const modelOptions = videoGenerationModelOptions(openRouterModels, polzaVideoModels, model);
+    const nodeModelOptions = modelOptionsForNodes["polza.video.generate"] ?? [];
+    const modelOptions = nodeModelOptions.length > 0
+      ? videoModelOptionsFromNodeOptions(nodeModelOptions, model)
+      : videoGenerationModelOptions(openRouterModels, polzaVideoModels, model);
     const selectedModel = modelOptions.find((entry) => entry.id === model && entry.providerId === executionProvider) ?? modelOptions.find((entry) => entry.id === model);
     const selectedModelKey = selectedModel ? videoModelOptionKey(selectedModel) : `polza:${model}`;
     const resolution = supportedOptionValue(params.resolution, POLZA_VIDEO_RESOLUTIONS);
@@ -5614,6 +5636,7 @@ function App() {
   const [openRouterSettings, setOpenRouterSettings] = useState<OpenRouterSettings>({ configured: false });
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
   const [catalogImageModels, setCatalogImageModels] = useState<UnifiedModelInfo[] | null>(null);
+  const [modelOptionsForNodes, setModelOptionsForNodes] = useState<Record<string, ModelOptionForNodeV1[] | undefined>>({});
   const [polzaTextModels, setPolzaTextModels] = useState<PolzaModel[]>([]);
   const [polzaImageModels, setPolzaImageModels] = useState<PolzaModel[]>([]);
   const [polzaVideoModels, setPolzaVideoModels] = useState<PolzaModel[]>([]);
@@ -5898,6 +5921,7 @@ function App() {
           openRouterConfigured: openRouterSettings.configured,
           openRouterModels,
           catalogImageModels,
+          modelOptionsForNodes,
           modelProfiles,
           polzaConfigured,
           polzaTextModels,
@@ -5914,7 +5938,7 @@ function App() {
           result: staleResultNodeIds.has(node.id) ? undefined : readyNodeResult(node.data.routeNode as RouteDoc["nodes"][number], runResult?.nodeResults?.[node.id], nodes, edges, runResult)
         }
       })),
-    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, catalogImageModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, catalogImageModels, modelOptionsForNodes, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
@@ -5926,6 +5950,7 @@ function App() {
     void loadSystemUpdateStatus();
     void loadProviderLinks();
     void loadCatalogImageModels();
+    void loadModelOptionsForNodes();
     void loadOpenRouterModels();
     void loadPolzaModels();
     void loadNodeCatalog();
@@ -6278,6 +6303,18 @@ function App() {
       if (models.length > 0) setLogs((current) => [`Image model catalog loaded: ${models.length} models.`, ...current]);
     } catch {
       setCatalogImageModels(null);
+    }
+  }
+
+  async function loadModelOptionsForNodes() {
+    const nodeTypes = ["polza.image.generate", "polza.text", "polza.video.generate", "ai.image.generate", "ai.text"];
+    try {
+      const entries = await Promise.all(nodeTypes.map(async (nodeType) => [nodeType, await fetchModelsForNode(nodeType)] as const));
+      setModelOptionsForNodes(Object.fromEntries(entries));
+      const total = entries.reduce((sum, [, models]) => sum + models.length, 0);
+      if (total > 0) setLogs((current) => [`Model Catalog V1 node options loaded: ${total} options.`, ...current]);
+    } catch {
+      setModelOptionsForNodes({});
     }
   }
 
@@ -11689,6 +11726,103 @@ function enrichImageGenerationModelOptions(options: ImageModelOption[], catalogM
       imageSizes: selectParameterValues(catalogModel.parameters, "imageSize") ?? option.imageSizes
     };
   });
+}
+
+function imageModelOptionsFromNodeOptions(options: ModelOptionForNodeV1[], selectedModelId: string): ImageModelOption[] {
+  const mapped = options.map((entry): ImageModelOption => ({
+    id: entry.storedModelId,
+    slug: entry.providerModelId,
+    label: entry.displayName,
+    provider: providerLabelForModelOption(entry),
+    capabilities: entry.capabilities,
+    iconPath: entry.iconPath,
+    parameters: entry.parameters,
+    catalogModelId: entry.id,
+    catalogProviderModelId: entry.providerModelId,
+    aspectRatios: selectParameterValues(entry.parameters, "aspectRatio"),
+    imageSizes: selectParameterValues(entry.parameters, "imageSize"),
+    supportsImageGeneration: "supported",
+    routeSupport: {
+      openrouter: entry.executionProvider === "openrouter" ? "supported" : "unsupported",
+      direct: entry.executionProvider === "gemini" ? "supported" : "unknown"
+    },
+    pricing: entry.pricing
+  }));
+  if (selectedModelId && !mapped.some((entry) => entry.id === selectedModelId)) {
+    mapped.push({
+      id: selectedModelId,
+      slug: selectedModelId,
+      label: selectedModelId,
+      provider: selectedModelId.includes("/") ? providerFromSlug(selectedModelId) : "unknown",
+      capabilities: [],
+      aspectRatios: imageAspectRatiosForSlug(selectedModelId),
+      imageSizes: imageSizesForSlug(selectedModelId),
+      supportsImageGeneration: "unknown",
+      routeSupport: { openrouter: selectedModelId.includes("/") ? "unknown" : "unsupported", direct: "unknown" },
+      disabled: true,
+      note: "not in current catalog"
+    });
+  }
+  return mapped;
+}
+
+function polzaModelsFromNodeOptions(options: ModelOptionForNodeV1[], selectedModelId: string): PolzaModel[] {
+  const mapped = options
+    .filter((entry) => entry.provider === "polza" && entry.executionProvider === "polza" && !entry.storedModelId.startsWith("polza:"))
+    .map((entry): PolzaModel => ({
+      id: entry.storedModelId,
+      name: entry.displayName,
+      title: entry.displayName,
+      providerId: entry.provider,
+      capabilities: entry.capabilities,
+      iconPath: entry.iconPath,
+      catalogModelId: entry.id,
+      catalogProviderModelId: entry.providerModelId,
+      catalogParameters: entry.parameters,
+      inputTypes: entry.inputTypes,
+      outputTypes: entry.outputTypes,
+      pricing: entry.pricing,
+      short_description: entry.compatibilityReason,
+      metadata: entry.metadata
+    }));
+  if (selectedModelId && !mapped.some((entry) => entry.id === selectedModelId)) {
+    mapped.push({ id: selectedModelId, name: selectedModelId });
+  }
+  return mapped;
+}
+
+function videoModelOptionsFromNodeOptions(options: ModelOptionForNodeV1[], selectedModelId: string): VideoModelOption[] {
+  const mapped = options
+    .filter((entry) => entry.provider === "polza" && entry.executionProvider === "polza" && !entry.storedModelId.startsWith("polza:"))
+    .map((entry): VideoModelOption => ({
+      id: entry.storedModelId,
+      name: entry.displayName,
+      providerId: "polza",
+      providerLabel: "Polza.ai",
+      pricing: entry.pricing,
+      short_description: entry.compatibilityReason,
+      architecture: { input_modalities: entry.inputTypes, output_modalities: entry.outputTypes },
+      generationParameters: entry.parameters
+    }));
+  if (selectedModelId && !mapped.some((entry) => entry.id === selectedModelId)) {
+    mapped.push({ id: selectedModelId, name: selectedModelId, providerId: "polza", providerLabel: "Polza.ai" });
+  }
+  return mapped;
+}
+
+function modelOptionForNodeLogo(option: ModelOptionForNodeV1 | undefined): ModelLogo | undefined {
+  if (!option?.iconPath) return undefined;
+  return { id: option.iconKey || option.provider, label: option.displayName, src: `${apiBase}${option.iconPath}` };
+}
+
+function modelOptionForNodeLabel(option: ModelOptionForNodeV1): string {
+  return option.displayName === option.storedModelId ? option.storedModelId : `${option.displayName} (${option.storedModelId})`;
+}
+
+function providerLabelForModelOption(option: ModelOptionForNodeV1): string {
+  if (option.provider === "openrouter") return providerFromSlug(option.providerModelId);
+  if (option.provider === "polza") return "Polza";
+  return option.provider;
 }
 
 function enrichPolzaImageModelOptions(options: PolzaModel[], catalogModels: UnifiedModelInfo[]): PolzaModel[] {

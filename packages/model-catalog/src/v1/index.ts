@@ -34,3 +34,10 @@ export {
   mergeProviderModelWithCuratedMetadata,
   mergeProviderModelsWithCuratedMetadata
 } from "./catalog-merge.js";
+
+export {
+  findCuratedModelMetadataV1,
+  getCuratedModelMetadataV1,
+  listCuratedAliasesV1,
+  listCuratedModelMetadataV1
+} from "./curated-metadata.js";

@@ -403,6 +403,29 @@ export type UnifiedModelInfo = {
   metadata?: Record<string, unknown>;
 };
 
+export type ModelOptionForNodeV1 = {
+  id: string;
+  provider: string;
+  providerModelId: string;
+  originVendor?: string;
+  displayName: string;
+  iconKey: string;
+  iconPath: string;
+  inputTypes: string[];
+  outputTypes: string[];
+  capabilities: string[];
+  roles: string[];
+  availability?: Record<string, unknown>;
+  parameters: ModelParameterDefinition[];
+  catalogStatus: "known" | "unknown";
+  nodeType: string;
+  storedModelId: string;
+  executionProvider: string;
+  compatibilityReason?: string;
+  metadata?: Record<string, unknown>;
+  pricing?: Record<string, unknown>;
+};
+
 export type VideoModelOption = {
   id: string;
   name?: string;
