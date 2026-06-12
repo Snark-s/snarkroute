@@ -19,6 +19,7 @@ import {
   type ImageGenerationParameters,
   type ModelOption,
   type ModelParameterDefinition,
+  type ModelRole,
   type ModelRouteSelection,
   type ProviderSettings
 } from "./modelCatalog";
@@ -482,6 +483,7 @@ function App() {
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
   const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
   const [models, setModels] = useState<ModelOption[]>(fallbackModels);
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>(fallbackModels);
   const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
   const [providerErrors, setProviderErrors] = useState<Partial<Record<string, string>>>({});
   const [providerNotice, setProviderNotice] = useState<Partial<Record<string, string>>>({});
@@ -550,6 +552,7 @@ function App() {
     ...customModels,
     ...localProviders.flatMap((provider) => localProviderModelOptions(provider))
   ], [models, customModels, localProviders]);
+  const availableCatalogModels = useMemo(() => availableModels, [availableModels]);
   const viewportScale = viewport.scale ?? 1;
 
   function beginLibraryMutation(): number {
@@ -809,11 +812,13 @@ function App() {
       }
       const catalog = await loadModelCatalog(apiGet, settings);
       setModels(catalog.models);
+      setAvailableModels(catalog.availableModels);
       setProviderErrors({ ...catalog.errors, ...refreshErrors });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not load model sources.";
       setProviderErrors({ settings: message });
       setModels(fallbackModels);
+      setAvailableModels(fallbackModels);
     }
   }
 
@@ -2417,7 +2422,7 @@ function App() {
             settings={providerSettings}
             errors={providerErrors}
             notices={providerNotice}
-            models={catalogModels}
+            models={availableCatalogModels}
             localProviders={localProviders}
             onConnect={saveProviderToken}
             onTest={testProvider}
@@ -2571,12 +2576,12 @@ function ProviderConnectionCard({
 
 function AvailableModels({ models }: { models: ModelOption[] }) {
   const groups: Array<{ label: string; includes: (model: ModelOption) => boolean }> = [
-    { label: "Image", includes: (model) => modelsForContentKind([model], "image").length > 0 },
-    { label: "Video", includes: (model) => modelsForContentKind([model], "video").length > 0 },
-    { label: "Text", includes: (model) => modelsForContentKind([model], "text").length > 0 },
-    { label: "Audio", includes: (model) => modelsForContentKind([model], "audio").length > 0 },
-    { label: "Image upscalers", includes: (model) => model.role === "image-upscaler" },
-    { label: "Video upscalers", includes: (model) => model.role === "video-upscaler" }
+    { label: "Image", includes: (model) => modelMatchesAvailableGroup(model, "image") },
+    { label: "Video", includes: (model) => modelMatchesAvailableGroup(model, "video") },
+    { label: "Text", includes: (model) => modelMatchesAvailableGroup(model, "text") },
+    { label: "Audio", includes: (model) => modelMatchesAvailableGroup(model, "audio") },
+    { label: "Image upscalers", includes: (model) => modelMatchesAvailableGroup(model, "image-upscaler") },
+    { label: "Video upscalers", includes: (model) => modelMatchesAvailableGroup(model, "video-upscaler") }
   ];
   return (
     <section className="modelsSection availableModels">
@@ -2605,6 +2610,15 @@ function AvailableModels({ models }: { models: ModelOption[] }) {
       })}
     </section>
   );
+}
+
+function modelMatchesAvailableGroup(model: ModelOption, group: ContentKind | ModelRole): boolean {
+  if (!model.isAvailable) return false;
+  if (group === "image-upscaler") return model.role === "image-upscaler" && model.produces.includes("image");
+  if (group === "video-upscaler") return model.role === "video-upscaler" && model.produces.includes("video");
+  if (model.role) return false;
+  if (group === "text") return model.produces.includes("text") && !model.produces.includes("image") && !model.produces.includes("video");
+  return model.produces.includes(group);
 }
 
 function CustomModelForm({ onAdd }: { onAdd: (profile: Omit<ModelOption, "isAvailable" | "statusReason">) => void }) {
@@ -2702,11 +2716,11 @@ async function discoverLocalModels(endpointUrl: string, providerType: string): P
 
 function providerModelCounts(models: ModelOption[], providerId: string): string[] {
   return (["image", "video", "text", "audio"] as ContentKind[]).flatMap((kind) => {
-    const count = models.filter((model) => model.providerId === providerId && model.isAvailable && !model.role && model.produces.includes(kind)).length;
+    const count = models.filter((model) => model.providerId === providerId && modelMatchesAvailableGroup(model, kind)).length;
     return count ? [`${kind}: ${count}`] : [];
   }).concat(
-    models.some((model) => model.providerId === providerId && model.isAvailable && model.role === "image-upscaler") ? ["image upscalers"] : [],
-    models.some((model) => model.providerId === providerId && model.isAvailable && model.role === "video-upscaler") ? ["video upscalers"] : []
+    models.some((model) => model.providerId === providerId && modelMatchesAvailableGroup(model, "image-upscaler")) ? ["image upscalers"] : [],
+    models.some((model) => model.providerId === providerId && modelMatchesAvailableGroup(model, "video-upscaler")) ? ["video upscalers"] : []
   );
 }
 
@@ -3210,7 +3224,7 @@ function ImageNode({
     || providers.some((provider) => provider.toLowerCase().includes(normalizedModelQuery) || providerDisplayName(provider).toLowerCase().includes(normalizedModelQuery))
     || routes.some((route) => route.title.toLowerCase().includes(normalizedModelQuery) || route.id.toLowerCase().includes(normalizedModelQuery))
   );
-  const selectedModelLogo = modelLogoFor(selectedModel.providerId, selectedModel.id);
+  const selectedModelLogo = modelLogoForOption(selectedModel);
   const selectedModelKey = `${selectedModel.id}:${effectiveSelection.executionProvider}`;
   const parameterDefinitions = selectedModel.generationParameters ?? [];
   const imageInputs = orderedInputNodes.filter((input) => input.type === "image");
@@ -3407,7 +3421,7 @@ function ImageNode({
                     <div className="modelMenuList" data-canvas-wheel-scroll>
                       {visibleModels.map(({ model, providers }) => (
                         <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
-                          <img src={modelLogoFor(model.providerId, model.id).src} alt="" />
+                          <img src={modelLogoForOption(model).src} alt="" />
                           <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
                         </button>
                       ))}
@@ -3615,7 +3629,7 @@ function ImageNode({
                   <div className="modelMenuList" data-canvas-wheel-scroll>
                     {visibleModels.map(({ model, providers }) => (
                       <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
-                        <img src={modelLogoFor(model.providerId, model.id).src} alt="" />
+                <img src={modelLogoForOption(model).src} alt="" />
                         <span>
                           <strong>{model.title}</strong>
                           <small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>
@@ -3923,6 +3937,10 @@ function positiveFinite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
+function modelLogoForOption(model: Pick<ModelOption, "providerId" | "id" | "title" | "iconPath">) {
+  return model.iconPath ? { label: model.title, src: model.iconPath } : modelLogoFor(model.providerId, model.id);
+}
+
 function GenerationParameterControl({
   definition,
   value,
@@ -3937,6 +3955,15 @@ function GenerationParameterControl({
       <select value={String(value)} onChange={(event) => onChange(event.currentTarget.value)}>
         {(definition.options ?? []).map((option) => <option key={option.value} value={option.value}>{option.label ?? option.value}</option>)}
       </select>
+    );
+  }
+  if (definition.type === "boolean") {
+    return (
+      <input
+        type="checkbox"
+        checked={value === true || value === "true"}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+      />
     );
   }
   return (

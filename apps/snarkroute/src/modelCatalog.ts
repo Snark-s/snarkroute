@@ -6,7 +6,7 @@ export type ImageGenerationParameters = Record<string, GenerationParameterValue>
 export interface ModelParameterDefinition {
   id: string;
   label: string;
-  type: "select" | "number" | "text";
+  type: "select" | "number" | "text" | "boolean";
   default?: GenerationParameterValue;
   options?: Array<{ value: string; label?: string }>;
   min?: number;
@@ -18,6 +18,7 @@ export interface ModelOption {
   id: string;
   title: string;
   providerId: string;
+  iconPath?: string;
   contentKinds: ContentKind[];
   accepts: ContentKind[];
   produces: ContentKind[];
@@ -34,6 +35,42 @@ export interface ModelOption {
   role?: ModelRole;
 }
 
+type ModelOptionForNodeResponse = {
+  ok?: boolean;
+  models?: unknown;
+};
+
+type ServerModelOptionForNode = {
+  id: string;
+  provider: string;
+  providerModelId: string;
+  displayName: string;
+  iconPath: string;
+  inputTypes: string[];
+  outputTypes: string[];
+  capabilities: string[];
+  roles: string[];
+  parameters: ModelParameterDefinition[];
+  nodeType: string;
+  storedModelId: string;
+  executionProvider: string;
+  compatibilityReason?: string;
+};
+
+type ServerModelCatalogEntry = {
+  id: string;
+  provider: string;
+  providerModelId: string;
+  displayName: string;
+  iconPath: string;
+  inputTypes: string[];
+  outputTypes: string[];
+  capabilities: string[];
+  roles: string[];
+  parameters: ModelParameterDefinition[];
+  availability?: { status?: string; reason?: string };
+};
+
 export interface ProviderSettings {
   replicate?: { configured?: boolean };
   gemini?: { configured?: boolean };
@@ -45,6 +82,7 @@ export interface ProviderSettings {
 
 export interface ModelCatalogResult {
   models: ModelOption[];
+  availableModels: ModelOption[];
   errors: Partial<Record<string, string>>;
 }
 
@@ -80,36 +118,41 @@ export async function loadModelCatalog(
   settings: ProviderSettings | null
 ): Promise<ModelCatalogResult> {
   const errors: Partial<Record<string, string>> = {};
-  const sources = [
-    { endpoint: "/api/models?provider=openrouter&capability=image.generate", fallbackEndpoint: "/api/providers/openrouter/models", providerId: "openrouter", configured: Boolean(settings?.openrouter?.configured) },
-    { endpoint: "/api/models?provider=openrouter&capability=video.generate", fallbackEndpoint: "/api/providers/openrouter/models", providerId: "openrouter", configured: Boolean(settings?.openrouter?.configured) },
-    { endpoint: "/api/models?provider=openrouter&capability=text.generate", fallbackEndpoint: "/api/providers/openrouter/models", providerId: "openrouter", configured: Boolean(settings?.openrouter?.configured) },
-    { endpoint: "/api/models?provider=polza&capability=image.generate", fallbackEndpoint: "/api/providers/polza/models?type=image", providerId: "polza", configured: Boolean(settings?.polza?.configured) },
-    { endpoint: "/api/models?provider=polza&capability=video.generate", fallbackEndpoint: "/api/providers/polza/models?type=video", providerId: "polza", configured: Boolean(settings?.polza?.configured) },
-    { endpoint: "/api/models?provider=polza&capability=text.generate", fallbackEndpoint: "/api/providers/polza/models?type=chat", providerId: "polza", configured: Boolean(settings?.polza?.configured) }
+  const nodeSources = [
+    { nodeType: "ai.image.generate", fallbackKind: "image" as const },
+    { nodeType: "ai.text", fallbackKind: "text" as const }
   ];
   const loaded: ModelOption[] = [];
-  for (const source of sources) {
-    if (!source.configured) continue;
+  let availableModels: ModelOption[] = [];
+  try {
+    availableModels = normalizeAvailableModelOptions(await getJson("/api/models/v1"));
+    if (availableModels.length === 0) errors["models.v1"] = "Server model catalog returned no usable available models.";
+  } catch (error) {
+    errors["models.v1"] = error instanceof Error ? error.message : "Available model catalog request failed.";
+  }
+  for (const source of nodeSources) {
     try {
-      const response = await getJson(source.endpoint);
-      const normalized = normalizeModelOptions(response, source.providerId);
+      const response = await getJson(`/api/models/for-node/${encodeURIComponent(source.nodeType)}`);
+      const normalized = normalizeNodeModelOptions(response, source.nodeType);
       if (normalized.length > 0) {
         loaded.push(...normalized);
         continue;
       }
-      const fallback = await getJson(source.fallbackEndpoint);
-      loaded.push(...normalizeModelOptions(fallback, source.providerId));
+      errors[source.nodeType] = "Server model catalog returned no usable models.";
     } catch (error) {
       try {
-        const fallback = await getJson(source.fallbackEndpoint);
-        loaded.push(...normalizeModelOptions(fallback, source.providerId));
+        loaded.push(...await loadLegacyFallbackModels(getJson, settings, source.fallbackKind));
       } catch {
-        errors[source.providerId] = error instanceof Error ? error.message : "Catalog request failed.";
+        errors[source.nodeType] = error instanceof Error ? error.message : "Catalog request failed.";
       }
     }
   }
-  return { models: mergeModelOptions([...fallbackModels, ...configuredBuiltInModels(settings), ...loaded]), errors };
+  const selectorModels = mergeModelOptions([...fallbackModels, ...configuredBuiltInModels(settings), ...loaded]);
+  return {
+    models: selectorModels,
+    availableModels: availableModels.length ? mergeModelOptions(availableModels) : selectorModels,
+    errors
+  };
 }
 
 export function modelsForContentKind(models: ModelOption[], kind: ContentKind): ModelOption[] {
@@ -231,6 +274,153 @@ export function modelGenerationParameters(model: ModelOption): ImageGenerationPa
 export function generationParameterSummary(definitions: ModelParameterDefinition[], values: ImageGenerationParameters): string {
   if (definitions.length === 0) return "No parameters";
   return definitions.slice(0, 2).map((definition) => String(values[definition.id] ?? definition.default ?? "")).filter(Boolean).join(" / ") || "Parameters";
+}
+
+export function normalizeNodeModelOptions(value: unknown, nodeType: string): ModelOption[] {
+  const response = value as ModelOptionForNodeResponse;
+  const candidates = Array.isArray(response?.models) ? response.models : [];
+  return candidates.flatMap((entry) => {
+    if (!isServerModelOptionForNode(entry, nodeType)) return [];
+    const produces = entry.outputTypes.flatMap(contentKind);
+    if (produces.length === 0) return [];
+    const accepts = entry.inputTypes.flatMap(contentKind);
+    const generationParameters = normalizeServerParameterDefinitions(entry.parameters);
+    return [{
+      id: entry.storedModelId,
+      title: entry.displayName,
+      providerId: entry.executionProvider || entry.provider,
+      iconPath: entry.iconPath,
+      contentKinds: produces,
+      accepts: accepts.length ? [...new Set(accepts)] : ["text"],
+      produces: [...new Set(produces)],
+      capabilities: entry.capabilities,
+      paramsSchema: generationParameters,
+      source: nodeType,
+      isAvailable: true,
+      acceptsImageInput: entry.inputTypes.includes("image"),
+      generationParameters,
+      defaultParameters: Object.fromEntries(generationParameters.flatMap((definition) => definition.default === undefined ? [] : [[definition.id, definition.default]])),
+      role: entry.roles.includes("upscaler") ? produces.includes("video") ? "video-upscaler" : "image-upscaler" : undefined
+    }];
+  });
+}
+
+export function normalizeAvailableModelOptions(value: unknown): ModelOption[] {
+  const response = value as ModelOptionForNodeResponse;
+  const candidates = Array.isArray(response?.models) ? response.models : [];
+  return candidates.flatMap((entry) => {
+    if (!isServerModelCatalogEntry(entry)) return [];
+    const produces = entry.outputTypes.flatMap(contentKind);
+    if (produces.length === 0) return [];
+    const accepts = entry.inputTypes.flatMap(contentKind);
+    const generationParameters = normalizeServerParameterDefinitions(entry.parameters);
+    return [{
+      id: entry.providerModelId,
+      title: entry.displayName,
+      providerId: entry.provider,
+      iconPath: entry.iconPath,
+      contentKinds: [...new Set(produces)],
+      accepts: accepts.length ? [...new Set(accepts)] : ["text"],
+      produces: [...new Set(produces)],
+      capabilities: entry.capabilities,
+      paramsSchema: generationParameters,
+      source: "models.v1",
+      isAvailable: entry.availability?.status !== "unavailable",
+      statusReason: typeof entry.availability?.reason === "string" ? entry.availability.reason : undefined,
+      acceptsImageInput: entry.inputTypes.includes("image"),
+      generationParameters,
+      defaultParameters: Object.fromEntries(generationParameters.flatMap((definition) => definition.default === undefined ? [] : [[definition.id, definition.default]])),
+      role: entry.roles.includes("upscaler") ? produces.includes("video") ? "video-upscaler" : "image-upscaler" : undefined
+    }];
+  });
+}
+
+async function loadLegacyFallbackModels(
+  getJson: (path: string) => Promise<unknown>,
+  settings: ProviderSettings | null,
+  kind: "image" | "text"
+): Promise<ModelOption[]> {
+  const sources = kind === "image"
+    ? [
+      { endpoint: "/api/models?provider=openrouter&capability=image.generate", fallbackEndpoint: "/api/providers/openrouter/models", providerId: "openrouter", configured: Boolean(settings?.openrouter?.configured) },
+      { endpoint: "/api/models?provider=polza&capability=image.generate", fallbackEndpoint: "/api/providers/polza/models?type=image", providerId: "polza", configured: Boolean(settings?.polza?.configured) }
+    ]
+    : [
+      { endpoint: "/api/models?provider=openrouter&capability=text.generate", fallbackEndpoint: "/api/providers/openrouter/models", providerId: "openrouter", configured: Boolean(settings?.openrouter?.configured) },
+      { endpoint: "/api/models?provider=polza&capability=text.generate", fallbackEndpoint: "/api/providers/polza/models?type=chat", providerId: "polza", configured: Boolean(settings?.polza?.configured) }
+    ];
+  const loaded: ModelOption[] = [];
+  for (const source of sources) {
+    if (!source.configured) continue;
+    try {
+      const response = await getJson(source.endpoint);
+      const normalized = normalizeModelOptions(response, source.providerId);
+      if (normalized.length > 0) {
+        loaded.push(...normalized);
+        continue;
+      }
+      const fallback = await getJson(source.fallbackEndpoint);
+      loaded.push(...normalizeModelOptions(fallback, source.providerId));
+    } catch {
+      const fallback = await getJson(source.fallbackEndpoint);
+      loaded.push(...normalizeModelOptions(fallback, source.providerId));
+    }
+  }
+  return loaded;
+}
+
+function isServerModelOptionForNode(value: unknown, nodeType: string): value is ServerModelOptionForNode {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === "string"
+    && typeof record.provider === "string"
+    && typeof record.providerModelId === "string"
+    && typeof record.displayName === "string"
+    && typeof record.iconPath === "string"
+    && Array.isArray(record.inputTypes)
+    && Array.isArray(record.outputTypes)
+    && Array.isArray(record.capabilities)
+    && Array.isArray(record.roles)
+    && Array.isArray(record.parameters)
+    && record.nodeType === nodeType
+    && typeof record.storedModelId === "string"
+    && typeof record.executionProvider === "string";
+}
+
+function isServerModelCatalogEntry(value: unknown): value is ServerModelCatalogEntry {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === "string"
+    && typeof record.provider === "string"
+    && typeof record.providerModelId === "string"
+    && typeof record.displayName === "string"
+    && typeof record.iconPath === "string"
+    && Array.isArray(record.inputTypes)
+    && Array.isArray(record.outputTypes)
+    && Array.isArray(record.capabilities)
+    && Array.isArray(record.roles)
+    && Array.isArray(record.parameters);
+}
+
+function normalizeServerParameterDefinitions(parameters: ModelParameterDefinition[]): ModelParameterDefinition[] {
+  return parameters.flatMap((definition) => {
+    const id = stringParameter(definition.id);
+    if (!id) return [];
+    const type: ModelParameterDefinition["type"] = definition.type === "number" || definition.type === "text" || definition.type === "boolean" ? definition.type : "select";
+    return [{
+      id,
+      label: stringParameter(definition.label) ?? id,
+      type,
+      default: parameterValue(definition.default),
+      options: Array.isArray(definition.options) ? definition.options.flatMap((option) => {
+        const value = stringParameter(option.value);
+        return value ? [{ value, label: stringParameter(option.label) }] : [];
+      }) : undefined,
+      min: numberParameter(definition.min),
+      max: numberParameter(definition.max),
+      step: numberParameter(definition.step)
+    }];
+  });
 }
 
 function isProviderRoutingAlias(providerId: string, modelId: string): boolean {
