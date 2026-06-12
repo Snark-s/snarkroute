@@ -185,6 +185,23 @@ describe("server Model Catalog V1 assembly", () => {
     expect(options.find((entry) => entry.storedModelId === "openai/gpt-image-1")?.providerModelId).toBe("openai/gpt-image-1");
   });
 
+  it("keeps image-output OpenRouter models out of ai.text options", () => {
+    const catalog = assembleModelCatalogV1({
+      openRouterModels: [
+        { id: "openai/gpt-5.2-chat", kind: "chat", architecture: { modality: "text+image->text" } },
+        { id: "openai/gpt-5-image", kind: "image", architecture: { modality: "text->image", output_modalities: ["text", "image"] } },
+        { id: "google/gemini-3-pro-image-preview", architecture: { modality: "text+image->image", output_modalities: ["image"] } }
+      ]
+    });
+
+    const options = modelOptionsForNodeV1("ai.text", catalog);
+    const optionIds = options.map((entry) => entry.storedModelId);
+
+    expect(optionIds).toContain("openai/gpt-5.2-chat");
+    expect(optionIds).not.toContain("openai/gpt-5-image");
+    expect(optionIds).not.toContain("google/gemini-3-pro-image-preview");
+  });
+
   it("does not change Polza image node filtering while adding OpenRouter image options", () => {
     const catalog = assembleModelCatalogV1({
       polzaModels: [

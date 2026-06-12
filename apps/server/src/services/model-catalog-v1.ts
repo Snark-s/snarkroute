@@ -107,7 +107,7 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
       && !isUpscaleOnlyModel(entry, "image");
   }
   if (nodeType === "ai.text") {
-    return entry.provider === "openrouter" && hasOutputType(entry, "text");
+    return entry.provider === "openrouter" && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
   }
   return false;
 }
@@ -194,6 +194,11 @@ function rolesForCapabilities(capabilities: ModelCapabilityV1[]): ModelRoleV1[] 
 
 function hasOutputType(entry: ModelCatalogEntryV1, outputType: ModelOutputTypeV1): boolean {
   return entry.outputTypes.includes(outputType);
+}
+
+function hasOnlyOutputTypes(entry: ModelCatalogEntryV1, outputTypes: ModelOutputTypeV1[]): boolean {
+  const allowed = new Set<ModelOutputTypeV1>(outputTypes);
+  return entry.outputTypes.length > 0 && entry.outputTypes.every((outputType) => allowed.has(outputType));
 }
 
 function isUpscaleOnlyModel(entry: ModelCatalogEntryV1, mediaType: "image" | "video"): boolean {
