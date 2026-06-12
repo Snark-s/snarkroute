@@ -4604,20 +4604,28 @@ function modelInfoToOpenRouterModel(record: Record<string, unknown>): OpenRouter
 
 function modelInfoToPolzaModel(record: Record<string, unknown>, type: "chat" | "image" | "video"): PolzaModel {
   const metadata = recordValue(record.metadata);
+  const storedModelId = String(record.storedModelId ?? record.providerModelId ?? record.id ?? "");
+  const displayName = String(record.displayName ?? record.name ?? record.title ?? record.providerModelId ?? record.id ?? "");
   const generationParameters = Array.isArray(record.generationParameters)
     ? record.generationParameters as PolzaModel["generationParameters"]
+    : Array.isArray(record.parameters)
+      ? record.parameters as PolzaModel["generationParameters"]
     : Array.isArray(metadata.generationParameters)
       ? metadata.generationParameters as PolzaModel["generationParameters"]
       : undefined;
   return {
-    id: String(record.providerModelId ?? record.id ?? ""),
-    name: String(record.name ?? record.title ?? record.providerModelId ?? record.id ?? ""),
-    title: String(record.title ?? record.name ?? record.providerModelId ?? record.id ?? ""),
+    id: storedModelId,
+    name: displayName,
+    title: displayName,
     providerId: "polza",
     capabilities: stringArrayValue(record.capabilities),
     inputTypes: stringArrayValue(record.inputTypes),
     outputTypes: stringArrayValue(record.outputTypes),
     type,
+    iconPath: typeof record.iconPath === "string" ? record.iconPath : undefined,
+    catalogModelId: typeof record.id === "string" ? record.id : undefined,
+    catalogProviderModelId: typeof record.providerModelId === "string" ? record.providerModelId : undefined,
+    catalogParameters: Array.isArray(record.parameters) ? record.parameters as PolzaModel["catalogParameters"] : undefined,
     short_description: typeof record.short_description === "string" ? record.short_description : typeof metadata.description === "string" ? metadata.description : undefined,
     supported_parameters: stringArrayValue(record.supported_parameters).length ? stringArrayValue(record.supported_parameters) : stringArrayValue(metadata.supportedParameters),
     generationParameters,
@@ -6336,13 +6344,13 @@ function App() {
   async function loadPolzaModels() {
     try {
       const [textResponse, imageResponse, videoResponse] = await Promise.all([
-        fetch(`${apiBase}/api/models?provider=polza&capability=text.generate`),
-        fetch(`${apiBase}/api/providers/polza/models?type=image`),
-        fetch(`${apiBase}/api/models?provider=polza&capability=video.generate`)
+        fetch(`${apiBase}/api/models/for-node/polza.text`),
+        fetch(`${apiBase}/api/models/for-node/polza.image.generate`),
+        fetch(`${apiBase}/api/models/for-node/polza.video.generate`)
       ]);
       const [textResult, imageResult, videoResult] = await Promise.all([textResponse.json(), imageResponse.json(), videoResponse.json()]);
       setPolzaTextModels(textResponse.ok ? modelInfoItems(textResult).map((model) => modelInfoToPolzaModel(model, "chat")) : []);
-      setPolzaImageModels(imageResponse.ok ? modelInfoItems(imageResult).map((model) => modelInfoToPolzaModel(model, "image")).filter((model) => !model.id.startsWith("polza:")) : []);
+      setPolzaImageModels(imageResponse.ok ? modelInfoItems(imageResult).map((model) => modelInfoToPolzaModel(model, "image")) : []);
       setPolzaVideoModels(videoResponse.ok ? modelInfoItems(videoResult).map((model) => modelInfoToPolzaModel(model, "video")) : []);
     } catch {
       setPolzaTextModels([]);
