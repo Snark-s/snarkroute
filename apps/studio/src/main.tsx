@@ -4569,23 +4569,29 @@ function modelInfoItems(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(models) ? models.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && !Array.isArray(entry))) : [];
 }
 
+function isOpenRouterV1Model(record: Record<string, unknown>): boolean {
+  return record.provider === "openrouter" && stringArrayValue(record.outputTypes).some((type) => type === "text" || type === "image" || type === "video");
+}
+
 function modelInfoToOpenRouterModel(record: Record<string, unknown>): OpenRouterModel {
   const metadata = recordValue(record.metadata);
   const inputTypes = stringArrayValue(record.inputTypes);
   const outputTypes = stringArrayValue(record.outputTypes);
   const kind = typeof record.kind === "string" ? record.kind : outputTypes.includes("video") ? "video" : outputTypes.includes("image") ? "image" : "text";
   const architecture = recordValue(record.architecture);
+  const modelId = String(record.providerModelId ?? record.id ?? "");
+  const displayName = String(record.displayName ?? record.name ?? record.title ?? record.providerModelId ?? record.id ?? "");
   return {
-    id: String(record.id ?? ""),
+    id: modelId,
     provider: "openrouter",
     providerId: "openrouter",
     kind: kind === "image" || kind === "video" || kind === "text" ? kind : "text",
-    name: String(record.name ?? record.title ?? record.id ?? ""),
-    title: String(record.title ?? record.name ?? record.id ?? ""),
+    name: displayName,
+    title: displayName,
     capabilities: stringArrayValue(record.capabilities),
     inputTypes,
     outputTypes,
-    pricing: recordValue(metadata.pricing),
+    pricing: Object.keys(recordValue(record.pricing)).length ? recordValue(record.pricing) : recordValue(metadata.pricing),
     pricingHint: typeof record.pricingHint === "string" ? record.pricingHint : undefined,
     metadata,
     defaultParameters: recordValue(record.defaultParameters),
@@ -6328,14 +6334,14 @@ function App() {
 
   async function loadOpenRouterModels() {
     try {
-      const response = await fetch(`${apiBase}/api/providers/openrouter/models`);
+      const response = await fetch(`${apiBase}/api/models/v1`);
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "OpenRouter model cache unavailable.");
-      const models = modelInfoItems(result).map(modelInfoToOpenRouterModel);
+      if (!response.ok) throw new Error(result.error ?? "Model Catalog V1 unavailable.");
+      const models = modelInfoItems(result).filter(isOpenRouterV1Model).map(modelInfoToOpenRouterModel);
       setOpenRouterModels(models);
-      const klingModels = models.filter((model: OpenRouterModel) => /kling/i.test(`${model.id} ${model.name ?? ""}`));
-      if (klingModels.length > 0) setLogs((current) => [`OpenRouter catalog Kling models: ${klingModels.map((model: OpenRouterModel) => `${model.id} [${model.kind ?? "unknown"}]`).join(", ")}`, ...current]);
-      if (models.length > 0) setLogs((current) => [`OpenRouter normalized model catalog loaded: ${models.length} models.`, ...current]);
+      const videoModels = models.filter((model: OpenRouterModel) => model.outputTypes?.includes("video"));
+      if (videoModels.length > 0) setLogs((current) => [`OpenRouter V1 video models: ${videoModels.map((model: OpenRouterModel) => `${model.id} [${model.kind ?? "unknown"}]`).join(", ")}`, ...current]);
+      if (models.length > 0) setLogs((current) => [`OpenRouter Model Catalog V1 loaded: ${models.length} models.`, ...current]);
     } catch {
       setOpenRouterModels([]);
     }
