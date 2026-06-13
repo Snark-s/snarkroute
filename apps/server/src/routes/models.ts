@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
-import { listKnownModels, type ModelInputType, type ModelOutputType, type ModelProviderId, type UnifiedModelInfo } from "@snarkroute/model-catalog";
+import type { ModelOutputTypeV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { openRouterCatalogCachePath } from "../server-paths";
 import { isPolzaEnabled } from "../services/env";
 import { assembleModelCatalogV1, fallbackProviderModelsForCatalogV1, modelOptionsForNodeV1, type RawProviderModelV1 } from "../services/model-catalog-v1";
@@ -38,21 +38,22 @@ app.addHook("onRequest", async (request, reply) => {
   }
 
   if (url.pathname !== "/api/models") return;
-  // Legacy compatibility endpoint for Studio callers that still consume UnifiedModelInfo
-  // with singular outputType. Do not merge live provider catalogs here; use /api/models/v1
-  // for the unified live catalog and /api/models/for-node/:nodeType for selectors.
+  // Legacy compatibility endpoint for callers that still consume a singular outputType.
+  // It is a thin adapter over Model Catalog V1, never a separate static model source.
   const query: ModelCatalogQuery = {
     provider: url.searchParams.get("provider") ?? undefined,
     outputType: url.searchParams.get("outputType") ?? undefined,
     inputType: url.searchParams.get("inputType") ?? undefined,
     capability: url.searchParams.get("capability") ?? undefined
   };
-  const models = filterModels(listKnownModels(), {
+  const requestedOutputType = normalizeQueryValue(query.outputType);
+  const legacyOutputType = isModelOutputTypeV1(requestedOutputType) ? requestedOutputType : undefined;
+  const models = filterModelsV1(await loadLiveModelCatalogV1(), {
     provider: normalizeQueryValue(query.provider),
-    outputType: normalizeQueryValue(query.outputType) as ModelOutputType | undefined,
-    inputType: normalizeQueryValue(query.inputType) as ModelInputType | undefined,
+    outputType: requestedOutputType,
+    inputType: normalizeQueryValue(query.inputType),
     capability: normalizeQueryValue(query.capability)
-  });
+  }).flatMap((model) => legacyModelFromV1(model, legacyOutputType));
 
   return reply.send({
     ok: true,
@@ -60,6 +61,28 @@ app.addHook("onRequest", async (request, reply) => {
     models
   });
 });
+}
+
+function legacyModelFromV1(model: ReturnType<typeof assembleModelCatalogV1>[number], requestedOutputType?: ModelOutputTypeV1) {
+  const outputType = requestedOutputType && model.outputTypes.includes(requestedOutputType)
+    ? requestedOutputType
+    : model.outputTypes[0];
+  if (!outputType) return [];
+  return [{
+    id: model.id,
+    provider: model.provider,
+    providerModelId: model.providerModelId,
+    displayName: model.displayName,
+    outputType,
+    inputTypes: model.inputTypes,
+    iconKey: model.iconKey,
+    iconPath: model.iconPath,
+    parameters: model.parameters,
+    catalogStatus: model.catalogStatus,
+    capabilities: model.capabilities,
+    aliases: model.aliases,
+    metadata: model.metadata
+  }];
 }
 
 async function loadLiveModelCatalogV1(nodeType?: string) {
@@ -132,19 +155,12 @@ function dedupeById<T extends { id?: string }>(models: T[]): T[] {
   });
 }
 
-function filterModels(
-  models: UnifiedModelInfo[],
-  filters: { provider?: ModelProviderId; outputType?: ModelOutputType; inputType?: ModelInputType; capability?: string }
-): UnifiedModelInfo[] {
-  return models.filter((model) => {
-    if (filters.provider && model.provider !== filters.provider) return false;
-    if (filters.outputType && model.outputType !== filters.outputType) return false;
-    if (filters.inputType && !model.inputTypes.includes(filters.inputType)) return false;
-    if (filters.capability && !(model.capabilities ?? []).includes(filters.capability)) return false;
-    return true;
-  });
-}
-
 function normalizeQueryValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+const modelOutputTypesV1 = new Set<string>(["text", "image", "video", "audio", "embedding", "json", "unknown"]);
+
+function isModelOutputTypeV1(value: string | undefined): value is ModelOutputTypeV1 {
+  return typeof value === "string" && modelOutputTypesV1.has(value);
 }

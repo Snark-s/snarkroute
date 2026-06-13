@@ -11,7 +11,6 @@ import { isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled } from "../serv
 import { errorMessage } from "../services/errors";
 import { openRouterPublicError, openRouterSettingsStatus } from "../providers/openrouter";
 import { seedanceSettingsStatus, validateSeedanceConfiguration } from "../providers/seedance";
-import { livingCanvasModelMetadata } from "../providers/living-canvas-model-catalog";
 
 type PricingCatalog = {
   provider: string;
@@ -114,10 +113,10 @@ app.get<{ Querystring: { format?: string } }>("/api/providers/openrouter/models"
   // Node-specific executability filtering belongs in /api/models/for-node/:nodeType.
   const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
   if (request.query.format === "model-info") {
-    const models = (cache?.models ?? []).map((model) => enrichModelInfo(openRouterModelInfoToModelInfo(model), "openrouter"));
+    const models = (cache?.models ?? []).map((model) => openRouterModelInfoToModelInfo(model));
     return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, sourceCounts: cache?.sourceCounts, models };
   }
-  const models = (cache?.models ?? []).map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "openrouter") }));
+  const models = cache?.models ?? [];
   return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, sourceCounts: cache?.sourceCounts, models };
 });
 
@@ -165,11 +164,10 @@ app.get<{ Querystring: { type?: "chat" | "image" | "video" | "embedding"; format
     // Node-specific executability filtering belongs in /api/models/for-node/:nodeType.
     const models = await createPolzaClient().getModels(request.query.type);
     if (request.query.format === "model-info") {
-      const normalizedModels = models.map((model) => enrichModelInfo(polzaModelInfoToModelInfo(model), "polza"));
+      const normalizedModels = models.map((model) => polzaModelInfoToModelInfo(model));
       return { ok: true, configured: true, modelCount: normalizedModels.length, models: normalizedModels };
     }
-    const livingCanvasModels = models.map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "polza", request.query.type) }));
-    return { ok: true, configured: true, modelCount: livingCanvasModels.length, models: livingCanvasModels };
+    return { ok: true, configured: true, modelCount: models.length, models };
   } catch (error) {
     return reply.code(400).send({ ok: false, error: errorMessage(error) });
   }
@@ -185,35 +183,6 @@ app.get<{ Querystring: { model?: string } }>("/api/replicate/schema", async (req
   }
 });
 
-}
-
-function enrichModelInfo(model: ReturnType<typeof openRouterModelInfoToModelInfo> | ReturnType<typeof polzaModelInfoToModelInfo>, providerId: string) {
-  const primaryMedia = model.outputTypes?.[0] ?? capabilityMedia(model.capabilities[0]) ?? "text";
-  const livingCanvas = livingCanvasModelMetadata(model.id, providerId, primaryMedia);
-  const metadata = {
-    ...(model.metadata ?? {}),
-    generationParameters: livingCanvas.generationParameters.length ? livingCanvas.generationParameters : (model.metadata ?? {}).generationParameters,
-    maxImageInputs: livingCanvas.maxImageInputs,
-    imageReferenceSyntax: livingCanvas.imageReferenceSyntax
-  };
-  return {
-    ...model,
-    defaultParameters: { ...(model.defaultParameters ?? {}), ...(livingCanvas.defaultParameters ?? {}) },
-    metadata: compactRecord(metadata)
-  };
-}
-
-function capabilityMedia(capability: string | undefined): string | undefined {
-  if (!capability) return undefined;
-  if (capability.startsWith("image.")) return "image";
-  if (capability.startsWith("video.")) return "video";
-  if (capability.startsWith("audio.")) return "audio";
-  if (capability.startsWith("embedding.")) return "json";
-  return "text";
-}
-
-function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0)));
 }
 
 function sanitizeQuoteParams(params: unknown): Record<string, unknown> {

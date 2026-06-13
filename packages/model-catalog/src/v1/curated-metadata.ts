@@ -1,5 +1,8 @@
 import type { CuratedModelMetadataV1, ModelProviderIdV1 } from "./types.js";
 
+const aspectRatiosWithAuto = parameter("aspectRatio", "Aspect ratio", ["auto", "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"], "auto");
+const imageCount = { id: "n", label: "Images", type: "number" as const, default: 1, min: 1, max: 4, step: 1 };
+
 const curatedModelMetadata = defineCuratedModelMetadataV1([
   {
     provider: "polza",
@@ -20,7 +23,8 @@ const curatedModelMetadata = defineCuratedModelMetadataV1([
     iconKey: "openai",
     iconPath: "/api/model-icons/gpt.png",
     outputTypes: ["image"],
-    roles: ["generator"]
+    roles: ["generator"],
+    parameters: [aspectRatiosWithAuto, imageCount]
   },
   {
     provider: "polza",
@@ -30,7 +34,11 @@ const curatedModelMetadata = defineCuratedModelMetadataV1([
     iconKey: "openai",
     iconPath: "/api/model-icons/gpt.png",
     outputTypes: ["image"],
-    roles: ["generator", "editor"]
+    roles: ["generator", "editor"],
+    parameters: [
+      parameter("aspectRatio", "Aspect ratio", ["1:1", "2:3", "3:2"], "1:1"),
+      parameter("quality", "Quality", ["low", "medium", "high"], "medium")
+    ]
   },
   {
     provider: "polza",
@@ -126,4 +134,8 @@ function defineCuratedModelMetadataV1(entries: CuratedModelMetadataV1[]): Curate
     seen.add(key);
   }
   return entries;
+}
+
+function parameter(id: string, label: string, options: string[], defaultValue: string) {
+  return { id, label, type: "select" as const, default: defaultValue, options: options.map((value) => ({ value })) };
 }

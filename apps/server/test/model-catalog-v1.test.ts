@@ -42,6 +42,23 @@ describe("server Model Catalog V1 assembly", () => {
     const model = catalog.find((entry) => entry.providerModelId === "openai/gpt-image-1.5");
     expect(model?.roles).toEqual(["generator", "editor"]);
     expect(model?.displayName).toBe("GPT Image 1.5");
+    expect(model?.parameters.map((parameter) => parameter.id)).toEqual(["aspectRatio", "quality"]);
+  });
+
+  it("adds V1 UI generation parameters for live image and video models without raw provider enrichment", () => {
+    const catalog = assembleModelCatalogV1({
+      polzaModels: [
+        { id: "vendor/new-image", type: "image" },
+        { id: "vendor/new-video", type: "video" }
+      ],
+      fallbackModels: fallbackProviderModelsForCatalogV1()
+    });
+
+    expect(catalog.find((entry) => entry.providerModelId === "vendor/new-image")?.parameters.map((parameter) => parameter.id)).toEqual(["aspectRatio", "imageResolution", "quality", "outputFormat", "n"]);
+    const video = catalog.find((entry) => entry.providerModelId === "vendor/new-video");
+    expect(video?.parameters.map((parameter) => parameter.id)).toEqual(["resolution", "duration", "multi_shots"]);
+    expect(video?.metadata?.maxImageInputs).toBe(14);
+    expect(catalog.find((entry) => entry.providerModelId === "image.nano-banana")?.parameters.map((parameter) => parameter.id)).toEqual(["aspectRatio", "imageSize"]);
   });
 
   it("preserves provider-native providerModelId and creates unified ids", () => {

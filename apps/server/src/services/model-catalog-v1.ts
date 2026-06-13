@@ -13,7 +13,8 @@ import type {
   ModelRoleV1,
   ProviderModelInfoV1,
   ModelCatalogEntryV1,
-  ModelOptionForNodeV1
+  ModelOptionForNodeV1,
+  ModelParameterDefinitionV1
 } from "@snarkroute/model-catalog/dist/v1/index.js";
 
 export type RawProviderModelV1 = Record<string, unknown> & {
@@ -59,7 +60,7 @@ export function assembleProviderModelsV1(
   curatedMetadata: CuratedModelMetadataV1[] = listCuratedModelMetadataV1()
 ): ModelCatalogEntryV1[] {
   return mergeProviderModelsWithCuratedMetadata(providerModels, curatedMetadata).map((entry, index) =>
-    preserveLiveProviderIo(entry, providerModels[index])
+    enrichUiCatalogMetadata(preserveLiveProviderIo(entry, providerModels[index]))
   );
 }
 
@@ -154,6 +155,53 @@ function preserveLiveProviderIo(entry: ModelCatalogEntryV1, providerModel: Provi
     inputTypes: providerModel.inputTypes,
     outputTypes: providerModel.outputTypes
   };
+}
+
+function enrichUiCatalogMetadata(entry: ModelCatalogEntryV1): ModelCatalogEntryV1 {
+  const defaults = defaultUiCatalogMetadata(entry);
+  if (!defaults) return entry;
+  return {
+    ...entry,
+    parameters: entry.parameters.length ? entry.parameters : defaults.parameters,
+    metadata: {
+      ...(entry.metadata ?? {}),
+      ...defaults.metadata
+    }
+  };
+}
+
+function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: ModelParameterDefinitionV1[]; metadata?: Record<string, unknown> } | undefined {
+  if (entry.provider === "polza" && hasOutputType(entry, "video") && !entry.roles.includes("upscaler")) {
+    return {
+      parameters: [videoResolutions, videoDurations, videoMultiShots],
+      metadata: { maxImageInputs: 14 }
+    };
+  }
+  if (entry.provider === "polza" && hasOutputType(entry, "image") && !entry.roles.includes("upscaler")) {
+    return {
+      parameters: [aspectRatios, imageResolutions, imageQualities, outputFormats, imageCount]
+    };
+  }
+  if (entry.provider === "gemini" && hasOutputType(entry, "image")) {
+    return {
+      parameters: [aspectRatios, imageSizes]
+    };
+  }
+  return undefined;
+}
+
+const aspectRatios = parameter("aspectRatio", "Aspect ratio", ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"], "1:1");
+const imageResolutions = parameter("imageResolution", "Resolution", ["1K", "2K", "4K"], "2K");
+const imageSizes = parameter("imageSize", "Resolution", ["1K", "2K", "4K"], "2K");
+const imageQualities = parameter("quality", "Quality", ["draft", "standard", "high"], "high");
+const outputFormats = parameter("outputFormat", "Format", ["png", "jpg", "webp"], "png");
+const videoResolutions = parameter("resolution", "Resolution", ["720p", "1080p"], "720p");
+const videoDurations = parameter("duration", "Duration", ["5", "10", "15"], "5");
+const videoMultiShots = parameter("multi_shots", "Multi-shot", ["false", "true"], "false");
+const imageCount: ModelParameterDefinitionV1 = { id: "n", label: "Images", type: "number", default: 1, min: 1, max: 4, step: 1 };
+
+function parameter(id: string, label: string, options: string[], defaultValue: string): ModelParameterDefinitionV1 {
+  return { id, label, type: "select", default: defaultValue, options: options.map((value) => ({ value })) };
 }
 
 function inputTypesForModel(model: RawProviderModelV1): ModelInputTypeV1[] {
