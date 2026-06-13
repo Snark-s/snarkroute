@@ -3,7 +3,6 @@ import { ArrowUp, ChevronLeft, ChevronRight, Clipboard, Cog, Copy, Crop, Downloa
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  fallbackModels,
   generationParameterSummary,
   loadModelCatalog,
   mergeModelsForDisplay,
@@ -485,7 +484,7 @@ function App() {
   const [coverPicker, setCoverPicker] = useState<CoverPickerState | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
   const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
-  const [availableModels, setAvailableModels] = useState<ModelOption[]>(fallbackModels);
+  const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
   const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
   const [providerErrors, setProviderErrors] = useState<Partial<Record<string, string>>>({});
   const [providerNotice, setProviderNotice] = useState<Partial<Record<string, string>>>({});
@@ -814,7 +813,7 @@ function App() {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not load model sources.";
       setProviderErrors({ settings: message });
-      setAvailableModels(fallbackModels);
+      setAvailableModels([]);
     }
   }
 
