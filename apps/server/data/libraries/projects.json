@@ -2,13 +2,17 @@
   "version": 1,
   "projects": [
     {
-      "path": "Y:\\Работа\\Мрамор\\7 икон",
-      "addedAt": "2026-06-09T19:24:43.363Z"
+      "path": "Y:\\Работа\\Childrens book",
+      "addedAt": "2026-06-13T17:02:03.691Z"
     },
     {
       "path": "Y:\\Процесс\\Амбрелла\\e01\\e01 Rout",
       "addedAt": "2026-06-09T19:25:34.771Z",
       "coverPath": "Y:\\Процесс\\Амбрелла\\e01\\e01 Rout\\nodes\\Image (2).node\\content\\001-generation.jpg"
+    },
+    {
+      "path": "Y:\\Работа\\Мрамор\\7 икон",
+      "addedAt": "2026-06-09T19:24:43.363Z"
     },
     {
       "path": "Y:\\Процесс\\Test",

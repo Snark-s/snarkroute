@@ -15,11 +15,28 @@ describe("Model Catalog V1 curated metadata registry", () => {
     expect(metadata.iconKey).toBe("topaz");
   });
 
+  it("curates topaz/video-upscale as a video upscaler", () => {
+    const metadata = getCuratedModelMetadataV1("polza", "topaz/video-upscale");
+    expect(metadata.roles).toEqual(["upscaler"]);
+    expect(metadata.capabilities).toEqual(["video.upscale"]);
+    expect(metadata.outputTypes).toEqual(["video"]);
+    expect(metadata.iconKey).toBe("topaz");
+  });
+
   it("curates qwen/image-2 without implying availability", () => {
     const metadata = getCuratedModelMetadataV1("polza", "qwen/image-2");
     expect(metadata.originVendor).toBe("qwen");
     expect(metadata.roles).toEqual(["generator"]);
     expect("availability" in metadata).toBe(false);
+  });
+
+  it("curates Nano Banana 2 icon metadata for both providers", () => {
+    for (const provider of ["polza", "openrouter"] as const) {
+      const metadata = getCuratedModelMetadataV1(provider, "google/gemini-3.1-flash-image-preview");
+      expect(metadata.originVendor).toBe("nano-banana");
+      expect(metadata.iconKey).toBe("nano-banana");
+      expect(metadata.iconPath).toBe("/api/model-icons/nano-banana.svg");
+    }
   });
 
   it("looks up curated metadata by provider and providerModelId", () => {
@@ -53,6 +70,6 @@ describe("Model Catalog V1 curated metadata registry", () => {
   });
 
   it("has the expected initial curated model count", () => {
-    expect(listCuratedModelMetadataV1()).toHaveLength(9);
+    expect(listCuratedModelMetadataV1()).toHaveLength(12);
   });
 });

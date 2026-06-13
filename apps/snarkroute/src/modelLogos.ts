@@ -3,7 +3,7 @@ export type ModelLogo = {
   src: string;
 };
 
-const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
+const apiBase = (import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 const modelIcon = (filename: string) => `${apiBase}/api/model-icons/${encodeURIComponent(filename)}`;
 const unknownLogo = () => logos.unknown;
 
@@ -25,7 +25,7 @@ const logos = {
   meta: { label: "Meta", src: modelIcon("llama.png") },
   midjourney: { label: "Midjourney", src: modelIcon("midjourney.svg") },
   minimax: { label: "MiniMax", src: modelIcon("hailuo.png") },
-  nanoBanana: { label: "Nano Banana", src: modelIcon("gemini.png") },
+  nanoBanana: { label: "Nano Banana", src: modelIcon("nano-banana.svg") },
   mistral: { label: "Mistral", src: modelIcon("mistral.svg") },
   nvidia: { label: "NVIDIA", src: modelIcon("nvidia.svg") },
   ollama: { label: "Ollama", src: modelIcon("ollama.svg") },
@@ -111,19 +111,155 @@ export function modelLogoFor(providerId: string | undefined, modelId: string | u
 export function modelLogoForCatalogOption(option: {
   providerId?: string;
   id?: string;
+  providerModelId?: string;
+  storedModelId?: string;
   title?: string;
   iconPath?: string;
+  iconKey?: string;
+  originVendor?: string;
 }): ModelLogo {
-  const iconPath = resolvedIconPath(option.iconPath);
+  const identityPath = modelIdentityIconPath(option);
+  const iconPath = resolvedIconPath(option.iconPath, option.providerId);
   if (iconPath) return { label: option.title || "Model", src: iconPath };
-  const fallback = modelLogoFor(option.providerId, undefined);
-  return fallback.src ? fallback : unknownLogo();
+  const iconKeyIsProvider = sameIconKey(option.iconKey, option.providerId);
+  const fallbackPath = (!iconKeyIsProvider ? iconPathForKey(option.iconKey) : undefined)
+    ?? iconPathForKey(option.originVendor)
+    ?? identityPath;
+  if (fallbackPath) return { label: option.title || "Model", src: fallbackPath };
+  return { label: option.title || unknownLogo().label, src: unknownLogo().src };
 }
 
-function resolvedIconPath(value: string | undefined): string | undefined {
+function resolvedIconPath(value: string | undefined, providerId?: string): string | undefined {
   const path = value?.trim();
   if (!path) return undefined;
   if (/^(?:https?:|data:|blob:)/i.test(path)) return path;
+  if (path.startsWith("/api/model-icons/")) {
+    const filename = decodeURIComponent(path.slice("/api/model-icons/".length));
+    if (filename === filenameForProvider(providerId)) return undefined;
+    return knownModelIconFilenames.has(filename) ? `${apiBase}${path}` : undefined;
+  }
   if (path.startsWith("/")) return `${apiBase}${path}`;
   return `${apiBase}/${path}`;
 }
+
+function iconPathForKey(value: string | undefined): string | undefined {
+  if (!value?.trim()) return undefined;
+  for (const key of iconKeyCandidates(value)) {
+    const filename = iconFilenamesByKey[key];
+    if (filename) return modelIcon(filename);
+  }
+  return undefined;
+}
+
+export const unknownModelLogoSrc = logos.unknown.src;
+
+function modelIdentityIconPath(option: { id?: string; providerModelId?: string; storedModelId?: string }): string | undefined {
+  return iconPathForKey(option.providerModelId)
+    ?? iconPathForKey(option.storedModelId)
+    ?? iconPathForKey(option.id);
+}
+
+function filenameForProvider(providerId: string | undefined): string | undefined {
+  if (!providerId?.trim()) return undefined;
+  return providerIconFilenamesByKey.get(normalizedIconKey(providerId));
+}
+
+function sameIconKey(left: string | undefined, right: string | undefined): boolean {
+  return Boolean(left?.trim() && right?.trim() && normalizedIconKey(left) === normalizedIconKey(right));
+}
+
+function normalizedIconKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
+
+function iconKeyCandidates(value: string): string[] {
+  const normalized = normalizedIconKey(value);
+  const upstream = normalized.split("/")[0];
+  return upstream && upstream !== normalized ? [normalized, upstream] : [normalized];
+}
+
+const iconFilenamesByKey: Record<string, string> = {
+  anthropic: "claude.png",
+  "black-forest-labs": "flux-2-pro.png",
+  bytedance: "seedream-4-5.png",
+  claude: "claude.png",
+  gemini: "gemini.png",
+  google: "gemini.png",
+  gpt: "gpt.png",
+  local: "local.svg",
+  kling: "kling.png",
+  kwaivgi: "kling.png",
+  kuaishou: "kling.png",
+  minimax: "hailuo.png",
+  hailuo: "hailuo.png",
+  "nano-banana": "nano-banana.svg",
+  "image.nano-banana": "nano-banana.svg",
+  openai: "gpt.png",
+  openrouter: "openrouter.svg",
+  polza: "polza.svg",
+  qwen: "qwen.png",
+  replicate: "replicate.svg",
+  seedance: "seedream-4-5.png",
+  seedream: "seedream-4-5.png",
+  "seedream-4-5": "seedream-4-5.png",
+  stability: "stability.svg",
+  topaz: "topaz.svg",
+  unknown: "unknown.svg",
+  wan: "wan.svg",
+  "x-ai": "grok-image.png",
+  xai: "grok-image.png",
+  grok: "grok-image.png",
+  "z-ai": "z-image.png",
+  zai: "z-image.png",
+  "z-image": "z-image.png",
+  "tongyi-mai": "z-image.png",
+  yandex: "yandexart.png"
+};
+
+const providerIconFilenamesByKey = new Map([
+  ["openrouter", "openrouter.svg"],
+  ["polza", "polza.svg"],
+  ["replicate", "replicate.svg"],
+  ["local", "local.svg"]
+]);
+
+const knownModelIconFilenames = new Set([
+  "claude.png",
+  "cohere.svg",
+  "comfyui.svg",
+  "deepseek.png",
+  "elevenlabs.svg",
+  "flux-2-pro.png",
+  "gemini.png",
+  "gpt.png",
+  "grok-image.png",
+  "hailuo.png",
+  "huggingface.svg",
+  "kling.png",
+  "leonardo.svg",
+  "llama.png",
+  "local.svg",
+  "luma.svg",
+  "midjourney.svg",
+  "mistral.svg",
+  "nano-banana.svg",
+  "nvidia.svg",
+  "ollama.svg",
+  "openrouter.svg",
+  "perplexity.svg",
+  "pika.png",
+  "polza.svg",
+  "qwen.png",
+  "replicate.svg",
+  "runway.png",
+  "seedream-4-5.png",
+  "sora.png",
+  "stability.svg",
+  "suno.svg",
+  "topaz.svg",
+  "unknown.svg",
+  "veo.png",
+  "wan.svg",
+  "yandexart.png",
+  "z-image.png"
+]);

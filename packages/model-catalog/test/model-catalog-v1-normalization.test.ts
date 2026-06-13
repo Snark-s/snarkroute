@@ -27,6 +27,10 @@ describe("Model Catalog V1 provider normalization", () => {
   it("infers origin vendors from provider model id prefixes", () => {
     expect(inferOriginVendorFromProviderModelId("qwen/image-2")).toBe("qwen");
     expect(inferOriginVendorFromProviderModelId("black-forest-labs/flux.2-flex")).toBe("black-forest-labs");
+    expect(inferOriginVendorFromProviderModelId("tongyi-mai/z-image")).toBe("z-ai");
+    expect(inferOriginVendorFromProviderModelId("x-ai/grok-image")).toBe("x-ai");
+    expect(inferOriginVendorFromProviderModelId("kwaivgi/kling-video-o1")).toBe("kling");
+    expect(inferOriginVendorFromProviderModelId("image.nano-banana")).toBe("nano-banana");
   });
 
   it("represents unknown live provider models as available live records", () => {

@@ -40,7 +40,13 @@ export function normalizeProviderModelToV1Input(input: ProviderModelToV1Input): 
 }
 
 export function inferOriginVendorFromProviderModelId(providerModelId: string): ModelOriginVendorV1 {
-  const prefix = providerModelId.trim().split("/")[0]?.toLowerCase();
+  const normalized = providerModelId.trim().toLowerCase();
+  if (normalized === "image.nano-banana" || normalized.includes("nano-banana")) return "nano-banana";
+  const prefix = normalized.split("/")[0];
+  if (prefix === "kwaivgi" || prefix === "kuaishou") return "kling";
+  if (prefix === "tongyi-mai" || prefix === "zai" || prefix === "z-ai") return "z-ai";
+  if (prefix === "x-ai" || prefix === "xai") return "x-ai";
+  if (prefix === "minimax") return "minimax";
   return prefix || "unknown";
 }
 

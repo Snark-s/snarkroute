@@ -18,9 +18,14 @@ export interface ModelOption {
   id: string;
   title: string;
   providerId: string;
+  providerModelId?: string;
+  storedModelId?: string;
   iconPath?: string;
   iconKey?: string;
   originVendor?: string;
+  inputTypes?: string[];
+  outputTypes?: string[];
+  roles?: string[];
   contentKinds: ContentKind[];
   accepts: ContentKind[];
   produces: ContentKind[];
@@ -162,17 +167,19 @@ export function pickerContentKind(value: unknown): ContentKind | undefined {
 
 export function modelMatchesCatalogGroup(model: ModelOption, group: ModelCatalogGroup): boolean {
   if (!model.isAvailable) return false;
-  if (group === "image-upscaler") return model.role === "image-upscaler" && model.produces.includes("image");
-  if (group === "video-upscaler") return model.role === "video-upscaler" && model.produces.includes("video");
-  if (model.role) return false;
-  if (group === "text") return model.produces.includes("text") && !model.produces.includes("image") && !model.produces.includes("video");
-  if (group === "image") return model.produces.includes("image");
-  if (group === "video") return model.produces.includes("video");
-  return model.produces.includes(group);
+  const outputTypes = catalogOutputKinds(model);
+  const roles = catalogRoles(model);
+  if (group === "image-upscaler") return outputTypes.includes("image") && roles.includes("upscaler");
+  if (group === "video-upscaler") return outputTypes.includes("video") && roles.includes("upscaler");
+  if (roles.includes("upscaler")) return false;
+  if (group === "text") return outputTypes.includes("text") && !outputTypes.includes("image") && !outputTypes.includes("video");
+  if (group === "image") return outputTypes.includes("image");
+  if (group === "video") return outputTypes.includes("video");
+  return outputTypes.includes(group);
 }
 
 export function modelsCompatibleWithNodeInputs(models: ModelOption[], kind: ContentKind, hasImageInput: boolean): ModelOption[] {
-  if (!hasImageInput || kind === "image") return models;
+  if (!hasImageInput || kind === "image" || kind === "video") return models;
   return models.filter((model) => model.accepts.includes("image") || model.acceptsImageInput === true);
 }
 
@@ -238,7 +245,12 @@ export function normalizeNodeModelOptions(value: unknown, nodeType: string): Mod
       id: entry.storedModelId,
       title: entry.displayName,
       providerId: entry.executionProvider || entry.provider,
+      providerModelId: entry.providerModelId,
+      storedModelId: entry.storedModelId,
       iconPath: entry.iconPath,
+      inputTypes: entry.inputTypes,
+      outputTypes: entry.outputTypes,
+      roles: entry.roles,
       contentKinds: produces,
       accepts: accepts.length ? [...new Set(accepts)] : ["text"],
       produces: [...new Set(produces)],
@@ -268,13 +280,14 @@ export function normalizeAvailableModelOptions(value: unknown): ModelOption[] {
       id: entry.providerModelId,
       title: entry.displayName,
       providerId: entry.provider,
-      iconPath: usableIconPath(entry.iconPath)
-        ?? catalogIconPath(entry.iconKey)
-        ?? catalogIconPath(entry.originVendor)
-        ?? catalogIconPath(entry.provider)
-        ?? catalogIconPath("unknown"),
+      providerModelId: entry.providerModelId,
+      storedModelId: entry.providerModelId,
+      iconPath: resolvedCatalogIconPath(entry.iconPath, entry.iconKey, entry.originVendor, entry.providerModelId, entry.provider),
       iconKey: entry.iconKey,
       originVendor: entry.originVendor,
+      inputTypes: entry.inputTypes,
+      outputTypes: entry.outputTypes,
+      roles: entry.roles,
       contentKinds: [...new Set(produces)],
       accepts: accepts.length ? [...new Set(accepts)] : ["text"],
       produces: [...new Set(produces)],
@@ -360,31 +373,144 @@ function contentKind(value: string): ContentKind[] {
   return kind ? [kind] : [];
 }
 
-function usableIconPath(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+function catalogOutputKinds(model: ModelOption): ContentKind[] {
+  const kinds = Array.isArray(model.outputTypes) ? model.outputTypes.flatMap(contentKind) : [];
+  return kinds.length ? [...new Set(kinds)] : model.produces;
+}
+
+function catalogRoles(model: ModelOption): string[] {
+  const roles = Array.isArray(model.roles) ? model.roles.filter((role): role is string => typeof role === "string") : [];
+  if (roles.length) return roles;
+  if (model.role === "image-upscaler" || model.role === "video-upscaler") return ["upscaler"];
+  return [];
+}
+
+function resolvedCatalogIconPath(iconPath: unknown, iconKey: unknown, originVendor: unknown, providerModelId: unknown, provider: unknown): string {
+  const providerIconKey = sameIconKey(iconKey, provider);
+  const identityPath = catalogIconPath(providerModelId);
+  return usableIconPath(iconPath, provider)
+    ?? (!providerIconKey ? catalogIconPath(iconKey) : undefined)
+    ?? catalogIconPath(originVendor)
+    ?? identityPath
+    ?? catalogIconPath("unknown")
+    ?? "/api/model-icons/unknown.svg";
+}
+
+function sameIconKey(left: unknown, right: unknown): boolean {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  return normalizedIconKey(left) === normalizedIconKey(right);
+}
+
+function usableIconPath(value: unknown, provider: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const path = value.trim();
+  if (!path.startsWith("/api/model-icons/")) return path;
+  const filename = decodeURIComponent(path.slice("/api/model-icons/".length));
+  if (filename === catalogIconFilename(String(provider))) return undefined;
+  return knownModelIconFilenames.has(filename) ? path : undefined;
 }
 
 function catalogIconPath(key: unknown): string | undefined {
   if (typeof key !== "string" || !key.trim()) return undefined;
-  return `/api/model-icons/${catalogIconFilename(key)}`;
+  const filename = catalogIconFilename(key);
+  return filename ? `/api/model-icons/${filename}` : undefined;
 }
 
-function catalogIconFilename(key: string): string {
-  const normalized = key.trim().toLowerCase().replace(/[\s_]+/g, "-");
+function catalogIconFilename(key: string): string | undefined {
   const filenames: Record<string, string> = {
+    anthropic: "claude.png",
     "black-forest-labs": "flux-2-pro.png",
     bytedance: "seedream-4-5.png",
+    claude: "claude.png",
     gemini: "gemini.png",
     google: "gemini.png",
     gpt: "gpt.png",
-    "nano-banana": "gemini.png",
+    local: "local.svg",
+    kling: "kling.png",
+    kwaivgi: "kling.png",
+    kuaishou: "kling.png",
+    minimax: "hailuo.png",
+    hailuo: "hailuo.png",
+    "nano-banana": "nano-banana.svg",
+    "image.nano-banana": "nano-banana.svg",
     openai: "gpt.png",
+    openrouter: "openrouter.svg",
+    polza: "polza.svg",
+    qwen: "qwen.png",
+    replicate: "replicate.svg",
+    seedance: "seedream-4-5.png",
+    seedream: "seedream-4-5.png",
+    "seedream-4-5": "seedream-4-5.png",
+    stability: "stability.svg",
+    topaz: "topaz.svg",
     unknown: "unknown.svg",
+    wan: "wan.svg",
+    "x-ai": "grok-image.png",
     xai: "grok-image.png",
+    grok: "grok-image.png",
+    "z-ai": "z-image.png",
+    zai: "z-image.png",
+    "z-image": "z-image.png",
+    "tongyi-mai": "z-image.png",
     yandex: "yandexart.png"
   };
-  return filenames[normalized] ?? `${normalized}.svg`;
+  for (const candidate of iconKeyCandidates(key)) {
+    const filename = filenames[candidate];
+    if (filename) return filename;
+  }
+  return undefined;
 }
+
+function normalizedIconKey(key: string): string {
+  return key.trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
+
+function iconKeyCandidates(value: string): string[] {
+  const normalized = normalizedIconKey(value);
+  const upstream = normalized.split("/")[0];
+  return upstream && upstream !== normalized ? [normalized, upstream] : [normalized];
+}
+
+const knownModelIconFilenames = new Set([
+  "claude.png",
+  "cohere.svg",
+  "comfyui.svg",
+  "deepseek.png",
+  "elevenlabs.svg",
+  "flux-2-pro.png",
+  "gemini.png",
+  "gpt.png",
+  "grok-image.png",
+  "hailuo.png",
+  "huggingface.svg",
+  "kling.png",
+  "leonardo.svg",
+  "llama.png",
+  "local.svg",
+  "luma.svg",
+  "midjourney.svg",
+  "mistral.svg",
+  "nano-banana.svg",
+  "nvidia.svg",
+  "ollama.svg",
+  "openrouter.svg",
+  "perplexity.svg",
+  "pika.png",
+  "polza.svg",
+  "qwen.png",
+  "replicate.svg",
+  "runway.png",
+  "seedream-4-5.png",
+  "sora.png",
+  "stability.svg",
+  "suno.svg",
+  "topaz.svg",
+  "unknown.svg",
+  "veo.png",
+  "wan.svg",
+  "yandexart.png",
+  "z-image.png"
+]);
 
 function stringParameter(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;

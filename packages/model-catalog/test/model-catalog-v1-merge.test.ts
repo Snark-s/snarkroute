@@ -53,6 +53,40 @@ describe("Model Catalog V1 merge helpers", () => {
     expect(merged.providerModelId).toBe("qwen/image-2");
   });
 
+  it("uses existing model icon filenames for unknown live vendor models", () => {
+    const models = [
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "qwen/image", originVendor: "qwen", outputTypes: ["image"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "google/gemini-3.1-flash-image-preview", originVendor: "google", outputTypes: ["image"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "bytedance/seedream-5-lite", originVendor: "bytedance", outputTypes: ["image"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "kling/v3-motion-control", outputTypes: ["video"] }),
+      normalizeProviderModelToV1Input({ provider: "gemini", providerModelId: "image.nano-banana", outputTypes: ["image"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "tongyi-mai/z-image", outputTypes: ["image"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "x-ai/grok-image", outputTypes: ["image"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "stability/stable-image-core", outputTypes: ["image"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "wan/2.6", outputTypes: ["video"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "minimax/hailuo-2.3", outputTypes: ["video"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "unknown/live-model", outputTypes: ["image"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "anthropic/claude-opus-4.7-fast", originVendor: "anthropic", outputTypes: ["text"] })
+    ];
+
+    const merged = mergeProviderModelsWithCuratedMetadata(models, []);
+
+    expect(merged.map((model) => [model.providerModelId, model.iconKey, model.iconPath])).toEqual([
+      ["qwen/image", "qwen", "/api/model-icons/qwen.png"],
+      ["google/gemini-3.1-flash-image-preview", "gemini", "/api/model-icons/gemini.png"],
+      ["bytedance/seedream-5-lite", "bytedance", "/api/model-icons/seedream-4-5.png"],
+      ["kling/v3-motion-control", "kling", "/api/model-icons/kling.png"],
+      ["image.nano-banana", "nano-banana", "/api/model-icons/nano-banana.svg"],
+      ["tongyi-mai/z-image", "z-image", "/api/model-icons/z-image.png"],
+      ["x-ai/grok-image", "x-ai", "/api/model-icons/grok-image.png"],
+      ["stability/stable-image-core", "stability", "/api/model-icons/stability.svg"],
+      ["wan/2.6", "wan", "/api/model-icons/wan.svg"],
+      ["minimax/hailuo-2.3", "minimax", "/api/model-icons/hailuo.png"],
+      ["unknown/live-model", "unknown", "/api/model-icons/unknown.svg"],
+      ["anthropic/claude-opus-4.7-fast", "anthropic", "/api/model-icons/claude.png"]
+    ]);
+  });
+
   it("does not treat curated metadata as a whitelist", () => {
     const providerModels = [
       normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "openai/known", outputTypes: ["image"] }),

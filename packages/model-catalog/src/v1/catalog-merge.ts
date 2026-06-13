@@ -67,39 +67,78 @@ function curatedMetadataMatchesProviderModel(
     && (curated.providerModelId === providerModel.providerModelId || Boolean(curated.aliases?.includes(providerModel.providerModelId)));
 }
 
-function selectIconKey(provider: ModelProviderIdV1, originVendor: ModelOriginVendorV1, curated?: CuratedModelMetadataV1): string {
+function selectIconKey(_provider: ModelProviderIdV1, originVendor: ModelOriginVendorV1, curated?: CuratedModelMetadataV1): string {
   if (curated?.iconKey) return curated.iconKey;
   const vendorIcon = iconKeyForVendor(originVendor);
   if (vendorIcon) return vendorIcon;
-  return iconKeyForProvider(provider);
+  return "unknown";
 }
 
 function selectIconPath(provider: ModelProviderIdV1, originVendor: ModelOriginVendorV1, curated?: CuratedModelMetadataV1): string {
   if (curated?.iconPath) return curated.iconPath;
-  return `/api/model-icons/${selectIconKey(provider, originVendor, curated)}.svg`;
+  return `/api/model-icons/${iconFilenameForKey(selectIconKey(provider, originVendor, curated))}`;
 }
 
 function iconKeyForVendor(originVendor: ModelOriginVendorV1): string | undefined {
   const icons: Record<string, string> = {
+    anthropic: "anthropic",
     "black-forest-labs": "flux-2-pro",
+    bytedance: "bytedance",
     google: "gemini",
+    kling: "kling",
+    minimax: "minimax",
+    "nano-banana": "nano-banana",
     openai: "gpt",
     qwen: "qwen",
-    topaz: "topaz"
+    seedance: "seedance",
+    stability: "stability",
+    topaz: "topaz",
+    wan: "wan",
+    "x-ai": "x-ai",
+    xai: "x-ai",
+    "z-ai": "z-image",
+    "tongyi-mai": "z-image"
   };
   return icons[originVendor];
 }
 
-function iconKeyForProvider(provider: ModelProviderIdV1): string {
-  const icons: Record<string, string> = {
-    gemini: "gemini",
-    local: "local",
-    openrouter: "openrouter",
-    polza: "polza",
-    replicate: "replicate",
-    seedance: "seedream-4-5"
+function iconFilenameForKey(iconKey: string): string {
+  const filenames: Record<string, string> = {
+    anthropic: "claude.png",
+    "black-forest-labs": "flux-2-pro.png",
+    bytedance: "seedream-4-5.png",
+    claude: "claude.png",
+    gemini: "gemini.png",
+    google: "gemini.png",
+    gpt: "gpt.png",
+    local: "local.svg",
+    kling: "kling.png",
+    kwaivgi: "kling.png",
+    kuaishou: "kling.png",
+    minimax: "hailuo.png",
+    hailuo: "hailuo.png",
+    openai: "gpt.png",
+    qwen: "qwen.png",
+    replicate: "replicate.svg",
+    seedance: "seedream-4-5.png",
+    seedream: "seedream-4-5.png",
+    "seedream-4-5": "seedream-4-5.png",
+    "nano-banana": "nano-banana.svg",
+    "image.nano-banana": "nano-banana.svg",
+    stability: "stability.svg",
+    topaz: "topaz.svg",
+    unknown: "unknown.svg",
+    wan: "wan.svg",
+    "x-ai": "grok-image.png",
+    xai: "grok-image.png",
+    grok: "grok-image.png",
+    "z-ai": "z-image.png",
+    zai: "z-image.png",
+    "z-image": "z-image.png",
+    "tongyi-mai": "z-image.png",
+    yandex: "yandexart.png"
   };
-  return icons[provider] ?? "unknown";
+  return filenames[iconKey] ?? "unknown.svg";
 }
 
 function mergeMetadata(providerMetadata?: Record<string, unknown>, curatedMetadata?: Record<string, unknown>): Record<string, unknown> | undefined {

@@ -150,6 +150,37 @@ describe("model catalog API", () => {
     }
   });
 
+  it("keeps image and video output models out of text node selectors", async () => {
+    const app = buildServer();
+    try {
+      for (const nodeType of ["ai.text", "polza.text"]) {
+        const response = await app.inject({ method: "GET", url: `/api/models/for-node/${nodeType}` });
+        const body = response.json();
+        const optionIds = body.models.map((model: { providerModelId: string }) => model.providerModelId);
+
+        expect(response.statusCode).toBe(200);
+        expect(body.ok).toBe(true);
+        expect(body.modelCount).toBeGreaterThan(0);
+        expect(body.models.every((model: { outputTypes: string[]; roles: string[] }) =>
+          model.outputTypes.includes("text")
+          && !model.outputTypes.includes("image")
+          && !model.outputTypes.includes("video")
+          && !model.roles.includes("upscaler")
+        )).toBe(true);
+        expect(optionIds).not.toEqual(expect.arrayContaining([
+          "qwen/image",
+          "qwen/image-2",
+          "google/gemini-3.1-flash-image-preview",
+          "bytedance/seedream-5-lite",
+          "bytedance/seedance-2",
+          "topaz/video-upscale"
+        ]));
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns iconPath and parameters array for every legacy-compatible model", async () => {
     const app = buildServer();
     try {

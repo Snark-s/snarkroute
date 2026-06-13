@@ -17,6 +17,17 @@ const curatedModelMetadata = defineCuratedModelMetadataV1([
   },
   {
     provider: "polza",
+    providerModelId: "topaz/video-upscale",
+    displayName: "Topaz Video Upscale",
+    originVendor: "topaz",
+    iconKey: "topaz",
+    iconPath: "/api/model-icons/topaz.svg",
+    outputTypes: ["video"],
+    capabilities: ["video.upscale"],
+    roles: ["upscaler"]
+  },
+  {
+    provider: "polza",
     providerModelId: "openai/gpt-5.4-image-2",
     displayName: "GPT-5.4 Image 2",
     originVendor: "openai",
@@ -58,6 +69,24 @@ const curatedModelMetadata = defineCuratedModelMetadataV1([
     iconKey: "openai",
     iconPath: "/api/model-icons/gpt.png",
     outputTypes: ["image"],
+    roles: ["generator"]
+  },
+  {
+    provider: "polza",
+    providerModelId: "google/gemini-3.1-flash-image-preview",
+    displayName: "Google: Nano Banana 2 (Gemini 3.1 Flash Image Preview)",
+    originVendor: "nano-banana",
+    iconKey: "nano-banana",
+    iconPath: "/api/model-icons/nano-banana.svg",
+    roles: ["generator"]
+  },
+  {
+    provider: "openrouter",
+    providerModelId: "google/gemini-3.1-flash-image-preview",
+    displayName: "Google: Nano Banana 2 (Gemini 3.1 Flash Image Preview)",
+    originVendor: "nano-banana",
+    iconKey: "nano-banana",
+    iconPath: "/api/model-icons/nano-banana.svg",
     roles: ["generator"]
   },
   {

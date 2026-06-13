@@ -34,6 +34,25 @@ describe("server Model Catalog V1 assembly", () => {
     expect(model?.catalogStatus).toBe("known");
   });
 
+  it("applies canonical upscaler role to live topaz/video-upscale", () => {
+    const catalog = assembleModelCatalogV1({
+      polzaModels: [{ id: "topaz/video-upscale", name: "Topaz Video Upscale", type: "video" }]
+    });
+
+    const model = catalog.find((entry) => entry.providerModelId === "topaz/video-upscale");
+    expect(model).toMatchObject({
+      provider: "polza",
+      providerModelId: "topaz/video-upscale",
+      originVendor: "topaz",
+      iconKey: "topaz",
+      iconPath: "/api/model-icons/topaz.svg",
+      outputTypes: ["video"],
+      capabilities: ["video.upscale"],
+      roles: ["upscaler"],
+      catalogStatus: "known"
+    });
+  });
+
   it("applies canonical generator/editor roles to live openai/gpt-image-1.5", () => {
     const catalog = assembleModelCatalogV1({
       polzaModels: [{ id: "openai/gpt-image-1.5", name: "raw name", type: "image" }]
@@ -255,6 +274,24 @@ describe("server Model Catalog V1 assembly", () => {
     const options = modelOptionsForNodeV1("polza.image.generate", catalog);
 
     expect(options.map((entry) => entry.storedModelId)).toEqual(["qwen/image-2"]);
+  });
+
+  it("keeps video upscalers out of normal Polza video generation options", () => {
+    const catalog = assembleModelCatalogV1({
+      polzaModels: [
+        { id: "kling/v3-motion-control", type: "video" },
+        { id: "bytedance/seedance-2", type: "video" },
+        { id: "topaz/video-upscale", type: "video" }
+      ]
+    });
+
+    const options = modelOptionsForNodeV1("polza.video.generate", catalog);
+    const optionIds = options.map((entry) => entry.storedModelId);
+
+    expect(optionIds).toContain("kling/v3-motion-control");
+    expect(optionIds).toContain("bytedance/seedance-2");
+    expect(optionIds).not.toContain("topaz/video-upscale");
+    expect(catalog.find((entry) => entry.providerModelId === "topaz/video-upscale")?.roles).toEqual(["upscaler"]);
   });
 
   it("keeps direct image fallback aliases as provider-native node options", () => {

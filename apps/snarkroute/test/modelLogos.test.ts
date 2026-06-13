@@ -8,7 +8,7 @@ describe("Living Canvas model logos", () => {
     expect(modelLogoFor("openrouter", "minimax/hailuo-2.3").label).toBe("MiniMax");
     expect(modelLogoFor("openrouter", "minimax/hailuo-2.3").src).toContain("/api/model-icons/hailuo.png");
     expect(modelLogoFor("gemini", "image.nano-banana").label).toBe("Nano Banana");
-    expect(modelLogoFor("gemini", "image.nano-banana").src).toContain("/api/model-icons/gemini.png");
+    expect(modelLogoFor("gemini", "image.nano-banana").src).toContain("/api/model-icons/nano-banana.svg");
     expect(modelLogoFor("gemini", "gemini-3.1-flash-image-preview").label).toBe("Nano Banana");
     expect(modelLogoFor("polza", "wan/2.6").label).toBe("Wan");
     expect(modelLogoFor("polza", "wan/2.6").src).toContain("/api/model-icons/wan.svg");
@@ -28,10 +28,10 @@ describe("Living Canvas model logos", () => {
       providerId: "polza",
       id: "vendor/model",
       title: "Vendor Model",
-      iconPath: "/api/model-icons/vendor.svg"
+      iconPath: "/api/model-icons/polza.svg"
     })).toMatchObject({
       label: "Vendor Model",
-      src: "http://127.0.0.1:4317/api/model-icons/vendor.svg"
+      src: "http://127.0.0.1:4317/api/model-icons/unknown.svg"
     });
 
     expect(modelLogoForCatalogOption({
@@ -39,8 +39,8 @@ describe("Living Canvas model logos", () => {
       id: "kwaivgi/kling-v3.0-pro",
       title: "Kling should not be inferred"
     })).toMatchObject({
-      label: "OpenRouter",
-      src: "http://127.0.0.1:4317/api/model-icons/openrouter.svg"
+      label: "Kling should not be inferred",
+      src: "http://127.0.0.1:4317/api/model-icons/kling.png"
     });
 
     expect(modelLogoForCatalogOption({
@@ -48,5 +48,110 @@ describe("Living Canvas model logos", () => {
       id: "vendor/model",
       title: "Unknown"
     }).src).toContain("/api/model-icons/unknown.svg");
+  });
+
+  it("falls back from missing V1 model icon files to existing vendor/provider icons", () => {
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "qwen/image",
+      title: "Qwen Image",
+      iconPath: "/api/model-icons/qwen.svg",
+      iconKey: "qwen",
+      originVendor: "qwen"
+    })).toMatchObject({
+      label: "Qwen Image",
+      src: "http://127.0.0.1:4317/api/model-icons/qwen.png"
+    });
+
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "google/gemini-3.1-flash-image-preview",
+      title: "Nano Banana 2",
+      iconPath: "/api/model-icons/gemini.svg",
+      iconKey: "gemini",
+      originVendor: "google"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/gemini.png");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "bytedance/seedream-5-lite",
+      title: "Seedream",
+      originVendor: "bytedance"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/seedream-4-5.png");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "tongyi-mai/z-image",
+      title: "Z-Image",
+      iconPath: "/api/model-icons/polza.svg"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/z-image.png");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "x-ai/grok-image",
+      title: "Grok Image",
+      iconPath: "/api/model-icons/polza.svg"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/grok-image.png");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "openrouter",
+      id: "google/gemini-3.1-flash-image-preview",
+      title: "Gemini",
+      iconPath: "/api/model-icons/openrouter.svg"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/gemini.png");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "unlisted/model",
+      title: "Unknown",
+      iconPath: "/api/model-icons/polza.svg"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/unknown.svg");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "qwen/image",
+      title: "Qwen with provider icon key",
+      iconKey: "polza",
+      originVendor: "qwen"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/qwen.png");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "kling/v3-motion-control",
+      title: "Kling with provider icon key",
+      iconKey: "polza",
+      originVendor: "kling"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/kling.png");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "bytedance/seedance-2",
+      title: "Seedance with provider icon key",
+      iconKey: "polza",
+      originVendor: "bytedance"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/seedream-4-5.png");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "topaz/video-upscale",
+      title: "Topaz with provider icon key",
+      iconKey: "polza",
+      originVendor: "topaz"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/topaz.svg");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "gemini",
+      id: "image.nano-banana",
+      title: "Nano Banana",
+      iconKey: "nano-banana",
+      originVendor: "nano-banana"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/nano-banana.svg");
+
+    expect(modelLogoForCatalogOption({
+      providerId: "polza",
+      id: "anthropic/claude-opus-4.7-fast",
+      title: "Claude",
+      originVendor: "anthropic"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/claude.png");
   });
 });

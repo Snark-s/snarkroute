@@ -25,7 +25,7 @@ import {
   type ModelRouteSelection,
   type ProviderSettings
 } from "./modelCatalog";
-import { modelLogoForCatalogOption } from "./modelLogos";
+import { modelLogoForCatalogOption, unknownModelLogoSrc, type ModelLogo } from "./modelLogos";
 
 type ThemeName = "day" | "night";
 type BackgroundName = "plain" | "dots" | "grid" | "gears";
@@ -3411,7 +3411,7 @@ function ImageNode({
                   disabled={!selectedModel.id}
                   onClick={() => onToggleModelSearch(node.manifest.id)}
                 >
-                  <img src={selectedModelLogo.src} alt="" />
+                  <ModelLogoImage logo={selectedModelLogo} />
                 </button>
                 {modelSearchOpen ? (
                   <div className="modelMenu" onPointerDown={(event) => event.stopPropagation()}>
@@ -3419,7 +3419,7 @@ function ImageNode({
                     <div className="modelMenuList" data-canvas-wheel-scroll>
                       {visibleModels.map(({ model, providers }) => (
                         <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
-                          <img src={modelLogoForOption(model).src} alt="" />
+                          <ModelLogoImage logo={modelLogoForOption(model)} />
                           <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
                         </button>
                       ))}
@@ -3615,7 +3615,7 @@ function ImageNode({
                 title={selectedModel.title}
                 onClick={() => onToggleModelSearch(node.manifest.id)}
               >
-                <img src={selectedModelLogo.src} alt="" />
+                <ModelLogoImage logo={selectedModelLogo} />
               </button>
               {modelSearchOpen && (
                 <div className="modelMenu" onPointerDown={(event) => event.stopPropagation()}>
@@ -3627,7 +3627,7 @@ function ImageNode({
                   <div className="modelMenuList" data-canvas-wheel-scroll>
                     {visibleModels.map(({ model, providers }) => (
                       <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
-                <img src={modelLogoForOption(model).src} alt="" />
+                <ModelLogoImage logo={modelLogoForOption(model)} />
                         <span>
                           <strong>{model.title}</strong>
                           <small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>
@@ -3935,8 +3935,20 @@ function positiveFinite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
-function modelLogoForOption(model: Pick<ModelOption, "providerId" | "id" | "title" | "iconPath">) {
+function modelLogoForOption(model: Pick<ModelOption, "providerId" | "id" | "providerModelId" | "storedModelId" | "title" | "iconPath" | "iconKey" | "originVendor">) {
   return modelLogoForCatalogOption(model);
+}
+
+function ModelLogoImage({ logo }: { logo: ModelLogo }) {
+  return (
+    <img
+      src={logo.src || unknownModelLogoSrc}
+      alt=""
+      onError={(event) => {
+        if (event.currentTarget.src !== unknownModelLogoSrc) event.currentTarget.src = unknownModelLogoSrc;
+      }}
+    />
+  );
 }
 
 function GenerationParameterControl({
