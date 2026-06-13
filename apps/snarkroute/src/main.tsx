@@ -3293,15 +3293,15 @@ function ImageNode({
   }
   if (collapsed) {
     const isTextNode = node.manifest.type === "text";
-    const collapsedIcon = isTextNode ? <span className="collapsedNodeTextIcon">T</span> : isVideoNode ? <Video size={15} /> : <ImageIcon size={15} />;
     const collapsedStackLabel = stackCount ? (isTextNode ? `${stackCount}` : `${activeIndex || 1}/${stackCount}`) : "0";
+    const portCenterY = node.canvas.y + nodeTitleHeight + (isTextNode ? textBaseHeight : node.canvas.height) / 2;
     return (
       <article
         className={`${isTextNode ? "textNode" : "imageNode"} isCollapsed${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
         style={{
-          "--image-height": `${collapsedNodeHeight - nodeTitleHeight}px`,
-          transform: `translate(${node.canvas.x}px, ${node.canvas.y}px)`,
-          width: Math.min(Math.max(node.canvas.width, 180), collapsedNodeWidth),
+          "--image-height": `${collapsedNodeHeight}px`,
+          transform: `translate(${node.canvas.x}px, ${portCenterY - collapsedNodeHeight / 2}px)`,
+          width: Math.max(node.canvas.width, collapsedNodeWidth),
           height: collapsedNodeHeight
         } as React.CSSProperties}
         onPointerDown={(event) => onPointerDown(event, node)}
@@ -3314,7 +3314,15 @@ function ImageNode({
               <Cog size={12} className="nodeBusyGearLarge" />
               <Cog size={9} className="nodeBusyGearSmall" />
             </span>
-          ) : collapsedIcon}
+          ) : (
+            <span className="collapsedNodeThumb">
+              {previewUrl ? isVideoNode ? (
+                <video src={previewUrl} muted preload="metadata" />
+              ) : (
+                <img src={previewUrl} alt="" />
+              ) : isTextNode ? <span className="collapsedNodeTextIcon">T</span> : isVideoNode ? <Video size={15} /> : <ImageIcon size={15} />}
+            </span>
+          )}
           <span className="collapsedNodeTitle">{node.manifest.title || (isTextNode ? "Text" : isVideoNode ? "Video" : "Image")}</span>
           <span className="collapsedNodeCount">{collapsedStackLabel}</span>
           <button
@@ -3356,18 +3364,6 @@ function ImageNode({
         onContextMenu={(event) => onContextMenu(event, node)}
       >
         <div className="nodeTitle textNodeTitle">
-          <button
-            className="nodeCollapseButton"
-            type="button"
-            aria-label="Collapse node"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleCollapsed(node.manifest.id);
-            }}
-          >
-            <Minimize2 size={13} />
-          </button>
           {active ? (
             <input
               defaultValue={node.manifest.title}
@@ -3380,6 +3376,18 @@ function ImageNode({
               }}
             />
           ) : <span>{node.manifest.title || "Text"}</span>}
+          <button
+            className="nodeCollapseButton"
+            type="button"
+            aria-label="Collapse node"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleCollapsed(node.manifest.id);
+            }}
+          >
+            <Minimize2 size={13} />
+          </button>
         </div>
         <div className="nodeHandleLine nodeHandleLineInput" />
         <div className="nodeHandleLine nodeHandleLineOutput" />
@@ -3582,18 +3590,6 @@ function ImageNode({
         </div>
       )}
       <div className="nodeTitle">
-        <button
-          className="nodeCollapseButton"
-          type="button"
-          aria-label="Collapse node"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleCollapsed(node.manifest.id);
-          }}
-        >
-          <Minimize2 size={13} />
-        </button>
         {generationFeedback?.busy ? (
           <span className="nodeBusyGears" aria-label="Generating">
             <Cog size={12} className="nodeBusyGearLarge" />
@@ -3612,27 +3608,43 @@ function ImageNode({
             }}
           />
         ) : <span>{node.manifest.title || (isVideoNode ? "Video" : "Image")}</span>}
+        <button
+          className="nodeCollapseButton"
+          type="button"
+          aria-label="Collapse node"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleCollapsed(node.manifest.id);
+          }}
+        >
+          <Minimize2 size={13} />
+        </button>
       </div>
       <div className="nodeHandleLine nodeHandleLineInput" />
       <div className="nodeHandleLine nodeHandleLineOutput" />
       <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
       <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
       <div className="imagePreview" onContextMenu={(event) => onContentContextMenu(event, node, isVideoNode ? "video" : "image")}>
-        {previewUrl ? isVideoNode ? <video src={previewUrl} controls preload="metadata" onPointerDown={(event) => event.stopPropagation()} /> : (
-          <img
-            src={previewUrl}
-            alt={node.manifest.title}
-            draggable={false}
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenPreview(mediaNode.manifest.id, mediaNode.manifest.activeStackIndex, mediaNode.manifest.title);
-            }}
-          />
-        ) : (
+        {previewUrl ? isVideoNode ? <video src={previewUrl} controls preload="metadata" onPointerDown={(event) => event.stopPropagation()} /> : <img src={previewUrl} alt={node.manifest.title} draggable={false} /> : (
           <div className="emptyNodePreview">
             {isVideoNode ? <Video size={32} /> : <ImageIcon size={32} />}
           </div>
         )}
+        {previewUrl && !isVideoNode ? (
+          <button
+            className="imagePreviewExpandHotspot"
+            type="button"
+            aria-label="Expand image"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenPreview(mediaNode.manifest.id, mediaNode.manifest.activeStackIndex, mediaNode.manifest.title);
+            }}
+          >
+            <Expand size={18} />
+          </button>
+        ) : null}
         {active && (
           <button
             className="uploadStackButton"
