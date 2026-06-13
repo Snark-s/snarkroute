@@ -83,30 +83,6 @@ export const GEMINI_IMAGE_SIZES = ["1K", "2K", "4K"];
 export const OPENAI_IMAGE_ASPECT_RATIOS = ["1:1", "3:2", "2:3", "16:9", "9:16"];
 export const OPENAI_IMAGE_QUALITIES = ["low", "medium", "high"];
 
-export const POLZA_TEXT_MODEL_OPTIONS: PolzaModel[] = [
-  { id: "openai/gpt-4o", name: "GPT-4o", type: "chat" },
-  { id: "anthropic/claude-3-5-sonnet", name: "Claude 3.5 Sonnet", type: "chat" },
-  { id: "google/gemini-2.5-pro-preview", name: "Gemini 2.5 Pro", type: "chat" },
-  { id: "meta-llama/llama-3.3-70b", name: "Llama 3.3 70B", type: "chat" }
-];
-
-export const POLZA_IMAGE_MODEL_OPTIONS: PolzaModel[] = [
-  { id: "openai/gpt-5.4-image-2", name: "GPT-5.4 Image 2", type: "image", short_description: "Supports aspect_ratio: auto, 1:1, 5:4, 9:16, 21:9, 16:9, 4:3, 3:2, 4:5, 3:4, 2:3" },
-  { id: "openai/gpt-5-image-mini", name: "GPT-5 Image Mini", type: "image" },
-  { id: "openai/gpt-image-1.5", name: "GPT Image 1.5", type: "image", short_description: "Supports aspect_ratio: 1:1, 2:3, 3:2" },
-  { id: "gpt-image-1", name: "GPT Image 1", type: "image" },
-  { id: "dall-e-3", name: "DALL-E 3", type: "image" },
-  { id: "x-ai/grok-imagine-image", name: "Grok Imagine", type: "image" }
-];
-
-export const POLZA_VIDEO_MODEL_OPTIONS: PolzaModel[] = [
-  { id: "google/veo3_fast", name: "Veo 3 Fast", type: "video", short_description: "Supports video generation with sound." },
-  { id: "google/veo3", name: "Veo 3", type: "video", short_description: "Supports video generation with sound." },
-  { id: "wan/2.6", name: "Wan 2.6", type: "video" },
-  { id: "bytedance/seedance-2", name: "Seedance 2", type: "video" },
-  { id: "bytedance/seedance-2-fast", name: "Seedance 2 Fast", type: "video" }
-];
-
 export const POLZA_IMAGE_ASPECT_RATIOS = ["auto", "1:1", "5:4", "4:5", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9"];
 export const POLZA_IMAGE_RESOLUTIONS = ["1K", "2K"];
 export const POLZA_IMAGE_QUALITIES = ["auto", "low", "medium", "high"];

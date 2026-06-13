@@ -79,12 +79,9 @@ import {
   OPENAI_IMAGE_QUALITIES,
   POLZA_IMAGE_ASPECT_RATIOS,
   POLZA_IMAGE_FORMATS,
-  POLZA_IMAGE_MODEL_OPTIONS,
   POLZA_IMAGE_QUALITIES,
   POLZA_IMAGE_RESOLUTIONS,
-  POLZA_TEXT_MODEL_OPTIONS,
   POLZA_VIDEO_DURATIONS,
-  POLZA_VIDEO_MODEL_OPTIONS,
   POLZA_VIDEO_RESOLUTIONS,
   ROUTE_FILE_ACCEPT,
   SAVED_PROJECT_STORAGE_KEY,
@@ -2399,8 +2396,11 @@ function NodeInlineParams({
     if (type !== "polza.video.generate") return;
     const model = String(params.model ?? "");
     if (!isPolzaVideoUpscaleModelId(model)) return;
-    onChange({ model: POLZA_VIDEO_MODEL_OPTIONS[0].id });
-  }, [type, params.model, onChange]);
+    const replacementModel = modelOptionsForNodes["polza.video.generate"]?.find((entry) =>
+      entry.provider === "polza" && entry.executionProvider === "polza" && !entry.roles.includes("upscaler")
+    )?.storedModelId;
+    if (replacementModel) onChange({ model: replacementModel, executionProvider: "polza" });
+  }, [type, params.model, modelOptionsForNodes, onChange]);
 
   useLayoutEffect(() => {
     restorePendingTextSelection(pendingTextSelectionRef);
@@ -2885,11 +2885,9 @@ function NodeInlineParams({
   if (type === "polza.text") {
     const systemPromptConnected = connectedInputPorts.has("systemPrompt");
     const promptConnected = connectedInputPorts.has("prompt");
-    const model = String(params.model ?? POLZA_TEXT_MODEL_OPTIONS[0].id);
+    const model = String(params.model ?? "");
     const nodeModelOptions = modelOptionsForNodes["polza.text"] ?? [];
-    const modelOptions = nodeModelOptions.length > 0
-      ? polzaModelsFromNodeOptions(nodeModelOptions, model)
-      : polzaModelOptions(polzaTextModels, POLZA_TEXT_MODEL_OPTIONS, model);
+    const modelOptions = polzaModelsFromNodeOptions(nodeModelOptions, model);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
     return (
       <>
@@ -2897,6 +2895,7 @@ function NodeInlineParams({
           <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
             <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+              {modelOptions.length === 0 ? <option value="" disabled>Model catalog unavailable</option> : null}
               {modelOptions.map((entry) => (
                 <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, polzaModelSupportsVisionInput(entry))}</option>
               ))}
@@ -2927,13 +2926,11 @@ function NodeInlineParams({
 
   if (type === "polza.image.generate") {
     const promptConnected = connectedInputPorts.has("prompt");
-    const model = polzaProviderModelId(String(params.model ?? POLZA_IMAGE_MODEL_OPTIONS[0].id));
+    const model = polzaProviderModelId(String(params.model ?? ""));
     const nodeModelOptions = modelOptionsForNodes["polza.image.generate"] ?? [];
-    const modelOptions = nodeModelOptions.length > 0
-      ? polzaModelsFromNodeOptions(nodeModelOptions, model)
-      : enrichPolzaImageModelOptions(polzaModelOptions(polzaImageModels, polzaImageModels.length > 0 ? [] : POLZA_IMAGE_MODEL_OPTIONS, model, true, false), catalogImageModels ?? []);
+    const modelOptions = enrichPolzaImageModelOptions(polzaModelsFromNodeOptions(nodeModelOptions, model), catalogImageModels ?? []);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
-    const selectedModelId = selectedModel?.id ?? modelOptions[0]?.id ?? model;
+    const selectedModelId = selectedModel?.id ?? model;
     const aspectRatio = supportedOptionValue(params.aspectRatio, POLZA_IMAGE_ASPECT_RATIOS);
     const imageResolution = supportedOptionValue(params.imageResolution ?? params.imageSize, POLZA_IMAGE_RESOLUTIONS);
     const quality = supportedOptionValue(params.quality, POLZA_IMAGE_QUALITIES);
@@ -2944,6 +2941,7 @@ function NodeInlineParams({
           <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={polzaImageModelLogo(selectedModel, model)}>
             <select className="nodrag nopan nodeInput nodeSelect" value={selectedModelId} onChange={(event) => onChange({ model: event.target.value })}>
+              {modelOptions.length === 0 ? <option value="" disabled>Model catalog unavailable</option> : null}
               {modelOptions.map((entry) => (
                 <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
               ))}
@@ -2993,14 +2991,12 @@ function NodeInlineParams({
 
   if (type === "polza.video.generate") {
     const promptConnected = connectedInputPorts.has("prompt");
-    const model = isPolzaVideoUpscaleModelId(String(params.model ?? "")) ? POLZA_VIDEO_MODEL_OPTIONS[0].id : String(params.model ?? POLZA_VIDEO_MODEL_OPTIONS[0].id);
+    const model = isPolzaVideoUpscaleModelId(String(params.model ?? "")) ? "" : String(params.model ?? "");
     const executionProvider = String(params.executionProvider ?? "polza") === "openrouter" ? "openrouter" : "polza";
     const nodeModelOptions = modelOptionsForNodes["polza.video.generate"] ?? [];
-    const modelOptions = nodeModelOptions.length > 0
-      ? videoModelOptionsFromNodeOptions(nodeModelOptions, model)
-      : videoGenerationModelOptions(openRouterModels, polzaVideoModels, model);
+    const modelOptions = videoModelOptionsFromNodeOptions(nodeModelOptions, model);
     const selectedModel = modelOptions.find((entry) => entry.id === model && entry.providerId === executionProvider) ?? modelOptions.find((entry) => entry.id === model);
-    const selectedModelKey = selectedModel ? videoModelOptionKey(selectedModel) : `polza:${model}`;
+    const selectedModelKey = selectedModel ? videoModelOptionKey(selectedModel) : "";
     const resolution = supportedOptionValue(params.resolution, POLZA_VIDEO_RESOLUTIONS);
     const duration = supportedOptionValue(params.duration, POLZA_VIDEO_DURATIONS);
     const supportsAudio = polzaVideoSupportsAudio(selectedModel ?? { id: model });
@@ -3019,6 +3015,7 @@ function NodeInlineParams({
                 onChange({ model: nextModel.id, executionProvider: nextModel.providerId });
               }}
             >
+              {modelOptions.length === 0 ? <option value="" disabled>Model catalog unavailable</option> : null}
               {modelOptions.map((entry) => (
                 <option key={videoModelOptionKey(entry)} value={videoModelOptionKey(entry)}>{entry.name ? `${entry.name} (${entry.id}) - ${entry.providerLabel}` : `${entry.id} - ${entry.providerLabel}`}</option>
               ))}
@@ -9711,9 +9708,9 @@ function App() {
               <button onClick={() => void loadPolzaModels()}><Globe size={16} /> Refresh Models</button>
             </div>
             <div className="providerStatus">
-              <span>Text models: {polzaTextModels.length || POLZA_TEXT_MODEL_OPTIONS.length}</span>
-              <span>Image models: {polzaImageModels.length || POLZA_IMAGE_MODEL_OPTIONS.length}</span>
-              <span>Video models: {polzaVideoModels.length || POLZA_VIDEO_MODEL_OPTIONS.length}</span>
+              <span>Text models: {polzaTextModels.length}</span>
+              <span>Image models: {polzaImageModels.length}</span>
+              <span>Video models: {polzaVideoModels.length}</span>
             </div>
           </div>
           <div className="providerCard">
@@ -11607,61 +11604,6 @@ function modalityOutputModalities(modality: string): string[] {
   if (!modality) return [];
   const outputSide = modality.includes("->") ? modality.split("->").pop() ?? "" : modality;
   return outputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
-}
-
-function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaModel[], selectedModelId: string, normalizeProviderIds = false, includeMissingSelected = true): PolzaModel[] {
-  const byId = new Map<string, PolzaModel>();
-  for (const model of fallbackModels) byId.set(model.id, model);
-  for (const model of catalogModels) {
-    const id = normalizeProviderIds ? polzaProviderModelId(model.id) : model.id;
-    if (!id || (normalizeProviderIds && id.startsWith("polza:"))) continue;
-    byId.set(id, { ...byId.get(id), ...model, id });
-  }
-  if (includeMissingSelected && selectedModelId && !byId.has(selectedModelId)) byId.set(selectedModelId, { id: selectedModelId, name: selectedModelId });
-  return [...byId.values()].sort((left, right) => {
-    const leftFallback = fallbackModels.some((model) => model.id === left.id) ? 0 : 1;
-    const rightFallback = fallbackModels.some((model) => model.id === right.id) ? 0 : 1;
-    return leftFallback - rightFallback || (left.name ?? left.id).localeCompare(right.name ?? right.id);
-  });
-}
-
-function videoGenerationModelOptions(openRouterModels: OpenRouterModel[], polzaVideoModels: PolzaModel[], selectedModelId: string): VideoModelOption[] {
-  const polzaOptions = polzaModelOptions(polzaVideoModels.filter(isPolzaVideoGenerationModel), POLZA_VIDEO_MODEL_OPTIONS, selectedModelId)
-    .map((model): VideoModelOption => ({
-      ...model,
-      providerId: "polza",
-      providerLabel: "Polza.ai"
-    }));
-  const byKey = new Map(polzaOptions.map((model) => [`polza:${model.id}`, model]));
-  for (const model of openRouterModels.filter(modelSupportsVideo)) {
-    byKey.set(`openrouter:${model.id}`, {
-      id: model.id,
-      name: model.name,
-      providerId: "openrouter",
-      providerLabel: "OpenRouter",
-      pricing: model.pricing,
-      supported_parameters: model.supported_parameters,
-      architecture: model.architecture
-    });
-  }
-  const hasSelected = [...byKey.values()].some((model) => model.id === selectedModelId);
-  if (selectedModelId && !hasSelected) {
-    const selectedOpenRouterModel = openRouterModels.find((model) => model.id === selectedModelId);
-    byKey.set(`${selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "openrouter" : "polza"}:${selectedModelId}`, {
-      id: selectedModelId,
-      name: selectedOpenRouterModel?.name ?? selectedModelId,
-      providerId: selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "openrouter" : "polza",
-      providerLabel: selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "OpenRouter" : "Polza.ai",
-      pricing: selectedOpenRouterModel?.pricing,
-      supported_parameters: selectedOpenRouterModel?.supported_parameters,
-      architecture: selectedOpenRouterModel?.architecture
-    });
-  }
-  return [...byKey.values()].sort((left, right) => {
-    const leftProvider = left.providerId === "polza" ? 0 : 1;
-    const rightProvider = right.providerId === "polza" ? 0 : 1;
-    return leftProvider - rightProvider || (left.name ?? left.id).localeCompare(right.name ?? right.id);
-  });
 }
 
 function videoModelOptionKey(model: Pick<VideoModelOption, "providerId" | "id">): string {
