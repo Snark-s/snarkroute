@@ -10,6 +10,8 @@ describe("Living Canvas model logos", () => {
     expect(modelLogoFor("gemini", "image.nano-banana").label).toBe("Nano Banana");
     expect(modelLogoFor("gemini", "image.nano-banana").src).toContain("/api/model-icons/nano-banana.svg");
     expect(modelLogoFor("gemini", "gemini-3.1-flash-image-preview").label).toBe("Nano Banana");
+    expect(modelLogoFor("gemini", "gemini-3-pro-image-preview").src).toContain("/api/model-icons/nano-banana.svg");
+    expect(modelLogoFor("gemini", "gemini-3-pro").src).toContain("/api/model-icons/gemini.png");
     expect(modelLogoFor("polza", "wan/2.6").label).toBe("Wan");
     expect(modelLogoFor("polza", "wan/2.6").src).toContain("/api/model-icons/wan.svg");
     expect(modelLogoFor("polza", "kling/v3").label).toBe("Kling");
@@ -67,10 +69,10 @@ describe("Living Canvas model logos", () => {
       providerId: "polza",
       id: "google/gemini-3.1-flash-image-preview",
       title: "Nano Banana 2",
-      iconPath: "/api/model-icons/gemini.svg",
-      iconKey: "gemini",
-      originVendor: "google"
-    }).src).toBe("http://127.0.0.1:4317/api/model-icons/gemini.png");
+      iconPath: "/api/model-icons/nano-banana.svg",
+      iconKey: "nano-banana",
+      originVendor: "nano-banana"
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/nano-banana.svg");
 
     expect(modelLogoForCatalogOption({
       providerId: "polza",
@@ -96,9 +98,9 @@ describe("Living Canvas model logos", () => {
     expect(modelLogoForCatalogOption({
       providerId: "openrouter",
       id: "google/gemini-3.1-flash-image-preview",
-      title: "Gemini",
+      title: "Nano Banana",
       iconPath: "/api/model-icons/openrouter.svg"
-    }).src).toBe("http://127.0.0.1:4317/api/model-icons/gemini.png");
+    }).src).toBe("http://127.0.0.1:4317/api/model-icons/nano-banana.svg");
 
     expect(modelLogoForCatalogOption({
       providerId: "polza",

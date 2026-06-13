@@ -125,6 +125,8 @@ function iconFilenameForKey(iconKey: string): string {
     "seedream-4-5": "seedream-4-5.png",
     "nano-banana": "nano-banana.svg",
     "image.nano-banana": "nano-banana.svg",
+    "google/gemini-3.1-flash-image-preview": "nano-banana.svg",
+    "google/gemini-3-pro-image-preview": "nano-banana.svg",
     stability: "stability.svg",
     topaz: "topaz.svg",
     unknown: "unknown.svg",

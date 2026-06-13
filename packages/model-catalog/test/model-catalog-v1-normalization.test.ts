@@ -31,6 +31,9 @@ describe("Model Catalog V1 provider normalization", () => {
     expect(inferOriginVendorFromProviderModelId("x-ai/grok-image")).toBe("x-ai");
     expect(inferOriginVendorFromProviderModelId("kwaivgi/kling-video-o1")).toBe("kling");
     expect(inferOriginVendorFromProviderModelId("image.nano-banana")).toBe("nano-banana");
+    expect(inferOriginVendorFromProviderModelId("google/gemini-3.1-flash-image-preview")).toBe("nano-banana");
+    expect(inferOriginVendorFromProviderModelId("google/gemini-3-pro-image-preview")).toBe("nano-banana");
+    expect(inferOriginVendorFromProviderModelId("google/gemini-3-pro")).toBe("google");
   });
 
   it("represents unknown live provider models as available live records", () => {

@@ -144,7 +144,8 @@ describe("Living Canvas model catalog", () => {
           v1Model({ provider: "polza", providerModelId: "tongyi-mai/z-image", iconPath: "/api/model-icons/polza.svg", iconKey: "polza", outputTypes: ["image"] }),
           v1Model({ provider: "polza", providerModelId: "x-ai/grok-image", iconPath: "/api/model-icons/polza.svg", iconKey: "polza", outputTypes: ["image"] }),
           v1Model({ provider: "polza", providerModelId: "qwen/image", iconPath: "/api/model-icons/qwen.svg", iconKey: "qwen", originVendor: "qwen", outputTypes: ["image"] }),
-          v1Model({ provider: "polza", providerModelId: "google/gemini-3.1-flash-image-preview", iconPath: "/api/model-icons/gemini.svg", iconKey: "gemini", originVendor: "google", outputTypes: ["image", "text"] })
+          v1Model({ provider: "polza", providerModelId: "google/gemini-3.1-flash-image-preview", iconPath: "/api/model-icons/nano-banana.svg", iconKey: "nano-banana", originVendor: "nano-banana", outputTypes: ["image", "text"] }),
+          v1Model({ provider: "openrouter", providerModelId: "google/gemini-3-pro", iconPath: "/api/model-icons/gemini.png", iconKey: "gemini", originVendor: "google", outputTypes: ["text"] })
         ] }
       : []);
 
@@ -158,7 +159,8 @@ describe("Living Canvas model catalog", () => {
     expect(catalog.availableModels.find((model) => model.id === "tongyi-mai/z-image")?.iconPath).toBe("/api/model-icons/z-image.png");
     expect(catalog.availableModels.find((model) => model.id === "x-ai/grok-image")?.iconPath).toBe("/api/model-icons/grok-image.png");
     expect(catalog.availableModels.find((model) => model.id === "qwen/image")?.iconPath).toBe("/api/model-icons/qwen.png");
-    expect(catalog.availableModels.find((model) => model.id === "google/gemini-3.1-flash-image-preview")?.iconPath).toBe("/api/model-icons/gemini.png");
+    expect(catalog.availableModels.find((model) => model.id === "google/gemini-3.1-flash-image-preview")?.iconPath).toBe("/api/model-icons/nano-banana.svg");
+    expect(catalog.availableModels.find((model) => model.id === "google/gemini-3-pro")?.iconPath).toBe("/api/model-icons/gemini.png");
     expect(catalog.availableModels.every((model) => typeof model.iconPath === "string" && model.iconPath.length > 0)).toBe(true);
   });
 

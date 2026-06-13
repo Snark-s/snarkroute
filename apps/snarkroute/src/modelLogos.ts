@@ -194,6 +194,8 @@ const iconFilenamesByKey: Record<string, string> = {
   hailuo: "hailuo.png",
   "nano-banana": "nano-banana.svg",
   "image.nano-banana": "nano-banana.svg",
+  "google/gemini-3.1-flash-image-preview": "nano-banana.svg",
+  "google/gemini-3-pro-image-preview": "nano-banana.svg",
   openai: "gpt.png",
   openrouter: "openrouter.svg",
   polza: "polza.svg",

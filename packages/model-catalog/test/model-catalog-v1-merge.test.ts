@@ -57,6 +57,8 @@ describe("Model Catalog V1 merge helpers", () => {
     const models = [
       normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "qwen/image", originVendor: "qwen", outputTypes: ["image"] }),
       normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "google/gemini-3.1-flash-image-preview", originVendor: "google", outputTypes: ["image"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "google/gemini-3-pro-image-preview", originVendor: "google", outputTypes: ["image"] }),
+      normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "google/gemini-3-pro", originVendor: "google", outputTypes: ["text"] }),
       normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "bytedance/seedream-5-lite", originVendor: "bytedance", outputTypes: ["image"] }),
       normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "kling/v3-motion-control", outputTypes: ["video"] }),
       normalizeProviderModelToV1Input({ provider: "gemini", providerModelId: "image.nano-banana", outputTypes: ["image"] }),
@@ -73,7 +75,9 @@ describe("Model Catalog V1 merge helpers", () => {
 
     expect(merged.map((model) => [model.providerModelId, model.iconKey, model.iconPath])).toEqual([
       ["qwen/image", "qwen", "/api/model-icons/qwen.png"],
-      ["google/gemini-3.1-flash-image-preview", "gemini", "/api/model-icons/gemini.png"],
+      ["google/gemini-3.1-flash-image-preview", "nano-banana", "/api/model-icons/nano-banana.svg"],
+      ["google/gemini-3-pro-image-preview", "nano-banana", "/api/model-icons/nano-banana.svg"],
+      ["google/gemini-3-pro", "gemini", "/api/model-icons/gemini.png"],
       ["bytedance/seedream-5-lite", "bytedance", "/api/model-icons/seedream-4-5.png"],
       ["kling/v3-motion-control", "kling", "/api/model-icons/kling.png"],
       ["image.nano-banana", "nano-banana", "/api/model-icons/nano-banana.svg"],

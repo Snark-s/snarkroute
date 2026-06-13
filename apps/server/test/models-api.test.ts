@@ -181,6 +181,54 @@ describe("model catalog API", () => {
     }
   });
 
+  it("keeps text-only and upscaler models out of image node selectors", async () => {
+    const app = buildServer();
+    try {
+      for (const nodeType of ["ai.image.generate", "polza.image.generate"]) {
+        const response = await app.inject({ method: "GET", url: `/api/models/for-node/${nodeType}` });
+        const body = response.json();
+        const optionIds = body.models.map((model: { providerModelId: string }) => model.providerModelId);
+
+        expect(response.statusCode).toBe(200);
+        expect(body.ok).toBe(true);
+        expect(body.modelCount).toBeGreaterThan(0);
+        expect(body.models.every((model: { outputTypes: string[]; roles: string[] }) =>
+          model.outputTypes.includes("image")
+          && !model.roles.includes("upscaler")
+        )).toBe(true);
+        expect(optionIds).not.toEqual(expect.arrayContaining([
+          "openai/gpt-5.1",
+          "openai/gpt-5.2",
+          "anthropic/claude-opus-4.7-fast",
+          "topaz/image-upscale",
+          "topaz/video-upscale"
+        ]));
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("keeps video upscalers out of normal video node selectors", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/for-node/polza.video.generate" });
+      const body = response.json();
+      const optionIds = body.models.map((model: { providerModelId: string }) => model.providerModelId);
+
+      expect(response.statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.modelCount).toBeGreaterThan(0);
+      expect(body.models.every((model: { outputTypes: string[]; roles: string[] }) =>
+        model.outputTypes.includes("video")
+        && !model.roles.includes("upscaler")
+      )).toBe(true);
+      expect(optionIds).not.toContain("topaz/video-upscale");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns iconPath and parameters array for every legacy-compatible model", async () => {
     const app = buildServer();
     try {

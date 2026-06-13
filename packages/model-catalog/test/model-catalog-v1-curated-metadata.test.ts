@@ -37,6 +37,10 @@ describe("Model Catalog V1 curated metadata registry", () => {
       expect(metadata.iconKey).toBe("nano-banana");
       expect(metadata.iconPath).toBe("/api/model-icons/nano-banana.svg");
     }
+    const proMetadata = getCuratedModelMetadataV1("openrouter", "google/gemini-3-pro-image-preview");
+    expect(proMetadata.originVendor).toBe("nano-banana");
+    expect(proMetadata.iconKey).toBe("nano-banana");
+    expect(proMetadata.iconPath).toBe("/api/model-icons/nano-banana.svg");
   });
 
   it("looks up curated metadata by provider and providerModelId", () => {
@@ -70,6 +74,6 @@ describe("Model Catalog V1 curated metadata registry", () => {
   });
 
   it("has the expected initial curated model count", () => {
-    expect(listCuratedModelMetadataV1()).toHaveLength(12);
+    expect(listCuratedModelMetadataV1()).toHaveLength(13);
   });
 });

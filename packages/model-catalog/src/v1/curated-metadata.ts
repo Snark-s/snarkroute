@@ -90,6 +90,15 @@ const curatedModelMetadata = defineCuratedModelMetadataV1([
     roles: ["generator"]
   },
   {
+    provider: "openrouter",
+    providerModelId: "google/gemini-3-pro-image-preview",
+    displayName: "Google: Nano Banana (Gemini 3 Pro Image Preview)",
+    originVendor: "nano-banana",
+    iconKey: "nano-banana",
+    iconPath: "/api/model-icons/nano-banana.svg",
+    roles: ["generator"]
+  },
+  {
     provider: "polza",
     providerModelId: "qwen/image-2",
     displayName: "Qwen Image 2",
