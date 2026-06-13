@@ -820,6 +820,68 @@ dd {
   grid-template-rows: 24px var(--image-height) 250px;
 }
 
+.imageNode.isCollapsed,
+.textNode.isCollapsed {
+  display: block;
+  z-index: 10;
+}
+
+.imageNode.isCollapsed .nodeHandle,
+.imageNode.isCollapsed .nodeHandleLine,
+.textNode.isCollapsed .nodeHandle,
+.textNode.isCollapsed .nodeHandleLine {
+  top: 50%;
+}
+
+.collapsedNodeStrip {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto 24px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--muted) 42%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: 0 12px 28px var(--shadow);
+  color: var(--muted);
+}
+
+.collapsedNodeTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collapsedNodeCount {
+  min-width: 24px;
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.collapsedNodeTextIcon {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--muted) 58%, transparent);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
+}
+
 .addLibraryButton {
   width: 100%;
   min-height: 38px;
@@ -939,9 +1001,19 @@ dd {
   grid-template-rows: 24px var(--image-height) auto;
 }
 
+.textNode.isCollapsed {
+  display: block;
+  grid-template-rows: none;
+}
+
 .textNode .nodeHandle,
 .textNode .nodeHandleLine {
   top: calc(24px + var(--image-height) / 2);
+}
+
+.textNode.isCollapsed .nodeHandle,
+.textNode.isCollapsed .nodeHandleLine {
+  top: 50%;
 }
 
 .textNodePreview {
@@ -1287,6 +1359,25 @@ dd {
   pointer-events: none;
 }
 
+.nodeCollapseButton {
+  width: 22px;
+  height: 22px;
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--panel-soft) 82%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.nodeCollapseButton:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel-soft));
+}
+
 .textNodeTitle {
   user-select: none;
 }
@@ -1324,6 +1415,10 @@ dd {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.imagePreview img {
+  cursor: zoom-in;
 }
 
 .emptyNodePreview {

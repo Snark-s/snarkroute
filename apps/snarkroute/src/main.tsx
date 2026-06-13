@@ -1,5 +1,5 @@
 import "./styles.css";
-import { ArrowUp, ChevronLeft, ChevronRight, Clipboard, Cog, Copy, Crop, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Moon, PanelRight, RefreshCw, Save, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
+import { ArrowUp, ChevronLeft, ChevronRight, Clipboard, Cog, Copy, Crop, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Maximize2, Minimize2, Moon, PanelRight, RefreshCw, Save, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -440,6 +440,8 @@ const backgroundStorageKey = "snarkroute.canvasBackground";
 const imageNodeWidth = 320;
 const imageNodeHeight = 240;
 const nodeTitleHeight = 24;
+const collapsedNodeWidth = 240;
+const collapsedNodeHeight = 38;
 const textNodeBaseHeight = 180;
 const activePromptHeight = 250;
 const passiveFooterHeight = 42;
@@ -473,6 +475,7 @@ function App() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [collapsedNodeIds, setCollapsedNodeIds] = useStoredJsonSetting<string[]>("snarkroute.collapsedNodes", []);
   const [nodeCreateMenu, setNodeCreateMenu] = useState<NodeCreateMenu | null>(null);
   const [previewImage, setPreviewImage] = useState<{ nodeId: string; title: string; index: number } | null>(null);
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
@@ -535,21 +538,27 @@ function App() {
 
   useEffect(() => {
     function handlePaste(event: ClipboardEvent) {
-      const file = [...(event.clipboardData?.files ?? [])].find((item) => /\.(png|jpe?g|webp)$/i.test(item.name) || /^image\/(png|jpeg|webp)$/i.test(item.type));
+      if (pasteTargetIgnoresImageFiles(event.target)) return;
+      const file = clipboardImageFile(event.clipboardData);
       if (!file) return;
       event.preventDefault();
-      void importImageFileAt(file, viewportCenterWorldPoint());
+      const selectedImageNode = selectedNodeIds.length === 1
+        ? library?.nodes.find((node) => node.canvas.id === selectedNodeId && node.manifest.type === "image")
+        : null;
+      if (selectedImageNode) void addFileToNodeStack(selectedImageNode.canvas.id, file);
+      else void importImageFileAt(file, viewportCenterWorldPoint());
     }
 
     window.addEventListener("paste", handlePaste);
     return () => window.removeEventListener("paste", handlePaste);
-  }, [library, viewport]);
+  }, [library, selectedNodeId, selectedNodeIds, viewport]);
 
   const nodes = useMemo(() => library?.nodes ?? [], [library]);
   const edges = library?.canvas?.edges ?? [];
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.canvas.id, node])), [nodes]);
   const availableCatalogModels = useMemo(() => availableModels, [availableModels]);
   const pickerCatalogModels = useMemo(() => mergeProviderAndUserDefinedPickerModels(availableCatalogModels, customModels), [availableCatalogModels, customModels]);
+  const collapsedNodeIdSet = useMemo(() => new Set(collapsedNodeIds), [collapsedNodeIds]);
   const viewportScale = viewport.scale ?? 1;
 
   function beginLibraryMutation(): number {
@@ -1648,6 +1657,24 @@ function App() {
     return nodes.find((node) => node.canvas.id === nodeId)?.manifest.type === "video" ? "video-nodes" : "image-nodes";
   }
 
+  async function addFileToNodeStack(nodeId: string, file: File) {
+    const isVideo = mediaNodeRoute(nodeId) === "video-nodes";
+    try {
+      setStatus(`Adding ${file.name || (isVideo ? "video" : "image")} to stack...`);
+      const dataBase64 = await fileToBase64(file);
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack`, {
+        filename: file.name || `pasted-${isVideo ? "video" : "image"}`,
+        dataBase64
+      });
+      applyLibrarySnapshot(snapshot);
+      setSelectedNodeId(nodeId);
+      setSelectedNodeIds([nodeId]);
+      setStatus(`${isVideo ? "Video" : "Image"} added to stack`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : `Could not add ${isVideo ? "video" : "image"} to stack.`);
+    }
+  }
+
   async function uploadImageToNodeStack(nodeId: string) {
     const isVideo = mediaNodeRoute(nodeId) === "video-nodes";
     const input = document.createElement("input");
@@ -1656,22 +1683,18 @@ function App() {
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      try {
-        setStatus(`Adding ${file.name} to stack...`);
-        const dataBase64 = await fileToBase64(file);
-        const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/${mediaNodeRoute(nodeId)}/${encodeURIComponent(nodeId)}/stack`, {
-          filename: file.name,
-          dataBase64
-        });
-        applyLibrarySnapshot(snapshot);
-        setSelectedNodeId(nodeId);
-        setSelectedNodeIds([nodeId]);
-        setStatus(`${isVideo ? "Video" : "Image"} added to stack`);
-      } catch (error) {
-        setStatus(error instanceof Error ? error.message : `Could not add ${isVideo ? "video" : "image"} to stack.`);
-      }
+      await addFileToNodeStack(nodeId, file);
     };
     input.click();
+  }
+
+  function toggleNodeCollapsed(nodeId: string) {
+    setCollapsedNodeIds(collapsedNodeIds.includes(nodeId)
+      ? collapsedNodeIds.filter((id) => id !== nodeId)
+      : [...collapsedNodeIds, nodeId]
+    );
+    setOpenStackNodeId((current) => current === nodeId ? null : current);
+    setModelSearchNodeId((current) => current === nodeId ? null : current);
   }
 
   async function openCropEditor(requestedSourceNodeId: string, cropNodeId?: string) {
@@ -2144,6 +2167,7 @@ function App() {
               node={node as ImageNodeView | VideoNodeView | TextNodeView}
               active={selectedNodeIds.length === 1 && selectedNodeId === node.canvas.id}
               selected={selectedNodeIds.includes(node.canvas.id)}
+              collapsed={collapsedNodeIdSet.has(node.canvas.id)}
               inputNodes={inputChipsForNode(node.canvas.id, edges, nodeById)}
               onPointerDown={handleNodePointerDown}
               onClick={handleNodeClick}
@@ -2160,6 +2184,7 @@ function App() {
               onOpenPreview={(nodeId, index, title) => setPreviewImage({ nodeId, index, title })}
               onOpenCrop={openCropEditor}
               onUploadStackImage={(nodeId) => void uploadImageToNodeStack(nodeId)}
+              onToggleCollapsed={toggleNodeCollapsed}
               openStack={openStackNodeId === node.canvas.id}
               onToggleStack={(nodeId) => setOpenStackNodeId((current) => current === nodeId ? null : nodeId)}
               onSelectStackImage={(nodeId, index) => {
@@ -3115,6 +3140,7 @@ function ImageNode({
   node,
   active,
   selected,
+  collapsed,
   inputNodes,
   onPointerDown,
   onClick,
@@ -3125,6 +3151,7 @@ function ImageNode({
   onOpenPreview,
   onOpenCrop,
   onUploadStackImage,
+  onToggleCollapsed,
   openStack,
   onToggleStack,
   onSelectStackImage,
@@ -3150,6 +3177,7 @@ function ImageNode({
   node: EditableNodeView;
   active: boolean;
   selected: boolean;
+  collapsed: boolean;
   inputNodes: InputNodeChip[];
   onPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
   onClick: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
@@ -3160,6 +3188,7 @@ function ImageNode({
   onOpenPreview: (nodeId: string, index: number, title: string) => void;
   onOpenCrop: (nodeId: string) => void;
   onUploadStackImage: (nodeId: string) => void;
+  onToggleCollapsed: (nodeId: string) => void;
   openStack: boolean;
   onToggleStack: (nodeId: string) => void;
   onSelectStackImage: (nodeId: string, index: number) => void;
@@ -3262,6 +3291,52 @@ function ImageNode({
       return [...rest.slice(0, targetIndex), dragged, ...rest.slice(targetIndex)];
     });
   }
+  if (collapsed) {
+    const isTextNode = node.manifest.type === "text";
+    const collapsedIcon = isTextNode ? <span className="collapsedNodeTextIcon">T</span> : isVideoNode ? <Video size={15} /> : <ImageIcon size={15} />;
+    const collapsedStackLabel = stackCount ? (isTextNode ? `${stackCount}` : `${activeIndex || 1}/${stackCount}`) : "0";
+    return (
+      <article
+        className={`${isTextNode ? "textNode" : "imageNode"} isCollapsed${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
+        style={{
+          "--image-height": `${collapsedNodeHeight - nodeTitleHeight}px`,
+          transform: `translate(${node.canvas.x}px, ${node.canvas.y}px)`,
+          width: Math.min(Math.max(node.canvas.width, 180), collapsedNodeWidth),
+          height: collapsedNodeHeight
+        } as React.CSSProperties}
+        onPointerDown={(event) => onPointerDown(event, node)}
+        onClick={(event) => onClick(event, node)}
+        onContextMenu={(event) => onContextMenu(event, node)}
+      >
+        <div className="collapsedNodeStrip">
+          {generationFeedback?.busy ? (
+            <span className="nodeBusyGears" aria-label="Generating">
+              <Cog size={12} className="nodeBusyGearLarge" />
+              <Cog size={9} className="nodeBusyGearSmall" />
+            </span>
+          ) : collapsedIcon}
+          <span className="collapsedNodeTitle">{node.manifest.title || (isTextNode ? "Text" : isVideoNode ? "Video" : "Image")}</span>
+          <span className="collapsedNodeCount">{collapsedStackLabel}</span>
+          <button
+            className="nodeCollapseButton"
+            type="button"
+            aria-label="Expand node"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleCollapsed(node.manifest.id);
+            }}
+          >
+            <Maximize2 size={13} />
+          </button>
+        </div>
+        <div className="nodeHandleLine nodeHandleLineInput" />
+        <div className="nodeHandleLine nodeHandleLineOutput" />
+        <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
+        <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
+      </article>
+    );
+  }
   if (node.manifest.type === "text") {
     const textNode = node as TextNodeView;
     const textStackIsEmpty = textNode.stack.length === 0;
@@ -3281,6 +3356,18 @@ function ImageNode({
         onContextMenu={(event) => onContextMenu(event, node)}
       >
         <div className="nodeTitle textNodeTitle">
+          <button
+            className="nodeCollapseButton"
+            type="button"
+            aria-label="Collapse node"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleCollapsed(node.manifest.id);
+            }}
+          >
+            <Minimize2 size={13} />
+          </button>
           {active ? (
             <input
               defaultValue={node.manifest.title}
@@ -3495,6 +3582,18 @@ function ImageNode({
         </div>
       )}
       <div className="nodeTitle">
+        <button
+          className="nodeCollapseButton"
+          type="button"
+          aria-label="Collapse node"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleCollapsed(node.manifest.id);
+          }}
+        >
+          <Minimize2 size={13} />
+        </button>
         {generationFeedback?.busy ? (
           <span className="nodeBusyGears" aria-label="Generating">
             <Cog size={12} className="nodeBusyGearLarge" />
@@ -3519,7 +3618,17 @@ function ImageNode({
       <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
       <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
       <div className="imagePreview" onContextMenu={(event) => onContentContextMenu(event, node, isVideoNode ? "video" : "image")}>
-        {previewUrl ? isVideoNode ? <video src={previewUrl} controls preload="metadata" onPointerDown={(event) => event.stopPropagation()} /> : <img src={previewUrl} alt={node.manifest.title} draggable={false} /> : (
+        {previewUrl ? isVideoNode ? <video src={previewUrl} controls preload="metadata" onPointerDown={(event) => event.stopPropagation()} /> : (
+          <img
+            src={previewUrl}
+            alt={node.manifest.title}
+            draggable={false}
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenPreview(mediaNode.manifest.id, mediaNode.manifest.activeStackIndex, mediaNode.manifest.title);
+            }}
+          />
+        ) : (
           <div className="emptyNodePreview">
             {isVideoNode ? <Video size={32} /> : <ImageIcon size={32} />}
           </div>
@@ -4519,6 +4628,18 @@ function fileToBase64(file: File): Promise<string> {
     reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
     reader.readAsDataURL(file);
   });
+}
+
+function clipboardImageFile(data: DataTransfer | null): File | null {
+  const fromFiles = [...(data?.files ?? [])].find(isImageFile);
+  if (fromFiles) return fromFiles;
+  const imageItem = [...(data?.items ?? [])].find((item) => item.kind === "file" && /^image\/(png|jpeg|webp)$/i.test(item.type));
+  return imageItem?.getAsFile() ?? null;
+}
+
+function pasteTargetIgnoresImageFiles(target: EventTarget | null): boolean {
+  const element = target instanceof HTMLElement ? target : null;
+  return Boolean(element?.closest("input, textarea, select, [contenteditable='true'], .promptRichEditor"));
 }
 
 function isImageFile(file: File): boolean {

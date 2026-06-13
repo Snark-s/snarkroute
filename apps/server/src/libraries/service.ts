@@ -1982,7 +1982,9 @@ export async function canvasNodeFolderPath(nodeId: string): Promise<string> {
   const canvas = await ensureCanvas(libraryPath);
   const canvasNode = canvas.nodes.find((node) => node.id === nodeId);
   if (!canvasNode) throw new Error(`Node "${nodeId}" was not found.`);
-  return resolvePortablePath(libraryPath, canvasNode.nodePath);
+  const contentPath = join(resolvePortablePath(libraryPath, canvasNode.nodePath), "content");
+  await mkdir(contentPath, { recursive: true });
+  return contentPath;
 }
 
 export async function readImageNode(nodeId: string): Promise<{ manifest: ImageNodeManifest; nodePath: string }> {
@@ -2790,19 +2792,15 @@ function resolveInputTokens(
   imageReferenceSyntax: string | undefined
 ): string {
   const inputById = new Map(inputs.map((entry) => [entry.nodeId, entry]));
-  return stripLeadingImageReferenceBlock(promptTemplate).replace(/\[\[(text|image|video):([^\]]+)\]\]/g, (_token, type: string, nodeId: string) => {
+  return promptTemplate.replace(/\[\[(text|image|video):([^\]]+)\]\]/g, (_token, type: string, nodeId: string) => {
     const input = inputById.get(nodeId);
     if (!input || input.type !== type) return "";
     if (type === "text") return input.text ?? "";
-    if (!input.image || !imageReferenceSyntax) return "";
+    if (!input.image) return "";
     const position = sentImages.findIndex((image) => image.path === input.image?.path);
-    return position >= 0 ? imageReferenceSyntax.replaceAll("{index}", String(position + 1)) : "";
+    const referenceSyntax = imageReferenceSyntax?.trim() || "@image {index}";
+    return position >= 0 ? referenceSyntax.replaceAll("{index}", String(position + 1)) : "";
   });
-}
-
-function stripLeadingImageReferenceBlock(promptTemplate: string): string {
-  const match = promptTemplate.match(/^(\s*(?:\[\[image:[^\]]+\]\][^\r\n]*(?:\r?\n|[ \t])*)+)(?:\r?\n)+/u);
-  return match ? promptTemplate.slice(match[0].length).trimStart() : promptTemplate;
 }
 
 function imageNodeIdsFromPromptTemplate(promptTemplate: string): Set<string> {

@@ -446,6 +446,7 @@ describe("SnarkRoute libraries", () => {
         nodeResults: { generate: { output: { image: { localPath: generatedPath, path: generatedPath, filename: "result.png", mimeType: "image/png", width: 1, height: 1 } } } }
       });
       const promptTemplate = `[[image:${source.manifest.id}]] - 360 panorama hall. [[image:${secondSource.manifest.id}]] - hall map.\n\nDraw a 360 panorama from the red cross on the plan`;
+      const resolvedPrompt = "@image 1 - 360 panorama hall. @image 2 - hall map.\n\nDraw a 360 panorama from the red cross on the plan";
 
       const response = await app.inject({
         method: "POST",
@@ -476,7 +477,7 @@ describe("SnarkRoute libraries", () => {
           providerId: "polza",
           modelId: "openai/gpt-5-image-mini",
           fallbackAllowed: false,
-          prompt: { text: "Draw a 360 panorama from the red cross on the plan", template: promptTemplate },
+          prompt: { text: resolvedPrompt, template: promptTemplate },
           parameters: { aspectRatio: "16:9", imageSize: "1K", outputFormat: "png" },
           inputImages: [
             expect.objectContaining({ ref: expect.stringMatching(/^library:\/\/default\//), nodeId: source.manifest.id, mimeType: "image/png", role: "360 panorama hall" }),
@@ -492,12 +493,12 @@ describe("SnarkRoute libraries", () => {
       expect(readPngTextChunk(storedImage, "snarkroute:prompt")).toBeNull();
       expect(readPngTextChunk(storedImage, "snarkroute.provenance_json")).toBeNull();
       expect(parsePromptPngFile(storedImage, "generated.png")).toMatchObject({
-        prompt: { text: "Draw a 360 panorama from the red cross on the plan", category: "generated", previewImage: "generated.png" }
+        prompt: { text: resolvedPrompt, category: "generated", previewImage: "generated.png" }
       });
       expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
         nodes: [expect.objectContaining({
           type: "polza.image.generate",
-          params: expect.objectContaining({ model: "openai/gpt-5-image-mini", executionProvider: "polza", fallbackAllowed: false, prompt: "Draw a 360 panorama from the red cross on the plan" })
+          params: expect.objectContaining({ model: "openai/gpt-5-image-mini", executionProvider: "polza", fallbackAllowed: false, prompt: resolvedPrompt })
         })]
       }));
       const route = executeRouteMock.mock.calls[0][0];
