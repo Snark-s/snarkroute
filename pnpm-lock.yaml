@@ -14,6 +14,9 @@ importers:
       '@snarkroute/gemini':
         specifier: workspace:*
         version: link:packages/adapters/gemini
+      '@snarkroute/model-catalog':
+        specifier: workspace:*
+        version: link:packages/model-catalog
       '@snarkroute/model-registry':
         specifier: workspace:*
         version: link:packages/model-registry
@@ -60,6 +63,9 @@ importers:
       '@snarkroute/gemini':
         specifier: workspace:*
         version: link:../../packages/adapters/gemini
+      '@snarkroute/model-catalog':
+        specifier: workspace:*
+        version: link:../../packages/model-catalog
       '@snarkroute/nodes':
         specifier: workspace:*
         version: link:../../packages/nodes
@@ -252,6 +258,8 @@ importers:
       vitest:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@20.19.39)
+
+  packages/model-catalog: {}
 
   packages/model-registry:
     devDependencies:
