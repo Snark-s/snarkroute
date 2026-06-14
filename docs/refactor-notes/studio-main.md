@@ -7,7 +7,10 @@ Latest cleanup run:
 - Start of the previous broad cleanup run: `apps/studio/src/main.tsx` had 10,983 lines.
 - Start of the node-params split run: `apps/studio/src/main.tsx` was measured at 9,733 lines.
 - After the node-params split run: `apps/studio/src/main.tsx` has 9,642 lines.
-- Total reduction since the 11,479-line baseline: 1,837 lines.
+- Start of the route-node container/controller run: `apps/studio/src/main.tsx` had 9,126 lines.
+- After the route-node container/controller run: `apps/studio/src/main.tsx` has 8,075 lines.
+- This run reduced `main.tsx` by 1,051 lines.
+- Total reduction since the 11,479-line baseline: 3,404 lines.
 
 Modules extracted so far:
 
@@ -30,14 +33,15 @@ Modules extracted so far:
 - `apps/studio/src/features/prompt-library/PromptLibraryNodeParams.tsx`
 - `apps/studio/src/features/canvas-node/RouteNodeActions.tsx`
 - `apps/studio/src/features/canvas-node/RouteNodePreview.tsx`
+- `apps/studio/src/features/canvas-node/RouteNodeCardContainer.tsx`
+- `apps/studio/src/features/node-params/NodeParamsController.tsx`
 - `apps/studio/src/features/node-packages/nodePackageHelpers.ts`
 
 `apps/studio/src/main.tsx` still combines several responsibilities:
 
 - BoojumRoute Lab app state and route execution controls
-- React Flow canvas node rendering and connection menus
-- provider-heavy node parameter editors and preview panels
-- dialogue workbench UI
+- React Flow canvas state, route-node data hydration, and connection menus
+- preview panels, dialogue workbench UI, and the camera-point editor
 - provider settings, billing, and admin panels
 - route import/export and local asset previews
 - formatting and small presentational helpers
@@ -61,8 +65,8 @@ Safe staged path:
 
 Deferred sections:
 
-- `NodeInlineParams`: shared primitives, prompt-library params, asset params, text/output params, HTTP params, and transform params are now extracted. Remaining provider families (`ai.text`, Polza, Gemini, local Stable Diffusion, Replicate clarity/model) still share model catalogs, pricing badges, connected input state, provider configuration, and model logo behavior. Extract them family-by-family; do not move the whole dispatcher unless the provider props stay compact.
-- `RouteNodeCard`: run actions and collapsed image preview are extracted. The header, ports, provider token status blocks, inline params mount, and React Flow handles remain because moving them together would create a broad prop surface and risks canvas/handle behavior.
+- `NodeInlineParams`: replaced by `NodeParamsController`. The controller now owns the dispatcher and provider-family branches for `ai.text`, `ai.image.generate`, Polza text/image/video, Gemini, Replicate, local Stable Diffusion, prompt library, asset, text, HTTP, transform, and generic manifest params. `transform.chooseCameraPoint` still renders through a callback into `main.tsx` because that editor shares heavier panorama/world-labs preview behavior.
+- `RouteNodeCard`: replaced by `RouteNodeCardContainer`. The container owns route-node prop assembly, ports/handles, token status blocks, collapse behavior, parameter mounting, run actions, and collapsed image previews. Inline result rendering still stays in `main.tsx` via a renderer callback because panorama/fisheye/result pinning pulls in a separate preview stack.
 - Full `App` state machine: keep in `main.tsx` until route IO, node packages, prompt library, and settings panels are further separated. Moving it now would create a large prop bundle or a new global store.
 - Full route serialization/persistence: `routeFlow.ts` now owns safe flow conversion helpers, but `flowToRoute` and compound serialization still depend on local catalog/port helpers. Extract only after port helpers are split cleanly.
 - Node package management panel: metadata helpers are extracted. The panel UI and package install/delete actions remain intertwined with preview selection, install state, route placement, and context menu behavior. Next safe step is rows/cards/actions, not the whole panel.
@@ -70,10 +74,11 @@ Deferred sections:
 
 Next safe targets:
 
-- Extract provider-family node params in small chunks, starting with the least stateful provider branch.
+- Extract `NodeParamsController` provider-family branches into smaller files now that the controller boundary exists.
+- Extract the inline result preview stack from `main.tsx`, starting with non-panorama image/video/text result sections before moving the panorama/fisheye pieces.
+- Extract route-node port/icon helpers from duplicated container/main surfaces into a shared focused module.
 - Extract node package rows/cards/actions after stabilizing their callback surface.
 - Extract prompt library context-menu or asset draft rows only if route-node retargeting can stay in `main.tsx`.
-- Split `RouteNodeCard` ports/header only after port helpers and node icon helpers are detached from `main.tsx`.
 - Split route serialization after `getNodePorts` and manifest/port helpers are detached from node rendering.
 
 Guardrails:
