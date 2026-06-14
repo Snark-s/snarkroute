@@ -4,9 +4,10 @@ Status: staged plan after the Studio `main.tsx` cleanup passes.
 
 Latest cleanup run:
 
-- Start of this run: `apps/studio/src/main.tsx` had 10,983 lines.
-- After this run: `apps/studio/src/main.tsx` has 9,733 lines.
-- Total reduction in this run: 1,250 lines.
+- Start of the previous broad cleanup run: `apps/studio/src/main.tsx` had 10,983 lines.
+- Start of the node-params split run: `apps/studio/src/main.tsx` was measured at 9,733 lines.
+- After the node-params split run: `apps/studio/src/main.tsx` has 9,642 lines.
+- Total reduction since the 11,479-line baseline: 1,837 lines.
 
 Modules extracted so far:
 
@@ -14,17 +15,28 @@ Modules extracted so far:
 - `apps/studio/src/shared/mediaPreview.ts`
 - `apps/studio/src/shared/apiClient.ts`
 - `apps/studio/src/shared/navigation.ts`
+- `apps/studio/src/shared/fileHelpers.ts`
 - `apps/studio/src/features/model-catalog/ModelViews.tsx`
 - `apps/studio/src/features/admin/AdminPanel.tsx`
 - `apps/studio/src/features/admin/AdminRoutes.tsx`
 - `apps/studio/src/features/billing/EconomicsPanel.tsx`
 - `apps/studio/src/features/route-io/routeFlow.ts`
+- `apps/studio/src/features/node-params/ParamRows.tsx`
+- `apps/studio/src/features/node-params/paramHelpers.ts`
+- `apps/studio/src/features/node-params/AssetNodeParams.tsx`
+- `apps/studio/src/features/node-params/TextNodeParams.tsx`
+- `apps/studio/src/features/node-params/HttpRequestParams.tsx`
+- `apps/studio/src/features/node-params/TransformNodeParams.tsx`
+- `apps/studio/src/features/prompt-library/PromptLibraryNodeParams.tsx`
+- `apps/studio/src/features/canvas-node/RouteNodeActions.tsx`
+- `apps/studio/src/features/canvas-node/RouteNodePreview.tsx`
+- `apps/studio/src/features/node-packages/nodePackageHelpers.ts`
 
 `apps/studio/src/main.tsx` still combines several responsibilities:
 
 - BoojumRoute Lab app state and route execution controls
 - React Flow canvas node rendering and connection menus
-- node parameter editors and preview panels
+- provider-heavy node parameter editors and preview panels
 - dialogue workbench UI
 - provider settings, billing, and admin panels
 - route import/export and local asset previews
@@ -49,16 +61,19 @@ Safe staged path:
 
 Deferred sections:
 
-- `RouteNodeCard` and `NodeInlineParams`: still too broad for one safe move because they share canvas callbacks, provider settings, prompt library state, model options, run controls, and preview handlers. Extract leaf sections first.
+- `NodeInlineParams`: shared primitives, prompt-library params, asset params, text/output params, HTTP params, and transform params are now extracted. Remaining provider families (`ai.text`, Polza, Gemini, local Stable Diffusion, Replicate clarity/model) still share model catalogs, pricing badges, connected input state, provider configuration, and model logo behavior. Extract them family-by-family; do not move the whole dispatcher unless the provider props stay compact.
+- `RouteNodeCard`: run actions and collapsed image preview are extracted. The header, ports, provider token status blocks, inline params mount, and React Flow handles remain because moving them together would create a broad prop surface and risks canvas/handle behavior.
 - Full `App` state machine: keep in `main.tsx` until route IO, node packages, prompt library, and settings panels are further separated. Moving it now would create a large prop bundle or a new global store.
 - Full route serialization/persistence: `routeFlow.ts` now owns safe flow conversion helpers, but `flowToRoute` and compound serialization still depend on local catalog/port helpers. Extract only after port helpers are split cleanly.
-- Node package management panel: UI and package install/delete actions are still intertwined with library metadata and canvas placement. Next safe step is extracting rows/cards and metadata helpers before the whole panel.
+- Node package management panel: metadata helpers are extracted. The panel UI and package install/delete actions remain intertwined with preview selection, install state, route placement, and context menu behavior. Next safe step is rows/cards/actions, not the whole panel.
+- Prompt library panel/context menu: node-parameter selection UI is extracted. Full panel/context-menu behavior remains in `main.tsx` because update/delete/move actions retarget route nodes and share App state.
 
 Next safe targets:
 
-- Move library node metadata helpers into a node-packages feature module.
-- Move prompt library filtering/cards into a prompt-library feature module.
-- Split `NodeInlineParams` by node family only after shared value/media helpers are stable.
+- Extract provider-family node params in small chunks, starting with the least stateful provider branch.
+- Extract node package rows/cards/actions after stabilizing their callback surface.
+- Extract prompt library context-menu or asset draft rows only if route-node retargeting can stay in `main.tsx`.
+- Split `RouteNodeCard` ports/header only after port helpers and node icon helpers are detached from `main.tsx`.
 - Split route serialization after `getNodePorts` and manifest/port helpers are detached from node rendering.
 
 Guardrails:
