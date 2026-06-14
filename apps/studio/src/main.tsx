@@ -60,6 +60,8 @@ import { fetchImageCatalogModels, fetchModelsForNode } from "./modelCatalogClien
 import { modelLogoFor } from "./modelLogos";
 import { AdminDashboard, AdminLoginPage, LoginPage } from "./features/admin/AdminRoutes";
 import { CreditHistoryPanel, CreditTransactionMiniList, EconomicsPanel } from "./features/billing/EconomicsPanel";
+import { RouteNodeRunActions } from "./features/canvas-node/RouteNodeActions";
+import { CollapsedImagePreviewButton } from "./features/canvas-node/RouteNodePreview";
 import { AssetNodeParams } from "./features/node-params/AssetNodeParams";
 import { HttpRequestParams } from "./features/node-params/HttpRequestParams";
 import { GenericManifestParams, NodeSliderParam } from "./features/node-params/ParamRows";
@@ -748,31 +750,12 @@ function RouteNodeCard({ id, data }: NodeProps) {
       <span className={`nodeStatus ${statusClass(result?.status)}`} />
       {isMissingNode ? <div className="nodeWarning">Missing block package. Install "{type}" or remove this block.</div> : null}
       {shouldShowNodeRunButton(type) ? (
-        <div className="nodeRunActions">
-          <button
-            className="nodeRunButton nodrag nopan"
-            type="button"
-            title={canRunNodeOnly ? "Run this node only" : "Run this node only after all inputs have ready outputs"}
-            disabled={!canRunNodeOnly}
-            onClick={(event) => {
-              event.stopPropagation();
-              onRunNodeOnly?.(id);
-            }}
-          >
-            <Play size={12} />
-          </button>
-          <button
-            className="nodeRunButton dependency nodrag nopan"
-            type="button"
-            title="Run this node with upstream dependencies"
-            onClick={(event) => {
-              event.stopPropagation();
-              onRunNodeWithDependencies?.(id);
-            }}
-          >
-            <span className="nodeRunDoubleArrow">&gt;&gt;</span>
-          </button>
-        </div>
+        <RouteNodeRunActions
+          nodeId={id}
+          canRunNodeOnly={canRunNodeOnly}
+          onRunNodeOnly={onRunNodeOnly}
+          onRunNodeWithDependencies={onRunNodeWithDependencies}
+        />
       ) : null}
       {ports.inputs.map((port, index) => (
         <React.Fragment key={port.id}>
@@ -977,17 +960,12 @@ function RouteNodeCard({ id, data }: NodeProps) {
       ) : null}
       {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} type={type} result={result} outputPinned={outputPinned} onOpenImage={onOpenImage} onDownloadImage={onDownloadImage} onImageResultContextMenu={onImageResultContextMenu} onFixNodeOutput={onFixNodeOutput} onConfigureMissingSecret={configureMissingSecret} /> : null}
       {paramsCollapsed && collapsedImageSrc ? (
-        <button
-          className="collapsedImagePreviewButton nodrag nopan"
-          type="button"
-          title="View output image"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpenImage?.({ src: collapsedImageSrc, title: collapsedImageTitle, filename: collapsedImageFilename });
-          }}
-        >
-          <img className="collapsedImagePreview" src={collapsedImageSrc} alt="" />
-        </button>
+        <CollapsedImagePreviewButton
+          src={collapsedImageSrc}
+          title={collapsedImageTitle}
+          filename={collapsedImageFilename}
+          onOpenImage={onOpenImage}
+        />
       ) : null}
       {ports.outputs.map((port, index) => (
         <React.Fragment key={port.id}>
