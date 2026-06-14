@@ -68,6 +68,13 @@ import { GenericManifestParams, NodeSliderParam } from "./features/node-params/P
 import { TextNodeParams, isTextNodeParamsType } from "./features/node-params/TextNodeParams";
 import { FisheyeTransformParams, ImageResizeTransformParams } from "./features/node-params/TransformNodeParams";
 import { numberParamValue, numericParam, restorePendingTextSelection, updateTextFieldPreservingCaret } from "./features/node-params/paramHelpers";
+import {
+  libraryNodeOrder,
+  libraryNodeStatus,
+  libraryNodeStatusLabel,
+  loadLibraryNodeMetadata,
+  saveLibraryNodeMetadata
+} from "./features/node-packages/nodePackageHelpers";
 import { PromptLibraryNodeParams } from "./features/prompt-library/PromptLibraryNodeParams";
 import { apiFetch } from "./shared/apiClient";
 import { filenameFromPath } from "./shared/fileHelpers";
@@ -4710,54 +4717,6 @@ function parseBundledDefaultRoute(): RouteDoc {
   } catch {
     return blankRoute;
   }
-}
-
-function loadLibraryNodeMetadata(): LibraryNodeMetadata {
-  try {
-    const text = localStorage.getItem(LIBRARY_NODE_METADATA_STORAGE_KEY);
-    if (!text) return {};
-    const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed as Record<string, unknown>).flatMap(([id, value]) => {
-        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-        const record = value as { status?: unknown; order?: unknown };
-        const status = isLibraryNodeStatus(record.status) ? record.status : undefined;
-        const order = typeof record.order === "number" && Number.isFinite(record.order) ? record.order : undefined;
-        return [[id, { status, order }]];
-      })
-    );
-  } catch {
-    return {};
-  }
-}
-
-function saveLibraryNodeMetadata(metadata: LibraryNodeMetadata): void {
-  try {
-    localStorage.setItem(LIBRARY_NODE_METADATA_STORAGE_KEY, JSON.stringify(metadata));
-  } catch {
-    // Metadata is a UI convenience; route editing should keep working if storage is unavailable.
-  }
-}
-
-function isLibraryNodeStatus(value: unknown): value is LibraryNodeStatus {
-  return typeof value === "string" && libraryNodeStatuses.some((status) => status.id === value);
-}
-
-function libraryNodeStatusLabel(status: LibraryNodeStatus): string {
-  return libraryNodeStatuses.find((item) => item.id === status)?.label ?? status;
-}
-
-function defaultLibraryNodeStatus(node: NodeManifest): LibraryNodeStatus {
-  return node.enabled === false ? "archived" : "candidate";
-}
-
-function libraryNodeStatus(node: NodeManifest, metadata: LibraryNodeMetadata): LibraryNodeStatus {
-  return metadata[node.id]?.status ?? defaultLibraryNodeStatus(node);
-}
-
-function libraryNodeOrder(node: NodeManifest, metadata: LibraryNodeMetadata, fallbackOrder: number): number {
-  return metadata[node.id]?.order ?? fallbackOrder;
 }
 
 function flowToNodeRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc, targetNodeId: string): RouteDoc {
