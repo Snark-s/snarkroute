@@ -7,6 +7,11 @@ export function numericParam(value: string): unknown {
   return Number.isFinite(number) ? number : value;
 }
 
+export function numberParamValue(value: unknown, fallback: number): number {
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value.replace(",", ".")) : fallback;
+  return Number.isFinite(number) ? number : fallback;
+}
+
 export function updateTextFieldPreservingCaret(
   event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
   pendingSelectionRef: MutableRefObject<PendingTextSelection | null>,

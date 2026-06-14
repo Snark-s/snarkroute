@@ -64,7 +64,8 @@ import { AssetNodeParams } from "./features/node-params/AssetNodeParams";
 import { HttpRequestParams } from "./features/node-params/HttpRequestParams";
 import { GenericManifestParams, NodeSliderParam } from "./features/node-params/ParamRows";
 import { TextNodeParams, isTextNodeParamsType } from "./features/node-params/TextNodeParams";
-import { numericParam, restorePendingTextSelection, updateTextFieldPreservingCaret } from "./features/node-params/paramHelpers";
+import { FisheyeTransformParams, ImageResizeTransformParams } from "./features/node-params/TransformNodeParams";
+import { numberParamValue, numericParam, restorePendingTextSelection, updateTextFieldPreservingCaret } from "./features/node-params/paramHelpers";
 import { PromptLibraryNodeParams } from "./features/prompt-library/PromptLibraryNodeParams";
 import { apiFetch } from "./shared/apiClient";
 import { filenameFromPath } from "./shared/fileHelpers";
@@ -2494,37 +2495,7 @@ function NodeInlineParams({
   }
 
   if (type === "transform.panorama360ToFisheye") {
-    return (
-      <div className="fisheyeParams">
-        <NodeSliderParam
-          id="fovDegrees"
-          label="angle"
-          min={1}
-          max={360}
-          step={1}
-          value={numberParamValue(params.fovDegrees, 200)}
-          onChange={onChange}
-        />
-        <NodeSliderParam
-          id="yawDegrees"
-          label="yaw"
-          min={-180}
-          max={180}
-          step={1}
-          value={numberParamValue(params.yawDegrees, 0)}
-          onChange={onChange}
-        />
-        <NodeSliderParam
-          id="pitchDegrees"
-          label="pitch"
-          min={-90}
-          max={90}
-          step={1}
-          value={numberParamValue(params.pitchDegrees, -90)}
-          onChange={onChange}
-        />
-      </div>
-    );
+    return <FisheyeTransformParams params={params} onChange={onChange} />;
   }
 
   if (type === "transform.chooseCameraPoint") {
@@ -2532,15 +2503,15 @@ function NodeInlineParams({
   }
 
   if (type === "transform.imageResize" && manifest?.params?.length) {
-    const dimensions = resizeInputDimensions.dimensions;
-    const status = resizeInputDimensions.status;
     return (
-      <>
-        <div className="nodeMetaLine">
-          Input image: {dimensions ? `${dimensions.width} x ${dimensions.height}px` : status === "loading" ? "loading size..." : status === "error" ? "size unavailable" : "not connected"}
-        </div>
-        <GenericManifestParams manifest={manifest} params={params} onChange={onChange} updateTextParam={updateTextParam} />
-      </>
+      <ImageResizeTransformParams
+        manifest={manifest}
+        params={params}
+        dimensions={resizeInputDimensions.dimensions}
+        status={resizeInputDimensions.status}
+        onChange={onChange}
+        updateTextParam={updateTextParam}
+      />
     );
   }
 
@@ -9520,11 +9491,6 @@ function outputText(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const text = (value as Record<string, unknown>).text;
   return typeof text === "string" ? text : null;
-}
-
-function numberParamValue(value: unknown, fallback: number): number {
-  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value.replace(",", ".")) : fallback;
-  return Number.isFinite(number) ? number : fallback;
 }
 
 function recordParam(value: unknown): Record<string, unknown> {
