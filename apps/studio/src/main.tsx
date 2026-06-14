@@ -61,6 +61,7 @@ import { modelLogoFor } from "./modelLogos";
 import { AdminDashboard, AdminLoginPage, LoginPage } from "./features/admin/AdminRoutes";
 import { CreditHistoryPanel, CreditTransactionMiniList, EconomicsPanel } from "./features/billing/EconomicsPanel";
 import { AssetNodeParams } from "./features/node-params/AssetNodeParams";
+import { HttpRequestParams } from "./features/node-params/HttpRequestParams";
 import { GenericManifestParams, NodeSliderParam } from "./features/node-params/ParamRows";
 import { TextNodeParams, isTextNodeParamsType } from "./features/node-params/TextNodeParams";
 import { numericParam, restorePendingTextSelection, updateTextFieldPreservingCaret } from "./features/node-params/paramHelpers";
@@ -3127,51 +3128,7 @@ function NodeInlineParams({
   }
 
   if (type === "http.request") {
-    const bodyMode = String(params.bodyMode ?? "none");
-    return (
-      <>
-        <label className="nodeField">
-          <span>url</span>
-          <input className="nodrag nopan nodeInput" value={String(params.url ?? "")} onChange={(event) => updateTextParam("url", event)} />
-        </label>
-        <div className="nodeGridFields">
-          <label className="nodeField">
-            <span>method</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.method ?? "GET")} onChange={(event) => onChange({ method: event.target.value })}>
-              {["GET", "POST", "PUT", "PATCH", "DELETE"].map((method) => <option key={method} value={method}>{method}</option>)}
-            </select>
-          </label>
-          <label className="nodeField">
-            <span>response</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.responseMode ?? "json")} onChange={(event) => onChange({ responseMode: event.target.value })}>
-              {["json", "text"].map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-            </select>
-          </label>
-        </div>
-        <label className="nodeField">
-          <span>headers JSON</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={formatJsonish(params.headers ?? {})} onChange={(event) => updateTextParam("headers", event)} />
-        </label>
-        <label className="nodeField">
-          <span>query JSON</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={formatJsonish(params.query ?? {})} onChange={(event) => updateTextParam("query", event)} />
-        </label>
-        <label className="nodeField">
-          <span>body mode</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={bodyMode} onChange={(event) => onChange({ bodyMode: event.target.value })}>
-            <option value="none">none</option>
-            <option value="rawJson">raw JSON</option>
-            <option value="rawText">raw text</option>
-          </select>
-        </label>
-        {bodyMode !== "none" ? (
-          <label className="nodeField">
-            <span>body</span>
-            <textarea className="nodrag nopan nodeTextarea" value={String(params.body ?? "")} onChange={(event) => updateTextParam("body", event)} />
-          </label>
-        ) : null}
-      </>
-    );
+    return <HttpRequestParams params={params} onChange={onChange} updateTextParam={updateTextParam} />;
   }
 
   if (manifest?.params?.length) {
@@ -9531,10 +9488,6 @@ createRoot(document.getElementById("root")!).render(<React.StrictMode><RootApp /
 
 function truncateText(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
-}
-
-function formatJsonish(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
 function formatLogs(runResult: RunDisplayResult | null, fallbackLogs: string[]): string {
