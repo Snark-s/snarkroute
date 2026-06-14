@@ -1,3 +1,6 @@
+# Example Caddy config for the Docker deployment.
+# Copy to Caddyfile or set PUBLIC_APP_URL in the deployment environment.
+
 {$PUBLIC_APP_URL} {
   encode zstd gzip
 

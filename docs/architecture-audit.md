@@ -1,5 +1,7 @@
 # Architecture Audit
 
+> Historical note, updated 2026-06-14: this file is an audit trail, not the current architecture source of truth. See `docs/architecture-current.md` for the current Model Catalog V1 and cleanup status.
+
 ## Current Structure
 
 - `apps/studio`: React Flow graph editor, route editing, settings UI, provider settings, prompt library UI, installed node package management, execution controls, and local asset interactions.
