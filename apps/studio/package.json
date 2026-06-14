@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@snarkroute/model-catalog": "workspace:*",
     "@snarkroute/protocol": "workspace:*",
     "@sparkjsdev/spark": "^2.1.0",
     "@vitejs/plugin-react": "^4.2.1",

@@ -13,3 +13,14 @@ export type {
   ModelProviderIdV1,
   ModelRoleV1
 } from "./v1/index.js";
+
+export type {
+  CatalogLogoOption,
+  ModelLogo,
+  ModelLogoKey
+} from "./model-icons.js";
+
+export {
+  createModelIconResolver,
+  modelLogoRegistry
+} from "./model-icons.js";
