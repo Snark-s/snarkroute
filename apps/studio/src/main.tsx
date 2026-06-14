@@ -60,10 +60,12 @@ import { fetchImageCatalogModels, fetchModelsForNode } from "./modelCatalogClien
 import { modelLogoFor } from "./modelLogos";
 import { AdminDashboard, AdminLoginPage, LoginPage } from "./features/admin/AdminRoutes";
 import { CreditHistoryPanel, CreditTransactionMiniList, EconomicsPanel } from "./features/billing/EconomicsPanel";
+import { AssetNodeParams } from "./features/node-params/AssetNodeParams";
 import { GenericManifestParams, NodeSliderParam } from "./features/node-params/ParamRows";
 import { numericParam, restorePendingTextSelection, updateTextFieldPreservingCaret } from "./features/node-params/paramHelpers";
 import { PromptLibraryNodeParams } from "./features/prompt-library/PromptLibraryNodeParams";
 import { apiFetch } from "./shared/apiClient";
+import { filenameFromPath } from "./shared/fileHelpers";
 import { navigate } from "./shared/navigation";
 import {
   canImportDroppedRouteFile,
@@ -2618,34 +2620,14 @@ function NodeInlineParams({
     );
   }
   if (type === "input.file" || type === "input.image" || type === "input.video") {
-    const kind = type.split(".")[1] as AssetKind;
-    const path = String(params.path ?? "");
-    const imageSrc = type === "input.image" && path ? `${apiBase}/api/assets/preview?path=${encodeURIComponent(path)}` : "";
     return (
-      <div className="assetParams">
-        <label className="nodeField">
-          <span>file</span>
-          <input
-            className="nodrag nopan nodeInput"
-            value={path ? filenameFromPath(path) : ""}
-            placeholder="No file selected"
-            title={path}
-            readOnly
-          />
-        </label>
-        {canBrowseLocalFiles ? <button className="nodeSmallButton nodrag nopan" onClick={() => onBrowse(kind)}>Browse...</button> : null}
-        {!path ? <div className="nodeWarning">Path required</div> : null}
-        {imageSrc ? (
-          <button
-            className="nodeImagePreviewButton nodrag nopan"
-            type="button"
-            title="View image"
-            onClick={() => onOpenImage?.({ src: imageSrc, title: filenameFromPath(path), filename: filenameFromPath(path) })}
-          >
-            <img className="nodeImagePreview" src={imageSrc} alt="" />
-          </button>
-        ) : null}
-      </div>
+      <AssetNodeParams
+        type={type}
+        params={params}
+        canBrowseLocalFiles={canBrowseLocalFiles}
+        onBrowse={onBrowse}
+        onOpenImage={onOpenImage}
+      />
     );
   }
 
@@ -9800,10 +9782,6 @@ function systemUpdateComparisonText(status: SystemUpdateStatus | null): string {
 function downloadFilename(value: unknown, fallback = "snarkroute-image.png"): string {
   const label = imageLabel(value).split(/[\\/]/).pop() ?? fallback;
   return label || fallback;
-}
-
-function filenameFromPath(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
 function stringParam(params: Record<string, unknown> | undefined, key: string): string {
