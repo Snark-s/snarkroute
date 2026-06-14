@@ -893,7 +893,9 @@ function hasBillableProviderCompletion(output: unknown, providerUsage: ProviderU
 }
 
 function providerSuccessStatus(status: unknown): boolean {
-  return /^(succeeded|success|completed|complete|billable)$/i.test(String(status ?? ""));
+  const text = String(status ?? "").trim();
+  if (/^2\d\d$/.test(text)) return true;
+  return /^(succeeded|success|completed|complete|billable|ok)$/i.test(text);
 }
 
 function providerFailureStatus(status: unknown): boolean {
