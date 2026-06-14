@@ -180,11 +180,13 @@ export function modelMatchesCatalogGroup(model: ModelOption, group: ModelCatalog
 
 export function modelsCompatibleWithNodeInputs(models: ModelOption[], kind: ContentKind, hasImageInput: boolean): ModelOption[] {
   if (!hasImageInput || kind === "image" || kind === "video") return models;
-  return models.filter((model) => model.accepts.includes("image") || model.acceptsImageInput === true);
+  return models.filter((model) => modelAcceptsImageInput(model));
 }
 
 export function modelImageInputLimit(model: Pick<ModelOption, "accepts" | "acceptsImageInput" | "maxImageInputs">): number | undefined {
-  return model.accepts.includes("image") || model.acceptsImageInput === true ? model.maxImageInputs : 0;
+  const explicitLimit = positiveInteger(model.maxImageInputs);
+  if (explicitLimit !== undefined) return explicitLimit;
+  return modelAcceptsImageInput(model) ? undefined : 0;
 }
 
 export function modelSelectionId(model: ModelOption | undefined): string {
@@ -366,6 +368,10 @@ function mergeModelOptions(options: ModelOption[]): ModelOption[] {
     if (!byId.has(key)) byId.set(key, option);
   }
   return [...byId.values()];
+}
+
+function modelAcceptsImageInput(model: Pick<ModelOption, "accepts" | "acceptsImageInput" | "maxImageInputs">): boolean {
+  return model.accepts.includes("image") || model.acceptsImageInput === true || positiveInteger(model.maxImageInputs) !== undefined;
 }
 
 function contentKind(value: string): ContentKind[] {

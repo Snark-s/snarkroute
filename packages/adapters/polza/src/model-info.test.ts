@@ -29,4 +29,15 @@ describe("polzaModelInfoToModelInfo", () => {
     expect(model.metadata?.pricing).toEqual({ unit: "request", price: "0.01" });
     expect(model.metadata?.supportedParameters).toEqual(["prompt"]);
   });
+
+  it("defaults Polza video models to text and image inputs", () => {
+    const model = polzaModelInfoToModelInfo({ id: "wan/2.6", type: "video" });
+
+    expect(model.inputTypes).toEqual(["text", "image"]);
+    expect(model.supportsImages).toBe(true);
+    expect(model.ioContract?.inputs).toEqual([
+      { kind: "text", minItems: 0, maxItems: 1 },
+      { kind: "image", minItems: 0, maxItems: 1 }
+    ]);
+  });
 });

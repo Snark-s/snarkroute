@@ -99,6 +99,23 @@ const curatedModelMetadata = defineCuratedModelMetadataV1([
     roles: ["generator"]
   },
   {
+    provider: "openrouter",
+    providerModelId: "kwaivgi/kling-video-o1",
+    displayName: "Kling: Video O1",
+    originVendor: "kling",
+    iconKey: "kling",
+    iconPath: "/api/model-icons/kling.png",
+    inputTypes: ["text", "image"],
+    outputTypes: ["video"],
+    capabilities: ["video.generate"],
+    roles: ["generator"],
+    parameters: [
+      parameter("duration", "Duration", ["5", "10"], "5"),
+      parameter("resolution", "Resolution", ["720p"], "720p")
+    ],
+    metadata: { maxImageInputs: 1, imageReferenceSyntax: "@image {index}" }
+  },
+  {
     provider: "polza",
     providerModelId: "qwen/image-2",
     displayName: "Qwen Image 2",

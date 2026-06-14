@@ -237,6 +237,7 @@ describe("Living Canvas model catalog", () => {
       acceptsImageInput: true
     });
     expect(klingO1?.accepts).toContain("image");
+    expect(modelImageInputLimit(klingO1)).toBeUndefined();
     expect(modelSelectionId(klingO1)).toBe("openrouter:kwaivgi/kling-video-o1");
   });
 
@@ -257,6 +258,20 @@ describe("Living Canvas model catalog", () => {
       maxImageInputs: 2
     });
     expect(models[0].accepts).toContain("image");
+  });
+
+  it("uses positive maxImageInputs metadata to activate image chips even when inputTypes are text-only", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ provider: "polza", providerModelId: "wan/2.6", displayName: "Wan 2.6", inputTypes: ["text"], outputTypes: ["video"], capabilities: ["video.generate"], metadata: { maxImageInputs: 14 } })
+        ] }
+      : []);
+
+    const catalog = await loadModelCatalog(getJson, { polza: { configured: true } });
+    const wan = modelsForContentKind(catalog.models, "video")[0];
+
+    expect(wan.accepts).toEqual(["text"]);
+    expect(modelImageInputLimit(wan)).toBe(14);
   });
 
   it("keeps generic video picker populated from V1 video output models even with image inputs", async () => {

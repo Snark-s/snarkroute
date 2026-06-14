@@ -907,13 +907,13 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
   const activeItem = manifest.stack[manifest.activeStackIndex];
   const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
   const orderedInputs = orderConnectedInputs(connectedInputs, input.inputNodeIds);
-  const inputImages = orderedInputs.filter((entry) => entry.image).map((entry) => entry.image!);
+  const promptTemplate = input.prompt?.trim() || "Create a polished image.";
+  const inputImages = imageInputsForPrompt(orderedInputs, promptTemplate);
   const maxImageInputs = positiveInteger(input.maxImageInputs);
   const generationInputs = limitImages(
     inputImages.filter((image, index, all) => all.findIndex((candidate) => candidate.path === image.path) === index),
     maxImageInputs
   );
-  const promptTemplate = input.prompt?.trim() || "Create a polished image.";
   const prompt = resolveInputTokens(promptTemplate, orderedInputs, generationInputs, input.imageReferenceSyntax);
   const generationSettings = sanitizeImageGenerationSettings(input.parameters);
   await writeCurrentPrompt(nodePath, promptTemplate);
@@ -940,7 +940,7 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
   const imageRelativePath = nextStackFilename(manifest.stack, "generation", extension);
   const imagePath = resolvePortablePath(nodePath, imageRelativePath);
   await mkdir(dirname(imagePath), { recursive: true });
-  const imageBuffer = await readGeneratedImageBuffer(generatedPath);
+  const imageBuffer = await readGeneratedAssetBuffer(generatedPath, "image");
   const imageMetadata: SnarkImageMetadata = {
     schema: imageMetadataSchema,
     kind: "generated-image",
@@ -995,12 +995,12 @@ export async function generateVideoNodeStackItem(input: GenerateVideoNodeInput):
   const activeItem = manifest.stack[manifest.activeStackIndex];
   const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
   const orderedInputs = orderConnectedInputs(connectedInputs, input.inputNodeIds);
-  const inputImages = orderedInputs.filter((entry) => entry.image).map((entry) => entry.image!);
+  const promptTemplate = input.prompt?.trim() || "Create a cinematic video.";
+  const inputImages = imageInputsForPrompt(orderedInputs, promptTemplate);
   const generationInputs = limitImages(
     inputImages.filter((image, index, all) => all.findIndex((candidate) => candidate.path === image.path) === index),
     positiveInteger(input.maxImageInputs)
   );
-  const promptTemplate = input.prompt?.trim() || "Create a cinematic video.";
   const prompt = resolveInputTokens(promptTemplate, orderedInputs, generationInputs, input.imageReferenceSyntax);
   const generationSettings = sanitizeImageGenerationSettings(input.parameters);
   await writeCurrentPrompt(nodePath, promptTemplate);
@@ -1026,7 +1026,7 @@ export async function generateVideoNodeStackItem(input: GenerateVideoNodeInput):
   const videoRelativePath = nextStackFilename(manifest.stack, "generation", extension);
   const videoPath = resolvePortablePath(nodePath, videoRelativePath);
   await mkdir(dirname(videoPath), { recursive: true });
-  await writeFile(videoPath, await readGeneratedImageBuffer(generatedPath));
+  await writeFile(videoPath, await readGeneratedAssetBuffer(generatedPath, "video"));
 
   const now = new Date().toISOString();
   const updatedManifest: VideoNodeManifest = {
@@ -2429,13 +2429,27 @@ function stackItemImageInput(libraryPath: string, nodePath: string, nodeId: stri
   return { path, localPath: path, ref: libraryAssetRef(portableRelativePath(libraryPath, path)), nodeId, mimeType: item.mimeType };
 }
 
-async function readGeneratedImageBuffer(path: string): Promise<Buffer> {
+async function readGeneratedAssetBuffer(path: string, kind: "image" | "video"): Promise<Buffer> {
   if (!isRemoteUrl(path)) return readFile(path);
-  const response = await fetchWithTimeout(path, 15000).catch((error) => {
-    throw new Error(`Could not save generated image in its content folder: ${error instanceof Error ? error.message : String(error)}`);
+  const response = await fetchWithTimeout(path, 15000, { headers: generatedAssetDownloadHeaders(path) }).catch((error) => {
+    throw new Error(`Could not save generated ${kind} in its content folder: ${error instanceof Error ? error.message : String(error)}`);
   });
-  if (!response.ok) throw new Error(`Could not save generated image in its content folder: download failed (${response.status}).`);
+  if (!response.ok) throw new Error(`Could not save generated ${kind} in its content folder: download failed (${response.status}).`);
   return Buffer.from(await response.arrayBuffer());
+}
+
+function generatedAssetDownloadHeaders(path: string): Record<string, string> | undefined {
+  if (!process.env.OPENROUTER_API_KEY || !isOpenRouterApiUrl(path)) return undefined;
+  return { Authorization: `Bearer ${process.env.OPENROUTER_API_KEY.trim()}` };
+}
+
+function isOpenRouterApiUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.hostname === "openrouter.ai" && url.pathname.startsWith("/api/");
+  } catch {
+    return false;
+  }
 }
 
 function isRemoteUrl(value: string): boolean {
@@ -2508,6 +2522,13 @@ function resolveInputTokens(
 
 function imageNodeIdsFromPromptTemplate(promptTemplate: string): Set<string> {
   return new Set([...promptTemplate.matchAll(/\[\[image:([^\]]+)\]\]/g)].map((match) => match[1]).filter(Boolean));
+}
+
+function imageInputsForPrompt(inputs: ConnectedCanvasInput[], promptTemplate: string): GenerationImageInput[] {
+  const promptImageNodeIds = imageNodeIdsFromPromptTemplate(promptTemplate);
+  return inputs
+    .filter((entry) => entry.image && (promptImageNodeIds.size === 0 || promptImageNodeIds.has(entry.nodeId)))
+    .map((entry) => entry.image!);
 }
 
 function imageMetadataInputs(promptTemplate: string, inputs: ConnectedCanvasInput[], sentImages: GenerationImageInput[]): SnarkImageMetadata["generation"]["inputImages"] {

@@ -138,6 +138,24 @@ describe("Model Catalog V1 merge helpers", () => {
     expect(merged.capabilities).toEqual(["image.generate"]);
   });
 
+  it("exposes curated executable metadata at the top level while keeping audit detail", () => {
+    const providerModel = normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "vendor/video",
+      outputTypes: ["video"]
+    });
+
+    const merged = mergeProviderModelWithCuratedMetadata(providerModel, {
+      provider: "openrouter",
+      providerModelId: "vendor/video",
+      metadata: { maxImageInputs: 1, imageReferenceSyntax: "@image {index}" }
+    });
+
+    expect(merged.metadata?.maxImageInputs).toBe(1);
+    expect(merged.metadata?.imageReferenceSyntax).toBe("@image {index}");
+    expect(merged.metadata?.curated).toEqual({ maxImageInputs: 1, imageReferenceSyntax: "@image {index}" });
+  });
+
   it("can mark topaz/image-upscale as an upscaler through curated metadata", () => {
     const providerModel = normalizeProviderModelToV1Input({
       provider: "polza",

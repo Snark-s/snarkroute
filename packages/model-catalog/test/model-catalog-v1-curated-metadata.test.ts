@@ -58,6 +58,14 @@ describe("Model Catalog V1 curated metadata registry", () => {
     expect(findCuratedModelMetadataV1("polza", "flux.2-flex")).toBeUndefined();
   });
 
+  it("curates Kling Video O1 as image-to-video", () => {
+    const metadata = getCuratedModelMetadataV1("openrouter", "kwaivgi/kling-video-o1");
+    expect(metadata.originVendor).toBe("kling");
+    expect(metadata.inputTypes).toEqual(["text", "image"]);
+    expect(metadata.outputTypes).toEqual(["video"]);
+    expect(metadata.metadata?.maxImageInputs).toBe(1);
+  });
+
   it("is not a whitelist", () => {
     const curatedProviderModelIds = new Set(listCuratedModelMetadataV1().map((entry) => entry.providerModelId));
     expect(curatedProviderModelIds.has("unlisted/live-provider-model")).toBe(false);
@@ -74,6 +82,6 @@ describe("Model Catalog V1 curated metadata registry", () => {
   });
 
   it("has the expected initial curated model count", () => {
-    expect(listCuratedModelMetadataV1()).toHaveLength(13);
+    expect(listCuratedModelMetadataV1()).toHaveLength(14);
   });
 });

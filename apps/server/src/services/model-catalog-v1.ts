@@ -152,8 +152,8 @@ function preserveLiveProviderIo(entry: ModelCatalogEntryV1, providerModel: Provi
   if (!providerModel) return entry;
   return {
     ...entry,
-    inputTypes: providerModel.inputTypes,
-    outputTypes: providerModel.outputTypes
+    inputTypes: providerModel.inputTypes.length ? providerModel.inputTypes : entry.inputTypes,
+    outputTypes: providerModel.outputTypes.length ? providerModel.outputTypes : entry.outputTypes
   };
 }
 
@@ -174,7 +174,7 @@ function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: Mod
   if (entry.provider === "polza" && hasOutputType(entry, "video") && !entry.roles.includes("upscaler")) {
     return {
       parameters: [videoResolutions, videoDurations, videoMultiShots],
-      metadata: { maxImageInputs: 14 }
+      metadata: { maxImageInputs: polzaVideoMaxImageInputs(entry.providerModelId) }
     };
   }
   if (entry.provider === "polza" && hasOutputType(entry, "image") && !entry.roles.includes("upscaler")) {
@@ -188,6 +188,11 @@ function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: Mod
     };
   }
   return undefined;
+}
+
+function polzaVideoMaxImageInputs(modelId: string): number {
+  if (modelId === "wan/2.6") return 1;
+  return 14;
 }
 
 const aspectRatios = parameter("aspectRatio", "Aspect ratio", ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"], "1:1");

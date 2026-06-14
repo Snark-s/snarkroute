@@ -146,6 +146,7 @@ function iconFilenameForKey(iconKey: string): string {
 function mergeMetadata(providerMetadata?: Record<string, unknown>, curatedMetadata?: Record<string, unknown>): Record<string, unknown> | undefined {
   if (!providerMetadata && !curatedMetadata) return undefined;
   return {
+    ...(curatedMetadata ?? {}),
     ...(providerMetadata ? { provider: providerMetadata } : {}),
     ...(curatedMetadata ? { curated: curatedMetadata } : {})
   };

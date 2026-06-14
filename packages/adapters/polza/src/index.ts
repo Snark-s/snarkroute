@@ -52,7 +52,7 @@ export interface PolzaModelInfo {
 
 export function polzaModelInfoToModelInfo(model: PolzaModelInfo): ModelInfo {
   const type = polzaModelType(model.type);
-  const inputTypes = normalizedModalities(model.architecture?.input_modalities, ["text"]);
+  const inputTypes = normalizedModalities(model.architecture?.input_modalities, polzaInputTypes(type));
   const outputTypes = normalizedModalities(model.architecture?.output_modalities, polzaOutputTypes(type));
   const metadata: Record<string, unknown> = {
     source: "polza_models_catalog",
@@ -73,12 +73,22 @@ export function polzaModelInfoToModelInfo(model: PolzaModelInfo): ModelInfo {
     supportsVideo: inputTypes.includes("video") || outputTypes.includes("video"),
     supportsJson: Boolean(model.supported_parameters?.includes("response_format")),
     ioContract: {
-      inputs: inputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: kind === "image" ? undefined : 1 })),
+      inputs: inputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: kind === "image" ? polzaImageInputLimit(model.id) : 1 })),
       outputs: outputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: 1 }))
     },
     pricingHint: pricingHint(model.pricing),
     metadata: compactRecord(metadata)
   };
+}
+
+function polzaInputTypes(type: string): string[] {
+  if (type === "video") return ["text", "image"];
+  return ["text"];
+}
+
+function polzaImageInputLimit(modelId: string): number | undefined {
+  if (modelId === "wan/2.6") return 1;
+  return undefined;
 }
 
 export function isExecutablePolzaImageModel(model: Pick<PolzaModelInfo, "id" | "type" | "architecture">): boolean {

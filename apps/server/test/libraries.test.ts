@@ -13,6 +13,7 @@ vi.mock("../src/execution/service", () => ({
 
 const previousNoListen = process.env.SNARKROUTE_NO_LISTEN;
 const previousLibraryPath = process.env.SNARKROUTE_LIBRARY_PATH;
+const previousOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
 
 describe("SnarkRoute libraries", () => {
   let libraryPath: string;
@@ -27,6 +28,7 @@ describe("SnarkRoute libraries", () => {
   afterEach(() => {
     restoreEnv("SNARKROUTE_NO_LISTEN", previousNoListen);
     restoreEnv("SNARKROUTE_LIBRARY_PATH", previousLibraryPath);
+    restoreEnv("OPENROUTER_API_KEY", previousOpenRouterApiKey);
   });
 
   it("creates a portable library manifest and empty canvas", async () => {
@@ -335,6 +337,96 @@ describe("SnarkRoute libraries", () => {
         })]
       }));
     } finally {
+      await app.close();
+    }
+  });
+
+  it("sends only prompt-referenced images to video generation when image chips are present", async () => {
+    const app = await testServer();
+    try {
+      const firstSource = await importNode(app, "First.png");
+      const secondSource = await importNode(app, "Second.png");
+      const targetResponse = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-video",
+        payload: { filename: "Target.mp4", dataBase64: sampleVideoBase64, dropX: 600, dropY: 300, width: 320, height: 240 }
+      });
+      const target = targetResponse.json().nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "video");
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: {
+          ...canvas,
+          edges: [
+            { id: "edge_video_first_image", fromNodeId: firstSource.manifest.id, toNodeId: target.manifest.id },
+            { id: "edge_video_second_image", fromNodeId: secondSource.manifest.id, toNodeId: target.manifest.id }
+          ]
+        }
+      });
+      const generatedPath = join(libraryPath, target.canvas.nodePath, target.manifest.stack[0].file);
+      executeRouteMock.mockResolvedValue({
+        nodeResults: { generate: { output: { video: { localPath: generatedPath, path: generatedPath, filename: "result.mp4", mimeType: "video/mp4" } } } }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/video-nodes/${target.manifest.id}/generate`,
+        payload: {
+          modelId: "wan/2.6",
+          providerId: "polza",
+          prompt: `Use [[image:${secondSource.manifest.id}]] as the opening frame`,
+          maxImageInputs: 14
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const params = executeRouteMock.mock.calls[0][0].nodes[0].params;
+      expect(params.prompt).toBe("Use @image 1 as the opening frame");
+      expect(params.images).toHaveLength(1);
+      expect(params.images[0].path).toContain(secondSource.manifest.stack[0].file.replace("/", "\\"));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("downloads generated OpenRouter video API assets with authorization", async () => {
+    const app = await testServer();
+    try {
+      process.env.OPENROUTER_API_KEY = "sk-openrouter-test";
+      const targetResponse = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-video",
+        payload: { filename: "Target.mp4", dataBase64: sampleVideoBase64, dropX: 600, dropY: 300, width: 320, height: 240 }
+      });
+      const target = targetResponse.json().nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "video");
+      const fetchMock = vi.fn().mockResolvedValue(new Response(Buffer.from(sampleVideoBase64, "base64"), { status: 200, headers: { "content-type": "video/mp4" } }));
+      vi.stubGlobal("fetch", fetchMock);
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: {
+          generate: {
+            status: "succeeded",
+            output: { video: { path: "https://openrouter.ai/api/v1/videos/job-123/content?index=0", filename: "result.mp4", mimeType: "video/mp4" } }
+          }
+        }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/video-nodes/${target.manifest.id}/generate`,
+        payload: { modelId: "kwaivgi/kling-video-o1", providerId: "polza", prompt: "Animate" }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://openrouter.ai/api/v1/videos/job-123/content?index=0",
+        expect.objectContaining({ headers: { Authorization: "Bearer sk-openrouter-test" } })
+      );
+      const generated = response.json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === target.manifest.id).manifest.stack[1];
+      await expect(readFile(join(libraryPath, target.canvas.nodePath, generated.file))).resolves.toBeInstanceOf(Buffer);
+    } finally {
+      vi.unstubAllGlobals();
       await app.close();
     }
   });

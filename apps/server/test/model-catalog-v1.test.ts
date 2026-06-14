@@ -80,6 +80,15 @@ describe("server Model Catalog V1 assembly", () => {
     expect(catalog.find((entry) => entry.providerModelId === "image.nano-banana")?.parameters.map((parameter) => parameter.id)).toEqual(["aspectRatio", "imageSize"]);
   });
 
+  it("limits Polza Wan 2.6 video generation to one image input", () => {
+    const catalog = assembleModelCatalogV1({
+      polzaModels: [{ id: "wan/2.6", type: "video" }]
+    });
+
+    const wan = catalog.find((entry) => entry.providerModelId === "wan/2.6");
+    expect(wan?.metadata?.maxImageInputs).toBe(1);
+  });
+
   it("preserves provider-native providerModelId and creates unified ids", () => {
     const [model] = normalizePolzaModelsForCatalogV1([{ id: "openai/gpt-5.4-image-2", type: "image" }]);
 
@@ -122,6 +131,24 @@ describe("server Model Catalog V1 assembly", () => {
       outputTypes: ["text"],
       capabilities: ["text.generate"]
     });
+  });
+
+  it("uses curated image-input metadata when OpenRouter omits video model input modalities", () => {
+    const catalog = assembleModelCatalogV1({
+      openRouterModels: [{
+        id: "kwaivgi/kling-video-o1",
+        name: "Kling: Video O1",
+        kind: "video",
+        architecture: { output_modalities: ["video"] },
+        supported_durations: ["5", "10"],
+        supported_resolutions: ["720p"]
+      }]
+    });
+
+    const model = catalog.find((entry) => entry.providerModelId === "kwaivgi/kling-video-o1");
+    expect(model?.inputTypes).toEqual(["text", "image"]);
+    expect(model?.outputTypes).toEqual(["video"]);
+    expect(model?.metadata?.maxImageInputs).toBe(1);
   });
 
   it("normalizes OpenRouter models independently from routes", () => {
