@@ -4138,7 +4138,7 @@ function promptInlineChip(token: string, input: InputNodeChip, inactive: boolean
   chip.contentEditable = "false";
   chip.draggable = true;
   chip.dataset.promptToken = token;
-  chip.title = input.title;
+  chip.title = input.type === "text" ? input.text?.trim() || input.title : input.title;
   if (input.type === "text") {
     const textColor = inputTextChipColor(input);
     chip.style.setProperty("--text-node-color", textColor);

@@ -1411,7 +1411,8 @@ function TextChipView({ text, backgroundSrc, compact = false, accentColor = "#7d
       style={{ "--dialogue-text-chip-accent": accentColor, backgroundImage } as React.CSSProperties}
       type="button"
       aria-expanded={expanded}
-      title={expanded ? "Collapse text chip" : "Expand text chip"}
+      aria-label={expanded ? "Collapse text chip" : "Expand text chip"}
+      title={text}
       onClick={() => setExpanded((value) => !value)}
     >
       {expanded ? <pre>{text}</pre> : (
