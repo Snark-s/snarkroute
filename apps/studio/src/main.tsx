@@ -57,7 +57,7 @@ import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatus
 import { studioDocs, type StudioDocEntry } from "./docsRegistry";
 import { MarkdownDocument } from "./MarkdownDocument";
 import { fetchImageCatalogModels, fetchModelsForNode } from "./modelCatalogClient";
-import { modelLogoFor, type ModelLogo } from "./modelLogos";
+import { modelLogoFor } from "./modelLogos";
 import {
   creditPriceExplanation,
   creditTransactionDetails,
@@ -106,6 +106,7 @@ import {
   videoModelOptionsFromNodeOptions,
   modalityOutputModalities
 } from "./features/model-catalog/modelOptionUtils";
+import { ModelCapabilityBadges, ModelLogoMark, ModelSelectWithLogo } from "./features/model-catalog/ModelViews";
 import {
   availableCanvasThemes,
   loadCanvasBackgroundTheme,
@@ -1480,34 +1481,6 @@ function dialoguePartAccentColor(part: DialogueContentPart): string | undefined 
 
 function dialoguePartIsChip(part: DialogueContentPart): boolean {
   return Boolean((part as DialogueContentPart & { sourceAccentColor?: unknown }).sourceAccentColor);
-}
-
-function ModelCapabilityBadges({ profile }: { profile: ModelProfile }) {
-  const badges = [
-    profile.capabilities.includes("vision") ? "Vision" : "",
-    profile.capabilities.includes("tool_calling") ? "Tools" : "",
-    profile.capabilities.includes("json_output") ? "JSON" : "",
-    profile.costClass && profile.costClass !== "unknown" ? profile.costClass : "",
-    profile.privacyClass && profile.privacyClass !== "unknown" ? profile.privacyClass : ""
-  ].filter(Boolean);
-  return (
-    <span className="modelBadges">
-      {badges.map((badge) => <em className={badge === "Vision" ? "vision" : ""} key={badge}>{badge}</em>)}
-    </span>
-  );
-}
-
-function ModelLogoMark({ logo, size = "normal" }: { logo: ModelLogo; size?: "tiny" | "normal" }) {
-  return <img className={`modelLogoMark ${size}`} src={logo.src} alt="" title={logo.label} width={size === "tiny" ? 16 : 24} height={size === "tiny" ? 16 : 24} loading="lazy" />;
-}
-
-function ModelSelectWithLogo({ logo, children }: { logo: ModelLogo; children: React.ReactNode }) {
-  return (
-    <div className="nodeModelSelectRow">
-      <ModelLogoMark logo={logo} />
-      {children}
-    </div>
-  );
 }
 
 function dialogueContentPartFromInput(input: DialogueConnectedInput): DialogueDraftContentPart {
