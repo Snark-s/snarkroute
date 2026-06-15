@@ -26,14 +26,28 @@ export type RouteNodeInlineResultRenderProps = {
   onConfigureMissingSecret?: () => void;
 };
 
+type NormalizedRouteNodeCardData = {
+  title: string;
+  type: string;
+  routeNode?: RouteDoc["nodes"][number];
+  params: Record<string, unknown>;
+};
+
+export function normalizeRouteNodeCardData(id: string, data: Record<string, unknown>): NormalizedRouteNodeCardData {
+  const routeNode = isRecord(data.routeNode) ? data.routeNode as RouteDoc["nodes"][number] : undefined;
+  const label = typeof data.label === "string" ? data.label : "";
+  const [labelTitle = "", labelType = ""] = label.split("\n");
+  const type = String(routeNode?.type ?? labelType);
+  const title = String((routeNode?.title ?? labelTitle) || id);
+  const params = isRecord(routeNode?.params) ? routeNode.params : {};
+  return { title, type, routeNode, params };
+}
+
 export function RouteNodeCardContainer({ id, data }: NodeProps) {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const updateNodeInternals = useUpdateNodeInternals();
-  const label = String(data.label ?? "");
-  const [title, type] = label.split("\n");
-  const routeNode = data.routeNode as RouteDoc["nodes"][number] | undefined;
+  const { title, type, routeNode, params } = normalizeRouteNodeCardData(id, data as Record<string, unknown>);
   const paramsCollapsed = Boolean(data.paramsCollapsed ?? routeNodeParamsCollapsed(routeNode));
-  const params = routeNode?.params ?? {};
   const result = data.result as NodeRunResult | undefined;
   const onParamsChange = data.onParamsChange as ((nodeId: string, params: Record<string, unknown>) => void) | undefined;
   const onParamsCollapsedChange = data.onParamsCollapsedChange as ((nodeId: string, collapsed: boolean) => void) | undefined;
@@ -449,8 +463,8 @@ function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDo
   }
   if (manifest && !isKnownBuiltInPortType(type)) {
     return {
-      inputs: manifest.inputs.map((port) => manifestInputPortSpec(port)),
-      outputs: manifest.outputs.map((port) => ({ id: port.id, kind: portKindFromManifest(port.type), label: port.label }))
+      inputs: (manifest.inputs ?? []).map((port) => manifestInputPortSpec(port)),
+      outputs: (manifest.outputs ?? []).map((port) => ({ id: port.id, kind: portKindFromManifest(port.type), label: port.label }))
     };
   }
   if (type === "input.text") return { inputs: [], outputs: [{ id: "text", kind: "text" }] };
@@ -741,6 +755,11 @@ function portKindFromDialogueOutput(type: DialogueOutputType): PortKind {
 
 function requiresEnv(manifest: NodeManifest | undefined, key: string): boolean {
   return Boolean(manifest?.permissions.env?.includes(key));
+}
+
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 
