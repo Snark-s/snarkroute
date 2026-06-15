@@ -271,6 +271,11 @@ interface CanvasViewport {
   scale: number;
 }
 
+interface CanvasSize {
+  width: number;
+  height: number;
+}
+
 type DragState =
   | {
       kind: "canvas";
@@ -471,6 +476,7 @@ function App() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [viewport, setViewport] = useStoredJsonSetting<CanvasViewport>("snarkroute.canvasViewport", { x: 0, y: 0, scale: 1 });
+  const [miniMapCollapsed, setMiniMapCollapsed] = useStoredJsonSetting<boolean>("snarkroute.miniMapCollapsed", false);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -502,6 +508,7 @@ function App() {
   const interactionMovedRef = useRef(false);
   const undoStackRef = useRef<CanvasDocument[]>([]);
   const libraryMutationSeqRef = useRef(0);
+  const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 0, height: 0 });
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -535,6 +542,19 @@ function App() {
   useEffect(() => {
     void refreshSavedLocalModelCatalogs();
   }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const updateCanvasSize = () => {
+      const bounds = canvas.getBoundingClientRect();
+      setCanvasSize({ width: bounds.width, height: bounds.height });
+    };
+    updateCanvasSize();
+    const observer = new ResizeObserver(updateCanvasSize);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [libraryOpen, inspectorOpen]);
 
   useEffect(() => {
     function handlePaste(event: ClipboardEvent) {
@@ -2052,6 +2072,15 @@ function App() {
     return screenToWorld(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
   }
 
+  function centerViewportOnWorldPoint(point: { x: number; y: number }) {
+    if (!canvasSize.width || !canvasSize.height) return;
+    setViewport({
+      x: Math.round(canvasSize.width / 2 - point.x * viewportScale),
+      y: Math.round(canvasSize.height / 2 - point.y * viewportScale),
+      scale: viewportScale
+    });
+  }
+
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
   const selectedEdgeNotePosition = selectedEdge ? edgeMidpoint(selectedEdge, new Map(nodes.map((node) => [node.canvas.id, node.canvas]))) : null;
 
@@ -2321,6 +2350,24 @@ function App() {
             style={selectionRectStyle(dragState.startClientX, dragState.startClientY, dragState.currentClientX, dragState.currentClientY)}
           />
         )}
+        <button
+          className={`canvasMiniMapToggle${miniMapCollapsed ? " isCollapsed" : ""}`}
+          type="button"
+          onClick={() => setMiniMapCollapsed(!miniMapCollapsed)}
+          onPointerDown={(event) => event.stopPropagation()}
+          title={miniMapCollapsed ? "Show mini map" : "Hide mini map"}
+        >
+          {miniMapCollapsed ? "Map" : "Hide"}
+        </button>
+        {!miniMapCollapsed ? (
+          <CanvasMiniMap
+            nodes={nodes}
+            selectedNodeIds={selectedNodeIds}
+            viewport={viewport}
+            canvasSize={canvasSize}
+            onCenter={centerViewportOnWorldPoint}
+          />
+        ) : null}
       </section>
       {previewImage && (
         <div className="previewOverlay" role="dialog" aria-modal="true" onClick={() => setPreviewImage(null)}>
@@ -2826,6 +2873,138 @@ function libraryViewLabel(mode: LibraryViewMode): string {
 
 function libraryAssetUrl(nodeId: string, assetId: string): string {
   return `${apiBase}/api/libraries/current/library-nodes/${encodeURIComponent(nodeId)}/assets/${encodeURIComponent(assetId)}`;
+}
+
+function CanvasMiniMap({
+  nodes,
+  selectedNodeIds,
+  viewport,
+  canvasSize,
+  onCenter
+}: {
+  nodes: NodeView[];
+  selectedNodeIds: string[];
+  viewport: CanvasViewport;
+  canvasSize: CanvasSize;
+  onCenter: (point: { x: number; y: number }) => void;
+}) {
+  const selected = new Set(selectedNodeIds);
+  const draggingViewportRef = useRef(false);
+  const dragMovedRef = useRef(false);
+  const viewportScale = viewport.scale || 1;
+  const visibleRect = {
+    x: -viewport.x / viewportScale,
+    y: -viewport.y / viewportScale,
+    width: canvasSize.width / viewportScale,
+    height: canvasSize.height / viewportScale
+  };
+  const bounds = canvasMiniMapBounds(nodes, visibleRect);
+  const mapWidth = 180;
+  const mapHeight = 128;
+  const padding = 10;
+  const scale = Math.min((mapWidth - padding * 2) / bounds.width, (mapHeight - padding * 2) / bounds.height);
+  const offsetX = (mapWidth - bounds.width * scale) / 2;
+  const offsetY = (mapHeight - bounds.height * scale) / 2;
+  const project = (rect: { x: number; y: number; width: number; height: number }) => ({
+    x: offsetX + (rect.x - bounds.x) * scale,
+    y: offsetY + (rect.y - bounds.y) * scale,
+    width: Math.max(2, rect.width * scale),
+    height: Math.max(2, rect.height * scale)
+  });
+  const viewportRect = project(visibleRect);
+
+  function worldPointFromMiniMapEvent(event: Pick<React.PointerEvent<SVGRectElement>, "clientX" | "clientY" | "currentTarget">) {
+    const svg = event.currentTarget.ownerSVGElement;
+    const rect = svg?.getBoundingClientRect();
+    if (!rect) return null;
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    return {
+      x: bounds.x + (x - offsetX) / scale,
+      y: bounds.y + (y - offsetY) / scale
+    };
+  }
+
+  function handleClick(event: React.MouseEvent<HTMLButtonElement>) {
+    if (dragMovedRef.current) {
+      dragMovedRef.current = false;
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    onCenter({
+      x: bounds.x + (x - offsetX) / scale,
+      y: bounds.y + (y - offsetY) / scale
+    });
+  }
+
+  function handleViewportPointerDown(event: React.PointerEvent<SVGRectElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    draggingViewportRef.current = true;
+    dragMovedRef.current = false;
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleViewportPointerMove(event: React.PointerEvent<SVGRectElement>) {
+    if (!draggingViewportRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragMovedRef.current = true;
+    const point = worldPointFromMiniMapEvent(event);
+    if (point) onCenter(point);
+  }
+
+  function handleViewportPointerUp(event: React.PointerEvent<SVGRectElement>) {
+    if (!draggingViewportRef.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    draggingViewportRef.current = false;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }
+
+  return (
+    <button
+      className="canvasMiniMap"
+      type="button"
+      aria-label="Canvas mini map"
+      title="Canvas mini map"
+      onClick={handleClick}
+      onPointerDown={(event) => event.stopPropagation()}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <svg viewBox={`0 0 ${mapWidth} ${mapHeight}`} aria-hidden="true">
+        <rect className="canvasMiniMapSurface" x="0" y="0" width={mapWidth} height={mapHeight} rx="8" />
+        {nodes.map((node) => {
+          const nodeRect = project(canvasMiniMapNodeRect(node.canvas));
+          return (
+            <rect
+              key={node.canvas.id}
+              className={`canvasMiniMapNode${selected.has(node.canvas.id) ? " isSelected" : ""}`}
+              x={nodeRect.x}
+              y={nodeRect.y}
+              width={nodeRect.width}
+              height={nodeRect.height}
+              rx="2"
+            />
+          );
+        })}
+        <rect
+          className="canvasMiniMapViewport"
+          x={viewportRect.x}
+          y={viewportRect.y}
+          width={viewportRect.width}
+          height={viewportRect.height}
+          rx="3"
+          onPointerDown={handleViewportPointerDown}
+          onPointerMove={handleViewportPointerMove}
+          onPointerUp={handleViewportPointerUp}
+          onPointerCancel={handleViewportPointerUp}
+        />
+      </svg>
+    </button>
+  );
 }
 
 function CanvasEdges({
@@ -4544,6 +4723,30 @@ function canvasStyle(background: BackgroundName, viewport: CanvasViewport): Reac
   if (background === "grid") style.backgroundSize = `${28 * scale}px ${28 * scale}px`;
   if (background === "gears") style.backgroundSize = `${922 * scale}px ${614 * scale}px`;
   return style;
+}
+
+function canvasMiniMapNodeRect(node: CanvasNode) {
+  return {
+    x: node.x,
+    y: node.y,
+    width: node.width,
+    height: node.height + nodeTitleHeight
+  };
+}
+
+function canvasMiniMapBounds(nodes: NodeView[], visibleRect: { x: number; y: number; width: number; height: number }) {
+  const rects = [visibleRect, ...nodes.map((node) => canvasMiniMapNodeRect(node.canvas))];
+  const minX = Math.min(...rects.map((rect) => rect.x));
+  const minY = Math.min(...rects.map((rect) => rect.y));
+  const maxX = Math.max(...rects.map((rect) => rect.x + rect.width));
+  const maxY = Math.max(...rects.map((rect) => rect.y + rect.height));
+  const padding = 160;
+  return {
+    x: minX - padding,
+    y: minY - padding,
+    width: Math.max(1, maxX - minX + padding * 2),
+    height: Math.max(1, maxY - minY + padding * 2)
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {

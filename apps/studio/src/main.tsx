@@ -5,6 +5,7 @@ import {
   Background,
   BackgroundVariant,
   Handle,
+  MiniMap,
   Position,
   ReactFlow,
   addEdge,
@@ -3793,6 +3794,7 @@ function App() {
   const [shuttingDown, setShuttingDown] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [canvasBackgroundTheme, setCanvasBackgroundTheme] = useState<CanvasBackgroundTheme>(() => loadCanvasBackgroundTheme());
+  const [routeMiniMapCollapsed, setRouteMiniMapCollapsed] = useState(false);
   const [systemUpdateStatus, setSystemUpdateStatus] = useState<SystemUpdateStatus | null>(null);
   const [systemUpdating, setSystemUpdating] = useState(false);
   const [pendingBrowse, setPendingBrowse] = useState<{ nodeId: string; kind: AssetKind } | null>(null);
@@ -7499,6 +7501,26 @@ function App() {
           ) : null}
           {canvasThemeConfig.reactFlowBackground === "dots" ? (
             <Background id="canvas-dots" variant={BackgroundVariant.Dots} color="rgba(130, 146, 170, 0.34)" bgColor="transparent" gap={24} size={2.5} />
+          ) : null}
+          <button
+            className={`routeMiniMapToggle nodrag nopan${routeMiniMapCollapsed ? " isCollapsed" : ""}`}
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => setRouteMiniMapCollapsed((value) => !value)}
+            title={routeMiniMapCollapsed ? "Show mini map" : "Hide mini map"}
+          >
+            {routeMiniMapCollapsed ? "Map" : "Hide"}
+          </button>
+          {!routeMiniMapCollapsed ? (
+            <MiniMap
+              className="routeMiniMap"
+              maskColor="rgba(5, 7, 10, 0.58)"
+              nodeColor={(node) => highlightedNodeIds.has(node.id) ? "#7dd3c0" : "#465266"}
+              nodeStrokeColor={(node) => highlightedNodeIds.has(node.id) ? "#d7fff3" : "#94a3b8"}
+              nodeBorderRadius={4}
+              pannable
+              zoomable
+            />
           ) : null}
         </ReactFlow>
         {activeDialogueRouteNode?.type === "dialogue.workbench" ? (
