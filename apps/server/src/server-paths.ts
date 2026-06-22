@@ -24,6 +24,7 @@ export function findExistingFile(...parts: string[]): string {
 export const repoRoot = resolve(findExistingDirectory("apps"), "..");
 export const envPath = join(repoRoot, ".env");
 export const assetsDirectory = join(process.cwd(), "data", "assets");
+export const modelIconsDirectory = findExistingDirectory("data", "model_icons");
 export const librariesDirectory = join(process.cwd(), "data", "libraries");
 export const providerLinksPath = findExistingFile("data", "provider-links.json");
 export const openRouterMappingsPath = findExistingFile("data", "model-registry", "openrouter-mappings.json");

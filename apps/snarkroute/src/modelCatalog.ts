@@ -6,18 +6,32 @@ export type ImageGenerationParameters = Record<string, GenerationParameterValue>
 export interface ModelParameterDefinition {
   id: string;
   label: string;
-  type: "select" | "number" | "text";
+  type: "select" | "number" | "text" | "boolean";
   default?: GenerationParameterValue;
   options?: Array<{ value: string; label?: string }>;
   min?: number;
   max?: number;
   step?: number;
+  required?: boolean;
+  advanced?: boolean;
+  enabledWhen?: {
+    parameterId: string;
+    equals: GenerationParameterValue[];
+  };
 }
 
 export interface ModelOption {
   id: string;
   title: string;
   providerId: string;
+  providerModelId?: string;
+  storedModelId?: string;
+  iconPath?: string;
+  iconKey?: string;
+  originVendor?: string;
+  inputTypes?: string[];
+  outputTypes?: string[];
+  roles?: string[];
   contentKinds: ContentKind[];
   accepts: ContentKind[];
   produces: ContentKind[];
@@ -34,6 +48,45 @@ export interface ModelOption {
   role?: ModelRole;
 }
 
+type ModelOptionForNodeResponse = {
+  ok?: boolean;
+  models?: unknown;
+};
+
+type ServerModelOptionForNode = {
+  id: string;
+  provider: string;
+  providerModelId: string;
+  displayName: string;
+  iconPath: string;
+  inputTypes: string[];
+  outputTypes: string[];
+  capabilities: string[];
+  roles: string[];
+  parameters: ModelParameterDefinition[];
+  nodeType: string;
+  storedModelId: string;
+  executionProvider: string;
+  compatibilityReason?: string;
+};
+
+type ServerModelCatalogEntry = {
+  id: string;
+  provider: string;
+  providerModelId: string;
+  originVendor?: string;
+  displayName: string;
+  iconKey?: string;
+  iconPath?: string;
+  inputTypes: string[];
+  outputTypes: string[];
+  capabilities: string[];
+  roles: string[];
+  parameters: ModelParameterDefinition[];
+  availability?: { status?: string; reason?: string };
+  metadata?: Record<string, unknown>;
+};
+
 export interface ProviderSettings {
   replicate?: { configured?: boolean };
   gemini?: { configured?: boolean };
@@ -45,6 +98,7 @@ export interface ProviderSettings {
 
 export interface ModelCatalogResult {
   models: ModelOption[];
+  availableModels: ModelOption[];
   errors: Partial<Record<string, string>>;
 }
 
@@ -60,47 +114,85 @@ export interface ModelRouteSelection {
   fallbackAllowed: boolean;
 }
 
-export const fallbackModels: ModelOption[] = [{
-  id: "image.nano-banana",
-  title: "Nano Banana",
-  providerId: "gemini",
-  contentKinds: ["image"],
-  accepts: ["text", "image"],
-  produces: ["image"],
-  capabilities: ["image.generate", "image.reference"],
-  isAvailable: true,
-  source: "fallback",
-  acceptsImageInput: true,
-  generationParameters: fallbackGeminiParameters(),
-  paramsSchema: fallbackGeminiParameters()
-}];
+export type ModelCatalogGroup = ContentKind | ModelRole;
 
 export async function loadModelCatalog(
   getJson: (path: string) => Promise<unknown>,
-  settings: ProviderSettings | null
+  _settings: ProviderSettings | null
 ): Promise<ModelCatalogResult> {
   const errors: Partial<Record<string, string>> = {};
-  const sources = [
-    { endpoint: "/api/providers/openrouter/models", providerId: "openrouter", configured: Boolean(settings?.openrouter?.configured) },
-    { endpoint: "/api/providers/polza/models?type=image", providerId: "polza", configured: Boolean(settings?.polza?.configured) },
-    { endpoint: "/api/providers/polza/models?type=video", providerId: "polza", configured: Boolean(settings?.polza?.configured) },
-    { endpoint: "/api/providers/polza/models?type=chat", providerId: "polza", configured: Boolean(settings?.polza?.configured) }
-  ];
-  const loaded: ModelOption[] = [];
-  for (const source of sources) {
-    if (!source.configured) continue;
-    try {
-      const response = await getJson(source.endpoint);
-      loaded.push(...normalizeModelOptions(response, source.providerId));
-    } catch (error) {
-      errors[source.providerId] = error instanceof Error ? error.message : "Catalog request failed.";
-    }
+  let availableModels: ModelOption[] = [];
+  try {
+    availableModels = normalizeAvailableModelOptions(await getJson("/api/models/v1"));
+    if (availableModels.length === 0) errors["models.v1"] = "Server model catalog returned no usable available models.";
+  } catch (error) {
+    errors["models.v1"] = error instanceof Error ? error.message : "Available model catalog request failed.";
   }
-  return { models: mergeModelOptions([...fallbackModels, ...configuredBuiltInModels(settings), ...loaded]), errors };
+  if (availableModels.length > 0) {
+    const catalog = mergeModelOptions(availableModels);
+    return {
+      models: catalog,
+      availableModels: catalog,
+      errors
+    };
+  }
+  return {
+    models: [],
+    availableModels: [],
+    errors
+  };
 }
 
 export function modelsForContentKind(models: ModelOption[], kind: ContentKind): ModelOption[] {
-  return models.filter((model) => model.isAvailable && !model.role && model.produces.includes(kind));
+  return models.filter((model) => modelMatchesCatalogGroup(model, kind));
+}
+
+export function modelsForPickerContentKind(models: ModelOption[], value: unknown): ModelOption[] {
+  const kind = pickerContentKind(value);
+  return kind ? modelsForContentKind(models, kind) : [];
+}
+
+export function mergeProviderAndUserDefinedPickerModels(providerCatalogModels: ModelOption[], userDefinedModels: ModelOption[]): ModelOption[] {
+  const compatibleUserModels = userDefinedModels.filter((model) =>
+    model.source === "custom-link"
+    && model.isAvailable
+    && model.produces.length > 0
+  );
+  return mergeModelOptions([...providerCatalogModels, ...compatibleUserModels]);
+}
+
+export function pickerContentKind(value: unknown): ContentKind | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (normalized === "image" || normalized === "picture" || normalized === "still") return "image";
+  if (normalized === "video" || normalized === "movingimage" || normalized === "clip" || normalized === "movie") return "video";
+  if (normalized === "text" || normalized === "prompt" || normalized === "document") return "text";
+  if (normalized === "audio" || normalized === "sound") return "audio";
+  return undefined;
+}
+
+export function modelMatchesCatalogGroup(model: ModelOption, group: ModelCatalogGroup): boolean {
+  if (!model.isAvailable) return false;
+  const outputTypes = catalogOutputKinds(model);
+  const roles = catalogRoles(model);
+  if (group === "image-upscaler") return outputTypes.includes("image") && roles.includes("upscaler");
+  if (group === "video-upscaler") return outputTypes.includes("video") && roles.includes("upscaler");
+  if (roles.includes("upscaler")) return false;
+  if (group === "text") return outputTypes.includes("text") && !outputTypes.includes("image") && !outputTypes.includes("video");
+  if (group === "image") return outputTypes.includes("image");
+  if (group === "video") return outputTypes.includes("video");
+  return outputTypes.includes(group);
+}
+
+export function modelsCompatibleWithNodeInputs(models: ModelOption[], kind: ContentKind, hasImageInput: boolean): ModelOption[] {
+  if (!hasImageInput || kind === "image" || kind === "video") return models;
+  return models.filter((model) => modelAcceptsImageInput(model));
+}
+
+export function modelImageInputLimit(model: Pick<ModelOption, "accepts" | "acceptsImageInput" | "maxImageInputs">): number | undefined {
+  const explicitLimit = positiveInteger(model.maxImageInputs);
+  if (explicitLimit !== undefined) return explicitLimit;
+  return modelAcceptsImageInput(model) ? undefined : 0;
 }
 
 export function modelSelectionId(model: ModelOption | undefined): string {
@@ -136,62 +228,6 @@ export function providerDisplayName(providerId: string): string {
   return names[providerId.toLowerCase()] ?? providerId;
 }
 
-export function normalizeModelOptions(value: unknown, providerId: string): ModelOption[] {
-  const candidates = collectModelCandidates(value);
-  const seen = new Set<string>();
-  return candidates.flatMap((entry) => {
-    if (!entry || typeof entry !== "object") return [];
-    const record = entry as Record<string, unknown>;
-    const id = String(record.id ?? record.modelId ?? record.slug ?? record.name ?? "");
-    if (!id || seen.has(id)) return [];
-    seen.add(id);
-    const produces = inferProducedKinds(record, providerId);
-    if (produces.length === 0) return [];
-    const role = inferModelRole(record, produces);
-    const accepts = inferAcceptedKinds(record);
-    const generationParameters = modelGenerationParameterDefinitions(record);
-    return [{
-      id,
-      title: String(record.title ?? record.label ?? record.displayName ?? record.name ?? id),
-      providerId: String(record.providerId ?? record.provider ?? providerId),
-      contentKinds: produces,
-      accepts,
-      produces,
-      capabilities: inferCapabilities(record, produces),
-      paramsSchema: generationParameters,
-      source: providerId,
-      isAvailable: record.isAvailable !== false,
-      statusReason: typeof record.statusReason === "string" ? record.statusReason : undefined,
-      acceptsImageInput: modelAcceptsImageInput(record),
-      maxImageInputs: modelMaxImageInputs(record),
-      imageReferenceSyntax: modelImageReferenceSyntax(record),
-      generationParameters,
-      defaultParameters: modelDefaultGenerationParameters(record),
-      role
-    }];
-  });
-}
-
-export function localProviderModelOptions(provider: { id: string; title: string; providerType: string; status: string; models?: Array<{ id?: string; title?: string; modelName?: string }> }): ModelOption[] {
-  if (provider.status !== "connected") return [];
-  return (provider.models ?? []).flatMap((model) => {
-    const id = model.id ?? model.modelName ?? model.title;
-    if (!id) return [];
-    return [{
-      id,
-      title: model.title ?? model.modelName ?? id,
-      providerId: provider.id,
-      contentKinds: ["image"],
-      accepts: ["text", "image"],
-      produces: ["image"],
-      capabilities: ["image.generate"],
-      source: provider.providerType,
-      isAvailable: false,
-      statusReason: `${provider.title} is connected; canvas execution for local models is not wired yet.`
-    }];
-  });
-}
-
 export function modelGenerationParameters(model: ModelOption): ImageGenerationParameters {
   const schemaDefaults = Object.fromEntries(
     (model.generationParameters ?? []).flatMap((definition) => definition.default === undefined ? [] : [[definition.id, definition.default]])
@@ -201,7 +237,161 @@ export function modelGenerationParameters(model: ModelOption): ImageGenerationPa
 
 export function generationParameterSummary(definitions: ModelParameterDefinition[], values: ImageGenerationParameters): string {
   if (definitions.length === 0) return "No parameters";
-  return definitions.slice(0, 2).map((definition) => String(values[definition.id] ?? definition.default ?? "")).filter(Boolean).join(" / ") || "Parameters";
+  const compactValues = definitions
+    .filter((definition) => modelParameterEnabled(definition, values) && definition.type !== "text" && !definition.advanced)
+    .map((definition) => {
+      const value = values[definition.id] ?? definition.default;
+      if (value === undefined || value === "" || value === false) return "";
+      if (definition.type === "boolean") return definition.label;
+      return String(value);
+    })
+    .filter(Boolean)
+    .slice(0, 2);
+  return compactValues.join(" / ") || "Parameters";
+}
+
+export function modelParameterEnabled(definition: ModelParameterDefinition, values: ImageGenerationParameters): boolean {
+  if (!definition.enabledWhen) return true;
+  const current = values[definition.enabledWhen.parameterId];
+  return definition.enabledWhen.equals.some((value) => String(value) === String(current));
+}
+
+export function normalizeNodeModelOptions(value: unknown, nodeType: string): ModelOption[] {
+  const response = value as ModelOptionForNodeResponse;
+  const candidates = Array.isArray(response?.models) ? response.models : [];
+  return candidates.flatMap((entry) => {
+    if (!isServerModelOptionForNode(entry, nodeType)) return [];
+    const produces = entry.outputTypes.flatMap(contentKind);
+    if (produces.length === 0) return [];
+    const accepts = entry.inputTypes.flatMap(contentKind);
+    const generationParameters = normalizeServerParameterDefinitions(entry.parameters);
+    return [{
+      id: entry.storedModelId,
+      title: entry.displayName,
+      providerId: entry.executionProvider || entry.provider,
+      providerModelId: entry.providerModelId,
+      storedModelId: entry.storedModelId,
+      iconPath: entry.iconPath,
+      inputTypes: entry.inputTypes,
+      outputTypes: entry.outputTypes,
+      roles: entry.roles,
+      contentKinds: produces,
+      accepts: accepts.length ? [...new Set(accepts)] : ["text"],
+      produces: [...new Set(produces)],
+      capabilities: entry.capabilities,
+      paramsSchema: generationParameters,
+      source: nodeType,
+      isAvailable: true,
+      acceptsImageInput: entry.inputTypes.includes("image"),
+      generationParameters,
+      defaultParameters: Object.fromEntries(generationParameters.flatMap((definition) => definition.default === undefined ? [] : [[definition.id, definition.default]])),
+      role: entry.roles.includes("upscaler") ? produces.includes("video") ? "video-upscaler" : "image-upscaler" : undefined
+    }];
+  });
+}
+
+export function normalizeAvailableModelOptions(value: unknown): ModelOption[] {
+  const response = value as ModelOptionForNodeResponse;
+  const candidates = Array.isArray(response?.models) ? response.models : [];
+  return candidates.flatMap((entry) => {
+    if (!isServerModelCatalogEntry(entry)) return [];
+    const produces = entry.outputTypes.flatMap(contentKind);
+    if (produces.length === 0) return [];
+    const accepts = entry.inputTypes.flatMap(contentKind);
+    const generationParameters = normalizeServerParameterDefinitions(entry.parameters);
+    const metadata = entry.metadata ?? {};
+    return [{
+      id: entry.providerModelId,
+      title: entry.displayName,
+      providerId: entry.provider,
+      providerModelId: entry.providerModelId,
+      storedModelId: entry.providerModelId,
+      iconPath: resolvedCatalogIconPath(entry.iconPath, entry.iconKey, entry.originVendor, entry.providerModelId, entry.provider),
+      iconKey: entry.iconKey,
+      originVendor: entry.originVendor,
+      inputTypes: entry.inputTypes,
+      outputTypes: entry.outputTypes,
+      roles: entry.roles,
+      contentKinds: [...new Set(produces)],
+      accepts: accepts.length ? [...new Set(accepts)] : ["text"],
+      produces: [...new Set(produces)],
+      capabilities: entry.capabilities,
+      paramsSchema: generationParameters,
+      source: "models.v1",
+      isAvailable: entry.availability?.status !== "unavailable",
+      statusReason: typeof entry.availability?.reason === "string" ? entry.availability.reason : undefined,
+      acceptsImageInput: entry.inputTypes.includes("image"),
+      maxImageInputs: positiveInteger(metadata.maxImageInputs) ?? positiveInteger(metadata.maxImages),
+      imageReferenceSyntax: stringParameter(metadata.imageReferenceSyntax),
+      generationParameters,
+      defaultParameters: Object.fromEntries(generationParameters.flatMap((definition) => definition.default === undefined ? [] : [[definition.id, definition.default]])),
+      role: entry.roles.includes("upscaler") ? produces.includes("video") ? "video-upscaler" : "image-upscaler" : undefined
+    }];
+  });
+}
+
+function isServerModelOptionForNode(value: unknown, nodeType: string): value is ServerModelOptionForNode {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === "string"
+    && typeof record.provider === "string"
+    && typeof record.providerModelId === "string"
+    && typeof record.displayName === "string"
+    && Array.isArray(record.inputTypes)
+    && Array.isArray(record.outputTypes)
+    && Array.isArray(record.capabilities)
+    && Array.isArray(record.roles)
+    && Array.isArray(record.parameters)
+    && record.nodeType === nodeType
+    && typeof record.storedModelId === "string"
+    && typeof record.executionProvider === "string";
+}
+
+function isServerModelCatalogEntry(value: unknown): value is ServerModelCatalogEntry {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.id === "string"
+    && typeof record.provider === "string"
+    && typeof record.providerModelId === "string"
+    && typeof record.displayName === "string"
+    && typeof record.iconPath === "string"
+    && Array.isArray(record.inputTypes)
+    && Array.isArray(record.outputTypes)
+    && Array.isArray(record.capabilities)
+    && Array.isArray(record.roles)
+    && Array.isArray(record.parameters);
+}
+
+function normalizeServerParameterDefinitions(parameters: ModelParameterDefinition[]): ModelParameterDefinition[] {
+  return parameters.flatMap((definition) => {
+    const id = stringParameter(definition.id);
+    if (!id) return [];
+    const type: ModelParameterDefinition["type"] = definition.type === "number" || definition.type === "text" || definition.type === "boolean" ? definition.type : "select";
+    return [{
+      id,
+      label: stringParameter(definition.label) ?? id,
+      type,
+      default: parameterValue(definition.default),
+      options: Array.isArray(definition.options) ? definition.options.flatMap((option) => {
+        const value = stringParameter(option.value);
+        return value ? [{ value, label: stringParameter(option.label) }] : [];
+      }) : undefined,
+      min: numberParameter(definition.min),
+      max: numberParameter(definition.max),
+      step: numberParameter(definition.step),
+      required: typeof definition.required === "boolean" ? definition.required : undefined,
+      advanced: typeof definition.advanced === "boolean" ? definition.advanced : undefined,
+      enabledWhen: isEnabledWhen(definition.enabledWhen) ? {
+        parameterId: definition.enabledWhen.parameterId,
+        equals: definition.enabledWhen.equals
+      } : undefined
+    }];
+  });
+}
+
+function isEnabledWhen(value: unknown): value is { parameterId: string; equals: GenerationParameterValue[] } {
+  const record = value as { parameterId?: unknown; equals?: unknown };
+  return typeof record?.parameterId === "string" && Array.isArray(record.equals);
 }
 
 function mergeModelOptions(options: ModelOption[]): ModelOption[] {
@@ -213,165 +403,157 @@ function mergeModelOptions(options: ModelOption[]): ModelOption[] {
   return [...byId.values()];
 }
 
-function collectModelCandidates(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  if (!value || typeof value !== "object") return [];
-  const record = value as Record<string, unknown>;
-  for (const key of ["models", "imageModels", "providerModels", "connectedModels", "availableModels", "items"]) {
-    if (Array.isArray(record[key])) return record[key];
-  }
-  return Object.values(record).flatMap((item) => collectModelCandidates(item));
-}
-
-function inferProducedKinds(record: Record<string, unknown>, providerId: string): ContentKind[] {
-  const explicitType = typeof record.type === "string" ? record.type.toLowerCase() : "";
-  const architecture = objectValue(record.architecture);
-  const outputModalities = [
-    architecture.output_modalities,
-    record.outputModalities,
-    record.outputs,
-    record.produces
-  ].flatMap((field) => Array.isArray(field) ? field : [field]).filter(Boolean).map(String).join(" ").toLowerCase();
-  const explicitOutputs: ContentKind[] = [];
-  if (/(video|text-to-video|image-to-video|video-generation)/.test(outputModalities)) explicitOutputs.push("video");
-  if (/(image|img|text-to-image|image-generation)/.test(outputModalities)) explicitOutputs.push("image");
-  if (/(audio|speech|music|sound)/.test(outputModalities)) explicitOutputs.push("audio");
-  if (/(text|chat|language|message)/.test(outputModalities)) explicitOutputs.push("text");
-  if (explicitOutputs.length) return [...new Set(explicitOutputs)];
-  if (explicitType === "video") return ["video"];
-  if (explicitType === "image") return ["image"];
-  if (explicitType === "chat" || explicitType === "text") return ["text"];
-  if (explicitType === "audio") return ["audio"];
-  const text = modelOutputMetadataText(record);
-  if (/(video|text-to-video|image-to-video|video-generation)/.test(text)) return ["video"];
-  if (/(image|img|vision|visual|text-to-image|image-generation)/.test(text)) return ["image"];
-  if (/(audio|speech|music|sound)/.test(text)) return ["audio"];
-  if (/(text|chat|language|embedding)/.test(text)) return ["text"];
-  // OpenRouter cache entries can be minimal, while its default gateway route is text generation.
-  if (providerId === "openrouter") return ["text"];
-  return [];
-}
-
-function inferModelRole(record: Record<string, unknown>, produces: ContentKind[]): ModelRole | undefined {
-  const text = modelMetadataText(record);
-  if (!/(upscale|upscaler|super[- ]?resolution|enhance)/.test(text)) return undefined;
-  return produces.includes("video") || /video/.test(text) ? "video-upscaler" : "image-upscaler";
-}
-
-function configuredBuiltInModels(settings: ProviderSettings | null): ModelOption[] {
-  return settings?.replicate?.configured ? [{
-    id: "philz1337x/clarity-upscaler",
-    title: "Clarity Upscaler",
-    providerId: "replicate",
-    contentKinds: ["image"],
-    accepts: ["image"],
-    produces: ["image"],
-    capabilities: ["image.upscale"],
-    source: "bundled",
-    isAvailable: true,
-    acceptsImageInput: true,
-    maxImageInputs: 1,
-    role: "image-upscaler"
-  }] : [];
-}
-
-function inferAcceptedKinds(record: Record<string, unknown>): ContentKind[] {
-  const architecture = objectValue(record.architecture);
-  const values = Array.isArray(architecture.input_modalities) ? architecture.input_modalities.map(String) : [];
-  const matched = values.flatMap((value) => contentKind(value));
-  if (matched.length) return [...new Set(matched)];
-  return modelAcceptsImageInput(record) ? ["text", "image"] : ["text"];
-}
-
-function inferCapabilities(record: Record<string, unknown>, produces: ContentKind[]): string[] {
-  const explicit = Array.isArray(record.capabilities) ? record.capabilities.map(String) : [];
-  return [...new Set([...explicit, ...produces.map((kind) => `${kind}.generate`)])];
-}
-
-function modelMetadataText(record: Record<string, unknown>): string {
-  const architecture = objectValue(record.architecture);
-  return [
-    record.nodeTypes, record.nodeType, record.type, record.capabilities, record.modalities,
-    record.inputModalities, record.outputModalities, architecture.input_modalities,
-    architecture.output_modalities, architecture.modality, record.tasks, record.kind,
-    record.category, record.family, record.id
-  ].flatMap((field) => Array.isArray(field) ? field : [field]).filter(Boolean).map(String).join(" ").toLowerCase();
-}
-
-function modelOutputMetadataText(record: Record<string, unknown>): string {
-  const architecture = objectValue(record.architecture);
-  return [
-    record.nodeTypes, record.nodeType, record.type, record.outputModalities, architecture.output_modalities,
-    record.outputs, record.produces, record.tasks, record.kind, record.category, record.family, record.id
-  ].flatMap((field) => Array.isArray(field) ? field : [field]).filter(Boolean).map(String).join(" ").toLowerCase();
+function modelAcceptsImageInput(model: Pick<ModelOption, "accepts" | "acceptsImageInput" | "maxImageInputs">): boolean {
+  return model.accepts.includes("image") || model.acceptsImageInput === true || positiveInteger(model.maxImageInputs) !== undefined;
 }
 
 function contentKind(value: string): ContentKind[] {
-  const normalized = value.toLowerCase();
-  return normalized === "image" || normalized === "video" || normalized === "text" || normalized === "audio"
-    ? [normalized]
-    : [];
+  const kind = pickerContentKind(value);
+  return kind ? [kind] : [];
 }
 
-function modelAcceptsImageInput(record: Record<string, unknown>): boolean {
-  const architecture = objectValue(record.architecture);
-  const provider = objectValue(record.top_provider);
-  const parameters = objectValue(provider.parameters);
-  const inputModalities = Array.isArray(architecture.input_modalities) ? architecture.input_modalities.map(String) : [];
-  return inputModalities.some((modality) => modality.toLowerCase() === "image") || Object.hasOwn(parameters, "images");
+function catalogOutputKinds(model: ModelOption): ContentKind[] {
+  const kinds = Array.isArray(model.outputTypes) ? model.outputTypes.flatMap(contentKind) : [];
+  return kinds.length ? [...new Set(kinds)] : model.produces;
 }
 
-function modelMaxImageInputs(record: Record<string, unknown>): number | undefined {
-  const direct = Number(record.maxImageInputs ?? record.maxImages);
-  if (Number.isInteger(direct) && direct > 0) return direct;
-  const inputs = Array.isArray(objectValue(record.ioContract).inputs) ? objectValue(record.ioContract).inputs as unknown[] : [];
-  const imageInput = inputs.find((input) => objectValue(input).kind === "image");
-  const contracted = Number(objectValue(imageInput).maxItems);
-  return Number.isInteger(contracted) && contracted > 0 ? contracted : undefined;
+function catalogRoles(model: ModelOption): string[] {
+  const roles = Array.isArray(model.roles) ? model.roles.filter((role): role is string => typeof role === "string") : [];
+  if (roles.length) return roles;
+  if (model.role === "image-upscaler" || model.role === "video-upscaler") return ["upscaler"];
+  return [];
 }
 
-function modelImageReferenceSyntax(record: Record<string, unknown>): string | undefined {
-  const value = record.imageReferenceSyntax ?? record.image_reference_syntax;
-  return typeof value === "string" && value.includes("{index}") ? value : undefined;
+function resolvedCatalogIconPath(iconPath: unknown, iconKey: unknown, originVendor: unknown, providerModelId: unknown, provider: unknown): string {
+  const providerIconKey = sameIconKey(iconKey, provider);
+  const identityPath = catalogIconPath(providerModelId);
+  return usableIconPath(iconPath, provider)
+    ?? (!providerIconKey ? catalogIconPath(iconKey) : undefined)
+    ?? catalogIconPath(originVendor)
+    ?? identityPath
+    ?? catalogIconPath("unknown")
+    ?? "/api/model-icons/unknown.svg";
 }
 
-function modelGenerationParameterDefinitions(record: Record<string, unknown>): ModelParameterDefinition[] | undefined {
-  if (!Array.isArray(record.generationParameters)) return undefined;
-  const definitions = record.generationParameters.flatMap((source) => {
-    const definition = objectValue(source);
-    const id = stringParameter(definition.id);
-    const label = stringParameter(definition.label);
-    if (!id || !label) return [];
-    const type: ModelParameterDefinition["type"] = definition.type === "number" || definition.type === "text" ? definition.type : "select";
-    const options = Array.isArray(definition.options) ? definition.options.flatMap((entry) => {
-      const option = objectValue(entry);
-      const value = stringParameter(option.value);
-      return value ? [{ value, label: stringParameter(option.label) }] : [];
-    }) : undefined;
-    return [{ id, label, type, default: parameterValue(definition.default), options, min: numberParameter(definition.min), max: numberParameter(definition.max), step: numberParameter(definition.step) }];
-  });
-  return definitions.length ? definitions : [];
+function sameIconKey(left: unknown, right: unknown): boolean {
+  if (typeof left !== "string" || typeof right !== "string") return false;
+  return normalizedIconKey(left) === normalizedIconKey(right);
 }
 
-function modelDefaultGenerationParameters(record: Record<string, unknown>): ImageGenerationParameters | undefined {
-  const source = objectValue(record.defaultParameters ?? record.defaultParams);
-  const entries = Object.entries(source).flatMap(([key, value]) => {
-    const parameter = parameterValue(value);
-    return parameter === undefined ? [] : [[key, parameter] as [string, GenerationParameterValue]];
-  });
-  return entries.length ? Object.fromEntries(entries) : undefined;
+function usableIconPath(value: unknown, provider: unknown): string | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const path = value.trim();
+  if (!path.startsWith("/api/model-icons/")) return path;
+  const filename = decodeURIComponent(path.slice("/api/model-icons/".length));
+  if (filename === catalogIconFilename(String(provider))) return undefined;
+  return knownModelIconFilenames.has(filename) ? path : undefined;
 }
 
-function fallbackGeminiParameters(): ModelParameterDefinition[] {
-  return [
-    { id: "aspectRatio", label: "Aspect ratio", type: "select", default: "1:1", options: ["1:1", "3:2", "2:3", "16:9", "9:16"].map((value) => ({ value })) },
-    { id: "imageSize", label: "Resolution", type: "select", default: "2K", options: ["1K", "2K", "4K"].map((value) => ({ value })) }
-  ];
+function catalogIconPath(key: unknown): string | undefined {
+  if (typeof key !== "string" || !key.trim()) return undefined;
+  const filename = catalogIconFilename(key);
+  return filename ? `/api/model-icons/${filename}` : undefined;
 }
 
-function objectValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+function catalogIconFilename(key: string): string | undefined {
+  const filenames: Record<string, string> = {
+    anthropic: "claude.png",
+    "black-forest-labs": "flux-2-pro.png",
+    bytedance: "seedream-4-5.png",
+    claude: "claude.png",
+    gemini: "gemini.png",
+    google: "gemini.png",
+    gpt: "gpt.png",
+    elevenlabs: "elevenlabs.svg",
+    local: "local.svg",
+    kling: "kling.png",
+    kwaivgi: "kling.png",
+    kuaishou: "kling.png",
+    minimax: "hailuo.png",
+    hailuo: "hailuo.png",
+    "nano-banana": "nano-banana.svg",
+    "image.nano-banana": "nano-banana.svg",
+    "google/gemini-3.1-flash-image-preview": "nano-banana.svg",
+    "google/gemini-3-pro-image-preview": "nano-banana.svg",
+    openai: "gpt.png",
+    openrouter: "openrouter.svg",
+    polza: "polza.svg",
+    qwen: "qwen.png",
+    replicate: "replicate.svg",
+    seedance: "seedream-4-5.png",
+    seedream: "seedream-4-5.png",
+    "seedream-4-5": "seedream-4-5.png",
+    stability: "stability.svg",
+    suno: "suno.svg",
+    topaz: "topaz.svg",
+    unknown: "unknown.svg",
+    wan: "wan.svg",
+    "x-ai": "grok-image.png",
+    xai: "grok-image.png",
+    grok: "grok-image.png",
+    "z-ai": "z-image.png",
+    zai: "z-image.png",
+    "z-image": "z-image.png",
+    "tongyi-mai": "z-image.png",
+    yandex: "yandexart.png"
+  };
+  for (const candidate of iconKeyCandidates(key)) {
+    const filename = filenames[candidate];
+    if (filename) return filename;
+  }
+  return undefined;
 }
+
+function normalizedIconKey(key: string): string {
+  return key.trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
+
+function iconKeyCandidates(value: string): string[] {
+  const normalized = normalizedIconKey(value);
+  const upstream = normalized.split("/")[0];
+  return upstream && upstream !== normalized ? [normalized, upstream] : [normalized];
+}
+
+const knownModelIconFilenames = new Set([
+  "claude.png",
+  "cohere.svg",
+  "comfyui.svg",
+  "deepseek.png",
+  "elevenlabs.svg",
+  "flux-2-pro.png",
+  "gemini.png",
+  "gpt.png",
+  "grok-image.png",
+  "hailuo.png",
+  "huggingface.svg",
+  "kling.png",
+  "leonardo.svg",
+  "llama.png",
+  "local.svg",
+  "luma.svg",
+  "midjourney.svg",
+  "mistral.svg",
+  "nano-banana.svg",
+  "nvidia.svg",
+  "ollama.svg",
+  "openrouter.svg",
+  "perplexity.svg",
+  "pika.png",
+  "polza.svg",
+  "qwen.png",
+  "replicate.svg",
+  "runway.png",
+  "seedream-4-5.png",
+  "sora.png",
+  "stability.svg",
+  "suno.svg",
+  "topaz.svg",
+  "unknown.svg",
+  "veo.png",
+  "wan.svg",
+  "yandexart.png",
+  "z-image.png"
+]);
 
 function stringParameter(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -379,6 +561,11 @@ function stringParameter(value: unknown): string | undefined {
 
 function numberParameter(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isInteger(number) && number > 0 ? number : undefined;
 }
 
 function parameterValue(value: unknown): GenerationParameterValue | undefined {

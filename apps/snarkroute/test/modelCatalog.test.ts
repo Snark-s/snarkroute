@@ -1,38 +1,176 @@
 import { describe, expect, it, vi } from "vitest";
-import { loadModelCatalog, localProviderModelOptions, mergeModelsForDisplay, modelsForContentKind, providerDisplayName } from "../src/modelCatalog";
+import { loadModelCatalog, mergeModelsForDisplay, mergeProviderAndUserDefinedPickerModels, modelImageInputLimit, modelMatchesCatalogGroup, modelSelectionId, modelsCompatibleWithNodeInputs, modelsForContentKind, modelsForPickerContentKind, providerDisplayName } from "../src/modelCatalog";
+import type { ModelOption } from "../src/modelCatalog";
+
+function v1Model(overrides: {
+  provider?: string;
+  providerModelId: string;
+  originVendor?: string;
+  displayName?: string;
+  iconKey?: string;
+  iconPath?: string;
+  inputTypes?: string[];
+  outputTypes: string[];
+  capabilities?: string[];
+  roles?: string[];
+  metadata?: Record<string, unknown>;
+}) {
+  return {
+    id: `${overrides.provider ?? "polza"}:${overrides.providerModelId}`,
+    provider: overrides.provider ?? "polza",
+    providerModelId: overrides.providerModelId,
+    originVendor: overrides.originVendor,
+    displayName: overrides.displayName ?? overrides.providerModelId,
+    iconKey: overrides.iconKey,
+    iconPath: overrides.iconPath ?? "/icons/model.svg",
+    inputTypes: overrides.inputTypes ?? ["text"],
+    outputTypes: overrides.outputTypes,
+    capabilities: overrides.capabilities ?? [],
+    roles: overrides.roles ?? [],
+    parameters: [],
+    metadata: overrides.metadata,
+    availability: { status: "available" }
+  };
+}
 
 describe("Living Canvas model catalog", () => {
-  it("keeps the fallback image model and skips disconnected providers", async () => {
-    const getJson = vi.fn();
+  it("does not invent provider models when the V1 catalog is unavailable", async () => {
+    const getJson = vi.fn(async () => {
+      throw new Error("catalog unavailable");
+    });
     const catalog = await loadModelCatalog(getJson, { polza: { configured: false }, openrouter: { configured: false } });
 
-    expect(getJson).not.toHaveBeenCalled();
-    expect(modelsForContentKind(catalog.models, "image").map((model) => model.id)).toContain("image.nano-banana");
+    expect(getJson).toHaveBeenCalledWith("/api/models/v1");
+    expect(catalog.models).toEqual([]);
+    expect(catalog.availableModels).toEqual([]);
+    expect(catalog.errors["models.v1"]).toBe("catalog unavailable");
   });
 
-  it("normalizes provider image, video, and text models into compatible outputs", async () => {
-    const getJson = vi.fn(async (path: string) => path.includes("type=image")
-      ? { models: [{ id: "vendor/image-model", title: "Picture Maker", type: "image-generation" }] }
-      : path.includes("type=video")
-        ? { models: [{ id: "vendor/video-model", title: "Movie Maker", type: "video" }] }
-        : path.includes("type=chat")
-          ? { models: [{ id: "vendor/chat-model", title: "Writer", type: "chat" }, { id: "google/gemini-image-chat", title: "Vision chat", type: "chat" }] }
-          : { models: [{ id: "openai/gpt-5.2" }] });
+  it("uses V1 output types for generic rendered picker choices", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.1", displayName: "GPT 5.1", inputTypes: ["text", "image"], outputTypes: ["text"], capabilities: ["text.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.1-codex-mini", displayName: "GPT 5.1 Codex Mini", outputTypes: ["text"], capabilities: ["text.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.2", displayName: "GPT 5.2", outputTypes: ["text"], capabilities: ["text.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.2-chat", displayName: "GPT 5.2 Chat", outputTypes: ["text"], capabilities: ["text.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "qwen/qwen3-plus", displayName: "Qwen3 Plus", outputTypes: ["text"], capabilities: ["text.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.2-mixed-output", displayName: "GPT 5.2 Mixed", outputTypes: ["text", "image"], capabilities: ["text.generate"] }),
+          v1Model({ provider: "polza", providerModelId: "openai/gpt-5.4-image-2", displayName: "GPT Image", outputTypes: ["image"], capabilities: ["image.generate"] }),
+          v1Model({ provider: "polza", providerModelId: "qwen/image-2", displayName: "Qwen Image", outputTypes: ["image"], capabilities: ["image.generate"] }),
+          v1Model({ provider: "polza", providerModelId: "bytedance/seedream-5-lite", displayName: "Seedream 5 Lite", outputTypes: ["image"], capabilities: ["image.generate"] }),
+          v1Model({ provider: "polza", providerModelId: "yandex/yandex-art", displayName: "Yandex Art", outputTypes: ["image"], capabilities: ["image.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "google/veo-3", displayName: "Veo 3", inputTypes: ["text", "image"], outputTypes: ["video"], capabilities: ["video.generate"] })
+        ] }
+      : []);
 
     const catalog = await loadModelCatalog(getJson, { polza: { configured: true }, openrouter: { configured: true } });
+    const imageIds = modelsForPickerContentKind(catalog.availableModels, "image").map((model) => model.id);
+    const videoIds = modelsForPickerContentKind(catalog.availableModels, "video").map((model) => model.id);
+    const textIds = modelsForPickerContentKind(catalog.availableModels, "text").map((model) => model.id);
 
-    expect(modelsForContentKind(catalog.models, "image").map((model) => model.id)).toContain("vendor/image-model");
-    expect(modelsForContentKind(catalog.models, "video").map((model) => model.id)).toEqual(["vendor/video-model"]);
-    expect(modelsForContentKind(catalog.models, "text").map((model) => model.id)).toEqual(["openai/gpt-5.2", "vendor/chat-model", "google/gemini-image-chat"]);
-    expect(modelsForContentKind(catalog.models, "image").map((model) => model.id)).not.toContain("google/gemini-image-chat");
+    expect(imageIds).toEqual(["openai/gpt-5.2-mixed-output", "openai/gpt-5.4-image-2", "qwen/image-2", "bytedance/seedream-5-lite", "yandex/yandex-art"]);
+    expect(imageIds).not.toEqual(expect.arrayContaining(["openai/gpt-5.1", "openai/gpt-5.1-codex-mini", "openai/gpt-5.2", "openai/gpt-5.2-chat"]));
+    expect(videoIds).toEqual(["google/veo-3"]);
+    expect(textIds).toEqual(["openai/gpt-5.1", "openai/gpt-5.1-codex-mini", "openai/gpt-5.2", "openai/gpt-5.2-chat", "qwen/qwen3-plus"]);
+    expect(textIds).not.toEqual(expect.arrayContaining(["openai/gpt-5.2-mixed-output", "openai/gpt-5.4-image-2", "qwen/image-2", "bytedance/seedream-5-lite", "yandex/yandex-art", "google/veo-3"]));
+    expect(catalog.models.map((model) => model.id)).not.toContain("image.nano-banana");
+    expect(getJson).not.toHaveBeenCalledWith("/api/models/for-node/ai.image.generate");
+    expect(getJson).not.toHaveBeenCalledWith("/api/models?provider=openrouter&capability=image.generate");
+    expect(getJson).not.toHaveBeenCalledWith("/api/providers/openrouter/models");
+    expect(getJson).not.toHaveBeenCalledWith("/api/providers/polza/models?type=image");
+  });
+
+  it("keeps user-defined custom models as a separate picker source outside provider catalog truth", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ provider: "polza", providerModelId: "vendor/image-model", outputTypes: ["image"] })
+        ] }
+      : []);
+    const customModels: ModelOption[] = [{
+      id: "custom:https://example.test/model",
+      title: "Custom Image Model",
+      providerId: "custom",
+      source: "custom-link",
+      contentKinds: ["image"],
+      accepts: ["text"],
+      produces: ["image"],
+      capabilities: ["image.generate"],
+      isAvailable: true
+    }, {
+      id: "custom:https://example.test/unknown",
+      title: "Unknown Custom Model",
+      providerId: "custom",
+      source: "custom-link",
+      contentKinds: [],
+      accepts: ["text"],
+      produces: [],
+      capabilities: [],
+      isAvailable: true
+    }];
+
+    const catalog = await loadModelCatalog(getJson, { polza: { configured: true } });
+    const pickerModels = mergeProviderAndUserDefinedPickerModels(catalog.availableModels, customModels);
+
+    expect(catalog.availableModels.map((model) => model.id)).toEqual(["vendor/image-model"]);
+    expect(modelsForPickerContentKind(pickerModels, "image").map((model) => model.id)).toEqual(["vendor/image-model", "custom:https://example.test/model"]);
+    expect(modelsForPickerContentKind(pickerModels, "image").map((model) => model.id)).not.toContain("custom:https://example.test/unknown");
+  });
+
+  it("feeds the actual generic video picker from V1 video models without requiring iconPath", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ provider: "openrouter", providerModelId: "vendor/live-video", displayName: "Live Video", iconPath: "", iconKey: "openrouter", outputTypes: ["video"] }),
+          v1Model({ provider: "polza", providerModelId: "vendor/video-upscale", iconPath: "", outputTypes: ["video"], roles: ["upscaler"] }),
+          v1Model({ provider: "polza", providerModelId: "vendor/image-model", outputTypes: ["image"] })
+        ] }
+      : []);
+
+    const catalog = await loadModelCatalog(getJson, { openrouter: { configured: true }, polza: { configured: true } });
+
+    expect(modelsForPickerContentKind(catalog.availableModels, "Video").map((model) => model.id)).toEqual(["vendor/live-video"]);
+    expect(modelsForPickerContentKind(catalog.availableModels, "movingImage").map((model) => model.id)).toEqual(["vendor/live-video"]);
+    expect(modelsForPickerContentKind(catalog.availableModels, "clip").map((model) => model.id)).toEqual(["vendor/live-video"]);
+    expect(modelsForPickerContentKind(catalog.availableModels, "media")).toEqual([]);
+  });
+
+  it("uses safe V1 icon paths and assigns fallback icon paths otherwise", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ providerModelId: "vendor/with-icon", iconPath: "/api/model-icons/custom.svg", outputTypes: ["image"] }),
+          v1Model({ provider: "openrouter", providerModelId: "vendor/from-icon-key", iconPath: "", iconKey: "openrouter", outputTypes: ["video"] }),
+          v1Model({ provider: "polza", providerModelId: "vendor/from-origin", iconPath: "", originVendor: "openai", outputTypes: ["text"] }),
+          v1Model({ provider: "polza", providerModelId: "vendor/from-provider", iconPath: "", outputTypes: ["text"] }),
+          v1Model({ provider: "polza", providerModelId: "vendor/provider-key-origin-vendor", iconPath: "", iconKey: "polza", originVendor: "qwen", outputTypes: ["image"] }),
+          v1Model({ provider: "polza", providerModelId: "tongyi-mai/z-image", iconPath: "/api/model-icons/polza.svg", iconKey: "polza", outputTypes: ["image"] }),
+          v1Model({ provider: "polza", providerModelId: "x-ai/grok-image", iconPath: "/api/model-icons/polza.svg", iconKey: "polza", outputTypes: ["image"] }),
+          v1Model({ provider: "polza", providerModelId: "qwen/image", iconPath: "/api/model-icons/qwen.svg", iconKey: "qwen", originVendor: "qwen", outputTypes: ["image"] }),
+          v1Model({ provider: "polza", providerModelId: "google/gemini-3.1-flash-image-preview", iconPath: "/api/model-icons/nano-banana.svg", iconKey: "nano-banana", originVendor: "nano-banana", outputTypes: ["image", "text"] }),
+          v1Model({ provider: "openrouter", providerModelId: "google/gemini-3-pro", iconPath: "/api/model-icons/gemini.png", iconKey: "gemini", originVendor: "google", outputTypes: ["text"] })
+        ] }
+      : []);
+
+    const catalog = await loadModelCatalog(getJson, {});
+
+    expect(catalog.availableModels.find((model) => model.id === "vendor/with-icon")?.iconPath).toBe("/api/model-icons/unknown.svg");
+    expect(catalog.availableModels.find((model) => model.id === "vendor/from-icon-key")?.iconPath).toBe("/api/model-icons/unknown.svg");
+    expect(catalog.availableModels.find((model) => model.id === "vendor/from-origin")?.iconPath).toBe("/api/model-icons/gpt.png");
+    expect(catalog.availableModels.find((model) => model.id === "vendor/from-provider")?.iconPath).toBe("/api/model-icons/unknown.svg");
+    expect(catalog.availableModels.find((model) => model.id === "vendor/provider-key-origin-vendor")?.iconPath).toBe("/api/model-icons/qwen.png");
+    expect(catalog.availableModels.find((model) => model.id === "tongyi-mai/z-image")?.iconPath).toBe("/api/model-icons/z-image.png");
+    expect(catalog.availableModels.find((model) => model.id === "x-ai/grok-image")?.iconPath).toBe("/api/model-icons/grok-image.png");
+    expect(catalog.availableModels.find((model) => model.id === "qwen/image")?.iconPath).toBe("/api/model-icons/qwen.png");
+    expect(catalog.availableModels.find((model) => model.id === "google/gemini-3.1-flash-image-preview")?.iconPath).toBe("/api/model-icons/nano-banana.svg");
+    expect(catalog.availableModels.find((model) => model.id === "google/gemini-3-pro")?.iconPath).toBe("/api/model-icons/gemini.png");
+    expect(catalog.availableModels.every((model) => typeof model.iconPath === "string" && model.iconPath.length > 0)).toBe(true);
   });
 
   it("shows image-output OpenRouter models and merges equal model sources for display", async () => {
-    const getJson = vi.fn(async (path: string) => path.includes("openrouter")
-      ? { models: [{ id: "openai/gpt-image-1.5", title: "GPT Image 1.5", architecture: { output_modalities: ["image"] } }] }
-      : path.includes("type=image")
-        ? { models: [{ id: "openai/gpt-image-1.5", title: "GPT Image 1.5", type: "image" }] }
-        : { models: [] });
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-image-1.5", displayName: "GPT Image 1.5", outputTypes: ["image"], capabilities: ["image.generate"] }),
+          v1Model({ provider: "polza", providerModelId: "openai/gpt-image-1.5", displayName: "GPT Image 1.5", outputTypes: ["image"], capabilities: ["image.generate"] })
+        ] }
+      : []);
 
     const catalog = await loadModelCatalog(getJson, { polza: { configured: true }, openrouter: { configured: true } });
     const rows = mergeModelsForDisplay(modelsForContentKind(catalog.models, "image"));
@@ -42,31 +180,138 @@ describe("Living Canvas model catalog", () => {
     expect(shared?.routes.map((route) => route.providerId)).toEqual(["openrouter", "polza"]);
   });
 
-  it("keeps provider upscalers out of generation choices and exposes configured Replicate upscalers", async () => {
-    const getJson = vi.fn(async (path: string) => path.includes("type=image")
-      ? { models: [{ id: "topaz/image-upscale", type: "image" }] }
-      : path.includes("type=video")
-        ? { models: [{ id: "topaz/video-upscale", type: "video" }] }
-        : { models: [] });
+  it("uses only V1 output types for text/image separation", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.4-image-2", displayName: "Image model", inputTypes: ["text", "image"], outputTypes: ["image"], capabilities: ["text.generate", "image.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "openai/gpt-5.2", displayName: "Text model", outputTypes: ["text"], capabilities: ["text.generate"] })
+        ] }
+      : []);
 
-    const catalog = await loadModelCatalog(getJson, { polza: { configured: true }, replicate: { configured: true } });
+    const catalog = await loadModelCatalog(getJson, { openrouter: { configured: true } });
+
+    expect(modelsForContentKind(catalog.models, "text").map((model) => model.id)).toEqual(["openai/gpt-5.2"]);
+    expect(modelsForContentKind(catalog.models, "image").map((model) => model.id)).toEqual(["openai/gpt-5.4-image-2"]);
+  });
+
+  it("keeps V1 image-input compatibility and limits", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ providerModelId: "qwen/qwen-image", displayName: "Qwen Image", inputTypes: ["text"], outputTypes: ["image"], capabilities: ["image.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "google/gemini-3.1-flash-image-preview", displayName: "Nano Banana 2", inputTypes: ["text", "image"], outputTypes: ["image"], capabilities: ["image.generate"], metadata: { maxImageInputs: 2 } })
+        ] }
+      : []);
+
+    const catalog = await loadModelCatalog(getJson, { polza: { configured: true }, openrouter: { configured: true } });
+    const imageModels = modelsForContentKind(catalog.models, "image");
+    const [textToImage, imageToImage] = imageModels;
+
+    expect(modelsCompatibleWithNodeInputs(imageModels, "image", true).map((model) => model.id)).toEqual([
+      "qwen/qwen-image",
+      "google/gemini-3.1-flash-image-preview"
+    ]);
+    expect(modelImageInputLimit(textToImage)).toBe(0);
+    expect(modelImageInputLimit(imageToImage)).toBe(2);
+  });
+
+  it("keeps OpenRouter image-to-video models selectable for video nodes with image inputs", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({
+            provider: "openrouter",
+            providerModelId: "kwaivgi/kling-video-o1",
+            displayName: "Kling: Video O1",
+            capabilities: ["video.generate"],
+            inputTypes: ["text", "image"],
+            outputTypes: ["video"]
+          })
+        ] }
+      : []);
+
+    const catalog = await loadModelCatalog(getJson, { openrouter: { configured: true } });
+    const videoModels = modelsForContentKind(catalog.models, "video");
+    const klingO1 = videoModels.find((model) => model.id === "kwaivgi/kling-video-o1");
+
+    expect(klingO1).toMatchObject({
+      providerId: "openrouter",
+      acceptsImageInput: true
+    });
+    expect(klingO1?.accepts).toContain("image");
+    expect(modelImageInputLimit(klingO1)).toBeUndefined();
+    expect(modelSelectionId(klingO1)).toBe("openrouter:kwaivgi/kling-video-o1");
+  });
+
+  it("keeps V1 video models compatible when image support is exposed by V1 input types and metadata", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ provider: "openrouter", providerModelId: "kwaivgi/kling-v3.0-pro", displayName: "Kling", inputTypes: ["text", "image"], outputTypes: ["video"], capabilities: ["video.generate"], metadata: { maxImageInputs: 2 } })
+        ] }
+      : []);
+
+    const catalog = await loadModelCatalog(getJson, { openrouter: { configured: true } });
+    const models = modelsForContentKind(catalog.models, "video");
+
+    expect(models[0]).toMatchObject({
+      id: "kwaivgi/kling-v3.0-pro",
+      providerId: "openrouter",
+      acceptsImageInput: true,
+      maxImageInputs: 2
+    });
+    expect(models[0].accepts).toContain("image");
+  });
+
+  it("uses positive maxImageInputs metadata to activate image chips even when inputTypes are text-only", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ provider: "polza", providerModelId: "wan/2.6", displayName: "Wan 2.6", inputTypes: ["text"], outputTypes: ["video"], capabilities: ["video.generate"], metadata: { maxImageInputs: 14 } })
+        ] }
+      : []);
+
+    const catalog = await loadModelCatalog(getJson, { polza: { configured: true } });
+    const wan = modelsForContentKind(catalog.models, "video")[0];
+
+    expect(wan.accepts).toEqual(["text"]);
+    expect(modelImageInputLimit(wan)).toBe(14);
+  });
+
+  it("keeps generic video picker populated from V1 video output models even with image inputs", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ provider: "polza", providerModelId: "vendor/text-to-video", displayName: "Text to Video", inputTypes: ["text"], outputTypes: ["video"], capabilities: ["video.generate"] }),
+          v1Model({ provider: "polza", providerModelId: "vendor/image-generator", displayName: "Image", inputTypes: ["text"], outputTypes: ["image"], capabilities: ["image.generate"] }),
+          v1Model({ provider: "openrouter", providerModelId: "vendor/text-only", displayName: "Text", inputTypes: ["text"], outputTypes: ["text"], capabilities: ["text.generate"] })
+        ] }
+      : []);
+
+    const catalog = await loadModelCatalog(getJson, { polza: { configured: true }, openrouter: { configured: true } });
+    const videoModels = modelsForPickerContentKind(catalog.availableModels, "video");
+    const textModels = modelsForPickerContentKind(catalog.availableModels, "text");
+
+    expect(videoModels.map((model) => model.id)).toEqual(["vendor/text-to-video"]);
+    expect(modelsCompatibleWithNodeInputs(videoModels, "video", true).map((model) => model.id)).toEqual(["vendor/text-to-video"]);
+    expect(textModels.map((model) => model.id)).toEqual(["vendor/text-only"]);
+    expect(textModels.map((model) => model.id)).not.toEqual(expect.arrayContaining(["vendor/text-to-video", "vendor/image-generator"]));
+  });
+
+  it("keeps provider upscalers out of generation choices", async () => {
+    const getJson = vi.fn(async (path: string) => path === "/api/models/v1"
+      ? { models: [
+          v1Model({ providerModelId: "kling/v3-motion-control", displayName: "Kling 3.0 Motion Control", outputTypes: ["video"], capabilities: ["video.generate"], roles: ["generator"] }),
+          v1Model({ providerModelId: "bytedance/seedance-2", displayName: "Seedance 2", outputTypes: ["video"], capabilities: ["video.generate"], roles: ["generator"] }),
+          v1Model({ providerModelId: "topaz/image-upscale", outputTypes: ["image"], capabilities: ["image.generate"], roles: ["upscaler"] }),
+          v1Model({ providerModelId: "topaz/video-upscale", outputTypes: ["video"], capabilities: ["video.generate"], roles: ["upscaler"] })
+        ] }
+      : []);
+
+    const catalog = await loadModelCatalog(getJson, { polza: { configured: true } });
 
     expect(modelsForContentKind(catalog.models, "image").map((model) => model.id)).not.toContain("topaz/image-upscale");
-    expect(modelsForContentKind(catalog.models, "video").map((model) => model.id)).not.toContain("topaz/video-upscale");
-    expect(catalog.models.filter((model) => model.role === "image-upscaler").map((model) => model.id)).toEqual(expect.arrayContaining(["topaz/image-upscale", "philz1337x/clarity-upscaler"]));
-    expect(catalog.models.find((model) => model.id === "topaz/video-upscale")?.role).toBe("video-upscaler");
+    expect(modelsForContentKind(catalog.models, "video").map((model) => model.id)).toEqual(["kling/v3-motion-control", "bytedance/seedance-2"]);
+    expect(modelsForPickerContentKind(catalog.models, "video").map((model) => model.id)).not.toContain("topaz/video-upscale");
+    expect(catalog.models.filter((model) => model.role === "image-upscaler").map((model) => model.id)).toEqual(["topaz/image-upscale"]);
+    const videoUpscaler = catalog.models.find((model) => model.id === "topaz/video-upscale");
+    expect(videoUpscaler?.role).toBe("video-upscaler");
+    expect(videoUpscaler && modelMatchesCatalogGroup(videoUpscaler, "video-upscaler")).toBe(true);
   });
 
-  it("shows models discovered from a connected local image provider without making them executable", () => {
-    const models = localProviderModelOptions({
-      id: "local:http://127.0.0.1:7860",
-      title: "Local SD",
-      providerType: "Stable Diffusion",
-      status: "connected",
-      models: [{ title: "sdxl.safetensors", modelName: "sdxl" }]
-    });
-
-    expect(models).toMatchObject([{ id: "sdxl", providerId: "local:http://127.0.0.1:7860", isAvailable: false }]);
-    expect(modelsForContentKind(models, "image")).toEqual([]);
-  });
 });

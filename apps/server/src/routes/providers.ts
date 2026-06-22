@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 import { createReplicateClient } from "@snarkroute/replicate";
-import { createOpenRouterClient, readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache, refreshOpenRouterModelCatalog, refreshOpenRouterPricingCatalog, refreshOpenRouterPricingCatalogFromModelCache } from "@snarkroute/openrouter";
-import { createPolzaClient, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "@snarkroute/polza";
+import { createOpenRouterClient, openRouterModelInfoToModelInfo, readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache, refreshOpenRouterModelCatalog, refreshOpenRouterPricingCatalog, refreshOpenRouterPricingCatalogFromModelCache } from "@snarkroute/openrouter";
+import { createPolzaClient, polzaModelInfoToModelInfo, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "@snarkroute/polza";
 import { openRouterCatalogCachePath, openRouterPricingCachePath, polzaPricingCachePath, providerLinksPath } from "../server-paths";
 import { createModelResolver } from "@snarkroute/openrouter";
 import { invalidatePricingCache } from "../billing/pricing-service";
@@ -11,7 +11,6 @@ import { isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled } from "../serv
 import { errorMessage } from "../services/errors";
 import { openRouterPublicError, openRouterSettingsStatus } from "../providers/openrouter";
 import { seedanceSettingsStatus, validateSeedanceConfiguration } from "../providers/seedance";
-import { livingCanvasModelMetadata } from "../providers/living-canvas-model-catalog";
 
 type PricingCatalog = {
   provider: string;
@@ -22,6 +21,8 @@ type PricingCatalog = {
   models: Record<string, { currency: string; pricing: Record<string, unknown>; raw?: Record<string, unknown> }>;
   warnings: string[];
 };
+
+type PolzaCatalogModelType = "chat" | "image" | "video" | "audio" | "embedding";
 
 export async function registerProviderRoutes(app: FastifyInstance) {
 app.get("/api/providers/links", async (request, reply) => {
@@ -108,9 +109,16 @@ app.post<{ Body: { provider?: "openrouter" | "polza" | "gemini" | "all" | string
   return { refreshed, failed, warnings };
 });
 
-app.get("/api/providers/openrouter/models", async () => {
+app.get<{ Querystring: { format?: string } }>("/api/providers/openrouter/models", async (request) => {
+  // Provider raw endpoint: expose the cached live OpenRouter catalog.
+  // Unified V1 catalog semantics live at /api/models/v1.
+  // Node-specific executability filtering belongs in /api/models/for-node/:nodeType.
   const cache = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
-  const models = (cache?.models ?? []).map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "openrouter") }));
+  if (request.query.format === "model-info") {
+    const models = (cache?.models ?? []).map((model) => openRouterModelInfoToModelInfo(model));
+    return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, sourceCounts: cache?.sourceCounts, models };
+  }
+  const models = cache?.models ?? [];
   return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, sourceCounts: cache?.sourceCounts, models };
 });
 
@@ -119,7 +127,7 @@ app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/ap
     const nodeType = typeof request.body?.nodeType === "string" ? request.body.nodeType : "";
     const params = sanitizeQuoteParams(request.body?.params);
     const polzaModels = nodeType.startsWith("polza.") && isPolzaEnabled()
-      ? await createPolzaClient().getModels(nodeType === "polza.text" ? "chat" : nodeType === "polza.video.generate" ? "video" : "image").catch(() => [])
+      ? await createPolzaClient().getModels(polzaProviderModelTypeForNode(nodeType)).catch(() => [])
       : [];
     const openRouterPricingCatalog = nodeType === "ai.text" || nodeType === "ai.image.generate" ? await ensurePricingCatalog("openrouter") : null;
     const polzaPricingCatalog = nodeType.startsWith("polza.") ? await ensurePricingCatalog("polza") : null;
@@ -150,16 +158,29 @@ app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/ap
   }
 });
 
-app.get<{ Querystring: { type?: "chat" | "image" | "video" | "embedding" } }>("/api/providers/polza/models", async (request, reply) => {
+app.get<{ Querystring: { type?: PolzaCatalogModelType; format?: string } }>("/api/providers/polza/models", async (request, reply) => {
   try {
     if (!isPolzaEnabled()) return { ok: true, configured: false, modelCount: 0, models: [] };
+    // Provider raw endpoint: return the live Polza provider catalog for the requested type.
+    // Unified V1 catalog semantics live at /api/models/v1.
+    // Node-specific executability filtering belongs in /api/models/for-node/:nodeType.
     const models = await createPolzaClient().getModels(request.query.type);
-    const livingCanvasModels = models.map((model) => ({ ...model, ...livingCanvasModelMetadata(model.id, "polza", request.query.type) }));
-    return { ok: true, configured: true, modelCount: livingCanvasModels.length, models: livingCanvasModels };
+    if (request.query.format === "model-info") {
+      const normalizedModels = models.map((model) => polzaModelInfoToModelInfo(model));
+      return { ok: true, configured: true, modelCount: normalizedModels.length, models: normalizedModels };
+    }
+    return { ok: true, configured: true, modelCount: models.length, models };
   } catch (error) {
     return reply.code(400).send({ ok: false, error: errorMessage(error) });
   }
 });
+
+function polzaProviderModelTypeForNode(nodeType: string): PolzaCatalogModelType {
+  if (nodeType === "polza.text") return "chat";
+  if (nodeType === "polza.video.generate") return "video";
+  if (nodeType === "polza.audio.generate") return "audio";
+  return "image";
+}
 
 app.get<{ Querystring: { model?: string } }>("/api/replicate/schema", async (request, reply) => {
   if (!isReplicateEnabled()) return reply.code(400).send({ error: "REPLICATE_API_TOKEN is not configured.\nOpen Settings \u2192 Secrets \u2192 Replicate and paste your token." });

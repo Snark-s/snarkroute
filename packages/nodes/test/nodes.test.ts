@@ -89,6 +89,25 @@ describe("built-in nodes", () => {
     expect(invalid.issues.some((issue) => issue.path === "author.name")).toBe(true);
   });
 
+  it("validates canvas action node manifests", () => {
+    const valid = validateNodeManifest({
+      ...examplePluginManifest(),
+      canvasAction: { enabled: true, title: "Polish", icon: { kind: "preset", name: "wrench" } },
+      inputs: [{ id: "image", type: "image", required: true }],
+      outputs: [{ id: "image", type: "image", label: "Image" }]
+    });
+    expect(valid.ok).toBe(true);
+
+    const invalid = validateNodeManifest({
+      ...examplePluginManifest(),
+      canvasAction: { enabled: true },
+      inputs: [{ id: "image", type: "image" }, { id: "mask", type: "image" }],
+      outputs: [{ id: "image", type: "image" }]
+    });
+    expect(invalid.ok).toBe(false);
+    expect(invalid.issues.some((issue) => issue.path === "canvasAction")).toBe(true);
+  });
+
   it("validates library manifests", () => {
     const validation = validateNodeLibraryManifest({
       kind: "snarkroute.nodeLibrary",
@@ -572,6 +591,27 @@ A reusable image prompt.
 
     expect(result.status).toBe("succeeded");
     expect(result.nodeResults.output.output).toEqual({ text: "hello text" });
+  });
+
+  it("output.text resolves text chip references in params", async () => {
+    const executor = createExecutor();
+    registerBuiltInNodeRunners(executor);
+    const result = await executor.executeRoute(
+      {
+        routeVersion: "0.1",
+        route: { id: "text-chip-output-test", title: "Text Chip Output Test", author: {} },
+        economics: { enabled: false },
+        nodes: [
+          { id: "input", type: "input.text", params: { value: "a white sphere under a black cube" } },
+          { id: "output", type: "output.text", params: { from: "Нарисуй [[text:input]]" } }
+        ],
+        edges: [{ from: "input", to: "output", fromPort: "text", toPort: "from" }]
+      },
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-text-chip-output-")) }
+    );
+
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.output.output).toEqual({ text: "Нарисуй a white sphere under a black cube" });
   });
 
   it("utility.null accepts any input and passes it through", async () => {

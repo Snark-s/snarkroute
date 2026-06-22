@@ -1,10 +1,10 @@
 import type { FastifyInstance } from "fastify";
-import { appCapabilities, isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, isWorldLabsEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
+import { appCapabilities, isElevenLabsEnabled, isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, isWorldLabsEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterSettingsStatus } from "../providers/openrouter";
 import { normalizeSeedanceBackend, seedanceSettingsStatus, SEEDANCE_BACKENDS } from "../providers/seedance";
 export async function registerSettingsRoutes(app: FastifyInstance) {
-app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), polzaEnabled: isPolzaEnabled(), seedanceEnabled: isSeedanceEnabled(), worldLabsEnabled: isWorldLabsEnabled() }));
+app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), openrouterEnabled: isOpenRouterEnabled(), polzaEnabled: isPolzaEnabled(), elevenlabsEnabled: isElevenLabsEnabled(), seedanceEnabled: isSeedanceEnabled(), worldLabsEnabled: isWorldLabsEnabled() }));
 
 app.get("/api/capabilities", async () => appCapabilities());
 
@@ -12,6 +12,7 @@ app.get("/api/settings", async () => ({
   replicate: { configured: isReplicateEnabled() },
   gemini: { configured: isGeminiEnabled() },
   polza: { configured: isPolzaEnabled(), maskedApiKey: isPolzaEnabled() ? maskSecret(process.env.POLZA_AI_API_KEY) : "" },
+  elevenlabs: { configured: isElevenLabsEnabled(), maskedApiKey: isElevenLabsEnabled() ? maskSecret(process.env.ELEVENLABS_API_KEY) : "" },
   openai: { configured: isOpenAiEnabled(), maskedApiKey: isOpenAiEnabled() ? maskSecret(process.env.OPENAI_API_KEY) : "" },
   worldlabs: { configured: isWorldLabsEnabled(), maskedApiKey: isWorldLabsEnabled() ? maskSecret(process.env.WORLDS_API_KEY) : "" },
   seedance: seedanceSettingsStatus(),
@@ -53,6 +54,25 @@ app.post<{ Body: { polzaAiApiKey?: string } }>("/api/settings/polza-token", asyn
     await writeEnvValue("POLZA_AI_API_KEY", token);
     process.env.POLZA_AI_API_KEY = token;
     return { ok: true, polza: { configured: true, maskedApiKey: maskSecret(token) } };
+  } catch (error) {
+    return reply.code(500).send({ error: errorMessage(error) });
+  }
+});
+
+app.post<{ Body: { elevenLabsApiKey?: string; defaultVoiceId?: string } }>("/api/settings/elevenlabs-token", async (request, reply) => {
+  const token = request.body?.elevenLabsApiKey?.trim();
+  const defaultVoiceId = stringValue(request.body?.defaultVoiceId);
+  if (!token && defaultVoiceId === undefined) return reply.code(400).send({ error: "ElevenLabs settings payload is empty." });
+  try {
+    if (token) {
+      await writeEnvValue("ELEVENLABS_API_KEY", token);
+      process.env.ELEVENLABS_API_KEY = token;
+    }
+    if (defaultVoiceId !== undefined) {
+      await writeEnvValue("ELEVENLABS_DEFAULT_VOICE_ID", defaultVoiceId);
+      process.env.ELEVENLABS_DEFAULT_VOICE_ID = defaultVoiceId;
+    }
+    return { ok: true, elevenlabs: { configured: isElevenLabsEnabled(), maskedApiKey: isElevenLabsEnabled() ? maskSecret(process.env.ELEVENLABS_API_KEY) : "" } };
   } catch (error) {
     return reply.code(500).send({ error: errorMessage(error) });
   }

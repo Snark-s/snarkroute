@@ -10,6 +10,8 @@ import { registerExecutionRoutes, registerRunResultRoutes } from "./routes/execu
 import { registerLedgerRoutes } from "./routes/ledger";
 import { registerLibraryRoutes } from "./routes/libraries";
 import { registerLocalStableDiffusionRoutes } from "./routes/local-stable-diffusion";
+import { registerModelIconRoutes } from "./routes/model-icons";
+import { registerModelRoutes } from "./routes/models";
 import { registerNodeCatalogRoutes } from "./routes/nodes";
 import { registerNodePackageRoutes } from "./routes/node-packages";
 import { registerPromptLibraryRoutes, refreshPromptLibraryCache } from "./routes/prompt-library";
@@ -33,6 +35,7 @@ export function buildServer() {
   void registerBillingRoutes(app);
   void registerSettingsRoutes(app);
   void registerSystemRoutes(app);
+  void registerModelRoutes(app);
   void registerProviderRoutes(app);
   void registerNodeCatalogRoutes(app);
   void registerNodePackageRoutes(app);
@@ -40,6 +43,7 @@ export function buildServer() {
   void registerLocalStableDiffusionRoutes(app);
   void registerWorldLabsMarbleRoutes(app);
   void registerPromptLibraryRoutes(app);
+  void registerModelIconRoutes(app);
   void registerAssetRoutes(app);
   void registerLibraryRoutes(app);
   void registerExecutionRoutes(app);

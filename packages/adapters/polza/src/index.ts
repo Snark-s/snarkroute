@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
-import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
+import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
@@ -48,6 +48,60 @@ export interface PolzaModelInfo {
   };
   pricing?: Record<string, unknown>;
   top_provider?: Record<string, unknown>;
+}
+
+export type PolzaModelType = "chat" | "image" | "video" | "audio" | "embedding";
+
+export function polzaModelInfoToModelInfo(model: PolzaModelInfo): ModelInfo {
+  const type = polzaModelType(model.type);
+  const inputTypes = normalizedModalities(model.architecture?.input_modalities, polzaInputTypes(type));
+  const outputTypes = normalizedModalities(model.architecture?.output_modalities, polzaOutputTypes(type));
+  const metadata: Record<string, unknown> = {
+    source: "polza_models_catalog",
+    providerModelType: type,
+    description: model.short_description,
+    pricing: model.pricing,
+    supportedParameters: model.supported_parameters,
+    topProvider: model.top_provider
+  };
+  return {
+    id: model.id,
+    providerId: "polza",
+    title: model.name ?? model.id,
+    capabilities: [polzaCapability(type)],
+    inputTypes,
+    outputTypes,
+    supportsImages: inputTypes.includes("image"),
+    supportsVideo: inputTypes.includes("video") || outputTypes.includes("video"),
+    supportsJson: Boolean(model.supported_parameters?.includes("response_format")),
+    ioContract: {
+      inputs: inputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: kind === "image" ? polzaImageInputLimit(model.id) : 1 })),
+      outputs: outputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: 1 }))
+    },
+    pricingHint: pricingHint(model.pricing),
+    metadata: compactRecord(metadata)
+  };
+}
+
+function polzaInputTypes(type: string): string[] {
+  if (type === "video") return ["text", "image"];
+  return ["text"];
+}
+
+function polzaImageInputLimit(modelId: string): number | undefined {
+  if (modelId === "wan/2.6") return 1;
+  return undefined;
+}
+
+export function isExecutablePolzaImageModel(model: Pick<PolzaModelInfo, "id" | "type" | "architecture">): boolean {
+  const type = polzaModelType(model.type);
+  const outputTypes = normalizedModalities(model.architecture?.output_modalities, polzaOutputTypes(type));
+  if (!outputTypes.includes("image")) return false;
+  if (isPolzaImageUpscaleModel(model.id)) return false;
+  return isPolzaGpt54Image2(model.id)
+    || isPolzaGptImage15(model.id)
+    || isPolzaOpenAiImageWithoutAspectRatio(model.id)
+    || usesPolzaImageGenerationsEndpoint(model.id);
 }
 
 type PolzaChatContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
@@ -102,7 +156,7 @@ export function createPolzaClient(options: PolzaClientOptions = {}) {
     async mediaStatus(id: string): Promise<unknown> {
       return request(`/v1/media/${encodeURIComponent(id)}`, { method: "GET" });
     },
-    async getModels(type?: "chat" | "image" | "video" | "embedding"): Promise<PolzaModelInfo[]> {
+    async getModels(type?: PolzaModelType): Promise<PolzaModelInfo[]> {
       const query = type ? `?type=${encodeURIComponent(type)}` : "";
       return parsePolzaModelCatalog(await request(`/v1/models${query}`, { method: "GET" }));
     }
@@ -116,11 +170,11 @@ export function parsePolzaModelCatalog(input: unknown): PolzaModelInfo[] {
   return data.map(parsePolzaModel).filter((model): model is PolzaModelInfo => Boolean(model));
 }
 
-export async function refreshPolzaPricingCatalog(options: PolzaClientOptions & { cachePath?: string; ttlHours?: number; type?: "chat" | "image" | "video" | "embedding" } = {}): Promise<PricingCatalog> {
+export async function refreshPolzaPricingCatalog(options: PolzaClientOptions & { cachePath?: string; ttlHours?: number; type?: PolzaModelType } = {}): Promise<PricingCatalog> {
   const client = createPolzaClient(options);
   const modelGroups = options.type
     ? [await client.getModels(options.type)]
-    : await Promise.all([client.getModels("chat").catch(() => []), client.getModels("image").catch(() => []), client.getModels("video").catch(() => []), client.getModels("embedding").catch(() => [])]);
+    : await Promise.all([client.getModels("chat").catch(() => []), client.getModels("image").catch(() => []), client.getModels("video").catch(() => []), client.getModels("audio").catch(() => []), client.getModels("embedding").catch(() => [])]);
   const catalog = polzaPricingCatalogFromModels(modelGroups.flat(), options.ttlHours);
   const cachePath = options.cachePath ?? join(process.cwd(), "data", "cache", "model-pricing", "polza.json");
   await writePricingCatalog(cachePath, catalog);
@@ -191,6 +245,46 @@ function parsePolzaModel(input: unknown): PolzaModelInfo | null {
     pricing: directPricing ?? topProviderPricing,
     top_provider: topProvider
   };
+}
+
+function polzaModelType(value: string | undefined): PolzaModelType {
+  return value === "image" || value === "video" || value === "audio" || value === "embedding" ? value : "chat";
+}
+
+function polzaCapability(type: PolzaModelType): ModelInfo["capabilities"][number] {
+  if (type === "image") return "image.generate";
+  if (type === "video") return "video.generate";
+  if (type === "audio") return "audio.generate";
+  if (type === "embedding") return "embedding.create";
+  return "text.generate";
+}
+
+function polzaOutputTypes(type: PolzaModelType): string[] {
+  if (type === "image") return ["image"];
+  if (type === "video") return ["video"];
+  if (type === "audio") return ["audio"];
+  if (type === "embedding") return ["json"];
+  return ["text"];
+}
+
+function normalizedModalities(values: string[] | undefined, fallback: string[]): string[] {
+  const normalized = (values?.length ? values : fallback)
+    .map((value) => value.toLowerCase())
+    .filter((value) => value === "text" || value === "image" || value === "video" || value === "audio" || value === "file" || value === "json");
+  return [...new Set(normalized.length ? normalized : fallback)];
+}
+
+function pricingHint(pricing: Record<string, unknown> | undefined): string | undefined {
+  if (!pricing || Object.keys(pricing).length === 0) return undefined;
+  const compact = Object.entries(pricing)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .slice(0, 4)
+    .map(([key, value]) => `${key}: ${String(value)}`);
+  return compact.length ? compact.join(", ") : "pricing available";
+}
+
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined && (!Array.isArray(value) || value.length > 0)));
 }
 
 export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): NodeRunner {
@@ -573,6 +667,10 @@ export function buildMediaVideoRequestBody(model: string, prompt: string, params
 
 function isPolzaGpt54Image2(model: string): boolean {
   return model === "openai/gpt-5.4-image-2";
+}
+
+function isPolzaImageUpscaleModel(model: string): boolean {
+  return model === "topaz/image-upscale";
 }
 
 function isPolzaGptImage15(model: string): boolean {

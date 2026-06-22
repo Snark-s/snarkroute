@@ -5,12 +5,12 @@ import {
   Background,
   BackgroundVariant,
   Handle,
+  MiniMap,
   Position,
   ReactFlow,
   addEdge,
   useEdgesState,
   useNodesState,
-  useUpdateNodeInternals,
   type Connection,
   type Edge,
   type EdgeChange,
@@ -41,7 +41,8 @@ import {
   type ModelProfile,
   type OpenRoute
 } from "@snarkroute/protocol";
-import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Copy, Cpu, Crop, Download, Eraser, Expand, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, Music, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, Wrench, X } from "lucide-react";
+import { Archive, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clipboard, Cog, Compass, Database, EyeOff, FileAudio, FileImage, FileVideo, Filter, Flag, FlipHorizontal, FlipVertical, Folder, FolderPlus, Grid3X3, Headphones, Heart, Layers3, Link, List, Mail, Map as MapIcon, MapPin, Maximize2, MessageSquare, Mic, Minimize2, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Radio, Repeat, RotateCcw, RotateCw, Route, Scissors, Send, Settings, Share2, Shuffle, SlidersHorizontal, Square, Star, Table, Volume2, Zap, ZoomIn, ZoomOut } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -56,555 +57,212 @@ import {
 import { geminiTokenStatusText, localApiUnavailableMessage, replicateTokenStatusText } from "./security-ui";
 import { studioDocs, type StudioDocEntry } from "./docsRegistry";
 import { MarkdownDocument } from "./MarkdownDocument";
-import { modelLogoFor, type ModelLogo } from "./modelLogos";
+import { fetchImageCatalogModels, fetchModelsForNode } from "./modelCatalogClient";
+import { modelLogoFor } from "./modelLogos";
+import { AdminDashboard, AdminLoginPage, LoginPage } from "./features/admin/AdminRoutes";
+import { CreditHistoryPanel, CreditTransactionMiniList, EconomicsPanel } from "./features/billing/EconomicsPanel";
+import { RouteNodeCardContainer, type RouteNodeInlineResultRenderProps } from "./features/canvas-node/RouteNodeCardContainer";
+import type { ChooseCameraPointParamsRenderProps } from "./features/node-params/NodeParamsController";
+import { NodeSliderParam } from "./features/node-params/ParamRows";
+import { numberParamValue } from "./features/node-params/paramHelpers";
+import {
+  libraryNodeOrder,
+  libraryNodeStatus,
+  libraryNodeStatusLabel,
+  loadLibraryNodeMetadata,
+  saveLibraryNodeMetadata
+} from "./features/node-packages/nodePackageHelpers";
+import { apiFetch } from "./shared/apiClient";
+import { filenameFromPath } from "./shared/fileHelpers";
+import { navigate } from "./shared/navigation";
+import {
+  canImportDroppedRouteFile,
+  chooseCompoundPorts,
+  compoundMappingTargets,
+  layoutBatchPosition,
+  mergeCompoundInputMappings,
+  routeImportFilename,
+  routeNodeParamsCollapsed,
+  routeToEditableSubrouteFlow,
+  routeToFlow,
+  subrouteInterfaceFlow,
+  subrouteInterfaceKind,
+  uniqueCompoundMappings,
+  uniqueCompoundMappingsByKey,
+  uniqueFlowId,
+  withRouteNodeParamsCollapsed,
+  isSubrouteInterfaceId
+} from "./features/route-io/routeFlow";
+import {
+  creditPriceExplanation,
+  creditTransactionDetails,
+  creditTransactionLine,
+  formatCredits,
+  formatDateTime,
+  formatMicrousd,
+  formatRunCostActual,
+  formatRunCostEstimate,
+  formatSignedCredits,
+  normalizeCreditTransaction,
+  sumNumbers,
+  userFacingCostActuals,
+  userFacingCostEstimates,
+  userFacingErrorMessage
+} from "./shared/costFormatting";
+import {
+  clamp,
+  degreesToRadians,
+  formatSliderValue,
+  imageLabel,
+  imageLocalPath,
+  imageOutputIdForResult,
+  imagePreviewSrc,
+  isUnsetOrManifestDefaultResizeDimension,
+  lastImageValue,
+  liveFisheyeOutput,
+  localImagePreviewSrc,
+  panoramaSnapshotFilename,
+  panoramaSourceSrc,
+  radiansToDegrees,
+  renderFisheyeFrame,
+  renderPanoramaFrame,
+  roundCameraCoordinate,
+  useImageDimensions,
+  versionedAssetPreviewSrc,
+  videoPreviewSrc,
+  wrapDegrees
+} from "./shared/mediaPreview";
+import {
+  connectionRouteHelper,
+  enrichImageGenerationModelOptions,
+  enrichPolzaImageModelOptions,
+  geminiLlmPricingLabel,
+  imageGenerationModelOptions,
+  imageModelCostLabel,
+  imageModelOptionLabel,
+  imageModelOptionLogo,
+  imageModelOptionsFromNodeOptions,
+  imageRoutePreview,
+  imageAspectRatioOptions,
+  imageSizeOptionsForModel,
+  llmModelOptionLabel,
+  modelOptionForNodeLabel,
+  modelOptionForNodeLogo,
+  modelSupportsText,
+  openRouterCostLabel,
+  openRouterModelSupportsVisionInput,
+  polzaImageModelLogo,
+  polzaModelHint,
+  polzaProviderModelId,
+  polzaModelsFromNodeOptions,
+  polzaModelSupportsVisionInput,
+  polzaVideoSupportsAudio,
+  providerFromSlug,
+  supportedOptionValue,
+  videoModelHint,
+  videoModelOptionKey,
+  videoModelOptionsFromNodeOptions,
+  modalityOutputModalities
+} from "./features/model-catalog/modelOptionUtils";
+import { ModelCapabilityBadges, ModelLogoMark, ModelSelectWithLogo } from "./features/model-catalog/ModelViews";
 import {
   availableCanvasThemes,
   loadCanvasBackgroundTheme,
   saveCanvasBackgroundTheme,
   type CanvasBackgroundTheme
 } from "./canvasBackground";
+import {
+  DEFAULT_APP_CAPABILITIES,
+  DEFAULT_PROMPT_LIBRARY,
+  DEFAULT_ROUTE_FILENAME,
+  GEMINI_API_KEY_URL,
+  GEMINI_IMAGE_ASPECT_RATIOS,
+  GEMINI_IMAGE_SIZES,
+  GEMINI_LLM_MODEL_OPTIONS,
+  LIBRARY_NODE_METADATA_STORAGE_KEY,
+  NODE_DRAG_MIME,
+  NODE_LIBRARY_LAYOUT_STORAGE_KEY,
+  OPENAI_IMAGE_ASPECT_RATIOS,
+  OPENAI_IMAGE_QUALITIES,
+  POLZA_IMAGE_ASPECT_RATIOS,
+  POLZA_IMAGE_FORMATS,
+  POLZA_IMAGE_QUALITIES,
+  POLZA_IMAGE_RESOLUTIONS,
+  POLZA_VIDEO_DURATIONS,
+  POLZA_VIDEO_RESOLUTIONS,
+  ROUTE_FILE_ACCEPT,
+  SAVED_PROJECT_STORAGE_KEY,
+  STUDIO_FAVICON_HREF,
+  SUBROUTE_INPUT_NODE_ID,
+  SUBROUTE_OUTPUT_NODE_ID,
+  apiBase,
+  isProductionBuild,
+  libraryNodeStatuses,
+  promptStatusOptions
+} from "./studioConfig";
+import type {
+  AdminOverview,
+  AppCapabilities,
+  AssetKind,
+  CompoundInterface,
+  CompoundPortMapping,
+  ConnectionNodeEntry,
+  ConnectionNodeMenuState,
+  ContextMenuState,
+  CostEstimate,
+  CreditTransaction,
+  CurrentUser,
+  DialogueConnectedInput,
+  DialogueDraftContentPart,
+  ExampleCategory,
+  FixNodeOutputOptions,
+  ImageModelOption,
+  ImageViewerState,
+  LedgerSummary,
+  LibraryItemMenuState,
+  LibraryNodeMetadata,
+  LibraryNodeStatus,
+  LibrarySectionMenuState,
+  LibrarySortMode,
+  LibraryStatusFilter,
+  ModelQuotePreview,
+  ModelOptionForNodeV1,
+  NodeCatalogItem,
+  NodeLibraryLayout,
+  NodeLibraryPreview,
+  NodeManifest,
+  NodeRunResult,
+  OpenRouterModel,
+  OpenRouterSettings,
+  PendingConnectionStart,
+  PendingTextSelection,
+  PolzaModel,
+  PortKind,
+  PortSpec,
+  PromptAssetDraft,
+  PromptAssetMenuState,
+  PromptLibraryData,
+  PromptLibraryMenuState,
+  PromptLibraryPrompt,
+  PromptStatusFilter,
+  ProviderLinks,
+  RouteDoc,
+  RunCostSummary,
+  RunDisplayResult,
+  RunStreamEvent,
+  SavedCameraPose,
+  SeedanceSettings,
+  SplatRuntime,
+  StableDiffusionModel,
+  StudioExample,
+  SubrouteFrame,
+  SystemUpdateStatus,
+  UnifiedModelInfo,
+  VideoModelOption
+} from "./studioTypes";
 
-const STUDIO_FAVICON_HREF = "/boojumroute-icon.png";
-const apiFetch = (input: RequestInfo | URL, init: RequestInit = {}) => fetch(input, { credentials: "include", ...init });
-const isProductionBuild = import.meta.env.PROD;
-
-type CompoundPortMapping = {
-  id: string;
-  label?: string;
-  kind?: string;
-  nodeId: string;
-  port?: string;
-  targets?: Array<{ nodeId: string; port?: string }>;
-};
-
-type CompoundInterface = {
-  title?: string;
-  inputs?: CompoundPortMapping[];
-  outputs?: CompoundPortMapping[];
-};
-
-type SubrouteFrame = {
-  compoundId: string;
-  parentRoute: RouteDoc;
-  interfacePositions?: {
-    input?: { x: number; y: number };
-    output?: { x: number; y: number };
-  };
-};
-
-type RouteDoc = {
-  routeVersion: string;
-  route: { id: string; title: string; description?: string; author: Record<string, unknown>; tags?: string[] };
-  economics?: Record<string, unknown>;
-  nodes: Array<{
-    id: string;
-    type: string;
-    title?: string;
-    params?: Record<string, unknown>;
-    inputs?: Record<string, unknown>;
-    outputs?: Record<string, unknown>;
-    compound?: CompoundInterface;
-    subroute?: RouteDoc;
-    nodePackage?: Record<string, unknown>;
-    ui?: Record<string, unknown>;
-  }>;
-  edges: Array<{ id?: string; from: string; to: string; fromPort?: string; toPort?: string }>;
-  provenance?: Record<string, unknown>;
-};
-
-type ExampleCategory = "Basic Image" | "AI Image" | "Local AI" | "Developer";
-
-type StudioExample = {
-  route: RouteDoc;
-  title: string;
-  description: string;
-  provider: "Replicate" | "Gemini" | "Local" | "HTTP";
-  category: ExampleCategory;
-  milestone?: string;
-};
-
-type NodeRunResult = {
-  status?: string;
-  output?: unknown;
-  error?: string;
-  logs?: string[];
-  costEstimate?: CostEstimate;
-  actualUsage?: ActualUsage;
-  actualCredits?: number;
-  actualProviderCostAmount?: number | null;
-  usageSource?: "provider" | "estimated" | "unknown";
-  startedAt?: string;
-  completedAt?: string;
-};
-
-type ActualUsage = {
-  inputTokens?: number;
-  outputTokens?: number;
-  imageCount?: number;
-  videoSeconds?: number;
-  requestCount?: number;
-};
-
-type CostEstimate = {
-  nodeId: string;
-  nodeType: string;
-  estimatedCredits: number;
-  estimatedProviderCostAmount: number | null;
-  providerCostCurrency: string | null;
-  usageUnits: ActualUsage;
-  provider?: string;
-  model?: string;
-  operation?: string;
-  free?: boolean;
-  baseCostMicrousd?: number;
-  baseCredits?: number;
-  globalMarkupPercent?: number;
-  globalMarkupCredits?: number;
-  nodeMarkupPercent?: number;
-  nodeMarkupCredits?: number;
-  markupCredits?: number;
-  finalCredits?: number;
-  maxChargeCredits?: number;
-  pricingSource?: string;
-  pricingConfidence?: string;
-  pricingBreakdown?: PricingBreakdown;
-  usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate";
-};
-
-type PricingBreakdown = {
-  nodeId: string;
-  title?: string;
-  nodeType?: string;
-  provider?: string;
-  operation?: string;
-  model?: string;
-  free?: boolean;
-  providerCostMicrousd?: number;
-  baseCostMicrousd?: number;
-  baseCredits?: number;
-  globalMarkupPercent?: number;
-  globalMarkupCredits?: number;
-  nodeMarkupPercent?: number;
-  nodeMarkupCredits?: number;
-  markupCredits?: number;
-  finalCredits?: number;
-  maxChargeCredits?: number;
-  pricingSource?: string;
-  pricingConfidence?: string;
-  source?: string;
-  notes?: string;
-};
-
-type RunCostSummary = {
-  estimates: CostEstimate[];
-  actuals: Array<CostEstimate & { actualCredits: number; actualProviderCostAmount: number | null }>;
-  totalEstimatedCredits: number;
-  totalActualCredits: number;
-  refundedCredits: number;
-  nodes?: PricingBreakdown[];
-};
-
-type CreditTransaction = {
-  id: string;
-  createdAt: string;
-  type: "grant" | "reserve" | "capture" | "release" | "refund" | "adjustment" | "demo_grant" | "expired" | "purchase_placeholder" | string;
-  amount: number;
-  status?: string;
-  balanceAfter?: number | null;
-  reason?: string | null;
-  runId?: string | null;
-  nodeTitle?: string | null;
-  provider?: string | null;
-  maxChargeCredits?: number | null;
-};
-
-type RunDisplayResult = {
-  runId?: string;
-  status?: string;
-  startedAt?: string;
-  completedAt?: string;
-  nodeResults?: Record<string, NodeRunResult>;
-  logs?: Array<{ timestamp?: string; nodeId?: string; message: string }>;
-  economics?: unknown;
-  costSummary?: RunCostSummary;
-  error?: string;
-};
-
-type FixNodeOutputOptions = {
-  persist?: boolean;
-  logMessage?: string;
-};
-
-type RunStreamEvent =
-  | { type: "runStarted"; runId?: string; startedAt?: string; estimate?: RunCostSummary }
-  | { type: "nodeResult"; nodeResult?: NodeRunResult & { nodeId?: string } }
-  | { type: "runCompleted"; result?: RunDisplayResult }
-  | { type: "runFailed"; error?: string };
-
-type LedgerSummary = {
-  totalRuns: number;
-  runsByProvider: Record<string, number>;
-  runsByStatus: Record<string, number>;
-  estimatedProviderCostTotal: number | null;
-  actualProviderCostTotal: number | null;
-  paymentExecuted: false;
-  paymentExecutedCount: number;
-  recentRuns: Array<Record<string, unknown>>;
-};
-
-type AssetKind = "file" | "image" | "video";
-
-type PromptLibraryPrompt = {
-  id: string;
-  title: string;
-  category?: string;
-  description?: string;
-  tags?: string[];
-  kind?: string;
-  status?: string;
-  previewImage?: string;
-  source?: Record<string, unknown>;
-  modelHints?: string[];
-  ref?: string;
-  path?: string;
-  text: string;
-};
-
-type PromptLibraryCategory = {
-  id: string;
-  title: string;
-  prompts: PromptLibraryPrompt[];
-};
-
-type PromptLibraryData = {
-  categories: PromptLibraryCategory[];
-  diagnostics?: Array<{ path: string; message: string; severity: "warning" | "error" }>;
-};
-
-type PromptStatusFilter = "published" | "approved" | "candidate" | "draft" | "archived" | "all";
-
-type StableDiffusionModel = {
-  title: string;
-  modelName?: string;
-  filename?: string;
-  hash?: string;
-};
-
-type ProviderLinks = Record<string, Record<string, string>>;
-
-type AppCapabilities = {
-  product: "boojum" | "snark";
-  mode: "local" | "cloud" | "self_hosted";
-  authRequiredForSave: boolean;
-  supportsCredits: boolean;
-  supportsGuestDemo: boolean;
-  supportsUserApiKeys: boolean;
-  supportsBrowserVault: boolean;
-  supportsCloudStoredUserKeys: boolean;
-  supportsLocalFilesystem: boolean;
-  supportsPublicSharing: boolean;
-  supportsDeveloperDiagnostics: boolean;
-};
-
-type CurrentUser = {
-  id: string;
-  displayName?: string;
-  email?: string;
-  authProvider?: string;
-  role?: "user" | "admin";
-};
-
-type AdminOverview = {
-  usersCount: number;
-  runsCount?: number;
-  nodeRunsCount?: number;
-  creditTransactionsCount?: number;
-  providerUsageCount?: number;
-  runs: Array<Record<string, unknown>>;
-  nodeRuns: Array<Record<string, unknown>>;
-  creditTransactions: Array<Record<string, unknown>>;
-  providerUsage: Array<Record<string, unknown>>;
-  recentErrors: Array<Record<string, unknown>>;
-  artifactStats: unknown;
-  guestDemoUsage: unknown;
-  providerKeyStatus: Record<string, boolean>;
-};
-
-type AdminBillingUser = {
-  id: string;
-  role: "user" | "admin";
-  createdAt: string;
-  authProviders: string[];
-  providerSubjectHashPrefix?: string | null;
-  currentBalance: number;
-  totalGranted: number;
-  totalCaptured: number;
-  totalReleased: number;
-  totalRefunded: number;
-  activeReserved: number;
-  runsCount: number;
-  lastActivityAt?: string | null;
-};
-
-type AdminUserCard = AdminBillingUser & {
-  providerUsageCount: number;
-  recentRuns: Array<Record<string, unknown>>;
-  recentCreditTransactions: Array<Record<string, unknown>>;
-  recentProviderUsage: Array<Record<string, unknown>>;
-};
-
-const DEFAULT_APP_CAPABILITIES: AppCapabilities = {
-  product: "boojum",
-  mode: "local",
-  authRequiredForSave: false,
-  supportsCredits: false,
-  supportsGuestDemo: true,
-  supportsUserApiKeys: true,
-  supportsBrowserVault: false,
-  supportsCloudStoredUserKeys: false,
-  supportsLocalFilesystem: true,
-  supportsPublicSharing: false,
-  supportsDeveloperDiagnostics: false
-};
-
-type OpenRouterModel = {
-  id: string;
-  provider?: "openrouter";
-  kind?: "text" | "image" | "video";
-  name?: string;
-  pricing?: Record<string, unknown>;
-  supported_parameters?: string[];
-  architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
-  supported_durations?: string[];
-  supported_aspect_ratios?: string[];
-  supported_resolutions?: string[];
-  supported_frame_image_modes?: string[];
-};
-
-type PolzaModel = {
-  id: string;
-  name?: string;
-  type?: string;
-  short_description?: string;
-  supported_parameters?: string[];
-  generationParameters?: Array<{ id?: string; label?: string; type?: string; options?: Array<{ value?: string; label?: string }> }>;
-  maxImageInputs?: number;
-  pricing?: Record<string, unknown>;
-  architecture?: { input_modalities?: string[]; output_modalities?: string[]; modality?: string };
-};
-
-type PricingQuote = {
-  logicalModel?: string;
-  provider: string;
-  providerModel: string;
-  capability: string;
-  estimatedCost: number | null;
-  currency: string | null;
-  pricingSource: string;
-  confidence: string;
-  pricingStatus?: "fresh" | "stale" | "unknown" | string;
-  pricingUpdatedAt?: string | null;
-  pricingExpiresAt?: string | null;
-  unit?: string;
-  breakdown?: Record<string, unknown>;
-  warnings?: string[];
-};
-
-type ModelQuotePreview = {
-  selected: PricingQuote;
-  alternatives: PricingQuote[];
-  warnings: string[];
-};
-
-type ImageModelOption = {
-  id: string;
-  slug: string;
-  label: string;
-  provider: string;
-  capabilities: string[];
-  aspectRatios?: string[];
-  imageSizes?: string[];
-  supportsImageGeneration: "supported" | "unsupported" | "unknown";
-  routeSupport: {
-    openrouter: "supported" | "unsupported" | "unknown";
-    direct: "supported" | "unsupported" | "unknown";
-  };
-  disabled?: boolean;
-  note?: string;
-  pricing?: Record<string, unknown>;
-};
-
-type VideoModelOption = {
-  id: string;
-  name?: string;
-  providerId: "polza" | "openrouter";
-  providerLabel: string;
-  pricing?: Record<string, unknown>;
-  short_description?: string;
-  supported_parameters?: string[];
-  generationParameters?: PolzaModel["generationParameters"];
-  architecture?: PolzaModel["architecture"];
-};
-
-type OpenRouterSettings = {
-  configured: boolean;
-  maskedApiKey?: string;
-  defaultModel?: string;
-  budgetWarningUsd?: number | null;
-  catalog?: { refreshedAt?: string | null; modelCount?: number; sourceCounts?: { models?: number; videoModels?: number } };
-  defaultModelStatus?: string;
-};
-
-type SeedanceSettings = {
-  configured: boolean;
-  backend?: string;
-  backendLabel?: string;
-  maskedApiKey?: string;
-  apiKeyEnvKey?: string;
-  hasApiKey?: boolean;
-  baseUrl?: string;
-  baseUrlSource?: string;
-  diagnostics?: string[];
-  statusText?: string;
-};
-
-type SystemUpdateStatus = {
-  ok: boolean;
-  repoRoot?: string;
-  branch?: string | null;
-  commit?: string | null;
-  remote?: string | null;
-  upstream?: string | null;
-  ahead?: number | null;
-  behind?: number | null;
-  dirty?: boolean;
-  changes?: string[];
-  error?: string;
-};
-
-type NodeManifest = {
-  kind?: "snarkroute.node";
-  schemaVersion?: string;
-  id: string;
-  title: string;
-  version: string;
-  author: { name: string };
-  origin: string;
-  source?: string;
-  license: string;
-  category?: string;
-  description?: string;
-  tags?: string[];
-  permissions: { network: boolean; networkHosts?: string[]; readFiles: boolean; writeOutputs: boolean; shell: boolean; env: string[] };
-  executor: { type: string; runtime?: string; entry?: string; builtinRunner?: string };
-  inputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
-  outputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
-  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown }>;
-  generatedWith?: unknown;
-  ui?: {
-    params?: Record<string, {
-      control?: string;
-      options?: Array<string | { value: string; label?: string }>;
-      multiline?: boolean;
-      advanced?: boolean;
-      size?: "compact" | "large";
-      layout?: "inline";
-      placeholder?: string;
-      helperText?: string;
-      min?: number;
-      max?: number;
-      step?: number;
-    }>;
-  };
-  enabled?: boolean;
-};
-
-type NodeCatalogItem = {
-  type: string;
-  title: string;
-  description?: string;
-  enabled?: boolean;
-  manifest?: NodeManifest;
-  params?: Record<string, unknown>;
-};
-
-type NodeLibraryPreview = {
-  kind: "snarkroute.nodeLibrary";
-  id: string;
-  title: string;
-  version: string;
-  author: { name: string };
-  license: string;
-  nodes: Array<{ id: string; title: string; url: string; version?: string; description?: string; status?: string }>;
-};
-
-type LibraryNodeStatus = "draft" | "candidate" | "approved" | "published" | "archived";
-
-type LibraryStatusFilter = LibraryNodeStatus | "all";
-
-type LibraryNodeMetadata = Record<string, { status?: LibraryNodeStatus; order?: number }>;
-
-type LibrarySortMode = "status" | "manual" | "title";
-
-type NodeLibraryGroup = {
-  id: string;
-  title: string;
-  types: string[];
-};
-
-type NodeLibraryLayout = {
-  groups: NodeLibraryGroup[];
-  hiddenTypes: string[];
-};
-
-const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
-const NODE_DRAG_MIME = "application/x-snarkroute-node";
-const ROUTE_FILE_ACCEPT = ".orp,.opt,.orp.json,.opt.json,.orp.yaml,.opt.yaml,.orp.yml,.opt.yml,.route,.route.json,.route.yaml,.route.yml,.json,.yaml,.yml,application/json,application/yaml,text/yaml,text/x-yaml";
-const SAVED_PROJECT_STORAGE_KEY = "snarkroute-studio:saved-project";
-const LIBRARY_NODE_METADATA_STORAGE_KEY = "snarkroute-studio:node-library-metadata";
-const NODE_LIBRARY_LAYOUT_STORAGE_KEY = "snarkroute-studio:node-library-layout";
-const DEFAULT_ROUTE_FILENAME = "default-route.orp.json";
 // Compatibility note: storage keys and protocol fields keep the old node/studio names
 // so saved routes, installed node manifests, and local browser state continue to load.
-const GEMINI_API_KEY_URL = "https://aistudio.google.com/app/apikey";
-const libraryNodeStatuses: Array<{ id: LibraryNodeStatus; label: string }> = [
-  { id: "draft", label: "Draft" },
-  { id: "candidate", label: "Candidate" },
-  { id: "approved", label: "Approved" },
-  { id: "published", label: "Published" },
-  { id: "archived", label: "Archived" }
-];
-const promptStatusOptions: PromptStatusFilter[] = ["all", "published", "approved", "candidate", "draft", "archived"];
-const GEMINI_LLM_DEFAULT_SYSTEM_PROMPT = `Convert the user's rough idea into a clean image-generation prompt.
-Preserve the humor and core idea.
-Make risky wording safe and non-erotic.
-Do not include copyrighted characters, logos, or text.
-Output only the final image prompt.`;
-const GEMINI_LLM_MODEL_OPTIONS = [
-  { value: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4, supportsVision: true },
-  { value: "gemini-2.5-flash", label: "Gemini 2.5 Flash", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5, supportsVision: true },
-  { value: "gemini-2.5-flash-preview-09-2025", label: "Gemini 2.5 Flash Preview", inputUsdPerMillionTokens: 0.3, outputUsdPerMillionTokens: 2.5, supportsVision: true },
-  { value: "gemini-2.5-flash-lite-preview-09-2025", label: "Gemini 2.5 Flash-Lite Preview", inputUsdPerMillionTokens: 0.1, outputUsdPerMillionTokens: 0.4, supportsVision: true }
-];
-const DEFAULT_PROMPT_LIBRARY: PromptLibraryData = {
-  categories: [
-    {
-      id: "image-generation",
-      title: "Image generation",
-      prompts: [
-        {
-          id: "adapt-user-idea-for-image-generator",
-          title: "Adapt user idea for image generator",
-          category: "image-generation",
-          description: "Starter fallback prompt shown when the local prompt library API is unavailable.",
-          ref: "image-generation/adapt-user-idea-for-image-generator",
-          path: "data/prompt-library/image-generation/adapt-user-idea-for-image-generator.prompt.md",
-          text: GEMINI_LLM_DEFAULT_SYSTEM_PROMPT
-        }
-      ]
-    }
-  ]
-};
 
 const library = [
   { type: "input.text", label: "Text Input", params: { value: "A small route prompt" } },
@@ -710,8 +368,8 @@ const library = [
       negative_prompt: "(worst quality, low quality, normal quality:2)",
       scale_factor: 2,
       dynamic: 6,
-      creativity: 0.35,
-      resemblance: 0.6,
+      creativity: 0.25,
+      resemblance: 1.5,
       tiling_width: 112,
       tiling_height: 144,
       scheduler: "DPM++ 3M SDE Karras",
@@ -867,7 +525,7 @@ const milestoneExamples: RouteDoc[] = [
     economics: { enabled: false, mode: "disabled", providerCosts: [{ provider: "replicate", model: "philz1337x/clarity-upscaler", nodeType: "replicate.clarity-upscaler", pricingHint: "external-provider-billing", estimatedCost: null, actualCost: null }] },
     nodes: [
       { id: "input_image", type: "input.image", title: "Input Image", params: { path: "examples/assets/clarity-input.png" }, ui: { x: 40, y: 160 } },
-      { id: "upscale", type: "replicate.clarity-upscaler", title: "Clarity Upscaler", params: { prompt: "masterpiece, best quality, highres", negative_prompt: "(worst quality, low quality, normal quality:2)", scale_factor: 2, dynamic: 6, creativity: 0.25, resemblance: 0.8, tiling_width: 112, tiling_height: 144, scheduler: "DPM++ 3M SDE Karras", num_inference_steps: 18, seed: 1337, downscaling: false, downscaling_resolution: 768, lora_links: "", pollingIntervalMs: 1000, timeoutMs: 120000 }, ui: { x: 420, y: 120 } },
+      { id: "upscale", type: "replicate.clarity-upscaler", title: "Clarity Upscaler", params: { prompt: "masterpiece, best quality, highres", negative_prompt: "(worst quality, low quality, normal quality:2)", scale_factor: 2, dynamic: 6, creativity: 0.25, resemblance: 1.5, tiling_width: 112, tiling_height: 144, scheduler: "DPM++ 3M SDE Karras", num_inference_steps: 18, seed: 1337, downscaling: false, downscaling_resolution: 768, lora_links: "", pollingIntervalMs: 1000, timeoutMs: 120000 }, ui: { x: 420, y: 120 } },
       { id: "preview", type: "preview.image", title: "Image Preview", params: { title: "Upscaled" }, ui: { x: 820, y: 140 } }
     ],
     edges: [{ from: "input_image", to: "upscale", fromPort: "image", toPort: "image" }, { from: "upscale", to: "preview", fromPort: "image", toPort: "image" }],
@@ -962,395 +620,6 @@ const studioExamples: StudioExample[] = [
 
 const exampleCategories: ExampleCategory[] = ["Basic Image", "AI Image", "Local AI", "Developer"];
 
-function RouteNodeCard({ id, data }: NodeProps) {
-  const cardRef = useRef<HTMLDivElement | null>(null);
-  const updateNodeInternals = useUpdateNodeInternals();
-  const label = String(data.label ?? "");
-  const [title, type] = label.split("\n");
-  const routeNode = data.routeNode as RouteDoc["nodes"][number] | undefined;
-  const paramsCollapsed = Boolean(data.paramsCollapsed ?? routeNodeParamsCollapsed(routeNode));
-  const params = routeNode?.params ?? {};
-  const result = data.result as NodeRunResult | undefined;
-  const onParamsChange = data.onParamsChange as ((nodeId: string, params: Record<string, unknown>) => void) | undefined;
-  const onParamsCollapsedChange = data.onParamsCollapsedChange as ((nodeId: string, collapsed: boolean) => void) | undefined;
-  const onBrowseAsset = data.onBrowseAsset as ((nodeId: string, kind: AssetKind) => void) | undefined;
-  const supportsLocalFilesystem = data.supportsLocalFilesystem !== false;
-  const replicateConfigured = Boolean(data.replicateConfigured);
-  const geminiConfigured = Boolean(data.geminiConfigured);
-  const openAiConfigured = Boolean(data.openAiConfigured);
-  const seedanceConfigured = Boolean(data.seedanceConfigured);
-  const seedanceStatusText = String(data.seedanceStatusText ?? "");
-  const polzaConfigured = Boolean(data.polzaConfigured);
-  const openRouterConfigured = Boolean(data.openRouterConfigured);
-  const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
-  const onConfigureGemini = data.onConfigureGemini as (() => void) | undefined;
-  const onConfigureOpenAi = data.onConfigureOpenAi as (() => void) | undefined;
-  const onConfigureSeedance = data.onConfigureSeedance as (() => void) | undefined;
-  const onConfigureWorldLabs = data.onConfigureWorldLabs as (() => void) | undefined;
-  const onConfigurePolza = data.onConfigurePolza as (() => void) | undefined;
-  const onConfigureOpenRouter = data.onConfigureOpenRouter as (() => void) | undefined;
-  const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
-  const onDownloadImage = data.onDownloadImage as ((src: string, filename: string) => void) | undefined;
-  const onImageResultContextMenu = data.onImageResultContextMenu as ((event: React.MouseEvent, nodeId: string, result: NodeRunResult) => void) | undefined;
-  const onFixNodeOutput = data.onFixNodeOutput as ((nodeId: string, output: unknown, options?: FixNodeOutputOptions) => void) | undefined;
-  const onRunNodeOnly = data.onRunNodeOnly as ((nodeId: string) => void) | undefined;
-  const onRunNodeWithDependencies = data.onRunNodeWithDependencies as ((nodeId: string) => void) | undefined;
-  const onOpenSubroute = data.onOpenSubroute as ((nodeId: string) => void) | undefined;
-  const onOpenDialogueWorkbench = data.onOpenDialogueWorkbench as ((nodeId: string) => void) | undefined;
-  const onUncollapse = data.onUncollapse as ((nodeId: string) => void) | undefined;
-  const onNodeUiChange = data.onNodeUiChange as ((nodeId: string, patch: Record<string, unknown>) => void) | undefined;
-  const onPublishNodeOutput = data.onPublishNodeOutput as ((nodeId: string, output: Record<string, unknown>) => void) | undefined;
-  const promptLibrary = data.promptLibrary as PromptLibraryData | undefined;
-  const onRefreshPromptLibrary = data.onRefreshPromptLibrary as (() => void) | undefined;
-  const promptStatusFilter = (data.promptStatusFilter as PromptStatusFilter | undefined) ?? "all";
-  const onPromptStatusFilterChange = data.onPromptStatusFilterChange as ((filter: PromptStatusFilter) => void) | undefined;
-  const onPromptContextMenu = data.onPromptContextMenu as ((event: React.MouseEvent, prompt: PromptLibraryPrompt) => void) | undefined;
-  const stableDiffusionModels = (data.stableDiffusionModels as StableDiffusionModel[] | undefined) ?? [];
-  const openRouterModels = (data.openRouterModels as OpenRouterModel[] | undefined) ?? [];
-  const modelProfiles = (data.modelProfiles as ModelProfile[] | undefined) ?? DEFAULT_MODEL_PROFILES;
-  const polzaTextModels = (data.polzaTextModels as PolzaModel[] | undefined) ?? [];
-  const polzaImageModels = (data.polzaImageModels as PolzaModel[] | undefined) ?? [];
-  const polzaVideoModels = (data.polzaVideoModels as PolzaModel[] | undefined) ?? [];
-  const quotePreview = data.quotePreview as ModelQuotePreview | undefined;
-  const costEstimate = data.costEstimate as CostEstimate | undefined;
-  const resizeInputImage = data.resizeInputImage;
-  const chooseCameraInputImage = data.chooseCameraInputImage;
-  const manifest = data.manifest as NodeManifest | undefined;
-  const isMissingNode = Boolean(data.isMissingNode);
-  const onRefreshStableDiffusionModels = data.onRefreshStableDiffusionModels as ((endpoint: string) => void) | undefined;
-  const onRefreshPricing = data.onRefreshPricing as ((provider: string) => void) | undefined;
-  const connectedInputPorts = new Set((data.connectedInputPorts as string[] | undefined) ?? []);
-  const connectedInputCounts = (data.connectedInputCounts as Record<string, number> | undefined) ?? {};
-  const creditBalance = data.creditBalance as { balance: number; currency: string } | null | undefined;
-  const canRunNodeOnly = Boolean(data.canRunNodeOnly);
-  const nodeNeedsCredits = Number(costEstimate?.estimatedCredits ?? 0);
-  const nodeHasEnoughCredits = !creditBalance || creditBalance.balance >= nodeNeedsCredits;
-  const ports = getNodePorts(type, manifest, routeNode);
-  const outputPinned = pinnedOutputFromParams(params) !== undefined;
-  const collapsedInputImagePath = type === "input.image" ? String(params.path ?? "").trim() : "";
-  const collapsedResultImage = result ? lastImageValue(result.output) : null;
-  const collapsedImageSrc = paramsCollapsed
-    ? collapsedInputImagePath
-      ? localImagePreviewSrc(collapsedInputImagePath)
-      : imagePreviewSrc(collapsedResultImage)
-    : null;
-  const collapsedImageTitle = collapsedImageSrc
-    ? collapsedInputImagePath
-      ? filenameFromPath(collapsedInputImagePath)
-      : imageLabel(collapsedResultImage)
-    : "";
-  const collapsedImageFilename = collapsedInputImagePath ? filenameFromPath(collapsedInputImagePath) : downloadFilename(collapsedResultImage);
-  const portTopBase = paramsCollapsed ? 14 : 34;
-  const collapsedPortSpacing = 20;
-  const collapsedPortCount = Math.max(ports.inputs.length, ports.outputs.length);
-  const collapsedMinHeight = paramsCollapsed ? Math.max(44, 30 + Math.max(0, collapsedPortCount - 1) * collapsedPortSpacing) : undefined;
-
-  useLayoutEffect(() => {
-    const card = cardRef.current;
-    if (!card) return;
-
-    let animationFrame = 0;
-    const updateHandles = () => {
-      window.cancelAnimationFrame(animationFrame);
-      animationFrame = window.requestAnimationFrame(() => updateNodeInternals(id));
-    };
-    const observer = new ResizeObserver(updateHandles);
-    observer.observe(card);
-    updateHandles();
-
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      observer.disconnect();
-    };
-  }, [id, updateNodeInternals, paramsCollapsed, ports.inputs.length, ports.outputs.length]);
-
-  function portLabelTop(index: number): number {
-    return paramsCollapsed ? portHandleTop(index, 1) : portTopBase + index * 28;
-  }
-
-  function portHandleTop(index: number, total: number): number {
-    if (!paramsCollapsed) return portTopBase + 8 + index * 28;
-    const count = Math.max(total, 1);
-    const first = (collapsedMinHeight ?? 44) / 2 - ((count - 1) * collapsedPortSpacing) / 2;
-    return first + index * collapsedPortSpacing;
-  }
-
-  function patchParams(patch: Record<string, unknown>) {
-    onParamsChange?.(id, { ...params, ...patch });
-  }
-
-  const configureMissingSecret = configureHandlerForError(result?.error, {
-    REPLICATE_API_TOKEN: onConfigureReplicate,
-    GEMINI_API_KEY: onConfigureGemini,
-    OPENAI_API_KEY: onConfigureOpenAi,
-    POLZA_AI_API_KEY: onConfigurePolza,
-    SEEDANCE_API_KEY: onConfigureSeedance,
-    WORLDS_API_KEY: onConfigureWorldLabs
-  });
-
-  return (
-    <div ref={cardRef} className={`routeNodeCard ${compactNodeClass(type)} ${paramsCollapsed ? "paramsCollapsed" : ""}`.trim()} style={collapsedMinHeight ? { minHeight: `${collapsedMinHeight}px` } : undefined}>
-      <span className={`nodeStatus ${statusClass(result?.status)}`} />
-      {isMissingNode ? <div className="nodeWarning">Missing block package. Install "{type}" or remove this block.</div> : null}
-      {shouldShowNodeRunButton(type) ? (
-        <div className="nodeRunActions">
-          <button
-            className="nodeRunButton nodrag nopan"
-            type="button"
-            title={canRunNodeOnly ? "Run this node only" : "Run this node only after all inputs have ready outputs"}
-            disabled={!canRunNodeOnly}
-            onClick={(event) => {
-              event.stopPropagation();
-              onRunNodeOnly?.(id);
-            }}
-          >
-            <Play size={12} />
-          </button>
-          <button
-            className="nodeRunButton dependency nodrag nopan"
-            type="button"
-            title="Run this node with upstream dependencies"
-            onClick={(event) => {
-              event.stopPropagation();
-              onRunNodeWithDependencies?.(id);
-            }}
-          >
-            <span className="nodeRunDoubleArrow">&gt;&gt;</span>
-          </button>
-        </div>
-      ) : null}
-      {ports.inputs.map((port, index) => (
-        <React.Fragment key={port.id}>
-          <span className="portLabel input" style={{ top: `${portLabelTop(index)}px` }}>
-            {portLabel(port, connectedInputCounts[port.id] ?? 0)}
-          </span>
-          <Handle
-            className={`typedHandle ${port.kind}`}
-            id={port.id}
-            type="target"
-            position={Position.Left}
-            style={{ top: `${portHandleTop(index, ports.inputs.length)}px` }}
-            title={`${port.id}: ${port.kind}`}
-          />
-        </React.Fragment>
-      ))}
-      <div className="nodeHeader">
-        <span className={`nodeIcon ${nodeIconClass(type)}`}>{nodeIcon(type)}</span>
-        <div>
-          <div className="nodeTitle">{title}</div>
-          {!paramsCollapsed ? (
-            <>
-              <div className="nodeType" title={type}>{type}</div>
-              <div className={`executorBadge ${executorKind(type, manifest)}`}>{executorLabel(type, manifest)}</div>
-              {routeNode?.type === "compound.subroute" ? <div className="nodeMetaLine">{routeNode.subroute?.nodes.length ?? 0} internal block(s)</div> : null}
-              {routeNode?.type === "dialogue.workbench" ? <DialogueNodeMeta routeNode={routeNode} modelProfiles={modelProfiles} /> : null}
-            </>
-          ) : null}
-        </div>
-        <button
-          className="nodeCollapseButton nodrag nopan"
-          type="button"
-          title={paramsCollapsed ? "Show parameters" : "Hide parameters"}
-          onClick={(event) => {
-            event.stopPropagation();
-            onParamsCollapsedChange?.(id, !paramsCollapsed);
-          }}
-        >
-          {paramsCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
-        </button>
-        {paramsCollapsed && routeNode?.type === "compound.subroute" && (routeNode.subroute?.nodes.length ?? 0) > 0 ? (
-          <button
-            className="collapsedCompoundOpenButton nodrag nopan"
-            type="button"
-            title="Open Internal Tool Route"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenSubroute?.(id);
-            }}
-          >
-            <FolderOpen size={13} />
-          </button>
-        ) : null}
-      </div>
-      {!paramsCollapsed && isReplicateNode(type) ? (
-        <div className={`nodeTokenStatus ${replicateConfigured ? "configured" : "missing"}`}>
-          <span>{replicateTokenStatusText(replicateConfigured)}</span>
-          {!replicateConfigured ? (
-            <>
-              <strong>Requires Replicate API token</strong>
-              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureReplicate}>Configure Replicate</button>
-              <small>Open Settings \u2192 Secrets \u2192 Replicate</small>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {!paramsCollapsed && routeNode?.type === "compound.subroute" ? (
-        <div className="compoundActions">
-          <button
-            className="nodeSmallButton nodrag nopan"
-            type="button"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenSubroute?.(id);
-            }}
-          >
-            Open Internal Tool Route
-          </button>
-          <button
-            className="nodeSmallButton nodrag nopan"
-            type="button"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onUncollapse?.(id);
-            }}
-          >
-            Uncollapse
-          </button>
-        </div>
-      ) : null}
-      {!paramsCollapsed && routeNode?.type === "dialogue.workbench" ? (
-        <div className="compoundActions">
-          <button
-            className="nodeSmallButton nodrag nopan"
-            type="button"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenDialogueWorkbench?.(id);
-            }}
-          >
-            Open Workbench
-          </button>
-        </div>
-      ) : null}
-      {!paramsCollapsed && isGeminiNode(type) ? (
-        <div className={`nodeTokenStatus ${geminiConfigured ? "configured" : "missing"}`}>
-          <span>{geminiTokenStatusText(geminiConfigured)}</span>
-          {!geminiConfigured ? (
-            <>
-              <strong>Requires Gemini API key</strong>
-              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureGemini}>Configure Gemini</button>
-              <small>Open Settings \u2192 Secrets \u2192 Gemini</small>
-              <a className="nodeTokenLink nodrag nopan" href={GEMINI_API_KEY_URL} target="_blank" rel="noreferrer">Get Gemini API key</a>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {!paramsCollapsed && requiresEnv(manifest, "OPENAI_API_KEY") ? (
-        <div className={`nodeTokenStatus ${openAiConfigured ? "configured" : "missing"}`}>
-          <span>OpenAI: {openAiConfigured ? "key configured" : "missing"}</span>
-          {!openAiConfigured ? (
-            <>
-              <strong>Requires OpenAI API key</strong>
-              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureOpenAi}>Configure OpenAI</button>
-              <small>Open Settings &gt; Advanced / Direct Secrets &gt; OpenAI</small>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {!paramsCollapsed && requiresEnv(manifest, "SEEDANCE_API_KEY") ? (
-        <div className={`nodeTokenStatus ${seedanceConfigured ? "configured" : "missing"}`}>
-          <span>Seedance: {seedanceConfigured ? "configured" : (seedanceStatusText || "missing")}</span>
-          {!seedanceConfigured ? (
-            <>
-              <strong>Requires Seedance backend and API key</strong>
-              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureSeedance}>Configure Seedance</button>
-              <small>Open Settings &gt; Advanced / Direct Secrets &gt; Seedance</small>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {!paramsCollapsed && isRemoteAiNode(type) ? (
-        <div className={`nodeTokenStatus ${openRouterConfigured ? "configured" : "missing"}`}>
-          <span>OpenRouter: {openRouterConfigured ? "key configured" : "missing"}</span>
-          {!openRouterConfigured ? (
-            <>
-              <strong>Uses OpenRouter by default</strong>
-              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureOpenRouter}>Configure OpenRouter</button>
-              <small>Direct mode remains available in Advanced for supported legacy providers.</small>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {!paramsCollapsed && isPolzaNode(type) ? (
-        <div className={`nodeTokenStatus ${polzaConfigured ? "configured" : "missing"}`}>
-          <span>Polza.ai: {polzaConfigured ? "key configured" : "missing"}</span>
-          {!polzaConfigured ? (
-            <>
-              <strong>Requires Polza.ai API key</strong>
-              <button className="nodeSmallButton nodrag nopan" onClick={onConfigurePolza}>Configure Polza.ai</button>
-              <small>Open Settings &gt; AI Providers &gt; Polza.ai</small>
-            </>
-          ) : null}
-        </div>
-      ) : null}
-      {!paramsCollapsed ? (
-        <NodeInlineParams
-          type={type}
-          manifest={manifest}
-          params={params}
-          connectedInputPorts={connectedInputPorts}
-          promptLibrary={promptLibrary ?? { categories: [] }}
-          onRefreshPromptLibrary={onRefreshPromptLibrary}
-          promptStatusFilter={promptStatusFilter}
-          onPromptStatusFilterChange={onPromptStatusFilterChange}
-          onPromptContextMenu={onPromptContextMenu}
-          stableDiffusionModels={stableDiffusionModels}
-          openRouterModels={openRouterModels}
-          modelProfiles={modelProfiles}
-          polzaTextModels={polzaTextModels}
-          polzaImageModels={polzaImageModels}
-          polzaVideoModels={polzaVideoModels}
-          quotePreview={quotePreview}
-          costEstimate={costEstimate}
-          resizeInputImage={resizeInputImage}
-          chooseCameraInputImage={chooseCameraInputImage}
-          onConfigureWorldLabs={onConfigureWorldLabs}
-          onPublishNodeOutput={onPublishNodeOutput ? (output) => onPublishNodeOutput(id, output) : undefined}
-          onRefreshPricing={onRefreshPricing}
-          onRefreshStableDiffusionModels={onRefreshStableDiffusionModels}
-          onChange={patchParams}
-          onBrowse={(kind) => onBrowseAsset?.(id, kind)}
-          canBrowseLocalFiles={supportsLocalFilesystem}
-          onOpenImage={onOpenImage}
-        />
-      ) : null}
-      {!paramsCollapsed && result && shouldShowInlineResult(type) ? <NodeInlineResult nodeId={id} type={type} result={result} outputPinned={outputPinned} onOpenImage={onOpenImage} onDownloadImage={onDownloadImage} onImageResultContextMenu={onImageResultContextMenu} onFixNodeOutput={onFixNodeOutput} onConfigureMissingSecret={configureMissingSecret} /> : null}
-      {paramsCollapsed && collapsedImageSrc ? (
-        <button
-          className="collapsedImagePreviewButton nodrag nopan"
-          type="button"
-          title="View output image"
-          onClick={(event) => {
-            event.stopPropagation();
-            onOpenImage?.({ src: collapsedImageSrc, title: collapsedImageTitle, filename: collapsedImageFilename });
-          }}
-        >
-          <img className="collapsedImagePreview" src={collapsedImageSrc} alt="" />
-        </button>
-      ) : null}
-      {ports.outputs.map((port, index) => (
-        <React.Fragment key={port.id}>
-          <span className="portLabel output" style={{ top: `${portLabelTop(index)}px` }}>
-            {port.label ?? port.id}
-          </span>
-          <Handle
-            className={`typedHandle ${port.kind}`}
-            id={port.id}
-            type="source"
-            position={Position.Right}
-            style={{ top: `${portHandleTop(index, ports.outputs.length)}px` }}
-            title={`${port.id}: ${port.kind}`}
-          />
-        </React.Fragment>
-      ))}
-    </div>
-  );
-}
-
 function DialogueNodeMeta({ routeNode, modelProfiles }: { routeNode: RouteDoc["nodes"][number]; modelProfiles: ModelProfile[] }) {
   const state = normalizeDialogueWorkbenchState(routeNode.params?.state, {
     nodeId: routeNode.id,
@@ -1390,7 +659,7 @@ function DialogueWorkbenchEditor({
   const [state, setState] = useState<DialogueWorkbenchState>(initialState);
   const [draftText, setDraftText] = useState("");
   const [draftRole, setDraftRole] = useState<DialogueMessage["role"]>("user");
-  const [draftAttachments, setDraftAttachments] = useState<DialogueContentPart[]>([]);
+  const [draftAttachments, setDraftAttachments] = useState<DialogueDraftContentPart[]>([]);
   const dialogueModelProfiles = useMemo(() => modelProfiles.filter(isDialogueModelProfile), [modelProfiles]);
   const initialModelProfileId = dialogueModelProfiles.some((profile) => profile.id === state.defaultModelProfileId)
     ? state.defaultModelProfileId ?? "text.default"
@@ -1466,7 +735,7 @@ function DialogueWorkbenchEditor({
     const message: DialogueMessage = {
       id: `message_${Date.now()}_${Math.random().toString(16).slice(2, 7)}`,
       role: "user",
-      content: [dialogueContentPartFromInput(input)],
+      content: [stripDialoguePartUi(dialogueContentPartFromInput(input))],
       createdAt: new Date().toISOString()
     };
     const index = afterMessageId ? state.messages.findIndex((entry) => entry.id === afterMessageId) : -1;
@@ -1822,7 +1091,8 @@ function DialogueWorkbenchEditor({
 function DialoguePartView({ part, compact = false, renderMarkdown = false }: { part: DialogueContentPart; compact?: boolean; renderMarkdown?: boolean }) {
   if (part.type === "text") {
     const backgroundSrc = part.chipBackgroundAssetRef ? imagePreviewSrc(part.chipBackgroundAssetRef) : null;
-    if (backgroundSrc && !renderMarkdown) return <TextChipView text={part.text} backgroundSrc={backgroundSrc} compact={compact} />;
+    if (backgroundSrc && !renderMarkdown) return <TextChipView text={part.text} backgroundSrc={backgroundSrc} compact={compact} accentColor={dialoguePartAccentColor(part)} />;
+    if (!renderMarkdown && dialoguePartIsChip(part)) return <TextChipView text={part.text} compact={compact} accentColor={dialoguePartAccentColor(part)} />;
     return renderMarkdown ? <MarkdownDocument content={part.text} /> : <p>{part.text}</p>;
   }
   if (part.type === "image") {
@@ -1835,61 +1105,62 @@ function DialoguePartView({ part, compact = false, renderMarkdown = false }: { p
 
 function DialogueInputPreview({ input }: { input: DialogueConnectedInput }) {
   const chipBackgroundSrc = input.type === "text" && input.chipBackgroundAssetRef ? imagePreviewSrc(input.chipBackgroundAssetRef) : null;
-  if (chipBackgroundSrc) return <TextChipView text={input.preview} backgroundSrc={chipBackgroundSrc} />;
+  if (chipBackgroundSrc) return <TextChipView text={input.preview} backgroundSrc={chipBackgroundSrc} accentColor={input.sourceAccentColor} />;
+  if (input.type === "text") return <TextChipView text={input.preview} accentColor={input.sourceAccentColor} />;
   const src = input.type === "image" ? imagePreviewSrc(input.value) ?? imagePreviewSrc(input.preview) : null;
   if (src) return <img className="dialogueInputImage" src={src} alt={input.id} />;
   return <pre>{input.preview}</pre>;
 }
 
-function TextChipView({ text, backgroundSrc, compact = false }: { text: string; backgroundSrc: string; compact?: boolean }) {
+function TextChipView({ text, backgroundSrc, compact = false, accentColor = "#7dd3c0" }: { text: string; backgroundSrc?: string | null; compact?: boolean; accentColor?: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const backgroundImage = backgroundSrc && !expanded ? `linear-gradient(rgba(13, 17, 24, 0.9), rgba(13, 17, 24, 0.92)), url(${backgroundSrc})` : undefined;
   return (
-    <div className={`dialogueTextChip ${compact ? "compact" : ""}`} style={{ backgroundImage: `linear-gradient(rgba(13, 17, 24, 0.9), rgba(13, 17, 24, 0.92)), url(${backgroundSrc})` }}>
-      <span aria-hidden="true">T</span>
-      <pre>{text}</pre>
-    </div>
+    <button
+      className={`dialogueTextChip ${compact ? "compact" : ""} ${expanded ? "expanded" : ""}`.trim()}
+      style={{ "--dialogue-text-chip-accent": accentColor, backgroundImage } as React.CSSProperties}
+      type="button"
+      aria-expanded={expanded}
+      aria-label={expanded ? "Collapse text chip" : "Expand text chip"}
+      title={text}
+      onClick={() => setExpanded((value) => !value)}
+    >
+      {expanded ? <pre>{text}</pre> : (
+        <>
+          <span aria-hidden="true">T</span>
+          <pre>{text}</pre>
+        </>
+      )}
+    </button>
   );
 }
 
-function ModelCapabilityBadges({ profile }: { profile: ModelProfile }) {
-  const badges = [
-    profile.capabilities.includes("vision") ? "Vision" : "",
-    profile.capabilities.includes("tool_calling") ? "Tools" : "",
-    profile.capabilities.includes("json_output") ? "JSON" : "",
-    profile.costClass && profile.costClass !== "unknown" ? profile.costClass : "",
-    profile.privacyClass && profile.privacyClass !== "unknown" ? profile.privacyClass : ""
-  ].filter(Boolean);
-  return (
-    <span className="modelBadges">
-      {badges.map((badge) => <em className={badge === "Vision" ? "vision" : ""} key={badge}>{badge}</em>)}
-    </span>
-  );
+function dialoguePartAccentColor(part: DialogueContentPart): string | undefined {
+  const value = (part as DialogueContentPart & { sourceAccentColor?: unknown }).sourceAccentColor;
+  return typeof value === "string" ? value : undefined;
 }
 
-function ModelLogoMark({ logo, size = "normal" }: { logo: ModelLogo; size?: "tiny" | "normal" }) {
-  return <img className={`modelLogoMark ${size}`} src={logo.src} alt="" title={logo.label} width={size === "tiny" ? 16 : 24} height={size === "tiny" ? 16 : 24} loading="lazy" />;
+function dialoguePartIsChip(part: DialogueContentPart): boolean {
+  return Boolean((part as DialogueContentPart & { sourceAccentColor?: unknown }).sourceAccentColor);
 }
 
-function ModelSelectWithLogo({ logo, children }: { logo: ModelLogo; children: React.ReactNode }) {
-  return (
-    <div className="nodeModelSelectRow">
-      <ModelLogoMark logo={logo} />
-      {children}
-    </div>
-  );
-}
-
-function dialogueContentPartFromInput(input: DialogueConnectedInput): DialogueContentPart {
+function dialogueContentPartFromInput(input: DialogueConnectedInput): DialogueDraftContentPart {
   if (input.type === "image") return { type: "image", assetRef: imageAssetRef(input.value) ?? input.preview, alt: input.id };
   if (input.type === "file") return { type: "file", assetRef: imageAssetRef(input.value) ?? input.preview, filename: input.id };
-  if (input.type === "text") return { type: "text", text: input.preview, chipBackgroundAssetRef: input.chipBackgroundAssetRef };
+  if (input.type === "text") return { type: "text", text: input.preview, chipBackgroundAssetRef: input.chipBackgroundAssetRef, sourceAccentColor: input.sourceAccentColor };
   return { type: "json", value: input.value };
 }
 
-function dialogueMessageContent(text: string, attachments: DialogueContentPart[] = []): DialogueContentPart[] {
+function dialogueMessageContent(text: string, attachments: DialogueDraftContentPart[] = []): DialogueContentPart[] {
   return [
     ...(text.trim() ? [{ type: "text" as const, text }] : []),
-    ...attachments
+    ...attachments.map(stripDialoguePartUi)
   ];
+}
+
+function stripDialoguePartUi(part: DialogueDraftContentPart): DialogueContentPart {
+  const { sourceAccentColor: _sourceAccentColor, ...portablePart } = part;
+  return portablePart;
 }
 
 function autoAttachImagesForModel(inputs: DialogueConnectedInput[], profile: ModelProfile): DialogueContentPart[] {
@@ -2422,19 +1693,6 @@ function ChooseCameraPointParams({
   );
 }
 
-type SavedCameraPose = {
-  position: { x: number; y: number; z: number };
-  rotation: { yaw: number; pitch: number; roll: number };
-  fov: number;
-};
-
-type SplatRuntime = {
-  renderer: import("three").WebGLRenderer;
-  scene: import("three").Scene;
-  camera: import("three").PerspectiveCamera;
-  control: import("three").Object3D;
-};
-
 async function importImageDataUrl(dataUrl: string, filename: string): Promise<unknown> {
   const dataBase64 = dataUrl.split(",")[1] ?? "";
   const response = await apiFetch(`${apiBase}/api/assets/import`, {
@@ -2750,1241 +2008,6 @@ function sampleImageDataBilinear(image: ImageData, x: number, y: number): [numbe
 function imageDataRgb(image: ImageData, x: number, y: number): [number, number, number] {
   const offset = (y * image.width + x) * 4;
   return [image.data[offset], image.data[offset + 1], image.data[offset + 2]];
-}
-
-function NodeInlineParams({
-  type,
-  manifest,
-  params,
-  connectedInputPorts,
-  promptLibrary,
-  onRefreshPromptLibrary,
-  promptStatusFilter,
-  onPromptStatusFilterChange,
-  onPromptContextMenu,
-  stableDiffusionModels,
-  openRouterModels,
-  polzaTextModels,
-  polzaImageModels,
-  polzaVideoModels,
-  quotePreview,
-  costEstimate,
-  resizeInputImage,
-  chooseCameraInputImage,
-  onConfigureWorldLabs,
-  onPublishNodeOutput,
-  onRefreshPricing,
-  modelProfiles,
-  onRefreshStableDiffusionModels,
-  onChange,
-  onBrowse,
-  canBrowseLocalFiles,
-  onOpenImage
-}: {
-  type: string;
-  manifest?: NodeManifest;
-  params: Record<string, unknown>;
-  connectedInputPorts: Set<string>;
-  promptLibrary: PromptLibraryData;
-  onRefreshPromptLibrary?: () => void;
-  promptStatusFilter: PromptStatusFilter;
-  onPromptStatusFilterChange?: (filter: PromptStatusFilter) => void;
-  onPromptContextMenu?: (event: React.MouseEvent, prompt: PromptLibraryPrompt) => void;
-  stableDiffusionModels: StableDiffusionModel[];
-  openRouterModels: OpenRouterModel[];
-  polzaTextModels: PolzaModel[];
-  polzaImageModels: PolzaModel[];
-  polzaVideoModels: PolzaModel[];
-  quotePreview?: ModelQuotePreview;
-  costEstimate?: CostEstimate;
-  resizeInputImage?: unknown;
-  chooseCameraInputImage?: unknown;
-  onConfigureWorldLabs?: () => void;
-  onPublishNodeOutput?: (output: Record<string, unknown>) => void;
-  onRefreshPricing?: (provider: string) => void;
-  modelProfiles: ModelProfile[];
-  onRefreshStableDiffusionModels?: (endpoint: string) => void;
-  onChange: (patch: Record<string, unknown>) => void;
-  onBrowse: (kind: AssetKind) => void;
-  canBrowseLocalFiles: boolean;
-  onOpenImage?: (image: ImageViewerState) => void;
-}) {
-  const pendingTextSelectionRef = useRef<PendingTextSelection | null>(null);
-  const resizeInputDimensions = useImageDimensions(type === "transform.imageResize" ? resizeInputImage : undefined);
-  const modelCreditBadge = <ModelCreditBadge costEstimate={costEstimate} />;
-
-  useEffect(() => {
-    if (type !== "polza.video.generate") return;
-    const model = String(params.model ?? "");
-    if (!isPolzaVideoUpscaleModelId(model)) return;
-    onChange({ model: POLZA_VIDEO_MODEL_OPTIONS[0].id });
-  }, [type, params.model, onChange]);
-
-  useLayoutEffect(() => {
-    restorePendingTextSelection(pendingTextSelectionRef);
-  }, [params]);
-
-  useEffect(() => {
-    if (type !== "transform.imageResize" || !resizeInputDimensions.dimensions) return;
-    const { width, height } = resizeInputDimensions.dimensions;
-    const patch: Record<string, unknown> = {};
-    if (isUnsetOrManifestDefaultResizeDimension(params.width) && Number(params.width) !== width) patch.width = width;
-    if (isUnsetOrManifestDefaultResizeDimension(params.height) && Number(params.height) !== height) patch.height = height;
-    if (Object.keys(patch).length > 0) onChange(patch);
-  }, [type, resizeInputDimensions.dimensions?.width, resizeInputDimensions.dimensions?.height, params.width, params.height, onChange]);
-
-  function updateTextParam(key: string, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>, transform: (value: string) => unknown = (value) => value) {
-    updateTextFieldPreservingCaret(event, pendingTextSelectionRef, (value) => onChange({ [key]: transform(value) }));
-  }
-
-  if (type === "input.text") {
-    return (
-      <label className="nodeField">
-        <span>value</span>
-        <textarea className="nodrag nopan nodeTextarea" value={String(params.value ?? "")} onChange={(event) => updateTextParam("value", event)} />
-      </label>
-    );
-  }
-
-  if (type === "transform.template") {
-    return (
-      <label className="nodeField">
-        <span>template</span>
-        <textarea className="nodrag nopan nodeTextarea" value={String(params.template ?? "")} onChange={(event) => updateTextParam("template", event)} />
-      </label>
-    );
-  }
-
-  if (type === "text.promptCompose") {
-    const separator = String(params.separator ?? "\n\n");
-    return (
-      <>
-        <label className="nodeField">
-          <span>prompt</span>
-          <textarea className="nodrag nopan nodeTextarea" value={String(params.manualText ?? "")} onChange={(event) => updateTextParam("manualText", event)} />
-        </label>
-        <label className="nodeField">
-          <span>separator</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={separator} onChange={(event) => updateTextParam("separator", event)} />
-        </label>
-        <div className="nodeGridFields">
-          <label className="nodeCheckField">
-            <input
-              className="nodrag nopan"
-              type="checkbox"
-              checked={params.trimParts !== false}
-              onChange={(event) => onChange({ trimParts: event.target.checked })}
-            />
-            <span>trimParts</span>
-          </label>
-          <label className="nodeCheckField">
-            <input
-              className="nodrag nopan"
-              type="checkbox"
-              checked={params.skipEmpty !== false}
-              onChange={(event) => onChange({ skipEmpty: event.target.checked })}
-            />
-            <span>skipEmpty</span>
-          </label>
-        </div>
-        <label className="nodeField">
-          <span>prefix</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={String(params.prefix ?? "")} onChange={(event) => updateTextParam("prefix", event)} />
-        </label>
-        <label className="nodeField">
-          <span>suffix</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={String(params.suffix ?? "")} onChange={(event) => updateTextParam("suffix", event)} />
-        </label>
-        <label className="nodeField">
-          <span>preview</span>
-          <textarea className="nodrag nopan nodeTextarea outputTextArea" value={composePromptPreview(params)} readOnly />
-          <small className="nodeConnectedHint">Connected inputs are composed when the node runs.</small>
-        </label>
-      </>
-    );
-  }
-
-  if (type === "transform.panorama360ToFisheye") {
-    return (
-      <div className="fisheyeParams">
-        <NodeSliderParam
-          id="fovDegrees"
-          label="angle"
-          min={1}
-          max={360}
-          step={1}
-          value={numberParamValue(params.fovDegrees, 200)}
-          onChange={onChange}
-        />
-        <NodeSliderParam
-          id="yawDegrees"
-          label="yaw"
-          min={-180}
-          max={180}
-          step={1}
-          value={numberParamValue(params.yawDegrees, 0)}
-          onChange={onChange}
-        />
-        <NodeSliderParam
-          id="pitchDegrees"
-          label="pitch"
-          min={-90}
-          max={90}
-          step={1}
-          value={numberParamValue(params.pitchDegrees, -90)}
-          onChange={onChange}
-        />
-      </div>
-    );
-  }
-
-  if (type === "transform.chooseCameraPoint") {
-    return <ChooseCameraPointParams params={params} inputImage={chooseCameraInputImage} onConfigureWorldLabs={onConfigureWorldLabs} onPublishNodeOutput={onPublishNodeOutput} onChange={onChange} onOpenImage={onOpenImage} />;
-  }
-
-  if (type === "transform.imageResize" && manifest?.params?.length) {
-    const dimensions = resizeInputDimensions.dimensions;
-    const status = resizeInputDimensions.status;
-    return (
-      <>
-        <div className="nodeMetaLine">
-          Input image: {dimensions ? `${dimensions.width} x ${dimensions.height}px` : status === "loading" ? "loading size..." : status === "error" ? "size unavailable" : "not connected"}
-        </div>
-        <GenericManifestParams manifest={manifest} params={params} onChange={onChange} updateTextParam={updateTextParam} />
-      </>
-    );
-  }
-
-  if (type === "library.prompt") {
-    const categories = filterPromptLibraryByStatus(promptLibrary, promptStatusFilter).categories;
-    const selectedCategory = categories.find((category) => category.id === String(params.category ?? "")) ?? categories[0];
-    const prompts = selectedCategory?.prompts ?? [];
-    const selectedPromptId = String(params.promptId ?? "");
-    const selectedPrompt = prompts.find((prompt) => prompt.id === selectedPromptId);
-    const displayPrompt = selectedPrompt ?? prompts[0];
-    const mode = String(params.mode ?? "linked") === "embedded" ? "embedded" : "linked";
-    const previewText = mode === "embedded" ? String(params.embeddedText ?? "") : displayPrompt?.text ?? "";
-    if (categories.length === 0) {
-      return (
-        <div className="assetParams">
-          <div className="nodeWarning">{promptLibrary.categories.length === 0 ? "No prompts found. Add .prompt.png or .prompt.md files to data/prompt-library/ and refresh." : "No prompts match the selected status filter."}</div>
-          <label className="nodeField">
-            <span>status</span>
-            <select
-              className="nodrag nopan nodeInput nodeSelect"
-              value={promptStatusFilter}
-              onChange={(event) => onPromptStatusFilterChange?.(event.target.value as PromptStatusFilter)}
-            >
-              {promptStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
-            </select>
-          </label>
-          <button className="nodeSmallButton nodrag nopan" type="button" onClick={onRefreshPromptLibrary}>Refresh Prompt Library</button>
-        </div>
-      );
-    }
-    return (
-      <>
-        <button className="nodeSmallButton nodrag nopan" type="button" onClick={onRefreshPromptLibrary}>Refresh Prompt Library</button>
-        <label className="nodeField">
-          <span>status</span>
-          <select
-            className="nodrag nopan nodeInput nodeSelect"
-            value={promptStatusFilter}
-            onChange={(event) => onPromptStatusFilterChange?.(event.target.value as PromptStatusFilter)}
-          >
-            {promptStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
-          </select>
-        </label>
-        <label className="nodeField">
-          <span>category</span>
-          <select
-            className="nodrag nopan nodeInput nodeSelect"
-            value={selectedCategory?.id ?? ""}
-            onChange={(event) => {
-              const category = categories.find((entry) => entry.id === event.target.value);
-              onChange({ category: event.target.value, promptId: category?.prompts[0]?.id ?? "", mode });
-            }}
-          >
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>{category.title}</option>
-            ))}
-          </select>
-        </label>
-        <div className="nodePromptCards nowheel">
-          {prompts.map((prompt) => (
-            <PromptLibraryPromptCard
-              key={prompt.id}
-              prompt={prompt}
-              selected={prompt.id === selectedPromptId && Boolean(selectedPrompt)}
-              onSelect={() => onChange({ promptId: prompt.id, category: selectedCategory?.id ?? prompt.category ?? "", mode })}
-              onContextMenu={(event) => onPromptContextMenu?.(event, prompt)}
-            />
-          ))}
-        </div>
-        {displayPrompt?.description ? <div className="nodeHint">{displayPrompt.description}</div> : null}
-        {mode === "linked" && selectedPromptId && !selectedPrompt ? (
-          <div className="nodeWarning">Linked prompt "{selectedCategory?.id ?? String(params.category ?? "")}/{selectedPromptId}" is not visible in this library view. Pick a prompt card to relink this node.</div>
-        ) : null}
-        <label className="nodeField">
-          <span>mode</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={mode} onChange={(event) => onChange({ mode: event.target.value })}>
-            <option value="linked">linked</option>
-            <option value="embedded">embedded</option>
-          </select>
-        </label>
-        <button
-          className="nodeSmallButton nodrag nopan"
-          type="button"
-          disabled={!displayPrompt}
-          onClick={() => onChange({ mode: "embedded", embeddedTitle: displayPrompt?.title ?? "", embeddedText: displayPrompt?.text ?? "" })}
-        >
-          Embed selected prompt
-        </button>
-        <label className="nodeField">
-          <span>preview</span>
-          <textarea
-            className="nodrag nopan nodeTextarea outputTextArea"
-            value={previewText}
-            readOnly={mode === "linked"}
-            onChange={(event) => updateTextParam("embeddedText", event)}
-          />
-        </label>
-      </>
-    );
-  }
-
-  if (type === "input.file" || type === "input.image" || type === "input.video") {
-    const kind = type.split(".")[1] as AssetKind;
-    const path = String(params.path ?? "");
-    const imageSrc = type === "input.image" && path ? `${apiBase}/api/assets/preview?path=${encodeURIComponent(path)}` : "";
-    return (
-      <div className="assetParams">
-        <label className="nodeField">
-          <span>file</span>
-          <input
-            className="nodrag nopan nodeInput"
-            value={path ? filenameFromPath(path) : ""}
-            placeholder="No file selected"
-            title={path}
-            readOnly
-          />
-        </label>
-        {canBrowseLocalFiles ? <button className="nodeSmallButton nodrag nopan" onClick={() => onBrowse(kind)}>Browse...</button> : null}
-        {!path ? <div className="nodeWarning">Path required</div> : null}
-        {imageSrc ? (
-          <button
-            className="nodeImagePreviewButton nodrag nopan"
-            type="button"
-            title="View image"
-            onClick={() => onOpenImage?.({ src: imageSrc, title: filenameFromPath(path), filename: filenameFromPath(path) })}
-          >
-            <img className="nodeImagePreview" src={imageSrc} alt="" />
-          </button>
-        ) : null}
-      </div>
-    );
-  }
-
-  if (type === "replicate.model") {
-    return (
-      <>
-        <label className="nodeField">
-          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
-          <ModelSelectWithLogo logo={modelLogoFor("replicate", String(params.model ?? ""))}>
-            <input className="nodrag nopan nodeInput" value={String(params.model ?? "")} onChange={(event) => updateTextParam("model", event)} />
-          </ModelSelectWithLogo>
-        </label>
-        <label className="nodeField">
-          <span>input</span>
-          <textarea
-            className="nodrag nopan nodeTextarea"
-            value={JSON.stringify(params.input ?? {}, null, 2)}
-            onChange={(event) => {
-              updateTextFieldPreservingCaret(event, pendingTextSelectionRef, (value) => {
-                try {
-                  onChange({ input: JSON.parse(value) });
-                } catch {
-                  onChange({ input: value });
-                }
-              });
-            }}
-          />
-        </label>
-      </>
-    );
-  }
-
-  if (type === "replicate.clarity-upscaler") {
-    const promptConnected = connectedInputPorts.has("prompt");
-    return (
-      <>
-        <label className="nodeField">
-          <span>prompt</span>
-          <textarea
-            className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
-            value={String(params.prompt ?? "")}
-            disabled={promptConnected}
-            onChange={(event) => updateTextParam("prompt", event)}
-          />
-          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
-        </label>
-        <label className="nodeField">
-          <span>negative</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={String(params.negative_prompt ?? "")} onChange={(event) => updateTextParam("negative_prompt", event)} />
-        </label>
-        <div className="nodeGridFields">
-          {(["scale_factor", "dynamic", "creativity", "resemblance", "num_inference_steps", "seed"] as const).map((key) => (
-            <label className="nodeField" key={key}>
-              <span>{key}</span>
-              <input
-                className="nodrag nopan nodeInput"
-                inputMode="decimal"
-                value={String(params[key] ?? "").replace(".", ",")}
-                onChange={(event) => updateTextParam(key, event, (value) => value.replace(".", ","))}
-              />
-            </label>
-          ))}
-        </div>
-      </>
-    );
-  }
-
-  if (type === "dialogue.workbench") {
-    const state = normalizeDialogueWorkbenchState(params.state, {
-      nodeId: "dialogue",
-      defaultModelProfileId: String(params.defaultModelProfileId ?? "text.default")
-    });
-    const profile = modelProfiles.find((entry) => entry.id === (state.defaultModelProfileId ?? params.defaultModelProfileId));
-    return (
-      <div className="dialogueInlineSummary">
-        <div><span>default model</span><strong>{profile?.displayName ?? String(params.defaultModelProfileId ?? "text.default")}</strong></div>
-        <div><span>messages</span><strong>{state.messages.length}</strong></div>
-        <div><span>selected outputs</span><strong>{state.selectedOutputs.length}</strong></div>
-        <div className="nodeHint">Open the Workbench for messages, pins, outputs, and transcript exports.</div>
-      </div>
-    );
-  }
-
-  if (type === "ai.text") {
-    const systemPromptConnected = connectedInputPorts.has("systemPrompt");
-    const promptConnected = connectedInputPorts.has("prompt");
-    const model = String(params.model ?? "text.default");
-    return (
-      <>
-        <label className="nodeField">
-          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
-          <ModelSelectWithLogo logo={modelLogoFor("openrouter", model)}>
-            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
-              <option value="text.default">Auto / default text model</option>
-              {openRouterModels.filter((entry) => modelSupportsText(entry)).map((entry) => (
-                <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, openRouterModelSupportsVisionInput(entry))}</option>
-              ))}
-              {model && model !== "text.default" && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
-            </select>
-          </ModelSelectWithLogo>
-          <small className="nodeConnectedHint">{openRouterCostLabel(openRouterModels.find((entry) => entry.id === model))}</small>
-        </label>
-        <label className="nodeField">
-          <span>system prompt</span>
-          <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
-        </label>
-        <label className="nodeField">
-          <span>prompt</span>
-          <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
-        </label>
-        <details className="nodeAdvanced">
-          <summary>Advanced</summary>
-          <label className="nodeField">
-            <span>provider mode</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.providerMode ?? "auto")} onChange={(event) => onChange({ providerMode: event.target.value })}>
-              <option value="auto">Auto</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="direct">Direct</option>
-            </select>
-          </label>
-          <div className="nodeGridFields">
-            <label className="nodeField"><span>temperature</span><input className="nodrag nopan nodeInput" inputMode="decimal" value={String(params.temperature ?? "")} onChange={(event) => updateTextParam("temperature", event, numericParam)} /></label>
-            <label className="nodeField"><span>max tokens</span><input className="nodrag nopan nodeInput" inputMode="numeric" value={String(params.max_tokens ?? "")} onChange={(event) => updateTextParam("max_tokens", event, numericParam)} /></label>
-          </div>
-        </details>
-      </>
-    );
-  }
-
-  if (type === "ai.image.generate") {
-    const promptConnected = connectedInputPorts.has("prompt");
-    const model = String(params.model ?? "image.nano-banana");
-    const connectionRoute = String(params.providerMode ?? "auto");
-    const modelOptions = imageGenerationModelOptions(openRouterModels, model);
-    const selectedModel = modelOptions.find((entry) => entry.id === model);
-    const aspectRatioOptions = imageAspectRatioOptions(selectedModel);
-    const imageSizeOptions = imageSizeOptionsForModel(selectedModel);
-    const aspectRatio = supportedOptionValue(params.aspectRatio, aspectRatioOptions);
-    const imageSize = supportedOptionValue(params.imageSize, imageSizeOptions);
-    const routePreview = imageRoutePreview(selectedModel, connectionRoute);
-    return (
-      <>
-        <label className="nodeField">
-          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
-          <ModelSelectWithLogo logo={modelLogoFor(selectedModel?.provider, selectedModel?.slug ?? model)}>
-            <select
-              className="nodrag nopan nodeInput nodeSelect"
-              value={model}
-              onChange={(event) => {
-                const nextModel = modelOptions.find((entry) => entry.id === event.target.value);
-                const nextAspectRatios = imageAspectRatioOptions(nextModel);
-                const nextImageSizes = imageSizeOptionsForModel(nextModel);
-                onChange({
-                  model: event.target.value,
-                  aspectRatio: supportedOptionValue(params.aspectRatio, nextAspectRatios),
-                  imageSize: supportedOptionValue(params.imageSize, nextImageSizes)
-                });
-              }}
-            >
-              {modelOptions.map((entry) => (
-                <option key={entry.id} value={entry.id} disabled={entry.disabled}>{imageModelOptionLabel(entry)}</option>
-              ))}
-            </select>
-          </ModelSelectWithLogo>
-          <small className="nodeConnectedHint">{imageModelCostLabel(selectedModel)}</small>
-        </label>
-        <label className="nodeField">
-          <span>prompt</span>
-          <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
-        </label>
-        <div className="nodeGridFields">
-          <label className="nodeField">
-            <span>aspect ratio</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={aspectRatio} onChange={(event) => onChange({ aspectRatio: event.target.value })}>
-              {aspectRatioOptions.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-          <label className="nodeField">
-            <span>quality</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={imageSize} onChange={(event) => onChange({ imageSize: event.target.value })}>
-              {imageSizeOptions.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-        </div>
-        <details className="nodeAdvanced">
-          <summary>Advanced</summary>
-          <label className="nodeField">
-            <span>Connection route</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={connectionRoute} onChange={(event) => onChange({ providerMode: event.target.value })}>
-              <option value="auto">Auto</option>
-              <option value="openrouter">OpenRouter</option>
-              <option value="direct">Direct API</option>
-            </select>
-            <small className="nodeConnectedHint">{connectionRouteHelper(connectionRoute)}</small>
-          </label>
-          <div className="nodeRoutePreview">
-            <div><span>Selected model</span><strong>{routePreview.selectedModelLabel}</strong></div>
-            <div><span>Model slug</span><strong>{routePreview.selectedModelId}</strong></div>
-            <div><span>Connection route</span><strong>{routePreview.selectedConnectionRoute}</strong></div>
-            <div><span>Resolved provider</span><strong>{routePreview.resolvedProvider}</strong></div>
-            <div><span>Resolved route</span><strong>{routePreview.resolvedRoute}</strong></div>
-            <div><span>Image support</span><strong>{routePreview.supportsImageGeneration}</strong></div>
-            <div><span>Fallback</span><strong>{routePreview.fallbackUsed ? "yes" : "no"}</strong></div>
-            {routePreview.fallbackReason ? <div><span>Fallback reason</span><strong>{routePreview.fallbackReason}</strong></div> : null}
-          </div>
-        </details>
-      </>
-    );
-  }
-
-  if (type === "polza.text") {
-    const systemPromptConnected = connectedInputPorts.has("systemPrompt");
-    const promptConnected = connectedInputPorts.has("prompt");
-    const model = String(params.model ?? POLZA_TEXT_MODEL_OPTIONS[0].id);
-    const modelOptions = polzaModelOptions(polzaTextModels, POLZA_TEXT_MODEL_OPTIONS, model);
-    const selectedModel = modelOptions.find((entry) => entry.id === model);
-    return (
-      <>
-        <label className="nodeField">
-          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
-          <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
-            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
-              {modelOptions.map((entry) => (
-                <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, polzaModelSupportsVisionInput(entry))}</option>
-              ))}
-            </select>
-          </ModelSelectWithLogo>
-          <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Text model via Polza.ai")}</small>
-        </label>
-        <label className="nodeField">
-          <span>system prompt</span>
-          <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
-          {systemPromptConnected ? <small className="nodeConnectedHint">System prompt comes from connected text input.</small> : null}
-        </label>
-        <label className="nodeField">
-          <span>prompt</span>
-          <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
-          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
-        </label>
-        <details className="nodeAdvanced">
-          <summary>Advanced</summary>
-          <div className="nodeGridFields">
-            <label className="nodeField"><span>temperature</span><input className="nodrag nopan nodeInput" inputMode="decimal" value={String(params.temperature ?? "")} onChange={(event) => updateTextParam("temperature", event, numericParam)} /></label>
-            <label className="nodeField"><span>max tokens</span><input className="nodrag nopan nodeInput" inputMode="numeric" value={String(params.max_tokens ?? "")} onChange={(event) => updateTextParam("max_tokens", event, numericParam)} /></label>
-          </div>
-        </details>
-      </>
-    );
-  }
-
-  if (type === "polza.image.generate") {
-    const promptConnected = connectedInputPorts.has("prompt");
-    const model = String(params.model ?? POLZA_IMAGE_MODEL_OPTIONS[0].id);
-    const modelOptions = polzaModelOptions(polzaImageModels, POLZA_IMAGE_MODEL_OPTIONS, model);
-    const selectedModel = modelOptions.find((entry) => entry.id === model);
-    const aspectRatio = supportedOptionValue(params.aspectRatio, POLZA_IMAGE_ASPECT_RATIOS);
-    const imageResolution = supportedOptionValue(params.imageResolution ?? params.imageSize, POLZA_IMAGE_RESOLUTIONS);
-    const quality = supportedOptionValue(params.quality, POLZA_IMAGE_QUALITIES);
-    const outputFormat = supportedOptionValue(params.outputFormat, POLZA_IMAGE_FORMATS);
-    return (
-      <>
-        <label className="nodeField">
-          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
-          <ModelSelectWithLogo logo={modelLogoFor("polza", selectedModel?.id ?? model)}>
-            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
-              {modelOptions.map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name ? `${entry.name} (${entry.id})` : entry.id}</option>
-              ))}
-            </select>
-          </ModelSelectWithLogo>
-          <small className="nodeConnectedHint">{polzaModelHint(selectedModel, "Image model via Polza.ai")}</small>
-        </label>
-        <label className="nodeField">
-          <span>prompt</span>
-          <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
-          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
-        </label>
-        <div className="nodeGridFields">
-          <label className="nodeField">
-            <span>aspect ratio</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={aspectRatio} onChange={(event) => onChange({ aspectRatio: event.target.value })}>
-              {POLZA_IMAGE_ASPECT_RATIOS.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-          <label className="nodeField">
-            <span>resolution</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={imageResolution} onChange={(event) => onChange({ imageResolution: event.target.value })}>
-              {POLZA_IMAGE_RESOLUTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-        </div>
-        <details className="nodeAdvanced">
-          <summary>Advanced</summary>
-          <div className="nodeGridFields">
-            <label className="nodeField">
-              <span>quality</span>
-              <select className="nodrag nopan nodeInput nodeSelect" value={quality} onChange={(event) => onChange({ quality: event.target.value })}>
-                {POLZA_IMAGE_QUALITIES.map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-            </label>
-            <label className="nodeField">
-              <span>format</span>
-              <select className="nodrag nopan nodeInput nodeSelect" value={outputFormat} onChange={(event) => onChange({ outputFormat: event.target.value })}>
-                {POLZA_IMAGE_FORMATS.map((value) => <option key={value} value={value}>{value}</option>)}
-              </select>
-            </label>
-          </div>
-        </details>
-      </>
-    );
-  }
-
-  if (type === "polza.video.generate") {
-    const promptConnected = connectedInputPorts.has("prompt");
-    const model = isPolzaVideoUpscaleModelId(String(params.model ?? "")) ? POLZA_VIDEO_MODEL_OPTIONS[0].id : String(params.model ?? POLZA_VIDEO_MODEL_OPTIONS[0].id);
-    const executionProvider = String(params.executionProvider ?? "polza") === "openrouter" ? "openrouter" : "polza";
-    const modelOptions = videoGenerationModelOptions(openRouterModels, polzaVideoModels, model);
-    const selectedModel = modelOptions.find((entry) => entry.id === model && entry.providerId === executionProvider) ?? modelOptions.find((entry) => entry.id === model);
-    const selectedModelKey = selectedModel ? videoModelOptionKey(selectedModel) : `polza:${model}`;
-    const resolution = supportedOptionValue(params.resolution, POLZA_VIDEO_RESOLUTIONS);
-    const duration = supportedOptionValue(params.duration, POLZA_VIDEO_DURATIONS);
-    const supportsAudio = polzaVideoSupportsAudio(selectedModel ?? { id: model });
-    const generateAudio = params.generate_audio !== false;
-    return (
-      <>
-        <label className="nodeField">
-          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
-          <ModelSelectWithLogo logo={modelLogoFor(selectedModel?.providerId ?? "polza", selectedModel?.id ?? model)}>
-            <select
-              className="nodrag nopan nodeInput nodeSelect"
-              value={selectedModelKey}
-              onChange={(event) => {
-                const nextModel = modelOptions.find((entry) => videoModelOptionKey(entry) === event.target.value);
-                if (!nextModel) return;
-                onChange({ model: nextModel.id, executionProvider: nextModel.providerId });
-              }}
-            >
-              {modelOptions.map((entry) => (
-                <option key={videoModelOptionKey(entry)} value={videoModelOptionKey(entry)}>{entry.name ? `${entry.name} (${entry.id}) - ${entry.providerLabel}` : `${entry.id} - ${entry.providerLabel}`}</option>
-              ))}
-            </select>
-          </ModelSelectWithLogo>
-          <small className="nodeConnectedHint">{videoModelHint(selectedModel, "Video model")}</small>
-        </label>
-        <label className="nodeField">
-          <span>prompt</span>
-          <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
-          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
-        </label>
-        <div className="nodeGridFields">
-          <label className="nodeField">
-            <span>resolution</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={resolution} onChange={(event) => onChange({ resolution: event.target.value })}>
-              {POLZA_VIDEO_RESOLUTIONS.map((value) => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-          <label className="nodeField">
-            <span>duration</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={duration} onChange={(event) => onChange({ duration: event.target.value })}>
-              {POLZA_VIDEO_DURATIONS.map((value) => <option key={value} value={value}>{value}s</option>)}
-            </select>
-          </label>
-        </div>
-        <details className="nodeAdvanced">
-          <summary>Advanced</summary>
-          {supportsAudio ? (
-            <label className="nodeCheckField">
-              <input className="nodrag nopan" type="checkbox" checked={generateAudio} onChange={(event) => onChange({ generate_audio: event.target.checked })} />
-              <span>sound</span>
-            </label>
-          ) : null}
-          <label className="nodeCheckField">
-            <input className="nodrag nopan" type="checkbox" checked={Boolean(params.multi_shots)} onChange={(event) => onChange({ multi_shots: event.target.checked })} />
-            <span>multi shots</span>
-          </label>
-        </details>
-      </>
-    );
-  }
-
-  if (type === "gemini.nano-banana-2") {
-    const promptConnected = connectedInputPorts.has("prompt");
-    return (
-      <>
-        <div className="nodeFixedModelLine">
-          <span>model</span>
-          <strong>gemini-3.1-flash-image-preview</strong>
-          {modelCreditBadge}
-        </div>
-        <label className="nodeField">
-          <span>prompt</span>
-          <textarea
-            className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
-            value={String(params.prompt ?? "")}
-            disabled={promptConnected}
-            onChange={(event) => updateTextParam("prompt", event)}
-          />
-          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
-        </label>
-        <div className="nodeGridFields">
-          <label className="nodeField">
-            <span>aspect ratio</span>
-            <select
-              className="nodrag nopan nodeInput nodeSelect"
-              value={String(params.aspectRatio ?? "1:1")}
-              onChange={(event) => onChange({ aspectRatio: event.target.value })}
-            >
-              {["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"].map((value) => (
-                <option key={value} value={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-          <label className="nodeField">
-            <span>quality</span>
-            <select
-              className="nodrag nopan nodeInput nodeSelect"
-              value={String(params.imageSize ?? "2K")}
-              onChange={(event) => onChange({ imageSize: event.target.value })}
-            >
-              {["1K", "2K", "4K"].map((value) => (
-                <option key={value} value={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </>
-    );
-  }
-
-  if (type === "gemini.llm") {
-    const systemPromptConnected = connectedInputPorts.has("systemPrompt");
-    const promptConnected = connectedInputPorts.has("prompt");
-    return (
-      <>
-        <label className="nodeField">
-          <span>system prompt</span>
-          <textarea
-            className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`}
-            value={String(params.systemPrompt ?? "")}
-            disabled={systemPromptConnected}
-            onChange={(event) => updateTextParam("systemPrompt", event)}
-          />
-          {systemPromptConnected ? <small className="nodeConnectedHint">System prompt comes from connected text input.</small> : null}
-        </label>
-        <label className="nodeField">
-          <span>prompt</span>
-          <textarea
-            className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
-            value={String(params.prompt ?? "")}
-            disabled={promptConnected}
-            onChange={(event) => updateTextParam("prompt", event)}
-          />
-          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
-        </label>
-        <label className="nodeField">
-          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
-          <ModelSelectWithLogo logo={modelLogoFor("gemini", String(params.model ?? "gemini-2.5-flash-lite"))}>
-            <select
-              className="nodrag nopan nodeInput nodeSelect"
-              value={String(params.model ?? "gemini-2.5-flash-lite")}
-              onChange={(event) => onChange({ model: event.target.value })}
-            >
-              {GEMINI_LLM_MODEL_OPTIONS.map((model) => (
-                <option key={model.value} value={model.value}>
-                  {llmModelOptionLabel(model.label, model.value, model.supportsVision)}
-                </option>
-              ))}
-            </select>
-          </ModelSelectWithLogo>
-          <small className="nodeConnectedHint">{geminiLlmPricingLabel(String(params.model ?? "gemini-2.5-flash-lite"))}</small>
-        </label>
-      </>
-    );
-  }
-
-  if (type === "local.stableDiffusion.textToImage") {
-    const promptConnected = connectedInputPorts.has("prompt");
-    const negativeConnected = connectedInputPorts.has("negativePrompt");
-    const endpoint = String(params.endpoint ?? "http://127.0.0.1:7860");
-    const selectedModel = String(params.model ?? "");
-    return (
-      <>
-        <label className="nodeField">
-          <span>endpoint</span>
-          <input className="nodrag nopan nodeInput" value={endpoint} onChange={(event) => updateTextParam("endpoint", event)} />
-        </label>
-        <label className="nodeField">
-          <span>model</span>
-          <ModelSelectWithLogo logo={modelLogoFor("local", selectedModel || "stable-diffusion")}>
-            <select
-              className="nodrag nopan nodeInput nodeSelect"
-              value={selectedModel}
-              onChange={(event) => onChange({ model: event.target.value })}
-            >
-              <option value="">current WebUI model</option>
-              {stableDiffusionModels.map((model) => (
-                <option key={model.title} value={model.title}>{model.title}</option>
-              ))}
-              {selectedModel && !stableDiffusionModels.some((model) => model.title === selectedModel) ? <option value={selectedModel}>{selectedModel}</option> : null}
-            </select>
-          </ModelSelectWithLogo>
-          <small className="nodeConnectedHint">Sent as sd_model_checkpoint for this request.</small>
-        </label>
-        <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => onRefreshStableDiffusionModels?.(endpoint)}>Refresh models</button>
-        {stableDiffusionModels.length === 0 ? (
-          <label className="nodeField">
-            <span>manual model</span>
-            <input className="nodrag nopan nodeInput" value={selectedModel} placeholder="Optional checkpoint title" onChange={(event) => updateTextParam("model", event)} />
-          </label>
-        ) : null}
-        <label className="nodeField">
-          <span>prompt</span>
-          <textarea
-            className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`}
-            value={String(params.prompt ?? "")}
-            disabled={promptConnected}
-            onChange={(event) => updateTextParam("prompt", event)}
-          />
-          {promptConnected ? <small className="nodeConnectedHint">Prompt comes from connected text input.</small> : null}
-        </label>
-        <label className="nodeField">
-          <span>negative</span>
-          <textarea
-            className={`nodrag nopan nodeTextarea compact ${negativeConnected ? "nodeParamDisabled" : ""}`}
-            value={String(params.negativePrompt ?? "")}
-            disabled={negativeConnected}
-            onChange={(event) => updateTextParam("negativePrompt", event)}
-          />
-        </label>
-        <div className="nodeGridFields">
-          {(["width", "height", "steps", "cfgScale", "batchSize", "seed"] as const).map((key) => (
-            <label className="nodeField" key={key}>
-              <span>{key}</span>
-              <input className="nodrag nopan nodeInput" inputMode="decimal" value={String(params[key] ?? "")} onChange={(event) => updateTextParam(key, event)} />
-            </label>
-          ))}
-        </div>
-        <label className="nodeField">
-          <span>sampler</span>
-          <input className="nodrag nopan nodeInput" value={String(params.samplerName ?? "")} onChange={(event) => updateTextParam("samplerName", event)} />
-        </label>
-      </>
-    );
-  }
-
-  if (type === "http.request") {
-    const bodyMode = String(params.bodyMode ?? "none");
-    return (
-      <>
-        <label className="nodeField">
-          <span>url</span>
-          <input className="nodrag nopan nodeInput" value={String(params.url ?? "")} onChange={(event) => updateTextParam("url", event)} />
-        </label>
-        <div className="nodeGridFields">
-          <label className="nodeField">
-            <span>method</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.method ?? "GET")} onChange={(event) => onChange({ method: event.target.value })}>
-              {["GET", "POST", "PUT", "PATCH", "DELETE"].map((method) => <option key={method} value={method}>{method}</option>)}
-            </select>
-          </label>
-          <label className="nodeField">
-            <span>response</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={String(params.responseMode ?? "json")} onChange={(event) => onChange({ responseMode: event.target.value })}>
-              {["json", "text"].map((mode) => <option key={mode} value={mode}>{mode}</option>)}
-            </select>
-          </label>
-        </div>
-        <label className="nodeField">
-          <span>headers JSON</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={formatJsonish(params.headers ?? {})} onChange={(event) => updateTextParam("headers", event)} />
-        </label>
-        <label className="nodeField">
-          <span>query JSON</span>
-          <textarea className="nodrag nopan nodeTextarea compact" value={formatJsonish(params.query ?? {})} onChange={(event) => updateTextParam("query", event)} />
-        </label>
-        <label className="nodeField">
-          <span>body mode</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={bodyMode} onChange={(event) => onChange({ bodyMode: event.target.value })}>
-            <option value="none">none</option>
-            <option value="rawJson">raw JSON</option>
-            <option value="rawText">raw text</option>
-          </select>
-        </label>
-        {bodyMode !== "none" ? (
-          <label className="nodeField">
-            <span>body</span>
-            <textarea className="nodrag nopan nodeTextarea" value={String(params.body ?? "")} onChange={(event) => updateTextParam("body", event)} />
-          </label>
-        ) : null}
-      </>
-    );
-  }
-
-  if (type === "preview.image") return null;
-
-  if (type === "preview.panorama360") {
-    return <div className="nodeHint">Connect an equirectangular 360 image, run the block, then drag the preview to look around.</div>;
-  }
-
-  if (type === "output.text") {
-    return <div className="nodeHint">Text output</div>;
-  }
-
-  if (type === "debug.log") {
-    return (
-      <>
-        <label className="nodeField">
-          <span>message</span>
-          <input className="nodrag nopan nodeInput" value={String(params.message ?? "")} onChange={(event) => updateTextParam("message", event)} />
-        </label>
-        <label className="nodeField">
-          <span>value</span>
-          <textarea className="nodrag nopan nodeTextarea" value={String(params.value ?? "")} onChange={(event) => updateTextParam("value", event)} />
-        </label>
-      </>
-    );
-  }
-
-  if (type === "output.file") {
-    return (
-      <>
-        <label className="nodeField">
-          <span>filename</span>
-          <input className="nodrag nopan nodeInput" value={String(params.filename ?? "")} onChange={(event) => updateTextParam("filename", event)} />
-        </label>
-        <label className="nodeField">
-          <span>from</span>
-          <textarea className="nodrag nopan nodeTextarea" value={String(params.from ?? "")} onChange={(event) => updateTextParam("from", event)} />
-        </label>
-      </>
-    );
-  }
-
-  if (manifest?.params?.length) {
-    return <GenericManifestParams manifest={manifest} params={params} onChange={onChange} updateTextParam={updateTextParam} />;
-  }
-
-  return null;
-}
-
-function NodeSliderParam({
-  id,
-  label,
-  min,
-  max,
-  step,
-  value,
-  onChange
-}: {
-  id: string;
-  label: string;
-  min: number;
-  max: number;
-  step: number;
-  value: number;
-  onChange: (patch: Record<string, unknown>) => void;
-}) {
-  const displayValue = formatSliderValue(value);
-  return (
-    <label className="nodeSliderField">
-      <span>{label}</span>
-      <input
-        className="nodrag nopan"
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange({ [id]: numericParam(event.target.value) })}
-      />
-      <output>{displayValue}°</output>
-    </label>
-  );
-}
-
-function GenericManifestParams({
-  manifest,
-  params,
-  onChange,
-  updateTextParam
-}: {
-  manifest: NodeManifest;
-  params: Record<string, unknown>;
-  onChange: (patch: Record<string, unknown>) => void;
-  updateTextParam: (key: string, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>, transform?: (value: string) => unknown) => void;
-}) {
-  const renderParam = (param: NonNullable<NodeManifest["params"]>[number]) => {
-    const control = manifest.ui?.params?.[param.id] ?? {};
-    const value = params[param.id] ?? param.default ?? "";
-    const label = param.label ?? param.id;
-    const options = control.options ?? [];
-    if (control.control === "slider") {
-      const parsedValue = typeof value === "number" ? value : numericParam(String(value || param.default || 0));
-      const numericValue = typeof parsedValue === "number" ? parsedValue : 0;
-      const min = control.min ?? 0;
-      const max = control.max ?? 100;
-      const step = control.step ?? 1;
-      return (
-        <label className="nodeSliderField" key={param.id}>
-          <span>{label}</span>
-          <input
-            className="nodrag nopan"
-            type="range"
-            min={min}
-            max={max}
-            step={step}
-            value={numericValue}
-            onChange={(event) => onChange({ [param.id]: numericParam(event.target.value) })}
-          />
-          <output>{numericValue}</output>
-          {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
-        </label>
-      );
-    }
-    if (options.length > 0 || control.control === "select") {
-      return (
-        <label className="nodeField" key={param.id}>
-          <span>{label}</span>
-          <select className="nodrag nopan nodeInput nodeSelect" value={String(value)} onChange={(event) => onChange({ [param.id]: event.target.value })}>
-            {options.map((option) => {
-              const optionValue = typeof option === "string" ? option : option.value;
-              const optionLabel = typeof option === "string" ? option : option.label ?? option.value;
-              return <option key={optionValue} value={optionValue}>{optionLabel}</option>;
-            })}
-          </select>
-          {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
-        </label>
-      );
-    }
-    if (param.type === "boolean" || control.control === "checkbox") {
-      return (
-        <label className="nodeCheckField" key={param.id}>
-          <input className="nodrag nopan" type="checkbox" checked={Boolean(value)} onChange={(event) => onChange({ [param.id]: event.target.checked })} />
-          <span>{label}</span>
-        </label>
-      );
-    }
-    if (param.type === "number" || control.control === "number") {
-      return (
-        <label className="nodeField" key={param.id}>
-          <span>{label}</span>
-          <input className="nodrag nopan nodeInput" inputMode="decimal" value={String(value)} onChange={(event) => updateTextParam(param.id, event, numericParam)} />
-          {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
-        </label>
-      );
-    }
-    const multiline = control.multiline === true || control.control === "textarea" || param.type === "json" || String(value).length > 80;
-    const textareaSizeClass = control.size === "large" ? "large" : control.size === "compact" ? "compact" : "";
-    return (
-      <label className="nodeField" key={param.id}>
-        <span>{label}</span>
-        {multiline ? (
-          <textarea
-            className={`nodrag nopan nodeTextarea ${textareaSizeClass}`.trim()}
-            value={typeof value === "string" ? value : JSON.stringify(value, null, 2)}
-            placeholder={control.placeholder}
-            onChange={(event) => updateTextParam(param.id, event)}
-          />
-        ) : (
-          <input className="nodrag nopan nodeInput" value={String(value)} placeholder={control.placeholder} onChange={(event) => updateTextParam(param.id, event)} />
-        )}
-        {control.helperText ?? param.description ? <small className="nodeConnectedHint">{control.helperText ?? param.description}</small> : null}
-      </label>
-    );
-  };
-  const visibleParams = (manifest.params ?? []).filter((param) => manifest.ui?.params?.[param.id]?.advanced !== true);
-  const advancedParams = (manifest.params ?? []).filter((param) => manifest.ui?.params?.[param.id]?.advanced === true);
-  const requiredEnv = manifest.permissions?.env ?? [];
-  const packageMeta = [manifest.author?.name, manifest.version, manifest.origin, manifest.source].filter(Boolean).join(" · ");
-  const renderParamList = (items: NonNullable<NodeManifest["params"]>) => {
-    const rendered: React.ReactNode[] = [];
-    for (let index = 0; index < items.length; index += 1) {
-      const param = items[index];
-      if (manifest.ui?.params?.[param.id]?.layout === "inline" && manifest.ui?.params?.[items[index + 1]?.id ?? ""]?.layout === "inline") {
-        rendered.push(
-          <div className="nodeInlineFields" key={`${param.id}-${items[index + 1].id}`}>
-            {renderParam(param)}
-            {renderParam(items[index + 1])}
-          </div>
-        );
-        index += 1;
-        continue;
-      }
-      rendered.push(renderParam(param));
-    }
-    return rendered;
-  };
-  return (
-    <>
-      {renderParamList(visibleParams)}
-      {advancedParams.length > 0 || packageMeta || requiredEnv.length > 0 ? (
-        <details className="nodeAdvanced compact">
-          <summary>Advanced</summary>
-          {requiredEnv.length > 0 ? <div className="nodeHint">Requires env: {requiredEnv.join(", ")}</div> : null}
-          {packageMeta ? <div className="nodeMetaLine nodePackageMetaLine">{packageMeta}</div> : null}
-          {renderParamList(advancedParams)}
-        </details>
-      ) : null}
-    </>
-  );
-}
-
-function composePromptPreview(params: Record<string, unknown>): string {
-  const trimParts = params.trimParts !== false;
-  const skipEmpty = params.skipEmpty !== false;
-  const separator = String(params.separator ?? "\n\n");
-  const manualText = params.manualText === undefined || params.manualText === null ? "" : String(params.manualText);
-  const slotParts = promptComposeFixedSlots().flatMap((slot) => [1, 2, 3].map((index) => ({ slot, index, raw: params[`${slot.id}${index}`] })));
-  const legacyParts = [1, 2, 3, 4, 5, 6].map((index) => ({ slot: { id: `text${index}`, label: `Text ${index}` }, index: 1, raw: params[`text${index}`] }));
-  const hasSlotParts = slotParts.some((part) => part.raw !== undefined);
-  const values = hasSlotParts ? slotParts : legacyParts;
-  const parts = [
-    { label: "Prompt", index: 1, value: trimParts ? manualText.trim() : manualText },
-    ...values
-    .map(({ slot, index, raw }) => {
-      const text = raw === undefined || raw === null ? "" : String(raw);
-      const value = trimParts ? text.trim() : text;
-      return { label: slot.label, index, value };
-    })
-  ]
-    .filter((part) => !skipEmpty || part.value !== "");
-  const body = parts
-    .map((part) => hasSlotParts && part.label !== "Prompt" ? `${part.label}${part.index > 1 ? ` ${part.index}` : ""}:\n${part.value}` : part.value)
-    .join(separator);
-  return `${String(params.prefix ?? "")}${body}${String(params.suffix ?? "")}`;
-}
-
-function promptComposeFixedSlots(): Array<{ id: string; label: string }> {
-  return [
-    { id: "subject", label: "Subject" },
-    { id: "style", label: "Style" },
-    { id: "scene", label: "Scene" }
-  ];
-}
-
-type PendingTextSelection = {
-  target: HTMLInputElement | HTMLTextAreaElement;
-  selectionStart: number | null;
-  selectionEnd: number | null;
-  selectionDirection: "forward" | "backward" | "none" | null;
-};
-
-function updateTextFieldPreservingCaret(
-  event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
-  pendingSelectionRef: React.MutableRefObject<PendingTextSelection | null>,
-  commit: (value: string) => void
-) {
-  const target = event.currentTarget;
-  pendingSelectionRef.current = {
-    target,
-    selectionStart: target.selectionStart,
-    selectionEnd: target.selectionEnd,
-    selectionDirection: target.selectionDirection
-  };
-  commit(target.value);
-}
-
-function restorePendingTextSelection(pendingSelectionRef: React.MutableRefObject<PendingTextSelection | null>) {
-  const pendingSelection = pendingSelectionRef.current;
-  pendingSelectionRef.current = null;
-  if (!pendingSelection) return;
-  const { target, selectionStart, selectionEnd, selectionDirection } = pendingSelection;
-  if (!target.isConnected || selectionStart === null || selectionEnd === null) return;
-  if (document.activeElement !== target) {
-    target.focus({ preventScroll: true });
-  }
-  const valueLength = target.value.length;
-  target.setSelectionRange(Math.min(selectionStart, valueLength), Math.min(selectionEnd, valueLength), selectionDirection ?? "none");
-}
-
-function PromptLibraryPromptCard({
-  prompt,
-  selected,
-  onSelect,
-  onContextMenu
-}: {
-  prompt: PromptLibraryPrompt;
-  selected: boolean;
-  onSelect: () => void;
-  onContextMenu?: (event: React.MouseEvent) => void;
-}) {
-  const [previewFailed, setPreviewFailed] = useState(false);
-  const previewSrc = prompt.previewImage && !previewFailed ? promptPreviewSrc(prompt) : "";
-  return (
-    <button
-      className={`nodePromptCard nodrag nopan ${previewSrc ? "withPreview" : ""} ${selected ? "selected" : ""}`}
-      type="button"
-      onClick={onSelect}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        onContextMenu?.(event);
-      }}
-      title="Right-click for prompt actions"
-    >
-      {previewSrc ? <img src={previewSrc} alt="" onError={() => setPreviewFailed(true)} /> : null}
-      <div className="nodePromptCardHeader">
-        <strong>{prompt.title}</strong>
-        <span className={`promptStatusBadge ${prompt.status ?? "published"}`}>{prompt.status ?? "published"}</span>
-      </div>
-      {prompt.description ? <span>{truncateText(prompt.description, 80)}</span> : null}
-    </button>
-  );
 }
 
 function NodeInlineResult({
@@ -4535,11 +2558,8 @@ function configureHandlerForError(message: string | undefined, handlers: Record<
 
 const nodeTypes = {
   interface: InterfaceNodeCard,
-  route: RouteNodeCard
+  route: RouteNodeCardContainer
 };
-
-const SUBROUTE_INPUT_NODE_ID = "__subroute_input__";
-const SUBROUTE_OUTPUT_NODE_ID = "__subroute_output__";
 
 function InterfaceNodeCard({ data }: NodeProps) {
   const routeNode = data.routeNode as RouteDoc["nodes"][number] | undefined;
@@ -4570,104 +2590,6 @@ function InterfaceNodeCard({ data }: NodeProps) {
     </div>
   );
 }
-
-type PortKind = "text" | "image" | "video" | "file" | "json" | "data" | "conversation_context";
-
-type ImageViewerState = {
-  src: string;
-  title: string;
-  filename: string;
-};
-
-type PromptAssetDraft = {
-  title: string;
-  slug: string;
-  category: string;
-  categoryMode: "existing" | "custom";
-  description: string;
-  tagsText: string;
-  prompt: string;
-  negativePrompt: string;
-  modelHintsText: string;
-  sourceNodeId: string;
-  sourceRouteId: string;
-  sourceRunId: string;
-  sourceOutputId: string;
-  imageSrc: string;
-  imagePath: string;
-  generalize: boolean;
-};
-
-type PendingConnectionStart = {
-  nodeId: string;
-  handleId: string;
-  handleType: "source" | "target";
-};
-
-type ConnectionNodeMenuState = {
-  clientX: number;
-  clientY: number;
-  flowPosition: { x: number; y: number };
-  sourceNodeId: string;
-  sourceHandle: string;
-};
-
-type ConnectionNodeEntry =
-  | { kind: "output"; inputPort: PortSpec }
-  | { kind: "catalog"; item: NodeCatalogItem; inputPort: PortSpec };
-
-type ContextMenuState = {
-  clientX: number;
-  clientY: number;
-  nodeId?: string;
-};
-
-type LibraryItemMenuState = {
-  clientX: number;
-  clientY: number;
-  type: string;
-  sectionId: string;
-  sectionTitle: string;
-  sectionTypes: string[];
-};
-
-type LibrarySectionMenuState = {
-  clientX: number;
-  clientY: number;
-  sectionId: string;
-  sectionTitle: string;
-  sectionTypes: string[];
-};
-
-type PromptAssetMenuState = {
-  clientX: number;
-  clientY: number;
-  nodeId: string;
-  result: NodeRunResult;
-};
-
-type PromptLibraryMenuState = {
-  clientX: number;
-  clientY: number;
-  prompt: PromptLibraryPrompt;
-};
-
-type PortSpec = {
-  id: string;
-  kind: PortKind;
-  label?: string;
-  maxConnections?: number;
-};
-
-type DialogueConnectedInput = {
-  id: string;
-  type: PortKind;
-  sourceNodeId: string;
-  sourcePort?: string;
-  preview: string;
-  value: unknown;
-  chipBackgroundAssetRef?: string;
-};
 
 function getNodePorts(type: string, manifest?: NodeManifest, routeNode?: RouteDoc["nodes"][number]): { inputs: PortSpec[]; outputs: PortSpec[] } {
   if (type === "compound.subroute") {
@@ -5070,6 +2992,96 @@ function buildStudioModelProfiles(openRouterModels: OpenRouterModel[], polzaText
   return [...byId.values()];
 }
 
+function modelInfoItems(value: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(value)) return value.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && !Array.isArray(entry)));
+  if (!value || typeof value !== "object") return [];
+  const models = (value as Record<string, unknown>).models;
+  return Array.isArray(models) ? models.filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object" && !Array.isArray(entry))) : [];
+}
+
+function isOpenRouterV1Model(record: Record<string, unknown>): boolean {
+  return record.provider === "openrouter" && stringArrayValue(record.outputTypes).some((type) => type === "text" || type === "image" || type === "video");
+}
+
+function modelInfoToOpenRouterModel(record: Record<string, unknown>): OpenRouterModel {
+  const metadata = recordValue(record.metadata);
+  const inputTypes = stringArrayValue(record.inputTypes);
+  const outputTypes = stringArrayValue(record.outputTypes);
+  const kind = typeof record.kind === "string" ? record.kind : outputTypes.includes("video") ? "video" : outputTypes.includes("image") ? "image" : "text";
+  const architecture = recordValue(record.architecture);
+  const modelId = String(record.providerModelId ?? record.id ?? "");
+  const displayName = String(record.displayName ?? record.name ?? record.title ?? record.providerModelId ?? record.id ?? "");
+  return {
+    id: modelId,
+    provider: "openrouter",
+    providerId: "openrouter",
+    kind: kind === "image" || kind === "video" || kind === "text" ? kind : "text",
+    name: displayName,
+    title: displayName,
+    capabilities: stringArrayValue(record.capabilities),
+    inputTypes,
+    outputTypes,
+    pricing: Object.keys(recordValue(record.pricing)).length ? recordValue(record.pricing) : recordValue(metadata.pricing),
+    pricingHint: typeof record.pricingHint === "string" ? record.pricingHint : undefined,
+    metadata,
+    defaultParameters: recordValue(record.defaultParameters),
+    supported_parameters: stringArrayValue(record.supported_parameters).length ? stringArrayValue(record.supported_parameters) : stringArrayValue(metadata.supportedParameters),
+    supported_aspect_ratios: stringArrayValue(record.supported_aspect_ratios).length ? stringArrayValue(record.supported_aspect_ratios) : stringArrayValue(metadata.supportedAspectRatios),
+    supported_durations: stringArrayValue(record.supported_durations).length ? stringArrayValue(record.supported_durations) : stringArrayValue(metadata.supportedDurations),
+    supported_resolutions: stringArrayValue(record.supported_resolutions).length ? stringArrayValue(record.supported_resolutions) : stringArrayValue(metadata.supportedResolutions),
+    supported_frame_image_modes: stringArrayValue(record.supported_frame_image_modes).length ? stringArrayValue(record.supported_frame_image_modes) : stringArrayValue(metadata.supportedFrameImageModes),
+    architecture: {
+      input_modalities: stringArrayValue(architecture.input_modalities).length ? stringArrayValue(architecture.input_modalities) : inputTypes,
+      output_modalities: stringArrayValue(architecture.output_modalities).length ? stringArrayValue(architecture.output_modalities) : outputTypes,
+      modality: typeof architecture.modality === "string" ? architecture.modality : undefined
+    }
+  };
+}
+
+function modelInfoToPolzaModel(record: Record<string, unknown>, type: "chat" | "image" | "video"): PolzaModel {
+  const metadata = recordValue(record.metadata);
+  const storedModelId = String(record.storedModelId ?? record.providerModelId ?? record.id ?? "");
+  const displayName = String(record.displayName ?? record.name ?? record.title ?? record.providerModelId ?? record.id ?? "");
+  const generationParameters = Array.isArray(record.generationParameters)
+    ? record.generationParameters as PolzaModel["generationParameters"]
+    : Array.isArray(record.parameters)
+      ? record.parameters as PolzaModel["generationParameters"]
+    : Array.isArray(metadata.generationParameters)
+      ? metadata.generationParameters as PolzaModel["generationParameters"]
+      : undefined;
+  return {
+    id: storedModelId,
+    name: displayName,
+    title: displayName,
+    providerId: "polza",
+    capabilities: stringArrayValue(record.capabilities),
+    inputTypes: stringArrayValue(record.inputTypes),
+    outputTypes: stringArrayValue(record.outputTypes),
+    type,
+    iconPath: typeof record.iconPath === "string" ? record.iconPath : undefined,
+    catalogModelId: typeof record.id === "string" ? record.id : undefined,
+    catalogProviderModelId: typeof record.providerModelId === "string" ? record.providerModelId : undefined,
+    catalogParameters: Array.isArray(record.parameters) ? record.parameters as PolzaModel["catalogParameters"] : undefined,
+    short_description: typeof record.short_description === "string" ? record.short_description : typeof metadata.description === "string" ? metadata.description : undefined,
+    supported_parameters: stringArrayValue(record.supported_parameters).length ? stringArrayValue(record.supported_parameters) : stringArrayValue(metadata.supportedParameters),
+    generationParameters,
+    maxImageInputs: typeof record.maxImageInputs === "number" ? record.maxImageInputs : typeof metadata.maxImageInputs === "number" ? metadata.maxImageInputs : undefined,
+    pricing: Object.keys(recordValue(record.pricing)).length ? recordValue(record.pricing) : recordValue(metadata.pricing),
+    pricingHint: typeof record.pricingHint === "string" ? record.pricingHint : undefined,
+    metadata,
+    defaultParameters: recordValue(record.defaultParameters),
+    architecture: { input_modalities: stringArrayValue(record.inputTypes), output_modalities: stringArrayValue(record.outputTypes) }
+  };
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
 function isDialogueModelProfile(profile: ModelProfile): boolean {
   const capabilities = new Set(profile.capabilities);
   if (capabilities.has("text") || capabilities.has("vision") || capabilities.has("json_output") || capabilities.has("tool_calling")) return true;
@@ -5140,9 +3152,19 @@ function connectedInputSummaries(
         sourcePort: edge.sourceHandle ?? undefined,
         preview: type === "text" ? textPreviewValue(textValue) : previewValue(value),
         value,
-        chipBackgroundAssetRef: type === "text" ? imageAssetRef(value) ?? imageAssetRef(sourceParamPreview(sourceRouteNode, edge.sourceHandle)) ?? undefined : undefined
+        chipBackgroundAssetRef: type === "text" ? imageAssetRef(value) ?? imageAssetRef(sourceParamPreview(sourceRouteNode, edge.sourceHandle)) ?? undefined : undefined,
+        sourceAccentColor: type === "text" ? sourceNodeAccentColor(sourceRouteNode) : undefined
       };
     });
+}
+
+function sourceNodeAccentColor(sourceNode: RouteDoc["nodes"][number] | undefined): string | undefined {
+  const ui = sourceNode?.ui as Record<string, unknown> | undefined;
+  const explicit = typeof ui?.accentColor === "string" ? ui.accentColor : typeof ui?.color === "string" ? ui.color : "";
+  if (/^#[0-9a-f]{3,8}$/i.test(explicit.trim())) return explicit.trim();
+  if (sourceNode?.type === "input.text" || sourceNode?.type === "library.prompt") return "#7dd3c0";
+  if (sourceNode?.type.startsWith("text.")) return "#d8b4fe";
+  return undefined;
 }
 
 function connectedDialogueInputType(targetHandle: string | null | undefined, sourceKind: PortKind): PortKind {
@@ -5394,265 +3416,6 @@ function countInputConnections(edges: Edge[], nodeId: string): Record<string, nu
   return counts;
 }
 
-function routeToFlow(route: RouteDoc): { nodes: Node[]; edges: Edge[] } {
-  return {
-    nodes: route.nodes.map((node, index) => ({
-      id: node.id,
-      type: isCompoundInterfaceType(node.type) ? "interface" : "route",
-      position: { x: Number(node.ui?.x ?? 80 + index * 240), y: Number(node.ui?.y ?? 120) },
-      data: { label: `${node.title ?? node.id}\n${node.type}`, routeNode: node }
-    })),
-    edges: route.edges.map((edge, index) => ({
-      id: edge.id ?? `${edge.from}-${edge.fromPort ?? "output"}-${edge.to}-${edge.toPort ?? "input"}-${index}`,
-      source: edge.from,
-      target: edge.to,
-      sourceHandle: edge.fromPort,
-      targetHandle: edge.toPort
-    }))
-  };
-}
-
-
-function routeNodeParamsCollapsed(node: RouteDoc["nodes"][number] | undefined): boolean {
-  return node?.ui?.paramsCollapsed === true;
-}
-
-function withRouteNodeParamsCollapsed(
-  node: RouteDoc["nodes"][number],
-  collapsed: boolean
-): RouteDoc["nodes"][number] {
-  const { paramsCollapsed: _paramsCollapsed, ...ui } = node.ui ?? {};
-  return {
-    ...node,
-    ui: collapsed ? { ...ui, paramsCollapsed: true } : ui
-  };
-}
-
-function layoutBatchPosition(
-  origin: { x: number; y: number },
-  index: number
-): { x: number; y: number } {
-  const columns = 3;
-  return {
-    x: origin.x + (index % columns) * 300,
-    y: origin.y + Math.floor(index / columns) * 220
-  };
-}
-
-function routeToEditableSubrouteFlow(route: RouteDoc, compound: RouteDoc["nodes"][number]): { nodes: Node[]; edges: Edge[] } {
-  const flow = routeToFlow(route);
-  const usedNodeIds = new Set(flow.nodes.map((node) => node.id));
-  const usedEdgeIds = new Set(flow.edges.map((edge) => edge.id));
-  const xPositions = flow.nodes.map((node) => node.position.x);
-  const minX = xPositions.length ? Math.min(...xPositions) : 80;
-  const maxX = xPositions.length ? Math.max(...xPositions) : 480;
-  const inputNodes = (compound.compound?.inputs ?? []).map((port, index) => {
-    const id = uniqueFlowId(`input_${port.id}`, usedNodeIds);
-    const routeNode: RouteDoc["nodes"][number] = {
-      id,
-      type: "compound.input",
-      title: port.label ?? port.id,
-      params: { portId: port.id, kind: port.kind ?? "data" },
-      ui: { x: minX - 340, y: 80 + index * 120 }
-    };
-    return { id, type: "interface", position: { x: Number(routeNode.ui?.x), y: Number(routeNode.ui?.y) }, data: { label: `${routeNode.title}\n${routeNode.type}`, routeNode } } as Node;
-  });
-  const outputNodes = (compound.compound?.outputs ?? []).map((port, index) => {
-    const id = uniqueFlowId(`output_${port.id}`, usedNodeIds);
-    const routeNode: RouteDoc["nodes"][number] = {
-      id,
-      type: "compound.output",
-      title: port.label ?? port.id,
-      params: { portId: port.id, kind: port.kind ?? "data" },
-      ui: { x: maxX + 340, y: 80 + index * 120 }
-    };
-    return { id, type: "interface", position: { x: Number(routeNode.ui?.x), y: Number(routeNode.ui?.y) }, data: { label: `${routeNode.title}\n${routeNode.type}`, routeNode } } as Node;
-  });
-  const inputEdges = inputNodes.flatMap((node) => {
-    const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
-    const port = (compound.compound?.inputs ?? []).find((entry) => entry.id === routeNode.params?.portId);
-    if (!port) return [];
-    return compoundMappingTargets(port).map((target) => ({
-      id: uniqueFlowId(`${node.id}-${target.nodeId}-${target.port ?? "input"}`, usedEdgeIds),
-      source: node.id,
-      sourceHandle: "value",
-      target: target.nodeId,
-      targetHandle: target.port ?? null
-    } as Edge));
-  });
-  const outputEdges = outputNodes.flatMap((node) => {
-    const routeNode = node.data.routeNode as RouteDoc["nodes"][number];
-    const port = (compound.compound?.outputs ?? []).find((entry) => entry.id === routeNode.params?.portId);
-    if (!port) return [];
-    return [{
-      id: uniqueFlowId(`${port.nodeId}-${port.port ?? "output"}-${node.id}`, usedEdgeIds),
-      source: port.nodeId,
-      sourceHandle: port.port ?? null,
-      target: node.id,
-      targetHandle: "value"
-    } as Edge];
-  });
-  return { nodes: [...inputNodes, ...flow.nodes, ...outputNodes], edges: [...inputEdges, ...flow.edges, ...outputEdges] };
-}
-
-function isSubrouteInterfaceId(id?: string | null): boolean {
-  return id === SUBROUTE_INPUT_NODE_ID || id === SUBROUTE_OUTPUT_NODE_ID || Boolean(id?.startsWith("__subroute_interface_edge__"));
-}
-
-function subrouteInterfaceKind(id?: string | null): "input" | "output" | null {
-  if (id === SUBROUTE_INPUT_NODE_ID) return "input";
-  if (id === SUBROUTE_OUTPUT_NODE_ID) return "output";
-  return null;
-}
-
-function subrouteInterfaceFlow(nodes: Node[], frame: SubrouteFrame | undefined): { nodes: Node[]; edges: Edge[] } {
-  if (!frame) return { nodes: [], edges: [] };
-  const compound = frame.parentRoute.nodes.find((node) => node.id === frame.compoundId && node.type === "compound.subroute");
-  if (!compound?.compound) return { nodes: [], edges: [] };
-
-  const inputPorts = compound.compound.inputs ?? [];
-  const outputPorts = compound.compound.outputs ?? [];
-  const xPositions = nodes.map((node) => node.position.x);
-  const yPositions = nodes.map((node) => node.position.y);
-  const minX = xPositions.length ? Math.min(...xPositions) : 80;
-  const maxX = xPositions.length ? Math.max(...xPositions) : 480;
-  const minY = yPositions.length ? Math.min(...yPositions) : 120;
-
-  const interfaceNodes: Node[] = [
-    {
-      id: SUBROUTE_INPUT_NODE_ID,
-      type: "interface",
-      position: frame.interfacePositions?.input ?? { x: minX - 340, y: minY },
-      selectable: false,
-      deletable: false,
-      data: { kind: "input", ports: inputPorts }
-    },
-    {
-      id: SUBROUTE_OUTPUT_NODE_ID,
-      type: "interface",
-      position: frame.interfacePositions?.output ?? { x: maxX + 340, y: minY },
-      selectable: false,
-      deletable: false,
-      data: { kind: "output", ports: outputPorts }
-    }
-  ];
-
-  const nodeIds = new Set(nodes.map((node) => node.id));
-  const inputEdges: Edge[] = inputPorts
-    .filter((port) => nodeIds.has(port.nodeId))
-    .map((port) => ({
-      id: `__subroute_interface_edge__input__${port.id}`,
-      source: SUBROUTE_INPUT_NODE_ID,
-      sourceHandle: port.id,
-      target: port.nodeId,
-      targetHandle: port.port ?? null,
-      selectable: false,
-      deletable: false,
-      data: { interfaceEdge: true }
-    }));
-  const outputEdges: Edge[] = outputPorts
-    .filter((port) => nodeIds.has(port.nodeId))
-    .map((port) => ({
-      id: `__subroute_interface_edge__output__${port.id}`,
-      source: port.nodeId,
-      sourceHandle: port.port ?? null,
-      target: SUBROUTE_OUTPUT_NODE_ID,
-      targetHandle: port.id,
-      selectable: false,
-      deletable: false,
-      data: { interfaceEdge: true }
-    }));
-
-  return { nodes: interfaceNodes, edges: [...inputEdges, ...outputEdges] };
-}
-
-function canImportDroppedRouteFile(file: File): boolean {
-  return /\.(orp|opt|route)(\.(json|ya?ml))?$/i.test(file.name) || /\.(json|ya?ml)$/i.test(file.name);
-}
-
-function routeImportFilename(file: File): string {
-  return file.name.replace(/\.opt(?=$|\.)/i, ".orp");
-}
-
-function uniqueFlowId(preferredId: string, usedIds: Set<string>): string {
-  if (!usedIds.has(preferredId)) {
-    usedIds.add(preferredId);
-    return preferredId;
-  }
-
-  let index = 2;
-  let candidate = `${preferredId}_${index}`;
-  while (usedIds.has(candidate)) {
-    index += 1;
-    candidate = `${preferredId}_${index}`;
-  }
-  usedIds.add(candidate);
-  return candidate;
-}
-
-function uniqueCompoundMappings(mappings: CompoundPortMapping[]): CompoundPortMapping[] {
-  const used = new Set<string>();
-  return mappings.map((mapping) => {
-    const id = uniqueFlowId(String(mapping.id || mapping.nodeId).replace(/\W+/g, "_") || "port", used);
-    return { ...mapping, id };
-  });
-}
-
-function compoundMappingTargets(mapping: CompoundPortMapping): Array<{ nodeId: string; port?: string }> {
-  const targets = mapping.targets && mapping.targets.length > 0 ? mapping.targets : [{ nodeId: mapping.nodeId, port: mapping.port }];
-  const seen = new Set<string>();
-  return targets.filter((target) => {
-    const key = `${target.nodeId}:${target.port ?? "input"}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function mergeCompoundInputMappings(mappings: CompoundPortMapping[], keyOf: (mapping: CompoundPortMapping, index: number) => string): CompoundPortMapping[] {
-  const usedIds = new Set<string>();
-  const merged: CompoundPortMapping[] = [];
-  const indexByKey = new Map<string, number>();
-
-  for (const [index, mapping] of mappings.entries()) {
-    const key = keyOf(mapping, index);
-    const existingIndex = indexByKey.get(key);
-    if (existingIndex === undefined) {
-      const id = uniqueFlowId(String(mapping.id || mapping.nodeId).replace(/\W+/g, "_") || "input", usedIds);
-      const targets = compoundMappingTargets(mapping);
-      indexByKey.set(key, merged.length);
-      merged.push({ ...mapping, id, nodeId: targets[0]?.nodeId ?? mapping.nodeId, port: targets[0]?.port ?? mapping.port, targets: targets.length > 1 ? targets : undefined });
-      continue;
-    }
-
-    const existing = merged[existingIndex];
-    const targets = compoundMappingTargets({ ...existing, targets: [...compoundMappingTargets(existing), ...compoundMappingTargets(mapping)] });
-    merged[existingIndex] = { ...existing, nodeId: targets[0]?.nodeId ?? existing.nodeId, port: targets[0]?.port ?? existing.port, targets: targets.length > 1 ? targets : undefined };
-  }
-
-  return merged;
-}
-
-function uniqueCompoundMappingsByKey(mappings: CompoundPortMapping[], keyOf: (mapping: CompoundPortMapping) => string): CompoundPortMapping[] {
-  const usedIds = new Set<string>();
-  const seenKeys = new Set<string>();
-  return mappings.flatMap((mapping) => {
-    const key = keyOf(mapping);
-    if (seenKeys.has(key)) return [];
-    seenKeys.add(key);
-    const id = uniqueFlowId(String(mapping.id || mapping.nodeId).replace(/\W+/g, "_") || "port", usedIds);
-    return [{ ...mapping, id }];
-  });
-}
-
-function chooseCompoundPorts(label: string, defaults: CompoundPortMapping[]): CompoundPortMapping[] | null {
-  if (defaults.length === 0) return [];
-  const value = window.prompt(label, defaults.map((port) => port.id).join(", "));
-  if (value === null) return null;
-  const selected = new Set(value.split(",").map((part) => part.trim()).filter(Boolean));
-  return defaults.filter((port) => selected.has(port.id));
-}
-
 function isReplicateNode(type: string): boolean {
   return type === "replicate.model" || type === "replicate.clarity-upscaler";
 }
@@ -5703,6 +3466,240 @@ function shouldShowInlineResult(type: string): boolean {
 
 function shouldShowNodeRunButton(type: string): boolean {
   return !type.startsWith("input.");
+}
+
+type CanvasButtonDraft = {
+  nodeId: string;
+  title: string;
+  packageId: string;
+  iconName: string;
+  customIconDataUrl?: string;
+  inputKind: string;
+  outputs: Array<{ id: string; kind: string; label?: string }>;
+};
+
+type CanvasButtonPanelDrag = {
+  offsetX: number;
+  offsetY: number;
+};
+
+const canvasActionIconPresets = [
+  { name: "wrench", label: "Tool", icon: "Wrench" },
+  { name: "image", label: "Image", icon: "ImageIcon" },
+  { name: "video", label: "Video", icon: "Video" },
+  { name: "audio", label: "Audio", icon: "Music" },
+  { name: "crop", label: "Crop", icon: "Crop" },
+  { name: "expand", label: "Expand", icon: "Expand" },
+  { name: "copy", label: "Copy", icon: "Copy" },
+  { name: "save", label: "Save", icon: "Save" },
+  { name: "download", label: "Download", icon: "Download" },
+  { name: "upload", label: "Upload", icon: "Upload" },
+  { name: "magic", label: "Magic", icon: "Wand2" },
+  { name: "sparkles", label: "Sparkles", icon: "Sparkles" },
+  { name: "layers", label: "Layers", icon: "Layers3" },
+  { name: "maximize", label: "Maximize", icon: "Maximize2" },
+  { name: "minimize", label: "Minimize", icon: "Minimize2" },
+  { name: "scissors", label: "Scissors", icon: "Scissors" },
+  { name: "clipboard", label: "Clipboard", icon: "Clipboard" },
+  { name: "cog", label: "Cog", icon: "Cog" },
+  { name: "settings", label: "Settings", icon: "Settings" },
+  { name: "sliders", label: "Sliders", icon: "SlidersHorizontal" },
+  { name: "palette", label: "Palette", icon: "Palette" },
+  { name: "brush", label: "Brush", icon: "Brush" },
+  { name: "pen", label: "Pen", icon: "PenTool" },
+  { name: "eraser", label: "Eraser", icon: "Eraser" },
+  { name: "type", label: "Text", icon: "Type" },
+  { name: "file-text", label: "Text File", icon: "FileText" },
+  { name: "file-json", label: "JSON File", icon: "FileJson" },
+  { name: "folder", label: "Folder", icon: "Folder" },
+  { name: "folder-open", label: "Open Folder", icon: "FolderOpen" },
+  { name: "folder-plus", label: "New Folder", icon: "FolderPlus" },
+  { name: "archive", label: "Archive", icon: "Archive" },
+  { name: "box", label: "Box", icon: "Box" },
+  { name: "package", label: "Package", icon: "Package" },
+  { name: "database", label: "Database", icon: "Database" },
+  { name: "table", label: "Table", icon: "Table" },
+  { name: "list", label: "List", icon: "List" },
+  { name: "grid", label: "Grid", icon: "Grid3X3" },
+  { name: "search", label: "Search", icon: "Search" },
+  { name: "filter", label: "Filter", icon: "Filter" },
+  { name: "eye", label: "Eye", icon: "Eye" },
+  { name: "eye-off", label: "Hide", icon: "EyeOff" },
+  { name: "zoom-in", label: "Zoom In", icon: "ZoomIn" },
+  { name: "zoom-out", label: "Zoom Out", icon: "ZoomOut" },
+  { name: "move", label: "Move", icon: "Move" },
+  { name: "rotate-left", label: "Rotate Left", icon: "RotateCcw" },
+  { name: "rotate-right", label: "Rotate Right", icon: "RotateCw" },
+  { name: "flip-horizontal", label: "Flip Horizontal", icon: "FlipHorizontal" },
+  { name: "flip-vertical", label: "Flip Vertical", icon: "FlipVertical" },
+  { name: "play", label: "Play", icon: "Play" },
+  { name: "pause", label: "Pause", icon: "Pause" },
+  { name: "stop", label: "Stop", icon: "Square" },
+  { name: "refresh", label: "Refresh", icon: "RefreshCw" },
+  { name: "repeat", label: "Repeat", icon: "Repeat" },
+  { name: "shuffle", label: "Shuffle", icon: "Shuffle" },
+  { name: "arrow-up", label: "Arrow Up", icon: "ArrowUp" },
+  { name: "arrow-down", label: "Arrow Down", icon: "ArrowDown" },
+  { name: "arrow-left", label: "Arrow Left", icon: "ArrowLeft" },
+  { name: "arrow-right", label: "Arrow Right", icon: "ArrowRight" },
+  { name: "chevrons-up", label: "Chevrons Up", icon: "ChevronsUp" },
+  { name: "chevrons-down", label: "Chevrons Down", icon: "ChevronsDown" },
+  { name: "plus", label: "Plus", icon: "Plus" },
+  { name: "minus", label: "Minus", icon: "Minus" },
+  { name: "close", label: "Close", icon: "X" },
+  { name: "check", label: "Check", icon: "Check" },
+  { name: "star", label: "Star", icon: "Star" },
+  { name: "heart", label: "Heart", icon: "Heart" },
+  { name: "bookmark", label: "Bookmark", icon: "Bookmark" },
+  { name: "flag", label: "Flag", icon: "Flag" },
+  { name: "pin", label: "Pin", icon: "Pin" },
+  { name: "link", label: "Link", icon: "Link" },
+  { name: "share", label: "Share", icon: "Share2" },
+  { name: "send", label: "Send", icon: "Send" },
+  { name: "mail", label: "Mail", icon: "Mail" },
+  { name: "message", label: "Message", icon: "MessageSquare" },
+  { name: "bell", label: "Bell", icon: "Bell" },
+  { name: "clock", label: "Clock", icon: "Clock3" },
+  { name: "calendar", label: "Calendar", icon: "Calendar" },
+  { name: "map", label: "Map", icon: "Map" },
+  { name: "map-pin", label: "Map Pin", icon: "MapPin" },
+  { name: "globe", label: "Globe", icon: "Globe" },
+  { name: "compass", label: "Compass", icon: "Compass" },
+  { name: "navigation", label: "Navigation", icon: "Navigation" },
+  { name: "camera", label: "Camera", icon: "Camera" },
+  { name: "aperture", label: "Aperture", icon: "Aperture" },
+  { name: "film", label: "Film", icon: "Film" },
+  { name: "clapperboard", label: "Clapperboard", icon: "Clapperboard" },
+  { name: "mic", label: "Mic", icon: "Mic" },
+  { name: "volume", label: "Volume", icon: "Volume2" },
+  { name: "headphones", label: "Headphones", icon: "Headphones" },
+  { name: "radio", label: "Radio", icon: "Radio" },
+  { name: "file-audio", label: "Audio File", icon: "FileAudio" },
+  { name: "file-video", label: "Video File", icon: "FileVideo" },
+  { name: "file-image", label: "Image File", icon: "FileImage" },
+  { name: "cpu", label: "CPU", icon: "Cpu" },
+  { name: "brain", label: "Brain", icon: "Brain" },
+  { name: "bot", label: "Bot", icon: "Bot" },
+  { name: "network", label: "Network", icon: "Network" },
+  { name: "git-branch", label: "Git Branch", icon: "GitBranch" },
+  { name: "route", label: "Route", icon: "Route" },
+  { name: "zap", label: "Zap", icon: "Zap" }
+];
+
+const canvasActionIconByName = new Map(canvasActionIconPresets.map((preset) => [preset.name, preset.icon]));
+const lucideIconRegistry = {
+  Aperture,
+  Archive,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Bell,
+  Bookmark,
+  Bot,
+  Box,
+  Brain,
+  Brush,
+  Calendar,
+  Camera,
+  Check,
+  ChevronsDown,
+  ChevronsUp,
+  Clapperboard,
+  Clipboard,
+  Clock3,
+  Cog,
+  Compass,
+  Copy,
+  Cpu,
+  Crop,
+  Database,
+  Download,
+  Eraser,
+  Expand,
+  Eye,
+  EyeOff,
+  FileAudio,
+  FileImage,
+  FileJson,
+  FileText,
+  FileVideo,
+  Film,
+  Filter,
+  Flag,
+  FlipHorizontal,
+  FlipVertical,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Globe,
+  Grid3X3,
+  Headphones,
+  Heart,
+  ImageIcon,
+  Layers3,
+  Link,
+  List,
+  Mail,
+  Map: MapIcon,
+  MapPin,
+  Maximize2,
+  MessageSquare,
+  Mic,
+  Minimize2,
+  Minus,
+  Move,
+  Music,
+  Navigation,
+  Network,
+  Package,
+  Palette,
+  Pause,
+  PenTool,
+  Pin,
+  Play,
+  Plus,
+  Radio,
+  RefreshCw,
+  Repeat,
+  RotateCcw,
+  RotateCw,
+  Route,
+  Save,
+  Scissors,
+  Search,
+  Send,
+  Settings,
+  Share2,
+  Shuffle,
+  SlidersHorizontal,
+  Sparkles,
+  Square,
+  Star,
+  Table,
+  Type,
+  Upload,
+  Video,
+  Volume2,
+  Wand2,
+  Wrench,
+  X,
+  Zap,
+  ZoomIn,
+  ZoomOut
+} as Record<string, React.ComponentType<{ size?: number }>>;
+
+function canvasActionIconPreset(name: string, size = 18) {
+  const iconKey = canvasActionIconByName.get(name) ?? "Wrench";
+  const Icon = lucideIconRegistry[iconKey] ?? Wrench;
+  return <Icon size={size} />;
+}
+
+function defaultCanvasActionIconName(inputKind: string): string {
+  if (inputKind === "image") return "image";
+  if (inputKind === "video") return "video";
+  if (inputKind === "audio") return "audio";
+  return "wrench";
 }
 
 function nodeIcon(type: string) {
@@ -5872,54 +3869,6 @@ function parseBundledDefaultRoute(): RouteDoc {
   }
 }
 
-function loadLibraryNodeMetadata(): LibraryNodeMetadata {
-  try {
-    const text = localStorage.getItem(LIBRARY_NODE_METADATA_STORAGE_KEY);
-    if (!text) return {};
-    const parsed = JSON.parse(text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed as Record<string, unknown>).flatMap(([id, value]) => {
-        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
-        const record = value as { status?: unknown; order?: unknown };
-        const status = isLibraryNodeStatus(record.status) ? record.status : undefined;
-        const order = typeof record.order === "number" && Number.isFinite(record.order) ? record.order : undefined;
-        return [[id, { status, order }]];
-      })
-    );
-  } catch {
-    return {};
-  }
-}
-
-function saveLibraryNodeMetadata(metadata: LibraryNodeMetadata): void {
-  try {
-    localStorage.setItem(LIBRARY_NODE_METADATA_STORAGE_KEY, JSON.stringify(metadata));
-  } catch {
-    // Metadata is a UI convenience; route editing should keep working if storage is unavailable.
-  }
-}
-
-function isLibraryNodeStatus(value: unknown): value is LibraryNodeStatus {
-  return typeof value === "string" && libraryNodeStatuses.some((status) => status.id === value);
-}
-
-function libraryNodeStatusLabel(status: LibraryNodeStatus): string {
-  return libraryNodeStatuses.find((item) => item.id === status)?.label ?? status;
-}
-
-function defaultLibraryNodeStatus(node: NodeManifest): LibraryNodeStatus {
-  return node.enabled === false ? "archived" : "candidate";
-}
-
-function libraryNodeStatus(node: NodeManifest, metadata: LibraryNodeMetadata): LibraryNodeStatus {
-  return metadata[node.id]?.status ?? defaultLibraryNodeStatus(node);
-}
-
-function libraryNodeOrder(node: NodeManifest, metadata: LibraryNodeMetadata, fallbackOrder: number): number {
-  return metadata[node.id]?.order ?? fallbackOrder;
-}
-
 function flowToNodeRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc, targetNodeId: string): RouteDoc {
   const included = new Set<string>([targetNodeId]);
   let changed = true;
@@ -6021,6 +3970,7 @@ function App() {
   const initialRouteState = useMemo(() => loadInitialRoute(), []);
   const initial = useMemo(() => routeToFlow(initialRouteState.route), [initialRouteState.route]);
   const canvasRef = useRef<HTMLElement | null>(null);
+  const promptAssetMenuRef = useRef<HTMLDivElement | null>(null);
   const [routeBase, setRouteBase] = useState<RouteDoc>(initialRouteState.route);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
@@ -6056,6 +4006,8 @@ function App() {
   const [openRouterToken, setOpenRouterToken] = useState("");
   const [openRouterSettings, setOpenRouterSettings] = useState<OpenRouterSettings>({ configured: false });
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
+  const [catalogImageModels, setCatalogImageModels] = useState<UnifiedModelInfo[] | null>(null);
+  const [modelOptionsForNodes, setModelOptionsForNodes] = useState<Record<string, ModelOptionForNodeV1[] | undefined>>({});
   const [polzaTextModels, setPolzaTextModels] = useState<PolzaModel[]>([]);
   const [polzaImageModels, setPolzaImageModels] = useState<PolzaModel[]>([]);
   const [polzaVideoModels, setPolzaVideoModels] = useState<PolzaModel[]>([]);
@@ -6077,6 +4029,7 @@ function App() {
   const [shuttingDown, setShuttingDown] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
   const [canvasBackgroundTheme, setCanvasBackgroundTheme] = useState<CanvasBackgroundTheme>(() => loadCanvasBackgroundTheme());
+  const [routeMiniMapCollapsed, setRouteMiniMapCollapsed] = useState(false);
   const [systemUpdateStatus, setSystemUpdateStatus] = useState<SystemUpdateStatus | null>(null);
   const [systemUpdating, setSystemUpdating] = useState(false);
   const [pendingBrowse, setPendingBrowse] = useState<{ nodeId: string; kind: AssetKind } | null>(null);
@@ -6125,6 +4078,12 @@ function App() {
   const [promptAssetDraft, setPromptAssetDraft] = useState<PromptAssetDraft | null>(null);
   const [promptAssetError, setPromptAssetError] = useState("");
   const [promptAssetSaving, setPromptAssetSaving] = useState(false);
+  const [canvasButtonDraft, setCanvasButtonDraft] = useState<CanvasButtonDraft | null>(null);
+  const [canvasButtonSaving, setCanvasButtonSaving] = useState(false);
+  const [canvasButtonError, setCanvasButtonError] = useState("");
+  const [canvasButtonIconPickerOpen, setCanvasButtonIconPickerOpen] = useState(false);
+  const [canvasButtonPanelPosition, setCanvasButtonPanelPosition] = useState<{ x: number; y: number } | null>(null);
+  const [canvasButtonPanelDrag, setCanvasButtonPanelDrag] = useState<CanvasButtonPanelDrag | null>(null);
   const [routeStack, setRouteStack] = useState<SubrouteFrame[]>([]);
   const supportsLocalFilesystem = capabilities.supportsLocalFilesystem;
   const isCloudMode = capabilities.mode === "cloud";
@@ -6145,6 +4104,29 @@ function App() {
   }, [nodes, quoteRefreshTick]);
 
   useEffect(() => {
+    if (!canvasButtonPanelDrag) return;
+    const drag = canvasButtonPanelDrag;
+    function handlePointerMove(event: PointerEvent) {
+      const panel = document.querySelector<HTMLElement>(".canvasButtonPanel");
+      const width = panel?.offsetWidth ?? 620;
+      const height = panel?.offsetHeight ?? 360;
+      setCanvasButtonPanelPosition({
+        x: Math.max(12, Math.min(window.innerWidth - width - 12, event.clientX - drag.offsetX)),
+        y: Math.max(12, Math.min(window.innerHeight - height - 12, event.clientY - drag.offsetY))
+      });
+    }
+    function handlePointerUp() {
+      setCanvasButtonPanelDrag(null);
+    }
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [canvasButtonPanelDrag]);
+
+  useEffect(() => {
     if (isAdmin) void loadAdminOverview();
     else setAdminOverview(null);
   }, [isAdmin]);
@@ -6156,6 +4138,30 @@ function App() {
   useEffect(() => {
     saveCanvasBackgroundTheme(canvasBackgroundTheme);
   }, [canvasBackgroundTheme]);
+
+  useEffect(() => {
+    if (!promptAssetMenu) return;
+
+    const animationFrame = window.requestAnimationFrame(() => promptAssetMenuRef.current?.focus());
+    const closeIfOutside = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Node && promptAssetMenuRef.current?.contains(target)) return;
+      setPromptAssetMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPromptAssetMenu(null);
+    };
+
+    window.addEventListener("pointerdown", closeIfOutside, true);
+    window.addEventListener("focusin", closeIfOutside, true);
+    window.addEventListener("keydown", closeOnEscape, true);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("pointerdown", closeIfOutside, true);
+      window.removeEventListener("focusin", closeIfOutside, true);
+      window.removeEventListener("keydown", closeOnEscape, true);
+    };
+  }, [promptAssetMenu]);
 
   useEffect(() => {
     function handleUndoKey(event: KeyboardEvent) {
@@ -6267,71 +4273,80 @@ function App() {
   );
   const displayNodes = useMemo(
     () =>
-      nodes.map((node) => ({
-        ...node,
-        data: {
-          ...node.data,
-          manifest: nodeCatalog.find((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type))?.manifest,
-          isMissingNode: !isKnownBuiltInPortType(String((node.data.routeNode as RouteDoc["nodes"][number]).type)) && !nodeCatalog.some((item) => item.type === String((node.data.routeNode as RouteDoc["nodes"][number]).type)),
-          onParamsChange: updateNodeParams,
-          onParamsCollapsedChange: updateNodeParamsCollapsed,
-          paramsCollapsed: routeNodeParamsCollapsed(node.data.routeNode as RouteDoc["nodes"][number]),
-          onBrowseAsset: browseAsset,
-          onConfigureReplicate: openReplicateSettings,
-          onConfigureGemini: openGeminiSettings,
-          onConfigureOpenAi: openOpenAiSettings,
-          onConfigureSeedance: openSeedanceSettings,
-          onConfigureWorldLabs: openWorldLabsSettings,
-          onConfigurePolza: openPolzaSettings,
-          onConfigureOpenRouter: openOpenRouterSettings,
-          onOpenImage: setImageViewer,
-          onDownloadImage: downloadImageSrc,
-          onImageResultContextMenu: supportsLocalFilesystem ? openPromptAssetMenu : undefined,
-          onFixNodeOutput: fixNodeOutput,
-          onRunNodeOnly: runNodeOnly,
-          onRunNodeWithDependencies: runNodeWithDependencies,
-          onOpenSubroute: openSubroute,
-          onOpenDialogueWorkbench: openDialogueWorkbench,
-          onUncollapse: uncollapseCompoundNode,
-          onNodeUiChange: updateNodeUi,
-          onPublishNodeOutput: publishNodeOutput,
-          onRefreshPromptLibrary: refreshPromptLibraryData,
-          promptStatusFilter: promptLibraryStatusFilter,
-          onPromptStatusFilterChange: setPromptLibraryStatusFilter,
-          onPromptContextMenu: supportsLocalFilesystem ? openPromptLibraryMenu : undefined,
-          onRefreshStableDiffusionModels: refreshStableDiffusionModels,
-          supportsLocalFilesystem,
-          costEstimate: runCostEstimate?.estimates.find((estimate) => estimate.nodeId === node.id),
-          connectedInputPorts: edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle).filter((handle): handle is string => Boolean(handle)),
-          connectedInputCounts: inputConnectionCountsForActiveEdges(node.id, edges, activeEdgeIds),
-          resizeInputImage: String((node.data.routeNode as RouteDoc["nodes"][number]).type) === "transform.imageResize"
-            ? readyPreviewImageInput(node.data.routeNode as RouteDoc["nodes"][number], nodes, edges, runResult)?.value
-            : undefined,
-          chooseCameraInputImage: String((node.data.routeNode as RouteDoc["nodes"][number]).type) === "transform.chooseCameraPoint"
-            ? readyPreviewImageInput(node.data.routeNode as RouteDoc["nodes"][number], nodes, edges, runResult)?.value
-            : undefined,
-          canRunNodeOnly: canRunNodeOnly(node.id),
-          promptLibrary,
-          stableDiffusionModels,
-          openRouterConfigured: openRouterSettings.configured,
-          openRouterModels,
-          modelProfiles,
-          polzaConfigured,
-          polzaTextModels,
-          polzaImageModels,
-          polzaVideoModels,
-          quotePreview: modelQuotePreviews[node.id],
-          onRefreshPricing: refreshPricingCatalog,
-          creditBalance: currentUser ? creditBalance : null,
-          openAiConfigured,
-          seedanceConfigured,
-          seedanceStatusText: seedanceSettings.statusText,
-          replicateConfigured,
-          geminiConfigured,
-          result: staleResultNodeIds.has(node.id) ? undefined : readyNodeResult(node.data.routeNode as RouteDoc["nodes"][number], runResult?.nodeResults?.[node.id], nodes, edges, runResult)
+      nodes.map((node) => {
+        const routeNode = node.data.routeNode as RouteDoc["nodes"][number] | undefined;
+        const nodeType = String(routeNode?.type ?? "");
+        const manifest = nodeCatalog.find((item) => item.type === nodeType)?.manifest;
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            manifest,
+            isMissingNode: Boolean(nodeType) && !isKnownBuiltInPortType(nodeType) && !nodeCatalog.some((item) => item.type === nodeType),
+            onParamsChange: updateNodeParams,
+            onParamsCollapsedChange: updateNodeParamsCollapsed,
+            paramsCollapsed: routeNodeParamsCollapsed(routeNode),
+            onBrowseAsset: browseAsset,
+            onConfigureReplicate: openReplicateSettings,
+            onConfigureGemini: openGeminiSettings,
+            onConfigureOpenAi: openOpenAiSettings,
+            onConfigureSeedance: openSeedanceSettings,
+            onConfigureWorldLabs: openWorldLabsSettings,
+            onConfigurePolza: openPolzaSettings,
+            onConfigureOpenRouter: openOpenRouterSettings,
+            onOpenImage: setImageViewer,
+            onDownloadImage: downloadImageSrc,
+            onImageResultContextMenu: supportsLocalFilesystem ? openPromptAssetMenu : undefined,
+            onFixNodeOutput: fixNodeOutput,
+            renderInlineResult: (props: RouteNodeInlineResultRenderProps) => <NodeInlineResult {...props} />,
+            renderChooseCameraPointParams: (props: ChooseCameraPointParamsRenderProps) => <ChooseCameraPointParams {...props} />,
+            onRunNodeOnly: runNodeOnly,
+            onRunNodeWithDependencies: runNodeWithDependencies,
+            onOpenSubroute: openSubroute,
+            onOpenDialogueWorkbench: openDialogueWorkbench,
+            onUncollapse: uncollapseCompoundNode,
+            onNodeUiChange: updateNodeUi,
+            onPublishNodeOutput: publishNodeOutput,
+            onRefreshPromptLibrary: refreshPromptLibraryData,
+            promptStatusFilter: promptLibraryStatusFilter,
+            onPromptStatusFilterChange: setPromptLibraryStatusFilter,
+            onPromptContextMenu: supportsLocalFilesystem ? openPromptLibraryMenu : undefined,
+            onRefreshStableDiffusionModels: refreshStableDiffusionModels,
+            supportsLocalFilesystem,
+            costEstimate: runCostEstimate?.estimates.find((estimate) => estimate.nodeId === node.id),
+            connectedInputPorts: edges.filter((edge) => edge.target === node.id).map((edge) => edge.targetHandle).filter((handle): handle is string => Boolean(handle)),
+            connectedInputCounts: inputConnectionCountsForActiveEdges(node.id, edges, activeEdgeIds),
+            resizeInputImage: nodeType === "transform.imageResize" && routeNode
+              ? readyPreviewImageInput(routeNode, nodes, edges, runResult)?.value
+              : undefined,
+            chooseCameraInputImage: nodeType === "transform.chooseCameraPoint" && routeNode
+              ? readyPreviewImageInput(routeNode, nodes, edges, runResult)?.value
+              : undefined,
+            canRunNodeOnly: canRunNodeOnly(node.id),
+            promptLibrary,
+            stableDiffusionModels,
+            openRouterConfigured: openRouterSettings.configured,
+            openRouterModels,
+            catalogImageModels,
+            modelOptionsForNodes,
+            modelProfiles,
+            polzaConfigured,
+            polzaTextModels,
+            polzaImageModels,
+            polzaVideoModels,
+            quotePreview: modelQuotePreviews[node.id],
+            onRefreshPricing: refreshPricingCatalog,
+            creditBalance: currentUser ? creditBalance : null,
+            openAiConfigured,
+            seedanceConfigured,
+            seedanceStatusText: seedanceSettings.statusText,
+            replicateConfigured,
+            geminiConfigured,
+            result: !routeNode || staleResultNodeIds.has(node.id) ? undefined : readyNodeResult(routeNode, runResult?.nodeResults?.[node.id], nodes, edges, runResult)
+          }
         }
-      })),
-    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
+      }),
+    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, catalogImageModels, modelOptionsForNodes, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
@@ -6342,6 +4357,8 @@ function App() {
     void loadSettings();
     void loadSystemUpdateStatus();
     void loadProviderLinks();
+    void loadCatalogImageModels();
+    void loadModelOptionsForNodes();
     void loadOpenRouterModels();
     void loadPolzaModels();
     void loadNodeCatalog();
@@ -6687,16 +4704,38 @@ function App() {
     }
   }
 
+  async function loadCatalogImageModels() {
+    try {
+      const models = await fetchImageCatalogModels();
+      setCatalogImageModels(models.length > 0 ? models : null);
+      if (models.length > 0) setLogs((current) => [`Image model catalog loaded: ${models.length} models.`, ...current]);
+    } catch {
+      setCatalogImageModels(null);
+    }
+  }
+
+  async function loadModelOptionsForNodes() {
+    const nodeTypes = ["polza.image.generate", "polza.text", "polza.video.generate", "ai.image.generate", "ai.text"];
+    try {
+      const entries = await Promise.all(nodeTypes.map(async (nodeType) => [nodeType, await fetchModelsForNode(nodeType)] as const));
+      setModelOptionsForNodes(Object.fromEntries(entries));
+      const total = entries.reduce((sum, [, models]) => sum + models.length, 0);
+      if (total > 0) setLogs((current) => [`Model Catalog V1 node options loaded: ${total} options.`, ...current]);
+    } catch {
+      setModelOptionsForNodes({});
+    }
+  }
+
   async function loadOpenRouterModels() {
     try {
-      const response = await fetch(`${apiBase}/api/providers/openrouter/models`);
+      const response = await fetch(`${apiBase}/api/models/v1`);
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "OpenRouter model cache unavailable.");
-      setOpenRouterModels(Array.isArray(result.models) ? result.models : []);
-      const sourceCounts = result.sourceCounts ? ` (/models: ${result.sourceCounts.models ?? 0}, /videos/models: ${result.sourceCounts.videoModels ?? 0})` : "";
-      const klingModels = Array.isArray(result.models) ? result.models.filter((model: OpenRouterModel) => /kling/i.test(`${model.id} ${model.name ?? ""}`)) : [];
-      if (klingModels.length > 0) setLogs((current) => [`OpenRouter catalog Kling models: ${klingModels.map((model: OpenRouterModel) => `${model.id} [${model.kind ?? "unknown"}]`).join(", ")}`, ...current]);
-      if (sourceCounts) setLogs((current) => [`OpenRouter catalog loaded${sourceCounts}.`, ...current]);
+      if (!response.ok) throw new Error(result.error ?? "Model Catalog V1 unavailable.");
+      const models = modelInfoItems(result).filter(isOpenRouterV1Model).map(modelInfoToOpenRouterModel);
+      setOpenRouterModels(models);
+      const videoModels = models.filter((model: OpenRouterModel) => model.outputTypes?.includes("video"));
+      if (videoModels.length > 0) setLogs((current) => [`OpenRouter V1 video models: ${videoModels.map((model: OpenRouterModel) => `${model.id} [${model.kind ?? "unknown"}]`).join(", ")}`, ...current]);
+      if (models.length > 0) setLogs((current) => [`OpenRouter Model Catalog V1 loaded: ${models.length} models.`, ...current]);
     } catch {
       setOpenRouterModels([]);
     }
@@ -6705,14 +4744,14 @@ function App() {
   async function loadPolzaModels() {
     try {
       const [textResponse, imageResponse, videoResponse] = await Promise.all([
-        fetch(`${apiBase}/api/providers/polza/models?type=chat`),
-        fetch(`${apiBase}/api/providers/polza/models?type=image`),
-        fetch(`${apiBase}/api/providers/polza/models?type=video`)
+        fetch(`${apiBase}/api/models/for-node/polza.text`),
+        fetch(`${apiBase}/api/models/for-node/polza.image.generate`),
+        fetch(`${apiBase}/api/models/for-node/polza.video.generate`)
       ]);
       const [textResult, imageResult, videoResult] = await Promise.all([textResponse.json(), imageResponse.json(), videoResponse.json()]);
-      setPolzaTextModels(textResponse.ok && Array.isArray(textResult.models) ? textResult.models : []);
-      setPolzaImageModels(imageResponse.ok && Array.isArray(imageResult.models) ? imageResult.models : []);
-      setPolzaVideoModels(videoResponse.ok && Array.isArray(videoResult.models) ? videoResult.models : []);
+      setPolzaTextModels(textResponse.ok ? modelInfoItems(textResult).map((model) => modelInfoToPolzaModel(model, "chat")) : []);
+      setPolzaImageModels(imageResponse.ok ? modelInfoItems(imageResult).map((model) => modelInfoToPolzaModel(model, "image")) : []);
+      setPolzaVideoModels(videoResponse.ok ? modelInfoItems(videoResult).map((model) => modelInfoToPolzaModel(model, "video")) : []);
     } catch {
       setPolzaTextModels([]);
       setPolzaImageModels([]);
@@ -9228,8 +7267,27 @@ function App() {
     return title.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, ".").replace(/^[._-]+|[._-]+$/g, "") || "custom.compound";
   }
 
-  function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string): NodeManifest {
+  function compoundCanvasActionEligible(compoundNode: RouteDoc["nodes"][number]): boolean {
+    const inputs = compoundNode.compound?.inputs ?? [];
+    const outputs = compoundNode.compound?.outputs ?? [];
+    return inputs.length === 1
+      && canvasActionPortKind(String(inputs[0].kind ?? "json"))
+      && outputs.length > 0
+      && outputs.every((output) => canvasActionPortKind(String(output.kind ?? "json")));
+  }
+
+  function canvasActionPortKind(kind: string): boolean {
+    return kind === "image" || kind === "video" || kind === "audio" || kind === "text";
+  }
+
+  function canvasActionInputKind(compoundNode: RouteDoc["nodes"][number]): string {
+    return String(compoundNode.compound?.inputs?.[0]?.kind ?? "json");
+  }
+
+  function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string, options: { canvasAction?: { enabled: boolean; icon?: NonNullable<NodeManifest["canvasAction"]>["icon"] } } = {}): NodeManifest {
     const compound = compoundNode.compound ?? {};
+    const inputs = (compound.inputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
+    const outputs = (compound.outputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
     return {
       kind: "snarkroute.node",
       schemaVersion: "0.1",
@@ -9244,8 +7302,16 @@ function App() {
       description: `Generated from compound route "${compound.title ?? compoundNode.title ?? compoundNode.id}".`,
       permissions: { network: false, networkHosts: [], readFiles: false, writeOutputs: false, shell: false, env: [] },
       executor: { type: "declarative" },
-      inputs: (compound.inputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id })),
-      outputs: (compound.outputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id })),
+      inputs,
+      outputs,
+      ...(options.canvasAction?.enabled ? {
+        canvasAction: {
+          enabled: true,
+          title,
+          description: `Run "${title}" from the Living Canvas node toolbar.`,
+          icon: options.canvasAction.icon ?? { kind: "preset", name: "wrench" }
+        }
+      } : {}),
       generatedWith: {
         tool: "snarkroute-studio",
         kind: "compound.subroute",
@@ -9278,6 +7344,114 @@ function App() {
       setLogs((current) => [`Saved compound as node package ${id}.`, ...current]);
     } catch (error) {
       setLogs((current) => [`Save node package failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  function openCompoundNodeCanvasButtonPanel(nodeId: string) {
+    setContextMenu(null);
+    setCanvasButtonError("");
+    setCanvasButtonIconPickerOpen(false);
+    setCanvasButtonPanelPosition(null);
+    setCanvasButtonPanelDrag(null);
+    const flowNode = nodes.find((node) => node.id === nodeId);
+    const compoundNode = flowNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode)) return;
+    const inputKind = canvasActionInputKind(compoundNode);
+    const title = compoundNode.compound?.title ?? compoundNode.title ?? "Canvas Action";
+    setCanvasButtonDraft({
+      nodeId,
+      title,
+      packageId: makeNodePackageId(title),
+      iconName: defaultCanvasActionIconName(inputKind),
+      inputKind,
+      outputs: (compoundNode.compound?.outputs ?? []).map((output) => ({ id: output.id, kind: String(output.kind ?? "json"), label: output.label }))
+    });
+  }
+
+  function canvasButtonManifestFromDraft(draft: CanvasButtonDraft): NodeManifest | null {
+    const flowNode = nodes.find((node) => node.id === draft.nodeId);
+    const compoundNode = flowNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    const title = draft.title.trim();
+    const id = draft.packageId.trim();
+    if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode) || !title || !id) return null;
+    const icon = draft.customIconDataUrl
+      ? { kind: "custom" as const, dataUrl: draft.customIconDataUrl }
+      : { kind: "preset" as const, name: draft.iconName };
+    return nodeManifestFromCompoundNode(compoundNode, id, title, { canvasAction: { enabled: true, icon } });
+  }
+
+  function selectCanvasButtonPresetIcon(iconName: string) {
+    setCanvasButtonDraft((draft) => draft ? { ...draft, iconName, customIconDataUrl: undefined } : draft);
+    setCanvasButtonIconPickerOpen(false);
+  }
+
+  function selectCanvasButtonCustomIcon(file: File | null) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setCanvasButtonError("Choose an image file for the custom icon.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl) {
+        setCanvasButtonError("Could not read custom icon.");
+        return;
+      }
+      setCanvasButtonDraft((draft) => draft ? { ...draft, customIconDataUrl: dataUrl } : draft);
+      setCanvasButtonIconPickerOpen(false);
+      setCanvasButtonError("");
+    };
+    reader.onerror = () => setCanvasButtonError("Could not read custom icon.");
+    reader.readAsDataURL(file);
+  }
+
+  function beginCanvasButtonPanelDrag(event: React.PointerEvent<HTMLElement>) {
+    if (event.button !== 0) return;
+    const panel = event.currentTarget.closest<HTMLElement>(".canvasButtonPanel");
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    setCanvasButtonPanelPosition({ x: rect.left, y: rect.top });
+    setCanvasButtonPanelDrag({ offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top });
+  }
+
+  function exportCanvasButtonDraft() {
+    if (!canvasButtonDraft) return;
+    const manifest = canvasButtonManifestFromDraft(canvasButtonDraft);
+    if (!manifest) {
+      setCanvasButtonError("Fill in title and package id before exporting.");
+      return;
+    }
+    downloadBlob(new Blob([`${JSON.stringify(manifest, null, 2)}\n`], { type: "application/json" }), `${manifest.id}.node.json`);
+    setLogs((current) => [`Exported Living Canvas button package ${manifest.id}.`, ...current]);
+  }
+
+  async function installCanvasButtonDraft() {
+    if (!canvasButtonDraft) return;
+    const manifest = canvasButtonManifestFromDraft(canvasButtonDraft);
+    if (!manifest) {
+      setCanvasButtonError("Fill in title and package id before creating the button.");
+      return;
+    }
+    setCanvasButtonSaving(true);
+    setCanvasButtonError("");
+    try {
+      const response = await fetch(`${apiBase}/api/node-packages/install-generated`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manifest })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
+      await loadNodeCatalog();
+      setCanvasButtonDraft(null);
+      setLogs((current) => [`Created Living Canvas ${canvasButtonDraft.inputKind} button ${manifest.id}.`, ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCanvasButtonError(message);
+      setLogs((current) => [`Create Living Canvas button failed: ${message}`, ...current]);
+    } finally {
+      setCanvasButtonSaving(false);
     }
   }
 
@@ -9727,6 +7901,26 @@ function App() {
           {canvasThemeConfig.reactFlowBackground === "dots" ? (
             <Background id="canvas-dots" variant={BackgroundVariant.Dots} color="rgba(130, 146, 170, 0.34)" bgColor="transparent" gap={24} size={2.5} />
           ) : null}
+          <button
+            className={`routeMiniMapToggle nodrag nopan${routeMiniMapCollapsed ? " isCollapsed" : ""}`}
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => setRouteMiniMapCollapsed((value) => !value)}
+            title={routeMiniMapCollapsed ? "Show mini map" : "Hide mini map"}
+          >
+            {routeMiniMapCollapsed ? "Map" : "Hide"}
+          </button>
+          {!routeMiniMapCollapsed ? (
+            <MiniMap
+              className="routeMiniMap"
+              maskColor="rgba(5, 7, 10, 0.58)"
+              nodeColor={(node) => highlightedNodeIds.has(node.id) ? "#7dd3c0" : "#465266"}
+              nodeStrokeColor={(node) => highlightedNodeIds.has(node.id) ? "#d7fff3" : "#94a3b8"}
+              nodeBorderRadius={4}
+              pannable
+              zoomable
+            />
+          ) : null}
         </ReactFlow>
         {activeDialogueRouteNode?.type === "dialogue.workbench" ? (
           <DialogueWorkbenchEditor
@@ -9766,6 +7960,9 @@ function App() {
                     <button onClick={() => { openSubroute(contextMenu.nodeId!); setContextMenu(null); }}>Open Internal Tool Route</button>
                     <button onClick={() => { uncollapseCompoundNode(contextMenu.nodeId!); setContextMenu(null); }}>Uncollapse</button>
                     <button onClick={() => void saveCompoundNodeAsPackage(contextMenu.nodeId!)}>Save as Block Package</button>
+                    {compoundCanvasActionEligible(contextRouteNode) ? (
+                      <button onClick={() => openCompoundNodeCanvasButtonPanel(contextMenu.nodeId!)}>Create Living Canvas Button</button>
+                    ) : null}
                   </>
                 ) : null}
                 {contextRouteNode?.type === "dialogue.workbench" ? (
@@ -9780,6 +7977,123 @@ function App() {
                 <button disabled={nodes.length === 0 && edges.length === 0} onClick={() => { clearCanvas(); setContextMenu(null); }}>Clear Canvas</button>
               </>
             )}
+          </div>
+        ) : null}
+        {canvasButtonDraft ? (
+          <div className="canvasButtonOverlay" role="dialog" aria-modal="true" aria-label="Create Living Canvas Button" onMouseDown={() => setCanvasButtonDraft(null)}>
+            <form
+              className="canvasButtonPanel"
+              style={canvasButtonPanelPosition ? { left: canvasButtonPanelPosition.x, top: canvasButtonPanelPosition.y } : undefined}
+              onMouseDown={(event) => event.stopPropagation()}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void installCanvasButtonDraft();
+              }}
+            >
+              <header className="canvasButtonHeader" onPointerDown={beginCanvasButtonPanelDrag}>
+                <div>
+                  <h2>Create Living Canvas Button</h2>
+                  <p>One input becomes the button type; outputs become new canvas nodes.</p>
+                </div>
+                <button type="button" className="iconButton" title="Close" onPointerDown={(event) => event.stopPropagation()} onClick={() => setCanvasButtonDraft(null)}>
+                  <X size={16} />
+                </button>
+              </header>
+              <div className="canvasButtonFields">
+                <label>
+                  <span>Button title</span>
+                  <input
+                    value={canvasButtonDraft.title}
+                    onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, title: event.target.value } : draft)}
+                    autoFocus
+                  />
+                </label>
+                <label>
+                  <span>Package id</span>
+                  <input
+                    value={canvasButtonDraft.packageId}
+                    onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, packageId: event.target.value } : draft)}
+                    spellCheck={false}
+                  />
+                </label>
+              </div>
+              <div className="canvasButtonTypes">
+                <div>
+                  <span>Input</span>
+                  <strong className={`canvasButtonTypePill type-${canvasButtonDraft.inputKind}`}>{canvasButtonDraft.inputKind}</strong>
+                </div>
+                <div>
+                  <span>Outputs</span>
+                  <div className="canvasButtonOutputList">
+                    {canvasButtonDraft.outputs.map((output) => (
+                      <strong className={`canvasButtonTypePill type-${output.kind}`} key={`${output.id}-${output.kind}`} title={output.label ?? output.id}>
+                        {output.kind}
+                      </strong>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <section className="canvasButtonIconSection" aria-label="Button icon">
+                <span>Icon</span>
+                <div className="canvasButtonIconPicker">
+                  <button
+                    className="canvasButtonIconPreview"
+                    type="button"
+                    title="Choose icon"
+                    aria-label="Choose icon"
+                    aria-expanded={canvasButtonIconPickerOpen}
+                    onClick={() => setCanvasButtonIconPickerOpen((value) => !value)}
+                  >
+                    {canvasButtonDraft.customIconDataUrl ? (
+                      <img src={canvasButtonDraft.customIconDataUrl} alt="" />
+                    ) : (
+                      canvasActionIconPreset(canvasButtonDraft.iconName, 22)
+                    )}
+                  </button>
+                  {canvasButtonIconPickerOpen ? (
+                    <div className="canvasButtonIconPopover" onMouseDown={(event) => event.stopPropagation()}>
+                      <label className={`canvasButtonCustomIcon ${canvasButtonDraft.customIconDataUrl ? "selected" : ""}`}>
+                        {canvasButtonDraft.customIconDataUrl ? <img src={canvasButtonDraft.customIconDataUrl} alt="" /> : <ImageIcon size={18} />}
+                        Upload custom icon
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) => {
+                            selectCanvasButtonCustomIcon(event.target.files?.[0] ?? null);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                      <div className="canvasButtonIconGrid">
+                        {canvasActionIconPresets.map((preset) => (
+                          <button
+                            className={`canvasButtonIconChoice${!canvasButtonDraft.customIconDataUrl && canvasButtonDraft.iconName === preset.name ? " selected" : ""}`}
+                            type="button"
+                            key={preset.name}
+                            title={preset.label}
+                            aria-label={preset.label}
+                            aria-pressed={!canvasButtonDraft.customIconDataUrl && canvasButtonDraft.iconName === preset.name}
+                            onClick={() => selectCanvasButtonPresetIcon(preset.name)}
+                          >
+                            {canvasActionIconPreset(preset.name, 22)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+              {canvasButtonError ? <div className="canvasButtonError">{canvasButtonError}</div> : null}
+              <footer className="canvasButtonActions">
+                <button type="button" onClick={exportCanvasButtonDraft}>
+                  <Download size={15} /> Export
+                </button>
+                <button type="submit" className="primary" disabled={canvasButtonSaving || !canvasButtonDraft.title.trim() || !canvasButtonDraft.packageId.trim()}>
+                  {canvasButtonSaving ? <RefreshCw size={15} className="spinIcon" /> : <Plus size={15} />}
+                  Create Button
+                </button>
+              </footer>
+            </form>
           </div>
         ) : null}
         {libraryItemMenu ? (
@@ -9842,7 +8156,13 @@ function App() {
           </div>
         ) : null}
         {promptAssetMenu && supportsLocalFilesystem ? (
-          <div className="contextMenu" style={{ left: promptAssetMenu.clientX, top: promptAssetMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+          <div
+            ref={promptAssetMenuRef}
+            className="contextMenu"
+            style={{ left: promptAssetMenu.clientX, top: promptAssetMenu.clientY }}
+            tabIndex={-1}
+            onClick={(event) => event.stopPropagation()}
+          >
             {(() => {
               const warning = promptAssetMenuWarning(promptAssetMenu);
               return (
@@ -10060,9 +8380,9 @@ function App() {
               <button onClick={() => void loadPolzaModels()}><Globe size={16} /> Refresh Models</button>
             </div>
             <div className="providerStatus">
-              <span>Text models: {polzaTextModels.length || POLZA_TEXT_MODEL_OPTIONS.length}</span>
-              <span>Image models: {polzaImageModels.length || POLZA_IMAGE_MODEL_OPTIONS.length}</span>
-              <span>Video models: {polzaVideoModels.length || POLZA_VIDEO_MODEL_OPTIONS.length}</span>
+              <span>Text models: {polzaTextModels.length}</span>
+              <span>Image models: {polzaImageModels.length}</span>
+              <span>Video models: {polzaVideoModels.length}</span>
             </div>
           </div>
           <div className="providerCard">
@@ -10519,177 +8839,6 @@ function App() {
   );
 }
 
-function CreditTransactionMiniList({ transactions }: { transactions: CreditTransaction[] }) {
-  return (
-    <div className="creditMiniList">
-      <strong>Last transactions</strong>
-      {transactions.length > 0 ? transactions.map((transaction) => (
-        <span key={transaction.id}>{creditTransactionLine(transaction)}</span>
-      )) : <span>No credit transactions yet.</span>}
-    </div>
-  );
-}
-
-function CreditHistoryPanel({ transactions, onRefresh }: { transactions: CreditTransaction[]; onRefresh?: () => void }) {
-  return (
-    <div className="creditHistoryPanel">
-      <div className="creditHistoryHeader">
-        <strong>Credit history</strong>
-        {onRefresh ? <button className="nodeSmallButton" type="button" onClick={onRefresh}><RefreshCw size={13} /> Refresh</button> : null}
-      </div>
-      {transactions.length > 0 ? (
-        <div className="creditHistoryRows">
-          {transactions.map((transaction) => (
-            <div className="creditHistoryRow" key={transaction.id}>
-              <span>{formatDateTime(transaction.createdAt)}</span>
-              <strong>{transaction.type}</strong>
-              <span>{formatSignedCredits(transaction.amount)}</span>
-              <span>{transaction.balanceAfter === null || transaction.balanceAfter === undefined ? "-" : `balance ${formatCredits(transaction.balanceAfter)}`}</span>
-              <span>{creditTransactionDetails(transaction)}</span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="muted">No credit transactions yet.</p>
-      )}
-    </div>
-  );
-}
-
-function EconomicsPanel({
-  route,
-  runResult,
-  ledgerSummary,
-  runCostEstimate,
-  creditBalance,
-  creditTransactions,
-  showDeveloperDiagnostics,
-  isCloudMode,
-  currentUser
-}: {
-  route: RouteDoc;
-  runResult: RunDisplayResult | null;
-  ledgerSummary: LedgerSummary | null;
-  runCostEstimate: RunCostSummary | null;
-  creditBalance: { balance: number; currency: string } | null;
-  creditTransactions: CreditTransaction[];
-  showDeveloperDiagnostics: boolean;
-  isCloudMode: boolean;
-  currentUser: CurrentUser | null;
-}) {
-  const economics = route.economics ?? { enabled: false, mode: "disabled" };
-  const runEconomics = runResult?.economics && typeof runResult.economics === "object" ? (runResult.economics as Record<string, unknown>) : null;
-  const providersUsed = Array.isArray(runEconomics?.providersUsed) ? runEconomics.providersUsed : [];
-  const estimateEntries = userFacingCostEstimates(route, runCostEstimate);
-  const actualEntries = userFacingCostActuals(route, runResult?.costSummary);
-  const estimatedTotal = sumNumbers(estimateEntries.map((entry) => entry.estimatedCredits));
-  const spentTotal = runResult?.costSummary ? sumNumbers(actualEntries.map((entry) => entry.actualCredits)) : null;
-  const refunded = runResult?.costSummary ? Math.max(0, Number((estimatedTotal - (spentTotal ?? 0)).toFixed(6))) : 0;
-  const hasEnoughCredits = !creditBalance || creditBalance.balance >= estimatedTotal;
-  const details = actualEntries.length > 0
-    ? actualEntries.map((entry) => ({ label: entry.label, credits: entry.actualCredits }))
-    : estimateEntries.map((entry) => ({ label: entry.label, credits: entry.estimatedCredits }));
-  return (
-    <div className="economicsPanel">
-      <h3>Credits</h3>
-      <div className="creditSummary">
-        <span>Estimated</span>
-        <strong>{formatCredits(estimatedTotal)}</strong>
-        <span>Spent</span>
-        <strong>{spentTotal === null ? "-" : formatCredits(spentTotal)}</strong>
-        <span>Refunded</span>
-        <strong>{formatCredits(refunded)}</strong>
-        {creditBalance ? (
-          <>
-            <span>Balance</span>
-            <strong>{formatCredits(creditBalance.balance)}</strong>
-          </>
-        ) : null}
-      </div>
-      {creditBalance && !hasEnoughCredits ? <p className="errorText">Not enough credits for this run.</p> : null}
-      {isCloudMode && !currentUser ? <p className="muted">Sign in to save routes and keep generated results.</p> : null}
-      {isCloudMode && currentUser ? (
-        <details className="creditHistoryDetails">
-          <summary>Credit history</summary>
-          <CreditHistoryPanel transactions={creditTransactions} />
-        </details>
-      ) : null}
-      <h3>Details</h3>
-      {details.length > 0 ? (
-        <div className="costDetails">
-          {details.map((entry) => (
-            <React.Fragment key={entry.label}>
-              <span>{entry.label}</span>
-              <strong>{formatCredits(entry.credits)}</strong>
-            </React.Fragment>
-          ))}
-        </div>
-      ) : (
-        <p className="muted">No paid provider calls in this route.</p>
-      )}
-      {showDeveloperDiagnostics ? (
-        <details className="developerDiagnostics">
-          <summary>Developer diagnostics</summary>
-          <div className="economicsGrid">
-            <span>enabled</span>
-            <strong>{String(economics.enabled ?? false)}</strong>
-            <span>mode</span>
-            <strong>{String(economics.mode ?? (economics.enabled ? "metadata-only" : "disabled"))}</strong>
-            <span>payment</span>
-            <strong>false</strong>
-          </div>
-          <pre className="miniPre">
-            {JSON.stringify(
-              {
-                author: economics.author ?? route.route.author,
-                contributors: economics.contributors ?? [],
-                revenueSplits: economics.revenueSplits ?? []
-              },
-              null,
-              2
-            )}
-          </pre>
-          <h3>Last Run</h3>
-          {runEconomics ? (
-            <pre className="miniPre">
-              {JSON.stringify(
-                {
-                  providersUsed,
-                  costSummary: runEconomics.costSummary,
-                  paymentExecuted: false
-                },
-                null,
-                2
-              )}
-            </pre>
-          ) : (
-            <p className="muted">No run accounting yet.</p>
-          )}
-          <h3>Ledger</h3>
-          {ledgerSummary ? (
-            <pre className="miniPre">
-              {JSON.stringify(
-                {
-                  totalRuns: ledgerSummary.totalRuns,
-                  runsByProvider: ledgerSummary.runsByProvider,
-                  runsByStatus: ledgerSummary.runsByStatus,
-                  estimatedProviderCostTotal: ledgerSummary.estimatedProviderCostTotal,
-                  actualProviderCostTotal: ledgerSummary.actualProviderCostTotal,
-                  recentRuns: ledgerSummary.recentRuns.slice(0, 3)
-                },
-                null,
-                2
-              )}
-            </pre>
-          ) : (
-            <p className="muted">Ledger unavailable.</p>
-          )}
-        </details>
-      ) : null}
-    </div>
-  );
-}
-
 function RootApp() {
   const [path, setPath] = useState(window.location.pathname);
 
@@ -10705,631 +8854,10 @@ function RootApp() {
   return <App />;
 }
 
-function navigate(path: string) {
-  window.history.pushState(null, "", path);
-  window.dispatchEvent(new PopStateEvent("popstate"));
-}
-
 createRoot(document.getElementById("root")!).render(<React.StrictMode><RootApp /></React.StrictMode>);
-
-function AdminDashboard() {
-  const [capabilities, setCapabilities] = useState<AppCapabilities>(DEFAULT_APP_CAPABILITIES);
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  const [devIdentity, setDevIdentity] = useState<"guest" | "user" | "admin">("guest");
-  const [overview, setOverview] = useState<AdminOverview | null>(null);
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  async function refresh() {
-    await loadCapabilitiesForAdmin();
-    const user = await loadCurrentUserForAdmin();
-    if (user?.role === "admin") await loadOverview();
-    else setOverview(null);
-  }
-
-  async function loadCapabilitiesForAdmin() {
-    try {
-      const response = await apiFetch(`${apiBase}/api/capabilities`);
-      const result = await response.json();
-      if (response.ok) setCapabilities({ ...DEFAULT_APP_CAPABILITIES, ...result });
-    } catch {
-      setCapabilities(DEFAULT_APP_CAPABILITIES);
-    }
-  }
-
-  async function loadCurrentUserForAdmin(): Promise<CurrentUser | null> {
-    try {
-      const response = await apiFetch(`${apiBase}/api/auth/current`);
-      const result = await response.json();
-      const user = response.ok ? result.user ?? null : null;
-      setCurrentUser(user);
-      setDevIdentity(user?.role === "admin" ? "admin" : user ? "user" : "guest");
-      return user;
-    } catch {
-      setCurrentUser(null);
-      setDevIdentity("guest");
-      return null;
-    }
-  }
-
-  async function loadOverview() {
-    try {
-      const response = await apiFetch(`${apiBase}/api/admin/overview`);
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Admin overview unavailable.");
-      setOverview(result as AdminOverview);
-      setMessage("");
-    } catch (error) {
-      setOverview(null);
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function switchIdentity(identity: "guest" | "user" | "admin") {
-    try {
-      const response = await apiFetch(`${apiBase}/api/dev/switch-identity`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identity })
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error ?? "Dev identity switch unavailable.");
-      setDevIdentity(identity);
-      await refresh();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  const isAdmin = currentUser?.role === "admin";
-
-  return (
-    <main className="adminRoute">
-      <header className="adminRouteHeader">
-        <div>
-          <h1><img src="/boojumroute-icon.png" alt="" /> Boojum Admin</h1>
-          <p>{currentUser ? `Current user: ${currentUser.id} / ${currentUser.role ?? "user"}` : "Login required."}</p>
-        </div>
-        <div className="adminRouteActions">
-          <button type="button" onClick={() => navigate("/")}><ChevronLeft size={16} /> Canvas</button>
-          {capabilities.supportsDeveloperDiagnostics && !isProductionBuild ? <DevIdentitySwitcher identity={devIdentity} onSwitch={switchIdentity} /> : null}
-          {isAdmin ? <button type="button" onClick={() => void refresh()}><RefreshCw size={16} /> Refresh</button> : null}
-        </div>
-      </header>
-      {isAdmin ? (
-        <AdminPanel overview={overview} message={message} onRefresh={() => void loadOverview()} currentUser={currentUser} standalone />
-      ) : (
-        <section className="accessDeniedPanel">
-          <h2>{currentUser ? "Access denied" : "Login required"}</h2>
-          <p>{currentUser ? "Admin role is required to open this dashboard." : "Sign in as an admin to open this dashboard."}</p>
-          <button type="button" onClick={() => navigate("/admin/login")}><KeyRound size={16} /> Admin login</button>
-          {message ? <p className="errorText">{message}</p> : null}
-        </section>
-      )}
-    </main>
-  );
-}
-
-function AdminLoginPage() {
-  const [capabilities, setCapabilities] = useState<AppCapabilities>(DEFAULT_APP_CAPABILITIES);
-  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
-  const [devIdentity, setDevIdentity] = useState<"guest" | "user" | "admin">("guest");
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  async function refresh() {
-    try {
-      const capabilitiesResponse = await apiFetch(`${apiBase}/api/capabilities`);
-      const capabilitiesResult = await capabilitiesResponse.json();
-      if (capabilitiesResponse.ok) setCapabilities({ ...DEFAULT_APP_CAPABILITIES, ...capabilitiesResult });
-    } catch {
-      setCapabilities(DEFAULT_APP_CAPABILITIES);
-    }
-    try {
-      const userResponse = await apiFetch(`${apiBase}/api/auth/current`);
-      const userResult = await userResponse.json();
-      const user = userResponse.ok ? userResult.user ?? null : null;
-      setCurrentUser(user);
-      setDevIdentity(user?.role === "admin" ? "admin" : user ? "user" : "guest");
-    } catch {
-      setCurrentUser(null);
-      setDevIdentity("guest");
-    }
-  }
-
-  async function switchIdentity(identity: "guest" | "user" | "admin") {
-    try {
-      const response = await apiFetch(`${apiBase}/api/dev/switch-identity`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identity })
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error ?? "Dev identity switch unavailable.");
-      setDevIdentity(identity);
-      await refresh();
-      if (identity === "admin") navigate("/admin");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  return (
-    <main className="adminRoute">
-      <header className="adminRouteHeader">
-        <div>
-          <h1><img src="/boojumroute-icon.png" alt="" /> Admin Login</h1>
-          <p>{currentUser ? `Current user: ${currentUser.id} / ${currentUser.role ?? "user"}` : "No admin session."}</p>
-        </div>
-        <div className="adminRouteActions">
-          <button type="button" onClick={() => navigate("/")}><ChevronLeft size={16} /> Canvas</button>
-          <button type="button" onClick={() => navigate("/admin")}><Lock size={16} /> Admin</button>
-        </div>
-      </header>
-      <section className="accessDeniedPanel">
-        {capabilities.supportsDeveloperDiagnostics && !isProductionBuild ? (
-          <>
-            <h2>Development identity</h2>
-            <p className="muted">Choose Admin to open the dashboard in this browser window.</p>
-            <DevIdentitySwitcher identity={devIdentity} onSwitch={switchIdentity} />
-          </>
-        ) : (
-          <>
-            <h2>Admin sign in</h2>
-            <p className="muted">Sign in with an account that has the admin role.</p>
-            <div className="settingsActions">
-              <button type="button" onClick={() => startOAuthLogin("google")}><KeyRound size={16} /> Войти через Google</button>
-              <button type="button" onClick={() => startOAuthLogin("yandex")}><KeyRound size={16} /> Войти через Яндекс</button>
-            </div>
-          </>
-        )}
-        {message ? <p className="errorText">{message}</p> : null}
-      </section>
-    </main>
-  );
-}
-
-function LoginPage() {
-  return (
-    <main className="adminRoute">
-      <header className="adminRouteHeader">
-        <div>
-          <h1><img src="/boojumroute-icon.png" alt="" /> Boojum Login</h1>
-          <p>Sign in to save routes and keep generated results.</p>
-        </div>
-        <button type="button" onClick={() => navigate("/")}><ChevronLeft size={16} /> Canvas</button>
-      </header>
-      <section className="accessDeniedPanel">
-        <h2>Sign in</h2>
-        <div className="settingsActions">
-          <button type="button" onClick={() => startOAuthLogin("google")}><KeyRound size={16} /> Войти через Google</button>
-          <button type="button" onClick={() => startOAuthLogin("yandex")}><KeyRound size={16} /> Войти через Яндекс</button>
-        </div>
-      </section>
-    </main>
-  );
-}
-
-function startOAuthLogin(provider: "google" | "yandex") {
-  window.location.href = `${apiBase}/api/auth/${provider}/start`;
-}
-
-function DevIdentitySwitcher({ identity, onSwitch }: { identity: "guest" | "user" | "admin"; onSwitch: (identity: "guest" | "user" | "admin") => void }) {
-  return (
-    <div className="devIdentitySwitcher" title="Dev identity is stored per browser in a cookie.">
-      <span>Dev identity</span>
-      {(["guest", "user", "admin"] as const).map((entry) => (
-        <button
-          key={entry}
-          className={identity === entry ? "active" : ""}
-          type="button"
-          onClick={() => onSwitch(entry)}
-        >
-          {entry[0].toUpperCase() + entry.slice(1)}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function AdminUsersBilling({ onRefreshOverview }: { onRefreshOverview: () => void }) {
-  const [users, setUsers] = useState<AdminBillingUser[]>([]);
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [selectedUser, setSelectedUser] = useState<AdminUserCard | null>(null);
-  const [tab, setTab] = useState<"transactions" | "runs" | "provider">("transactions");
-  const [query, setQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState<"all" | "user" | "admin">("all");
-  const [sort, setSort] = useState<"createdAt" | "balance">("createdAt");
-  const [message, setMessage] = useState("");
-  const [grantAmount, setGrantAmount] = useState("");
-  const [grantReason, setGrantReason] = useState("");
-  const [adjustAmount, setAdjustAmount] = useState("");
-  const [adjustReason, setAdjustReason] = useState("");
-
-  useEffect(() => {
-    void loadUsers();
-  }, []);
-
-  async function loadUsers() {
-    try {
-      const response = await apiFetch(`${apiBase}/api/admin/users`);
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Admin users unavailable.");
-      setUsers(Array.isArray(result.users) ? result.users : []);
-      setMessage("");
-    } catch (error) {
-      setUsers([]);
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function loadUser(userId: string) {
-    try {
-      const response = await apiFetch(`${apiBase}/api/admin/users/${encodeURIComponent(userId)}`);
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "User card unavailable.");
-      setSelectedUser(result as AdminUserCard);
-      setSelectedUserId(userId);
-      setMessage("");
-    } catch (error) {
-      setSelectedUser(null);
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function submitCreditAction(kind: "grant" | "adjust") {
-    const amount = Number(kind === "grant" ? grantAmount : adjustAmount);
-    const reason = (kind === "grant" ? grantReason : adjustReason).trim();
-    if (!selectedUserId || !Number.isInteger(amount) || !reason || (kind === "grant" && amount <= 0) || (kind === "adjust" && amount === 0)) {
-      setMessage(kind === "grant" ? "Grant requires a positive integer amount and reason." : "Adjustment requires a non-zero integer amount and reason.");
-      return;
-    }
-    try {
-      const path = kind === "grant" ? "grant-credits" : "adjust-credits";
-      const response = await apiFetch(`${apiBase}/api/admin/users/${encodeURIComponent(selectedUserId)}/${path}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount, reason })
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error ?? "Credit action failed.");
-      if (kind === "grant") {
-        setGrantAmount("");
-        setGrantReason("");
-      } else {
-        setAdjustAmount("");
-        setAdjustReason("");
-      }
-      setMessage(`Balance updated: ${formatCredits(Number(result.balance ?? 0))} credits.`);
-      await loadUsers();
-      await loadUser(selectedUserId);
-      onRefreshOverview();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  const filteredUsers = users
-    .filter((user) => roleFilter === "all" || user.role === roleFilter)
-    .filter((user) => !query.trim() || user.id.toLowerCase().includes(query.trim().toLowerCase()))
-    .sort((left, right) => sort === "balance"
-      ? right.currentBalance - left.currentBalance
-      : new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
-
-  return (
-    <section className="adminUsersBilling">
-      <div className="adminSectionHeader">
-        <div>
-          <h3>Users / Credits</h3>
-          <p className="muted">Ledger-backed balances. No email, name, avatar, or raw OAuth subject is shown.</p>
-        </div>
-        <button type="button" onClick={() => void loadUsers()}><RefreshCw size={14} /> Refresh users</button>
-      </div>
-      <div className="adminFilters">
-        <input value={query} placeholder="Search user id" onChange={(event) => setQuery(event.target.value)} />
-        <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as "all" | "user" | "admin")}>
-          <option value="all">All roles</option>
-          <option value="user">User</option>
-          <option value="admin">Admin</option>
-        </select>
-        <select value={sort} onChange={(event) => setSort(event.target.value as "createdAt" | "balance")}>
-          <option value="createdAt">Created desc</option>
-          <option value="balance">Balance desc</option>
-        </select>
-      </div>
-      {message ? <p className={message.includes("failed") || message.includes("required") || message.includes("Insufficient") ? "errorText" : "muted"}>{message}</p> : null}
-      <div className="adminUsersGrid">
-        <div className="adminUsersTable">
-          <div className="adminUsersTableHeader">
-            <span>User ID</span><span>Role</span><span>Auth</span><span>Created</span><span>Balance</span><span>Granted</span><span>Spent</span><span>Released</span><span>Active reserved</span><span>Runs</span><span>Last activity</span><span>Actions</span>
-          </div>
-          {filteredUsers.map((user) => (
-            <div className={`adminUsersTableRow ${selectedUserId === user.id ? "selected" : ""}`.trim()} key={user.id} onClick={() => void loadUser(user.id)}>
-              <span title={user.id}>{shortAdminValue(user.id)}</span>
-              <span>{user.role}</span>
-              <span>{adminAuthProviderLabel(user)}</span>
-              <span>{formatDateTime(user.createdAt)}</span>
-              <strong>{formatCredits(user.currentBalance)}</strong>
-              <span>{formatCredits(user.totalGranted)}</span>
-              <span>{formatCredits(user.totalCaptured)}</span>
-              <span>{formatCredits(user.totalReleased + user.totalRefunded)}</span>
-              <span>{formatCredits(user.activeReserved)}</span>
-              <span>{user.runsCount}</span>
-              <span>{user.lastActivityAt ? formatDateTime(user.lastActivityAt) : "-"}</span>
-              <span className="adminInlineActions">
-                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); }}>View</button>
-                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); setGrantAmount("100"); }}>Grant</button>
-                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); setAdjustAmount("-20"); }}>Adjust</button>
-              </span>
-            </div>
-          ))}
-          {filteredUsers.length === 0 ? <p className="muted">No users match this filter.</p> : null}
-        </div>
-        {selectedUser ? (
-          <div className="adminUserCard">
-            <header>
-              <div>
-                <h3>{selectedUser.id}</h3>
-                <p>{selectedUser.role} / balance {formatCredits(selectedUser.currentBalance)} credits</p>
-              </div>
-            </header>
-            <div className="adminMetricGrid compact">
-              <span>Current balance</span><strong>{formatCredits(selectedUser.currentBalance)}</strong>
-              <span>Total granted</span><strong>{formatCredits(selectedUser.totalGranted)}</strong>
-              <span>Total spent</span><strong>{formatCredits(selectedUser.totalCaptured)}</strong>
-              <span>Total refunded</span><strong>{formatCredits(selectedUser.totalReleased + selectedUser.totalRefunded)}</strong>
-              <span>Runs count</span><strong>{selectedUser.runsCount}</strong>
-              <span>Provider usage</span><strong>{selectedUser.providerUsageCount}</strong>
-            </div>
-            <div className="adminCreditForms">
-              <label><span>Grant credits</span><input value={grantAmount} inputMode="numeric" placeholder="100" onChange={(event) => setGrantAmount(event.target.value)} /></label>
-              <label><span>Reason</span><input value={grantReason} placeholder="Manual admin grant" onChange={(event) => setGrantReason(event.target.value)} /></label>
-              <button type="button" onClick={() => void submitCreditAction("grant")}>Grant credits</button>
-              <label><span>Adjust credits</span><input value={adjustAmount} inputMode="numeric" placeholder="-20" onChange={(event) => setAdjustAmount(event.target.value)} /></label>
-              <label><span>Reason</span><input value={adjustReason} placeholder="Correction reason" onChange={(event) => setAdjustReason(event.target.value)} /></label>
-              <button type="button" onClick={() => void submitCreditAction("adjust")}>Adjust credits</button>
-            </div>
-            <div className="adminTabs">
-              {(["transactions", "runs", "provider"] as const).map((entry) => (
-                <button key={entry} className={tab === entry ? "active" : ""} type="button" onClick={() => setTab(entry)}>{entry === "provider" ? "Provider usage" : entry[0].toUpperCase() + entry.slice(1)}</button>
-              ))}
-            </div>
-            {tab === "transactions" ? <AdminList title="Transactions" rows={selectedUser.recentCreditTransactions} fields={["createdAt", "type", "amount", "reason", "runId", "provider", "operation", "balanceAfter"]} /> : null}
-            {tab === "runs" ? <AdminList title="Runs" rows={selectedUser.recentRuns} fields={["id", "status", "route_id", "created_at"]} /> : null}
-            {tab === "provider" ? <AdminList title="Provider Usage" rows={selectedUser.recentProviderUsage} fields={["provider", "operation", "node_id", "actual_credits", "status", "created_at"]} /> : null}
-          </div>
-        ) : (
-          <div className="adminUserCard empty"><p className="muted">Select a user to view billing history.</p></div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function adminAuthProviderLabel(user: AdminBillingUser): string {
-  const providers = user.authProviders.length ? user.authProviders.join(", ") : "unknown";
-  return user.providerSubjectHashPrefix ? `${providers} / ${user.providerSubjectHashPrefix}` : providers;
-}
-
-function AdminPricing() {
-  const [pricing, setPricing] = useState<PricingBreakdown[]>([]);
-  const [globalMarkupPercent, setGlobalMarkupPercent] = useState("0");
-  const [globalMarkupCredits, setGlobalMarkupCredits] = useState("0");
-  const [minChargeCredits, setMinChargeCredits] = useState("0");
-  const [configSource, setConfigSource] = useState("env_default");
-  const [overrideProvider, setOverrideProvider] = useState("polza");
-  const [overrideOperation, setOverrideOperation] = useState("image.generate");
-  const [overrideModel, setOverrideModel] = useState("");
-  const [overrideNodeType, setOverrideNodeType] = useState("");
-  const [overrideMarkupPercent, setOverrideMarkupPercent] = useState("0");
-  const [overrideMarkupCredits, setOverrideMarkupCredits] = useState("5");
-  const [overrideReason, setOverrideReason] = useState("");
-  const [message, setMessage] = useState("");
-
-  useEffect(() => {
-    void loadPricing();
-  }, []);
-
-  async function loadPricing() {
-    try {
-      const response = await apiFetch(`${apiBase}/api/admin/pricing/catalog`);
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Pricing unavailable.");
-      setPricing(Array.isArray(result.pricing) ? result.pricing : []);
-      setGlobalMarkupPercent(String(result.config?.globalMarkupPercent ?? 0));
-      setGlobalMarkupCredits(String(result.config?.globalMarkupCredits ?? 0));
-      setMinChargeCredits(String(result.config?.minChargeCredits ?? 0));
-      setConfigSource(String(result.source ?? "env_default"));
-      setMessage("");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function savePricingConfig() {
-    try {
-      const response = await apiFetch(`${apiBase}/api/admin/pricing/config`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          globalMarkupPercent: Number(globalMarkupPercent),
-          globalMarkupCredits: Number(globalMarkupCredits),
-          minChargeCredits: Number(minChargeCredits),
-          reason: "Admin pricing UI update"
-        })
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Pricing config save failed.");
-      setMessage("Pricing config saved in database.");
-      await loadPricing();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function savePricingOverride() {
-    try {
-      const response = await apiFetch(`${apiBase}/api/admin/pricing/overrides`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: overrideProvider.trim() || undefined,
-          operation: overrideOperation.trim() || undefined,
-          model: overrideModel.trim() || undefined,
-          nodeType: overrideNodeType.trim() || undefined,
-          markupPercent: Number(overrideMarkupPercent),
-          markupCredits: Number(overrideMarkupCredits),
-          enabled: true,
-          reason: overrideReason.trim() || "Admin pricing override"
-        })
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Pricing override save failed.");
-      setMessage("Pricing override saved in database.");
-      await loadPricing();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  return (
-    <section className="adminUsersBilling adminPricingPanel">
-      <div className="adminSectionHeader">
-        <div>
-          <h3>Pricing</h3>
-          <p className="muted">Credit unit: 1000 credits = $1. Prices are integer credits from provider API cost plus markup. Source: {configSource}.</p>
-        </div>
-        <button type="button" onClick={() => void loadPricing()}><RefreshCw size={14} /> Refresh pricing</button>
-      </div>
-      <div className="adminCreditForms pricingConfig">
-        <label><span>Global markup %</span><input value={globalMarkupPercent} inputMode="decimal" onChange={(event) => setGlobalMarkupPercent(event.target.value)} /></label>
-        <label><span>Global markup credits</span><input value={globalMarkupCredits} inputMode="numeric" onChange={(event) => setGlobalMarkupCredits(event.target.value)} /></label>
-        <label><span>Min charge credits</span><input value={minChargeCredits} inputMode="numeric" onChange={(event) => setMinChargeCredits(event.target.value)} /></label>
-        <button type="button" onClick={() => void savePricingConfig()}>Save pricing</button>
-      </div>
-      <div className="adminCreditForms pricingOverride">
-        <label><span>Provider</span><input value={overrideProvider} onChange={(event) => setOverrideProvider(event.target.value)} /></label>
-        <label><span>Operation</span><input value={overrideOperation} onChange={(event) => setOverrideOperation(event.target.value)} /></label>
-        <label><span>Model</span><input value={overrideModel} placeholder="optional" onChange={(event) => setOverrideModel(event.target.value)} /></label>
-        <label><span>Node type</span><input value={overrideNodeType} placeholder="optional" onChange={(event) => setOverrideNodeType(event.target.value)} /></label>
-        <label><span>Override markup %</span><input value={overrideMarkupPercent} inputMode="decimal" onChange={(event) => setOverrideMarkupPercent(event.target.value)} /></label>
-        <label><span>Override credits</span><input value={overrideMarkupCredits} inputMode="numeric" onChange={(event) => setOverrideMarkupCredits(event.target.value)} /></label>
-        <label><span>Reason</span><input value={overrideReason} placeholder="Why this override changed" onChange={(event) => setOverrideReason(event.target.value)} /></label>
-        <button type="button" onClick={() => void savePricingOverride()}>Save override</button>
-      </div>
-      {message ? <p className={message.includes("failed") || message.includes("unavailable") ? "errorText" : "muted"}>{message}</p> : null}
-      <div className="adminUsersTable pricingTable">
-        <div className="adminUsersTableHeader pricing">
-          <span>Provider</span><span>Operation</span><span>Model</span><span>Base API cost</span><span>Base credits</span><span>Global markup</span><span>Node markup</span><span>Final estimated</span><span>Source</span>
-        </div>
-        {pricing.map((entry) => (
-          <div className="adminUsersTableRow pricing" key={`${entry.provider}-${entry.operation}-${entry.model ?? "*"}`}>
-            <span>{entry.provider ?? "-"}</span>
-            <span>{entry.operation ?? "-"}</span>
-            <span>{entry.model ?? "*"}</span>
-            <span>${formatMicrousd(entry.baseCostMicrousd ?? 0)}</span>
-            <span>{formatCredits(entry.baseCredits ?? 0)}</span>
-            <span>+{formatCredits(entry.globalMarkupPercent ?? 0)}% +{formatCredits(entry.globalMarkupCredits ?? 0)}</span>
-            <span>+{formatCredits(entry.nodeMarkupPercent ?? 0)}% +{formatCredits(entry.nodeMarkupCredits ?? 0)}</span>
-            <strong>{formatCredits(entry.finalCredits ?? 0)}</strong>
-            <span title={entry.notes ?? ""}>{entry.source ?? entry.pricingSource ?? "-"}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function AdminPanel({ overview, message, onRefresh, currentUser, standalone = false }: { overview: AdminOverview | null; message: string; onRefresh: () => void; currentUser?: CurrentUser | null; standalone?: boolean }) {
-  return (
-    <div className={`${standalone ? "adminDashboardPanel" : "providerCard"} adminPanel`}>
-      <div className="providerHeader">
-        <h4>Admin</h4>
-        <span>Cloud operations</span>
-      </div>
-      <div className="settingsActions">
-        <button onClick={onRefresh}><RefreshCw size={16} /> Refresh</button>
-      </div>
-      {message ? <p className={message.includes("required") || message.includes("unavailable") ? "errorText" : "muted"}>{message}</p> : null}
-      {overview ? (
-        <>
-          <AdminPricing />
-          <AdminUsersBilling onRefreshOverview={onRefresh} />
-          {currentUser ? (
-            <div className="adminMetricGrid">
-              <span>Current user id</span><strong>{currentUser.id}</strong>
-              <span>Role</span><strong>{currentUser.role ?? "user"}</strong>
-            </div>
-          ) : null}
-            <div className="adminMetricGrid">
-              <span>Users</span><strong>{overview.usersCount}</strong>
-            <span>Total runs</span><strong>{overview.runsCount ?? overview.runs.length}</strong>
-            <span>Total node runs</span><strong>{overview.nodeRunsCount ?? overview.nodeRuns.length}</strong>
-            <span>Total credit transactions</span><strong>{overview.creditTransactionsCount ?? overview.creditTransactions.length}</strong>
-            <span>Total provider usage</span><strong>{overview.providerUsageCount ?? overview.providerUsage.length}</strong>
-            </div>
-          <AdminList title="Runs" rows={overview.runs} fields={["id", "status", "user_id", "created_at"]} />
-          <AdminList title="Node Runs" rows={overview.nodeRuns} fields={["node_id", "node_type", "provider", "actual_credits", "usage_source"]} />
-          <AdminList title="Credit Transactions" rows={overview.creditTransactions} fields={["transaction_type", "amount_minor", "status", "created_at"]} />
-          <AdminList title="Provider Usage" rows={overview.providerUsage} fields={["provider", "model_id", "cost_minor", "currency", "created_at"]} />
-          <AdminList title="Recent Errors" rows={overview.recentErrors} fields={["source", "status", "error", "created_at"]} />
-          <h3>Artifact Stats</h3>
-          <pre className="miniPre">{JSON.stringify(overview.artifactStats, null, 2)}</pre>
-          <h3>Guest Demo Usage</h3>
-          <pre className="miniPre">{JSON.stringify(overview.guestDemoUsage, null, 2)}</pre>
-          <h3>Provider Key Status</h3>
-          <div className="providerStatus">
-            {Object.entries(overview.providerKeyStatus ?? {}).map(([provider, configured]) => (
-              <span key={provider}>{provider}: {configured ? "configured" : "missing"}</span>
-            ))}
-          </div>
-        </>
-      ) : (
-        <p className="muted">Admin overview unavailable.</p>
-      )}
-    </div>
-  );
-}
-
-function AdminList({ title, rows, fields }: { title: string; rows: Array<Record<string, unknown>>; fields: string[] }) {
-  return (
-    <>
-      <h3>{title}</h3>
-      {rows.length > 0 ? (
-        <div className="adminList">
-          {rows.slice(0, 8).map((row, index) => (
-            <div className="adminListRow" key={`${title}-${index}`}>
-              {fields.map((field) => (
-                <span key={field} title={String(row[field] ?? "")}>{field}: {shortAdminValue(row[field])}</span>
-              ))}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <p className="muted">No records.</p>
-      )}
-    </>
-  );
-}
-
-function shortAdminValue(value: unknown): string {
-  if (value === null || value === undefined) return "-";
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return truncateText(text, 80);
-}
 
 function truncateText(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
-}
-
-function formatJsonish(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
 function formatLogs(runResult: RunDisplayResult | null, fallbackLogs: string[]): string {
@@ -11344,519 +8872,6 @@ function formatOutputs(outputs: unknown): string {
   const cost = runCostLabel(outputs);
   const body = JSON.stringify(outputs, null, 2);
   return cost ? `${cost}\n\n${body}` : body;
-}
-
-function formatCredits(value: number): string {
-  if (!Number.isFinite(value)) return "unlimited";
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
-}
-
-function formatSignedCredits(value: number): string {
-  return `${value > 0 ? "+" : ""}${formatCredits(value)} credits`;
-}
-
-function formatMicrousd(value: number): string {
-  if (!Number.isFinite(value)) return "0.000000";
-  return (value / 1_000_000).toFixed(6).replace(/\.?0+$/, "") || "0";
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  return Number.isFinite(date.getTime()) ? date.toLocaleString() : value;
-}
-
-function normalizeCreditTransaction(value: unknown): CreditTransaction | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  const id = typeof record.id === "string" ? record.id : `${record.createdAt ?? ""}:${record.type ?? ""}:${record.amount ?? ""}`;
-  const createdAt = typeof record.createdAt === "string" ? record.createdAt : typeof record.created_at === "string" ? record.created_at : "";
-  const type = typeof record.type === "string" ? record.type : typeof record.transactionType === "string" ? record.transactionType : "";
-  const amount = Number(record.amount ?? 0);
-  if (!id || !createdAt || !type || !Number.isFinite(amount)) return null;
-  return {
-    id,
-    createdAt,
-    type,
-    amount,
-    status: typeof record.status === "string" ? record.status : undefined,
-    balanceAfter: typeof record.balanceAfter === "number" ? record.balanceAfter : null,
-    reason: typeof record.reason === "string" ? record.reason : null,
-    runId: typeof record.runId === "string" ? record.runId : null,
-    nodeTitle: typeof record.nodeTitle === "string" ? record.nodeTitle : null,
-    provider: typeof record.provider === "string" ? record.provider : null,
-    maxChargeCredits: typeof record.maxChargeCredits === "number" ? record.maxChargeCredits : null
-  };
-}
-
-function creditTransactionLine(transaction: CreditTransaction): string {
-  const balance = transaction.balanceAfter === null || transaction.balanceAfter === undefined ? "" : ` -> ${formatCredits(transaction.balanceAfter)}`;
-  return `${transaction.type} ${formatSignedCredits(transaction.amount)}${balance}`;
-}
-
-function creditTransactionDetails(transaction: CreditTransaction): string {
-  const details = [
-    transaction.reason,
-    transaction.nodeTitle,
-    transaction.provider,
-    transaction.runId ? `run ${transaction.runId}` : null
-  ].filter((item): item is string => Boolean(item));
-  return details.length ? details.join(" / ") : "-";
-}
-
-function creditPriceExplanation(costEstimate: CostEstimate): string {
-  const provider = costEstimate.provider ?? providerFromNodeType(costEstimate.nodeType) ?? "unknown";
-  const operation = costEstimate.operation ?? operationFromNodeType(costEstimate.nodeType);
-  const breakdown = costEstimate.pricingBreakdown;
-  if (breakdown) {
-    return [
-      `Base API cost: ${formatCredits(breakdown.baseCredits ?? 0)} credits`,
-      `Global markup: +${formatCredits(breakdown.globalMarkupPercent ?? 0)}% +${formatCredits(breakdown.globalMarkupCredits ?? 0)} credits`,
-      `Node markup: +${formatCredits(breakdown.nodeMarkupPercent ?? 0)}% +${formatCredits(breakdown.nodeMarkupCredits ?? 0)} credits`,
-      `Final: ${formatCredits(breakdown.finalCredits ?? costEstimate.estimatedCredits)} credits`,
-      `Source: ${breakdown.pricingSource ?? costEstimate.pricingSource ?? "pricing catalog"}`,
-      `Confidence: ${breakdown.pricingConfidence ?? costEstimate.pricingConfidence ?? "unknown"}`
-    ].join("\n");
-  }
-  return [
-    `provider=${provider}`,
-    `operation=${operation}`,
-    `source=${costEstimate.pricingSource ?? "pricing catalog"}`,
-    `maxChargeCredits=${formatCredits(costEstimate.estimatedCredits)}`
-  ].join("\n");
-}
-
-function providerFromNodeType(nodeType: string): string | null {
-  if (nodeType.startsWith("polza.")) return "polza";
-  if (nodeType.startsWith("replicate.")) return "replicate";
-  if (nodeType.startsWith("gemini.")) return "gemini";
-  return null;
-}
-
-function operationFromNodeType(nodeType: string): string {
-  if (nodeType === "polza.image.generate" || nodeType.includes("image.generate")) return "image.generate";
-  if (nodeType === "polza.video.generate" || nodeType.includes("video.generate")) return "video.generate";
-  if (nodeType.includes("upscaler") || nodeType.includes("upscale")) return "image.upscale";
-  if (nodeType.includes("text") || nodeType.includes("llm")) return "text.generate";
-  return nodeType;
-}
-
-function userFacingCostEstimates(route: RouteDoc, summary: RunCostSummary | null): Array<CostEstimate & { label: string }> {
-  if (!summary) return [];
-  const labels = routeNodeLabels(route);
-  return summary.estimates
-    .filter((entry) => isUserFacingCostEntry(entry.nodeType, entry.estimatedCredits))
-    .map((entry) => ({ ...entry, label: labels.get(entry.nodeId) ?? humanizeNodeId(entry.nodeId) }));
-}
-
-function userFacingCostActuals(route: RouteDoc, summary: RunCostSummary | undefined): Array<CostEstimate & { actualCredits: number; actualProviderCostAmount: number | null; label: string }> {
-  if (!summary) return [];
-  const labels = routeNodeLabels(route);
-  return summary.actuals
-    .filter((entry) => isUserFacingCostEntry(entry.nodeType, entry.actualCredits))
-    .map((entry) => ({ ...entry, label: labels.get(entry.nodeId) ?? humanizeNodeId(entry.nodeId) }));
-}
-
-function routeNodeLabels(route: RouteDoc): Map<string, string> {
-  return new Map(route.nodes.map((node) => [node.id, node.title?.trim() || humanizeNodeId(node.id)]));
-}
-
-function isUserFacingCostEntry(nodeType: string, credits: number): boolean {
-  if (!Number.isFinite(credits) || credits <= 0) return false;
-  return !isFreeUserFacingNodeType(nodeType);
-}
-
-function isFreeUserFacingNodeType(type: string): boolean {
-  return type.startsWith("input.")
-    || type.startsWith("output.")
-    || type.startsWith("preview.")
-    || type.startsWith("debug.")
-    || type.startsWith("utility.")
-    || type.startsWith("library.")
-    || type.startsWith("compound.")
-    || type === "text.promptCompose";
-}
-
-function humanizeNodeId(id: string): string {
-  return id
-    .replace(/[_-]+\d+$/g, "")
-    .replace(/[._-]+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function sumNumbers(values: number[]): number {
-  return Number(values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0).toFixed(6));
-}
-
-function userFacingErrorMessage(message: string): string {
-  if (/ENOENT|no such file or directory/i.test(message)) {
-    if (/input|readFile|image|\.png|\.jpe?g|\.webp/i.test(message)) return "Input image not found. Please re-upload the image.";
-    return "Result could not be saved. Please retry.";
-  }
-  if (/[A-Z]:\\|\/Users\/|\/var\/|\/tmp\/|SnarkRoute|apps[\\/]/i.test(message)) return "Result could not be saved. Please retry.";
-  return message;
-}
-
-function formatRunCostEstimate(summary: RunCostSummary, balance: { balance: number; currency: string } | null, enough: boolean): string {
-  const lines = ["Estimated total:"];
-  for (const entry of summary.estimates) {
-    lines.push(`${entry.nodeId.padEnd(18)} ${formatCredits(entry.estimatedCredits)} credits`);
-  }
-  lines.push("--------------------------");
-  lines.push(`${"Total".padEnd(18)} ${formatCredits(summary.totalEstimatedCredits)} credits`);
-  lines.push("");
-  lines.push(`${"Balance".padEnd(18)} ${balance ? `${formatCredits(balance.balance)} credits` : "unknown"}`);
-  lines.push(enough ? "Enough credits" : "Not enough credits");
-  return lines.join("\n");
-}
-
-function formatRunCostActual(summary: RunCostSummary): string {
-  const lines = ["Actual total:"];
-  for (const entry of summary.actuals) {
-    lines.push(`${entry.nodeId.padEnd(18)} ${formatCredits(entry.actualCredits)} credits`);
-  }
-  lines.push("--------------------------");
-  lines.push(`${"Total".padEnd(18)} ${formatCredits(summary.totalActualCredits)} credits`);
-  lines.push(`${"Refunded".padEnd(18)} ${formatCredits(summary.refundedCredits)} credits`);
-  return lines.join("\n");
-}
-
-function useImageDimensions(value: unknown): { dimensions: { width: number; height: number } | null; status: "idle" | "loading" | "ready" | "error" } {
-  const directDimensions = imageDimensionsFromValue(value);
-  const src = imagePreviewSrc(value);
-  const [state, setState] = useState<{ src: string | null; dimensions: { width: number; height: number } | null; status: "idle" | "loading" | "ready" | "error" }>({
-    src: null,
-    dimensions: null,
-    status: "idle"
-  });
-
-  useEffect(() => {
-    if (directDimensions) {
-      setState({ src: src ?? null, dimensions: directDimensions, status: "ready" });
-      return;
-    }
-    if (!src) {
-      setState({ src: null, dimensions: null, status: "idle" });
-      return;
-    }
-    let cancelled = false;
-    setState((current) => current.src === src && current.status === "ready" ? current : { src, dimensions: null, status: "loading" });
-    const image = new Image();
-    image.onload = () => {
-      if (cancelled) return;
-      const width = image.naturalWidth || image.width;
-      const height = image.naturalHeight || image.height;
-      setState(width > 0 && height > 0 ? { src, dimensions: { width, height }, status: "ready" } : { src, dimensions: null, status: "error" });
-    };
-    image.onerror = () => {
-      if (!cancelled) setState({ src, dimensions: null, status: "error" });
-    };
-    image.src = src;
-    return () => {
-      cancelled = true;
-    };
-  }, [src, directDimensions?.width, directDimensions?.height]);
-
-  if (directDimensions) return { dimensions: directDimensions, status: "ready" };
-  return { dimensions: state.dimensions, status: state.status };
-}
-
-function imageDimensionsFromValue(value: unknown): { width: number; height: number } | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return imageDimensionsFromValue(value[0]);
-  if (typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  const nested = imageDimensionsFromValue(record.image ?? record.output);
-  if (nested) return nested;
-  const width = Number(record.width);
-  const height = Number(record.height);
-  return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
-    ? { width: Math.round(width), height: Math.round(height) }
-    : null;
-}
-
-function isUnsetOrManifestDefaultResizeDimension(value: unknown): boolean {
-  return value === undefined || value === null || value === "" || Number(value) === 1024;
-}
-
-function imagePreviewSrc(value: unknown): string | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return imagePreviewSrc(value[0]);
-  if (typeof value === "string") {
-    if (/^data:image\//i.test(value)) return value;
-    if (/^https?:\/\//i.test(value)) return value;
-    if (/\.(png|jpg|jpeg|webp)(\?.*)?$/i.test(value)) return `${apiBase}/api/assets/preview?path=${encodeURIComponent(value)}`;
-    return null;
-  }
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const imageUrl = record.image_url && typeof record.image_url === "object" ? (record.image_url as Record<string, unknown>).url : undefined;
-    const base64 = typeof record.b64_json === "string" ? `data:image/png;base64,${record.b64_json}` : undefined;
-    const portableMimeType = typeof record.mimeType === "string" && record.mimeType.trim() ? record.mimeType.trim() : "image/png";
-    const portableBase64 = typeof record.base64 === "string" ? `data:${portableMimeType};base64,${record.base64}` : undefined;
-    return imagePreviewSrc(record.image ?? imageUrl ?? base64 ?? portableBase64 ?? record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.output);
-  }
-  return null;
-}
-
-function videoPreviewSrc(value: unknown): string | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return videoPreviewSrc(value[0]);
-  if (typeof value === "string") {
-    if (/^data:video\//i.test(value)) return value;
-    if (/^https?:\/\//i.test(value)) return value;
-    if (/\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(value)) return `${apiBase}/api/assets/preview?kind=video&path=${encodeURIComponent(value)}`;
-    return null;
-  }
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return videoPreviewSrc(record.video ?? record.localPath ?? record.path ?? record.originalUrl ?? record.url ?? record.output);
-  }
-  return null;
-}
-
-function localImagePreviewSrc(path: string): string {
-  return `${apiBase}/api/assets/preview?path=${encodeURIComponent(path)}`;
-}
-
-function versionedAssetPreviewSrc(src: string | null, version: string): string | null {
-  if (!src || !version || !src.includes("/api/assets/preview?")) return src;
-  const separator = src.includes("?") ? "&" : "?";
-  return `${src}${separator}_v=${encodeURIComponent(version)}`;
-}
-
-function lastImageValue(value: unknown): unknown {
-  const matches: unknown[] = [];
-  collectImageValues(value, matches, new Set());
-  return matches[matches.length - 1] ?? value;
-}
-
-function collectImageValues(value: unknown, matches: unknown[], seen: Set<object>): void {
-  if (!value) return;
-  if (typeof value === "object") {
-    if (seen.has(value)) return;
-    seen.add(value);
-  }
-  if (imagePreviewSrc(value)) matches.push(value);
-  if (Array.isArray(value)) {
-    for (const item of value) collectImageValues(item, matches, seen);
-    return;
-  }
-  if (typeof value === "object") {
-    for (const item of Object.values(value as Record<string, unknown>)) collectImageValues(item, matches, seen);
-  }
-}
-
-function liveFisheyeOutput(value: unknown): { source: unknown; fovDegrees: number; yawDegrees: number; pitchDegrees: number } | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const valueRecord = value as Record<string, unknown>;
-  if (valueRecord.image) {
-    const nested = liveFisheyeOutput(valueRecord.image);
-    if (nested) return nested;
-  }
-  const liveFisheye = valueRecord.liveFisheye;
-  if (!liveFisheye || typeof liveFisheye !== "object" || Array.isArray(liveFisheye)) return null;
-  const record = liveFisheye as Record<string, unknown>;
-  if (!imagePreviewSrc(record.source)) return null;
-  return {
-    source: record.source,
-    fovDegrees: numberParamValue(record.fovDegrees, 200),
-    yawDegrees: numberParamValue(record.yawDegrees, 0),
-    pitchDegrees: numberParamValue(record.pitchDegrees, -90)
-  };
-}
-
-function panoramaSourceSrc(value: unknown): string | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  const panorama = record.panorama;
-  if (!panorama || typeof panorama !== "object" || Array.isArray(panorama)) return null;
-  const source = panorama as Record<string, unknown>;
-  return imagePreviewSrc(source.sourceImage ?? source.sourceUrl ?? source.url ?? source.path);
-}
-
-function imageLocalPath(value: unknown): string | null {
-  if (!value) return null;
-  if (Array.isArray(value)) return imageLocalPath(value[0]);
-  if (typeof value === "string") return /\.(png|jpg|jpeg|webp)$/i.test(value) && !/^https?:\/\//i.test(value) ? value : null;
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    return imageLocalPath(record.image ?? record.localPath ?? record.path ?? record.output);
-  }
-  return null;
-}
-
-function imageLabel(value: unknown): string {
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    const image = ((record.image && typeof record.image === "object" ? record.image : record.video && typeof record.video === "object" ? record.video : record) as Record<string, unknown>);
-    if (typeof record.image === "string" && /^data:image\//i.test(record.image)) return "generated image";
-    if (typeof record.video === "string" && /^data:video\//i.test(record.video)) return "generated video";
-    if (typeof image.base64 === "string") return String(image.filename ?? "generated image");
-    return String(image.filename ?? image.localPath ?? image.path ?? image.originalUrl ?? "image");
-  }
-  if (typeof value === "string" && /^data:image\//i.test(value)) return "generated image";
-  if (typeof value === "string" && /^data:video\//i.test(value)) return "generated video";
-  return String(value ?? "image");
-}
-
-function imageOutputIdForResult(result: NodeRunResult): string {
-  if (result.output && typeof result.output === "object" && !Array.isArray(result.output)) {
-    const record = result.output as Record<string, unknown>;
-    if (record.image) return "image";
-    if (record.localPath || record.path || record.url || record.originalUrl) return "output";
-  }
-  return "image";
-}
-
-function renderPanoramaFrame(canvas: HTMLCanvasElement, image: HTMLImageElement, view: { yaw: number; pitch: number; fov: number }) {
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
-
-  const sourceCanvas = document.createElement("canvas");
-  sourceCanvas.width = image.naturalWidth;
-  sourceCanvas.height = image.naturalHeight;
-  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
-  if (!sourceContext) return;
-  sourceContext.drawImage(image, 0, 0);
-
-  const source = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-  const frame = context.createImageData(canvas.width, canvas.height);
-  const sourceData = source.data;
-  const frameData = frame.data;
-  const sourceWidth = source.width;
-  const sourceHeight = source.height;
-  const fov = (view.fov * Math.PI) / 180;
-  const tanHalfVertical = Math.tan(fov / 2);
-  const tanHalfHorizontal = tanHalfVertical * (canvas.width / canvas.height);
-  const cosYaw = Math.cos(view.yaw);
-  const sinYaw = Math.sin(view.yaw);
-  const cosPitch = Math.cos(view.pitch);
-  const sinPitch = Math.sin(view.pitch);
-
-  for (let y = 0; y < canvas.height; y += 1) {
-    const ny = (1 - ((y + 0.5) / canvas.height) * 2) * tanHalfVertical;
-    for (let x = 0; x < canvas.width; x += 1) {
-      const nx = (((x + 0.5) / canvas.width) * 2 - 1) * tanHalfHorizontal;
-      const length = Math.hypot(nx, ny, 1);
-      const cameraX = nx / length;
-      const cameraY = ny / length;
-      const cameraZ = 1 / length;
-      const pitchedY = cameraY * cosPitch - cameraZ * sinPitch;
-      const pitchedZ = cameraY * sinPitch + cameraZ * cosPitch;
-      const worldX = cameraX * cosYaw + pitchedZ * sinYaw;
-      const worldY = pitchedY;
-      const worldZ = -cameraX * sinYaw + pitchedZ * cosYaw;
-      const longitude = Math.atan2(worldX, worldZ);
-      const latitude = Math.asin(clamp(worldY, -1, 1));
-      const sourceX = positiveModulo(Math.floor((longitude / (Math.PI * 2) + 0.5) * sourceWidth), sourceWidth);
-      const sourceY = clamp(Math.floor((0.5 - latitude / Math.PI) * sourceHeight), 0, sourceHeight - 1);
-      const sourceIndex = (sourceY * sourceWidth + sourceX) * 4;
-      const frameIndex = (y * canvas.width + x) * 4;
-      frameData[frameIndex] = sourceData[sourceIndex];
-      frameData[frameIndex + 1] = sourceData[sourceIndex + 1];
-      frameData[frameIndex + 2] = sourceData[sourceIndex + 2];
-      frameData[frameIndex + 3] = 255;
-    }
-  }
-  context.putImageData(frame, 0, 0);
-}
-
-function renderFisheyeFrame(canvas: HTMLCanvasElement, image: HTMLImageElement, view: { fovDegrees: number; yawDegrees: number; pitchDegrees: number }) {
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
-
-  const sourceCanvas = document.createElement("canvas");
-  sourceCanvas.width = image.naturalWidth;
-  sourceCanvas.height = image.naturalHeight;
-  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
-  if (!sourceContext) return;
-  sourceContext.drawImage(image, 0, 0);
-
-  const source = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-  const frame = context.createImageData(canvas.width, canvas.height);
-  const sourceData = source.data;
-  const frameData = frame.data;
-  const sourceWidth = source.width;
-  const sourceHeight = source.height;
-  const radius = Math.min(canvas.width, canvas.height) / 2;
-  const centerX = canvas.width / 2;
-  const centerY = canvas.height / 2;
-  const maxTheta = (view.fovDegrees * Math.PI) / 360;
-  const yaw = (view.yawDegrees * Math.PI) / 180;
-  const pitch = (view.pitchDegrees * Math.PI) / 180;
-  const cosYaw = Math.cos(yaw);
-  const sinYaw = Math.sin(yaw);
-  const cosPitch = Math.cos(pitch);
-  const sinPitch = Math.sin(pitch);
-
-  for (let y = 0; y < canvas.height; y += 1) {
-    const normalizedY = ((y + 0.5) - centerY) / radius;
-    for (let x = 0; x < canvas.width; x += 1) {
-      const normalizedX = ((x + 0.5) - centerX) / radius;
-      const distance = Math.hypot(normalizedX, normalizedY);
-      const frameIndex = (y * canvas.width + x) * 4;
-      if (distance > 1) {
-        frameData[frameIndex + 3] = 0;
-        continue;
-      }
-      const theta = distance * maxTheta;
-      const phi = Math.atan2(normalizedY, normalizedX);
-      const sinTheta = Math.sin(theta);
-      const cameraX = sinTheta * Math.cos(phi);
-      const cameraY = -sinTheta * Math.sin(phi);
-      const cameraZ = Math.cos(theta);
-      const pitchedY = cameraY * cosPitch - cameraZ * sinPitch;
-      const pitchedZ = cameraY * sinPitch + cameraZ * cosPitch;
-      const worldX = cameraX * cosYaw + pitchedZ * sinYaw;
-      const worldY = pitchedY;
-      const worldZ = -cameraX * sinYaw + pitchedZ * cosYaw;
-      const longitude = Math.atan2(worldX, worldZ);
-      const latitude = Math.asin(clamp(worldY, -1, 1));
-      const sourceX = positiveModulo(Math.floor((longitude / (Math.PI * 2) + 0.5) * sourceWidth), sourceWidth);
-      const sourceY = clamp(Math.floor((0.5 - latitude / Math.PI) * sourceHeight), 0, sourceHeight - 1);
-      const sourceIndex = (sourceY * sourceWidth + sourceX) * 4;
-      frameData[frameIndex] = sourceData[sourceIndex];
-      frameData[frameIndex + 1] = sourceData[sourceIndex + 1];
-      frameData[frameIndex + 2] = sourceData[sourceIndex + 2];
-      frameData[frameIndex + 3] = sourceData[sourceIndex + 3];
-    }
-  }
-  context.putImageData(frame, 0, 0);
-}
-
-function panoramaSnapshotFilename(filename: string): string {
-  const base = filename.replace(/\.[a-z0-9]+$/i, "") || "panorama";
-  return `${base}-view.png`;
-}
-
-function positiveModulo(value: number, modulo: number): number {
-  return ((value % modulo) + modulo) % modulo;
-}
-
-function degreesToRadians(value: number): number {
-  return (value * Math.PI) / 180;
-}
-
-function radiansToDegrees(value: number): number {
-  return (value * 180) / Math.PI;
-}
-
-function wrapDegrees(value: number): number {
-  const wrapped = positiveModulo(value + 180, 360) - 180;
-  return wrapped === -180 ? 180 : wrapped;
-}
-
-function roundCameraCoordinate(value: number): number {
-  return Number(value.toFixed(2));
-}
-
-function formatSliderValue(value: number): string {
-  if (!Number.isFinite(value)) return "0";
-  return Number(value.toFixed(2)).toString();
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
 }
 
 function outputString(value: unknown, key: string): string {
@@ -11875,330 +8890,6 @@ function outputText(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const text = (value as Record<string, unknown>).text;
   return typeof text === "string" ? text : null;
-}
-
-function geminiLlmPricingLabel(modelValue: string): string {
-  const model = GEMINI_LLM_MODEL_OPTIONS.find((entry) => entry.value === modelValue) ?? GEMINI_LLM_MODEL_OPTIONS[0];
-  return `Paid tier: input $${model.inputUsdPerMillionTokens.toFixed(2)} / output $${model.outputUsdPerMillionTokens.toFixed(2)} per 1M tokens.`;
-}
-
-function modelSupportsText(model: OpenRouterModel): boolean {
-  if (model.kind === "video" || model.kind === "image") return false;
-  const output = model.architecture?.output_modalities ?? [];
-  const modality = model.architecture?.modality ?? "";
-  return output.length === 0 || output.includes("text") || modality.includes("text");
-}
-
-function modelSupportsImage(model: OpenRouterModel): boolean {
-  if (isOpenRouterRoutingAlias(model.id)) return false;
-  if (model.kind === "video") return false;
-  const output = model.architecture?.output_modalities ?? [];
-  const modality = model.architecture?.modality ?? "";
-  return output.includes("image") || modalityOutputModalities(modality).includes("image");
-}
-
-function modelSupportsVideo(model: OpenRouterModel): boolean {
-  if (isOpenRouterRoutingAlias(model.id)) return false;
-  const output = model.architecture?.output_modalities ?? [];
-  const modality = model.architecture?.modality ?? "";
-  return model.kind === "video" || output.includes("video") || modalityOutputModalities(modality).includes("video");
-}
-
-function openRouterModelSupportsVisionInput(model: OpenRouterModel): boolean {
-  if (isOpenRouterRoutingAlias(model.id)) return false;
-  const input = model.architecture?.input_modalities ?? [];
-  const modality = model.architecture?.modality ?? "";
-  return input.includes("image") || modalityInputModalities(modality).includes("image");
-}
-
-function polzaVideoSupportsAudio(model: PolzaModel | undefined): boolean {
-  if (!model) return false;
-  const parameterIds = new Set((model.generationParameters ?? []).map((parameter) => String(parameter.id ?? "").toLowerCase()));
-  if (parameterIds.has("generate_audio") || parameterIds.has("audio") || parameterIds.has("sound")) return true;
-  const supported = new Set((model.supported_parameters ?? []).map((parameter) => parameter.toLowerCase()));
-  if (supported.has("generate_audio") || supported.has("audio") || supported.has("sound")) return true;
-  const outputModalities = [
-    ...(model.architecture?.output_modalities ?? []),
-    ...modalityOutputModalities(model.architecture?.modality ?? "")
-  ].map((entry) => entry.toLowerCase());
-  if (outputModalities.includes("audio")) return true;
-  const searchable = `${model.id} ${model.name ?? ""} ${model.short_description ?? ""}`.toLowerCase();
-  return /(^|[\/\s_-])veo-?3/.test(searchable) || /\baudio\b|\bsound\b/.test(searchable);
-}
-
-function polzaModelSupportsVisionInput(model: PolzaModel): boolean {
-  const input = model.architecture?.input_modalities ?? [];
-  const modality = model.architecture?.modality ?? "";
-  if (input.includes("image") || modalityInputModalities(modality).includes("image")) return true;
-  return /(^|[/.-])(gpt-4o|gpt-4\.1|gemini|claude-3|pixtral|llava|vision)([/.-]|$)/i.test(model.id);
-}
-
-function llmModelOptionLabel(label: string, id: string, supportsVision: boolean): string {
-  const base = label === id ? id : `${label} (${id})`;
-  return supportsVision ? `${base} - images` : base;
-}
-
-function isOpenRouterRoutingAlias(modelId: string): boolean {
-  return modelId === "openrouter/auto";
-}
-
-function modalityInputModalities(modality: string): string[] {
-  if (!modality) return [];
-  const inputSide = modality.includes("->") ? modality.split("->")[0] ?? "" : modality;
-  return inputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
-}
-
-function modalityOutputModalities(modality: string): string[] {
-  if (!modality) return [];
-  const outputSide = modality.includes("->") ? modality.split("->").pop() ?? "" : modality;
-  return outputSide.split(/[,+\s/]+/).map((part) => part.trim().toLowerCase()).filter(Boolean);
-}
-
-const GEMINI_IMAGE_ASPECT_RATIOS = ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"];
-const GEMINI_IMAGE_SIZES = ["1K", "2K", "4K"];
-const OPENAI_IMAGE_ASPECT_RATIOS = ["1:1", "3:2", "2:3", "16:9", "9:16"];
-const OPENAI_IMAGE_QUALITIES = ["low", "medium", "high"];
-const POLZA_TEXT_MODEL_OPTIONS: PolzaModel[] = [
-  { id: "openai/gpt-4o", name: "GPT-4o", type: "chat" },
-  { id: "anthropic/claude-3-5-sonnet", name: "Claude 3.5 Sonnet", type: "chat" },
-  { id: "google/gemini-2.5-pro-preview", name: "Gemini 2.5 Pro", type: "chat" },
-  { id: "meta-llama/llama-3.3-70b", name: "Llama 3.3 70B", type: "chat" }
-];
-const POLZA_IMAGE_MODEL_OPTIONS: PolzaModel[] = [
-  { id: "openai/gpt-5.4-image-2", name: "GPT-5.4 Image 2", type: "image", short_description: "Supports aspect_ratio: auto, 1:1, 5:4, 9:16, 21:9, 16:9, 4:3, 3:2, 4:5, 3:4, 2:3" },
-  { id: "openai/gpt-5-image-mini", name: "GPT-5 Image Mini", type: "image" },
-  { id: "openai/gpt-image-1.5", name: "GPT Image 1.5", type: "image", short_description: "Supports aspect_ratio: 1:1, 2:3, 3:2" },
-  { id: "gpt-image-1", name: "GPT Image 1", type: "image" },
-  { id: "dall-e-3", name: "DALL-E 3", type: "image" },
-  { id: "x-ai/grok-imagine-image", name: "Grok Imagine", type: "image" }
-];
-const POLZA_VIDEO_MODEL_OPTIONS: PolzaModel[] = [
-  { id: "google/veo3_fast", name: "Veo 3 Fast", type: "video", short_description: "Supports video generation with sound." },
-  { id: "google/veo3", name: "Veo 3", type: "video", short_description: "Supports video generation with sound." },
-  { id: "wan/2.6", name: "Wan 2.6", type: "video" },
-  { id: "bytedance/seedance-2", name: "Seedance 2", type: "video" },
-  { id: "bytedance/seedance-2-fast", name: "Seedance 2 Fast", type: "video" }
-];
-const POLZA_IMAGE_ASPECT_RATIOS = ["auto", "1:1", "5:4", "4:5", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16", "21:9"];
-const POLZA_IMAGE_RESOLUTIONS = ["1K", "2K"];
-const POLZA_IMAGE_QUALITIES = ["auto", "low", "medium", "high"];
-const POLZA_IMAGE_FORMATS = ["png", "jpeg", "webp"];
-const POLZA_VIDEO_RESOLUTIONS = ["720p", "1080p"];
-const POLZA_VIDEO_DURATIONS = ["5", "10"];
-
-function polzaModelOptions(catalogModels: PolzaModel[], fallbackModels: PolzaModel[], selectedModelId: string): PolzaModel[] {
-  const byId = new Map<string, PolzaModel>();
-  for (const model of fallbackModels) byId.set(model.id, model);
-  for (const model of catalogModels) byId.set(model.id, { ...byId.get(model.id), ...model });
-  if (selectedModelId && !byId.has(selectedModelId)) byId.set(selectedModelId, { id: selectedModelId, name: selectedModelId });
-  return [...byId.values()].sort((left, right) => {
-    const leftFallback = fallbackModels.some((model) => model.id === left.id) ? 0 : 1;
-    const rightFallback = fallbackModels.some((model) => model.id === right.id) ? 0 : 1;
-    return leftFallback - rightFallback || (left.name ?? left.id).localeCompare(right.name ?? right.id);
-  });
-}
-
-function videoGenerationModelOptions(openRouterModels: OpenRouterModel[], polzaVideoModels: PolzaModel[], selectedModelId: string): VideoModelOption[] {
-  const polzaOptions = polzaModelOptions(polzaVideoModels.filter(isPolzaVideoGenerationModel), POLZA_VIDEO_MODEL_OPTIONS, selectedModelId)
-    .map((model): VideoModelOption => ({
-      ...model,
-      providerId: "polza",
-      providerLabel: "Polza.ai"
-    }));
-  const byKey = new Map(polzaOptions.map((model) => [`polza:${model.id}`, model]));
-  for (const model of openRouterModels.filter(modelSupportsVideo)) {
-    byKey.set(`openrouter:${model.id}`, {
-      id: model.id,
-      name: model.name,
-      providerId: "openrouter",
-      providerLabel: "OpenRouter",
-      pricing: model.pricing,
-      supported_parameters: model.supported_parameters,
-      architecture: model.architecture
-    });
-  }
-  const hasSelected = [...byKey.values()].some((model) => model.id === selectedModelId);
-  if (selectedModelId && !hasSelected) {
-    const selectedOpenRouterModel = openRouterModels.find((model) => model.id === selectedModelId);
-    byKey.set(`${selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "openrouter" : "polza"}:${selectedModelId}`, {
-      id: selectedModelId,
-      name: selectedOpenRouterModel?.name ?? selectedModelId,
-      providerId: selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "openrouter" : "polza",
-      providerLabel: selectedOpenRouterModel && modelSupportsVideo(selectedOpenRouterModel) ? "OpenRouter" : "Polza.ai",
-      pricing: selectedOpenRouterModel?.pricing,
-      supported_parameters: selectedOpenRouterModel?.supported_parameters,
-      architecture: selectedOpenRouterModel?.architecture
-    });
-  }
-  return [...byKey.values()].sort((left, right) => {
-    const leftProvider = left.providerId === "polza" ? 0 : 1;
-    const rightProvider = right.providerId === "polza" ? 0 : 1;
-    return leftProvider - rightProvider || (left.name ?? left.id).localeCompare(right.name ?? right.id);
-  });
-}
-
-function videoModelOptionKey(model: Pick<VideoModelOption, "providerId" | "id">): string {
-  return `${model.providerId}:${model.id}`;
-}
-
-function polzaModelHint(model: PolzaModel | undefined, fallback: string): string {
-  return model?.short_description || fallback;
-}
-
-function videoModelHint(model: VideoModelOption | undefined, fallback: string): string {
-  if (!model) return fallback;
-  return model.short_description || `Video model via ${model.providerLabel}`;
-}
-
-function imageGenerationModelOptions(openRouterModels: OpenRouterModel[], selectedModelId: string): ImageModelOption[] {
-  const directOptions: ImageModelOption[] = [{
-    id: "image.nano-banana",
-    slug: "image.nano-banana",
-    label: "Nano Banana",
-    provider: "Gemini",
-    capabilities: ["image-generation"],
-    aspectRatios: GEMINI_IMAGE_ASPECT_RATIOS,
-    imageSizes: GEMINI_IMAGE_SIZES,
-    supportsImageGeneration: "supported",
-    routeSupport: { openrouter: "unsupported", direct: "supported" }
-  }];
-  const openRouterImageOptions = openRouterModels
-    .filter((entry) => modelSupportsImage(entry))
-    .map((entry): ImageModelOption => ({
-      id: entry.id,
-      slug: entry.id,
-      label: entry.name ?? entry.id,
-      provider: providerFromSlug(entry.id),
-      capabilities: ["image-generation"],
-      aspectRatios: imageAspectRatiosForSlug(entry.id),
-      imageSizes: imageSizesForSlug(entry.id),
-      supportsImageGeneration: "supported",
-      routeSupport: { openrouter: "supported", direct: "unknown" },
-      pricing: entry.pricing
-    }));
-  const options = [...directOptions, ...openRouterImageOptions];
-  if (selectedModelId && !options.some((entry) => entry.id === selectedModelId)) {
-    const selectedCatalogModel = openRouterModels.find((entry) => entry.id === selectedModelId);
-    options.push({
-      id: selectedModelId,
-      slug: selectedModelId,
-      label: selectedCatalogModel?.name ?? selectedModelId,
-      provider: selectedModelId.includes("/") ? providerFromSlug(selectedModelId) : "unknown",
-      capabilities: [],
-      aspectRatios: imageAspectRatiosForSlug(selectedModelId),
-      imageSizes: imageSizesForSlug(selectedModelId),
-      supportsImageGeneration: selectedCatalogModel ? "unsupported" : "unknown",
-      routeSupport: { openrouter: selectedModelId.includes("/") ? "unknown" : "unsupported", direct: "unknown" },
-      disabled: true,
-      note: selectedCatalogModel ? "not available for image generation" : "image support unknown",
-      pricing: selectedCatalogModel?.pricing
-    });
-  }
-  return options;
-}
-
-function imageModelOptionLabel(model: ImageModelOption): string {
-  const notes = [model.disabled ? model.note : ""].filter(Boolean);
-  return notes.length > 0 ? `${model.label} (${notes.join(", ")})` : model.label;
-}
-
-function imageAspectRatioOptions(model: ImageModelOption | undefined): string[] {
-  return model?.aspectRatios?.length ? model.aspectRatios : GEMINI_IMAGE_ASPECT_RATIOS;
-}
-
-function imageSizeOptionsForModel(model: ImageModelOption | undefined): string[] {
-  return model?.imageSizes?.length ? model.imageSizes : GEMINI_IMAGE_SIZES;
-}
-
-function supportedOptionValue(value: unknown, options: string[]): string {
-  const stringValue = typeof value === "string" ? value : "";
-  return options.includes(stringValue) ? stringValue : options[0] ?? "";
-}
-
-function imageAspectRatiosForSlug(slug: string): string[] {
-  return isOpenAiImageSlug(slug) ? OPENAI_IMAGE_ASPECT_RATIOS : GEMINI_IMAGE_ASPECT_RATIOS;
-}
-
-function imageSizesForSlug(slug: string): string[] {
-  return isOpenAiImageSlug(slug) ? OPENAI_IMAGE_QUALITIES : GEMINI_IMAGE_SIZES;
-}
-
-function isOpenAiImageSlug(slug: string): boolean {
-  return slug.startsWith("openai/") && /image/i.test(slug);
-}
-
-function connectionRouteHelper(route: string): string {
-  if (route === "openrouter") return "Uses the selected OpenRouter model directly.";
-  if (route === "direct") return "Bypasses OpenRouter and uses the provider's direct API configuration.";
-  return "Automatically chooses a verified route. Unknown model support will not silently switch providers.";
-}
-
-function imageRoutePreview(model: ImageModelOption | undefined, connectionRoute: string) {
-  const selectedConnectionRoute = connectionRoute === "openrouter" ? "OpenRouter" : connectionRoute === "direct" ? "Direct API" : "Auto";
-  if (!model) {
-    return {
-      selectedModelLabel: "Unknown model",
-      selectedModelId: "",
-      selectedConnectionRoute,
-      resolvedProvider: "unresolved",
-      resolvedRoute: "unresolved",
-      supportsImageGeneration: "unknown",
-      fallbackUsed: false,
-      fallbackReason: ""
-    };
-  }
-  const supportsImageGeneration = model.supportsImageGeneration;
-  let resolvedProvider = "unresolved";
-  let resolvedRoute = "unresolved";
-  if (connectionRoute === "openrouter" && model.routeSupport.openrouter !== "unsupported") {
-    resolvedProvider = "OpenRouter";
-    resolvedRoute = model.routeSupport.openrouter === "unknown" ? "OpenRouter (manual, support unknown)" : "OpenRouter";
-  } else if (connectionRoute === "direct" && model.routeSupport.direct === "supported") {
-    resolvedProvider = model.provider;
-    resolvedRoute = "Direct API";
-  } else if (connectionRoute === "auto") {
-    if (model.routeSupport.openrouter === "supported") {
-      resolvedProvider = "OpenRouter";
-      resolvedRoute = "OpenRouter";
-    } else if (model.routeSupport.direct === "supported") {
-      resolvedProvider = model.provider;
-      resolvedRoute = "Direct API";
-    }
-  }
-  return {
-    selectedModelLabel: model.label,
-    selectedModelId: model.slug,
-    selectedConnectionRoute,
-    resolvedProvider,
-    resolvedRoute,
-    supportsImageGeneration,
-    fallbackUsed: false,
-    fallbackReason: ""
-  };
-}
-
-function providerFromSlug(slug: string): string {
-  const provider = slug.split("/")[0] || "unknown";
-  return provider.charAt(0).toUpperCase() + provider.slice(1);
-}
-
-function openRouterCostLabel(_model: OpenRouterModel | undefined): string {
-  return "";
-}
-
-function imageModelCostLabel(model: ImageModelOption | undefined): string {
-  return model?.provider ? `Provider: ${model.provider}` : "";
-}
-
-function numericParam(value: string): unknown {
-  if (!value.trim()) return "";
-  const number = Number(value.replace(",", "."));
-  return Number.isFinite(number) ? number : value;
-}
-
-function numberParamValue(value: unknown, fallback: number): number {
-  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value.replace(",", ".")) : fallback;
-  return Number.isFinite(number) ? number : fallback;
 }
 
 function recordParam(value: unknown): Record<string, unknown> {
@@ -12276,10 +8967,6 @@ function downloadFilename(value: unknown, fallback = "snarkroute-image.png"): st
   return label || fallback;
 }
 
-function filenameFromPath(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
-}
-
 function stringParam(params: Record<string, unknown> | undefined, key: string): string {
   const value = params?.[key];
   return typeof value === "string" ? value.trim() : "";
@@ -12299,28 +8986,6 @@ function slugFromText(value: string): string {
 
 function splitCsv(value: string): string[] {
   return value.split(",").map((entry) => entry.trim()).filter(Boolean);
-}
-
-function filterPromptLibraryByStatus(library: PromptLibraryData, filter: PromptStatusFilter): PromptLibraryData {
-  if (filter === "all") return library;
-  return {
-    ...library,
-    categories: library.categories
-      .map((category) => ({
-        ...category,
-        prompts: category.prompts.filter((prompt) => (prompt.status ?? "published") === filter)
-      }))
-      .filter((category) => category.prompts.length > 0)
-  };
-}
-
-function promptPreviewSrc(prompt: PromptLibraryPrompt): string {
-  const previewImage = prompt.previewImage ?? "";
-  if (/^https?:\/\//i.test(previewImage)) return previewImage;
-  const promptPath = prompt.path ?? "";
-  const separatorIndex = Math.max(promptPath.lastIndexOf("/"), promptPath.lastIndexOf("\\"));
-  const directory = separatorIndex >= 0 ? promptPath.slice(0, separatorIndex + 1) : "";
-  return `${apiBase}/api/assets/preview?path=${encodeURIComponent(`${directory}${previewImage}`)}`;
 }
 
 function hasRequiredNodeOnlyInputs(node: RouteDoc["nodes"][number], incomingEdges: Edge[]): boolean {
@@ -12436,3 +9101,4 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
   const tagName = target.tagName.toLowerCase();
   return tagName === "input" || tagName === "textarea" || tagName === "select" || target.isContentEditable;
 }
+

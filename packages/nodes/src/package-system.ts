@@ -29,6 +29,17 @@ export interface NodeCapabilityManifest {
   priority?: number;
 }
 
+export type CanvasActionIconManifest =
+  | { kind: "preset"; name: string }
+  | { kind: "custom"; svg?: string; dataUrl?: string };
+
+export interface CanvasActionManifest {
+  enabled: boolean;
+  title?: string;
+  description?: string;
+  icon?: CanvasActionIconManifest;
+}
+
 export interface NodePermissions {
   network: boolean;
   networkHosts?: string[];
@@ -71,6 +82,7 @@ export interface SnarkNodeManifest {
   outputs: NodePortManifest[];
   params?: NodeParamManifest[];
   capabilities?: NodeCapabilityManifest[];
+  canvasAction?: CanvasActionManifest;
   ui?: unknown;
   description?: string;
   category?: string;
@@ -217,6 +229,7 @@ export function validateNodeManifest(input: unknown, options: { basePath?: strin
   validatePorts(record.outputs, "outputs", issues);
   if (record.params !== undefined) validatePorts(record.params, "params", issues);
   if (record.capabilities !== undefined) validateCapabilities(record.capabilities, issues);
+  if (record.canvasAction !== undefined) validateCanvasAction(record.canvasAction, record.inputs, record.outputs, issues);
 
   return issues.length === 0 ? { ok: true, manifest: normalizeNodeManifest(record), issues: [] } : { ok: false, issues };
 }
@@ -727,6 +740,55 @@ function validateCapabilities(value: unknown, issues: ValidationIssue[]): void {
     }
     if (record.priority !== undefined && typeof record.priority !== "number") issues.push({ path: `capabilities.${index}.priority`, message: "priority must be a number." });
   });
+}
+
+function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown, issues: ValidationIssue[]): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    issues.push({ path: "canvasAction", message: "canvasAction must be an object." });
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record.enabled !== "boolean") issues.push({ path: "canvasAction.enabled", message: "enabled must be boolean." });
+  if (record.title !== undefined && typeof record.title !== "string") issues.push({ path: "canvasAction.title", message: "title must be string." });
+  if (record.description !== undefined && typeof record.description !== "string") issues.push({ path: "canvasAction.description", message: "description must be string." });
+  if (record.icon !== undefined) validateCanvasActionIcon(record.icon, issues);
+  if (record.enabled !== true) return;
+
+  const inputPorts = Array.isArray(inputs) ? inputs as Array<Record<string, unknown>> : [];
+  const outputPorts = Array.isArray(outputs) ? outputs as Array<Record<string, unknown>> : [];
+  if (inputPorts.length !== 1) issues.push({ path: "canvasAction", message: "Canvas actions must declare exactly one input port." });
+  const inputType = inputPorts[0]?.type;
+  if (typeof inputType !== "string" || !isCanvasActionPortType(inputType)) {
+    issues.push({ path: "inputs.0.type", message: 'Canvas action input type must be "image", "video", "audio", or "text".' });
+  }
+  if (outputPorts.length === 0) issues.push({ path: "outputs", message: "Canvas actions must declare at least one output port." });
+  outputPorts.forEach((port, index) => {
+    if (typeof port.type !== "string" || !isCanvasActionPortType(port.type)) {
+      issues.push({ path: `outputs.${index}.type`, message: 'Canvas action output type must be "image", "video", "audio", or "text".' });
+    }
+  });
+}
+
+function validateCanvasActionIcon(value: unknown, issues: ValidationIssue[]): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    issues.push({ path: "canvasAction.icon", message: "icon must be an object." });
+    return;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.kind !== "preset" && record.kind !== "custom") {
+    issues.push({ path: "canvasAction.icon.kind", message: 'icon.kind must be "preset" or "custom".' });
+    return;
+  }
+  if (record.kind === "preset" && (typeof record.name !== "string" || !record.name.trim())) {
+    issues.push({ path: "canvasAction.icon.name", message: "preset icon name is required." });
+  }
+  if (record.kind === "custom" && typeof record.svg !== "string" && typeof record.dataUrl !== "string") {
+    issues.push({ path: "canvasAction.icon", message: "custom icon requires svg or dataUrl." });
+  }
+}
+
+function isCanvasActionPortType(value: string): boolean {
+  return value === "image" || value === "video" || value === "audio" || value === "text";
 }
 
 function isAvailableCapabilityNode(node: RouteNode, capabilities: Set<string>): boolean {
