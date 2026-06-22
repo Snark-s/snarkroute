@@ -80,6 +80,22 @@ describe("server Model Catalog V1 assembly", () => {
     expect(catalog.find((entry) => entry.providerModelId === "image.nano-banana")?.parameters.map((parameter) => parameter.id)).toEqual(["aspectRatio", "imageSize"]);
   });
 
+  it("uses custom-mode Suno music parameters from the catalog overlay", () => {
+    const catalog = assembleModelCatalogV1({ fallbackModels: fallbackProviderModelsForCatalogV1() });
+    const suno = catalog.find((entry) => entry.providerModelId === "suno/generate");
+
+    expect(suno?.displayName).toBe("Suno Music Generate");
+    expect(suno?.inputTypes).toEqual(["text", "audio"]);
+    expect(suno?.parameters.map((parameter) => parameter.id)).toEqual(["mode", "instrumental", "style", "title", "version", "negative_tags", "language", "tempo", "voice_style"]);
+    expect(suno?.parameters.find((parameter) => parameter.id === "mode")?.default).toBe("custom");
+    expect(suno?.parameters.find((parameter) => parameter.id === "style")?.enabledWhen).toEqual({ parameterId: "mode", equals: ["custom"] });
+    expect(suno?.parameters.find((parameter) => parameter.id === "instrumental")?.advanced).toBeUndefined();
+    expect(suno?.parameters.find((parameter) => parameter.id === "instrumental")?.enabledWhen).toEqual({ parameterId: "mode", equals: ["simple"] });
+    expect(modelOptionsForNodeV1("ai.audio.generate", catalog).map((entry) => entry.providerModelId)).toContain("suno/generate");
+    expect(catalog.find((entry) => entry.providerModelId === "suno/sounds")?.inputTypes).toEqual(["text", "audio"]);
+    expect(catalog.find((entry) => entry.providerModelId === "suno/sounds")?.parameters.map((parameter) => parameter.id)).toEqual(suno?.parameters.map((parameter) => parameter.id));
+  });
+
   it("limits Polza Wan 2.6 video generation to one image input", () => {
     const catalog = assembleModelCatalogV1({
       polzaModels: [{ id: "wan/2.6", type: "video" }]

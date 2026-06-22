@@ -89,6 +89,25 @@ describe("built-in nodes", () => {
     expect(invalid.issues.some((issue) => issue.path === "author.name")).toBe(true);
   });
 
+  it("validates canvas action node manifests", () => {
+    const valid = validateNodeManifest({
+      ...examplePluginManifest(),
+      canvasAction: { enabled: true, title: "Polish", icon: { kind: "preset", name: "wrench" } },
+      inputs: [{ id: "image", type: "image", required: true }],
+      outputs: [{ id: "image", type: "image", label: "Image" }]
+    });
+    expect(valid.ok).toBe(true);
+
+    const invalid = validateNodeManifest({
+      ...examplePluginManifest(),
+      canvasAction: { enabled: true },
+      inputs: [{ id: "image", type: "image" }, { id: "mask", type: "image" }],
+      outputs: [{ id: "image", type: "image" }]
+    });
+    expect(invalid.ok).toBe(false);
+    expect(invalid.issues.some((issue) => issue.path === "canvasAction")).toBe(true);
+  });
+
   it("validates library manifests", () => {
     const validation = validateNodeLibraryManifest({
       kind: "snarkroute.nodeLibrary",

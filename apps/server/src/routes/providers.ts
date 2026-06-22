@@ -22,6 +22,8 @@ type PricingCatalog = {
   warnings: string[];
 };
 
+type PolzaCatalogModelType = "chat" | "image" | "video" | "audio" | "embedding";
+
 export async function registerProviderRoutes(app: FastifyInstance) {
 app.get("/api/providers/links", async (request, reply) => {
   try {
@@ -125,7 +127,7 @@ app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/ap
     const nodeType = typeof request.body?.nodeType === "string" ? request.body.nodeType : "";
     const params = sanitizeQuoteParams(request.body?.params);
     const polzaModels = nodeType.startsWith("polza.") && isPolzaEnabled()
-      ? await createPolzaClient().getModels(nodeType === "polza.text" ? "chat" : nodeType === "polza.video.generate" ? "video" : "image").catch(() => [])
+      ? await createPolzaClient().getModels(polzaProviderModelTypeForNode(nodeType)).catch(() => [])
       : [];
     const openRouterPricingCatalog = nodeType === "ai.text" || nodeType === "ai.image.generate" ? await ensurePricingCatalog("openrouter") : null;
     const polzaPricingCatalog = nodeType.startsWith("polza.") ? await ensurePricingCatalog("polza") : null;
@@ -156,7 +158,7 @@ app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/ap
   }
 });
 
-app.get<{ Querystring: { type?: "chat" | "image" | "video" | "embedding"; format?: string } }>("/api/providers/polza/models", async (request, reply) => {
+app.get<{ Querystring: { type?: PolzaCatalogModelType; format?: string } }>("/api/providers/polza/models", async (request, reply) => {
   try {
     if (!isPolzaEnabled()) return { ok: true, configured: false, modelCount: 0, models: [] };
     // Provider raw endpoint: return the live Polza provider catalog for the requested type.
@@ -172,6 +174,13 @@ app.get<{ Querystring: { type?: "chat" | "image" | "video" | "embedding"; format
     return reply.code(400).send({ ok: false, error: errorMessage(error) });
   }
 });
+
+function polzaProviderModelTypeForNode(nodeType: string): PolzaCatalogModelType {
+  if (nodeType === "polza.text") return "chat";
+  if (nodeType === "polza.video.generate") return "video";
+  if (nodeType === "polza.audio.generate") return "audio";
+  return "image";
+}
 
 app.get<{ Querystring: { model?: string } }>("/api/replicate/schema", async (request, reply) => {
   if (!isReplicateEnabled()) return reply.code(400).send({ error: "REPLICATE_API_TOKEN is not configured.\nOpen Settings \u2192 Secrets \u2192 Replicate and paste your token." });

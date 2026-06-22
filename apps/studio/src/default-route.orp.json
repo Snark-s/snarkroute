@@ -23,156 +23,110 @@
       "type": "input.image",
       "title": "Input Image",
       "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1781194377155-image.png"
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1782064366386-Лес ночью right.png"
       },
       "ui": {
-        "x": 627.6567678564265,
-        "y": 286.64867900190035,
-        "paramsCollapsed": true
+        "x": 815.7772323842686,
+        "y": 588.7544136272971
       }
     },
     {
-      "id": "input_image_2",
-      "type": "input.image",
-      "title": "Input Image",
-      "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1781194648172-image.png"
+      "id": "compound_4",
+      "type": "compound.subroute",
+      "title": "x4",
+      "params": {},
+      "compound": {
+        "title": "x4",
+        "inputs": [
+          {
+            "id": "image",
+            "label": "image",
+            "kind": "image",
+            "nodeId": "replicate_clarity_upscaler_2",
+            "port": "image"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "image",
+            "label": "image",
+            "kind": "image",
+            "nodeId": "replicate_clarity_upscaler_2",
+            "port": "image"
+          }
+        ]
+      },
+      "subroute": {
+        "routeVersion": "0.1",
+        "route": {
+          "id": "m31-http-json-test.compound_4",
+          "title": "x4",
+          "description": "HTTP Request -> Debug Log -> Text Output.",
+          "author": {
+            "name": "SnarkRoute"
+          },
+          "tags": [
+            "milestone-3.1",
+            "http",
+            "json"
+          ]
+        },
+        "economics": {
+          "enabled": false,
+          "mode": "disabled"
+        },
+        "nodes": [
+          {
+            "id": "replicate_clarity_upscaler_2",
+            "type": "replicate.clarity-upscaler",
+            "title": "Clarity Upscaler",
+            "params": {
+              "prompt": "masterpiece, best quality, highres",
+              "negative_prompt": "(worst quality, low quality, normal quality:2)",
+              "scale_factor": "4",
+              "dynamic": 6,
+              "creativity": 0.25,
+              "resemblance": 1.5,
+              "tiling_width": 112,
+              "tiling_height": 144,
+              "scheduler": "DPM++ 3M SDE Karras",
+              "num_inference_steps": 18,
+              "seed": 1337,
+              "downscaling": false,
+              "downscaling_resolution": 768,
+              "lora_links": "",
+              "pollingIntervalMs": 1000,
+              "timeoutMs": 120000
+            },
+            "ui": {
+              "x": 1213.5363740056762,
+              "y": 52.422270102694156
+            }
+          }
+        ],
+        "edges": [],
+        "provenance": {
+          "tool": "snarkroute-studio",
+          "updatedAt": "2026-06-22T12:20:28.928Z"
+        }
       },
       "ui": {
-        "paramsCollapsed": true,
-        "x": 638.9206017144928,
-        "y": 354.1979376853964
-      }
-    },
-    {
-      "id": "polza_image_generate_3",
-      "type": "polza.image.generate",
-      "title": "Polza Image",
-      "params": {
-        "model": "openai/gpt-5.4-image-2",
-        "prompt": "Перерисуй икону ",
-        "aspectRatio": "3:4",
-        "imageResolution": "2K",
-        "quality": "high",
-        "outputFormat": "png"
-      },
-      "ui": {
-        "x": 1065.124288797601,
-        "y": 300.58314857684184
-      }
-    },
-    {
-      "id": "replicate_clarity_upscaler_4",
-      "type": "replicate.clarity-upscaler",
-      "title": "Clarity Upscaler",
-      "params": {
-        "prompt": "masterpiece, best quality, highres",
-        "negative_prompt": "(worst quality, low quality, normal quality:2)",
-        "scale_factor": 2,
-        "dynamic": 6,
-        "creativity": 0.25,
-        "resemblance": 1.5,
-        "tiling_width": 112,
-        "tiling_height": 144,
-        "scheduler": "DPM++ 3M SDE Karras",
-        "num_inference_steps": 18,
-        "seed": 1337,
-        "downscaling": false,
-        "downscaling_resolution": 768,
-        "lora_links": "",
-        "pollingIntervalMs": 1000,
-        "timeoutMs": 120000
-      },
-      "ui": {
-        "x": 1748.5515174658951,
-        "y": 311.1710138496254
-      }
-    },
-    {
-      "id": "input_image_5",
-      "type": "input.image",
-      "title": "Input Image",
-      "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1781196025441-image.png"
-      },
-      "ui": {
-        "paramsCollapsed": true,
-        "x": 635.4648696447515,
-        "y": 445.0323669597642
-      }
-    },
-    {
-      "id": "input_image_6",
-      "type": "input.image",
-      "title": "Input Image",
-      "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1781196076245-image.png"
-      },
-      "ui": {
-        "paramsCollapsed": true,
-        "x": 633.1674728891978,
-        "y": 528.8873485374842
-      }
-    },
-    {
-      "id": "input_image_7",
-      "type": "input.image",
-      "title": "Input Image",
-      "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1781196138365-image.png"
-      },
-      "ui": {
-        "paramsCollapsed": true,
-        "x": 636.6135680225287,
-        "y": 613.8910284929811
-      }
-    },
-    {
-      "id": "input_image_8",
-      "type": "input.image",
-      "title": "Input Image",
-      "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1781196170370-image.png"
-      },
-      "ui": {
-        "paramsCollapsed": true,
-        "x": 636.6135680225286,
-        "y": 687.4077246707083
-      }
-    },
-    {
-      "id": "input_image_9",
-      "type": "input.image",
-      "title": "Input Image",
-      "params": {
-        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1781196184329-image.png"
-      },
-      "ui": {
-        "paramsCollapsed": true,
-        "x": 648.1005518002985,
-        "y": 765.5192143595432
-      }
-    },
-    {
-      "id": "ai_image_generate_10",
-      "type": "ai.image.generate",
-      "title": "Image Generation",
-      "params": {
-        "model": "image.nano-banana",
-        "providerMode": "auto",
-        "prompt": "Create a polished image.",
-        "aspectRatio": "1:1",
-        "imageSize": "2K"
-      },
-      "ui": {
-        "x": 1424.3632436207542,
-        "y": 311.80668763838423
+        "x": 1196.2171290591864,
+        "y": 613.3455521380521
       }
     }
   ],
-  "edges": [],
+  "edges": [
+    {
+      "id": "xy-edge__input_image_1image-replicate_clarity_upscaler_2image",
+      "from": "input_image_1",
+      "to": "compound_4",
+      "fromPort": "image",
+      "toPort": "image"
+    }
+  ],
   "provenance": {
-    "updatedAt": "2026-06-11T20:15:29.482Z",
+    "updatedAt": "2026-06-22T12:20:36.219Z",
     "tool": "snarkroute-studio"
   }
 }

@@ -6,6 +6,7 @@ describe("polzaModelInfoToModelInfo", () => {
     ["chat", "text.generate", ["text"]],
     ["image", "image.generate", ["image"]],
     ["video", "video.generate", ["video"]],
+    ["audio", "audio.generate", ["audio"]],
     ["embedding", "embedding.create", ["json"]]
   ] as const)("maps %s models to ModelInfo", (type, capability, outputTypes) => {
     const source: PolzaModelInfo = {

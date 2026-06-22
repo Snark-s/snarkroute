@@ -13,6 +13,8 @@ interface ModelCatalogQuery {
   capability?: string;
 }
 
+type PolzaCatalogModelType = "chat" | "image" | "video" | "audio" | "embedding";
+
 export async function registerModelRoutes(app: FastifyInstance) {
 app.addHook("onRequest", async (request, reply) => {
   if (request.method !== "GET") return;
@@ -105,18 +107,18 @@ async function loadOpenRouterModelsForCatalogV1(): Promise<RawProviderModelV1[]>
   return (refreshed?.models ?? []) as RawProviderModelV1[];
 }
 
-async function loadPolzaModelsForCatalogV1(types: Array<"chat" | "image" | "video" | "embedding">): Promise<RawProviderModelV1[]> {
+async function loadPolzaModelsForCatalogV1(types: PolzaCatalogModelType[]): Promise<RawProviderModelV1[]> {
   const client = createPolzaClient();
   const groups = await Promise.all(types.map((type) => client.getModels(type).catch(() => [])));
   return dedupeById(groups.flat()) as RawProviderModelV1[];
 }
 
-function polzaTypesForCatalogV1(nodeType?: string): Array<"chat" | "image" | "video" | "embedding"> {
+function polzaTypesForCatalogV1(nodeType?: string): PolzaCatalogModelType[] {
   if (nodeType === "polza.image.generate") return ["image"];
   if (nodeType === "polza.text") return ["chat"];
   if (nodeType === "polza.video.generate") return ["video"];
   if (nodeType?.startsWith("ai.")) return [];
-  return ["chat", "image", "video", "embedding"];
+  return ["chat", "image", "video", "audio", "embedding"];
 }
 
 function filterModelsV1<T extends {

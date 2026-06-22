@@ -106,6 +106,10 @@ export function isOpenRouterEnabled(): boolean {
   return Boolean(process.env.OPENROUTER_API_KEY?.trim());
 }
 
+export function isElevenLabsEnabled(): boolean {
+  return Boolean(process.env.ELEVENLABS_API_KEY?.trim());
+}
+
 export function isPolzaEnabled(): boolean {
   return Boolean(process.env.POLZA_AI_API_KEY?.trim());
 }

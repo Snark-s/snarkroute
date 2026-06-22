@@ -1418,6 +1418,262 @@ h2 {
   padding: 5px 8px 4px;
 }
 
+.canvasButtonOverlay {
+  background: rgba(8, 10, 14, 0.66);
+  inset: 0;
+  padding: 20px;
+  position: fixed;
+  z-index: 40;
+}
+
+.canvasButtonPanel {
+  background: #151a22;
+  border: 1px solid #3a4353;
+  border-radius: 8px;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.44);
+  color: #f4f6fb;
+  display: grid;
+  gap: 16px;
+  left: 50%;
+  max-width: 620px;
+  padding: 18px;
+  position: fixed;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(620px, calc(100vw - 40px));
+}
+
+.canvasButtonPanel[style] {
+  transform: none;
+}
+
+.canvasButtonHeader {
+  align-items: flex-start;
+  cursor: move;
+  user-select: none;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+}
+
+.canvasButtonHeader h2 {
+  font-size: 17px;
+  margin: 0 0 5px;
+  text-transform: none;
+}
+
+.canvasButtonHeader p {
+  color: #aeb6c5;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+.canvasButtonFields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.canvasButtonFields label,
+.canvasButtonIconSection {
+  display: grid;
+  gap: 7px;
+}
+
+.canvasButtonFields span,
+.canvasButtonIconSection > span,
+.canvasButtonTypes span {
+  color: #aeb6c5;
+  font-size: 12px;
+}
+
+.canvasButtonFields input {
+  background: #0e131b;
+  border: 1px solid #343c4b;
+  border-radius: 6px;
+  color: #f4f6fb;
+  font: inherit;
+  min-height: 34px;
+  min-width: 0;
+  padding: 7px 9px;
+}
+
+.canvasButtonTypes {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 160px 1fr;
+}
+
+.canvasButtonTypes > div {
+  display: grid;
+  gap: 7px;
+}
+
+.canvasButtonOutputList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.canvasButtonTypePill {
+  align-items: center;
+  border: 1px solid #526076;
+  border-radius: 999px;
+  color: #ecf4ff;
+  display: inline-flex;
+  font-size: 12px;
+  justify-content: center;
+  min-height: 24px;
+  padding: 3px 9px;
+  width: fit-content;
+}
+
+.canvasButtonTypePill.type-image {
+  border-color: #6ee7b7;
+  color: #c5ffe9;
+}
+
+.canvasButtonTypePill.type-video {
+  border-color: #facc15;
+  color: #fff3b0;
+}
+
+.canvasButtonTypePill.type-audio {
+  border-color: #93c5fd;
+  color: #d8eaff;
+}
+
+.canvasButtonTypePill.type-text {
+  border-color: #c4b5fd;
+  color: #eee8ff;
+}
+
+.canvasButtonIconGrid {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(auto-fit, 42px);
+  max-height: min(520px, calc(100vh - 170px));
+  max-width: calc(100vw - 120px);
+  overflow: auto;
+  padding-right: 2px;
+  width: 492px;
+}
+
+.canvasButtonIconPicker {
+  position: relative;
+  width: fit-content;
+}
+
+.canvasButtonIconPreview {
+  background: #0d1219;
+  border-color: #6b90bb;
+  color: #eef6ff;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  width: 44px;
+}
+
+.canvasButtonIconPreview img,
+.canvasButtonIconChoice img,
+.canvasButtonCustomIcon img {
+  border-radius: 4px;
+  height: 24px;
+  object-fit: cover;
+  width: 24px;
+}
+
+.canvasButtonIconPopover {
+  background: #111720;
+  border: 1px solid #3a4353;
+  border-radius: 8px;
+  box-shadow: 0 18px 58px rgba(0, 0, 0, 0.42);
+  display: grid;
+  gap: 10px;
+  left: 50%;
+  max-height: calc(100vh - 80px);
+  max-width: calc(100vw - 80px);
+  overflow: hidden;
+  padding: 10px;
+  position: fixed;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min-content;
+  z-index: 50;
+}
+
+.canvasButtonIconChoice {
+  background: #0d1219;
+  border-color: #2f3a49;
+  color: #e9f2ff;
+  height: 42px;
+  min-height: 42px;
+  padding: 0;
+  width: 42px;
+}
+
+.canvasButtonIconChoice:hover {
+  border-color: #6fb5ff;
+}
+
+.canvasButtonIconChoice.selected {
+  background: #12263b;
+  border-color: #9cc8ff;
+  box-shadow: 0 0 0 2px rgba(125, 196, 255, 0.24);
+  color: #ffffff;
+}
+
+.canvasButtonCustomIcon {
+  align-items: center;
+  background: #0d1219;
+  border: 1px solid #2f3a49;
+  border-radius: 6px;
+  color: #e9f2ff;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 13px;
+  gap: 9px;
+  justify-content: flex-start;
+  min-height: 38px;
+  padding: 7px 10px;
+}
+
+.canvasButtonCustomIcon:hover,
+.canvasButtonCustomIcon.selected {
+  border-color: #9cc8ff;
+}
+
+.canvasButtonCustomIcon input {
+  display: none;
+}
+
+.canvasButtonError {
+  background: rgba(113, 29, 47, 0.42);
+  border: 1px solid #8b4a58;
+  border-radius: 6px;
+  color: #ffd6de;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.canvasButtonActions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.spinIcon {
+  animation: spinIcon 0.9s linear infinite;
+}
+
+@keyframes spinIcon {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .connectionNodeMenuHeader {
   align-items: center;
   display: flex;

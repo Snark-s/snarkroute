@@ -5,6 +5,11 @@ Open, local-first visual workflow system for portable AI/model/API routes.
 SnarkRoute helps artists and developers build AI workflows as portable,
 inspectable route documents instead of locking them inside one platform.
 
+## Links
+
+- [YouTube](https://www.youtube.com/@SnarkRoute)
+- [Telegram](https://t.me/snarkroutelab)
+
 ## What Is It?
 
 SnarkRoute is an early open-source project for creating, inspecting,

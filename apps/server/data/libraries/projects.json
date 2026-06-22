@@ -1,14 +1,21 @@
 {
   "version": 1,
+  "currentProjectPath": "Y:\\Работа\\Мрамор",
   "projects": [
     {
       "path": "Y:\\Работа\\Childrens book",
-      "addedAt": "2026-06-13T17:02:03.691Z"
+      "addedAt": "2026-06-13T17:02:03.691Z",
+      "coverPath": "Y:\\Работа\\Childrens book\\nodes\\Image (3).node\\content\\000-import.png"
+    },
+    {
+      "path": "Y:\\Работа\\Мрамор",
+      "addedAt": "2026-06-17T15:42:28.711Z",
+      "coverPath": "Y:\\Работа\\Мрамор\\Sincity\\Sincity2.png"
     },
     {
       "path": "Y:\\Процесс\\Амбрелла\\e01\\e01 Rout",
       "addedAt": "2026-06-09T19:25:34.771Z",
-      "coverPath": "Y:\\Процесс\\Амбрелла\\e01\\e01 Rout\\nodes\\Image (2).node\\content\\001-generation.jpg"
+      "coverPath": "Y:\\Процесс\\Амбрелла\\e01\\e01 Rout\\nodes\\Image (2).node\\content\\000-generation.jpg"
     }
   ]
 }

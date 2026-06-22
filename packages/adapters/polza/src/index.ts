@@ -50,6 +50,8 @@ export interface PolzaModelInfo {
   top_provider?: Record<string, unknown>;
 }
 
+export type PolzaModelType = "chat" | "image" | "video" | "audio" | "embedding";
+
 export function polzaModelInfoToModelInfo(model: PolzaModelInfo): ModelInfo {
   const type = polzaModelType(model.type);
   const inputTypes = normalizedModalities(model.architecture?.input_modalities, polzaInputTypes(type));
@@ -154,7 +156,7 @@ export function createPolzaClient(options: PolzaClientOptions = {}) {
     async mediaStatus(id: string): Promise<unknown> {
       return request(`/v1/media/${encodeURIComponent(id)}`, { method: "GET" });
     },
-    async getModels(type?: "chat" | "image" | "video" | "embedding"): Promise<PolzaModelInfo[]> {
+    async getModels(type?: PolzaModelType): Promise<PolzaModelInfo[]> {
       const query = type ? `?type=${encodeURIComponent(type)}` : "";
       return parsePolzaModelCatalog(await request(`/v1/models${query}`, { method: "GET" }));
     }
@@ -168,11 +170,11 @@ export function parsePolzaModelCatalog(input: unknown): PolzaModelInfo[] {
   return data.map(parsePolzaModel).filter((model): model is PolzaModelInfo => Boolean(model));
 }
 
-export async function refreshPolzaPricingCatalog(options: PolzaClientOptions & { cachePath?: string; ttlHours?: number; type?: "chat" | "image" | "video" | "embedding" } = {}): Promise<PricingCatalog> {
+export async function refreshPolzaPricingCatalog(options: PolzaClientOptions & { cachePath?: string; ttlHours?: number; type?: PolzaModelType } = {}): Promise<PricingCatalog> {
   const client = createPolzaClient(options);
   const modelGroups = options.type
     ? [await client.getModels(options.type)]
-    : await Promise.all([client.getModels("chat").catch(() => []), client.getModels("image").catch(() => []), client.getModels("video").catch(() => []), client.getModels("embedding").catch(() => [])]);
+    : await Promise.all([client.getModels("chat").catch(() => []), client.getModels("image").catch(() => []), client.getModels("video").catch(() => []), client.getModels("audio").catch(() => []), client.getModels("embedding").catch(() => [])]);
   const catalog = polzaPricingCatalogFromModels(modelGroups.flat(), options.ttlHours);
   const cachePath = options.cachePath ?? join(process.cwd(), "data", "cache", "model-pricing", "polza.json");
   await writePricingCatalog(cachePath, catalog);
@@ -245,20 +247,22 @@ function parsePolzaModel(input: unknown): PolzaModelInfo | null {
   };
 }
 
-function polzaModelType(value: string | undefined): "chat" | "image" | "video" | "embedding" {
-  return value === "image" || value === "video" || value === "embedding" ? value : "chat";
+function polzaModelType(value: string | undefined): PolzaModelType {
+  return value === "image" || value === "video" || value === "audio" || value === "embedding" ? value : "chat";
 }
 
-function polzaCapability(type: "chat" | "image" | "video" | "embedding"): ModelInfo["capabilities"][number] {
+function polzaCapability(type: PolzaModelType): ModelInfo["capabilities"][number] {
   if (type === "image") return "image.generate";
   if (type === "video") return "video.generate";
+  if (type === "audio") return "audio.generate";
   if (type === "embedding") return "embedding.create";
   return "text.generate";
 }
 
-function polzaOutputTypes(type: "chat" | "image" | "video" | "embedding"): string[] {
+function polzaOutputTypes(type: PolzaModelType): string[] {
   if (type === "image") return ["image"];
   if (type === "video") return ["video"];
+  if (type === "audio") return ["audio"];
   if (type === "embedding") return ["json"];
   return ["text"];
 }

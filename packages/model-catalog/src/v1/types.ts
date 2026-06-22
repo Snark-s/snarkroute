@@ -87,6 +87,10 @@ export type ModelParameterDefinitionV1 = {
   step?: number;
   required?: boolean;
   advanced?: boolean;
+  enabledWhen?: {
+    parameterId: string;
+    equals: ModelParameterValueV1[];
+  };
 };
 
 export type ModelCatalogEntryV1 = {

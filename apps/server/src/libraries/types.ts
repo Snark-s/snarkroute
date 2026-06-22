@@ -136,6 +136,22 @@ export interface VideoNodeManifest {
   updatedAt: string;
 }
 
+export interface AudioNodeManifest {
+  format: "snarkroute.node";
+  version: "0.1";
+  id: string;
+  type: "audio";
+  title: string;
+  currentPrompt?: string;
+  modelId?: string;
+  executionProvider?: string;
+  fallbackAllowed?: boolean;
+  stack: ImageStackItem[];
+  activeStackIndex: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface TextNodeManifest {
   format: "snarkroute.node";
   version: "0.1";
@@ -157,6 +173,7 @@ export interface ImageStackItem {
   id: string;
   file?: string;
   externalUrl?: string;
+  coverUrl?: string;
   source: "import" | string;
   mimeType: string;
   width: number;
@@ -198,6 +215,7 @@ export interface LibraryProjectImageSummary {
 
 export interface LibraryProjectRegistry {
   version: 1;
+  currentProjectPath?: string;
   projects: LibraryProjectRegistryEntry[];
 }
 
@@ -244,6 +262,13 @@ export interface VideoNodeView {
   previewUrl: string | null;
 }
 
+export interface AudioNodeView {
+  canvas: SnarkCanvasNode;
+  manifest: AudioNodeManifest;
+  activeStackItem: ImageStackItem | null;
+  previewUrl: string | null;
+}
+
 export interface TextNodeView {
   canvas: SnarkCanvasNode;
   manifest: TextNodeManifest;
@@ -261,7 +286,7 @@ export interface LibraryNodeView {
   previewUrl: string | null;
 }
 
-export type NodeView = ImageNodeView | VideoNodeView | TextNodeView | LibraryNodeView;
+export type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView;
 
 export interface ImportImageInput {
   filename: string;
@@ -276,6 +301,7 @@ export interface ImportImageInput {
 }
 
 export interface ImportVideoInput extends ImportImageInput {}
+export interface ImportAudioInput extends ImportImageInput {}
 
 export interface ImportTextInput {
   filename: string;
@@ -284,10 +310,11 @@ export interface ImportTextInput {
   dropY: number;
   width?: number;
   height?: number;
+  connectFromNodeId?: string;
 }
 
 export interface CreateNodeInput {
-  type: "image" | "video" | "text";
+  type: "image" | "video" | "audio" | "text";
   x: number;
   y: number;
   width?: number;
@@ -304,6 +331,7 @@ export interface AppendImageStackInput {
 }
 
 export interface AppendVideoStackInput extends AppendImageStackInput {}
+export interface AppendAudioStackInput extends AppendImageStackInput {}
 
 export interface GenerateImageNodeInput {
   nodeId: string;
@@ -320,6 +348,7 @@ export interface GenerateImageNodeInput {
 }
 
 export interface GenerateVideoNodeInput extends GenerateImageNodeInput {}
+export interface GenerateAudioNodeInput extends GenerateImageNodeInput {}
 
 export interface GenerateTextNodeInput {
   nodeId: string;
@@ -351,6 +380,16 @@ export interface DuplicateStackItemInput {
   height?: number;
 }
 
+export interface RunCanvasNodeActionInput {
+  nodeId: string;
+  actionId: string;
+  params?: Record<string, unknown>;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+}
+
 export interface DuplicateCanvasNodeInput {
   nodeId: string;
   x: number;
@@ -358,7 +397,7 @@ export interface DuplicateCanvasNodeInput {
 }
 
 export interface DuplicateCanvasNodeAsRepresentationInput extends DuplicateCanvasNodeInput {
-  type: "image" | "video" | "text";
+  type: "image" | "video" | "audio" | "text";
   width?: number;
   height?: number;
   connectFromNodeId?: string;
@@ -375,7 +414,7 @@ export interface ImportLocalLibraryInput {
 
 export interface ImportLocalFolderStackInput {
   sourcePath: string;
-  stackKind: "image" | "text" | "video";
+  stackKind: "image" | "text" | "video" | "audio";
   dropX: number;
   dropY: number;
   width?: number;

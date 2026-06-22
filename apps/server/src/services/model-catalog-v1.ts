@@ -73,17 +73,85 @@ export function normalizeOpenRouterModelsForCatalogV1(models: RawProviderModelV1
 }
 
 export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
-  return [normalizeProviderModelToV1Input({
-    provider: "gemini",
-    providerModelId: "image.nano-banana",
-    displayName: "Nano Banana",
-    inputTypes: ["text", "image"],
-    outputTypes: ["image"],
-    capabilities: ["image.generate"],
-    roles: ["generator"],
-    availability: { status: "available", source: "fallback" },
-    metadata: { fallback: "studio-direct-image-alias" }
-  })];
+  return [
+    normalizeProviderModelToV1Input({
+      provider: "gemini",
+      providerModelId: "image.nano-banana",
+      displayName: "Nano Banana",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "studio-direct-image-alias" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "polza",
+      providerModelId: "suno/generate",
+      displayName: "Suno Music Generate",
+      inputTypes: ["text", "audio"],
+      outputTypes: ["audio"],
+      capabilities: ["audio.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "polza-docs-suno-music", audioFamily: "music", providerEndpoint: "media", priceRub: 15, tracksPerGeneration: 1 }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "polza",
+      providerModelId: "suno/sounds",
+      displayName: "Suno Sounds",
+      inputTypes: ["text", "audio"],
+      outputTypes: ["audio"],
+      capabilities: ["audio.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "polza-public-model-page", audioFamily: "sound-effects", providerEndpoint: "media", priceRub: 2, tracksPerGeneration: 2 }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "elevenlabs/eleven-turbo-v2",
+      displayName: "ElevenLabs: Eleven Turbo v2",
+      inputTypes: ["text"],
+      outputTypes: ["audio"],
+      capabilities: ["audio.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-speech-docs-example", audioFamily: "voice", providerEndpoint: "audio.speech" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "elevenlabs",
+      providerModelId: "music_v2",
+      displayName: "ElevenLabs: Music v2",
+      inputTypes: ["text", "audio"],
+      outputTypes: ["audio"],
+      capabilities: ["audio.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "elevenlabs-model-docs", audioFamily: "music", providerEndpoint: "music" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "elevenlabs",
+      providerModelId: "eleven_text_to_sound_v2",
+      displayName: "ElevenLabs: Text to Sound v2",
+      inputTypes: ["text"],
+      outputTypes: ["audio"],
+      capabilities: ["audio.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "elevenlabs-model-docs", audioFamily: "sound-effects", providerEndpoint: "sound-effects" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "elevenlabs",
+      providerModelId: "eleven_v3",
+      displayName: "ElevenLabs: Eleven v3",
+      inputTypes: ["text"],
+      outputTypes: ["audio"],
+      capabilities: ["audio.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "elevenlabs-model-docs", audioFamily: "voice", providerEndpoint: "text-to-speech" }
+    })
+  ];
 }
 
 export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEntryV1[]): ModelOptionForNodeV1[] {
@@ -116,6 +184,9 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
   }
   if (nodeType === "ai.text") {
     return entry.provider === "openrouter" && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
+  }
+  if (nodeType === "ai.audio.generate") {
+    return hasOutputType(entry, "audio") && !entry.roles.includes("upscaler");
   }
   return false;
 }
@@ -187,6 +258,22 @@ function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: Mod
       parameters: [aspectRatios, imageSizes]
     };
   }
+  if (hasOutputType(entry, "audio") && !entry.roles.includes("upscaler")) {
+    const providerMetadata = entry.metadata?.provider;
+    const audioFamily = typeof entry.metadata?.audioFamily === "string"
+      ? entry.metadata.audioFamily
+      : providerMetadata && typeof providerMetadata === "object" && typeof (providerMetadata as Record<string, unknown>).audioFamily === "string"
+        ? String((providerMetadata as Record<string, unknown>).audioFamily)
+        : "";
+    if (entry.providerModelId === "suno/generate" || entry.providerModelId === "suno/sounds") {
+      return {
+        parameters: sunoMusicParameters
+      };
+    }
+    return {
+      parameters: entry.provider === "openrouter" || audioFamily === "voice" ? [audioVoice, audioResponseFormat] : [audioDurationSeconds]
+    };
+  }
   return undefined;
 }
 
@@ -203,6 +290,22 @@ const outputFormats = parameter("outputFormat", "Format", ["png", "jpg", "webp"]
 const videoResolutions = parameter("resolution", "Resolution", ["720p", "1080p"], "720p");
 const videoDurations = parameter("duration", "Duration", ["5", "10", "15"], "5");
 const videoMultiShots = parameter("multi_shots", "Multi-shot", ["false", "true"], "false");
+const audioDurationSeconds = parameter("duration", "Duration", ["30", "60", "120"], "30");
+const audioVoice: ModelParameterDefinitionV1 = { id: "voice", label: "Voice", type: "text", default: "alloy" };
+const audioResponseFormat = parameter("response_format", "Format", ["mp3", "wav", "pcm"], "mp3");
+const sunoCustomMode = { parameterId: "mode", equals: ["custom"] };
+const sunoSimpleMode = { parameterId: "mode", equals: ["simple"] };
+const sunoMusicParameters: ModelParameterDefinitionV1[] = [
+  { id: "mode", label: "Mode", type: "select", default: "custom", options: [{ value: "custom", label: "Custom" }, { value: "simple", label: "Simple" }] },
+  { id: "instrumental", label: "Instrumental", type: "boolean", default: false, enabledWhen: sunoSimpleMode },
+  { id: "style", label: "Style", type: "text", default: "", enabledWhen: sunoCustomMode },
+  { id: "title", label: "Title", type: "text", default: "", advanced: true, enabledWhen: sunoCustomMode },
+  { id: "version", label: "Version", type: "select", default: "V5", advanced: true, enabledWhen: sunoCustomMode, options: ["V5", "V4_5ALL", "V4_5PLUS", "V4_5", "V4", "V3_5"].map((value) => ({ value })) },
+  { id: "negative_tags", label: "Avoid", type: "text", default: "", advanced: true, enabledWhen: sunoCustomMode },
+  { id: "language", label: "Language", type: "text", default: "", advanced: true, enabledWhen: sunoCustomMode },
+  { id: "tempo", label: "Tempo", type: "text", default: "", advanced: true, enabledWhen: sunoCustomMode },
+  { id: "voice_style", label: "Vocal style", type: "text", default: "", advanced: true, enabledWhen: sunoCustomMode }
+];
 const imageCount: ModelParameterDefinitionV1 = { id: "n", label: "Images", type: "number", default: 1, min: 1, max: 4, step: 1 };
 
 function parameter(id: string, label: string, options: string[], defaultValue: string): ModelParameterDefinitionV1 {
@@ -289,7 +392,7 @@ function normalizeInputTypes(values: string[]): ModelInputTypeV1[] {
 
 function normalizeOutputTypes(values: string[]): ModelOutputTypeV1[] {
   const allowed = new Set<ModelOutputTypeV1>(["text", "image", "video", "audio", "embedding", "json", "unknown"]);
-  return unique(values.map((value) => value.toLowerCase()).filter((value): value is ModelOutputTypeV1 => allowed.has(value as ModelOutputTypeV1)));
+  return unique(values.map((value) => value.toLowerCase() === "speech" ? "audio" : value.toLowerCase()).filter((value): value is ModelOutputTypeV1 => allowed.has(value as ModelOutputTypeV1)));
 }
 
 function stringArray(value: unknown): string[] {

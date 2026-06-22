@@ -41,7 +41,8 @@ import {
   type ModelProfile,
   type OpenRoute
 } from "@snarkroute/protocol";
-import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Cpu, Download, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, X } from "lucide-react";
+import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Copy, Cpu, Crop, Download, Eraser, Expand, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, Music, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, Wrench, X } from "lucide-react";
+import { Archive, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clipboard, Cog, Compass, Database, EyeOff, FileAudio, FileImage, FileVideo, Filter, Flag, FlipHorizontal, FlipVertical, Folder, FolderPlus, Grid3X3, Headphones, Heart, Layers3, Link, List, Mail, Map as MapIcon, MapPin, Maximize2, MessageSquare, Mic, Minimize2, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Radio, Repeat, RotateCcw, RotateCw, Route, Scissors, Send, Settings, Share2, Shuffle, SlidersHorizontal, Square, Star, Table, Volume2, Zap, ZoomIn, ZoomOut } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -3467,6 +3468,240 @@ function shouldShowNodeRunButton(type: string): boolean {
   return !type.startsWith("input.");
 }
 
+type CanvasButtonDraft = {
+  nodeId: string;
+  title: string;
+  packageId: string;
+  iconName: string;
+  customIconDataUrl?: string;
+  inputKind: string;
+  outputs: Array<{ id: string; kind: string; label?: string }>;
+};
+
+type CanvasButtonPanelDrag = {
+  offsetX: number;
+  offsetY: number;
+};
+
+const canvasActionIconPresets = [
+  { name: "wrench", label: "Tool", icon: "Wrench" },
+  { name: "image", label: "Image", icon: "ImageIcon" },
+  { name: "video", label: "Video", icon: "Video" },
+  { name: "audio", label: "Audio", icon: "Music" },
+  { name: "crop", label: "Crop", icon: "Crop" },
+  { name: "expand", label: "Expand", icon: "Expand" },
+  { name: "copy", label: "Copy", icon: "Copy" },
+  { name: "save", label: "Save", icon: "Save" },
+  { name: "download", label: "Download", icon: "Download" },
+  { name: "upload", label: "Upload", icon: "Upload" },
+  { name: "magic", label: "Magic", icon: "Wand2" },
+  { name: "sparkles", label: "Sparkles", icon: "Sparkles" },
+  { name: "layers", label: "Layers", icon: "Layers3" },
+  { name: "maximize", label: "Maximize", icon: "Maximize2" },
+  { name: "minimize", label: "Minimize", icon: "Minimize2" },
+  { name: "scissors", label: "Scissors", icon: "Scissors" },
+  { name: "clipboard", label: "Clipboard", icon: "Clipboard" },
+  { name: "cog", label: "Cog", icon: "Cog" },
+  { name: "settings", label: "Settings", icon: "Settings" },
+  { name: "sliders", label: "Sliders", icon: "SlidersHorizontal" },
+  { name: "palette", label: "Palette", icon: "Palette" },
+  { name: "brush", label: "Brush", icon: "Brush" },
+  { name: "pen", label: "Pen", icon: "PenTool" },
+  { name: "eraser", label: "Eraser", icon: "Eraser" },
+  { name: "type", label: "Text", icon: "Type" },
+  { name: "file-text", label: "Text File", icon: "FileText" },
+  { name: "file-json", label: "JSON File", icon: "FileJson" },
+  { name: "folder", label: "Folder", icon: "Folder" },
+  { name: "folder-open", label: "Open Folder", icon: "FolderOpen" },
+  { name: "folder-plus", label: "New Folder", icon: "FolderPlus" },
+  { name: "archive", label: "Archive", icon: "Archive" },
+  { name: "box", label: "Box", icon: "Box" },
+  { name: "package", label: "Package", icon: "Package" },
+  { name: "database", label: "Database", icon: "Database" },
+  { name: "table", label: "Table", icon: "Table" },
+  { name: "list", label: "List", icon: "List" },
+  { name: "grid", label: "Grid", icon: "Grid3X3" },
+  { name: "search", label: "Search", icon: "Search" },
+  { name: "filter", label: "Filter", icon: "Filter" },
+  { name: "eye", label: "Eye", icon: "Eye" },
+  { name: "eye-off", label: "Hide", icon: "EyeOff" },
+  { name: "zoom-in", label: "Zoom In", icon: "ZoomIn" },
+  { name: "zoom-out", label: "Zoom Out", icon: "ZoomOut" },
+  { name: "move", label: "Move", icon: "Move" },
+  { name: "rotate-left", label: "Rotate Left", icon: "RotateCcw" },
+  { name: "rotate-right", label: "Rotate Right", icon: "RotateCw" },
+  { name: "flip-horizontal", label: "Flip Horizontal", icon: "FlipHorizontal" },
+  { name: "flip-vertical", label: "Flip Vertical", icon: "FlipVertical" },
+  { name: "play", label: "Play", icon: "Play" },
+  { name: "pause", label: "Pause", icon: "Pause" },
+  { name: "stop", label: "Stop", icon: "Square" },
+  { name: "refresh", label: "Refresh", icon: "RefreshCw" },
+  { name: "repeat", label: "Repeat", icon: "Repeat" },
+  { name: "shuffle", label: "Shuffle", icon: "Shuffle" },
+  { name: "arrow-up", label: "Arrow Up", icon: "ArrowUp" },
+  { name: "arrow-down", label: "Arrow Down", icon: "ArrowDown" },
+  { name: "arrow-left", label: "Arrow Left", icon: "ArrowLeft" },
+  { name: "arrow-right", label: "Arrow Right", icon: "ArrowRight" },
+  { name: "chevrons-up", label: "Chevrons Up", icon: "ChevronsUp" },
+  { name: "chevrons-down", label: "Chevrons Down", icon: "ChevronsDown" },
+  { name: "plus", label: "Plus", icon: "Plus" },
+  { name: "minus", label: "Minus", icon: "Minus" },
+  { name: "close", label: "Close", icon: "X" },
+  { name: "check", label: "Check", icon: "Check" },
+  { name: "star", label: "Star", icon: "Star" },
+  { name: "heart", label: "Heart", icon: "Heart" },
+  { name: "bookmark", label: "Bookmark", icon: "Bookmark" },
+  { name: "flag", label: "Flag", icon: "Flag" },
+  { name: "pin", label: "Pin", icon: "Pin" },
+  { name: "link", label: "Link", icon: "Link" },
+  { name: "share", label: "Share", icon: "Share2" },
+  { name: "send", label: "Send", icon: "Send" },
+  { name: "mail", label: "Mail", icon: "Mail" },
+  { name: "message", label: "Message", icon: "MessageSquare" },
+  { name: "bell", label: "Bell", icon: "Bell" },
+  { name: "clock", label: "Clock", icon: "Clock3" },
+  { name: "calendar", label: "Calendar", icon: "Calendar" },
+  { name: "map", label: "Map", icon: "Map" },
+  { name: "map-pin", label: "Map Pin", icon: "MapPin" },
+  { name: "globe", label: "Globe", icon: "Globe" },
+  { name: "compass", label: "Compass", icon: "Compass" },
+  { name: "navigation", label: "Navigation", icon: "Navigation" },
+  { name: "camera", label: "Camera", icon: "Camera" },
+  { name: "aperture", label: "Aperture", icon: "Aperture" },
+  { name: "film", label: "Film", icon: "Film" },
+  { name: "clapperboard", label: "Clapperboard", icon: "Clapperboard" },
+  { name: "mic", label: "Mic", icon: "Mic" },
+  { name: "volume", label: "Volume", icon: "Volume2" },
+  { name: "headphones", label: "Headphones", icon: "Headphones" },
+  { name: "radio", label: "Radio", icon: "Radio" },
+  { name: "file-audio", label: "Audio File", icon: "FileAudio" },
+  { name: "file-video", label: "Video File", icon: "FileVideo" },
+  { name: "file-image", label: "Image File", icon: "FileImage" },
+  { name: "cpu", label: "CPU", icon: "Cpu" },
+  { name: "brain", label: "Brain", icon: "Brain" },
+  { name: "bot", label: "Bot", icon: "Bot" },
+  { name: "network", label: "Network", icon: "Network" },
+  { name: "git-branch", label: "Git Branch", icon: "GitBranch" },
+  { name: "route", label: "Route", icon: "Route" },
+  { name: "zap", label: "Zap", icon: "Zap" }
+];
+
+const canvasActionIconByName = new Map(canvasActionIconPresets.map((preset) => [preset.name, preset.icon]));
+const lucideIconRegistry = {
+  Aperture,
+  Archive,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Bell,
+  Bookmark,
+  Bot,
+  Box,
+  Brain,
+  Brush,
+  Calendar,
+  Camera,
+  Check,
+  ChevronsDown,
+  ChevronsUp,
+  Clapperboard,
+  Clipboard,
+  Clock3,
+  Cog,
+  Compass,
+  Copy,
+  Cpu,
+  Crop,
+  Database,
+  Download,
+  Eraser,
+  Expand,
+  Eye,
+  EyeOff,
+  FileAudio,
+  FileImage,
+  FileJson,
+  FileText,
+  FileVideo,
+  Film,
+  Filter,
+  Flag,
+  FlipHorizontal,
+  FlipVertical,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  Globe,
+  Grid3X3,
+  Headphones,
+  Heart,
+  ImageIcon,
+  Layers3,
+  Link,
+  List,
+  Mail,
+  Map: MapIcon,
+  MapPin,
+  Maximize2,
+  MessageSquare,
+  Mic,
+  Minimize2,
+  Minus,
+  Move,
+  Music,
+  Navigation,
+  Network,
+  Package,
+  Palette,
+  Pause,
+  PenTool,
+  Pin,
+  Play,
+  Plus,
+  Radio,
+  RefreshCw,
+  Repeat,
+  RotateCcw,
+  RotateCw,
+  Route,
+  Save,
+  Scissors,
+  Search,
+  Send,
+  Settings,
+  Share2,
+  Shuffle,
+  SlidersHorizontal,
+  Sparkles,
+  Square,
+  Star,
+  Table,
+  Type,
+  Upload,
+  Video,
+  Volume2,
+  Wand2,
+  Wrench,
+  X,
+  Zap,
+  ZoomIn,
+  ZoomOut
+} as Record<string, React.ComponentType<{ size?: number }>>;
+
+function canvasActionIconPreset(name: string, size = 18) {
+  const iconKey = canvasActionIconByName.get(name) ?? "Wrench";
+  const Icon = lucideIconRegistry[iconKey] ?? Wrench;
+  return <Icon size={size} />;
+}
+
+function defaultCanvasActionIconName(inputKind: string): string {
+  if (inputKind === "image") return "image";
+  if (inputKind === "video") return "video";
+  if (inputKind === "audio") return "audio";
+  return "wrench";
+}
+
 function nodeIcon(type: string) {
   if (type === "input.text") return <Type size={15} />;
   if (type === "input.image") return <ImageIcon size={15} />;
@@ -3843,6 +4078,12 @@ function App() {
   const [promptAssetDraft, setPromptAssetDraft] = useState<PromptAssetDraft | null>(null);
   const [promptAssetError, setPromptAssetError] = useState("");
   const [promptAssetSaving, setPromptAssetSaving] = useState(false);
+  const [canvasButtonDraft, setCanvasButtonDraft] = useState<CanvasButtonDraft | null>(null);
+  const [canvasButtonSaving, setCanvasButtonSaving] = useState(false);
+  const [canvasButtonError, setCanvasButtonError] = useState("");
+  const [canvasButtonIconPickerOpen, setCanvasButtonIconPickerOpen] = useState(false);
+  const [canvasButtonPanelPosition, setCanvasButtonPanelPosition] = useState<{ x: number; y: number } | null>(null);
+  const [canvasButtonPanelDrag, setCanvasButtonPanelDrag] = useState<CanvasButtonPanelDrag | null>(null);
   const [routeStack, setRouteStack] = useState<SubrouteFrame[]>([]);
   const supportsLocalFilesystem = capabilities.supportsLocalFilesystem;
   const isCloudMode = capabilities.mode === "cloud";
@@ -3861,6 +4102,29 @@ function App() {
   useEffect(() => {
     nodesRef.current = nodes;
   }, [nodes, quoteRefreshTick]);
+
+  useEffect(() => {
+    if (!canvasButtonPanelDrag) return;
+    const drag = canvasButtonPanelDrag;
+    function handlePointerMove(event: PointerEvent) {
+      const panel = document.querySelector<HTMLElement>(".canvasButtonPanel");
+      const width = panel?.offsetWidth ?? 620;
+      const height = panel?.offsetHeight ?? 360;
+      setCanvasButtonPanelPosition({
+        x: Math.max(12, Math.min(window.innerWidth - width - 12, event.clientX - drag.offsetX)),
+        y: Math.max(12, Math.min(window.innerHeight - height - 12, event.clientY - drag.offsetY))
+      });
+    }
+    function handlePointerUp() {
+      setCanvasButtonPanelDrag(null);
+    }
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    };
+  }, [canvasButtonPanelDrag]);
 
   useEffect(() => {
     if (isAdmin) void loadAdminOverview();
@@ -7003,8 +7267,27 @@ function App() {
     return title.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, ".").replace(/^[._-]+|[._-]+$/g, "") || "custom.compound";
   }
 
-  function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string): NodeManifest {
+  function compoundCanvasActionEligible(compoundNode: RouteDoc["nodes"][number]): boolean {
+    const inputs = compoundNode.compound?.inputs ?? [];
+    const outputs = compoundNode.compound?.outputs ?? [];
+    return inputs.length === 1
+      && canvasActionPortKind(String(inputs[0].kind ?? "json"))
+      && outputs.length > 0
+      && outputs.every((output) => canvasActionPortKind(String(output.kind ?? "json")));
+  }
+
+  function canvasActionPortKind(kind: string): boolean {
+    return kind === "image" || kind === "video" || kind === "audio" || kind === "text";
+  }
+
+  function canvasActionInputKind(compoundNode: RouteDoc["nodes"][number]): string {
+    return String(compoundNode.compound?.inputs?.[0]?.kind ?? "json");
+  }
+
+  function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string, options: { canvasAction?: { enabled: boolean; icon?: NonNullable<NodeManifest["canvasAction"]>["icon"] } } = {}): NodeManifest {
     const compound = compoundNode.compound ?? {};
+    const inputs = (compound.inputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
+    const outputs = (compound.outputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
     return {
       kind: "snarkroute.node",
       schemaVersion: "0.1",
@@ -7019,8 +7302,16 @@ function App() {
       description: `Generated from compound route "${compound.title ?? compoundNode.title ?? compoundNode.id}".`,
       permissions: { network: false, networkHosts: [], readFiles: false, writeOutputs: false, shell: false, env: [] },
       executor: { type: "declarative" },
-      inputs: (compound.inputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id })),
-      outputs: (compound.outputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id })),
+      inputs,
+      outputs,
+      ...(options.canvasAction?.enabled ? {
+        canvasAction: {
+          enabled: true,
+          title,
+          description: `Run "${title}" from the Living Canvas node toolbar.`,
+          icon: options.canvasAction.icon ?? { kind: "preset", name: "wrench" }
+        }
+      } : {}),
       generatedWith: {
         tool: "snarkroute-studio",
         kind: "compound.subroute",
@@ -7053,6 +7344,114 @@ function App() {
       setLogs((current) => [`Saved compound as node package ${id}.`, ...current]);
     } catch (error) {
       setLogs((current) => [`Save node package failed: ${error instanceof Error ? error.message : String(error)}`, ...current]);
+    }
+  }
+
+  function openCompoundNodeCanvasButtonPanel(nodeId: string) {
+    setContextMenu(null);
+    setCanvasButtonError("");
+    setCanvasButtonIconPickerOpen(false);
+    setCanvasButtonPanelPosition(null);
+    setCanvasButtonPanelDrag(null);
+    const flowNode = nodes.find((node) => node.id === nodeId);
+    const compoundNode = flowNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode)) return;
+    const inputKind = canvasActionInputKind(compoundNode);
+    const title = compoundNode.compound?.title ?? compoundNode.title ?? "Canvas Action";
+    setCanvasButtonDraft({
+      nodeId,
+      title,
+      packageId: makeNodePackageId(title),
+      iconName: defaultCanvasActionIconName(inputKind),
+      inputKind,
+      outputs: (compoundNode.compound?.outputs ?? []).map((output) => ({ id: output.id, kind: String(output.kind ?? "json"), label: output.label }))
+    });
+  }
+
+  function canvasButtonManifestFromDraft(draft: CanvasButtonDraft): NodeManifest | null {
+    const flowNode = nodes.find((node) => node.id === draft.nodeId);
+    const compoundNode = flowNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
+    const title = draft.title.trim();
+    const id = draft.packageId.trim();
+    if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode) || !title || !id) return null;
+    const icon = draft.customIconDataUrl
+      ? { kind: "custom" as const, dataUrl: draft.customIconDataUrl }
+      : { kind: "preset" as const, name: draft.iconName };
+    return nodeManifestFromCompoundNode(compoundNode, id, title, { canvasAction: { enabled: true, icon } });
+  }
+
+  function selectCanvasButtonPresetIcon(iconName: string) {
+    setCanvasButtonDraft((draft) => draft ? { ...draft, iconName, customIconDataUrl: undefined } : draft);
+    setCanvasButtonIconPickerOpen(false);
+  }
+
+  function selectCanvasButtonCustomIcon(file: File | null) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setCanvasButtonError("Choose an image file for the custom icon.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === "string" ? reader.result : "";
+      if (!dataUrl) {
+        setCanvasButtonError("Could not read custom icon.");
+        return;
+      }
+      setCanvasButtonDraft((draft) => draft ? { ...draft, customIconDataUrl: dataUrl } : draft);
+      setCanvasButtonIconPickerOpen(false);
+      setCanvasButtonError("");
+    };
+    reader.onerror = () => setCanvasButtonError("Could not read custom icon.");
+    reader.readAsDataURL(file);
+  }
+
+  function beginCanvasButtonPanelDrag(event: React.PointerEvent<HTMLElement>) {
+    if (event.button !== 0) return;
+    const panel = event.currentTarget.closest<HTMLElement>(".canvasButtonPanel");
+    if (!panel) return;
+    const rect = panel.getBoundingClientRect();
+    setCanvasButtonPanelPosition({ x: rect.left, y: rect.top });
+    setCanvasButtonPanelDrag({ offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top });
+  }
+
+  function exportCanvasButtonDraft() {
+    if (!canvasButtonDraft) return;
+    const manifest = canvasButtonManifestFromDraft(canvasButtonDraft);
+    if (!manifest) {
+      setCanvasButtonError("Fill in title and package id before exporting.");
+      return;
+    }
+    downloadBlob(new Blob([`${JSON.stringify(manifest, null, 2)}\n`], { type: "application/json" }), `${manifest.id}.node.json`);
+    setLogs((current) => [`Exported Living Canvas button package ${manifest.id}.`, ...current]);
+  }
+
+  async function installCanvasButtonDraft() {
+    if (!canvasButtonDraft) return;
+    const manifest = canvasButtonManifestFromDraft(canvasButtonDraft);
+    if (!manifest) {
+      setCanvasButtonError("Fill in title and package id before creating the button.");
+      return;
+    }
+    setCanvasButtonSaving(true);
+    setCanvasButtonError("");
+    try {
+      const response = await fetch(`${apiBase}/api/node-packages/install-generated`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manifest })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
+      await loadNodeCatalog();
+      setCanvasButtonDraft(null);
+      setLogs((current) => [`Created Living Canvas ${canvasButtonDraft.inputKind} button ${manifest.id}.`, ...current]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setCanvasButtonError(message);
+      setLogs((current) => [`Create Living Canvas button failed: ${message}`, ...current]);
+    } finally {
+      setCanvasButtonSaving(false);
     }
   }
 
@@ -7561,6 +7960,9 @@ function App() {
                     <button onClick={() => { openSubroute(contextMenu.nodeId!); setContextMenu(null); }}>Open Internal Tool Route</button>
                     <button onClick={() => { uncollapseCompoundNode(contextMenu.nodeId!); setContextMenu(null); }}>Uncollapse</button>
                     <button onClick={() => void saveCompoundNodeAsPackage(contextMenu.nodeId!)}>Save as Block Package</button>
+                    {compoundCanvasActionEligible(contextRouteNode) ? (
+                      <button onClick={() => openCompoundNodeCanvasButtonPanel(contextMenu.nodeId!)}>Create Living Canvas Button</button>
+                    ) : null}
                   </>
                 ) : null}
                 {contextRouteNode?.type === "dialogue.workbench" ? (
@@ -7575,6 +7977,123 @@ function App() {
                 <button disabled={nodes.length === 0 && edges.length === 0} onClick={() => { clearCanvas(); setContextMenu(null); }}>Clear Canvas</button>
               </>
             )}
+          </div>
+        ) : null}
+        {canvasButtonDraft ? (
+          <div className="canvasButtonOverlay" role="dialog" aria-modal="true" aria-label="Create Living Canvas Button" onMouseDown={() => setCanvasButtonDraft(null)}>
+            <form
+              className="canvasButtonPanel"
+              style={canvasButtonPanelPosition ? { left: canvasButtonPanelPosition.x, top: canvasButtonPanelPosition.y } : undefined}
+              onMouseDown={(event) => event.stopPropagation()}
+              onSubmit={(event) => {
+                event.preventDefault();
+                void installCanvasButtonDraft();
+              }}
+            >
+              <header className="canvasButtonHeader" onPointerDown={beginCanvasButtonPanelDrag}>
+                <div>
+                  <h2>Create Living Canvas Button</h2>
+                  <p>One input becomes the button type; outputs become new canvas nodes.</p>
+                </div>
+                <button type="button" className="iconButton" title="Close" onPointerDown={(event) => event.stopPropagation()} onClick={() => setCanvasButtonDraft(null)}>
+                  <X size={16} />
+                </button>
+              </header>
+              <div className="canvasButtonFields">
+                <label>
+                  <span>Button title</span>
+                  <input
+                    value={canvasButtonDraft.title}
+                    onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, title: event.target.value } : draft)}
+                    autoFocus
+                  />
+                </label>
+                <label>
+                  <span>Package id</span>
+                  <input
+                    value={canvasButtonDraft.packageId}
+                    onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, packageId: event.target.value } : draft)}
+                    spellCheck={false}
+                  />
+                </label>
+              </div>
+              <div className="canvasButtonTypes">
+                <div>
+                  <span>Input</span>
+                  <strong className={`canvasButtonTypePill type-${canvasButtonDraft.inputKind}`}>{canvasButtonDraft.inputKind}</strong>
+                </div>
+                <div>
+                  <span>Outputs</span>
+                  <div className="canvasButtonOutputList">
+                    {canvasButtonDraft.outputs.map((output) => (
+                      <strong className={`canvasButtonTypePill type-${output.kind}`} key={`${output.id}-${output.kind}`} title={output.label ?? output.id}>
+                        {output.kind}
+                      </strong>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <section className="canvasButtonIconSection" aria-label="Button icon">
+                <span>Icon</span>
+                <div className="canvasButtonIconPicker">
+                  <button
+                    className="canvasButtonIconPreview"
+                    type="button"
+                    title="Choose icon"
+                    aria-label="Choose icon"
+                    aria-expanded={canvasButtonIconPickerOpen}
+                    onClick={() => setCanvasButtonIconPickerOpen((value) => !value)}
+                  >
+                    {canvasButtonDraft.customIconDataUrl ? (
+                      <img src={canvasButtonDraft.customIconDataUrl} alt="" />
+                    ) : (
+                      canvasActionIconPreset(canvasButtonDraft.iconName, 22)
+                    )}
+                  </button>
+                  {canvasButtonIconPickerOpen ? (
+                    <div className="canvasButtonIconPopover" onMouseDown={(event) => event.stopPropagation()}>
+                      <label className={`canvasButtonCustomIcon ${canvasButtonDraft.customIconDataUrl ? "selected" : ""}`}>
+                        {canvasButtonDraft.customIconDataUrl ? <img src={canvasButtonDraft.customIconDataUrl} alt="" /> : <ImageIcon size={18} />}
+                        Upload custom icon
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(event) => {
+                            selectCanvasButtonCustomIcon(event.target.files?.[0] ?? null);
+                            event.currentTarget.value = "";
+                          }}
+                        />
+                      </label>
+                      <div className="canvasButtonIconGrid">
+                        {canvasActionIconPresets.map((preset) => (
+                          <button
+                            className={`canvasButtonIconChoice${!canvasButtonDraft.customIconDataUrl && canvasButtonDraft.iconName === preset.name ? " selected" : ""}`}
+                            type="button"
+                            key={preset.name}
+                            title={preset.label}
+                            aria-label={preset.label}
+                            aria-pressed={!canvasButtonDraft.customIconDataUrl && canvasButtonDraft.iconName === preset.name}
+                            onClick={() => selectCanvasButtonPresetIcon(preset.name)}
+                          >
+                            {canvasActionIconPreset(preset.name, 22)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+              {canvasButtonError ? <div className="canvasButtonError">{canvasButtonError}</div> : null}
+              <footer className="canvasButtonActions">
+                <button type="button" onClick={exportCanvasButtonDraft}>
+                  <Download size={15} /> Export
+                </button>
+                <button type="submit" className="primary" disabled={canvasButtonSaving || !canvasButtonDraft.title.trim() || !canvasButtonDraft.packageId.trim()}>
+                  {canvasButtonSaving ? <RefreshCw size={15} className="spinIcon" /> : <Plus size={15} />}
+                  Create Button
+                </button>
+              </footer>
+            </form>
           </div>
         ) : null}
         {libraryItemMenu ? (

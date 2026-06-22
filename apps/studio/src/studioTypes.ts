@@ -492,6 +492,12 @@ export type NodeManifest = {
   inputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
   outputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
   params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown }>;
+  canvasAction?: {
+    enabled: boolean;
+    title?: string;
+    description?: string;
+    icon?: { kind: "preset"; name: string } | { kind: "custom"; svg?: string; dataUrl?: string };
+  };
   generatedWith?: unknown;
   ui?: {
     params?: Record<string, {

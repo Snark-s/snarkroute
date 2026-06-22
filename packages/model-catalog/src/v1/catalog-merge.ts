@@ -71,6 +71,8 @@ function selectIconKey(_provider: ModelProviderIdV1, originVendor: ModelOriginVe
   if (curated?.iconKey) return curated.iconKey;
   const vendorIcon = iconKeyForVendor(originVendor);
   if (vendorIcon) return vendorIcon;
+  const providerIcon = iconKeyForVendor(_provider);
+  if (providerIcon) return providerIcon;
   return "unknown";
 }
 
@@ -89,9 +91,11 @@ function iconKeyForVendor(originVendor: ModelOriginVendorV1): string | undefined
     minimax: "minimax",
     "nano-banana": "nano-banana",
     openai: "gpt",
+    elevenlabs: "elevenlabs",
     qwen: "qwen",
     seedance: "seedance",
     stability: "stability",
+    suno: "suno",
     topaz: "topaz",
     wan: "wan",
     "x-ai": "x-ai",
@@ -108,6 +112,7 @@ function iconFilenameForKey(iconKey: string): string {
     "black-forest-labs": "flux-2-pro.png",
     bytedance: "seedream-4-5.png",
     claude: "claude.png",
+    elevenlabs: "elevenlabs.svg",
     gemini: "gemini.png",
     google: "gemini.png",
     gpt: "gpt.png",
@@ -128,6 +133,7 @@ function iconFilenameForKey(iconKey: string): string {
     "google/gemini-3.1-flash-image-preview": "nano-banana.svg",
     "google/gemini-3-pro-image-preview": "nano-banana.svg",
     stability: "stability.svg",
+    suno: "suno.svg",
     topaz: "topaz.svg",
     unknown: "unknown.svg",
     wan: "wan.svg",

@@ -12,6 +12,12 @@ export interface ModelParameterDefinition {
   min?: number;
   max?: number;
   step?: number;
+  required?: boolean;
+  advanced?: boolean;
+  enabledWhen?: {
+    parameterId: string;
+    equals: GenerationParameterValue[];
+  };
 }
 
 export interface ModelOption {
@@ -231,7 +237,23 @@ export function modelGenerationParameters(model: ModelOption): ImageGenerationPa
 
 export function generationParameterSummary(definitions: ModelParameterDefinition[], values: ImageGenerationParameters): string {
   if (definitions.length === 0) return "No parameters";
-  return definitions.slice(0, 2).map((definition) => String(values[definition.id] ?? definition.default ?? "")).filter(Boolean).join(" / ") || "Parameters";
+  const compactValues = definitions
+    .filter((definition) => modelParameterEnabled(definition, values) && definition.type !== "text" && !definition.advanced)
+    .map((definition) => {
+      const value = values[definition.id] ?? definition.default;
+      if (value === undefined || value === "" || value === false) return "";
+      if (definition.type === "boolean") return definition.label;
+      return String(value);
+    })
+    .filter(Boolean)
+    .slice(0, 2);
+  return compactValues.join(" / ") || "Parameters";
+}
+
+export function modelParameterEnabled(definition: ModelParameterDefinition, values: ImageGenerationParameters): boolean {
+  if (!definition.enabledWhen) return true;
+  const current = values[definition.enabledWhen.parameterId];
+  return definition.enabledWhen.equals.some((value) => String(value) === String(current));
 }
 
 export function normalizeNodeModelOptions(value: unknown, nodeType: string): ModelOption[] {
@@ -356,9 +378,20 @@ function normalizeServerParameterDefinitions(parameters: ModelParameterDefinitio
       }) : undefined,
       min: numberParameter(definition.min),
       max: numberParameter(definition.max),
-      step: numberParameter(definition.step)
+      step: numberParameter(definition.step),
+      required: typeof definition.required === "boolean" ? definition.required : undefined,
+      advanced: typeof definition.advanced === "boolean" ? definition.advanced : undefined,
+      enabledWhen: isEnabledWhen(definition.enabledWhen) ? {
+        parameterId: definition.enabledWhen.parameterId,
+        equals: definition.enabledWhen.equals
+      } : undefined
     }];
   });
+}
+
+function isEnabledWhen(value: unknown): value is { parameterId: string; equals: GenerationParameterValue[] } {
+  const record = value as { parameterId?: unknown; equals?: unknown };
+  return typeof record?.parameterId === "string" && Array.isArray(record.equals);
 }
 
 function mergeModelOptions(options: ModelOption[]): ModelOption[] {
@@ -431,6 +464,7 @@ function catalogIconFilename(key: string): string | undefined {
     gemini: "gemini.png",
     google: "gemini.png",
     gpt: "gpt.png",
+    elevenlabs: "elevenlabs.svg",
     local: "local.svg",
     kling: "kling.png",
     kwaivgi: "kling.png",
@@ -450,6 +484,7 @@ function catalogIconFilename(key: string): string | undefined {
     seedream: "seedream-4-5.png",
     "seedream-4-5": "seedream-4-5.png",
     stability: "stability.svg",
+    suno: "suno.svg",
     topaz: "topaz.svg",
     unknown: "unknown.svg",
     wan: "wan.svg",

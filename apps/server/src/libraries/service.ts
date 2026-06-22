@@ -2,15 +2,17 @@ import { createReadStream } from "node:fs";
 import { copyFile, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
-import { loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type PromptLibraryPrompt } from "@snarkroute/nodes";
+import { builtInNodeManifests, loadInstalledNodeManifests, loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type PromptLibraryPrompt, type SnarkNodeManifest } from "@snarkroute/nodes";
 import { librariesDirectory } from "../server-paths";
 import { sanitizeFilename } from "../assets/service";
 import { createRouteExecutor } from "../execution/service";
 import { createTextPromptAsset } from "../prompt-library/service";
 import { fetchWithTimeout } from "../services/http";
+import { providerNodeManifests } from "../providers/provider-node-manifests";
 import { embedImageProvenance, imageMetadataSchema, type SnarkImageMetadata } from "./image-metadata";
 import type {
   AppendImageStackInput,
+  AppendAudioStackInput,
   AppendVideoStackInput,
   CreateNodeInput,
   CropMetadata,
@@ -18,12 +20,16 @@ import type {
   DuplicateCanvasNodeInput,
   DuplicateStackItemInput,
   GenerateImageNodeInput,
+  GenerateAudioNodeInput,
   GenerateTextNodeInput,
   GenerateVideoNodeInput,
+  AudioNodeManifest,
+  AudioNodeView,
   ImageGenerationSettings,
   ImageNodeManifest,
   ImageStackItem,
   ImportImageInput,
+  ImportAudioInput,
   ImportLocalFolderStackInput,
   ImportLocalLibraryInput,
   ImportTextInput,
@@ -43,6 +49,7 @@ import type {
   LocalLibraryScanResult,
   NestedLibrary,
   NodeView,
+  RunCanvasNodeActionInput,
   SnarkCanvasDocument,
   SnarkCanvasNode,
   SnarkLibraryManifest,
@@ -55,6 +62,7 @@ import type {
 
 export type {
   AppendImageStackInput,
+  AppendAudioStackInput,
   AppendVideoStackInput,
   CreateNodeInput,
   CropMetadata,
@@ -62,12 +70,16 @@ export type {
   DuplicateCanvasNodeInput,
   DuplicateStackItemInput,
   GenerateImageNodeInput,
+  GenerateAudioNodeInput,
   GenerateTextNodeInput,
   GenerateVideoNodeInput,
   ImageGenerationSettings,
   ImageNodeManifest,
+  AudioNodeManifest,
+  AudioNodeView,
   ImageStackItem,
   ImportImageInput,
+  ImportAudioInput,
   ImportLocalFolderStackInput,
   ImportLocalLibraryInput,
   ImportTextInput,
@@ -85,6 +97,7 @@ export type {
   LocalLibraryScanResult,
   NestedLibrary,
   NodeView,
+  RunCanvasNodeActionInput,
   SnarkCanvasDocument,
   SnarkCanvasNode,
   SnarkLibraryManifest,
@@ -131,7 +144,7 @@ export async function createLibrary(options: { path?: string; title?: string; li
 
 export async function listLibraryProjects(): Promise<{ projects: LibraryProjectSummary[] }> {
   const activePath = await ensureCurrentLibrary();
-  const records = (await readProjectRegistry()).projects;
+  const records = await listProjectRecords(activePath);
   const projects = await Promise.all(records.map((record) => projectSummary(record.path, record.path === activePath, record.coverPath)));
   return { projects };
 }
@@ -139,7 +152,7 @@ export async function listLibraryProjects(): Promise<{ projects: LibraryProjectS
 export async function addLibraryProject(path: string): Promise<{ projects: LibraryProjectSummary[]; current: LibrarySnapshot }> {
   const projectPath = resolve(path);
   await ensureProjectLibrary(projectPath);
-  await saveProjectPath(projectPath);
+  await saveProjectPath(projectPath, { moveToTop: true, makeCurrent: true });
   currentLibraryPath = projectPath;
   return { projects: (await listLibraryProjects()).projects, current: await readLibrarySnapshot(projectPath) };
 }
@@ -147,7 +160,7 @@ export async function addLibraryProject(path: string): Promise<{ projects: Libra
 export async function openLibraryProject(path: string): Promise<{ projects: LibraryProjectSummary[]; current: LibrarySnapshot }> {
   const projectPath = resolve(path);
   await readLibraryManifest(projectPath);
-  await saveProjectPath(projectPath);
+  await saveProjectPath(projectPath, { moveToTop: false, makeCurrent: true });
   currentLibraryPath = projectPath;
   return { projects: (await listLibraryProjects()).projects, current: await readLibrarySnapshot(projectPath) };
 }
@@ -156,9 +169,12 @@ export async function removeLibraryProject(path: string): Promise<{ projects: Li
   const projectPath = resolve(path);
   const registry = await readProjectRegistry();
   registry.projects = registry.projects.filter((project) => resolve(project.path) !== projectPath);
+  if (registry.currentProjectPath && resolve(registry.currentProjectPath) === projectPath) {
+    registry.currentProjectPath = registry.projects[0]?.path ? resolve(registry.projects[0].path) : undefined;
+  }
   await writeProjectRegistry(registry);
   if (resolve(currentLibraryPath) === projectPath) {
-    currentLibraryPath = registry.projects[0]?.path ? resolve(registry.projects[0].path) : join(librariesDirectory, "default");
+    currentLibraryPath = registry.currentProjectPath ? resolve(registry.currentProjectPath) : join(librariesDirectory, "default");
   }
   const activePath = await ensureCurrentLibrary();
   return { projects: (await listLibraryProjects()).projects, current: await readLibrarySnapshot(activePath) };
@@ -396,6 +412,69 @@ export async function importVideoAsNode(input: ImportVideoInput): Promise<Librar
     width,
     height
   });
+  if (input.connectFromNodeId) {
+    canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.connectFromNodeId, toNodeId: id }];
+  }
+  await writeCanvas(libraryPath, canvas);
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function importAudioAsNode(input: ImportAudioInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const extension = normalizedAudioExtension(input.filename);
+  const id = `audio_${shortId()}`;
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, titleFromFilename(input.filename));
+  const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
+  const audioRelativePath = portableJoin("content", `000-import${extension}`);
+  const audioPath = resolvePortablePath(nodePath, audioRelativePath);
+  await mkdir(join(nodePath, "content"), { recursive: true });
+
+  if (input.dataBase64) {
+    await writeFile(audioPath, Buffer.from(input.dataBase64, "base64"));
+  } else if (input.sourcePath) {
+    await copyFile(input.sourcePath, audioPath);
+  } else {
+    throw new Error("dataBase64 or sourcePath is required.");
+  }
+
+  const now = new Date().toISOString();
+  const manifest: AudioNodeManifest = {
+    format: "snarkroute.node",
+    version: "0.1",
+    id,
+    type: "audio",
+    title,
+    stack: [{
+      id: `stack_${shortId()}`,
+      file: audioRelativePath,
+      source: "import",
+      mimeType: audioMimeTypeFromExtension(extension),
+      width: input.width ?? defaultNodeWidth,
+      height: input.height ?? defaultNodeHeight,
+      createdAt: now
+    }],
+    activeStackIndex: 0,
+    createdAt: now,
+    updatedAt: now
+  };
+  await writeJson(join(nodePath, "snark.node.json"), manifest);
+  await writeCurrentPrompt(nodePath, "");
+
+  const canvas = await ensureCanvas(libraryPath);
+  const width = input.width ?? defaultNodeWidth;
+  const height = input.height ?? defaultNodeHeight;
+  canvas.nodes.push({
+    id,
+    type: "audio",
+    nodePath: nodeRelativePath,
+    x: Math.round(input.dropX - width / 2),
+    y: Math.round(input.dropY - height / 2),
+    width,
+    height
+  });
+  if (input.connectFromNodeId) {
+    canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.connectFromNodeId, toNodeId: id }];
+  }
   await writeCanvas(libraryPath, canvas);
   return readLibrarySnapshot(libraryPath);
 }
@@ -606,6 +685,41 @@ async function importVideoAssetsAsStackNode(scan: LocalLibraryScanResult, input:
   return readLibrarySnapshot(libraryPath);
 }
 
+async function importAudioAssetsAsStackNode(scan: LocalLibraryScanResult, input: ImportLocalFolderStackInput): Promise<LibrarySnapshot> {
+  const audioAssets = scan.assets.filter((asset) => asset.kind === "audio");
+  if (!audioAssets.length) throw new Error("Folder does not contain audio assets.");
+  const libraryPath = await ensureCurrentLibrary();
+  const now = new Date().toISOString();
+  const id = `audio_${shortId()}`;
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, `${scan.title} Audio Stack`);
+  const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
+  await mkdir(join(nodePath, "content"), { recursive: true });
+
+  const stack: ImageStackItem[] = [];
+  for (const [index, asset] of audioAssets.entries()) {
+    const extension = normalizedAudioExtension(asset.relativePath);
+    const file = portableJoin("content", `${String(index + 1).padStart(3, "0")}-${sanitizeFilename(basename(asset.relativePath)) || `audio${extension}`}`);
+    await copyFile(resolvePortablePath(scan.sourcePath, asset.relativePath), resolvePortablePath(nodePath, file));
+    stack.push({ id: `stack_${shortId()}`, file, source: "folder-import", mimeType: audioMimeTypeFromExtension(extension), width: input.width ?? defaultNodeWidth, height: input.height ?? defaultNodeHeight, createdAt: now });
+  }
+
+  const manifest: AudioNodeManifest = {
+    format: "snarkroute.node",
+    version: "0.1",
+    id,
+    type: "audio",
+    title,
+    stack,
+    activeStackIndex: 0,
+    createdAt: now,
+    updatedAt: now
+  };
+  await writeJson(join(nodePath, "snark.node.json"), manifest);
+  await writeCurrentPrompt(nodePath, "");
+  await addTypedStackCanvasNode(libraryPath, id, "audio", nodeRelativePath, input, defaultNodeWidth, defaultNodeHeight);
+  return readLibrarySnapshot(libraryPath);
+}
+
 async function importTextAssetsAsStackNode(scan: LocalLibraryScanResult, input: ImportLocalFolderStackInput): Promise<LibrarySnapshot> {
   const textAssets = scan.assets.filter((asset) => asset.kind === "text" || Boolean(asset.embeddedPrompt));
   if (!textAssets.length) throw new Error("Folder does not contain text or prompt assets.");
@@ -650,7 +764,7 @@ async function importTextAssetsAsStackNode(scan: LocalLibraryScanResult, input: 
 async function addTypedStackCanvasNode(
   libraryPath: string,
   id: string,
-  type: "image" | "text" | "video",
+  type: "image" | "text" | "video" | "audio",
   nodeRelativePath: string,
   input: ImportLocalFolderStackInput,
   fallbackWidth: number,
@@ -788,6 +902,42 @@ export async function appendVideoToNodeStack(input: AppendVideoStackInput): Prom
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function appendAudioToNodeStack(input: AppendAudioStackInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readAudioNode(input.nodeId);
+  const extension = normalizedAudioExtension(input.filename);
+  const stackIndex = manifest.stack.length;
+  const audioRelativePath = nextStackFilename(manifest.stack, "import", extension);
+  const audioPath = resolvePortablePath(nodePath, audioRelativePath);
+  await mkdir(join(nodePath, "content"), { recursive: true });
+
+  if (input.dataBase64) {
+    await writeFile(audioPath, Buffer.from(input.dataBase64, "base64"));
+  } else if (input.sourcePath) {
+    await copyFile(input.sourcePath, audioPath);
+  } else {
+    throw new Error("dataBase64 or sourcePath is required.");
+  }
+
+  const now = new Date().toISOString();
+  const updatedManifest: AudioNodeManifest = {
+    ...manifest,
+    stack: [...manifest.stack, {
+      id: `stack_${shortId()}`,
+      file: audioRelativePath,
+      source: "import",
+      mimeType: audioMimeTypeFromExtension(extension),
+      width: defaultNodeWidth,
+      height: defaultNodeHeight,
+      createdAt: now
+    }],
+    activeStackIndex: stackIndex,
+    updatedAt: now
+  };
+  await writeJson(join(nodePath, "snark.node.json"), updatedManifest);
+  return readLibrarySnapshot(libraryPath);
+}
+
 export async function setImageNodeActiveStackItem(nodeId: string, stackIndex: number): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const { manifest, nodePath } = await readImageNode(nodeId);
@@ -804,6 +954,18 @@ export async function setImageNodeActiveStackItem(nodeId: string, stackIndex: nu
 export async function setVideoNodeActiveStackItem(nodeId: string, stackIndex: number): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const { manifest, nodePath } = await readVideoNode(nodeId);
+  if (stackIndex < 0 || stackIndex >= manifest.stack.length) throw new Error("Stack index is out of range.");
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    activeStackIndex: stackIndex,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function setAudioNodeActiveStackItem(nodeId: string, stackIndex: number): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readAudioNode(nodeId);
   if (stackIndex < 0 || stackIndex >= manifest.stack.length) throw new Error("Stack index is out of range.");
   await writeJson(join(nodePath, "snark.node.json"), {
     ...manifest,
@@ -886,6 +1048,24 @@ export async function deleteImageNodeStackItem(nodeId: string, stackItemId: stri
 export async function deleteVideoNodeStackItem(nodeId: string, stackItemId: string): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const { manifest, nodePath } = await readVideoNode(nodeId);
+  const index = manifest.stack.findIndex((item) => item.id === stackItemId);
+  if (index < 0) throw new Error(`Stack item "${stackItemId}" was not found.`);
+  const item = manifest.stack[index];
+  const nextStack = manifest.stack.filter((entry) => entry.id !== stackItemId);
+  const nextActiveIndex = nextStack.length ? Math.min(manifest.activeStackIndex >= index ? manifest.activeStackIndex - 1 : manifest.activeStackIndex, nextStack.length - 1) : 0;
+  if (item.file) await rm(resolvePortablePath(nodePath, item.file), { force: true });
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    stack: nextStack,
+    activeStackIndex: Math.max(0, nextActiveIndex),
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function deleteAudioNodeStackItem(nodeId: string, stackItemId: string): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readAudioNode(nodeId);
   const index = manifest.stack.findIndex((item) => item.id === stackItemId);
   if (index < 0) throw new Error(`Stack item "${stackItemId}" was not found.`);
   const item = manifest.stack[index];
@@ -1047,6 +1227,61 @@ export async function generateVideoNodeStackItem(input: GenerateVideoNodeInput):
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function generateAudioNodeStackItem(input: GenerateAudioNodeInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readAudioNode(input.nodeId);
+  const promptTemplate = input.prompt?.trim() || "Generate a short audio clip.";
+  const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
+  const orderedInputs = orderConnectedInputs(connectedInputs, input.inputNodeIds);
+  const mediaInputs = mediaInputsForPrompt(orderedInputs, promptTemplate);
+  const prompt = resolveInputTokens(promptTemplate, orderedInputs, mediaInputs, input.imageReferenceSyntax);
+  const generationSettings = sanitizeImageGenerationSettings(input.parameters);
+  await writeCurrentPrompt(nodePath, promptTemplate);
+  const runResult = await runAudioModelForStackItem({
+    nodeId: input.nodeId,
+    modelId: input.modelId,
+    executionProvider: executionProviderForInput(input),
+    prompt,
+    mediaInputs,
+    parameters: generationSettings
+  });
+  const generationResult = runResult.nodeResults.generate;
+  if (runResult.status === "failed" || generationResult?.status === "failed") {
+    throw new Error(generationResult?.error || "Audio generation failed.");
+  }
+  const generatedAudio = audioAssetFromGenerationOutput(generationResult?.output);
+  const generatedPath = generatedAudio.localPath ?? generatedAudio.path;
+  if (!generatedPath) throw new Error(`Model "${input.modelId}" did not return a saved audio path.`);
+  const extension = normalizedGeneratedAudioExtension(generatedAudio.filename ?? generatedPath, generatedAudio.mimeType);
+  const stackIndex = manifest.stack.length;
+  const audioRelativePath = nextStackFilename(manifest.stack, "generation", extension);
+  const audioPath = resolvePortablePath(nodePath, audioRelativePath);
+  await mkdir(dirname(audioPath), { recursive: true });
+  await writeFile(audioPath, await readGeneratedAssetBuffer(generatedPath, "audio"));
+
+  const now = new Date().toISOString();
+  const updatedManifest: AudioNodeManifest = {
+    ...manifest,
+    modelId: input.modelId,
+    executionProvider: executionProviderForInput(input),
+    fallbackAllowed: input.fallbackAllowed !== false,
+    stack: [...manifest.stack, {
+      id: `stack_${shortId()}`,
+      file: audioRelativePath,
+      source: "generation",
+      mimeType: generatedAudio.mimeType ?? audioMimeTypeFromExtension(extension),
+      coverUrl: generatedAudio.coverUrl,
+      width: defaultNodeWidth,
+      height: defaultNodeHeight,
+      createdAt: now
+    }],
+    activeStackIndex: stackIndex,
+    updatedAt: now
+  };
+  await writeJson(join(nodePath, "snark.node.json"), updatedManifest);
+  return readLibrarySnapshot(libraryPath);
+}
+
 export async function generateTextNodeStackItem(input: GenerateTextNodeInput): Promise<LibrarySnapshot> {
   const promptTemplate = input.prompt?.trim();
   if (!promptTemplate) throw new Error("Prompt is required.");
@@ -1188,6 +1423,126 @@ async function runVideoModelForStackItem(input: { nodeId: string; modelId: strin
   return executor.executeRoute(route);
 }
 
+async function runAudioModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; prompt: string; mediaInputs: GenerationMediaInput[]; parameters: ImageGenerationSettings }) {
+  const provider = audioExecutionProvider(input.executionProvider, input.modelId);
+  if (provider !== "openrouter" && provider !== "polza" && provider !== "elevenlabs") {
+    throw new Error(`Execution provider "${input.executionProvider}" is not available for audio generation.`);
+  }
+  if (input.mediaInputs.length > 0 && !audioModelAcceptsMediaInputs(provider, input.modelId)) {
+    throw new Error("The selected audio execution path does not accept connected media inputs yet.");
+  }
+  if (provider === "polza") return runPolzaAudioModelForStackItem(input);
+  if (provider === "elevenlabs") return runElevenLabsAudioModelForStackItem(input);
+  return runOpenRouterAudioModelForStackItem(input);
+}
+
+function audioModelAcceptsMediaInputs(provider: string, modelId: string): boolean {
+  return provider === "polza" && polzaAudioProviderModelId(modelId) === "suno/generate";
+}
+
+function audioExecutionProvider(executionProvider: string, modelId: string): "openrouter" | "polza" | "elevenlabs" | string {
+  if (executionProvider !== "auto") return executionProvider;
+  if (polzaAudioProviderModelId(modelId).startsWith("suno/")) return "polza";
+  if (modelId.startsWith("elevenlabs/")) return "openrouter";
+  if (modelId === "music_v2" || modelId === "eleven_text_to_sound_v2" || modelId.startsWith("eleven_")) return "elevenlabs";
+  return "openrouter";
+}
+
+async function runOpenRouterAudioModelForStackItem(input: { nodeId: string; modelId: string; prompt: string; parameters: ImageGenerationSettings }) {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) throw new Error("OpenRouter is selected, but OpenRouter is not configured.");
+  const baseUrl = (process.env.OPENROUTER_BASE_URL ?? "https://openrouter.ai/api/v1").replace(/\/+$/u, "");
+  const responseFormat = audioResponseFormat(input.parameters);
+  const response = await fetch(`${baseUrl}/audio/speech`, {
+    method: "POST",
+    headers: openRouterVideoHeaders(apiKey),
+    body: JSON.stringify({
+      model: input.modelId,
+      input: input.prompt,
+      voice: stringSetting(input.parameters.voice) ?? "alloy",
+      response_format: responseFormat
+    })
+  });
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!response.ok) {
+    const text = bytes.toString("utf8");
+    let parsed: unknown = {};
+    try {
+      parsed = text ? JSON.parse(text) : {};
+    } catch {
+      parsed = { error: text };
+    }
+    const errorValue = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>).error : undefined;
+    const error = typeof errorValue === "string" ? errorValue : errorValue && typeof errorValue === "object" ? stringRecordValue(errorValue as Record<string, unknown>, "message") : undefined;
+    throw new Error(`Could not generate audio: ${error ?? (response.statusText || String(response.status))}`);
+  }
+  const extension = ".mp3";
+  const localPath = join(await ensureCurrentLibrary(), ".generated", `${input.nodeId}-${Date.now().toString(36)}${extension}`);
+  await mkdir(dirname(localPath), { recursive: true });
+  await writeFile(localPath, bytes);
+  const mimeType = response.headers.get("content-type")?.split(";")[0] || audioMimeTypeFromExtension(extension);
+  return audioGenerationRunResult("openrouter", input.modelId, localPath, mimeType, response.headers.get("x-generation-id") ?? undefined);
+}
+
+async function runPolzaAudioModelForStackItem(input: { nodeId: string; modelId: string; prompt: string; mediaInputs: GenerationMediaInput[]; parameters: ImageGenerationSettings }) {
+  const apiKey = process.env.POLZA_AI_API_KEY?.trim();
+  if (!apiKey) throw new Error("Polza is selected, but POLZA_AI_API_KEY is not configured.");
+  const mediaUrl = polzaMediaUrl();
+  const createResponse = await fetch(mediaUrl, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(await polzaAudioRequestBody(input.modelId, input.prompt, input.parameters, input.mediaInputs))
+  });
+  const created = await providerJson(createResponse, "submit Polza audio generation request");
+  const completed = await pollPolzaAudioJob(mediaUrl, apiKey, created);
+  const audio = firstMediaAudio(completed);
+  if (!audio) throw new Error("Polza audio generation did not return an audio asset.");
+  const coverUrl = firstMediaArtwork(completed);
+  const asset = await writeGeneratedAudioReference(audio, {
+    provider: "polza",
+    nodeId: input.nodeId,
+    modelId: input.modelId
+  });
+  return audioGenerationRunResult("polza", input.modelId, asset.localPath, asset.mimeType, mediaOperationState(completed).id ?? mediaOperationState(created).id, coverUrl);
+}
+
+function polzaMediaUrl(id?: string): string {
+  const configured = (process.env.POLZA_BASE_URL ?? "https://polza.ai/api").trim().replace(/\/+$/u, "");
+  const mediaBase = configured.endsWith("/v1/media")
+    ? configured
+    : configured.endsWith("/v1")
+      ? `${configured}/media`
+      : configured.endsWith("/api")
+        ? `${configured}/v1/media`
+        : `${configured}/api/v1/media`;
+  return id ? `${mediaBase}/${encodeURIComponent(id)}` : mediaBase;
+}
+
+async function runElevenLabsAudioModelForStackItem(input: { nodeId: string; modelId: string; prompt: string; parameters: ImageGenerationSettings }) {
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  if (!apiKey) throw new Error("ElevenLabs is selected, but ELEVENLABS_API_KEY is not configured.");
+  const baseUrl = (process.env.ELEVENLABS_BASE_URL ?? "https://api.elevenlabs.io/v1").replace(/\/+$/u, "");
+  const response = await fetch(elevenLabsAudioUrl(baseUrl, input.modelId, input.parameters), {
+    method: "POST",
+    headers: {
+      "xi-api-key": apiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(elevenLabsAudioRequestBody(input.modelId, input.prompt, input.parameters))
+  });
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!response.ok) throw new Error(`Could not generate ElevenLabs audio: ${providerErrorFromBytes(bytes, response)}`);
+  const mimeType = response.headers.get("content-type")?.split(";")[0] || "audio/mpeg";
+  const extension = normalizedGeneratedAudioExtension(`${input.modelId}.mp3`, mimeType);
+  const localPath = join(await ensureCurrentLibrary(), ".generated", `${input.nodeId}-${Date.now().toString(36)}${extension}`);
+  await mkdir(dirname(localPath), { recursive: true });
+  await writeFile(localPath, bytes);
+  return audioGenerationRunResult("elevenlabs", input.modelId, localPath, mimeType, response.headers.get("request-id") ?? undefined);
+}
+
 async function runOpenRouterVideoModelForStackItem(input: { nodeId: string; modelId: string; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }): Promise<any> {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new Error("OpenRouter is selected, but OpenRouter is not configured.");
@@ -1227,14 +1582,26 @@ async function runOpenRouterVideoModelForStackItem(input: { nodeId: string; mode
   };
 }
 
+type ConnectedCanvasInputType = "text" | "image" | "video" | "audio";
+
 interface ConnectedCanvasInput {
   nodeId: string;
-  type: string;
+  type: ConnectedCanvasInputType;
   text?: string;
   image?: GenerationImageInput;
+  media?: GenerationMediaInput;
 }
 
 interface GenerationImageInput {
+  path: string;
+  localPath?: string;
+  mimeType: string;
+  ref?: string;
+  nodeId?: string;
+}
+
+interface GenerationMediaInput {
+  type: "image" | "video" | "audio";
   path: string;
   localPath?: string;
   mimeType: string;
@@ -1251,7 +1618,18 @@ async function connectedCanvasInputs(libraryPath: string, targetNodeId: string):
     if (sourceNode?.type === "image") {
       const { manifest, nodePath } = await readImageNode(sourceNodeId);
       const item = manifest.stack[manifest.activeStackIndex];
-      inputs.push({ nodeId: sourceNodeId, type: "image", image: item ? stackItemImageInput(libraryPath, nodePath, sourceNodeId, item) : undefined });
+      const image = item ? stackItemImageInput(libraryPath, nodePath, sourceNodeId, item) : undefined;
+      inputs.push({ nodeId: sourceNodeId, type: "image", image, media: image ? { ...image, type: "image" } : undefined });
+    }
+    if (sourceNode?.type === "video") {
+      const { manifest, nodePath } = await readVideoNode(sourceNodeId);
+      const item = manifest.stack[manifest.activeStackIndex];
+      inputs.push({ nodeId: sourceNodeId, type: "video", media: item ? stackItemMediaInput(nodePath, sourceNodeId, "video", item) : undefined });
+    }
+    if (sourceNode?.type === "audio") {
+      const { manifest, nodePath } = await readAudioNode(sourceNodeId);
+      const item = manifest.stack[manifest.activeStackIndex];
+      inputs.push({ nodeId: sourceNodeId, type: "audio", media: item ? stackItemMediaInput(nodePath, sourceNodeId, "audio", item) : undefined });
     }
     if (sourceNode?.type === "text") {
       const manifestPath = join(resolvePortablePath(libraryPath, sourceNode.nodePath), "snark.node.json");
@@ -1278,6 +1656,14 @@ function videoAssetFromGenerationOutput(output: unknown): { localPath?: string; 
   const video = record.video;
   if (!video || typeof video !== "object") throw new Error("Video generation returned no video asset.");
   return video as { localPath?: string; path?: string; filename?: string; mimeType?: string; width?: unknown; height?: unknown };
+}
+
+function audioAssetFromGenerationOutput(output: unknown): { localPath?: string; path?: string; filename?: string; mimeType?: string; coverUrl?: string } {
+  if (!output || typeof output !== "object") throw new Error("Audio generation returned no output.");
+  const record = output as Record<string, unknown>;
+  const audio = record.audio;
+  if (!audio || typeof audio !== "object") throw new Error("Audio generation returned no audio asset.");
+  return audio as { localPath?: string; path?: string; filename?: string; mimeType?: string; coverUrl?: string };
 }
 
 export async function duplicateStackItemAsConnectedImageNode(input: DuplicateStackItemInput): Promise<LibrarySnapshot> {
@@ -1382,6 +1768,52 @@ export async function duplicateStackItemAsConnectedVideoNode(input: DuplicateSta
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function duplicateStackItemAsConnectedAudioNode(input: DuplicateStackItemInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest: sourceManifest, nodePath: sourceNodePath } = await readAudioNode(input.nodeId);
+  const sourceItem = sourceManifest.stack.find((item) => item.id === input.stackItemId);
+  if (!sourceItem?.file) throw new Error(`Stack item "${input.stackItemId}" was not found.`);
+
+  const now = new Date().toISOString();
+  const id = `audio_${shortId()}`;
+  const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, sourceManifest.title || "Audio");
+  const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
+  const extension = extname(sourceItem.file).toLowerCase() || ".mp3";
+  const audioRelativePath = portableJoin("content", `000-import${extension}`);
+  await mkdir(join(nodePath, "content"), { recursive: true });
+  await copyFile(resolvePortablePath(sourceNodePath, sourceItem.file), resolvePortablePath(nodePath, audioRelativePath));
+
+  const manifest: AudioNodeManifest = {
+    format: "snarkroute.node",
+    version: "0.1",
+    id,
+    type: "audio",
+    title,
+    stack: [{ ...sourceItem, id: `stack_${shortId()}`, file: audioRelativePath, source: "import", createdAt: now }],
+    activeStackIndex: 0,
+    createdAt: now,
+    updatedAt: now
+  };
+  await writeJson(join(nodePath, "snark.node.json"), manifest);
+  await writeCurrentPrompt(nodePath, sourceManifest.currentPrompt ?? "");
+
+  const width = input.width ?? defaultNodeWidth;
+  const height = input.height ?? defaultNodeHeight;
+  const canvas = await ensureCanvas(libraryPath);
+  canvas.nodes.push({
+    id,
+    type: "audio",
+    nodePath: nodeRelativePath,
+    x: Math.round(input.x - width / 2),
+    y: Math.round(input.y - height / 2),
+    width,
+    height
+  });
+  canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.nodeId, toNodeId: id }];
+  await writeCanvas(libraryPath, canvas);
+  return readLibrarySnapshot(libraryPath);
+}
+
 export async function duplicateStackItemAsTextNode(input: DuplicateStackItemInput): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const { manifest: sourceManifest, nodePath: sourceNodePath } = await readTextNode(input.nodeId);
@@ -1432,6 +1864,7 @@ export async function importLocalFolderStackAsNode(input: ImportLocalFolderStack
   const scan = await scanLocalLibrary(input.sourcePath);
   if (input.stackKind === "image") return importImageAssetsAsStackNode(scan, input);
   if (input.stackKind === "video") return importVideoAssetsAsStackNode(scan, input);
+  if (input.stackKind === "audio") return importAudioAssetsAsStackNode(scan, input);
   return importTextAssetsAsStackNode(scan, input);
 }
 
@@ -1441,7 +1874,7 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
   const id = `${input.type}_${shortId()}`;
   const width = input.width ?? defaultNodeWidth;
   const height = input.height ?? defaultNodeHeight;
-  const defaultTitle = input.type === "image" ? "Image" : input.type === "video" ? "Video" : "Text";
+  const defaultTitle = input.type === "image" ? "Image" : input.type === "video" ? "Video" : input.type === "audio" ? "Audio" : "Text";
   const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, defaultTitle);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   await mkdir(nodePath, { recursive: true });
@@ -1466,6 +1899,20 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
       version: "0.1",
       id,
       type: "video",
+      title,
+      stack: [],
+      activeStackIndex: 0,
+      createdAt: now,
+      updatedAt: now
+    };
+    await writeJson(join(nodePath, "snark.node.json"), manifest);
+    await writeCurrentPrompt(nodePath, "");
+  } else if (input.type === "audio") {
+    const manifest: AudioNodeManifest = {
+      format: "snarkroute.node",
+      version: "0.1",
+      id,
+      type: "audio",
       title,
       stack: [],
       activeStackIndex: 0,
@@ -1508,6 +1955,54 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const action = await findCanvasActionManifest(input.actionId);
+  if (!action) throw new Error(`Canvas action "${input.actionId}" was not found.`);
+  const inputPort = action.inputs[0];
+  const source = await canvasActionSourceInput(libraryPath, input.nodeId, inputPort.type);
+  const executor = await createRouteExecutor();
+  const runResult = await executor.executeRoute({
+    routeVersion: "0.1",
+    route: {
+      id: `snarkroute-canvas-action-${action.id}-${input.nodeId}`,
+      title: action.canvasAction?.title?.trim() || action.title,
+      author: { name: "SnarkRoute" }
+    },
+    nodes: [
+      { id: "source", type: "utility.null" },
+      { id: "action", type: action.id, params: input.params ?? {} }
+    ],
+    edges: [{ from: "source", to: "action", fromPort: "value", toPort: inputPort.id }]
+  }, {
+    initialNodeOutputs: { source: { value: source.value } }
+  });
+  const actionResult = runResult.nodeResults.action;
+  if (runResult.status !== "succeeded" || actionResult?.status !== "succeeded") {
+    throw new Error(actionResult?.error || `Canvas action "${action.title}" failed.`);
+  }
+  const output = actionResult.output && typeof actionResult.output === "object" ? actionResult.output as Record<string, unknown> : {};
+  let created = 0;
+  for (const port of action.outputs) {
+    const value = output[port.id];
+    if (value === undefined || value === null) continue;
+    await materializeCanvasActionOutput({
+      libraryPath,
+      sourceNodeId: input.nodeId,
+      title: port.label ?? action.canvasAction?.title ?? action.title,
+      type: port.type,
+      value,
+      x: (input.x ?? source.canvas.x + source.canvas.width + defaultNodeWidth / 2 + 84) + created * 36,
+      y: (input.y ?? source.canvas.y + defaultNodeHeight / 2) + created * 36,
+      width: input.width ?? defaultNodeWidth,
+      height: input.height ?? defaultNodeHeight
+    });
+    created += 1;
+  }
+  if (created === 0) throw new Error(`Canvas action "${action.title}" did not return materializable outputs.`);
+  return readLibrarySnapshot(libraryPath);
+}
+
 export async function duplicateCanvasNode(input: DuplicateCanvasNodeInput): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const canvas = await ensureCanvas(libraryPath);
@@ -1515,7 +2010,7 @@ export async function duplicateCanvasNode(input: DuplicateCanvasNodeInput): Prom
   if (!sourceCanvasNode) throw new Error(`Node "${input.nodeId}" was not found.`);
 
   const sourcePath = resolvePortablePath(libraryPath, sourceCanvasNode.nodePath);
-  const manifest = JSON.parse(await readFile(join(sourcePath, "snark.node.json"), "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
+  const manifest = JSON.parse(await readFile(join(sourcePath, "snark.node.json"), "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest;
   const now = new Date().toISOString();
   const id = `${manifest.type}_${shortId()}`;
   const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, `${manifest.title || manifest.type} copy`);
@@ -1541,17 +2036,17 @@ export async function duplicateCanvasNodeAsRepresentation(input: DuplicateCanvas
   if (!sourceCanvasNode) throw new Error(`Node "${input.nodeId}" was not found.`);
 
   const sourcePath = resolvePortablePath(libraryPath, sourceCanvasNode.nodePath);
-  const sourceManifest = JSON.parse(await readFile(join(sourcePath, "snark.node.json"), "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
+  const sourceManifest = JSON.parse(await readFile(join(sourcePath, "snark.node.json"), "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest;
   const now = new Date().toISOString();
   const id = `${input.type}_${shortId()}`;
-  const targetLabel = input.type === "image" ? "Image" : input.type === "video" ? "Video" : "Text";
+  const targetLabel = input.type === "image" ? "Image" : input.type === "video" ? "Video" : input.type === "audio" ? "Audio" : "Text";
   const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, `${sourceManifest.title || sourceManifest.type} ${targetLabel}`);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   await cp(sourcePath, nodePath, { recursive: true });
 
-  const promptText = sourceManifest.type === "image" || sourceManifest.type === "video" ? await readCurrentPrompt(sourcePath) : sourcePromptText(sourceManifest);
+  const promptText = sourceManifest.type === "image" || sourceManifest.type === "video" || sourceManifest.type === "audio" ? await readCurrentPrompt(sourcePath) : sourcePromptText(sourceManifest);
   await writeJson(join(nodePath, "snark.node.json"), representationManifestFromSource(sourceManifest, input.type, id, title, now, promptText));
-  if (input.type === "image" || input.type === "video") await writeCurrentPrompt(nodePath, promptText);
+  if (input.type === "image" || input.type === "video" || input.type === "audio") await writeCurrentPrompt(nodePath, promptText);
 
   const width = input.width ?? (input.type === "text" ? defaultNodeWidth : sourceCanvasNode.width);
   const height = input.height ?? (input.type === "text" ? 180 : sourceCanvasNode.height);
@@ -1585,7 +2080,7 @@ export async function syncRepresentationEdge(edgeId: string): Promise<LibrarySna
   await copyMissingNodeContent(sourcePath, targetPath);
 
   const manifestPath = join(targetPath, "snark.node.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest;
   await writeJson(manifestPath, { ...manifest, updatedAt: new Date().toISOString() });
   return readLibrarySnapshot(libraryPath);
 }
@@ -1624,9 +2119,16 @@ export async function updateVideoNodePrompt(nodeId: string, prompt: string): Pro
   return readLibrarySnapshot(libraryPath);
 }
 
-export async function updateMediaNodeRouteSettings(type: "image" | "video", nodeId: string, input: UpdateMediaNodeRouteSettingsInput): Promise<LibrarySnapshot> {
+export async function updateAudioNodePrompt(nodeId: string, prompt: string): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
-  const { manifest, nodePath } = type === "image" ? await readImageNode(nodeId) : await readVideoNode(nodeId);
+  const { nodePath } = await readAudioNode(nodeId);
+  await writeCurrentPrompt(nodePath, prompt);
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function updateMediaNodeRouteSettings(type: "image" | "video" | "audio", nodeId: string, input: UpdateMediaNodeRouteSettingsInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = type === "image" ? await readImageNode(nodeId) : type === "video" ? await readVideoNode(nodeId) : await readAudioNode(nodeId);
   const modelId = input.modelId.trim();
   if (!modelId) throw new Error("modelId is required.");
   await writeJson(join(nodePath, "snark.node.json"), {
@@ -1702,6 +2204,12 @@ export async function readVideoNode(nodeId: string): Promise<{ manifest: VideoNo
   return { manifest: { ...stackManifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
 }
 
+export async function readAudioNode(nodeId: string): Promise<{ manifest: AudioNodeManifest; nodePath: string }> {
+  const { manifest, nodePath } = await readTypedCanvasNode(nodeId, "audio");
+  const stackManifest = await syncMediaStackWithContent(nodePath, manifest);
+  return { manifest: { ...stackManifest, currentPrompt: await readCurrentPrompt(nodePath) }, nodePath };
+}
+
 export async function readTextNode(nodeId: string): Promise<{ manifest: TextNodeManifest; nodePath: string }> {
   const libraryPath = await ensureCurrentLibrary();
   const canvas = await ensureCanvas(libraryPath);
@@ -1719,8 +2227,9 @@ export async function readLibraryNode(nodeId: string): Promise<{ manifest: Libra
 
 async function readTypedCanvasNode(nodeId: string, type: "image"): Promise<{ manifest: ImageNodeManifest; nodePath: string }>;
 async function readTypedCanvasNode(nodeId: string, type: "video"): Promise<{ manifest: VideoNodeManifest; nodePath: string }>;
+async function readTypedCanvasNode(nodeId: string, type: "audio"): Promise<{ manifest: AudioNodeManifest; nodePath: string }>;
 async function readTypedCanvasNode(nodeId: string, type: "library"): Promise<{ manifest: LibraryNodeManifest; nodePath: string }>;
-async function readTypedCanvasNode(nodeId: string, type: "image" | "video" | "library"): Promise<{ manifest: ImageNodeManifest | VideoNodeManifest | LibraryNodeManifest; nodePath: string }> {
+async function readTypedCanvasNode(nodeId: string, type: "image" | "video" | "audio" | "library"): Promise<{ manifest: ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | LibraryNodeManifest; nodePath: string }> {
   const libraryPath = await ensureCurrentLibrary();
   const canvas = await ensureCanvas(libraryPath);
   const canvasNode = canvas.nodes.find((node) => node.id === nodeId);
@@ -1728,7 +2237,7 @@ async function readTypedCanvasNode(nodeId: string, type: "image" | "video" | "li
   const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
   const manifestPath = join(nodePath, "snark.node.json");
   if (!await fileExists(manifestPath)) throw new Error(`${type} node "${nodeId}" was not found.`);
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | LibraryNodeManifest;
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | LibraryNodeManifest;
   if (manifest.type !== type) throw new Error(`Node "${nodeId}" is not a ${type} node.`);
   return { manifest, nodePath };
 }
@@ -1745,6 +2254,13 @@ export async function createImageStackReadStream(nodeId: string, stackItemId: st
 
 export async function createVideoStackReadStream(nodeId: string, stackItemId: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
   const { manifest, nodePath } = await readVideoNode(nodeId);
+  const item = manifest.stack.find((entry) => entry.id === stackItemId);
+  if (!item?.file) throw new Error(`Stack item "${stackItemId}" was not found.`);
+  return { stream: createReadStream(resolvePortablePath(nodePath, item.file)), mimeType: item.mimeType };
+}
+
+export async function createAudioStackReadStream(nodeId: string, stackItemId: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
+  const { manifest, nodePath } = await readAudioNode(nodeId);
   const item = manifest.stack.find((entry) => entry.id === stackItemId);
   if (!item?.file) throw new Error(`Stack item "${stackItemId}" was not found.`);
   return { stream: createReadStream(resolvePortablePath(nodePath, item.file)), mimeType: item.mimeType };
@@ -1779,19 +2295,26 @@ async function projectSummary(projectPath: string, current: boolean, coverPath?:
     id,
     title,
     path: projectPath,
-    coverUrl: cover ? `/api/libraries/projects/${encodeURIComponent(id)}/cover` : null,
+    coverUrl: cover ? `/api/libraries/projects/${encodeURIComponent(id)}/cover?v=${encodeURIComponent(projectImageId(cover.path))}` : null,
     current
   };
 }
 
-async function saveProjectPath(projectPath: string): Promise<void> {
+async function saveProjectPath(projectPath: string, options: { moveToTop: boolean; makeCurrent?: boolean }): Promise<void> {
   const registry = await readProjectRegistry();
   const normalized = resolve(projectPath);
-  const existing = registry.projects.find((project) => resolve(project.path) === normalized);
-  registry.projects = [
-    { path: normalized, addedAt: existing?.addedAt ?? new Date().toISOString(), coverPath: existing?.coverPath },
-    ...registry.projects.filter((project) => resolve(project.path) !== normalized)
-  ];
+  const existingIndex = registry.projects.findIndex((project) => resolve(project.path) === normalized);
+  const entry = existingIndex >= 0
+    ? { ...registry.projects[existingIndex], path: normalized }
+    : { path: normalized, addedAt: new Date().toISOString() };
+  if (existingIndex >= 0) registry.projects.splice(existingIndex, 1, entry);
+  else if (options.moveToTop) registry.projects.unshift(entry);
+  else registry.projects.push(entry);
+  if (options.moveToTop && existingIndex >= 0) {
+    registry.projects.splice(existingIndex, 1);
+    registry.projects.unshift(entry);
+  }
+  if (options.makeCurrent) registry.currentProjectPath = normalized;
   await writeProjectRegistry(registry);
 }
 
@@ -1802,6 +2325,7 @@ async function readProjectRegistry(): Promise<LibraryProjectRegistry> {
     const projects = Array.isArray(parsed.projects) ? parsed.projects : [];
     return {
       version: 1,
+      currentProjectPath: typeof parsed.currentProjectPath === "string" ? resolve(parsed.currentProjectPath) : undefined,
       projects: projects
         .filter((project): project is LibraryProjectRegistryEntry => typeof project?.path === "string")
         .map((project) => ({
@@ -1818,8 +2342,10 @@ async function readProjectRegistry(): Promise<LibraryProjectRegistry> {
 async function writeProjectRegistry(registry: LibraryProjectRegistry): Promise<void> {
   await mkdir(librariesDirectory, { recursive: true });
   const paths = uniquePaths(registry.projects.map((project) => project.path));
+  const currentProjectPath = registry.currentProjectPath ? resolve(registry.currentProjectPath) : undefined;
   await writeJson(join(librariesDirectory, projectRegistryFilename), {
     version: 1,
+    currentProjectPath: currentProjectPath && paths.includes(currentProjectPath) ? currentProjectPath : paths[0],
     projects: paths.map((path) => ({
       path,
       addedAt: registry.projects.find((project) => resolve(project.path) === path)?.addedAt ?? new Date().toISOString(),
@@ -1919,7 +2445,8 @@ async function ensureCurrentLibrary(): Promise<string> {
   if (envPath) {
     if (envPath !== currentLibraryPath) currentLibraryPath = envPath;
   } else if (!currentLibraryInitialized) {
-    const lastProjectPath = (await readProjectRegistry()).projects[0]?.path;
+    const registry = await readProjectRegistry();
+    const lastProjectPath = registry.currentProjectPath ?? registry.projects[0]?.path;
     if (lastProjectPath) currentLibraryPath = resolve(lastProjectPath);
   }
   currentLibraryInitialized = true;
@@ -1974,7 +2501,7 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
   for (const canvasNode of canvas.nodes) {
     const manifestPath = join(resolvePortablePath(libraryPath, canvasNode.nodePath), "snark.node.json");
     if (!await fileExists(manifestPath)) continue;
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest;
     if (manifest.type === "image") {
       const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
       const hydratedManifest = { ...await syncMediaStackWithContent(nodePath, manifest), currentPrompt: await readCurrentPrompt(nodePath) };
@@ -1995,6 +2522,17 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
         manifest: hydratedManifest,
         activeStackItem,
         previewUrl: activeStackItem ? `/api/libraries/current/video-nodes/${encodeURIComponent(hydratedManifest.id)}/stack/${encodeURIComponent(activeStackItem.id)}` : null
+      });
+    }
+    if (manifest.type === "audio") {
+      const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+      const hydratedManifest = { ...await syncMediaStackWithContent(nodePath, manifest), currentPrompt: await readCurrentPrompt(nodePath) };
+      const activeStackItem = hydratedManifest.stack[hydratedManifest.activeStackIndex] ?? null;
+      nodes.push({
+        canvas: canvasNode,
+        manifest: hydratedManifest,
+        activeStackItem,
+        previewUrl: activeStackItem ? `/api/libraries/current/audio-nodes/${encodeURIComponent(hydratedManifest.id)}/stack/${encodeURIComponent(activeStackItem.id)}` : null
       });
     }
     if (manifest.type === "text") {
@@ -2169,7 +2707,8 @@ async function readTextNodeStack(nodePath: string, manifest: TextNodeManifest): 
 
 async function syncMediaStackWithContent(nodePath: string, manifest: ImageNodeManifest): Promise<ImageNodeManifest>;
 async function syncMediaStackWithContent(nodePath: string, manifest: VideoNodeManifest): Promise<VideoNodeManifest>;
-async function syncMediaStackWithContent(nodePath: string, manifest: ImageNodeManifest | VideoNodeManifest): Promise<ImageNodeManifest | VideoNodeManifest> {
+async function syncMediaStackWithContent(nodePath: string, manifest: AudioNodeManifest): Promise<AudioNodeManifest>;
+async function syncMediaStackWithContent(nodePath: string, manifest: ImageNodeManifest | VideoNodeManifest | AudioNodeManifest): Promise<ImageNodeManifest | VideoNodeManifest | AudioNodeManifest> {
   const contentPath = join(nodePath, "content");
   const entries = await readdir(contentPath, { withFileTypes: true }).catch(() => []);
   const existingFiles = new Set(manifest.stack.flatMap((item) => item.file ? [item.file.toLowerCase()] : []));
@@ -2178,9 +2717,9 @@ async function syncMediaStackWithContent(nodePath: string, manifest: ImageNodeMa
     .map((entry) => entry.name)
     .filter((file) => {
       const extension = extname(file).toLowerCase();
-      return manifest.type === "image"
-        ? extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".webp"
-        : extension === ".mp4" || extension === ".webm" || extension === ".mov";
+      if (manifest.type === "image") return extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".webp";
+      if (manifest.type === "video") return extension === ".mp4" || extension === ".webm" || extension === ".mov";
+      return extension === ".mp3" || extension === ".wav" || extension === ".ogg" || extension === ".m4a" || extension === ".flac";
     })
     .filter((file) => !existingFiles.has(portableJoin("content", file).toLowerCase()));
   if (!newFiles.length) return manifest;
@@ -2194,8 +2733,10 @@ async function syncMediaStackWithContent(nodePath: string, manifest: ImageNodeMa
     if (manifest.type === "image") {
       const dimensions = readImageDimensions(await readFile(resolvePortablePath(nodePath, file)), extension);
       items.push({ id: `stack_${shortId()}`, file, source: "import", mimeType: mimeTypeFromExtension(extension), width: dimensions.width, height: dimensions.height, createdAt: now });
-    } else {
+    } else if (manifest.type === "video") {
       items.push({ id: `stack_${shortId()}`, file, source: "import", mimeType: videoMimeTypeFromExtension(extension), width: defaultNodeWidth, height: defaultNodeHeight, createdAt: now });
+    } else {
+      items.push({ id: `stack_${shortId()}`, file, source: "import", mimeType: audioMimeTypeFromExtension(extension), width: defaultNodeWidth, height: defaultNodeHeight, createdAt: now });
     }
   }
   const updated = { ...manifest, stack: [...manifest.stack, ...items], updatedAt: now };
@@ -2222,13 +2763,13 @@ function textStackItemId(file: string): string {
 }
 
 function representationManifestFromSource(
-  source: ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest,
-  type: "image" | "video" | "text",
+  source: ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest,
+  type: "image" | "video" | "audio" | "text",
   id: string,
   title: string,
   now: string,
   promptText = ""
-): ImageNodeManifest | VideoNodeManifest | TextNodeManifest {
+): ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest {
   if (type === "text") {
     return {
       format: "snarkroute.node",
@@ -2256,10 +2797,149 @@ function representationManifestFromSource(
   };
 }
 
-function sourcePromptText(source: ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest, promptText = ""): string {
+function sourcePromptText(source: ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest, promptText = ""): string {
   if (source.type === "text") return source.text ?? "";
   if (source.type === "library") return source.sourcePath ?? "";
   return promptText;
+}
+
+async function findCanvasActionManifest(actionId: string): Promise<SnarkNodeManifest | null> {
+  const manifests = [
+    ...builtInNodeManifests,
+    ...providerNodeManifests(),
+    ...await loadInstalledNodeManifests()
+  ];
+  return manifests.find((manifest) =>
+    manifest.id === actionId
+    && manifest.enabled !== false
+    && manifest.canvasAction?.enabled === true
+    && manifest.inputs.length === 1
+    && isCanvasActionPortType(manifest.inputs[0].type)
+    && manifest.outputs.length > 0
+    && manifest.outputs.every((output) => isCanvasActionPortType(output.type))
+  ) ?? null;
+}
+
+async function canvasActionSourceInput(libraryPath: string, nodeId: string, expectedType: string): Promise<{ value: unknown; canvas: SnarkCanvasNode }> {
+  const canvas = await ensureCanvas(libraryPath);
+  const canvasNode = canvas.nodes.find((node) => node.id === nodeId);
+  if (!canvasNode) throw new Error(`Node "${nodeId}" was not found.`);
+  if (canvasNode.type !== expectedType) throw new Error(`Canvas action expects ${expectedType}, but node "${nodeId}" is ${canvasNode.type}.`);
+  if (expectedType === "image") {
+    const { manifest, nodePath } = await readImageNode(nodeId);
+    const item = manifest.stack[manifest.activeStackIndex];
+    if (!item) throw new Error("Image node has no active stack item.");
+    return { value: stackItemImageInput(libraryPath, nodePath, nodeId, item), canvas: canvasNode };
+  }
+  if (expectedType === "video" || expectedType === "audio") {
+    const typed = expectedType === "video" ? await readVideoNode(nodeId) : await readAudioNode(nodeId);
+    const item = typed.manifest.stack[typed.manifest.activeStackIndex];
+    if (!item) throw new Error(`${expectedType === "video" ? "Video" : "Audio"} node has no active stack item.`);
+    return { value: stackItemMediaInput(typed.nodePath, nodeId, expectedType, item), canvas: canvasNode };
+  }
+  const { manifest, nodePath } = await readTextNode(nodeId);
+  const active = (await readTextNodeStack(nodePath, manifest)).find((item) => item.id === manifest.selectedStackItemId);
+  return { value: active?.text ?? manifest.text ?? "", canvas: canvasNode };
+}
+
+async function materializeCanvasActionOutput(input: { libraryPath: string; sourceNodeId: string; title: string; type: string; value: unknown; x: number; y: number; width: number; height: number }): Promise<void> {
+  if (input.type === "text") {
+    const text = textFromActionOutput(input.value);
+    if (!text.trim()) return;
+    await importTextAsNode({
+      filename: `${sanitizeFilename(input.title) || "output"}.txt`,
+      text,
+      dropX: input.x,
+      dropY: input.y,
+      width: input.width,
+      height: 180,
+      connectFromNodeId: input.sourceNodeId
+    });
+    return;
+  }
+  const asset = assetFromActionOutput(input.value);
+  const sourcePath = asset.localPath ?? asset.path;
+  if (!sourcePath) return;
+  if (input.type === "image") {
+    await importImageAsNode({
+      filename: asset.filename ?? (basename(sourcePath) || "output.png"),
+      sourcePath: await localActionAssetPath(sourcePath, "image"),
+      dropX: input.x,
+      dropY: input.y,
+      width: input.width,
+      height: input.height
+    });
+  } else if (input.type === "video") {
+    await importVideoAsNode({
+      filename: asset.filename ?? (basename(sourcePath) || "output.mp4"),
+      sourcePath: await localActionAssetPath(sourcePath, "video"),
+      dropX: input.x,
+      dropY: input.y,
+      width: input.width,
+      height: input.height,
+      connectFromNodeId: input.sourceNodeId
+    });
+  } else if (input.type === "audio") {
+    await importAudioAsNode({
+      filename: asset.filename ?? (basename(sourcePath) || "output.mp3"),
+      sourcePath: await localActionAssetPath(sourcePath, "audio"),
+      dropX: input.x,
+      dropY: input.y,
+      width: input.width,
+      height: input.height,
+      connectFromNodeId: input.sourceNodeId
+    });
+  }
+  if (input.type === "image") await connectLatestCanvasNode(input.libraryPath, input.sourceNodeId);
+}
+
+async function localActionAssetPath(path: string, kind: "image" | "video" | "audio"): Promise<string> {
+  if (!isRemoteUrl(path)) return path;
+  const extension = kind === "image"
+    ? normalizedGeneratedExtension(path)
+    : kind === "video"
+      ? normalizedGeneratedVideoExtension(path)
+      : normalizedGeneratedAudioExtension(path);
+  const temporaryPath = join(await ensureCurrentLibrary(), ".generated", `canvas-action-${Date.now().toString(36)}-${shortId()}${extension}`);
+  await mkdir(dirname(temporaryPath), { recursive: true });
+  await writeFile(temporaryPath, await readGeneratedAssetBuffer(path, kind));
+  return temporaryPath;
+}
+
+async function connectLatestCanvasNode(libraryPath: string, sourceNodeId: string): Promise<void> {
+  const canvas = await ensureCanvas(libraryPath);
+  const target = canvas.nodes[canvas.nodes.length - 1];
+  if (!target || target.id === sourceNodeId) return;
+  canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: sourceNodeId, toNodeId: target.id }];
+  await writeCanvas(libraryPath, canvas);
+}
+
+function assetFromActionOutput(value: unknown): { localPath?: string; path?: string; filename?: string } {
+  if (typeof value === "string") return { path: value, filename: basename(value) };
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  const path = stringValue(record.localPath) ?? stringValue(record.path) ?? stringValue(record.url) ?? stringValue(record.file) ?? stringValue(record.image) ?? stringValue(record.video) ?? stringValue(record.audio);
+  return {
+    localPath: stringValue(record.localPath),
+    path,
+    filename: stringValue(record.filename) ?? (path ? basename(path) : undefined)
+  };
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function textFromActionOutput(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const text = record.text ?? record.output ?? record.value;
+  return typeof text === "string" ? text : JSON.stringify(value, null, 2);
+}
+
+function isCanvasActionPortType(value: string): boolean {
+  return value === "image" || value === "video" || value === "audio" || value === "text";
 }
 
 async function copyMissingNodeContent(sourceNodePath: string, targetNodePath: string): Promise<void> {
@@ -2373,7 +3053,7 @@ function localLibraryAssetKind(path: string, embeddedPrompt: PromptLibraryPrompt
   if (lower.endsWith(".prompt.md") || lower.endsWith(".prompt.png")) return "prompt";
   if (extension === ".png" || extension === ".jpg" || extension === ".jpeg" || extension === ".webp" || extension === ".gif") return "image";
   if (extension === ".mp4" || extension === ".webm" || extension === ".mov") return "video";
-  if (extension === ".mp3" || extension === ".wav" || extension === ".ogg") return "audio";
+  if (extension === ".mp3" || extension === ".wav" || extension === ".ogg" || extension === ".m4a" || extension === ".flac") return "audio";
   if (extension === ".md" || extension === ".txt") return embeddedPrompt ? "prompt" : "text";
   return "file";
 }
@@ -2389,6 +3069,8 @@ function localLibraryMimeType(extension: string): string {
   if (extension === ".mp3") return "audio/mpeg";
   if (extension === ".wav") return "audio/wav";
   if (extension === ".ogg") return "audio/ogg";
+  if (extension === ".m4a") return "audio/mp4";
+  if (extension === ".flac") return "audio/flac";
   if (extension === ".md" || extension === ".txt") return "text/plain";
   if (extension === ".json") return "application/json";
   return "application/octet-stream";
@@ -2429,7 +3111,14 @@ function stackItemImageInput(libraryPath: string, nodePath: string, nodeId: stri
   return { path, localPath: path, ref: libraryAssetRef(portableRelativePath(libraryPath, path)), nodeId, mimeType: item.mimeType };
 }
 
-async function readGeneratedAssetBuffer(path: string, kind: "image" | "video"): Promise<Buffer> {
+function stackItemMediaInput(nodePath: string, nodeId: string, type: "video" | "audio", item: ImageStackItem): GenerationMediaInput {
+  if (item.externalUrl) return { type, path: item.externalUrl, ref: item.externalUrl, nodeId, mimeType: item.mimeType };
+  if (!item.file) throw new Error(`Stack item "${item.id}" does not contain a ${type} source.`);
+  const path = resolvePortablePath(nodePath, item.file);
+  return { type, path, localPath: path, ref: `@${type}`, nodeId, mimeType: item.mimeType };
+}
+
+async function readGeneratedAssetBuffer(path: string, kind: "image" | "video" | "audio"): Promise<Buffer> {
   if (!isRemoteUrl(path)) return readFile(path);
   const response = await fetchWithTimeout(path, 15000, { headers: generatedAssetDownloadHeaders(path) }).catch((error) => {
     throw new Error(`Could not save generated ${kind} in its content folder: ${error instanceof Error ? error.message : String(error)}`);
@@ -2454,6 +3143,33 @@ function isOpenRouterApiUrl(value: string): boolean {
 
 function isRemoteUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
+}
+
+function normalizedAudioExtension(filename: string): ".mp3" | ".wav" | ".ogg" | ".m4a" | ".flac" {
+  const extension = extname(filename).toLowerCase();
+  if (extension === ".mp3" || extension === ".wav" || extension === ".ogg" || extension === ".m4a" || extension === ".flac") return extension;
+  throw new Error("Supported audio formats are .mp3, .wav, .ogg, .m4a, and .flac.");
+}
+
+function normalizedGeneratedAudioExtension(filename: string, mimeType?: string): ".mp3" | ".wav" | ".ogg" | ".m4a" | ".flac" {
+  try {
+    return normalizedAudioExtension(filename);
+  } catch {
+    if (mimeType === "audio/wav") return ".wav";
+    if (mimeType === "audio/ogg") return ".ogg";
+    if (mimeType === "audio/mp4") return ".m4a";
+    if (mimeType === "audio/flac") return ".flac";
+    return ".mp3";
+  }
+}
+
+function audioMimeTypeFromExtension(extension: string): string {
+  if (extension === ".mp3") return "audio/mpeg";
+  if (extension === ".wav") return "audio/wav";
+  if (extension === ".ogg") return "audio/ogg";
+  if (extension === ".m4a") return "audio/mp4";
+  if (extension === ".flac") return "audio/flac";
+  return "application/octet-stream";
 }
 
 function normalizedGeneratedExtension(filename: string): ".png" | ".jpg" | ".jpeg" | ".webp" {
@@ -2505,17 +3221,19 @@ function orderConnectedInputs(inputs: ConnectedCanvasInput[], nodeIds: string[] 
 function resolveInputTokens(
   promptTemplate: string,
   inputs: ConnectedCanvasInput[],
-  sentImages: GenerationImageInput[],
+  sentMedia: Array<GenerationImageInput | GenerationMediaInput>,
   imageReferenceSyntax: string | undefined
 ): string {
   const inputById = new Map(inputs.map((entry) => [entry.nodeId, entry]));
-  return promptTemplate.replace(/\[\[(text|image|video):([^\]]+)\]\]/g, (_token, type: string, nodeId: string) => {
+  return promptTemplate.replace(/\[\[(text|image|video|audio):([^\]]+)\]\]/g, (_token, type: ConnectedCanvasInputType, nodeId: string) => {
     const input = inputById.get(nodeId);
     if (!input || input.type !== type) return "";
     if (type === "text") return input.text ?? "";
-    if (!input.image) return "";
-    const position = sentImages.findIndex((image) => image.path === input.image?.path);
-    const referenceSyntax = imageReferenceSyntax?.trim() || "@image {index}";
+    const media = type === "image" ? input.image : input.media;
+    if (!media) return "";
+    const position = sentMedia.findIndex((entry) => entry.path === media.path);
+    const defaultReferenceSyntax = type === "image" ? "@image {index}" : `@${type} {index}`;
+    const referenceSyntax = type === "image" ? imageReferenceSyntax?.trim() || defaultReferenceSyntax : defaultReferenceSyntax;
     return position >= 0 ? referenceSyntax.replaceAll("{index}", String(position + 1)) : "";
   });
 }
@@ -2529,6 +3247,13 @@ function imageInputsForPrompt(inputs: ConnectedCanvasInput[], promptTemplate: st
   return inputs
     .filter((entry) => entry.image && (promptImageNodeIds.size === 0 || promptImageNodeIds.has(entry.nodeId)))
     .map((entry) => entry.image!);
+}
+
+function mediaInputsForPrompt(inputs: ConnectedCanvasInput[], promptTemplate: string): GenerationMediaInput[] {
+  const promptMediaNodeIds = new Set([...promptTemplate.matchAll(/\[\[(image|video|audio):([^\]]+)\]\]/g)].map((match) => match[2]).filter(Boolean));
+  return inputs
+    .filter((entry) => entry.media && (promptMediaNodeIds.size === 0 || promptMediaNodeIds.has(entry.nodeId)))
+    .map((entry) => entry.media!);
 }
 
 function imageMetadataInputs(promptTemplate: string, inputs: ConnectedCanvasInput[], sentImages: GenerationImageInput[]): SnarkImageMetadata["generation"]["inputImages"] {
@@ -2649,6 +3374,383 @@ async function openRouterVideoJson(response: Response, action: string): Promise<
   return parsed as Record<string, unknown>;
 }
 
+async function polzaAudioRequestBody(model: string, prompt: string, parameters: ImageGenerationSettings, mediaInputs: GenerationMediaInput[] = []): Promise<Record<string, unknown>> {
+  const providerModel = polzaAudioProviderModelId(model);
+  const isSunoMusic = providerModel === "suno/generate";
+  const input: Record<string, unknown> = { prompt: isSunoMusic ? sunoMusicPrompt(prompt, parameters) : prompt };
+  const duration = numberSetting(parameters.duration ?? parameters.duration_seconds ?? parameters.durationSeconds);
+  if (!isSunoMusic && duration !== undefined) input.duration = String(duration);
+  if (!isSunoMusic && parameters.loop !== undefined) input.loop = booleanSetting(parameters.loop);
+  if (isSunoMusic) {
+    Object.assign(input, sunoMusicInputFields(prompt, parameters));
+    const audioInput = await polzaInputAudio(mediaInputs.find((mediaInput) => mediaInput.type === "audio"));
+    if (audioInput) input.input_audio = audioInput;
+  } else {
+    if (mediaInputs.length > 0) throw new Error(`Polza audio model "${providerModel}" does not accept connected media inputs yet.`);
+    for (const [paramKey, bodyKey] of [
+      ["style", "style"],
+      ["lyrics", "lyrics"],
+      ["title", "title"],
+      ["negative_tags", "negative_tags"],
+      ["negativeTags", "negative_tags"],
+      ["language", "language"],
+      ["tempo", "tempo"],
+      ["voice_style", "voice_style"],
+      ["voiceStyle", "voice_style"]
+    ] as const) {
+      const value = stringSetting(parameters[paramKey]);
+      if (value) input[bodyKey] = value;
+    }
+    if (parameters.instrumental !== undefined) input.instrumental = booleanSetting(parameters.instrumental);
+  }
+  return {
+    model: providerModel,
+    input,
+    async: true,
+    user: stringSetting(parameters.user)
+  };
+}
+
+function polzaAudioProviderModelId(model: string): string {
+  return model === "suno/sounds" ? "suno/generate" : model;
+}
+
+async function polzaInputAudio(mediaInput: GenerationMediaInput | undefined): Promise<{ data: string; format: "mp3" | "wav" | "flac" | "m4a" } | undefined> {
+  if (!mediaInput) return undefined;
+  const sourcePath = mediaInput.localPath || mediaInput.path;
+  const format = polzaAudioInputFormat(mediaInput.mimeType, sourcePath);
+  let bytes: Buffer;
+  if (isRemoteUrl(sourcePath)) {
+    const response = await fetchWithTimeout(sourcePath, 30000, { headers: generatedAssetDownloadHeaders(sourcePath) });
+    if (!response.ok) throw new Error(`Could not read connected audio input (${response.status}).`);
+    bytes = Buffer.from(await response.arrayBuffer());
+  } else {
+    bytes = await readFile(sourcePath);
+  }
+  return { data: bytes.toString("base64"), format };
+}
+
+function polzaAudioInputFormat(mimeType: string | undefined, sourcePath: string): "mp3" | "wav" | "flac" | "m4a" {
+  const normalizedMime = mimeType?.split(";")[0]?.trim().toLowerCase();
+  if (normalizedMime === "audio/mpeg" || normalizedMime === "audio/mp3") return "mp3";
+  if (normalizedMime === "audio/wav" || normalizedMime === "audio/x-wav" || normalizedMime === "audio/wave") return "wav";
+  if (normalizedMime === "audio/flac" || normalizedMime === "audio/x-flac") return "flac";
+  if (normalizedMime === "audio/mp4" || normalizedMime === "audio/m4a" || normalizedMime === "audio/x-m4a") return "m4a";
+  const extension = extname(sourcePath).toLowerCase();
+  if (extension === ".wav") return "wav";
+  if (extension === ".flac") return "flac";
+  if (extension === ".m4a" || extension === ".mp4") return "m4a";
+  return "mp3";
+}
+
+function sunoMusicMode(parameters: ImageGenerationSettings): "simple" | "custom" {
+  return stringSetting(parameters.mode)?.toLowerCase() === "simple" ? "simple" : "custom";
+}
+
+function sunoMusicInputFields(prompt: string, parameters: ImageGenerationSettings): Record<string, unknown> {
+  if (sunoMusicMode(parameters) !== "custom") {
+    return parameters.instrumental === undefined ? {} : { instrumental: booleanSetting(parameters.instrumental) };
+  }
+  const fields: Record<string, unknown> = {};
+  const style = sunoMusicStyle(parameters);
+  const title = stringSetting(parameters.title);
+  const version = stringSetting(parameters.version);
+  if (style) fields.style = style;
+  fields.title = title || sunoTitleFromPrompt(prompt);
+  if (version) fields.version = version;
+  return fields;
+}
+
+function sunoMusicPrompt(prompt: string, parameters: ImageGenerationSettings): string {
+  if (sunoMusicMode(parameters) === "simple") return prompt;
+  const lyrics = [prompt.trim(), stringSetting(parameters.lyrics)].filter(Boolean).join("\n\n");
+  const additions: string[] = [];
+  const negativeTags = stringSetting(parameters.negative_tags ?? parameters.negativeTags);
+  const language = stringSetting(parameters.language);
+  const tempo = stringSetting(parameters.tempo);
+  const voiceStyle = stringSetting(parameters.voice_style ?? parameters.voiceStyle);
+  if (language) additions.push(`Language: ${language}`);
+  if (tempo) additions.push(`Tempo: ${tempo}`);
+  if (voiceStyle) additions.push(`Vocal style: ${voiceStyle}`);
+  if (lyrics) additions.push(`Lyrics:\n${lyrics}`);
+  if (negativeTags) additions.push(`Avoid: ${negativeTags}`);
+  return additions.length ? additions.join("\n") : prompt;
+}
+
+function sunoMusicStyle(parameters: ImageGenerationSettings): string | undefined {
+  const explicit = stringSetting(parameters.style);
+  const parts = [
+    explicit,
+    stringSetting(parameters.tempo),
+    stringSetting(parameters.voice_style ?? parameters.voiceStyle),
+    stringSetting(parameters.negative_tags ?? parameters.negativeTags) ? `avoid ${stringSetting(parameters.negative_tags ?? parameters.negativeTags)}` : undefined
+  ].filter(Boolean);
+  return parts.length ? parts.join(", ") : "Music";
+}
+
+function sunoTitleFromPrompt(prompt: string): string {
+  const firstLine = prompt.split(/\r?\n/u).map((line) => line.trim()).find(Boolean) ?? "Untitled";
+  return firstLine.slice(0, 80);
+}
+
+async function pollPolzaAudioJob(mediaUrl: string, apiKey: string, initial: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (firstMediaAudio(initial)) return initial;
+  const initialState = mediaOperationState(initial);
+  const jobId = initialState.id;
+  if (!jobId || (initialState.status !== "pending" && initialState.status !== "processing")) return initial;
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    await delay(3000);
+    const response = await fetch(`${mediaUrl}/${encodeURIComponent(jobId)}`, {
+      headers: { Authorization: `Bearer ${apiKey}` }
+    });
+    const status = await providerJson(response, "poll Polza audio generation status");
+    const state = mediaOperationState(status).status;
+    if (state === "completed" || firstMediaAudio(status)) return status;
+    if (state === "failed") throw new Error(`Polza audio generation failed (${jobId}). ${JSON.stringify(status.error ?? status)}`);
+  }
+  throw new Error(`Polza audio generation timed out (${jobId}).`);
+}
+
+function elevenLabsAudioUrl(baseUrl: string, modelId: string, parameters: ImageGenerationSettings): string {
+  const outputFormat = elevenLabsOutputFormat(parameters);
+  if (modelId === "music_v2") return `${baseUrl}/music?output_format=${encodeURIComponent(outputFormat)}`;
+  if (modelId === "eleven_text_to_sound_v2") return `${baseUrl}/sound-generation?output_format=${encodeURIComponent(outputFormat)}`;
+  const voiceId = elevenLabsVoiceId(parameters);
+  return `${baseUrl}/text-to-speech/${encodeURIComponent(voiceId)}?output_format=${encodeURIComponent(outputFormat)}`;
+}
+
+function elevenLabsAudioRequestBody(modelId: string, prompt: string, parameters: ImageGenerationSettings): Record<string, unknown> {
+  if (modelId === "music_v2") {
+    return {
+      prompt,
+      music_length_ms: Math.round((numberSetting(parameters.duration ?? parameters.duration_seconds ?? parameters.durationSeconds) ?? 30) * 1000),
+      model_id: modelId
+    };
+  }
+  if (modelId === "eleven_text_to_sound_v2") {
+    const body: Record<string, unknown> = {
+      text: prompt,
+      model_id: modelId
+    };
+    const duration = numberSetting(parameters.duration ?? parameters.duration_seconds ?? parameters.durationSeconds);
+    if (duration !== undefined) body.duration_seconds = duration;
+    if (parameters.loop !== undefined) body.loop = booleanSetting(parameters.loop);
+    return body;
+  }
+  return {
+    text: prompt,
+    model_id: modelId
+  };
+}
+
+function elevenLabsOutputFormat(parameters: ImageGenerationSettings): string {
+  const format = stringSetting(parameters.output_format ?? parameters.outputFormat ?? parameters.response_format ?? parameters.responseFormat);
+  if (format && format.includes("_")) return format;
+  if (format === "wav") return "pcm_44100";
+  if (format === "pcm") return "pcm_44100";
+  return "mp3_44100_128";
+}
+
+function elevenLabsVoiceId(parameters: ImageGenerationSettings): string {
+  const explicit = stringSetting(parameters.voice_id ?? parameters.voiceId);
+  if (explicit) return explicit;
+  const voice = stringSetting(parameters.voice);
+  if (voice && voice !== "alloy") return voice;
+  return process.env.ELEVENLABS_DEFAULT_VOICE_ID?.trim() || "JBFqnCBsd6RMkjVDRZzb";
+}
+
+async function providerJson(response: Response, action: string): Promise<Record<string, unknown>> {
+  const bytes = Buffer.from(await response.arrayBuffer());
+  let parsed: unknown = {};
+  try {
+    parsed = bytes.length > 0 ? JSON.parse(bytes.toString("utf8")) : {};
+  } catch {
+    parsed = { data: bytes.toString("utf8") };
+  }
+  if (!response.ok) throw new Error(`Could not ${action}: ${providerErrorFromParsed(parsed, response)}`);
+  if (!parsed || typeof parsed !== "object") throw new Error(`Could not ${action}: invalid provider response.`);
+  return parsed as Record<string, unknown>;
+}
+
+function providerErrorFromBytes(bytes: Buffer, response: Response): string {
+  let parsed: unknown = {};
+  try {
+    parsed = bytes.length > 0 ? JSON.parse(bytes.toString("utf8")) : {};
+  } catch {
+    parsed = { error: bytes.toString("utf8") };
+  }
+  return providerErrorFromParsed(parsed, response);
+}
+
+function providerErrorFromParsed(parsed: unknown, response: Response): string {
+  if (parsed && typeof parsed === "object") {
+    const record = parsed as Record<string, unknown>;
+    const detail = record.detail ?? record.error ?? record.message ?? record.msg;
+    if (typeof detail === "string" && detail.trim()) return detail.trim();
+    if (Array.isArray(detail)) {
+      const messages = detail
+        .map((entry) => typeof entry === "string"
+          ? entry
+          : entry && typeof entry === "object"
+            ? stringRecordValue(entry as Record<string, unknown>, "message") ?? stringRecordValue(entry as Record<string, unknown>, "msg") ?? stringRecordValue(entry as Record<string, unknown>, "detail")
+            : undefined)
+        .filter(Boolean);
+      if (messages.length > 0) return messages.join("; ");
+      if (detail.length > 0) return JSON.stringify(detail).slice(0, 500);
+    }
+    if (detail && typeof detail === "object") {
+      const message = stringRecordValue(detail as Record<string, unknown>, "message") ?? stringRecordValue(detail as Record<string, unknown>, "detail");
+      if (message) return message;
+      return JSON.stringify(detail).slice(0, 500);
+    }
+  }
+  return response.statusText || String(response.status);
+}
+
+function mediaOperationState(value: unknown): { id?: string; status?: string } {
+  if (!value || typeof value !== "object") return {};
+  const record = value as Record<string, unknown>;
+  const id = stringRecordValue(record, "id") ?? stringRecordValue(record, "generation_id") ?? stringRecordValue(record, "job_id");
+  const status = stringRecordValue(record, "status")?.toLowerCase();
+  if (id || status) return { id, status };
+  const text = nestedStatusText(value);
+  const pending = /\b(pending|processing)\s*\(\s*([^)]+)\s*\)/i.exec(text);
+  return pending ? { status: pending[1].toLowerCase(), id: pending[2].trim() } : {};
+}
+
+function nestedStatusText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(nestedStatusText).join(" ");
+  if (!value || typeof value !== "object") return "";
+  return Object.values(value as Record<string, unknown>).map(nestedStatusText).join(" ");
+}
+
+function firstMediaAudio(value: unknown): unknown {
+  if (!value) return null;
+  if (typeof value === "string") return looksLikeAudioReference(value) ? value : null;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const audio = firstMediaAudio(item);
+      if (audio) return audio;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["url", "audio", "audio_url", "output_url", "file_url", "b64_json", "base64", "data"]) {
+    const audio = firstMediaAudio(record[key]);
+    if (audio) return audio;
+  }
+  for (const key of ["audios", "audio_files", "files", "outputs", "result", "results"]) {
+    const audio = firstMediaAudio(record[key]);
+    if (audio) return audio;
+  }
+  return null;
+}
+
+function firstMediaArtwork(value: unknown): string | undefined {
+  if (!value) return undefined;
+  if (typeof value === "string") return looksLikeImageReference(value) ? value.trim() : undefined;
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const image = firstMediaArtwork(item);
+      if (image) return image;
+    }
+    return undefined;
+  }
+  if (typeof value !== "object") return undefined;
+  const record = value as Record<string, unknown>;
+  for (const key of ["cover", "cover_url", "coverUrl", "artwork", "artwork_url", "artworkUrl", "image", "image_url", "imageUrl", "thumbnail", "thumbnail_url", "thumbnailUrl"]) {
+    const image = firstMediaArtwork(record[key]);
+    if (image) return image;
+  }
+  for (const key of ["metadata", "meta", "album", "track", "tracks", "files", "outputs", "result", "results", "data"]) {
+    const image = firstMediaArtwork(record[key]);
+    if (image) return image;
+  }
+  return undefined;
+}
+
+function looksLikeImageReference(value: string): boolean {
+  const trimmed = value.trim();
+  return /^data:image\//i.test(trimmed)
+    || /^https?:\/\//i.test(trimmed) && /\.(png|jpe?g|webp|gif)(\?|#|$)/i.test(trimmed);
+}
+
+function looksLikeAudioReference(value: string): boolean {
+  const trimmed = value.trim();
+  return /^data:audio\//i.test(trimmed)
+    || /^https?:\/\//i.test(trimmed) && /\.(mp3|wav|ogg|m4a|flac)(\?|#|$)/i.test(trimmed)
+    || /^[A-Za-z0-9+/]+=*$/.test(trimmed.slice(0, 80));
+}
+
+async function writeGeneratedAudioReference(audio: unknown, options: { provider: string; nodeId: string; modelId: string }): Promise<{ localPath: string; mimeType: string }> {
+  if (typeof audio !== "string" || !audio.trim()) throw new Error(`${options.provider} audio response did not include a usable audio URL or base64 payload.`);
+  const value = audio.trim();
+  let bytes: Buffer;
+  let mimeType = "audio/mpeg";
+  if (/^https?:\/\//i.test(value)) {
+    const response = await fetchWithTimeout(value, 30000);
+    if (!response.ok) throw new Error(`Could not download ${options.provider} audio output (${response.status}).`);
+    bytes = Buffer.from(await response.arrayBuffer());
+    mimeType = response.headers.get("content-type")?.split(";")[0] ?? audioMimeTypeFromUrl(value);
+  } else {
+    const dataUriMatch = /^data:([^;,]+);base64,(.+)$/i.exec(value);
+    if (dataUriMatch) {
+      mimeType = dataUriMatch[1];
+      bytes = Buffer.from(dataUriMatch[2], "base64");
+    } else {
+      bytes = Buffer.from(value, "base64");
+    }
+  }
+  const extension = normalizedGeneratedAudioExtension(`${options.modelId}.mp3`, mimeType);
+  const localPath = join(await ensureCurrentLibrary(), ".generated", `${options.nodeId}-${Date.now().toString(36)}${extension}`);
+  await mkdir(dirname(localPath), { recursive: true });
+  await writeFile(localPath, bytes);
+  return { localPath, mimeType };
+}
+
+function audioMimeTypeFromUrl(url: string): string {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    if (pathname.endsWith(".wav")) return "audio/wav";
+    if (pathname.endsWith(".ogg")) return "audio/ogg";
+    if (pathname.endsWith(".m4a")) return "audio/mp4";
+    if (pathname.endsWith(".flac")) return "audio/flac";
+  } catch {
+    return "audio/mpeg";
+  }
+  return "audio/mpeg";
+}
+
+function audioGenerationRunResult(provider: string, modelId: string, localPath: string, mimeType: string, generationId?: string, coverUrl?: string) {
+  return {
+    status: "succeeded",
+    logs: [{ nodeId: "generate", message: `Generated audio with ${provider} ${modelId}`, timestamp: new Date().toISOString() }],
+    nodeResults: {
+      generate: {
+        status: "succeeded",
+        error: undefined,
+        output: {
+          audio: {
+            path: localPath,
+            localPath,
+            filename: `${modelId.split("/").pop() || `${provider}-audio`}${extname(localPath) || ".mp3"}`,
+            mimeType,
+            coverUrl
+          },
+          provider,
+          model: modelId,
+          providerModel: modelId,
+          generationId,
+          status: "succeeded"
+        }
+      }
+    }
+  };
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
@@ -2656,6 +3758,30 @@ function delay(ms: number): Promise<void> {
 function stringRecordValue(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function stringSetting(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function numberSetting(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function booleanSetting(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.trim().toLowerCase() === "true";
+  return Boolean(value);
+}
+
+function audioResponseFormat(parameters: ImageGenerationSettings): "mp3" {
+  const requested = stringSetting(parameters.response_format ?? parameters.responseFormat);
+  return requested === "mp3" ? "mp3" : "mp3";
 }
 
 function providerModeForExecutionProvider(executionProvider: string): string {
