@@ -135,7 +135,6 @@ import {
 import {
   connectionRouteHelper,
   enrichImageGenerationModelOptions,
-  enrichPolzaImageModelOptions,
   geminiLlmPricingLabel,
   imageGenerationModelOptions,
   imageModelCostLabel,
@@ -150,11 +149,9 @@ import {
   modelOptionForNodeLogo,
   modelSupportsText,
   openRouterCostLabel,
-  openRouterModelSupportsVisionInput,
   polzaImageModelLogo,
   polzaModelHint,
   polzaProviderModelId,
-  polzaModelsFromNodeOptions,
   polzaModelSupportsVisionInput,
   polzaVideoSupportsAudio,
   providerFromSlug,
@@ -2047,10 +2044,12 @@ function NodeInlineResult({
   }
   const imageSrc = versionedAssetPreviewSrc(imagePreviewSrc(result.output), previewVersion);
   const videoSrc = versionedAssetPreviewSrc(videoPreviewSrc(result.output), previewVersion);
-  const cost = costLabel(result.output);
+  const cost = costLabel(result.output) ?? nodeResultProviderCostLabel(result);
   const creditCost = result.actualCredits !== undefined && result.actualCredits > 0
     ? `Spent: ${formatCredits(result.actualCredits)} credits${result.costEstimate?.provider ? ` · Provider: ${result.costEstimate.provider}` : ""} · Usage: ${result.usageSource ?? "unknown"}`
-    : result.costEstimate && result.costEstimate.estimatedCredits > 0 ? `≈ ${formatCredits(result.costEstimate.estimatedCredits)} credits` : "";
+    : result.status === "failed" && result.costEstimate && result.costEstimate.estimatedCredits > 0 ? "No Boojum credits charged"
+      : result.costEstimate && result.costEstimate.estimatedCredits > 0 ? `≈ ${formatCredits(result.costEstimate.estimatedCredits)} credits` : "";
+  const providerBalanceHint = externalProviderBalanceHint(result.error);
   const statusText = result.status && result.status !== "succeeded" ? result.status : null;
   const imageTitle = imageLabel(result.output);
   const panoramaSrc = type === "preview.panorama360" ? versionedAssetPreviewSrc(panoramaSourceSrc(result.output), previewVersion) ?? imageSrc : null;
@@ -2167,6 +2166,7 @@ function NodeInlineResult({
       {statusText ? <div>{statusText}</div> : null}
       {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
       {cost ? <span className="nodeCost">{cost}</span> : null}
+      {providerBalanceHint ? <span className="nodeCost warning">{providerBalanceHint}</span> : null}
       {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : preview ? <pre>{preview}</pre> : null}
       {result.status === "failed" && onConfigureMissingSecret ? <button className="nodeSmallButton nodrag nopan" onClick={onConfigureMissingSecret}><KeyRound size={14} /> Configure key</button> : null}
       {result.status === "succeeded" && hasPinnableOutput(result.output) ? <button className={`nodeSmallButton nodrag nopan ${outputPinned ? "pinned" : ""}`} aria-pressed={outputPinned} onClick={() => onFixNodeOutput?.(nodeId, result.output)}><Pin size={14} /> {outputPinned ? "Pinned output" : "Pin output"}</button> : null}
@@ -2838,7 +2838,11 @@ function inputConnectionCounts(nodeId: string, edges: Edge[]): Record<string, nu
   return counts;
 }
 
-function activeFlowEdgeIds(nodes: Node[], edges: Edge[], nodeCatalog: NodeCatalogItem[]): Set<string> {
+type ActiveFlowEdgeOptions = {
+  modelOptionsForNodes: Record<string, ModelOptionForNodeV1[] | undefined>;
+};
+
+function activeFlowEdgeIds(nodes: Node[], edges: Edge[], nodeCatalog: NodeCatalogItem[], options: ActiveFlowEdgeOptions): Set<string> {
   const routeNodeById = new Map<string, RouteDoc["nodes"][number]>();
   for (const node of nodes) {
     if (isCompoundInterfaceNode(node)) continue;
@@ -2854,13 +2858,63 @@ function activeFlowEdgeIds(nodes: Node[], edges: Edge[], nodeCatalog: NodeCatalo
     }
     const targetManifest = nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest;
     const targetPort = getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === edge.targetHandle);
-    const maxConnections = targetPort?.maxConnections ?? 1;
+    const selectedModel = selectedModelOptionForRouteNode(targetRouteNode, options.modelOptionsForNodes);
+    if (targetPort && selectedModel && !modelAcceptsPortKind(selectedModel, targetPort.kind)) continue;
+    const maxConnections = targetPort ? modelInputConnectionLimit(selectedModel, targetPort) : 1;
     const key = `${edge.target}:${edge.targetHandle}`;
     const index = seenByPort.get(key) ?? 0;
     seenByPort.set(key, index + 1);
     if (index < maxConnections) active.add(edge.id);
   }
   return active;
+}
+
+function selectedModelOptionForRouteNode(
+  routeNode: RouteDoc["nodes"][number],
+  modelOptionsForNodes: Record<string, ModelOptionForNodeV1[] | undefined>
+): ModelOptionForNodeV1 | undefined {
+  const selectedModelId = String(routeNode.params?.model ?? "");
+  if (!selectedModelId) return undefined;
+  return (modelOptionsForNodes[routeNode.type] ?? []).find((model) =>
+    model.storedModelId === selectedModelId ||
+    model.providerModelId === selectedModelId ||
+    model.id === selectedModelId
+  );
+}
+
+function modelAcceptsPortKind(model: ModelOptionForNodeV1, kind: PortKind): boolean {
+  const inputTypes = model.inputTypes.map((type) => type.toLowerCase());
+  if (inputTypes.length === 0) return true;
+  if (inputTypes.includes(kind)) return true;
+  if (kind === "image" && modelImageInputLimit(model) !== undefined) return true;
+  return false;
+}
+
+function modelInputConnectionLimit(model: ModelOptionForNodeV1 | undefined, port: PortSpec): number {
+  if (model && port.kind === "image") return modelImageInputLimit(model) ?? port.maxConnections ?? 1;
+  return port.maxConnections ?? 1;
+}
+
+function modelImageInputLimit(model: ModelOptionForNodeV1): number | undefined {
+  return positiveInteger((model.metadata as Record<string, unknown> | undefined)?.maxImageInputs)
+    ?? positiveInteger((model.metadata as Record<string, unknown> | undefined)?.maxImages);
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : undefined;
+}
+
+function unusedSourceNodeIds(edges: Edge[], activeEdgeIds: Set<string>): Set<string> {
+  const outgoing = new Map<string, number>();
+  const activeOutgoing = new Map<string, number>();
+  for (const edge of edges) {
+    outgoing.set(edge.source, (outgoing.get(edge.source) ?? 0) + 1);
+    if (activeEdgeIds.has(edge.id)) {
+      activeOutgoing.set(edge.source, (activeOutgoing.get(edge.source) ?? 0) + 1);
+    }
+  }
+  return new Set([...outgoing.entries()].flatMap(([nodeId]) => activeOutgoing.has(nodeId) ? [] : [nodeId]));
 }
 
 function inputConnectionCountsForActiveEdges(nodeId: string, edges: Edge[], activeEdgeIds: Set<string>): Record<string, number> {
@@ -4003,6 +4057,7 @@ function App() {
   const [polzaToken, setPolzaToken] = useState("");
   const [polzaConfigured, setPolzaConfigured] = useState(false);
   const [polzaMaskedKey, setPolzaMaskedKey] = useState("");
+  const [polzaKeyFingerprint, setPolzaKeyFingerprint] = useState("");
   const [openRouterToken, setOpenRouterToken] = useState("");
   const [openRouterSettings, setOpenRouterSettings] = useState<OpenRouterSettings>({ configured: false });
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
@@ -4024,6 +4079,7 @@ function App() {
   const [creditHistoryOpen, setCreditHistoryOpen] = useState(false);
   const [runCostEstimate, setRunCostEstimate] = useState<RunCostSummary | null>(null);
   const [userSessionCredentials, setUserSessionCredentials] = useState<Record<string, string>>({});
+  const [appModeSaving, setAppModeSaving] = useState(false);
   const [apiConnected, setApiConnected] = useState(false);
   const [apiError, setApiError] = useState("");
   const [shuttingDown, setShuttingDown] = useState(false);
@@ -4088,6 +4144,8 @@ function App() {
   const supportsLocalFilesystem = capabilities.supportsLocalFilesystem;
   const isCloudMode = capabilities.mode === "cloud";
   const isAdmin = currentUser?.role === "admin";
+  const canShowAppModeSwitch = !isCloudMode || isAdmin;
+  const cloudAuthReady = !isCloudMode || capabilities.cloudAuthReady;
   const showDeveloperDiagnostics = capabilities.supportsDeveloperDiagnostics && (!isCloudMode || isAdmin);
   const productLabel = capabilities.product === "snark" ? "SnarkRoute" : "Boojum";
   const currentUserLabel = currentUser ? (currentUser.displayName || currentUser.email || currentUser.id) : "Guest";
@@ -4183,12 +4241,16 @@ function App() {
   const contextRouteNode = contextNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
   const selectedEdgeCount = edges.filter((edge) => edge.selected).length;
-  const activeEdgeIds = useMemo(() => activeFlowEdgeIds(nodes, edges, nodeCatalog), [nodes, edges, nodeCatalog]);
+  const activeEdgeIds = useMemo(
+    () => activeFlowEdgeIds(nodes, edges, nodeCatalog, { modelOptionsForNodes }),
+    [nodes, edges, nodeCatalog, modelOptionsForNodes]
+  );
+  const unusedFlowSourceNodeIds = useMemo(() => unusedSourceNodeIds(edges, activeEdgeIds), [edges, activeEdgeIds]);
   const highlightedNodeIds = useMemo(() => new Set(nodes.filter((node) => node.selected || node.id === selectedId).map((node) => node.id)), [nodes, selectedId]);
   const displayEdges = useMemo(
     () => edges.map((edge) => {
       const selected = Boolean(edge.selected);
-      const inactive = !activeEdgeIds.has(edge.id);
+      const inactive = !activeEdgeIds.has(edge.id) || unusedFlowSourceNodeIds.has(edge.source);
       const highlighted = selected || highlightedNodeIds.has(edge.source) || highlightedNodeIds.has(edge.target);
       if (!highlighted && !inactive) return edge;
       return {
@@ -4204,7 +4266,7 @@ function App() {
         zIndex: selected ? 1001 : 1000
       };
     }),
-    [edges, highlightedNodeIds, activeEdgeIds]
+    [edges, highlightedNodeIds, activeEdgeIds, unusedFlowSourceNodeIds]
   );
   const canvasThemeConfig = availableCanvasThemes.find((theme) => theme.id === canvasBackgroundTheme) ?? availableCanvasThemes[0];
   const catalogSections = useMemo(() => groupNodeCatalog(nodeCatalog, nodeLibraryLayout), [nodeCatalog, nodeLibraryLayout]);
@@ -4331,6 +4393,7 @@ function App() {
             modelOptionsForNodes,
             modelProfiles,
             polzaConfigured,
+            polzaKeyFingerprint,
             polzaTextModels,
             polzaImageModels,
             polzaVideoModels,
@@ -4346,7 +4409,7 @@ function App() {
           }
         }
       }),
-    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, catalogImageModels, modelOptionsForNodes, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, catalogImageModels, modelOptionsForNodes, modelProfiles, polzaConfigured, polzaKeyFingerprint, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
@@ -4604,6 +4667,7 @@ function App() {
       setSeedanceBaseUrl(nextSeedance.baseUrlSource === "custom" ? String(nextSeedance.baseUrl ?? "") : "");
       setPolzaConfigured(Boolean(result.polza?.configured));
       setPolzaMaskedKey(String(result.polza?.maskedApiKey ?? ""));
+      setPolzaKeyFingerprint(String(result.polza?.apiKeyFingerprint ?? ""));
       setOpenRouterSettings(result.openrouter ?? { configured: false });
       setOpenRouterDefaultModel(String(result.openrouter?.defaultModel ?? "text.default"));
       setOpenRouterBudgetWarningUsd(result.openrouter?.budgetWarningUsd == null ? "" : String(result.openrouter.budgetWarningUsd));
@@ -4628,6 +4692,33 @@ function App() {
       setOpenRouterSettings({ configured: false });
       setApiError(message);
       setSettingsMessage(message);
+    }
+  }
+
+  async function saveAppMode(nextMode: "local" | "cloud") {
+    if (appModeSaving || nextMode === capabilities.mode) return;
+    const confirmed = window.confirm(`Switch Boojum to ${nextMode === "cloud" ? "Cloud" : "Local"} mode? Some controls update immediately; restart the app if your launcher or environment still shows the previous mode.`);
+    if (!confirmed) return;
+    setAppModeSaving(true);
+    try {
+      const response = await apiFetch(`${apiBase}/api/settings/app-mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: nextMode })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Failed to save app mode.");
+      setCapabilities({ ...DEFAULT_APP_CAPABILITIES, ...(result.capabilities ?? {}) });
+      await loadCurrentUser();
+      await loadSettings();
+      void loadCreditBalance();
+      setSettingsMessage(`App mode switched to ${nextMode}. Restart the app if any launcher-provided environment still points at the previous mode.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    } finally {
+      setAppModeSaving(false);
     }
   }
 
@@ -5187,9 +5278,10 @@ function App() {
       if (!response.ok) throw new Error(result.error ?? "Failed to save Polza.ai key.");
       setPolzaConfigured(Boolean(result.polza?.configured));
       setPolzaMaskedKey(String(result.polza?.maskedApiKey ?? ""));
+      setPolzaKeyFingerprint(String(result.polza?.apiKeyFingerprint ?? ""));
       setPolzaToken("");
-      setSettingsMessage("Polza.ai key saved locally.");
-      setLogs((current) => ["Polza.ai key saved locally.", ...current]);
+      setSettingsMessage(`Polza.ai key saved locally${result.polza?.apiKeyFingerprint ? ` (fingerprint ${result.polza.apiKeyFingerprint})` : ""}.`);
+      setLogs((current) => [`Polza.ai key saved locally${result.polza?.apiKeyFingerprint ? ` (fingerprint ${result.polza.apiKeyFingerprint})` : ""}.`, ...current]);
       await loadPolzaModels();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -5333,20 +5425,15 @@ function App() {
   }
 
   async function browseAsset(nodeId: string, kind: AssetKind) {
-    if (!supportsLocalFilesystem) {
-      setLogs((entries) => [`Local ${kind} browsing is disabled in ${capabilities.mode} mode.`, ...entries]);
-      return;
-    }
     setPendingBrowse({ nodeId, kind });
     setTimeout(() => document.getElementById("asset-file-picker")?.click(), 0);
   }
 
   async function applyLocalFile(nodeId: string, file: File, kind: AssetKind) {
-    if (!supportsLocalFilesystem) throw new Error(`Local ${kind} import is disabled in ${capabilities.mode} mode.`);
     const path = await importLocalAsset(file, kind);
     const current = nodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
     updateNodeParams(nodeId, { ...(current?.params ?? {}), path });
-    setLogs((entries) => [`Selected ${kind}: ${path}`, ...entries]);
+    setLogs((entries) => [`Uploaded ${kind}: ${path}`, ...entries]);
   }
 
   async function handleFallbackFile(file: File | null) {
@@ -5415,15 +5502,19 @@ function App() {
     const files = Array.from(event.dataTransfer.files ?? []);
     const file = files[0];
     if (!file) return;
-    if (!supportsLocalFilesystem) {
-      setLogs((entries) => [`Local file drops are disabled in ${capabilities.mode} mode.`, ...entries]);
-      return;
-    }
     if (files.length === 1 && canImportNodePackageFile(file)) {
+      if (!supportsLocalFilesystem) {
+        setLogs((entries) => [`Local block package drops are disabled in ${capabilities.mode} mode.`, ...entries]);
+        return;
+      }
       await importNodePackageFile(file, flowPositionFromEvent(event));
       return;
     }
     if (files.length === 1 && canImportDroppedRouteFile(file)) {
+      if (!supportsLocalFilesystem) {
+        setLogs((entries) => [`Local route file drops are disabled in ${capabilities.mode} mode.`, ...entries]);
+        return;
+      }
       try {
         await importRouteOntoCanvas(file, flowPositionFromEvent(event));
       } catch (error) {
@@ -6245,6 +6336,22 @@ function App() {
     clearNodeRunResults([...selectedNodeIds]);
     setLogs((current) => [`Deleted ${selectedNodeIds.size} block(s), ${selectedEdgeIds.size} edge(s).`, ...current]);
   }
+
+  function handleCanvasDeleteKey(event: KeyboardEvent | React.KeyboardEvent) {
+    if (event.defaultPrevented || (event.key !== "Delete" && event.key !== "Backspace") || isTextEditingTarget(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    deleteSelection();
+  }
+
+  useEffect(() => {
+    function handleWindowDeleteKey(event: KeyboardEvent) {
+      handleCanvasDeleteKey(event);
+    }
+
+    window.addEventListener("keydown", handleWindowDeleteKey);
+    return () => window.removeEventListener("keydown", handleWindowDeleteKey);
+  }, [nodes, edges, selectedId]);
 
   function collapseSelectedNodes() {
     const selectedNodeIds = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
@@ -7883,11 +7990,7 @@ function App() {
             setPromptAssetMenu(null);
             setPromptLibraryMenu(null);
           }}
-          onKeyDown={(event) => {
-            if ((event.key === "Delete" || event.key === "Backspace") && !isTextEditingTarget(event.target)) {
-              deleteSelection();
-            }
-          }}
+          onKeyDown={handleCanvasDeleteKey}
           multiSelectionKeyCode={["Shift", "Meta", "Control"]}
           selectionOnDrag
           panOnDrag={[1, 2]}
@@ -8266,6 +8369,31 @@ function App() {
             <em>User: {currentUserLabel}</em>
             {apiError ? <p>{apiError}</p> : null}
           </div> : null}
+          {canShowAppModeSwitch ? (
+            <div className="providerCard">
+              <div className="providerHeader">
+                <h4>App Mode</h4>
+                <span>{capabilities.mode === "cloud" ? "Cloud" : "Local"}</span>
+              </div>
+              <label className="settingsField">
+                <span>Mode</span>
+                <select
+                  value={capabilities.mode === "cloud" ? "cloud" : "local"}
+                  disabled={appModeSaving || !apiConnected}
+                  onChange={(event) => void saveAppMode(event.target.value === "cloud" ? "cloud" : "local")}
+                >
+                  <option value="local">Local</option>
+                  <option value="cloud">Cloud</option>
+                </select>
+                <small className="settingsHint">Controls APP_MODE. Cloud enables account, credits, and cloud storage gates; Local enables local files and local settings.</small>
+              </label>
+              <div className="providerStatus">
+                <span>Current mode: {capabilities.mode}</span>
+                <span>Credits: {capabilities.supportsCredits ? "enabled" : "disabled"}</span>
+                <span>Local filesystem: {capabilities.supportsLocalFilesystem ? "available" : "hidden"}</span>
+              </div>
+            </div>
+          ) : null}
           {isCloudMode ? (
             <div className="providerCard cloudPlaceholderCard">
               <div className="providerHeader">
@@ -8274,11 +8402,12 @@ function App() {
               </div>
               <div className="settingsActions">
                 {currentUser ? <button onClick={() => void login()}><KeyRound size={16} /> Refresh User</button> : null}
-                {!currentUser ? <button onClick={() => startProviderLogin("google")}><KeyRound size={16} /> Войти через Google</button> : null}
-                {!currentUser ? <button onClick={() => startProviderLogin("yandex")}><KeyRound size={16} /> Войти через Яндекс</button> : null}
+                {!currentUser ? <button onClick={() => startProviderLogin("google")} disabled={!cloudAuthReady} title={cloudAuthReady ? "Sign in with Google" : "Set DATABASE_URL before using cloud login"}><KeyRound size={16} /> Войти через Google</button> : null}
+                {!currentUser ? <button onClick={() => startProviderLogin("yandex")} disabled={!cloudAuthReady} title={cloudAuthReady ? "Sign in with Yandex" : "Set DATABASE_URL before using cloud login"}><KeyRound size={16} /> Войти через Яндекс</button> : null}
                 {currentUser ? <button onClick={() => void logout()}><Lock size={16} /> Logout</button> : null}
                 {capabilities.supportsCredits ? <button onClick={() => { setCreditHistoryOpen((value) => !value); void loadCreditTransactions(25); }}><Clock3 size={16} /> Credit history</button> : null}
               </div>
+              {isCloudMode && !capabilities.cloudStorageConfigured ? <p className="nodeWarning">Cloud mode is enabled without DATABASE_URL. Login will use a local development session; set DATABASE_URL and restart for production cloud storage.</p> : null}
               <div className="providerStatus">
                 <span>{currentUser ? `User: ${currentUserLabel}` : "Sign in to save routes and keep generated results."}</span>
                 <span>Balance: {creditBalance ? `${formatCredits(creditBalance.balance)} credits` : "unknown"}</span>
@@ -8349,7 +8478,7 @@ function App() {
             </div>
             <div className={`settingsStatus ${polzaConfigured ? "configured" : ""}`}>
               <KeyRound size={14} />
-              Polza.ai: {polzaConfigured ? `key configured (${polzaMaskedKey || "********"})` : "not configured"}
+              Polza.ai: {polzaConfigured ? `key configured (${polzaMaskedKey || "********"}${polzaKeyFingerprint ? ` · ${polzaKeyFingerprint}` : ""})` : "not configured"}
             </div>
             <p className="providerSupportNote">
               Want to make Snark happy?<br />
@@ -9005,12 +9134,68 @@ function costLabel(value: unknown): string | null {
   const record = cost && typeof cost === "object" ? (cost as Record<string, unknown>) : null;
   const metrics = output.metrics && typeof output.metrics === "object" ? (output.metrics as Record<string, unknown>) : null;
   const seconds = Number(record?.seconds ?? metrics?.predict_time ?? metrics?.total_time);
-  const estimatedUsdFromCost = Number(record?.estimatedUsd ?? record?.amountUsd);
+  const estimatedUsdFromCost = numberValue(record?.estimatedUsd ?? record?.amountUsd);
+  const providerAmount = numberValue(record?.amount ?? record?.cost ?? output.actualCost);
+  const providerCurrency = stringValue(record?.currency ?? output.actualCostCurrency);
+  if (Number.isFinite(providerAmount) && providerCurrency && providerCurrency.toUpperCase() !== "USD") {
+    return `Provider reported cost: ${providerAmount.toFixed(4)} ${providerCurrency.toUpperCase()}`;
+  }
   const estimatedUsd = Number.isFinite(estimatedUsdFromCost) ? estimatedUsdFromCost : Number.isFinite(seconds) ? seconds * 0.0014 : NaN;
   if (!Number.isFinite(estimatedUsd)) return null;
   const parts = [`Estimated provider cost: $${estimatedUsd.toFixed(4)}`];
   if (Number.isFinite(seconds)) parts.push(`${seconds.toFixed(2)}s`);
   return parts.join(" В· ");
+}
+
+function nodeResultProviderCostLabel(result: NodeRunResult): string | null {
+  if (result.status === "failed") return null;
+  const outputRecord = result.output && typeof result.output === "object" ? result.output as Record<string, unknown> : {};
+  const actualAmount = numberValue(outputRecord.actualCost ?? result.actualProviderCostAmount);
+  const actualCurrency = stringValue(outputRecord.actualCostCurrency ?? result.actualProviderCostCurrency);
+  if (Number.isFinite(actualAmount) && actualCurrency) {
+    return actualCurrency.toUpperCase() === "USD"
+      ? `Provider reported cost: $${actualAmount.toFixed(4)}`
+      : `Provider reported cost: ${actualAmount.toFixed(4)} ${actualCurrency.toUpperCase()}`;
+  }
+  const amount = numberValue(result.costEstimate?.estimatedProviderCostAmount ?? providerCostAmountFromMicrousd(result.costEstimate?.pricingBreakdown?.providerCostMicrousd ?? result.costEstimate?.baseCostMicrousd));
+  if (!Number.isFinite(amount)) return null;
+  return `Estimated provider cost: $${amount.toFixed(4)}`;
+}
+
+function externalProviderBalanceHint(error: string | undefined): string | null {
+  if (!error) return null;
+  if (/Polza\.ai account has insufficient funds|External Polza\.ai API rejected|Polza\.ai rejected the request with billing\/access status 402/i.test(error)) {
+    const fingerprint = /API key fingerprint:\s*([a-f0-9]{8,16})/i.exec(error)?.[1];
+    const providerResponse = providerResponseFromError(error);
+    const details = [
+      fingerprint ? `key ${fingerprint}` : "key fingerprint missing; restart server for key diagnostics",
+      providerResponse ? `Polza: ${providerResponse}` : ""
+    ].filter(Boolean).join(" · ");
+    return `External Polza.ai rejected the request; Boojum credits were not charged.${details ? ` ${details}` : ""}`;
+  }
+  if (/prepayment credits are depleted|AI Studio|429/i.test(error) && /Gemini|prepayment credits|AI Studio/i.test(error)) return "Provider balance issue: add credits in Google AI Studio";
+  if (/insufficient credits|insufficient funds|billing|quota/i.test(error) && /OpenRouter/i.test(error)) return "Provider balance issue: add credits in OpenRouter";
+  return null;
+}
+
+function providerResponseFromError(error: string): string {
+  const match = /Provider response:\s*(.*?)(?:\s+This is not the Boojum credit balance|\. No credits were charged\.?$|$)/i.exec(error);
+  return match?.[1] ? truncateText(match[1].trim(), 120) : "";
+}
+
+function providerCostAmountFromMicrousd(value: unknown): number {
+  const microusd = numberValue(value);
+  return Number.isFinite(microusd) ? microusd / 1_000_000 : NaN;
+}
+
+function numberValue(value: unknown): number {
+  if (value === null || value === undefined || value === "") return NaN;
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(number) ? number : NaN;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function runCostLabel(value: unknown): string | null {

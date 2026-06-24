@@ -64,6 +64,7 @@ export type NodeRunResult = {
   actualUsage?: ActualUsage;
   actualCredits?: number;
   actualProviderCostAmount?: number | null;
+  actualProviderCostCurrency?: string | null;
   usageSource?: "provider" | "estimated" | "unknown";
   startedAt?: string;
   completedAt?: string;
@@ -99,6 +100,13 @@ export type CostEstimate = {
   maxChargeCredits?: number;
   pricingSource?: string;
   pricingConfidence?: string;
+  pricingSnapshotId?: string;
+  parameterRules?: Record<string, unknown>;
+  canonicalModelId?: string;
+  providerNativeModelId?: string;
+  fetchedAt?: string;
+  staleAfter?: string;
+  fallback?: boolean;
   pricingBreakdown?: PricingBreakdown;
   usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate";
 };
@@ -123,6 +131,13 @@ export type PricingBreakdown = {
   maxChargeCredits?: number;
   pricingSource?: string;
   pricingConfidence?: string;
+  pricingSnapshotId?: string;
+  parameterRules?: Record<string, unknown>;
+  canonicalModelId?: string;
+  providerNativeModelId?: string;
+  fetchedAt?: string;
+  staleAfter?: string;
+  fallback?: boolean;
   source?: string;
   notes?: string;
 };
@@ -236,6 +251,8 @@ export type AppCapabilities = {
   supportsLocalFilesystem: boolean;
   supportsPublicSharing: boolean;
   supportsDeveloperDiagnostics: boolean;
+  cloudStorageConfigured: boolean;
+  cloudAuthReady: boolean;
 };
 
 export type CurrentUser = {
@@ -247,6 +264,8 @@ export type CurrentUser = {
 };
 
 export type AdminOverview = {
+  storageMode?: "cloud-postgres" | "local-dev";
+  storageConfigured?: boolean;
   usersCount: number;
   runsCount?: number;
   nodeRunsCount?: number;
@@ -359,6 +378,7 @@ export type ImageModelOption = {
   slug: string;
   label: string;
   provider: string;
+  executionProvider?: string;
   capabilities: string[];
   iconPath?: string;
   parameters?: ModelParameterDefinition[];

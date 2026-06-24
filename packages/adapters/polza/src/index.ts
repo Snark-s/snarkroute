@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { basename, dirname, extname, join } from "node:path";
 import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
@@ -138,7 +139,7 @@ export function createPolzaClient(options: PolzaClientOptions = {}) {
         await delay(retryDelayMs * attempt);
         continue;
       }
-      throw new Error(polzaHttpError(response.status, body));
+      throw new Error(polzaHttpError(response.status, body, path, apiKey));
     }
     throw new Error(polzaNetworkError(lastNetworkError, baseUrl));
   }
@@ -1094,12 +1095,44 @@ function videoExtensionFromMimeType(mimeType: string): string {
   return ".mp4";
 }
 
-function polzaHttpError(status: number, body: string): string {
+function polzaHttpError(status: number, body: string, path = "", apiKey = ""): string {
+  const providerMessage = polzaProviderErrorMessage(body);
+  const endpoint = path ? ` Endpoint: ${path}.` : "";
+  const keyInfo = apiKey ? ` API key fingerprint: ${secretFingerprint(apiKey)}.` : "";
+  const detail = providerMessage ? ` Provider response: ${providerMessage}` : body ? ` Provider response: ${truncate(body, 500)}` : "";
   if (status === 401 || status === 403) return "Polza.ai API key seems invalid.";
-  if (status === 402) return "Polza.ai account has insufficient funds.";
+  if (status === 402) return `External Polza.ai API rejected the request with status 402.${endpoint}${keyInfo}${detail} This is not the Boojum credit balance; check the Polza.ai account tied to this API key fingerprint, tariff/model access, or provider-side balance.`;
   if (status === 404) return "Polza.ai model or endpoint was not found.";
-  const message = body ? ` ${truncate(body, 500)}` : "";
+  const message = detail ? ` ${detail}` : "";
   return `Polza.ai request failed (${status}).${message}`;
+}
+
+function secretFingerprint(secret: string): string {
+  return createHash("sha256").update(secret.trim()).digest("hex").slice(0, 12);
+}
+
+function polzaProviderErrorMessage(body: string): string {
+  if (!body.trim()) return "";
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    const message = providerErrorMessageFromValue(parsed);
+    return message ? truncate(message, 500) : "";
+  } catch {
+    return "";
+  }
+}
+
+function providerErrorMessageFromValue(value: unknown): string {
+  if (!value || typeof value !== "object") return "";
+  const record = value as Record<string, unknown>;
+  const direct = [record.message, record.error, record.detail, record.description]
+    .find((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+  if (direct) return direct.trim();
+  const nested = [record.error, record.errors]
+    .map((entry) => Array.isArray(entry) ? entry[0] : entry)
+    .map(providerErrorMessageFromValue)
+    .find(Boolean);
+  return nested ?? "";
 }
 
 function polzaNetworkError(error: unknown, baseUrl: string): string {

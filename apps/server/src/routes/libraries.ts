@@ -59,6 +59,7 @@ import {
   setVideoNodeActiveStackItem,
   setLibraryProjectCover,
   syncRepresentationEdge,
+  trashOrphanCanvasNodeFolders,
   updateLibraryNodeViewMode,
   updateImageNodePrompt,
   updateAudioNodePrompt,
@@ -376,11 +377,12 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string; actionId: string }; Body: { params?: Record<string, unknown>; x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/nodes/:nodeId/canvas-actions/:actionId/run", async (request, reply) => {
+  app.post<{ Params: { nodeId: string; actionId: string }; Body: { targetNodeId?: string; params?: Record<string, unknown>; x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/nodes/:nodeId/canvas-actions/:actionId/run", async (request, reply) => {
     try {
       return await runCanvasNodeAction({
         nodeId: request.params.nodeId,
         actionId: request.params.actionId,
+        targetNodeId: request.body?.targetNodeId,
         params: request.body?.params && typeof request.body.params === "object" && !Array.isArray(request.body.params) ? request.body.params : undefined,
         x: request.body?.x,
         y: request.body?.y,
@@ -741,6 +743,14 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
   app.delete<{ Params: { nodeId: string } }>("/api/libraries/current/nodes/:nodeId", async (request, reply) => {
     try {
       return await deleteCanvasNode(request.params.nodeId);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/libraries/current/nodes/trash-orphans", async (_request, reply) => {
+    try {
+      return await trashOrphanCanvasNodeFolders();
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }

@@ -20,6 +20,7 @@ import { registerRouteDocumentRoutes } from "./routes/route-documents";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerSystemRoutes } from "./routes/system";
 import { registerWorldLabsMarbleRoutes } from "./routes/worldlabs-marble";
+import { startModelPricingRefreshScheduler } from "./billing/model-pricing-refresh-scheduler";
 import { assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
 export function buildServer() {
@@ -49,5 +50,6 @@ export function buildServer() {
   void registerExecutionRoutes(app);
   void registerRunResultRoutes(app);
   void registerLedgerRoutes(app);
+  startModelPricingRefreshScheduler();
   return app;
 }

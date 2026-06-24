@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
-import { appCapabilities, isElevenLabsEnabled, isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, isWorldLabsEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
+import { createHash } from "node:crypto";
+import { requireAdmin } from "../auth/adapters";
+import { appCapabilities, appMode, isElevenLabsEnabled, isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, isWorldLabsEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterSettingsStatus } from "../providers/openrouter";
 import { normalizeSeedanceBackend, seedanceSettingsStatus, SEEDANCE_BACKENDS } from "../providers/seedance";
@@ -11,13 +13,30 @@ app.get("/api/capabilities", async () => appCapabilities());
 app.get("/api/settings", async () => ({
   replicate: { configured: isReplicateEnabled() },
   gemini: { configured: isGeminiEnabled() },
-  polza: { configured: isPolzaEnabled(), maskedApiKey: isPolzaEnabled() ? maskSecret(process.env.POLZA_AI_API_KEY) : "" },
+  polza: {
+    configured: isPolzaEnabled(),
+    maskedApiKey: isPolzaEnabled() ? maskSecret(process.env.POLZA_AI_API_KEY) : "",
+    apiKeyFingerprint: secretFingerprint(process.env.POLZA_AI_API_KEY)
+  },
   elevenlabs: { configured: isElevenLabsEnabled(), maskedApiKey: isElevenLabsEnabled() ? maskSecret(process.env.ELEVENLABS_API_KEY) : "" },
   openai: { configured: isOpenAiEnabled(), maskedApiKey: isOpenAiEnabled() ? maskSecret(process.env.OPENAI_API_KEY) : "" },
   worldlabs: { configured: isWorldLabsEnabled(), maskedApiKey: isWorldLabsEnabled() ? maskSecret(process.env.WORLDS_API_KEY) : "" },
   seedance: seedanceSettingsStatus(),
   openrouter: await openRouterSettingsStatus()
 }));
+
+app.post<{ Body: { mode?: string } }>("/api/settings/app-mode", async (request, reply) => {
+  const mode = normalizeAppModeSetting(request.body?.mode);
+  if (!mode) return reply.code(400).send({ error: "Mode must be local or cloud." });
+  try {
+    if (appMode() === "cloud") await requireAdmin(request);
+    await writeEnvValue("APP_MODE", mode);
+    process.env.APP_MODE = mode;
+    return { ok: true, capabilities: appCapabilities() };
+  } catch (error) {
+    return reply.code(403).send({ error: errorMessage(error) });
+  }
+});
 
 app.post<{ Body: { seedanceApiKey?: string; seedanceApiBaseUrl?: string; backend?: string } }>("/api/settings/seedance-token", async (request, reply) => {
   const token = request.body?.seedanceApiKey?.trim();
@@ -53,7 +72,7 @@ app.post<{ Body: { polzaAiApiKey?: string } }>("/api/settings/polza-token", asyn
   try {
     await writeEnvValue("POLZA_AI_API_KEY", token);
     process.env.POLZA_AI_API_KEY = token;
-    return { ok: true, polza: { configured: true, maskedApiKey: maskSecret(token) } };
+    return { ok: true, polza: { configured: true, maskedApiKey: maskSecret(token), apiKeyFingerprint: secretFingerprint(token) } };
   } catch (error) {
     return reply.code(500).send({ error: errorMessage(error) });
   }
@@ -149,4 +168,14 @@ app.post<{ Body: { openRouterApiKey?: string; defaultModel?: string; budgetWarni
     return reply.code(500).send({ error: errorMessage(error) });
   }
 });
+}
+
+function secretFingerprint(secret: string | undefined): string {
+  const value = secret?.trim();
+  return value ? createHash("sha256").update(value).digest("hex").slice(0, 12) : "";
+}
+
+function normalizeAppModeSetting(value: unknown): "local" | "cloud" | null {
+  const text = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return text === "local" || text === "cloud" ? text : null;
 }

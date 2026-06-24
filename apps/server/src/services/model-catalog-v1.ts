@@ -48,11 +48,11 @@ const textOnlyProviderModelIds = new Set([
 ]);
 
 export function assembleModelCatalogV1(input: AssembleModelCatalogV1Input): ModelCatalogEntryV1[] {
-  return assembleProviderModelsV1([
+  return assembleProviderModelsV1(dedupeProviderModelsV1([
     ...normalizePolzaModelsForCatalogV1(input.polzaModels ?? []),
     ...normalizeOpenRouterModelsForCatalogV1(input.openRouterModels ?? []),
     ...(input.fallbackModels ?? [])
-  ], input.curatedMetadata ?? listCuratedModelMetadataV1());
+  ]), input.curatedMetadata ?? listCuratedModelMetadataV1());
 }
 
 export function assembleProviderModelsV1(
@@ -72,8 +72,62 @@ export function normalizeOpenRouterModelsForCatalogV1(models: RawProviderModelV1
   return models.flatMap((model) => normalizeRawProviderModel("openrouter", model));
 }
 
+function dedupeProviderModelsV1(providerModels: ProviderModelInfoV1[]): ProviderModelInfoV1[] {
+  const seen = new Set<string>();
+  return providerModels.filter((model) => {
+    const key = `${model.provider}:${model.providerModelId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
   return [
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "openai/gpt-image-1",
+      displayName: "OpenAI: GPT Image 1",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.edit", "image.reference"],
+      roles: ["generator", "editor"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-image-generation-catalog", providerEndpoint: "chat.completions" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "google/gemini-3-pro-image-preview",
+      displayName: "Google: Gemini 3 Pro Image Preview",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.reference"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-image-generation-catalog", providerEndpoint: "chat.completions" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "bytedance/seedream-5-lite",
+      displayName: "ByteDance: Seedream 5 Lite",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.reference"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-image-generation-catalog", providerEndpoint: "chat.completions" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "black-forest-labs/flux-kontext-pro",
+      displayName: "Black Forest Labs: FLUX Kontext Pro",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.edit", "image.reference"],
+      roles: ["generator", "editor"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-image-generation-catalog", providerEndpoint: "chat.completions" }
+    }),
     normalizeProviderModelToV1Input({
       provider: "gemini",
       providerModelId: "image.nano-banana",
@@ -168,7 +222,10 @@ export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEnt
 export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalogEntryV1): boolean {
   if (entry.availability.status !== "available") return false;
   if (nodeType === "polza.image.generate") {
-    return entry.provider === "polza" && hasOutputType(entry, "image") && !entry.roles.includes("upscaler");
+    return entry.provider === "polza"
+      && hasOutputType(entry, "image")
+      && !entry.roles.includes("upscaler")
+      && isExecutablePolzaImageNodeModel(entry.providerModelId);
   }
   if (nodeType === "polza.text") {
     return entry.provider === "polza" && hasOutputType(entry, "text");
@@ -371,6 +428,17 @@ function isUpscaleOnlyModel(entry: ModelCatalogEntryV1, mediaType: "image" | "vi
   return entry.roles.includes("upscaler")
     && entry.capabilities.includes(upscaleCapability)
     && !entry.capabilities.some((capability) => capability.startsWith(`${mediaType}.`) && capability !== upscaleCapability);
+}
+
+function isExecutablePolzaImageNodeModel(providerModelId: string): boolean {
+  return providerModelId === "openai/gpt-5.4-image-2"
+    || providerModelId === "openai/gpt-image-1.5"
+    || providerModelId === "openai/gpt-5-image"
+    || providerModelId === "openai/gpt-5-image-mini"
+    || providerModelId === "openai/gpt-image-1"
+    || providerModelId === "gpt-image-1"
+    || providerModelId === "dall-e-3"
+    || providerModelId === "dall-e-2";
 }
 
 function compatibilityReasonForNode(nodeType: string): string {

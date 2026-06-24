@@ -2989,6 +2989,45 @@ h2 {
   font-size: 11px;
 }
 
+.nodePricingSummary {
+  border: 1px solid #465166;
+  border-radius: 6px;
+  color: #d6deea;
+  display: grid;
+  font-size: 12px;
+  gap: 5px;
+  margin: 10px 0;
+  padding: 8px;
+  text-align: left;
+}
+
+.nodePricingSummary div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.nodePricingSummary span {
+  color: #9da8ba;
+}
+
+.nodePricingSummary strong {
+  color: #f8d680;
+  font-size: 12px;
+}
+
+.nodePricingSummary p {
+  color: #ff9ca8;
+  font-size: 11px;
+  font-weight: 700;
+  margin: 2px 0 0;
+}
+
+.nodePricingSummary.insufficient {
+  border-color: #7b4a54;
+}
+
 .nodeWarningButton {
   appearance: none;
   cursor: pointer;
@@ -4332,8 +4371,12 @@ textarea {
 
 .adminUsersTableHeader.pricing,
 .adminUsersTableRow.pricing {
-  grid-template-columns: 88px 120px minmax(130px, 1.1fr) 92px 74px 104px 104px 84px minmax(130px, 1fr);
-  min-width: 980px;
+  grid-template-columns: 82px 112px minmax(130px, 1fr) minmax(140px, 0.95fr) minmax(130px, 0.9fr) 80px 82px 82px 58px 70px 76px 96px 96px minmax(110px, 0.8fr) 118px 60px;
+  min-width: 1640px;
+}
+
+.pricingRefreshActions {
+  margin: 8px 0 10px;
 }
 
 .pricingConfig,

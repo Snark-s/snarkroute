@@ -86,7 +86,8 @@ export interface SnarkCanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop";
+  kind?: "representation" | "crop" | "canvasAction";
+  actionId?: string;
   note?: string;
 }
 
@@ -383,6 +384,7 @@ export interface DuplicateStackItemInput {
 export interface RunCanvasNodeActionInput {
   nodeId: string;
   actionId: string;
+  targetNodeId?: string;
   params?: Record<string, unknown>;
   x?: number;
   y?: number;

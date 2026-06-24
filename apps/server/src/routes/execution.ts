@@ -11,8 +11,9 @@ import { providerNodeManifests } from "../providers/provider-node-manifests";
 import type { AuthUser } from "../auth/adapters";
 import { getAuthAdapter } from "../auth/adapters";
 import { getBillingAdapter } from "../billing/adapters";
+import { isBillableNodeResult, saveProviderUsageEventsForNodeResult } from "../billing/provider-usage-events";
 import { envKeyForProvider, UserSessionCredentialAdapter } from "../credentials/adapters";
-import { appMode } from "../services/env";
+import { appMode, isCloudStorageConfigured } from "../services/env";
 import { getCloudStorage } from "../services/cloud-storage";
 import { errorMessage, redactSecrets, userFacingErrorMessage } from "../services/errors";
 import { validateGuestDemoRoute } from "./demo-routes";
@@ -47,7 +48,7 @@ app.post<{ Body: RunRequestBody }>("/api/routes/run", async (request, reply) => 
     const estimate = await getBillingAdapter().estimateRunCost(route);
     const executor = await createRouteExecutor();
     const bookkeeping: Promise<void>[] = [];
-    if (appMode() === "cloud") {
+    if (canPersistCloudRuns()) {
       cloudRunId = randomUUID();
       await getCloudStorage().createRun({
         id: cloudRunId,
@@ -66,7 +67,7 @@ app.post<{ Body: RunRequestBody }>("/api/routes/run", async (request, reply) => 
         outputDirectory,
         initialNodeOutputs: request.body?.initialNodeOutputs,
         onNodeResult: (nodeResult: NodeResult) => {
-          if (cloudRunId) bookkeeping.push(persistCloudNodeResult(cloudRunId, nodeResult, { user: actor.user, recordCredits: actor.actorType === "guest" || reservation.amount > 0 }));
+          bookkeeping.push(persistRunNodeResult(runId, cloudRunId, nodeResult, { user: actor.user, recordCredits: actor.actorType === "guest" || reservation.amount > 0 }));
         }
       })
     );
@@ -108,7 +109,7 @@ app.post<{ Body: RunRequestBody }>("/api/routes/run/stream", async (request, rep
     const estimate = await getBillingAdapter().estimateRunCost(route);
     const executor = await createRouteExecutor();
     const bookkeeping: Promise<void>[] = [];
-    if (appMode() === "cloud") {
+    if (canPersistCloudRuns()) {
       cloudRunId = randomUUID();
       await getCloudStorage().createRun({
         id: cloudRunId,
@@ -129,7 +130,7 @@ app.post<{ Body: RunRequestBody }>("/api/routes/run/stream", async (request, rep
         initialNodeOutputs: request.body?.initialNodeOutputs,
         onNodeResult: (nodeResult: NodeResult) => {
           sendEvent({ type: "nodeResult", nodeResult });
-          if (cloudRunId) bookkeeping.push(persistCloudNodeResult(cloudRunId, nodeResult, { user: actor.user, recordCredits: actor.actorType === "guest" || reservation.amount > 0 }));
+          bookkeeping.push(persistRunNodeResult(runId, cloudRunId, nodeResult, { user: actor.user, recordCredits: actor.actorType === "guest" || reservation.amount > 0 }));
         }
       })
     );
@@ -267,7 +268,19 @@ async function persistCloudNodeResult(runId: string, nodeResult: NodeResult, opt
   const nodeRun = await storage.saveNodeRun(nodeRunInput(runId, nodeResult, options.recordCredits));
   const artifacts = await saveArtifactsForNodeResult(runId, nodeRun.id, nodeResult, options.user);
   if (artifacts.length > 0) await storage.updateNodeRunOutputs(nodeRun.id, attachArtifactRefs(sanitizeCloudJson(nodeResult.output), artifacts));
-  await saveProviderUsageEventsForNodeResult(runId, nodeRun.id, nodeResult, options);
+  await saveProviderUsageEventsForNodeResult(runId, nodeRun.id, nodeResult, { userId: options.user?.id ?? null, recordCredits: options.recordCredits });
+}
+
+async function persistRunNodeResult(runId: string, cloudRunId: string, nodeResult: NodeResult, options: { user: AuthUser | null; recordCredits: boolean }): Promise<void> {
+  if (cloudRunId) {
+    await persistCloudNodeResult(cloudRunId, nodeResult, options);
+    return;
+  }
+  await saveProviderUsageEventsForNodeResult(runId, null, nodeResult, { userId: options.user?.id ?? null, recordCredits: options.recordCredits });
+}
+
+function canPersistCloudRuns(): boolean {
+  return appMode() === "cloud" && isCloudStorageConfigured();
 }
 
 async function saveArtifactsForNodeResult(runId: string, nodeRunId: string, nodeResult: NodeResult, user: AuthUser | null): Promise<Array<{ id: string; nodeId: string; storageKey: string }>> {
@@ -294,43 +307,6 @@ async function saveArtifactsForNodeResult(runId: string, nodeRunId: string, node
     saved.push({ id: artifact.id, nodeId: nodeResult.nodeId, storageKey });
   }
   return saved;
-}
-
-async function saveProviderUsageEventsForNodeResult(runId: string, nodeRunId: string, nodeResult: NodeResult, options: { user: AuthUser | null; recordCredits: boolean }): Promise<void> {
-  const estimate = nodeResult.costEstimate;
-  const events = nodeResult.providerUsage?.length ? nodeResult.providerUsage : estimate?.provider ? [{ provider: estimate.provider, model: estimate.model, status: nodeResult.status }] : [];
-  for (const event of events) {
-    const provider = event.provider;
-    if (!provider) continue;
-    const chargeCredits = options.recordCredits && isBillableNodeResult(nodeResult, event.status);
-    const pricing = nodeResult.costEstimate?.pricingBreakdown;
-    await getCloudStorage().saveProviderUsageEvent({
-      runId,
-      nodeRunId,
-      userId: options.user?.id ?? null,
-      nodeId: nodeResult.nodeId,
-      nodeType: nodeResult.type,
-      provider,
-      modelId: event.providerModel ?? event.model ?? estimate?.model ?? null,
-      operation: nodeResult.type,
-      status: event.status ?? nodeResult.status,
-      usage: safeJson(event.metrics ?? nodeResult.actualUsage ?? {}),
-      estimatedCredits: estimate?.estimatedCredits ?? null,
-      actualCredits: chargeCredits ? nodeResult.actualCredits ?? 0 : 0,
-      usageSource: nodeResult.usageSource ?? estimate?.usageSource ?? "unknown",
-      providerCostEstimateAmount: event.estimatedCost ?? estimate?.estimatedProviderCostAmount ?? null,
-      providerCostActualAmount: event.actualCost ?? nodeResult.actualProviderCostAmount ?? null,
-      providerCostMicrousd: event.providerCostMicrousd ?? pricing?.providerCostMicrousd ?? null,
-      baseCredits: event.baseCredits ?? pricing?.baseCredits ?? null,
-      markupCredits: event.markupCredits ?? pricing?.markupCredits ?? null,
-      finalCredits: event.finalCredits ?? pricing?.finalCredits ?? null,
-      pricingSource: event.pricingSource ?? pricing?.pricingSource ?? null,
-      pricingConfidence: event.pricingConfidence ?? pricing?.pricingConfidence ?? null,
-      currency: event.actualCostCurrency ?? estimate?.providerCostCurrency ?? null,
-      providerRequestId: event.externalId ?? null,
-      metadata: safeJson({ pricingHint: event.pricingHint, pricingSource: event.pricingSource, pricingQuote: event.pricingQuote })
-    });
-  }
 }
 
 function artifactCandidates(value: unknown, found: Array<Record<string, any>> = []): Array<Record<string, any>> {
@@ -416,7 +392,7 @@ function nodeRunInput(runId: string, nodeResult: NodeResult, chargeCredits: bool
     actualCredits,
     estimatedProviderCostAmount: estimate?.estimatedProviderCostAmount ?? null,
     actualProviderCostAmount: nodeResult.actualProviderCostAmount ?? null,
-    providerCostCurrency: estimate?.providerCostCurrency ?? null,
+    providerCostCurrency: nodeResult.actualProviderCostCurrency ?? estimate?.providerCostCurrency ?? null,
     inputTokens: usage.inputTokens ?? null,
     outputTokens: usage.outputTokens ?? null,
     imageCount: usage.imageCount ?? null,
@@ -424,12 +400,6 @@ function nodeRunInput(runId: string, nodeResult: NodeResult, chargeCredits: bool
     requestCount: usage.requestCount ?? null,
     usageSource: nodeResult.usageSource ?? estimate?.usageSource ?? "unknown"
   };
-}
-
-function isBillableNodeResult(nodeResult: NodeResult, providerStatus?: unknown): boolean {
-  if (nodeResult.status !== "succeeded") return false;
-  if (providerStatus && /^(failed|failure|error|errored|cancelled|canceled|timeout|timed_out|unavailable|auth_error|quota_exceeded)$/i.test(String(providerStatus))) return false;
-  return true;
 }
 
 export async function registerRunResultRoutes(app: FastifyInstance) {

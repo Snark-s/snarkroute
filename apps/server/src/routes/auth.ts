@@ -42,7 +42,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     try {
       return await startOAuth("google", request, reply);
     } catch (error) {
-      return reply.code(500).send({ error: errorMessage(error) });
+      return reply.code(authErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -58,7 +58,7 @@ export async function registerAuthRoutes(app: FastifyInstance) {
     try {
       return await startOAuth("yandex", request, reply);
     } catch (error) {
-      return reply.code(500).send({ error: errorMessage(error) });
+      return reply.code(authErrorStatus(error)).send({ error: errorMessage(error) });
     }
   });
 
@@ -69,4 +69,8 @@ export async function registerAuthRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
   });
+}
+
+function authErrorStatus(error: unknown): number {
+  return errorMessage(error).startsWith("Cloud auth is not configured.") ? 503 : 500;
 }

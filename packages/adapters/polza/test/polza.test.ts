@@ -230,6 +230,19 @@ describe("Polza adapter", () => {
     expect(result.output).toMatchObject({ provider: "polza", inputImageCount: 1 });
   });
 
+  it("surfaces Polza 402 provider response instead of assuming account balance", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-402-"));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ error: { message: "Model is not enabled for this tariff" } }, { status: 402 }));
+    const runner = createPolzaImageNodeRunner({ apiKey: "pza-test", fetchImpl });
+
+    await expect(runner({
+      node: { id: "image", type: "polza.image.generate", params: {} },
+      params: { model: "openai/gpt-5.4-image-2", prompt: "draw" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    })).rejects.toThrow(/External Polza\.ai API rejected the request with status 402.*Endpoint: \/v1\/media.*API key fingerprint: .*Model is not enabled for this tariff.*not the Boojum credit balance/);
+  });
+
   it("Polza image runner calls Model Gateway", async () => {
     const image = {
       localPath: join(tmpdir(), "polza-gateway.png"),

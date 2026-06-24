@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
+import { refreshModelPricing } from "../billing/model-pricing-refresh-service";
 import { requireAdmin } from "../auth/adapters";
 import { getEffectivePricingState, pricingCatalogState, savePricingConfig, savePricingOverride } from "../billing/pricing-service";
+import { adjustLocalDevCredits, ensureLocalDevSeedUsers, getLocalDevBillingUser, grantLocalDevCredits, listLocalDevBillingUsers, listLocalDevCreditTransactions, localDevAdminOverview, rememberLocalDevUser } from "../billing/local-dev-ledger";
 import { getCloudStorage } from "../services/cloud-storage";
-import { isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled } from "../services/env";
+import { isCloudStorageConfigured, isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled } from "../services/env";
 import { errorMessage } from "../services/errors";
 
 export async function registerAdminRoutes(app: FastifyInstance) {
@@ -59,20 +61,31 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     }
   });
 
+  app.post<{ Body: { provider?: string } }>("/api/admin/pricing/refresh", async (request, reply) => {
+    try {
+      const admin = await requireAdmin(request);
+      const result = await refreshModelPricing(request.body?.provider ?? "all");
+      await getCloudStorage().writeAuditEvent({
+        actorUserId: admin.id,
+        eventType: "admin_model_pricing_refresh",
+        metadata: { provider: request.body?.provider ?? "all", result }
+      }).catch(() => undefined);
+      return result;
+    } catch (error) {
+      const message = errorMessage(error);
+      return reply.code(message.includes("Admin access") ? 403 : 400).send({ error: message });
+    }
+  });
+
   app.get("/api/admin/overview", async (_request, reply) => {
     try {
-      await requireAdmin(_request);
+      const admin = await requireAdmin(_request);
+      if (!isCloudStorageConfigured()) rememberLocalDevUser(admin);
+      if (!isCloudStorageConfigured()) return { ...localDevAdminOverview(), providerKeyStatus: providerKeyStatus() };
       const overview = await getCloudStorage().adminOverview();
       return {
         ...overview,
-        providerKeyStatus: {
-          openrouter: isOpenRouterEnabled(),
-          polza: isPolzaEnabled(),
-          replicate: isReplicateEnabled(),
-          gemini: isGeminiEnabled(),
-          openai: isOpenAiEnabled(),
-          seedance: isSeedanceEnabled()
-        }
+        providerKeyStatus: providerKeyStatus()
       };
     } catch (error) {
       const message = errorMessage(error);
@@ -83,6 +96,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.get("/api/admin/billing/balances", async (request, reply) => {
     try {
       await requireAdmin(request);
+      if (!isCloudStorageConfigured()) return { balances: listLocalDevBillingUsers().map((user) => ({ userId: user.id, balance: user.currentBalance })) };
       return await getCloudStorage().listUserBalances();
     } catch (error) {
       const message = errorMessage(error);
@@ -92,7 +106,12 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
   app.get("/api/admin/users", async (request, reply) => {
     try {
-      await requireAdmin(request);
+      const admin = await requireAdmin(request);
+      if (!isCloudStorageConfigured()) {
+        ensureLocalDevSeedUsers();
+        rememberLocalDevUser(admin);
+        return { users: listLocalDevBillingUsers() };
+      }
       return { users: await getCloudStorage().adminBillingUsers() };
     } catch (error) {
       const message = errorMessage(error);
@@ -102,7 +121,13 @@ export async function registerAdminRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { userId: string } }>("/api/admin/users/:userId", async (request, reply) => {
     try {
-      await requireAdmin(request);
+      const admin = await requireAdmin(request);
+      if (!isCloudStorageConfigured()) {
+        rememberLocalDevUser(admin);
+        const user = getLocalDevBillingUser(request.params.userId);
+        if (!user) return reply.code(404).send({ error: "User was not found." });
+        return user;
+      }
       const user = await getCloudStorage().adminBillingUser(request.params.userId);
       if (!user) return reply.code(404).send({ error: "User was not found." });
       return publicAdminUserCard(user);
@@ -116,6 +141,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
     try {
       await requireAdmin(request);
       const limit = Number(request.query.limit ?? 100);
+      if (!isCloudStorageConfigured()) return { transactions: listLocalDevCreditTransactions({ userId: request.params.userId, limit }).map((transaction) => publicAdminTransaction(transaction, [])) };
       const transactions = await getCloudStorage().listCreditTransactions({ userId: request.params.userId, limit });
       const providerUsage = await getCloudStorage().listUserProviderUsage({ userId: request.params.userId, limit });
       return { transactions: transactions.map((transaction) => publicAdminTransaction(transaction, providerUsage)) };
@@ -132,6 +158,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       const amount = Number(request.body?.amount);
       const reason = request.body?.reason?.trim();
       if (!Number.isInteger(amount) || amount <= 0 || !reason) return reply.code(400).send({ error: "Positive integer amount and reason are required." });
+      if (!isCloudStorageConfigured()) return grantLocalDevCredits({ userId, amount, reason, actorUserId: admin.id });
       const result = await getCloudStorage().grantCredits({ userId, amount, reason, actorUserId: admin.id });
       await getCloudStorage().writeAuditEvent({ actorUserId: admin.id, eventType: "admin_credit_grant", metadata: { targetUserId: userId, amount, reason, transactionId: result.transactionId } });
       return result;
@@ -148,6 +175,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       const amount = Number(request.body?.amount);
       const reason = request.body?.reason?.trim();
       if (!Number.isInteger(amount) || amount === 0 || !reason) return reply.code(400).send({ error: "Non-zero integer amount and reason are required." });
+      if (!isCloudStorageConfigured()) return adjustLocalDevCredits({ userId, amount, reason, actorUserId: admin.id, allowNegativeBalance: process.env.BOOJUM_ALLOW_NEGATIVE_BALANCE === "true" });
       const result = await getCloudStorage().adjustCredits({ userId, amount, reason, actorUserId: admin.id, allowNegativeBalance: process.env.BOOJUM_ALLOW_NEGATIVE_BALANCE === "true" });
       await getCloudStorage().writeAuditEvent({ actorUserId: admin.id, eventType: "admin_credit_adjustment", metadata: { targetUserId: userId, amount, reason, transactionId: result.transactionId } });
       return result;
@@ -160,6 +188,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { userId?: string; limit?: string } }>("/api/admin/billing/transactions", async (request, reply) => {
     try {
       await requireAdmin(request);
+      if (!isCloudStorageConfigured()) return listLocalDevCreditTransactions({ userId: request.query.userId, limit: Number(request.query.limit ?? 100) });
       return await getCloudStorage().listCreditTransactions({ userId: request.query.userId, limit: Number(request.query.limit ?? 100) });
     } catch (error) {
       const message = errorMessage(error);
@@ -174,6 +203,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       const amount = Number(request.body?.amount);
       const reason = request.body?.reason?.trim() || "admin_grant";
       if (!userId || !Number.isInteger(amount) || amount <= 0) return reply.code(400).send({ error: "userId and positive integer amount are required." });
+      if (!isCloudStorageConfigured()) return grantLocalDevCredits({ userId, amount, reason, actorUserId: admin.id });
       const result = await getCloudStorage().grantCredits({ userId, amount, reason, actorUserId: admin.id });
       await getCloudStorage().writeAuditEvent({ actorUserId: admin.id, eventType: "admin_credit_grant", metadata: { targetUserId: userId, amount, reason, transactionId: result.transactionId } });
       return result;
@@ -190,6 +220,7 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       const amount = Number(request.body?.amount);
       const reason = request.body?.reason?.trim() || "admin_adjustment";
       if (!userId || !Number.isInteger(amount) || amount === 0) return reply.code(400).send({ error: "userId and non-zero integer amount are required." });
+      if (!isCloudStorageConfigured()) return adjustLocalDevCredits({ userId, amount, reason, actorUserId: admin.id, allowNegativeBalance: process.env.BOOJUM_ALLOW_NEGATIVE_BALANCE === "true" });
       const result = await getCloudStorage().adjustCredits({ userId, amount, reason, actorUserId: admin.id, allowNegativeBalance: process.env.BOOJUM_ALLOW_NEGATIVE_BALANCE === "true" });
       await getCloudStorage().writeAuditEvent({ actorUserId: admin.id, eventType: "admin_credit_adjustment", metadata: { targetUserId: userId, amount, reason, transactionId: result.transactionId } });
       return result;
@@ -198,6 +229,17 @@ export async function registerAdminRoutes(app: FastifyInstance) {
       return reply.code(message.includes("Admin access") ? 403 : 500).send({ error: message });
     }
   });
+}
+
+function providerKeyStatus(): Record<string, boolean> {
+  return {
+    openrouter: isOpenRouterEnabled(),
+    polza: isPolzaEnabled(),
+    replicate: isReplicateEnabled(),
+    gemini: isGeminiEnabled(),
+    openai: isOpenAiEnabled(),
+    seedance: isSeedanceEnabled()
+  };
 }
 
 function publicAdminUserCard(user: any) {

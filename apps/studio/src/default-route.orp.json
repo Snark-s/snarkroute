@@ -26,107 +26,84 @@
         "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1782064366386-Лес ночью right.png"
       },
       "ui": {
-        "x": 815.7772323842686,
-        "y": 588.7544136272971
+        "x": 763.3457363212765,
+        "y": 520.255201028872,
+        "paramsCollapsed": true
       }
     },
     {
-      "id": "compound_4",
-      "type": "compound.subroute",
-      "title": "x4",
-      "params": {},
-      "compound": {
-        "title": "x4",
-        "inputs": [
-          {
-            "id": "image",
-            "label": "image",
-            "kind": "image",
-            "nodeId": "replicate_clarity_upscaler_2",
-            "port": "image"
-          }
-        ],
-        "outputs": [
-          {
-            "id": "image",
-            "label": "image",
-            "kind": "image",
-            "nodeId": "replicate_clarity_upscaler_2",
-            "port": "image"
-          }
-        ]
-      },
-      "subroute": {
-        "routeVersion": "0.1",
-        "route": {
-          "id": "m31-http-json-test.compound_4",
-          "title": "x4",
-          "description": "HTTP Request -> Debug Log -> Text Output.",
-          "author": {
-            "name": "SnarkRoute"
-          },
-          "tags": [
-            "milestone-3.1",
-            "http",
-            "json"
-          ]
-        },
-        "economics": {
-          "enabled": false,
-          "mode": "disabled"
-        },
-        "nodes": [
-          {
-            "id": "replicate_clarity_upscaler_2",
-            "type": "replicate.clarity-upscaler",
-            "title": "Clarity Upscaler",
-            "params": {
-              "prompt": "masterpiece, best quality, highres",
-              "negative_prompt": "(worst quality, low quality, normal quality:2)",
-              "scale_factor": "4",
-              "dynamic": 6,
-              "creativity": 0.25,
-              "resemblance": 1.5,
-              "tiling_width": 112,
-              "tiling_height": 144,
-              "scheduler": "DPM++ 3M SDE Karras",
-              "num_inference_steps": 18,
-              "seed": 1337,
-              "downscaling": false,
-              "downscaling_resolution": 768,
-              "lora_links": "",
-              "pollingIntervalMs": 1000,
-              "timeoutMs": 120000
-            },
-            "ui": {
-              "x": 1213.5363740056762,
-              "y": 52.422270102694156
-            }
-          }
-        ],
-        "edges": [],
-        "provenance": {
-          "tool": "snarkroute-studio",
-          "updatedAt": "2026-06-22T12:20:28.928Z"
-        }
+      "id": "ai_image_generate_2",
+      "type": "ai.image.generate",
+      "title": "Image Generation",
+      "params": {
+        "model": "image.nano-banana",
+        "providerMode": "auto",
+        "prompt": "Create a polished image.",
+        "aspectRatio": "1:1",
+        "imageSize": "2K"
       },
       "ui": {
-        "x": 1196.2171290591864,
-        "y": 613.3455521380521
+        "x": 1047.8430871954874,
+        "y": 497.67007536701163
+      }
+    },
+    {
+      "id": "polza_image_generate_3",
+      "type": "polza.image.generate",
+      "title": "Polza Image",
+      "params": {
+        "model": "openai/gpt-5.4-image-2",
+        "prompt": "Create a polished image.",
+        "aspectRatio": "1:1",
+        "imageResolution": "2K",
+        "quality": "high",
+        "outputFormat": "png"
+      },
+      "ui": {
+        "x": 1357.794411758382,
+        "y": 504.43542969772017
+      }
+    },
+    {
+      "id": "gemini_nano_banana_2_4",
+      "type": "gemini.nano-banana-2",
+      "title": "Nano Banana 2",
+      "params": {
+        "prompt": "Transform this into a polished, high-detail image.",
+        "aspectRatio": "1:1",
+        "imageSize": "2K"
+      },
+      "ui": {
+        "x": 1654.4196803390419,
+        "y": 504.43542969772034
       }
     }
   ],
   "edges": [
     {
-      "id": "xy-edge__input_image_1image-replicate_clarity_upscaler_2image",
+      "id": "xy-edge__input_image_1image-ai_image_generate_2images",
       "from": "input_image_1",
-      "to": "compound_4",
+      "to": "ai_image_generate_2",
       "fromPort": "image",
-      "toPort": "image"
+      "toPort": "images"
+    },
+    {
+      "id": "xy-edge__input_image_1image-polza_image_generate_3images",
+      "from": "input_image_1",
+      "to": "polza_image_generate_3",
+      "fromPort": "image",
+      "toPort": "images"
+    },
+    {
+      "id": "xy-edge__input_image_1image-gemini_nano_banana_2_4images",
+      "from": "input_image_1",
+      "to": "gemini_nano_banana_2_4",
+      "fromPort": "image",
+      "toPort": "images"
     }
   ],
   "provenance": {
-    "updatedAt": "2026-06-22T12:20:36.219Z",
+    "updatedAt": "2026-06-23T16:08:41.005Z",
     "tool": "snarkroute-studio"
   }
 }

@@ -5,7 +5,7 @@ import { apiFetch } from "../../shared/apiClient";
 import { formatCredits, formatDateTime, formatMicrousd } from "../../shared/costFormatting";
 import type { AdminBillingUser, AdminOverview, AdminUserCard, CurrentUser, PricingBreakdown } from "../../studioTypes";
 
-function AdminUsersBilling({ onRefreshOverview }: { onRefreshOverview: () => void }) {
+function AdminUsersBilling({ onRefreshOverview, storageAvailable = true, storagePersisted = true }: { onRefreshOverview: () => void; storageAvailable?: boolean; storagePersisted?: boolean }) {
   const [users, setUsers] = useState<AdminBillingUser[]>([]);
   const [selectedUserId, setSelectedUserId] = useState("");
   const [selectedUser, setSelectedUser] = useState<AdminUserCard | null>(null);
@@ -24,6 +24,12 @@ function AdminUsersBilling({ onRefreshOverview }: { onRefreshOverview: () => voi
   }, []);
 
   async function loadUsers() {
+    if (!storageAvailable) {
+      setUsers([]);
+      setSelectedUser(null);
+      setMessage("Credit ledger is unavailable because DATABASE_URL is not configured.");
+      return;
+    }
     try {
       const response = await apiFetch(`${apiBase}/api/admin/users`);
       const result = await response.json();
@@ -37,6 +43,12 @@ function AdminUsersBilling({ onRefreshOverview }: { onRefreshOverview: () => voi
   }
 
   async function loadUser(userId: string) {
+    if (!storageAvailable) {
+      setSelectedUser(null);
+      setSelectedUserId(userId);
+      setMessage("Credit ledger is unavailable because DATABASE_URL is not configured.");
+      return;
+    }
     try {
       const response = await apiFetch(`${apiBase}/api/admin/users/${encodeURIComponent(userId)}`);
       const result = await response.json();
@@ -51,6 +63,10 @@ function AdminUsersBilling({ onRefreshOverview }: { onRefreshOverview: () => voi
   }
 
   async function submitCreditAction(kind: "grant" | "adjust") {
+    if (!storageAvailable) {
+      setMessage("Credit actions require DATABASE_URL. Configure cloud storage before granting or adjusting credits.");
+      return;
+    }
     const amount = Number(kind === "grant" ? grantAmount : adjustAmount);
     const reason = (kind === "grant" ? grantReason : adjustReason).trim();
     if (!selectedUserId || !Number.isInteger(amount) || !reason || (kind === "grant" && amount <= 0) || (kind === "adjust" && amount === 0)) {
@@ -94,18 +110,18 @@ function AdminUsersBilling({ onRefreshOverview }: { onRefreshOverview: () => voi
       <div className="adminSectionHeader">
         <div>
           <h3>Users / Credits</h3>
-          <p className="muted">Ledger-backed balances. No email, name, avatar, or raw OAuth subject is shown.</p>
+          <p className="muted">{storageAvailable ? (storagePersisted ? "Ledger-backed balances. No email, name, avatar, or raw OAuth subject is shown." : "In-memory development balances. Configure DATABASE_URL for persisted user credits.") : "Credit controls are visible, but ledger storage is disabled until DATABASE_URL is configured."}</p>
         </div>
-        <button type="button" onClick={() => void loadUsers()}><RefreshCw size={14} /> Refresh users</button>
+        <button type="button" disabled={!storageAvailable} onClick={() => void loadUsers()}><RefreshCw size={14} /> Refresh users</button>
       </div>
       <div className="adminFilters">
-        <input value={query} placeholder="Search user id" onChange={(event) => setQuery(event.target.value)} />
-        <select value={roleFilter} onChange={(event) => setRoleFilter(event.target.value as "all" | "user" | "admin")}>
+        <input value={query} disabled={!storageAvailable} placeholder="Search user id" onChange={(event) => setQuery(event.target.value)} />
+        <select value={roleFilter} disabled={!storageAvailable} onChange={(event) => setRoleFilter(event.target.value as "all" | "user" | "admin")}>
           <option value="all">All roles</option>
           <option value="user">User</option>
           <option value="admin">Admin</option>
         </select>
-        <select value={sort} onChange={(event) => setSort(event.target.value as "createdAt" | "balance")}>
+        <select value={sort} disabled={!storageAvailable} onChange={(event) => setSort(event.target.value as "createdAt" | "balance")}>
           <option value="createdAt">Created desc</option>
           <option value="balance">Balance desc</option>
         </select>
@@ -130,9 +146,9 @@ function AdminUsersBilling({ onRefreshOverview }: { onRefreshOverview: () => voi
               <span>{user.runsCount}</span>
               <span>{user.lastActivityAt ? formatDateTime(user.lastActivityAt) : "-"}</span>
               <span className="adminInlineActions">
-                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); }}>View</button>
-                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); setGrantAmount("100"); }}>Grant</button>
-                <button type="button" onClick={(event) => { event.stopPropagation(); void loadUser(user.id); setAdjustAmount("-20"); }}>Adjust</button>
+                <button type="button" disabled={!storageAvailable} onClick={(event) => { event.stopPropagation(); void loadUser(user.id); }}>View</button>
+                <button type="button" disabled={!storageAvailable} onClick={(event) => { event.stopPropagation(); void loadUser(user.id); setGrantAmount("100"); }}>Grant</button>
+                <button type="button" disabled={!storageAvailable} onClick={(event) => { event.stopPropagation(); void loadUser(user.id); setAdjustAmount("-20"); }}>Adjust</button>
               </span>
             </div>
           ))}
@@ -155,12 +171,12 @@ function AdminUsersBilling({ onRefreshOverview }: { onRefreshOverview: () => voi
               <span>Provider usage</span><strong>{selectedUser.providerUsageCount}</strong>
             </div>
             <div className="adminCreditForms">
-              <label><span>Grant credits</span><input value={grantAmount} inputMode="numeric" placeholder="100" onChange={(event) => setGrantAmount(event.target.value)} /></label>
-              <label><span>Reason</span><input value={grantReason} placeholder="Manual admin grant" onChange={(event) => setGrantReason(event.target.value)} /></label>
-              <button type="button" onClick={() => void submitCreditAction("grant")}>Grant credits</button>
-              <label><span>Adjust credits</span><input value={adjustAmount} inputMode="numeric" placeholder="-20" onChange={(event) => setAdjustAmount(event.target.value)} /></label>
-              <label><span>Reason</span><input value={adjustReason} placeholder="Correction reason" onChange={(event) => setAdjustReason(event.target.value)} /></label>
-              <button type="button" onClick={() => void submitCreditAction("adjust")}>Adjust credits</button>
+              <label><span>Grant credits</span><input value={grantAmount} disabled={!storageAvailable} inputMode="numeric" placeholder="100" onChange={(event) => setGrantAmount(event.target.value)} /></label>
+              <label><span>Reason</span><input value={grantReason} disabled={!storageAvailable} placeholder="Manual admin grant" onChange={(event) => setGrantReason(event.target.value)} /></label>
+              <button type="button" disabled={!storageAvailable} onClick={() => void submitCreditAction("grant")}>Grant credits</button>
+              <label><span>Adjust credits</span><input value={adjustAmount} disabled={!storageAvailable} inputMode="numeric" placeholder="-20" onChange={(event) => setAdjustAmount(event.target.value)} /></label>
+              <label><span>Reason</span><input value={adjustReason} disabled={!storageAvailable} placeholder="Correction reason" onChange={(event) => setAdjustReason(event.target.value)} /></label>
+              <button type="button" disabled={!storageAvailable} onClick={() => void submitCreditAction("adjust")}>Adjust credits</button>
             </div>
             <div className="adminTabs">
               {(["transactions", "runs", "provider"] as const).map((entry) => (
@@ -186,6 +202,7 @@ function adminAuthProviderLabel(user: AdminBillingUser): string {
 
 function AdminPricing() {
   const [pricing, setPricing] = useState<PricingBreakdown[]>([]);
+  const [actualStats, setActualStats] = useState<ProviderPricingActualStats[]>([]);
   const [globalMarkupPercent, setGlobalMarkupPercent] = useState("0");
   const [globalMarkupCredits, setGlobalMarkupCredits] = useState("0");
   const [minChargeCredits, setMinChargeCredits] = useState("0");
@@ -209,6 +226,7 @@ function AdminPricing() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Pricing unavailable.");
       setPricing(Array.isArray(result.pricing) ? result.pricing : []);
+      setActualStats(Array.isArray(result.actualStats) ? result.actualStats.map(normalizeProviderPricingActualStats).filter((entry: ProviderPricingActualStats | null): entry is ProviderPricingActualStats => Boolean(entry)) : []);
       setGlobalMarkupPercent(String(result.config?.globalMarkupPercent ?? 0));
       setGlobalMarkupCredits(String(result.config?.globalMarkupCredits ?? 0));
       setMinChargeCredits(String(result.config?.minChargeCredits ?? 0));
@@ -265,6 +283,24 @@ function AdminPricing() {
     }
   }
 
+  async function refreshProviderPricing(provider: string) {
+    try {
+      const response = await apiFetch(`${apiBase}/api/admin/pricing/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Pricing refresh failed.");
+      const failed = Array.isArray(result.failed) && result.failed.length ? `, failed ${result.failed.length}` : "";
+      const warnings = Array.isArray(result.warnings) && result.warnings.length ? `, warnings ${result.warnings.length}` : "";
+      setMessage(`Pricing refresh ${provider}: ${Number(result.pricesUpdated ?? 0)} price(s) updated${failed}${warnings}.`);
+      await loadPricing();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    }
+  }
+
   return (
     <section className="adminUsersBilling adminPricingPanel">
       <div className="adminSectionHeader">
@@ -272,7 +308,14 @@ function AdminPricing() {
           <h3>Pricing</h3>
           <p className="muted">Credit unit: 1000 credits = $1. Prices are integer credits from provider API cost plus markup. Source: {configSource}.</p>
         </div>
-        <button type="button" onClick={() => void loadPricing()}><RefreshCw size={14} /> Refresh pricing</button>
+        <button type="button" onClick={() => void loadPricing()}><RefreshCw size={14} /> Refresh table</button>
+      </div>
+      <div className="adminInlineActions pricingRefreshActions">
+        {["all", "polza", "openrouter", "gemini", "replicate"].map((provider) => (
+          <button key={provider} type="button" onClick={() => void refreshProviderPricing(provider)}>
+            <RefreshCw size={13} /> Refresh {provider}
+          </button>
+        ))}
       </div>
       <div className="adminCreditForms pricingConfig">
         <label><span>Global markup %</span><input value={globalMarkupPercent} inputMode="decimal" onChange={(event) => setGlobalMarkupPercent(event.target.value)} /></label>
@@ -293,27 +336,161 @@ function AdminPricing() {
       {message ? <p className={message.includes("failed") || message.includes("unavailable") ? "errorText" : "muted"}>{message}</p> : null}
       <div className="adminUsersTable pricingTable">
         <div className="adminUsersTableHeader pricing">
-          <span>Provider</span><span>Operation</span><span>Model</span><span>Base API cost</span><span>Base credits</span><span>Global markup</span><span>Node markup</span><span>Final estimated</span><span>Source</span>
+          <span>Provider</span><span>Operation</span><span>Canonical</span><span>Model scope</span><span>Native id</span><span>Forecast</span><span>Last actual</span><span>Avg actual</span><span>Samples</span><span>Base credits</span><span>Final estimated</span><span>Global markup</span><span>Node markup</span><span>Pricing scope</span><span>Fetched</span><span>Stale?</span>
         </div>
-        {pricing.map((entry) => (
-          <div className="adminUsersTableRow pricing" key={`${entry.provider}-${entry.operation}-${entry.model ?? "*"}`}>
+        {pricing.map((entry) => {
+          const stats = actualStatsForPricingEntry(entry, actualStats);
+          return (
+          <div className="adminUsersTableRow pricing" key={adminPricingEntryKey(entry)}>
             <span>{entry.provider ?? "-"}</span>
             <span>{entry.operation ?? "-"}</span>
-            <span>{entry.model ?? "*"}</span>
+            <span title={entry.canonicalModelId ?? ""}>{entry.canonicalModelId ?? "-"}</span>
+            <span title={entry.model ? "Exact model pricing" : "Provider-level fallback for any model without exact pricing"}>{adminPricingModelScope(entry)}</span>
+            <span title={entry.providerNativeModelId ?? ""}>{entry.providerNativeModelId ?? "-"}</span>
             <span>${formatMicrousd(entry.baseCostMicrousd ?? 0)}</span>
+            <span title={actualStatsTitle(stats)}>{formatActualCredits(stats?.lastActualCredits)}</span>
+            <span title={actualStatsTitle(stats)}>{formatActualCredits(stats?.avgActualCredits)}</span>
+            <span>{stats?.samples ?? "-"}</span>
             <span>{formatCredits(entry.baseCredits ?? 0)}</span>
+            <strong>{formatCredits(entry.finalCredits ?? 0)}</strong>
             <span>+{formatCredits(entry.globalMarkupPercent ?? 0)}% +{formatCredits(entry.globalMarkupCredits ?? 0)}</span>
             <span>+{formatCredits(entry.nodeMarkupPercent ?? 0)}% +{formatCredits(entry.nodeMarkupCredits ?? 0)}</span>
-            <strong>{formatCredits(entry.finalCredits ?? 0)}</strong>
-            <span title={entry.notes ?? ""}>{entry.source ?? entry.pricingSource ?? "-"}</span>
+            <span title={entry.notes ?? ""}>{adminPricingScopeLabel(entry)}</span>
+            <span>{entry.fetchedAt ? formatDateTime(entry.fetchedAt) : "-"}</span>
+            <span>{entry.staleAfter ? (new Date(entry.staleAfter).getTime() < Date.now() ? "stale" : "fresh") : "-"}</span>
           </div>
-        ))}
+        );})}
       </div>
     </section>
   );
 }
 
+type ProviderPricingActualStats = {
+  provider: string | null;
+  operation: string | null;
+  model: string | null;
+  pricingSnapshotId: string | null;
+  samples: number;
+  avgActualCredits: number | null;
+  lastActualCredits: number | null;
+  avgProviderCostMicrousd: number | null;
+  lastProviderCostMicrousd: number | null;
+  lastCreatedAt: string | null;
+};
+
+function normalizeProviderPricingActualStats(value: unknown): ProviderPricingActualStats | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  return {
+    provider: typeof record.provider === "string" ? record.provider : null,
+    operation: typeof record.operation === "string" ? record.operation : null,
+    model: typeof record.model === "string" ? record.model : null,
+    pricingSnapshotId: typeof record.pricingSnapshotId === "string" ? record.pricingSnapshotId : null,
+    samples: Number(record.samples ?? 0),
+    avgActualCredits: nullableNumber(record.avgActualCredits),
+    lastActualCredits: nullableNumber(record.lastActualCredits),
+    avgProviderCostMicrousd: nullableNumber(record.avgProviderCostMicrousd),
+    lastProviderCostMicrousd: nullableNumber(record.lastProviderCostMicrousd),
+    lastCreatedAt: typeof record.lastCreatedAt === "string" ? record.lastCreatedAt : null
+  };
+}
+
+function actualStatsForPricingEntry(entry: PricingBreakdown, stats: ProviderPricingActualStats[]): ProviderPricingActualStats | undefined {
+  if (!entry.provider || !entry.operation) return undefined;
+  if (entry.pricingSnapshotId) {
+    const snapshotMatch = stats.find((item) => item.pricingSnapshotId === entry.pricingSnapshotId);
+    if (snapshotMatch) return snapshotMatch;
+  }
+  if (entry.model) {
+    const exactMatches = stats.filter((item) =>
+      item.provider === entry.provider
+      && item.operation === entry.operation
+      && item.model === entry.model
+      && !item.pricingSnapshotId
+    );
+    if (entry.parameterRules && Object.keys(entry.parameterRules).length > 0) return undefined;
+    return exactMatches[0];
+  }
+  const matches = stats.filter((item) => item.provider === entry.provider && item.operation === entry.operation && !item.pricingSnapshotId);
+  if (matches.length === 0) return undefined;
+  const samples = matches.reduce((sum, item) => sum + item.samples, 0);
+  const latest = matches.reduce<ProviderPricingActualStats | undefined>((current, item) => {
+    if (!current) return item;
+    return Date.parse(item.lastCreatedAt ?? "") > Date.parse(current.lastCreatedAt ?? "") ? item : current;
+  }, undefined);
+  return {
+    provider: entry.provider,
+    operation: entry.operation,
+    model: null,
+    pricingSnapshotId: null,
+    samples,
+    avgActualCredits: weightedAverage(matches, "avgActualCredits"),
+    lastActualCredits: latest?.lastActualCredits ?? null,
+    avgProviderCostMicrousd: weightedAverage(matches, "avgProviderCostMicrousd"),
+    lastProviderCostMicrousd: latest?.lastProviderCostMicrousd ?? null,
+    lastCreatedAt: latest?.lastCreatedAt ?? null
+  };
+}
+
+function weightedAverage(stats: ProviderPricingActualStats[], key: "avgActualCredits" | "avgProviderCostMicrousd"): number | null {
+  let weighted = 0;
+  let samples = 0;
+  for (const item of stats) {
+    const value = item[key];
+    if (value === null || value === undefined || item.samples <= 0) continue;
+    weighted += value * item.samples;
+    samples += item.samples;
+  }
+  return samples > 0 ? weighted / samples : null;
+}
+
+function formatActualCredits(value: number | null | undefined): string {
+  return value === null || value === undefined ? "-" : `${formatCredits(value)} cr`;
+}
+
+function actualStatsTitle(stats: ProviderPricingActualStats | undefined): string {
+  if (!stats) return "No actual usage samples yet.";
+  return [
+    `Samples: ${stats.samples}`,
+    stats.lastCreatedAt ? `Last: ${formatDateTime(stats.lastCreatedAt)}` : null,
+    stats.lastProviderCostMicrousd !== null && stats.lastProviderCostMicrousd !== undefined ? `Last provider cost: $${formatMicrousd(stats.lastProviderCostMicrousd)}` : null,
+    stats.avgProviderCostMicrousd !== null && stats.avgProviderCostMicrousd !== undefined ? `Average provider cost: $${formatMicrousd(stats.avgProviderCostMicrousd)}` : null
+  ].filter((line): line is string => Boolean(line)).join("\n");
+}
+
+function nullableNumber(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function adminPricingModelScope(entry: PricingBreakdown): string {
+  const params = parameterRulesLabel(entry.parameterRules);
+  return [entry.model?.trim() || "Any model", params].filter(Boolean).join(" / ");
+}
+
+function adminPricingScopeLabel(entry: PricingBreakdown): string {
+  const source = entry.source ?? entry.pricingSource ?? "-";
+  const params = parameterRulesLabel(entry.parameterRules);
+  const base = entry.model ? source : entry.fallback ? `${source} / provider fallback` : `${source} / any model`;
+  return params ? `${base} / ${params}` : base;
+}
+
+function adminPricingEntryKey(entry: PricingBreakdown): string {
+  return [
+    entry.provider ?? "*",
+    entry.operation ?? "*",
+    entry.model ?? "*",
+    entry.pricingSnapshotId ?? JSON.stringify(entry.parameterRules ?? {})
+  ].join(":");
+}
+
+function parameterRulesLabel(rules: Record<string, unknown> | undefined): string {
+  if (!rules || Object.keys(rules).length === 0) return "";
+  return Object.entries(rules).map(([key, value]) => `${key}=${String(value)}`).join(", ");
+}
+
 export function AdminPanel({ overview, message, onRefresh, currentUser, standalone = false }: { overview: AdminOverview | null; message: string; onRefresh: () => void; currentUser?: CurrentUser | null; standalone?: boolean }) {
+  const localDevAdmin = overview?.storageMode === "local-dev" || overview?.storageConfigured === false;
   return (
     <div className={`${standalone ? "adminDashboardPanel" : "providerCard"} adminPanel`}>
       <div className="providerHeader">
@@ -327,7 +504,10 @@ export function AdminPanel({ overview, message, onRefresh, currentUser, standalo
       {overview ? (
         <>
           <AdminPricing />
-          <AdminUsersBilling onRefreshOverview={onRefresh} />
+          <AdminUsersBilling onRefreshOverview={onRefresh} storageAvailable storagePersisted={!localDevAdmin} />
+          {localDevAdmin ? (
+            <p className="nodeWarning">Admin is running with a local development session. DATABASE_URL is not configured, so user balances, run history, provider usage, and credit grants are not persisted.</p>
+          ) : null}
           {currentUser ? (
             <div className="adminMetricGrid">
               <span>Current user id</span><strong>{currentUser.id}</strong>

@@ -30,7 +30,7 @@ export function AssetNodeParams({
           readOnly
         />
       </label>
-      {canBrowseLocalFiles ? <button className="nodeSmallButton nodrag nopan" onClick={() => onBrowse(kind)}>Browse...</button> : null}
+      <button className="nodeSmallButton nodrag nopan" onClick={() => onBrowse(kind)}>{canBrowseLocalFiles ? "Browse..." : "Upload..."}</button>
       {!path ? <div className="nodeWarning">Path required</div> : null}
       {imageSrc ? (
         <button

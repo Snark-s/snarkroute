@@ -2,13 +2,18 @@ import { createReadStream } from "node:fs";
 import { copyFile, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
+import type { ExecuteOptions, RunResult } from "@snarkroute/executor";
+import type { OpenRoute } from "@snarkroute/protocol";
 import { builtInNodeManifests, loadInstalledNodeManifests, loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type PromptLibraryPrompt, type SnarkNodeManifest } from "@snarkroute/nodes";
 import { librariesDirectory } from "../server-paths";
 import { sanitizeFilename } from "../assets/service";
 import { createRouteExecutor } from "../execution/service";
+import { saveProviderUsageEventsForRunResult } from "../billing/provider-usage-events";
 import { createTextPromptAsset } from "../prompt-library/service";
 import { fetchWithTimeout } from "../services/http";
+import { appMode } from "../services/env";
 import { providerNodeManifests } from "../providers/provider-node-manifests";
+import { loadCanvasActionManifests } from "../canvas-actions/service";
 import { embedImageProvenance, imageMetadataSchema, type SnarkImageMetadata } from "./image-metadata";
 import type {
   AppendImageStackInput,
@@ -1335,7 +1340,6 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
   }
   const autoOnlyPolza = input.executionProvider === "auto" && input.availableExecutionProviders?.length === 1 && input.availableExecutionProviders[0] === "polza";
   const nodeType = input.executionProvider === "polza" || autoOnlyPolza ? "polza.image.generate" : "ai.image.generate";
-  const executor = await createRouteExecutor();
   const route = {
     routeVersion: "0.1",
     route: {
@@ -1350,7 +1354,7 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
     }],
     edges: []
   };
-  return executor.executeRoute(route);
+  return executeSnarkRouteWithUsageStats(route);
 }
 
 async function runTextModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[] }) {
@@ -1362,8 +1366,7 @@ async function runTextModelForStackItem(input: { nodeId: string; modelId: string
   const canFallbackFromPolza = input.executionProvider === "polza"
     && input.fallbackAllowed !== false
     && (input.availableExecutionProviders?.some((provider) => provider !== "polza") ?? true);
-  const executor = await createRouteExecutor();
-  const executeTextRoute = (nodeType: "ai.text" | "polza.text", executionProvider: string, providerMode: string) => executor.executeRoute({
+  const executeTextRoute = (nodeType: "ai.text" | "polza.text", executionProvider: string, providerMode: string) => executeSnarkRouteWithUsageStats({
       routeVersion: "0.1",
       route: { id: `snarkroute-text-generation-${input.nodeId}`, title: "SnarkRoute Text Generation", author: { name: "SnarkRoute" } },
       nodes: [{
@@ -1402,10 +1405,25 @@ function generationRunFailed(runResult: { status?: string; nodeResults?: Record<
   return runResult.status === "failed" || runResult.nodeResults?.generate?.status === "failed";
 }
 
+async function executeSnarkRouteWithUsageStats(route: OpenRoute, options?: ExecuteOptions): Promise<RunResult> {
+  const executor = await createRouteExecutor();
+  const runResult = options ? await executor.executeRoute(route, options) : await executor.executeRoute(route);
+  await persistSnarkUsageStats(runResult);
+  return runResult;
+}
+
+async function persistSnarkUsageStats(runResult: RunResult): Promise<void> {
+  if (appMode() !== "cloud") return;
+  try {
+    await saveProviderUsageEventsForRunResult(runResult, { recordCredits: true });
+  } catch {
+    // Usage statistics must not break Snark canvas generation.
+  }
+}
+
 async function runVideoModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
   if (input.executionProvider === "openrouter") return runOpenRouterVideoModelForStackItem(input);
   if (input.executionProvider !== "auto" && input.executionProvider !== "polza") throw new Error("Video generation is currently available through polza.ai or OpenRouter.");
-  const executor = await createRouteExecutor();
   const route = {
     routeVersion: "0.1",
     route: {
@@ -1420,7 +1438,7 @@ async function runVideoModelForStackItem(input: { nodeId: string; modelId: strin
     }],
     edges: []
   };
-  return executor.executeRoute(route);
+  return executeSnarkRouteWithUsageStats(route);
 }
 
 async function runAudioModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; prompt: string; mediaInputs: GenerationMediaInput[]; parameters: ImageGenerationSettings }) {
@@ -1957,12 +1975,14 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
 
 export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
   const action = await findCanvasActionManifest(input.actionId);
   if (!action) throw new Error(`Canvas action "${input.actionId}" was not found.`);
   const inputPort = action.inputs[0];
   const source = await canvasActionSourceInput(libraryPath, input.nodeId, inputPort.type);
-  const executor = await createRouteExecutor();
-  const runResult = await executor.executeRoute({
+  const targetNode = input.targetNodeId ? canvas.nodes.find((node) => node.id === input.targetNodeId) : undefined;
+  if (input.targetNodeId && !targetNode) throw new Error(`Target node "${input.targetNodeId}" was not found.`);
+  const runResult = await executeSnarkRouteWithUsageStats({
     routeVersion: "0.1",
     route: {
       id: `snarkroute-canvas-action-${action.id}-${input.nodeId}`,
@@ -1986,9 +2006,21 @@ export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Prom
   for (const port of action.outputs) {
     const value = output[port.id];
     if (value === undefined || value === null) continue;
+    if (targetNode) {
+      if (targetNode.type !== port.type) continue;
+      await appendCanvasActionOutputToTargetStack({
+        targetNodeId: targetNode.id,
+        title: port.label ?? action.canvasAction?.title ?? action.title,
+        type: port.type,
+        value
+      });
+      created += 1;
+      continue;
+    }
     await materializeCanvasActionOutput({
       libraryPath,
       sourceNodeId: input.nodeId,
+      actionId: input.actionId,
       title: port.label ?? action.canvasAction?.title ?? action.title,
       type: port.type,
       value,
@@ -2166,12 +2198,64 @@ export async function deleteCanvasNode(nodeId: string): Promise<LibrarySnapshot>
   const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
   canvas.nodes = canvas.nodes.filter((node) => node.id !== nodeId);
   canvas.edges = (canvas.edges ?? []).filter((edge) => edge.fromNodeId !== nodeId && edge.toNodeId !== nodeId);
+  await moveCanvasNodeFolderToTrash(libraryPath, nodePath);
   await writeCanvas(libraryPath, canvas);
-  const trashDirectory = join(libraryPath, ".trash", "nodes");
-  await mkdir(trashDirectory, { recursive: true });
-  await rename(nodePath, join(trashDirectory, `${basename(nodePath)}-${Date.now().toString(36)}-${shortId()}`));
   await replaceDeletedRepresentativeImage(libraryPath, nodeId);
   return readLibrarySnapshot(libraryPath);
+}
+
+export async function trashOrphanCanvasNodeFolders(): Promise<{ snapshot: LibrarySnapshot; movedCount: number; movedNodePaths: string[]; failedCount: number; failedNodePaths: Array<{ nodePath: string; error: string }> }> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const hydratedNodes = await readCanvasNodes(libraryPath, canvas);
+  const retainedNodeIds = new Set(hydratedNodes.map((node) => node.canvas.id));
+  const retainedCanvasNodes = hydratedNodes.map((node) => node.canvas);
+  const referencedNodePaths = new Set(retainedCanvasNodes.map((node) => node.nodePath.split("\\").join("/").toLowerCase()));
+  const nodesDirectory = join(libraryPath, "nodes");
+  const entries = await readdir(nodesDirectory, { withFileTypes: true }).catch(() => []);
+  const movedNodePaths: string[] = [];
+  const failedNodePaths: Array<{ nodePath: string; error: string }> = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.endsWith(".node")) continue;
+    const nodePath = join(nodesDirectory, entry.name);
+    const relativePath = portableRelativePath(libraryPath, nodePath);
+    if (referencedNodePaths.has(relativePath.toLowerCase())) continue;
+    try {
+      await moveCanvasNodeFolderToTrash(libraryPath, nodePath);
+      movedNodePaths.push(relativePath);
+    } catch (error) {
+      failedNodePaths.push({ nodePath: relativePath, error: errorMessageText(error) });
+    }
+  }
+
+  canvas.nodes = retainedCanvasNodes;
+  canvas.edges = (canvas.edges ?? []).filter((edge) => retainedNodeIds.has(edge.fromNodeId) && retainedNodeIds.has(edge.toNodeId));
+  await writeCanvas(libraryPath, canvas);
+
+  return { snapshot: await readLibrarySnapshot(libraryPath), movedCount: movedNodePaths.length, movedNodePaths, failedCount: failedNodePaths.length, failedNodePaths };
+}
+
+async function moveCanvasNodeFolderToTrash(libraryPath: string, nodePath: string): Promise<void> {
+  if (!await pathExists(nodePath)) return;
+  const trashDirectory = join(libraryPath, ".trash", "nodes");
+  await mkdir(trashDirectory, { recursive: true });
+  const targetPath = join(trashDirectory, `${basename(nodePath)}-${Date.now().toString(36)}-${shortId()}`);
+  try {
+    await rename(nodePath, targetPath);
+  } catch (error) {
+    await cp(nodePath, targetPath, { recursive: true, force: false, errorOnExist: true });
+    try {
+      await rm(nodePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
+    } catch (removeError) {
+      await rm(targetPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 150 }).catch(() => undefined);
+      throw removeError;
+    }
+  }
+}
+
+function errorMessageText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export async function deleteCanvasEdge(edgeId: string): Promise<LibrarySnapshot> {
@@ -2807,7 +2891,8 @@ async function findCanvasActionManifest(actionId: string): Promise<SnarkNodeMani
   const manifests = [
     ...builtInNodeManifests,
     ...providerNodeManifests(),
-    ...await loadInstalledNodeManifests()
+    ...await loadInstalledNodeManifests(),
+    ...await loadCanvasActionManifests()
   ];
   return manifests.find((manifest) =>
     manifest.id === actionId
@@ -2842,7 +2927,7 @@ async function canvasActionSourceInput(libraryPath: string, nodeId: string, expe
   return { value: active?.text ?? manifest.text ?? "", canvas: canvasNode };
 }
 
-async function materializeCanvasActionOutput(input: { libraryPath: string; sourceNodeId: string; title: string; type: string; value: unknown; x: number; y: number; width: number; height: number }): Promise<void> {
+async function materializeCanvasActionOutput(input: { libraryPath: string; sourceNodeId: string; actionId: string; title: string; type: string; value: unknown; x: number; y: number; width: number; height: number }): Promise<void> {
   if (input.type === "text") {
     const text = textFromActionOutput(input.value);
     if (!text.trim()) return;
@@ -2852,9 +2937,9 @@ async function materializeCanvasActionOutput(input: { libraryPath: string; sourc
       dropX: input.x,
       dropY: input.y,
       width: input.width,
-      height: 180,
-      connectFromNodeId: input.sourceNodeId
+      height: 180
     });
+    await connectLatestCanvasNode(input.libraryPath, input.sourceNodeId, "canvasAction", input.actionId);
     return;
   }
   const asset = assetFromActionOutput(input.value);
@@ -2876,8 +2961,7 @@ async function materializeCanvasActionOutput(input: { libraryPath: string; sourc
       dropX: input.x,
       dropY: input.y,
       width: input.width,
-      height: input.height,
-      connectFromNodeId: input.sourceNodeId
+      height: input.height
     });
   } else if (input.type === "audio") {
     await importAudioAsNode({
@@ -2886,11 +2970,41 @@ async function materializeCanvasActionOutput(input: { libraryPath: string; sourc
       dropX: input.x,
       dropY: input.y,
       width: input.width,
-      height: input.height,
-      connectFromNodeId: input.sourceNodeId
+      height: input.height
     });
   }
-  if (input.type === "image") await connectLatestCanvasNode(input.libraryPath, input.sourceNodeId);
+  if (input.type === "image" || input.type === "video" || input.type === "audio") await connectLatestCanvasNode(input.libraryPath, input.sourceNodeId, "canvasAction", input.actionId);
+}
+
+async function appendCanvasActionOutputToTargetStack(input: { targetNodeId: string; title: string; type: string; value: unknown }): Promise<void> {
+  if (input.type === "text") {
+    const text = textFromActionOutput(input.value);
+    if (!text.trim()) return;
+    await appendTextToNodeStack(input.targetNodeId, text, input.title);
+    return;
+  }
+  const asset = assetFromActionOutput(input.value);
+  const sourcePath = asset.localPath ?? asset.path;
+  if (!sourcePath) return;
+  if (input.type === "image") {
+    await appendImageToNodeStack({
+      nodeId: input.targetNodeId,
+      filename: asset.filename ?? (basename(sourcePath) || "output.png"),
+      sourcePath: await localActionAssetPath(sourcePath, "image")
+    });
+  } else if (input.type === "video") {
+    await appendVideoToNodeStack({
+      nodeId: input.targetNodeId,
+      filename: asset.filename ?? (basename(sourcePath) || "output.mp4"),
+      sourcePath: await localActionAssetPath(sourcePath, "video")
+    });
+  } else if (input.type === "audio") {
+    await appendAudioToNodeStack({
+      nodeId: input.targetNodeId,
+      filename: asset.filename ?? (basename(sourcePath) || "output.mp3"),
+      sourcePath: await localActionAssetPath(sourcePath, "audio")
+    });
+  }
 }
 
 async function localActionAssetPath(path: string, kind: "image" | "video" | "audio"): Promise<string> {
@@ -2906,11 +3020,11 @@ async function localActionAssetPath(path: string, kind: "image" | "video" | "aud
   return temporaryPath;
 }
 
-async function connectLatestCanvasNode(libraryPath: string, sourceNodeId: string): Promise<void> {
+async function connectLatestCanvasNode(libraryPath: string, sourceNodeId: string, kind?: "canvasAction", actionId?: string): Promise<void> {
   const canvas = await ensureCanvas(libraryPath);
   const target = canvas.nodes[canvas.nodes.length - 1];
   if (!target || target.id === sourceNodeId) return;
-  canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: sourceNodeId, toNodeId: target.id }];
+  canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: sourceNodeId, toNodeId: target.id, kind, actionId }];
   await writeCanvas(libraryPath, canvas);
 }
 

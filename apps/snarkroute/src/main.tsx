@@ -1,6 +1,7 @@
 import "./styles.css";
 import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Cog, Copy, Crop, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Maximize2, Minimize2, Moon, Music, PanelRight, RefreshCw, Save, Scissors, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
 import { Aperture, Archive, ArrowDown, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clock3, Compass, Cpu, Database, Eraser, Eye, EyeOff, FileAudio, FileImage, FileJson, FileText, FileVideo, Film, Filter, Flag, FlipHorizontal, FlipVertical, FolderOpen, Globe, Grid3X3, Headphones, Heart, Link, List, Mail, Map as MapIcon, MapPin, MessageSquare, Mic, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Pin, Play, Plus, Radio, Repeat, RotateCcw, RotateCw, Route, Search, Send, Settings, Share2, Shuffle, SlidersHorizontal, Sparkles, Square, Star, Table, Type, Upload, Volume2, Wand2, X, Zap, ZoomIn, ZoomOut } from "lucide-react";
+import JSZip from "jszip";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -106,7 +107,8 @@ interface CanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop";
+  kind?: "representation" | "crop" | "canvasAction";
+  actionId?: string;
   note?: string;
 }
 
@@ -278,7 +280,7 @@ interface LibraryNodeView {
 type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView;
 type EditableNodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView;
 type EditableNodeType = EditableNodeView["manifest"]["type"];
-type BuiltInNodeToolbarActionId = "download" | "crop" | "expand" | "upload" | "stack" | "collapse";
+type BuiltInNodeToolbarActionId = "download" | "crop" | "expand" | "upload" | "stack" | "collapse" | "delete";
 type NodeToolbarActionId = string;
 type NodeToolbarConfig = Record<EditableNodeType, NodeToolbarActionId[]>;
 
@@ -294,6 +296,44 @@ interface CanvasNodeAction {
 
 interface CanvasNodeActionsResponse {
   actions: CanvasNodeAction[];
+}
+
+interface NodePackageExportResponse {
+  ok: boolean;
+  filename?: string;
+  contentType?: string;
+  text?: string;
+  dataBase64?: string;
+  error?: string;
+}
+
+interface CanvasSettingsPackageEntry {
+  path: string;
+  filename: string;
+  contentType?: string;
+}
+
+interface CanvasSettingsManifestFile {
+  format: "snarkroute.settings";
+  version: "0.1";
+  exportedAt: string;
+  product: "snarkroute";
+  sections: string[];
+}
+
+interface LivingCanvasSettingsFile {
+  nodeToolbarConfig: NodeToolbarConfig;
+  canvasActionSettings: Record<string, CanvasActionButtonSettings>;
+  buttonPackages: CanvasSettingsPackageEntry[];
+}
+
+interface LegacyCanvasButtonSetupFile {
+  format: "snarkroute.livingCanvasButtonSetup";
+  version: "0.1";
+  exportedAt: string;
+  nodeToolbarConfig: NodeToolbarConfig;
+  canvasActionSettings: Record<string, CanvasActionButtonSettings>;
+  packages: Array<{ filename: string; contentType?: string; text?: string; dataBase64?: string }>;
 }
 
 interface NodeToolbarAction {
@@ -507,6 +547,7 @@ declare global {
 }
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
+const boojumRouteLabUrl = import.meta.env.VITE_BOOJUM_URL || "http://127.0.0.1:5173";
 const themeStorageKey = "snarkroute.theme";
 const backgroundStorageKey = "snarkroute.canvasBackground";
 const nodeToolbarConfigStorageKey = "snarkroute.nodeToolbarConfig";
@@ -541,7 +582,8 @@ const builtInNodeToolbarActions: Array<{ id: BuiltInNodeToolbarActionId; label: 
   { id: "expand", label: "Expand" },
   { id: "upload", label: "Upload" },
   { id: "stack", label: "Stack" },
-  { id: "collapse", label: "Collapse" }
+  { id: "collapse", label: "Collapse" },
+  { id: "delete", label: "Delete node" }
 ];
 const defaultNodeToolbarConfig: NodeToolbarConfig = {
   image: ["download", "crop", "expand"],
@@ -588,6 +630,8 @@ function App() {
   const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
   const [providerErrors, setProviderErrors] = useState<Partial<Record<string, string>>>({});
   const [providerNotice, setProviderNotice] = useState<Partial<Record<string, string>>>({});
+  const [orphanCleanupBusy, setOrphanCleanupBusy] = useState(false);
+  const [orphanCleanupMessage, setOrphanCleanupMessage] = useState("");
   const [customModels, setCustomModels] = useStoredJsonSetting<ModelOption[]>("snarkroute.customModels", []);
   const [localProviders, setLocalProviders] = useStoredJsonSetting<LocalProviderConnection[]>("snarkroute.localProviders", []);
   const [modelSearchNodeId, setModelSearchNodeId] = useState<string | null>(null);
@@ -600,6 +644,7 @@ function App() {
   const interactionMovedRef = useRef(false);
   const undoStackRef = useRef<CanvasDocument[]>([]);
   const libraryMutationSeqRef = useRef(0);
+  const canvasButtonSetupInputRef = useRef<HTMLInputElement | null>(null);
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -1057,6 +1102,16 @@ function App() {
       return;
     }
     const files = [...event.dataTransfer.files];
+    const setupFile = files.find((item) => canImportCanvasSettingsFilename(item.name));
+    if (setupFile) {
+      await importCanvasSettingsFile(setupFile);
+      return;
+    }
+    const packageFile = files.find((item) => canImportNodePackageFilename(item.name));
+    if (packageFile) {
+      await importNodePackageFile(packageFile);
+      return;
+    }
     const file = files.find((item) => isImageFile(item) || isVideoFile(item) || isAudioFile(item) || isTextFile(item));
     const canvas = canvasRef.current;
     if (!file || !canvas) {
@@ -2174,6 +2229,30 @@ function App() {
     }
   }
 
+  async function trashOrphanNodeFolders() {
+    if (orphanCleanupBusy) return;
+    setOrphanCleanupBusy(true);
+    setOrphanCleanupMessage("Scanning node folders...");
+    setStatus("Scanning orphan node folders...");
+    try {
+      const result = await apiPost<{ snapshot: LibrarySnapshot; movedCount: number; movedNodePaths: string[]; failedCount?: number; failedNodePaths?: Array<{ nodePath: string; error: string }> }>("/api/libraries/current/nodes/trash-orphans", {});
+      applyLibrarySnapshot(result.snapshot);
+      const failedCount = result.failedCount ?? 0;
+      const firstFailure = result.failedNodePaths?.[0];
+      const message = failedCount > 0
+        ? `Moved ${result.movedCount}; ${failedCount} folder(s) blocked${firstFailure ? `: ${firstFailure.nodePath}` : ""}`
+        : result.movedCount === 0 ? "No orphan node folders found" : `Moved ${result.movedCount} orphan node folder(s) to .trash`;
+      setOrphanCleanupMessage(message);
+      setStatus(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not clean orphan node folders.";
+      setOrphanCleanupMessage(message);
+      setStatus(message);
+    } finally {
+      setOrphanCleanupBusy(false);
+    }
+  }
+
   async function deleteSelectedEdge(edgeId: string) {
     try {
       pushUndoSnapshot();
@@ -2272,13 +2351,173 @@ function App() {
     const canvasActionId = canvasActionIdFromToolbarId(actionId);
     if (!canvasActionId) return;
     try {
-      await apiDelete(`/api/node-packages/${encodeURIComponent(canvasActionId)}`);
+      await apiDelete(`/api/canvas-actions/${encodeURIComponent(canvasActionId)}`);
       const { [canvasActionId]: _removed, ...rest } = canvasActionSettings;
       setCanvasActionSettings(rest);
       await refreshCanvasNodeActions();
       setStatus("Canvas action deleted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete canvas action package.");
+    }
+  }
+
+  async function exportCanvasActionPackage(actionId: NodeToolbarActionId) {
+    setNodeActionContextMenu(null);
+    const canvasActionId = canvasActionIdFromToolbarId(actionId);
+    const action = availableNodeToolbarActions.find((candidate) => candidate.id === actionId)?.canvasAction;
+    if (!canvasActionId || !action) return;
+    const settings = canvasActionSettings[canvasActionId];
+    const icon = settings?.icon ?? action.icon;
+    try {
+      const result = await apiPost<NodePackageExportResponse>(`/api/node-packages/${encodeURIComponent(canvasActionId)}/export`, {
+        canvasAction: {
+          title: settings?.title?.trim() || action.title,
+          ...(icon ? { icon } : {})
+        }
+      });
+      if (!result.ok) throw new Error(result.error ?? "Export failed.");
+      const bytes = result.dataBase64 ? Uint8Array.from(atob(result.dataBase64), (char) => char.charCodeAt(0)) : String(result.text ?? "");
+      downloadBlob(new Blob([bytes], { type: result.contentType ?? "application/octet-stream" }), result.filename ?? `${canvasActionId}.snarknode`);
+      setStatus("Canvas action exported");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not export canvas action.");
+    }
+  }
+
+  async function importNodePackageFile(file: File) {
+    try {
+      const isArchive = /\.snarknode$/i.test(file.name);
+      const payload = {
+        filename: file.name,
+        fileName: file.name,
+        text: isArchive ? "" : await file.text(),
+        dataBase64: isArchive ? await fileToBase64(file) : undefined,
+        source: file.name
+      };
+      const result = await apiPost<{ ok: boolean; manifest?: { id?: string; title?: string }; error?: string; issues?: unknown }>("/api/node-packages/install", payload);
+      if (!result.ok) throw new Error(result.error ?? "Could not install node package.");
+      await refreshCanvasNodeActions();
+      setStatus(`Installed ${result.manifest?.title ?? result.manifest?.id ?? file.name}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not install dropped node package.");
+    }
+  }
+
+  async function exportCanvasSettingsArchive() {
+    try {
+      const zip = new JSZip();
+      const packages: CanvasSettingsPackageEntry[] = [];
+      for (const action of canvasNodeActions) {
+        const settings = canvasActionSettings[action.id];
+        const icon = settings?.icon ?? action.icon;
+        const result = await apiPost<NodePackageExportResponse>(`/api/node-packages/${encodeURIComponent(action.id)}/export`, {
+          canvasAction: {
+            title: settings?.title?.trim() || action.title,
+            ...(icon ? { icon } : {})
+          }
+        });
+        if (!result.ok) throw new Error(result.error ?? `Could not export ${action.id}.`);
+        const filename = result.filename ?? `${action.id}.snarknode`;
+        const path = `buttons/${safeArchivePathSegment(filename)}`;
+        const content = result.dataBase64 ? Uint8Array.from(atob(result.dataBase64), (char) => char.charCodeAt(0)) : String(result.text ?? "");
+        zip.file(path, content);
+        packages.push({
+          path,
+          filename,
+          contentType: result.contentType
+        });
+      }
+      const exportedAt = new Date().toISOString();
+      const manifest: CanvasSettingsManifestFile = {
+        format: "snarkroute.settings",
+        version: "0.1",
+        exportedAt,
+        product: "snarkroute",
+        sections: ["livingCanvas"]
+      };
+      const livingCanvasSettings: LivingCanvasSettingsFile = {
+        nodeToolbarConfig: effectiveNodeToolbarConfig,
+        canvasActionSettings,
+        buttonPackages: packages
+      };
+      zip.file("settings/manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+      zip.file("settings/living-canvas.json", `${JSON.stringify(livingCanvasSettings, null, 2)}\n`);
+      zip.file("README.txt", [
+        "SnarkRoute settings archive.",
+        "Drop this archive onto Living Canvas or import it from the right settings panel.",
+        "buttons/ contains portable Living Canvas action node packages."
+      ].join("\n"));
+      const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 9 } });
+      downloadBlob(blob, "snarkroute-settings.snarksettings.zip");
+      setStatus("Settings exported");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not export settings.");
+    }
+  }
+
+  async function importCanvasSettingsFile(file: File) {
+    try {
+      if (/\.snarkbuttons\.json$/i.test(file.name)) {
+        await importLegacyCanvasButtonSetupFile(file);
+        return;
+      }
+      const zip = await JSZip.loadAsync(await file.arrayBuffer());
+      const manifestEntry = zip.file("settings/manifest.json");
+      const livingCanvasEntry = zip.file("settings/living-canvas.json");
+      if (!manifestEntry || !livingCanvasEntry) throw new Error("Unsupported settings archive.");
+      const manifest = JSON.parse(await manifestEntry.async("text")) as Partial<CanvasSettingsManifestFile>;
+      const settings = JSON.parse(await livingCanvasEntry.async("text")) as Partial<LivingCanvasSettingsFile>;
+      if (manifest.format !== "snarkroute.settings" || !Array.isArray(settings.buttonPackages)) throw new Error("Unsupported settings archive.");
+      for (const entry of settings.buttonPackages) {
+        const packageEntry = zip.file(entry.path);
+        if (!packageEntry) throw new Error(`Settings archive is missing ${entry.path}.`);
+        const isArchive = /\.snarknode$/i.test(entry.filename);
+        const data = await packageEntry.async(isArchive ? "uint8array" : "text");
+        await apiPost("/api/node-packages/install", {
+          filename: entry.filename,
+          fileName: entry.filename,
+          text: isArchive ? "" : data,
+          dataBase64: isArchive ? uint8ArrayToBase64(data as Uint8Array) : undefined,
+          source: entry.filename
+        });
+      }
+      if (settings.nodeToolbarConfig) setNodeToolbarConfig(settings.nodeToolbarConfig);
+      if (settings.canvasActionSettings) setCanvasActionSettings(settings.canvasActionSettings);
+      await refreshCanvasNodeActions();
+      setStatus("Settings imported");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not import settings.");
+    }
+  }
+
+  async function importLegacyCanvasButtonSetupFile(file: File) {
+    const setup = JSON.parse(await file.text()) as Partial<LegacyCanvasButtonSetupFile>;
+    if (setup.format !== "snarkroute.livingCanvasButtonSetup" || !Array.isArray(setup.packages)) throw new Error("Unsupported button setup file.");
+    for (const entry of setup.packages) {
+      await apiPost("/api/node-packages/install", {
+        filename: entry.filename,
+        fileName: entry.filename,
+        text: entry.text ?? "",
+        dataBase64: entry.dataBase64,
+        source: entry.filename
+      });
+    }
+    if (setup.nodeToolbarConfig) setNodeToolbarConfig(setup.nodeToolbarConfig);
+    if (setup.canvasActionSettings) setCanvasActionSettings(setup.canvasActionSettings);
+    await refreshCanvasNodeActions();
+    setStatus("Legacy button setup imported");
+  }
+
+  async function openBoojumRouteLab() {
+    try {
+      const result = await apiPost<{ ok: boolean; url?: string; started?: boolean }>("/api/system/open-boojum", { studioPort: new URL(boojumRouteLabUrl).port || "5173" });
+      const opened = window.open(result.url ?? boojumRouteLabUrl, "boojumroute-lab");
+      opened?.focus();
+      setStatus(result.started ? "Starting BoojumRoute Lab..." : "Opening BoojumRoute Lab");
+    } catch (error) {
+      const opened = window.open(boojumRouteLabUrl, "boojumroute-lab");
+      opened?.focus();
+      setStatus(error instanceof Error ? error.message : "Opening BoojumRoute Lab");
     }
   }
 
@@ -2345,6 +2584,27 @@ function App() {
       setStatus("Canvas action completed");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not run canvas action.");
+    } finally {
+      setCanvasActionRunning((current) => {
+        const { [key]: _done, ...rest } = current;
+        return rest;
+      });
+    }
+  }
+
+  async function rerunCanvasActionEdge(edge: CanvasEdge) {
+    if (edge.kind !== "canvasAction" || !edge.actionId) return;
+    const key = `edge:${edge.id}:${edge.actionId}`;
+    try {
+      setCanvasActionRunning((current) => ({ ...current, [key]: edge.actionId! }));
+      setStatus("Refreshing action connection...");
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(edge.fromNodeId)}/canvas-actions/${encodeURIComponent(edge.actionId)}/run`, {
+        targetNodeId: edge.toNodeId
+      });
+      applyLibrarySnapshot(snapshot);
+      setStatus("Action result added to stack");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not refresh action connection.");
     } finally {
       setCanvasActionRunning((current) => {
         const { [key]: _done, ...rest } = current;
@@ -2432,8 +2692,11 @@ function App() {
             edges={edges}
             preview={connectionPreview}
             selectedEdgeId={selectedEdgeId}
+            actions={availableNodeToolbarActions}
+            runningEdgeActionKey={Object.keys(canvasActionRunning).find((key) => key.startsWith("edge:")) ?? null}
             onSyncRepresentation={(edgeId) => void syncRepresentationEdge(edgeId)}
             onOpenCrop={(nodeId, cropNodeId) => void openCropEditor(nodeId, cropNodeId)}
+            onRunCanvasActionEdge={(edge) => void rerunCanvasActionEdge(edge)}
             onSelectEdge={(edgeId) => {
               setSelectedEdgeId(edgeId);
               setSelectedNodeId(null);
@@ -2486,6 +2749,7 @@ function App() {
               onOpenCrop={openCropEditor}
               onUploadStackImage={(nodeId) => void uploadImageToNodeStack(nodeId)}
               onToggleCollapsed={toggleNodeCollapsed}
+              onDeleteNode={(nodeId) => void deleteSelectedNodes([nodeId])}
               openStack={openStackNodeId === node.canvas.id}
               onToggleStack={(nodeId) => setOpenStackNodeId((current) => current === nodeId ? null : nodeId)}
               onSelectStackImage={(nodeId, index) => {
@@ -2566,15 +2830,16 @@ function App() {
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
             >
-              <button
-                className="edgeBreakButton"
-                type="button"
-                title="Разорвать связь"
-                aria-label="Разорвать связь"
-                onClick={() => void deleteSelectedEdge(selectedEdge.id)}
-              >
-                <Scissors size={15} />
-              </button>
+              <div className="edgeActionToolbar" aria-label="Connection actions">
+                <button
+                  type="button"
+                  title="Разорвать связь"
+                  aria-label="Разорвать связь"
+                  onClick={() => void deleteSelectedEdge(selectedEdge.id)}
+                >
+                  <Scissors size={15} />
+                </button>
+              </div>
               <textarea
                 value={edgeNoteDraft}
                 placeholder="Заметка"
@@ -2667,9 +2932,14 @@ function App() {
       {nodeActionContextMenu ? (
         <div className="nodeActionContextMenu" style={{ left: nodeActionContextMenu.x, top: nodeActionContextMenu.y }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
           {availableNodeToolbarActions.find((action) => action.id === nodeActionContextMenu.actionId)?.canvasAction ? (
-            <button type="button" onClick={() => openCanvasActionSettings(nodeActionContextMenu.actionId)}>
-              <Cog size={14} /> Edit button
-            </button>
+            <>
+              <button type="button" onClick={() => openCanvasActionSettings(nodeActionContextMenu.actionId)}>
+                <Cog size={14} /> Edit button
+              </button>
+              <button type="button" onClick={() => void exportCanvasActionPackage(nodeActionContextMenu.actionId)}>
+                <Download size={14} /> Export
+              </button>
+            </>
           ) : null}
           <button type="button" onClick={() => void deleteNodeToolbarAction(nodeActionContextMenu.actionId, nodeActionContextMenu.type)}>
             <Trash2 size={14} /> {nodeActionContextMenu.type ? "Remove from type" : "Delete"}
@@ -2873,6 +3143,41 @@ function App() {
               <PanelRight size={18} />
             </button>
           </div>
+          <section className="buttonSetupPanel" aria-label="Settings">
+            <header>
+              <strong>Settings</strong>
+              <span>{canvasNodeActions.length} actions</span>
+            </header>
+            <div className="buttonSetupActions">
+              <button type="button" onClick={() => void openBoojumRouteLab()} title="Open BoojumRoute Lab">
+                <ExternalLink size={14} />
+                Boojum
+              </button>
+              <button type="button" onClick={() => void exportCanvasSettingsArchive()} title="Export settings archive">
+                <FileDown size={14} />
+                Export
+              </button>
+              <button type="button" onClick={() => canvasButtonSetupInputRef.current?.click()} title="Import settings archive">
+                <FileUp size={14} />
+                Import
+              </button>
+              <button type="button" disabled={orphanCleanupBusy} onClick={() => void trashOrphanNodeFolders()} title="Move node folders not referenced by visible canvas nodes to .trash">
+                {orphanCleanupBusy ? <RefreshCw size={14} /> : <Trash2 size={14} />}
+                {orphanCleanupBusy ? "Cleaning..." : "Trash orphans"}
+              </button>
+              <input
+                ref={canvasButtonSetupInputRef}
+                type="file"
+                accept=".snarksettings.zip,.snarkbuttons.json,application/zip,application/json"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  if (file) void importCanvasSettingsFile(file);
+                }}
+              />
+            </div>
+            {orphanCleanupMessage ? <p className="buttonSetupMessage">{orphanCleanupMessage}</p> : null}
+          </section>
           <ModelsPanel
             settings={providerSettings}
             errors={providerErrors}
@@ -2915,16 +3220,68 @@ function NodeActionPanel({
 }) {
   const builtInActions = actions.filter((action) => !action.canvasAction);
   const canvasActions = actions.filter((action) => action.canvasAction);
+  const [pointerDrag, setPointerDrag] = useState<{ actionId: NodeToolbarActionId; startX: number; startY: number; x: number; y: number; active: boolean } | null>(null);
+  const suppressTokenClickRef = useRef(false);
 
   function actionFromDrop(event: React.DragEvent<HTMLElement>): NodeToolbarActionId | null {
-    const actionId = event.dataTransfer.getData("text/snarkroute-toolbar-action") as NodeToolbarActionId;
+    const actionId = (event.dataTransfer.getData("text/snarkroute-toolbar-action") || event.dataTransfer.getData("text/plain")) as NodeToolbarActionId;
     return actions.some((action) => action.id === actionId) ? actionId : null;
+  }
+
+  function beginActionDrag(event: React.DragEvent<HTMLElement>, actionId: NodeToolbarActionId) {
+    event.dataTransfer.effectAllowed = "copyMove";
+    event.dataTransfer.setData("text/snarkroute-toolbar-action", actionId);
+    event.dataTransfer.setData("text/plain", actionId);
   }
 
   function supportedActionFromDrop(event: React.DragEvent<HTMLElement>, type: EditableNodeType): NodeToolbarActionId | null {
     const actionId = actionFromDrop(event);
     return actionId && nodeToolbarActionSupported(actionId, type, actions) ? actionId : null;
   }
+
+  function beginPointerActionDrag(event: React.PointerEvent<HTMLElement>, actionId: NodeToolbarActionId) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    setPointerDrag({ actionId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, active: false });
+  }
+
+  useEffect(() => {
+    if (!pointerDrag) return;
+
+    function handlePointerMove(event: PointerEvent) {
+      setPointerDrag((current) => {
+        if (!current) return current;
+        const moved = Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 4;
+        return { ...current, x: event.clientX, y: event.clientY, active: current.active || moved };
+      });
+    }
+
+    function handlePointerUp(event: PointerEvent) {
+      setPointerDrag((current) => {
+        if (!current) return null;
+        if (current.active) {
+          suppressTokenClickRef.current = true;
+          const targetElement = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
+          const target = targetElement?.closest<HTMLElement>("[data-node-action-target-type]");
+          const type = target?.dataset.nodeActionTargetType as EditableNodeType | undefined;
+          if (type && nodeToolbarActionSupported(current.actionId, type, actions)) onAddAction(type, current.actionId);
+          window.setTimeout(() => {
+            suppressTokenClickRef.current = false;
+          }, 0);
+        }
+        return null;
+      });
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+    window.addEventListener("pointercancel", handlePointerUp, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [actions, onAddAction, pointerDrag]);
 
   return (
     <div className={`nodeActionPanel${open ? " isOpen" : ""}`} data-canvas-wheel-scroll onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
@@ -2939,10 +3296,11 @@ function NodeActionPanel({
                 key={action.id}
                 type="button"
                 className="nodeActionToken"
-                draggable
+                draggable={false}
                 title={action.label}
                 aria-label={action.label}
-                onDragStart={(event) => event.dataTransfer.setData("text/snarkroute-toolbar-action", action.id)}
+                onPointerDown={(event) => beginPointerActionDrag(event, action.id)}
+                onDragStart={(event) => beginActionDrag(event, action.id)}
               >
                 <NodeToolbarActionIcon action={action} />
               </button>
@@ -2954,10 +3312,11 @@ function NodeActionPanel({
                 key={action.id}
                 type="button"
                 className={`nodeActionToken ${nodeActionTypeClass(action.type)}`}
-                draggable
+                draggable={false}
                 title={`${action.label} · ${action.type}`}
                 aria-label={`${action.label} ${action.type}`}
-                onDragStart={(event) => event.dataTransfer.setData("text/snarkroute-toolbar-action", action.id)}
+                onPointerDown={(event) => beginPointerActionDrag(event, action.id)}
+                onDragStart={(event) => beginActionDrag(event, action.id)}
                 onContextMenu={(event) => onActionContextMenu(event, action.id)}
               >
                 <NodeToolbarActionIcon action={action} />
@@ -2972,12 +3331,14 @@ function NodeActionPanel({
                 <section
                   key={type}
                   className={`nodeActionTarget ${nodeActionTypeClass(type)}`}
+                  data-node-action-target-type={type}
                   onDragOver={(event) => {
                     event.preventDefault();
                     event.dataTransfer.dropEffect = "copy";
                   }}
                   onDrop={(event) => {
                     event.preventDefault();
+                    event.stopPropagation();
                     const actionId = supportedActionFromDrop(event, type);
                     if (actionId) onAddAction(type, actionId);
                   }}
@@ -2989,12 +3350,26 @@ function NodeActionPanel({
                         key={actionId}
                         type="button"
                         className={`nodeActionToken ${nodeActionTypeClass(actions.find((action) => action.id === actionId)?.type)}`}
-                        draggable
+                        draggable={false}
                         title={`Remove ${nodeToolbarActionLabel(actionId, actions)}`}
                         aria-label={`Remove ${nodeToolbarActionLabel(actionId, actions)} from ${option.label}`}
-                        onDragStart={(event) => event.dataTransfer.setData("text/snarkroute-toolbar-action", actionId)}
+                        onPointerDown={(event) => beginPointerActionDrag(event, actionId)}
+                        onDragStart={(event) => beginActionDrag(event, actionId)}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "copy";
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const droppedActionId = supportedActionFromDrop(event, type);
+                          if (droppedActionId) onAddAction(type, droppedActionId);
+                        }}
                         onContextMenu={(event) => onActionContextMenu(event, actionId, type)}
-                        onClick={() => onRemoveAction(type, actionId)}
+                        onClick={() => {
+                          if (suppressTokenClickRef.current) return;
+                          onRemoveAction(type, actionId);
+                        }}
                       >
                         <NodeToolbarActionIcon action={actions.find((action) => action.id === actionId) ?? { id: actionId, label: actionId }} />
                       </button>
@@ -3004,6 +3379,11 @@ function NodeActionPanel({
               );
             })}
           </div>
+          {pointerDrag?.active ? (
+            <div className="nodeActionDragGhost" style={{ left: pointerDrag.x, top: pointerDrag.y }}>
+              <NodeToolbarActionIcon action={actions.find((action) => action.id === pointerDrag.actionId) ?? { id: pointerDrag.actionId, label: pointerDrag.actionId }} />
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -3147,8 +3527,8 @@ function canvasActionPresetIcon(name: string, size = 16) {
 function NodeToolbarActionIcon({ action }: { action: NodeToolbarAction }) {
   const actionId = action.id;
   const icon = action.canvasAction?.icon;
-  if (icon?.kind === "custom" && icon.dataUrl) return <img src={icon.dataUrl} alt="" />;
-  if (icon?.kind === "custom" && icon.svg) return <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(icon.svg)}`} alt="" />;
+  if (icon?.kind === "custom" && icon.dataUrl) return <img src={icon.dataUrl} alt="" draggable={false} />;
+  if (icon?.kind === "custom" && icon.svg) return <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(icon.svg)}`} alt="" draggable={false} />;
   const preset = icon?.kind === "preset" ? icon.name : "";
   if (preset) return canvasActionPresetIcon(preset, 16);
   if (actionId === "download") return <Download size={16} />;
@@ -3156,6 +3536,7 @@ function NodeToolbarActionIcon({ action }: { action: NodeToolbarAction }) {
   if (actionId === "expand") return <Expand size={16} />;
   if (actionId === "upload") return <ImagePlus size={16} />;
   if (actionId === "stack") return <Layers3 size={16} />;
+  if (actionId === "delete") return <Trash2 size={16} />;
   if (action.canvasAction) return <Wrench size={16} />;
   return <Minimize2 size={16} />;
 }
@@ -3167,7 +3548,7 @@ function nodeToolbarActionLabel(actionId: NodeToolbarActionId, actions: NodeTool
 function nodeToolbarActionSupported(actionId: NodeToolbarActionId, type: EditableNodeType, actions: NodeToolbarAction[]): boolean {
   const action = actions.find((candidate) => candidate.id === actionId);
   if (action?.canvasAction) return action.canvasAction.inputType === type;
-  if (type === "text") return actionId === "stack" || actionId === "collapse";
+  if (type === "text") return actionId === "stack" || actionId === "collapse" || actionId === "delete";
   if (actionId === "crop") return type === "image";
   if (actionId === "expand") return type === "image" || type === "video";
   return true;
@@ -3695,16 +4076,22 @@ function CanvasEdges({
   edges,
   preview,
   selectedEdgeId,
+  actions,
+  runningEdgeActionKey,
   onSyncRepresentation,
   onOpenCrop,
+  onRunCanvasActionEdge,
   onSelectEdge
 }: {
   nodes: NodeView[];
   edges: CanvasEdge[];
   preview: Extract<DragState, { kind: "connection" }> | null;
   selectedEdgeId: string | null;
+  actions: NodeToolbarAction[];
+  runningEdgeActionKey: string | null;
   onSyncRepresentation: (edgeId: string) => void;
   onOpenCrop: (nodeId: string, cropNodeId?: string) => void;
+  onRunCanvasActionEdge: (edge: CanvasEdge) => void;
   onSelectEdge: (edgeId: string) => void;
 }) {
   const nodeById = new Map(nodes.map((node) => [node.canvas.id, node.canvas]));
@@ -3716,6 +4103,7 @@ function CanvasEdges({
         const from = nodeById.get(edge.fromNodeId);
         const to = nodeById.get(edge.toNodeId);
         const sourceNode = viewById.get(edge.fromNodeId);
+        const targetNode = viewById.get(edge.toNodeId);
         if (!from || !to) return null;
         const start = nodeOutputPoint(from);
         const end = nodeInputPoint(to);
@@ -3758,6 +4146,41 @@ function CanvasEdges({
                 </button>
               </foreignObject>
             ) : null}
+            {edge.kind === "canvasAction" && edge.actionId ? (() => {
+              const action = actions.find((candidate) => candidate.id === canvasActionToolbarId(edge.actionId!));
+              if (!action?.canvasAction) {
+                return (
+                  <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
+                    <button
+                      className="edgeSyncButton edgeMissingActionButton"
+                      type="button"
+                      title={`Action "${edge.actionId}" is no longer available. This connection was created by that action.`}
+                      aria-label={`Missing action ${edge.actionId}`}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      ?
+                    </button>
+                  </foreignObject>
+                );
+              }
+              const running = runningEdgeActionKey === `edge:${edge.id}:${edge.actionId}`;
+              return (
+                <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
+                  <button
+                    className="edgeSyncButton"
+                    type="button"
+                    title={action.label}
+                    disabled={running}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRunCanvasActionEdge(edge);
+                    }}
+                  >
+                    {running ? <BusyGears /> : <NodeToolbarActionIcon action={action} />}
+                  </button>
+                </foreignObject>
+              );
+            })() : null}
             {edge.note ? (
               <foreignObject x={midpoint.x - 12} y={midpoint.y + 12} width={24} height={24}>
                 <button
@@ -4014,6 +4437,7 @@ function ImageNode({
   onOpenCrop,
   onUploadStackImage,
   onToggleCollapsed,
+  onDeleteNode,
   openStack,
   onToggleStack,
   onSelectStackImage,
@@ -4055,6 +4479,7 @@ function ImageNode({
   onOpenCrop: (nodeId: string) => void;
   onUploadStackImage: (nodeId: string) => void;
   onToggleCollapsed: (nodeId: string) => void;
+  onDeleteNode: (nodeId: string) => void;
   openStack: boolean;
   onToggleStack: (nodeId: string) => void;
   onSelectStackImage: (nodeId: string, index: number) => void;
@@ -4097,6 +4522,7 @@ function ImageNode({
   const [promptInsertRequest, setPromptInsertRequest] = useState<{ token: string; sequence: number } | null>(null);
   const promptInsertSequence = useRef(0);
   const textBaseHeight = node.manifest.type === "text" ? Math.min(node.canvas.height, textNodeBaseHeight) : node.canvas.height;
+  const canvasActionBusy = Boolean(runningCanvasActionId);
   const hasImageInput = inputNodes.some((input) => input.type === "image") || (node.manifest.type === "image" && node.manifest.stack.length > 0);
   const compatibleModels = modelsCompatibleWithNodeInputs(models, node.manifest.type as ContentKind, hasImageInput);
   const displayModels = mergeModelsForDisplay(compatibleModels);
@@ -4221,6 +4647,9 @@ function ImageNode({
         </button>
       );
     }
+    if (actionId === "delete") {
+      return <button key={actionId} type="button" aria-label="Delete node" title="Delete node" onClick={() => onDeleteNode(node.manifest.id)}><Trash2 size={16} /></button>;
+    }
     return <button key={actionId} type="button" aria-label="Collapse node" title="Collapse" onClick={() => onToggleCollapsed(node.manifest.id)}><Minimize2 size={16} /></button>;
   }
 
@@ -4252,7 +4681,7 @@ function ImageNode({
           className={`collapsedNodeStrip${isAudioNode && previewUrl ? ` collapsedAudioStrip${collapsedAudioStackItem?.coverUrl ? " hasCover" : ""}` : ""}`}
           style={isAudioNode && previewUrl ? audioCoverStyle(collapsedAudioStackItem) : undefined}
         >
-          {generationFeedback?.busy ? (
+          {generationFeedback?.busy || canvasActionBusy ? (
             <span className="nodeBusyGears" aria-label="Generating">
               <Cog size={12} className="nodeBusyGearLarge" />
               <Cog size={9} className="nodeBusyGearSmall" />
@@ -4543,7 +4972,7 @@ function ImageNode({
     >
       {active ? activeNodeToolbar() : null}
       <div className="nodeTitle">
-        {generationFeedback?.busy ? (
+        {generationFeedback?.busy || canvasActionBusy ? (
           <span className="nodeBusyGears" aria-label="Generating">
             <Cog size={12} className="nodeBusyGearLarge" />
             <Cog size={9} className="nodeBusyGearSmall" />
@@ -5702,6 +6131,27 @@ function isAudioFile(file: File): boolean {
 
 function isTextFile(file: File): boolean {
   return file.type.startsWith("text/") || /\.(md|txt)$/i.test(file.name);
+}
+
+function canImportNodePackageFilename(filename: string): boolean {
+  return /\.snarknode$/i.test(filename) || /\.node\.json$/i.test(filename);
+}
+
+function canImportCanvasSettingsFilename(filename: string): boolean {
+  return /\.snarksettings\.zip$/i.test(filename) || /\.snarkbuttons\.json$/i.test(filename);
+}
+
+function safeArchivePathSegment(filename: string): string {
+  return filename.replace(/[\\/:"*?<>|]+/g, "-").replace(/^\.+/, "").trim() || "package.snarknode";
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(index, index + chunkSize));
+  }
+  return btoa(binary);
 }
 
 function chooseLocalFolderAction(scan: LocalLibraryScanResult): "open" | "image" | "text" | "video" | "audio" | null {

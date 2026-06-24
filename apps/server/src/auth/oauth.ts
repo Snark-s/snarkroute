@@ -2,8 +2,8 @@ import { randomBytes, randomUUID, createVerify, createPublicKey } from "node:cry
 import type { JsonWebKey } from "node:crypto";
 import type { FastifyRequest, FastifyReply } from "fastify";
 import { getCloudStorage } from "../services/cloud-storage";
-import { isProduction } from "../services/env";
-import { hashAuthValue, providerSubjectHash, SESSION_COOKIE_NAME } from "./adapters";
+import { isCloudStorageConfigured, isProduction } from "../services/env";
+import { createLocalCloudSessionToken, hashAuthValue, providerSubjectHash, SESSION_COOKIE_NAME } from "./adapters";
 
 type OAuthProvider = "google" | "yandex";
 
@@ -12,6 +12,7 @@ const NONCE_COOKIE_NAME = "boojum_oauth_nonce";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 export async function startOAuth(provider: OAuthProvider, request: FastifyRequest, reply: FastifyReply) {
+  assertProductionCloudStorageReady();
   const config = providerConfig(provider);
   const state = randomToken();
   const nonce = randomToken();
@@ -25,6 +26,7 @@ export async function startOAuth(provider: OAuthProvider, request: FastifyReques
 }
 
 export async function finishOAuth(provider: OAuthProvider, request: FastifyRequest, reply: FastifyReply) {
+  assertProductionCloudStorageReady();
   const query = request.query as Record<string, string | undefined>;
   const code = query.code;
   const state = query.state;
@@ -37,6 +39,12 @@ export async function finishOAuth(provider: OAuthProvider, request: FastifyReque
   const subject = provider === "google"
     ? await googleSubject(code, redirectUri, config.clientId, config.clientSecret, cookieValue(request, NONCE_COOKIE_NAME))
     : await yandexSubject(code, redirectUri, config.clientId, config.clientSecret);
+  if (!isCloudStorageConfigured()) {
+    appendSetCookie(reply, cookie(SESSION_COOKIE_NAME, createLocalCloudSessionToken(provider, subject, SESSION_MAX_AGE_SECONDS), SESSION_MAX_AGE_SECONDS, true));
+    appendSetCookie(reply, cookie(STATE_COOKIE_NAME, "", 0, true));
+    appendSetCookie(reply, cookie(NONCE_COOKIE_NAME, "", 0, true));
+    return reply.redirect(postAuthRedirectUrl());
+  }
   const user = await getCloudStorage().findOrCreateUserByIdentity({ provider, providerSubjectHash: providerSubjectHash(provider, subject) });
   const sessionToken = randomUUID() + "." + randomToken();
   await getCloudStorage().createSession({
@@ -48,6 +56,12 @@ export async function finishOAuth(provider: OAuthProvider, request: FastifyReque
   appendSetCookie(reply, cookie(STATE_COOKIE_NAME, "", 0, true));
   appendSetCookie(reply, cookie(NONCE_COOKIE_NAME, "", 0, true));
   return reply.redirect(postAuthRedirectUrl());
+}
+
+function assertProductionCloudStorageReady(): void {
+  if (isProduction() && !isCloudStorageConfigured()) {
+    throw new Error("Cloud auth is not configured. Set DATABASE_URL before using Google or Yandex login.");
+  }
 }
 
 export function clearSessionCookie(reply: FastifyReply) {

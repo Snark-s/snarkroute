@@ -1,0 +1,133 @@
+{
+  "kind": "snarkroute.node",
+  "schemaVersion": "0.1",
+  "id": "x4",
+  "title": "x4",
+  "version": "0.1.0",
+  "author": {
+    "name": "SnarkRoute Studio"
+  },
+  "license": "UNLICENSED",
+  "origin": "generated",
+  "source": "snarkroute-studio",
+  "category": "Compound",
+  "description": "Generated from compound route \"x4\".",
+  "permissions": {
+    "network": false,
+    "networkHosts": [],
+    "readFiles": false,
+    "writeOutputs": false,
+    "shell": false,
+    "env": []
+  },
+  "executor": {
+    "type": "declarative"
+  },
+  "inputs": [
+    {
+      "id": "image",
+      "type": "image",
+      "label": "image"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "image",
+      "type": "image",
+      "label": "image"
+    }
+  ],
+  "canvasAction": {
+    "enabled": true,
+    "title": "x4",
+    "description": "Run \"x4\" from the Living Canvas node toolbar.",
+    "icon": {
+      "kind": "preset",
+      "name": "sparkles"
+    }
+  },
+  "generatedWith": {
+    "tool": "snarkroute-studio",
+    "kind": "compound.subroute",
+    "compound": {
+      "title": "x4",
+      "inputs": [
+        {
+          "id": "image",
+          "label": "image",
+          "kind": "image",
+          "nodeId": "replicate_clarity_upscaler_5",
+          "port": "image"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "image",
+          "label": "image",
+          "kind": "image",
+          "nodeId": "replicate_clarity_upscaler_5",
+          "port": "image"
+        }
+      ]
+    },
+    "subroute": {
+      "routeVersion": "0.1",
+      "route": {
+        "id": "m31-http-json-test.compound_7",
+        "title": "x4",
+        "description": "HTTP Request -> Debug Log -> Text Output.",
+        "author": {
+          "name": "SnarkRoute"
+        },
+        "tags": [
+          "milestone-3.1",
+          "http",
+          "json"
+        ]
+      },
+      "economics": {
+        "enabled": false,
+        "mode": "disabled"
+      },
+      "nodes": [
+        {
+          "id": "replicate_clarity_upscaler_5",
+          "type": "replicate.clarity-upscaler",
+          "title": "Clarity Upscaler",
+          "params": {
+            "prompt": "masterpiece, best quality, highres",
+            "negative_prompt": "(worst quality, low quality, normal quality:2)",
+            "scale_factor": "4",
+            "dynamic": 6,
+            "creativity": 0.25,
+            "resemblance": 1.5,
+            "tiling_width": 112,
+            "tiling_height": 144,
+            "scheduler": "DPM++ 3M SDE Karras",
+            "num_inference_steps": 18,
+            "seed": 1337,
+            "downscaling": false,
+            "downscaling_resolution": 768,
+            "lora_links": "",
+            "pollingIntervalMs": 1000,
+            "timeoutMs": 120000
+          },
+          "ui": {
+            "x": 869.1580393326692,
+            "y": 76.95341209132926
+          }
+        }
+      ],
+      "edges": [],
+      "provenance": {
+        "tool": "snarkroute-studio",
+        "updatedAt": "2026-06-24T09:50:07.640Z"
+      }
+    }
+  },
+  "installConfirmation": {
+    "confirmedAt": "2026-06-24T09:50:32.589Z",
+    "warnings": []
+  },
+  "enabled": true
+}

@@ -5,6 +5,7 @@ import { DEFAULT_MODEL_PROFILES, normalizeDialogueWorkbenchState, type DialogueO
 import { geminiTokenStatusText, replicateTokenStatusText } from "../../security-ui";
 import { modelLogoFor } from "../../modelLogos";
 import { filenameFromPath } from "../../shared/fileHelpers";
+import { creditPriceExplanation, formatCredits, formatEstimatedCreditsLabel } from "../../shared/costFormatting";
 import { imageLabel, imagePreviewSrc, lastImageValue, localImagePreviewSrc } from "../../shared/mediaPreview";
 import { routeNodeParamsCollapsed } from "../route-io/routeFlow";
 import { ModelLogoMark } from "../model-catalog/ModelViews";
@@ -59,6 +60,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
   const seedanceConfigured = Boolean(data.seedanceConfigured);
   const seedanceStatusText = String(data.seedanceStatusText ?? "");
   const polzaConfigured = Boolean(data.polzaConfigured);
+  const polzaKeyFingerprint = String(data.polzaKeyFingerprint ?? "");
   const openRouterConfigured = Boolean(data.openRouterConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
   const onConfigureGemini = data.onConfigureGemini as (() => void) | undefined;
@@ -105,7 +107,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
   const connectedInputCounts = (data.connectedInputCounts as Record<string, number> | undefined) ?? {};
   const creditBalance = data.creditBalance as { balance: number; currency: string } | null | undefined;
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
-  const nodeNeedsCredits = Number(costEstimate?.estimatedCredits ?? 0);
+  const nodeNeedsCredits = Math.max(0, Math.ceil(Number(costEstimate?.finalCredits ?? costEstimate?.estimatedCredits ?? 0)));
   const nodeHasEnoughCredits = !creditBalance || creditBalance.balance >= nodeNeedsCredits;
   const ports = getNodePorts(type, manifest, routeNode);
   const outputPinned = pinnedOutputFromParams(params) !== undefined;
@@ -340,7 +342,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
       ) : null}
       {!paramsCollapsed && isPolzaNode(type) ? (
         <div className={`nodeTokenStatus ${polzaConfigured ? "configured" : "missing"}`}>
-          <span>Polza.ai: {polzaConfigured ? "key configured" : "missing"}</span>
+          <span>Polza.ai: {polzaConfigured ? `key configured${polzaKeyFingerprint ? ` (${polzaKeyFingerprint})` : ""}` : "missing"}</span>
           {!polzaConfigured ? (
             <>
               <strong>Requires Polza.ai API key</strong>
@@ -349,6 +351,13 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
             </>
           ) : null}
         </div>
+      ) : null}
+      {!paramsCollapsed ? (
+        <NodePricingSummary
+          costEstimate={costEstimate}
+          creditBalance={creditBalance ?? null}
+          nodeHasEnoughCredits={nodeHasEnoughCredits}
+        />
       ) : null}
       {!paramsCollapsed ? (
         <NodeParamsController
@@ -428,6 +437,33 @@ function DialogueNodeMeta({ routeNode, modelProfiles }: { routeNode: RouteDoc["n
       </div>
       <div className="nodeMetaLine">{state.selectedOutputs.length} selected output(s)</div>
     </>
+  );
+}
+
+
+function NodePricingSummary({
+  costEstimate,
+  creditBalance,
+  nodeHasEnoughCredits
+}: {
+  costEstimate?: CostEstimate;
+  creditBalance: { balance: number; currency: string } | null;
+  nodeHasEnoughCredits: boolean;
+}) {
+  if (!costEstimate || costEstimate.free || costEstimate.estimatedCredits <= 0) return null;
+  const estimatedCredits = Math.max(0, Math.ceil(costEstimate.finalCredits ?? costEstimate.estimatedCredits));
+  return (
+    <div className={`nodePricingSummary ${nodeHasEnoughCredits ? "" : "insufficient"}`.trim()} title={creditPriceExplanation(costEstimate)}>
+      <div>
+        <span>Estimated</span>
+        <strong>{formatEstimatedCreditsLabel(costEstimate, estimatedCredits)} credits</strong>
+      </div>
+      <div>
+        <span>Balance</span>
+        <strong>{creditBalance ? `${formatCredits(creditBalance.balance)} credits` : "unknown"}</strong>
+      </div>
+      {!nodeHasEnoughCredits ? <p>Not enough credits</p> : null}
+    </div>
   );
 }
 

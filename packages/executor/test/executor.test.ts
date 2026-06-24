@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { OpenRoute } from "@snarkroute/protocol";
-import { createExecutor, detectCycles, resolveTemplates, topologicalSort } from "../src/index";
+import { createExecutor, detectCycles, estimateRouteCost, resolveTemplates, topologicalSort } from "../src/index";
 
 function route(overrides: Partial<OpenRoute> = {}): OpenRoute {
   return {
@@ -19,6 +19,13 @@ function route(overrides: Partial<OpenRoute> = {}): OpenRoute {
   };
 }
 
+function seedRuntimeProviderPricingCatalog() {
+  process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON = JSON.stringify([
+    { provider: "polza", operation: "image.generate", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
+    { provider: "replicate", operation: "image.upscale", model: "clarity-upscaler", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate", pricingSnapshotId: "replicate:clarity-upscaler:image.upscale" }
+  ]);
+}
+
 describe("executor", () => {
   afterEach(() => {
     delete process.env.BOOJUM_GLOBAL_MARKUP_PERCENT;
@@ -26,6 +33,7 @@ describe("executor", () => {
     delete process.env.BOOJUM_MIN_CHARGE_CREDITS;
     delete process.env.BOOJUM_PRICING_OVERRIDES_JSON;
     delete process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON;
+    delete process.env.BOOJUM_RUB_PER_USD;
   });
 
   it("executes a simple linear graph", async () => {
@@ -222,6 +230,61 @@ describe("executor", () => {
     expect(expensive.costSummary.estimates[0].model).toBe("polza/expensive-image");
   });
 
+  it("estimates OpenRouter image models with exact pricing or operation fallback", () => {
+    process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON = JSON.stringify([
+      { provider: "openrouter", operation: "image.generate", model: "openai/gpt-image-1", baseCostMicrousd: 87000, currency: "USD", effectiveFrom: "2026-01-01", source: "provider_api", pricingSnapshotId: "openrouter:openai/gpt-image-1:image.generate" },
+      { provider: "openrouter", operation: "image.generate", baseCostMicrousd: 45000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate", fallback: true, pricingSnapshotId: "openrouter:*:image.generate" }
+    ]);
+
+    const estimate = estimateRouteCost(route({
+      nodes: [
+        { id: "exact", type: "ai.image.generate", title: "Exact OpenRouter Image", params: { provider: "openrouter", model: "openai/gpt-image-1" } },
+        { id: "fallback", type: "ai.image.generate", title: "Fallback OpenRouter Image", params: { provider: "openrouter", model: "google/gemini-3-pro-image-preview" } }
+      ],
+      edges: []
+    }));
+
+    expect(estimate.totalEstimatedCredits).toBe(132);
+    expect(estimate.estimates.find((entry) => entry.nodeId === "exact")).toMatchObject({
+      provider: "openrouter",
+      operation: "image.generate",
+      model: "openai/gpt-image-1",
+      finalCredits: 87,
+      pricingSource: "pricing_catalog",
+      pricingConfidence: "high",
+      fallback: false
+    });
+    expect(estimate.estimates.find((entry) => entry.nodeId === "fallback")).toMatchObject({
+      provider: "openrouter",
+      operation: "image.generate",
+      model: "google/gemini-3-pro-image-preview",
+      finalCredits: 45,
+      pricingSource: "pricing_catalog",
+      pricingConfidence: "medium",
+      fallback: true
+    });
+  });
+
+  it("uses providerMode=openrouter for image generation pricing", () => {
+    process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON = JSON.stringify([
+      { provider: "openrouter", operation: "image.generate", model: "openai/gpt-5-image", baseCostMicrousd: 51000, currency: "USD", effectiveFrom: "2026-01-01", source: "openrouter_models_catalog_token_estimate" },
+      { provider: "openrouter", operation: "image.generate", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate", fallback: true }
+    ]);
+
+    const estimate = estimateRouteCost(route({
+      nodes: [{ id: "image", type: "ai.image.generate", params: { providerMode: "openrouter", model: "openai/gpt-5-image" } }],
+      edges: []
+    }));
+
+    expect(estimate.estimates[0]).toMatchObject({
+      provider: "openrouter",
+      model: "openai/gpt-5-image",
+      finalCredits: 51,
+      pricingConfidence: "medium",
+      fallback: false
+    });
+  });
+
   it("uses Polza tier pricing rules from imageResolution params", async () => {
     const executor = createExecutor();
     executor.registerNodeRunner("polza.image.generate", () => ({ output: { image: { path: "out.png", mimeType: "image/png" } } }));
@@ -243,6 +306,48 @@ describe("executor", () => {
     expect(twoK.costSummary.totalEstimatedCredits).toBe(70);
   });
 
+  it("prices Replicate Clarity Upscaler as a paid provider node", () => {
+    seedRuntimeProviderPricingCatalog();
+    const estimate = estimateRouteCost(route({
+      nodes: [{ id: "upscale", type: "replicate.clarity-upscaler", title: "Clarity Upscaler", params: { scale_factor: 2 } }],
+      edges: []
+    }));
+
+    expect(estimate.totalEstimatedCredits).toBe(40);
+    expect(estimate.estimates[0]).toMatchObject({
+      nodeId: "upscale",
+      nodeType: "replicate.clarity-upscaler",
+      provider: "replicate",
+      operation: "image.upscale",
+      model: "clarity-upscaler",
+      free: false,
+      baseCostMicrousd: 40000,
+      baseCredits: 40,
+      finalCredits: 40,
+      pricingSource: "pricing_catalog",
+      pricingConfidence: "medium"
+    });
+  });
+
+  it("sums Polza and Clarity estimates while keeping input and preview nodes free", () => {
+    seedRuntimeProviderPricingCatalog();
+    const estimate = estimateRouteCost(route({
+      nodes: [
+        { id: "input", type: "input.image", title: "Input Image" },
+        { id: "polza", type: "polza.image.generate", title: "Polza Image" },
+        { id: "upscale", type: "replicate.clarity-upscaler", title: "Clarity Upscaler" },
+        { id: "preview", type: "preview.image", title: "Preview" }
+      ],
+      edges: []
+    }));
+
+    expect(estimate.totalEstimatedCredits).toBe(80);
+    expect(estimate.estimates.find((entry) => entry.nodeId === "polza")?.finalCredits).toBe(40);
+    expect(estimate.estimates.find((entry) => entry.nodeId === "upscale")).toMatchObject({ finalCredits: 40, free: false });
+    expect(estimate.estimates.find((entry) => entry.nodeId === "input")).toMatchObject({ finalCredits: 0, free: true });
+    expect(estimate.estimates.find((entry) => entry.nodeId === "preview")).toMatchObject({ finalCredits: 0, free: true });
+  });
+
   it("keeps free preview nodes at zero credits", async () => {
     const executor = createExecutor();
     executor.registerNodeRunner("preview.image", () => ({ output: { ok: true } }));
@@ -254,7 +359,7 @@ describe("executor", () => {
     expect(result.costSummary.estimates[0].pricingBreakdown?.free).toBe(true);
   });
 
-  it("caps actual provider cost charges at maxChargeCredits", async () => {
+  it("uses provider actual cost even when it exceeds the estimate", async () => {
     const executor = createExecutor();
     executor.registerNodeRunner("polza.image.generate", ({ node }) => ({
       output: { image: { path: "out.png", mimeType: "image/png" } },
@@ -265,7 +370,44 @@ describe("executor", () => {
       { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
     );
     expect(result.costSummary.totalEstimatedCredits).toBe(40);
-    expect(result.costSummary.totalActualCredits).toBe(40);
+    expect(result.costSummary.totalActualCredits).toBe(1000);
+  });
+
+  it("converts RUB provider actual cost into actual credits", async () => {
+    process.env.BOOJUM_RUB_PER_USD = "100";
+    const executor = createExecutor();
+    executor.registerNodeRunner("polza.image.generate", ({ node }) => ({
+      output: { image: { path: "out.png", mimeType: "image/png" } },
+      providerUsage: { provider: "polza", nodeId: node.id, nodeType: node.type, status: "succeeded", actualCost: 6.4238, actualCostCurrency: "RUB" }
+    }));
+    const result = await executor.executeRoute(
+      route({ nodes: [{ id: "polza", type: "polza.image.generate" }], edges: [] }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.costSummary.totalEstimatedCredits).toBe(40);
+    expect(result.costSummary.totalActualCredits).toBe(65);
+    expect(result.nodeResults.polza.actualProviderCostAmount).toBe(6.4238);
+    expect(result.nodeResults.polza.actualProviderCostCurrency).toBe("RUB");
+  });
+
+  it("matches provider-native model aliases to catalog pricing", async () => {
+    process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON = JSON.stringify([{
+      provider: "polza",
+      operation: "image.generate",
+      model: "gpt-5.4-image-2",
+      providerNativeModelId: "openai/gpt-5.4-image-2",
+      parameterRules: { resolution: "2K" },
+      baseCostMicrousd: 67000,
+      currency: "USD",
+      effectiveFrom: "2026-01-01",
+      source: "manual_catalog"
+    }]);
+    const estimate = estimateRouteCost(route({
+      nodes: [{ id: "polza", type: "polza.image.generate", params: { model: "openai/gpt-5.4-image-2", resolution: "2K" } }],
+      edges: []
+    }));
+    expect(estimate.totalEstimatedCredits).toBe(67);
+    expect(estimate.estimates[0].pricingBreakdown?.fallback).toBe(false);
   });
 
   it("collects multiple edges into the same named input as an array", async () => {

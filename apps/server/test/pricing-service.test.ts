@@ -1,0 +1,98 @@
+import { describe, expect, it } from "vitest";
+import { __testing, pricingCatalogState, savePricingConfig } from "../src/billing/pricing-service";
+
+describe("pricing service", () => {
+  it("creates per-model OpenRouter image prices from provider model catalog pricing", () => {
+    const entries = __testing.pricingEntriesFromOpenRouterModelCatalog({
+      refreshedAt: "2026-06-23T21:04:00.106Z",
+      models: [
+        {
+          id: "openrouter/image-exact",
+          kind: "image",
+          architecture: { output_modalities: ["image"] },
+          pricing: { request: "0.03" }
+        },
+        {
+          id: "openrouter/image-token-priced",
+          kind: "text",
+          architecture: { output_modalities: ["image", "text"] },
+          pricing: { prompt: "0.000001", completion: "0.000002" }
+        },
+        {
+          id: "openrouter/text-token-priced",
+          kind: "text",
+          architecture: { output_modalities: ["text"] },
+          pricing: { prompt: "0.000001", completion: "0.000002" }
+        },
+        {
+          id: "openrouter/no-pricing"
+        }
+      ]
+    });
+
+    expect(entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        provider: "openrouter",
+        operation: "image.generate",
+        model: "openrouter/image-exact",
+        baseCostMicrousd: 30000,
+        source: "openrouter_models_catalog"
+      }),
+      expect.objectContaining({
+        provider: "openrouter",
+        operation: "image.generate",
+        model: "openrouter/image-token-priced",
+        baseCostMicrousd: 9192,
+        source: "openrouter_models_catalog_token_estimate"
+      })
+    ]));
+    expect(entries.find((entry) => entry.model === "openrouter/no-pricing")).toBeUndefined();
+    expect(entries.find((entry) => entry.model === "openrouter/text-token-priced" && entry.operation === "image.generate")).toBeUndefined();
+  });
+
+  it("applies admin pricing config in local mode without a database", async () => {
+    __testing.resetLocalPricingState();
+    delete process.env.DATABASE_URL;
+    await savePricingConfig({ globalMarkupPercent: 11, globalMarkupCredits: 0, minChargeCredits: 0, actorUserId: "admin" });
+
+    const state = await pricingCatalogState();
+    const geminiFallback = state.pricing.find((entry) => entry.provider === "gemini" && entry.operation === "image.generate" && entry.fallback);
+
+    expect(state.source).toBe("local_override");
+    expect(geminiFallback).toMatchObject({
+      baseCredits: 40,
+      globalMarkupPercent: 11,
+      finalCredits: 45
+    });
+    __testing.resetLocalPricingState();
+  });
+
+  it("uses model and resolution specific Gemini image pricing before fallback", async () => {
+    __testing.resetLocalPricingState();
+    delete process.env.DATABASE_URL;
+    process.env.BOOJUM_GLOBAL_MARKUP_PERCENT = "0";
+    process.env.BOOJUM_GLOBAL_MARKUP_CREDITS = "0";
+    process.env.BOOJUM_MIN_CHARGE_CREDITS = "0";
+    const state = await pricingCatalogState();
+    const twoKCatalogEntry = state.providerCatalog.find((entry) =>
+      entry.provider === "gemini"
+      && entry.operation === "image.generate"
+      && entry.model === "gemini-3.1-flash-image-preview"
+      && entry.parameterRules?.image_resolution === "2K"
+    );
+    const twoK = state.pricing.find((entry) =>
+      entry.provider === "gemini"
+      && entry.operation === "image.generate"
+      && entry.model === "gemini-3.1-flash-image-preview"
+      && entry.baseCredits === 101
+    );
+
+    expect(twoKCatalogEntry).toBeTruthy();
+    expect(twoK).toMatchObject({
+      baseCredits: 101,
+      finalCredits: 101,
+      pricingConfidence: "high",
+      fallback: false
+    });
+  });
+});
