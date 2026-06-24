@@ -19,8 +19,8 @@ export class NoopBillingAdapter implements CreditBillingAdapter {
   }
 
   async estimateRunCost(route: OpenRoute): Promise<RunCostSummary> {
-    await getEffectivePricingState();
-    const estimate = estimateRouteCost(route);
+    const pricing = await getEffectivePricingState();
+    const estimate = estimateRouteCost(route, undefined, { providerCatalog: pricing.providerCatalog, config: pricing.config, overrides: pricing.overrides });
     return {
       ...estimate,
       estimates: estimate.estimates.map((entry) => ({ ...entry, estimatedCredits: 0 })),
@@ -49,8 +49,8 @@ export class CloudCreditBillingAdapter implements CreditBillingAdapter {
   }
 
   async estimateRunCost(route: OpenRoute): Promise<RunCostSummary> {
-    await getEffectivePricingState();
-    const estimate = estimateRouteCost(route);
+    const pricing = await getEffectivePricingState();
+    const estimate = estimateRouteCost(route, undefined, { providerCatalog: pricing.providerCatalog, config: pricing.config, overrides: pricing.overrides });
     if (billingMode(route) === "byok") {
       return {
         ...estimate,

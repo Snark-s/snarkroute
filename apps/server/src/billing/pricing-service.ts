@@ -40,7 +40,10 @@ let localPricingConfig: (BillingPricingConfig & { updatedAt?: string; updatedBy?
 let localPricingOverrides: BillingPricingOverride[] | null = null;
 
 export async function getEffectivePricingState(): Promise<EffectivePricingState> {
-  if (cachedState) return cachedState;
+  if (cachedState) {
+    applyPricingStateToProcess(cachedState);
+    return cachedState;
+  }
   const storage = canReadPricingDatabase() ? getCloudStorage() : null;
   const dbConfig = storage ? await storage.getBillingPricingConfig() : null;
   const dbOverrides = storage ? await storage.listBillingPricingOverrides() : [];

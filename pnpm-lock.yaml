@@ -57,6 +57,9 @@ importers:
       '@fastify/cors':
         specifier: ^9.0.1
         version: 9.0.1
+      '@snarkroute/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@snarkroute/executor':
         specifier: workspace:*
         version: link:../../packages/executor

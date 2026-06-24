@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { __testing, pricingCatalogState, savePricingConfig } from "../src/billing/pricing-service";
+import { __testing, getEffectivePricingState, pricingCatalogState, savePricingConfig } from "../src/billing/pricing-service";
 
 describe("pricing service", () => {
   it("creates per-model OpenRouter image prices from provider model catalog pricing", () => {
@@ -94,5 +94,22 @@ describe("pricing service", () => {
       pricingConfidence: "high",
       fallback: false
     });
+  });
+
+  it("reapplies the provider pricing catalog to process env on cache hits", async () => {
+    __testing.resetLocalPricingState();
+    delete process.env.DATABASE_URL;
+    delete process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON;
+
+    const coldState = await getEffectivePricingState();
+    expect(coldState.providerCatalog.length).toBeGreaterThan(0);
+    delete process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON;
+
+    const cachedState = await getEffectivePricingState();
+    const envCatalog = JSON.parse(process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON ?? "[]");
+
+    expect(cachedState).toBe(coldState);
+    expect(envCatalog.length).toBe(coldState.providerCatalog.length);
+    __testing.resetLocalPricingState();
   });
 });

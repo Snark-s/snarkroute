@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import type { NodeRunner } from "@snarkroute/executor";
+import type { PricingQuote } from "@snarkroute/core";
+import { resolveNodePricing, type NodeRunner, type PricingBreakdown } from "@snarkroute/executor";
 import { createGeminiLlmNodeRunner, createNanoBanana2NodeRunner, estimateGeminiPricingQuote, NANO_BANANA_2_DEFAULT_MODEL, readLocalGeminiPricingConfig, type GeminiLocalPricingConfig } from "@snarkroute/gemini";
 import {
   createModelResolver,
@@ -13,22 +14,14 @@ import {
   type ProviderMode
 } from "@snarkroute/openrouter";
 import { estimatePolzaPricingQuote, POLZA_IMAGE_DEFAULT_MODEL, POLZA_TEXT_DEFAULT_MODEL, POLZA_VIDEO_DEFAULT_MODEL, type PolzaModelInfo } from "@snarkroute/polza";
+import { getEffectivePricingState } from "../billing/pricing-service";
 
-type PricingQuote = {
-  logicalModel?: string;
-  provider: string;
-  providerModel: string;
-  capability: string;
-  estimatedCost: number | null;
-  currency: string | null;
-  pricingSource: string;
-  confidence: "exact" | "estimated" | "low" | "unknown" | string;
-  pricingStatus?: "fresh" | "stale" | "unknown" | string;
-  pricingUpdatedAt?: string | null;
-  pricingExpiresAt?: string | null;
-  unit?: string;
-  breakdown?: Record<string, unknown>;
-  warnings?: string[];
+type ResolvedPricingQuote = Omit<PricingQuote, "confidence"> & {
+  confidence: PricingBreakdown["pricingConfidence"];
+  pricingConfidence: PricingBreakdown["pricingConfidence"];
+  pricingBreakdown: PricingBreakdown;
+  finalCredits: number;
+  free: boolean;
 };
 type PricingCatalog = {
   provider: string;
@@ -107,8 +100,8 @@ export function createRemoteImageNodeRunner(modelResolver: ReturnType<typeof cre
 }
 
 export type ModelGatewayQuotePreview = {
-  selected: PricingQuote;
-  alternatives: PricingQuote[];
+  selected: ResolvedPricingQuote;
+  alternatives: ResolvedPricingQuote[];
   warnings: string[];
 };
 
@@ -126,6 +119,7 @@ export async function quoteModelExecutingNode(options: {
   const openRouterCatalog = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
   const openRouterPricing = options.openRouterPricingCatalog;
   const polzaPricing = options.polzaPricingCatalog;
+  const pricingState = await getEffectivePricingState();
   const warnings: string[] = [];
 
   if (options.nodeType === "ai.image.generate") {
@@ -137,22 +131,24 @@ export async function quoteModelExecutingNode(options: {
     }
     if (cachedModel && openRouterModelSupportsImage(cachedModel) && providerMode !== "direct") {
       const selected = openRouterQuote(modelId, cachedModel.id, "image.generate", params, pricingForModel(openRouterPricing, cachedModel.id) ?? cachedModel.pricing, openRouterPricing);
-      return { selected, alternatives: directGeminiAlternative(modelId, params, geminiPricingConfig), warnings };
+      return { selected: withResolvedPricing(selected, options.nodeType, params, pricingState.providerCatalog), alternatives: directGeminiAlternative(modelId, params, geminiPricingConfig).map((quote) => withResolvedPricing(quote, "gemini.nano-banana-2", params, pricingState.providerCatalog)), warnings };
     }
     try {
       const resolution = options.modelResolver({ task: "image", modelId, providerMode });
       if (resolution.provider === "openrouter") {
         const model = openRouterCatalog?.models.find((entry) => entry.id === resolution.model);
-        return { selected: openRouterQuote(modelId, resolution.model, "image.generate", params, pricingForModel(openRouterPricing, resolution.model) ?? model?.pricing, openRouterPricing), alternatives: directGeminiAlternative(modelId, params, geminiPricingConfig), warnings };
+        const selected = openRouterQuote(modelId, resolution.model, "image.generate", params, pricingForModel(openRouterPricing, resolution.model) ?? model?.pricing, openRouterPricing);
+        return { selected: withResolvedPricing(selected, options.nodeType, params, pricingState.providerCatalog), alternatives: directGeminiAlternative(modelId, params, geminiPricingConfig).map((quote) => withResolvedPricing(quote, "gemini.nano-banana-2", params, pricingState.providerCatalog)), warnings };
       }
       if (resolution.provider === "direct" && resolution.directProvider === "gemini") {
-        return { selected: geminiQuote(modelId, resolution.model, "image.generate", params, geminiPricingConfig), alternatives: openRouterAlternative(modelId, params, openRouterCatalog?.models, openRouterPricing), warnings };
+        const selected = geminiQuote(modelId, resolution.model, "image.generate", params, geminiPricingConfig);
+        return { selected: withResolvedPricing(selected, "gemini.nano-banana-2", params, pricingState.providerCatalog), alternatives: openRouterAlternative(modelId, params, openRouterCatalog?.models, openRouterPricing).map((quote) => withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog)), warnings };
       }
       warnings.push(resolution.reason ?? "No quoteable provider route was selected.");
     } catch (error) {
       warnings.push(error instanceof Error ? error.message : String(error));
     }
-    return { selected: unknownSelected(modelId, "unknown", modelId, "image.generate", params, warnings[0]), alternatives: [], warnings };
+    return { selected: withResolvedPricing(unknownSelected(modelId, "unknown", modelId, "image.generate", params, warnings[0]), options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };
   }
 
   if (options.nodeType === "ai.text") {
@@ -161,25 +157,25 @@ export async function quoteModelExecutingNode(options: {
     const modelId = !requestedModel || requestedModel === "text.default" ? process.env.OPENROUTER_DEFAULT_MODEL || "text.default" : requestedModel;
     if (modelId.includes("/") && providerMode !== "direct") {
       const model = openRouterCatalog?.models.find((entry) => entry.id === modelId);
-      return { selected: openRouterQuote(modelId, modelId, "text.generate", params, pricingForModel(openRouterPricing, modelId) ?? model?.pricing, openRouterPricing), alternatives: [], warnings };
+      return { selected: withResolvedPricing(openRouterQuote(modelId, modelId, "text.generate", params, pricingForModel(openRouterPricing, modelId) ?? model?.pricing, openRouterPricing), options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };
     }
     try {
       const resolution = options.modelResolver({ task: "text", modelId, providerMode });
       if (resolution.provider === "openrouter") {
         const model = openRouterCatalog?.models.find((entry) => entry.id === resolution.model);
-        return { selected: openRouterQuote(modelId, resolution.model, "text.generate", params, pricingForModel(openRouterPricing, resolution.model) ?? model?.pricing, openRouterPricing), alternatives: [], warnings };
+        return { selected: withResolvedPricing(openRouterQuote(modelId, resolution.model, "text.generate", params, pricingForModel(openRouterPricing, resolution.model) ?? model?.pricing, openRouterPricing), options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };
       }
       if (resolution.provider === "direct" && resolution.directProvider === "gemini") {
-        return { selected: geminiQuote(modelId, resolution.model, "text.generate", params, geminiPricingConfig), alternatives: [], warnings };
+        return { selected: withResolvedPricing(geminiQuote(modelId, resolution.model, "text.generate", params, geminiPricingConfig), options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };
       }
     } catch (error) {
       warnings.push(error instanceof Error ? error.message : String(error));
     }
-    return { selected: unknownSelected(modelId, "unknown", modelId, "text.generate", params, warnings[0]), alternatives: [], warnings };
+    return { selected: withResolvedPricing(unknownSelected(modelId, "unknown", modelId, "text.generate", params, warnings[0]), options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };
   }
 
   if (options.nodeType === "gemini.nano-banana-2") {
-    return { selected: geminiQuote("gemini.nano-banana-2", NANO_BANANA_2_DEFAULT_MODEL, "image.generate", params, geminiPricingConfig), alternatives: [], warnings };
+    return { selected: withResolvedPricing(geminiQuote("gemini.nano-banana-2", NANO_BANANA_2_DEFAULT_MODEL, "image.generate", params, geminiPricingConfig), options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };
   }
 
   if (options.nodeType === "polza.text" || options.nodeType === "polza.image.generate" || options.nodeType === "polza.video.generate") {
@@ -189,19 +185,40 @@ export async function quoteModelExecutingNode(options: {
     const catalogModel = options.polzaModels?.find((model) => model.id === modelId);
     const pricing = pricingForModel(polzaPricing, modelId) ?? catalogModel?.pricing;
     // TODO: route Polza through the logical Model Gateway using the normalized ModelInfo catalog; explicit Polza nodes only are quoted here for now.
-    return {
-      selected: withCatalogMetadata(
+    const selected = withCatalogMetadata(
         estimatePolzaPricingQuote({ logicalModel: options.nodeType, provider: "polza", providerModel: modelId, capability, params: { ...params, pricing }, inputMetadata: {} }),
         polzaPricing,
         "Polza pricing catalog is stale; using stale estimate"
-      ),
+      );
+    return {
+      selected: withResolvedPricing(selected, options.nodeType, params, pricingState.providerCatalog),
       alternatives: [],
       warnings: pricing ? [] : ["No Polza catalog pricing is available for this model."]
     };
   }
 
   warnings.push(`Node type "${options.nodeType}" does not execute through Model Gateway pricing preview.`);
-  return { selected: unknownSelected(options.nodeType, "unknown", options.nodeType, "unknown", params, warnings[0]), alternatives: [], warnings };
+  return { selected: withResolvedPricing(unknownSelected(options.nodeType, "unknown", options.nodeType, "unknown", params, warnings[0]), options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };
+}
+
+function withResolvedPricing(quote: PricingQuote, nodeType: string, params: Record<string, unknown>, catalog: Parameters<typeof resolveNodePricing>[0]["catalog"]): ResolvedPricingQuote {
+  const pricingBreakdown = resolveNodePricing({
+    nodeType,
+    provider: quote.provider === "unknown" ? undefined : quote.provider,
+    model: quote.providerModel === "unknown" ? undefined : quote.providerModel,
+    operation: quote.capability,
+    params,
+    catalog
+  });
+  return {
+    ...quote,
+    confidence: pricingBreakdown.pricingConfidence,
+    pricingSource: pricingBreakdown.pricingSource,
+    pricingConfidence: pricingBreakdown.pricingConfidence,
+    pricingBreakdown,
+    finalCredits: pricingBreakdown.finalCredits,
+    free: pricingBreakdown.free
+  };
 }
 
 function openRouterQuote(logicalModel: string, providerModel: string, capability: string, params: Record<string, unknown>, pricing: unknown, catalog?: PricingCatalog | null): PricingQuote {

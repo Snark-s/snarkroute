@@ -21,7 +21,7 @@ describe("model gateway quote route", () => {
 
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.selected).toMatchObject({ provider: "gemini", providerModel: "gemini-3.1-flash-image-preview", estimatedCost: null, confidence: "unknown" });
+    expect(body.selected).toMatchObject({ provider: "gemini", providerModel: "gemini-3.1-flash-image-preview", estimatedCost: null, confidence: "low", pricingConfidence: "low" });
     expect(response.body).not.toContain("sk-hidden");
     await app.close();
   });

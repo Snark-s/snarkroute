@@ -285,6 +285,26 @@ describe("executor", () => {
     });
   });
 
+  it("uses an explicit pricing catalog when process env catalog is empty", () => {
+    delete process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON;
+
+    const estimate = estimateRouteCost(route({
+      nodes: [{ id: "polza", type: "polza.image.generate", params: { model: "openai/gpt-5.4-image-2" } }],
+      edges: []
+    }), undefined, {
+      providerCatalog: [
+        { provider: "polza", operation: "image.generate", model: "openai/gpt-5.4-image-2", baseCostMicrousd: 73000, currency: "USD", effectiveFrom: "2026-01-01", source: "test_catalog" }
+      ]
+    });
+
+    expect(estimate.estimates[0]).toMatchObject({
+      finalCredits: 73,
+      pricingSource: "pricing_catalog",
+      pricingConfidence: "high",
+      fallback: false
+    });
+  });
+
   it("uses Polza tier pricing rules from imageResolution params", async () => {
     const executor = createExecutor();
     executor.registerNodeRunner("polza.image.generate", () => ({ output: { image: { path: "out.png", mimeType: "image/png" } } }));
