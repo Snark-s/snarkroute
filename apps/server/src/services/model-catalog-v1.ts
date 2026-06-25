@@ -86,6 +86,17 @@ export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
   return [
     normalizeProviderModelToV1Input({
       provider: "openrouter",
+      providerModelId: "openai/gpt-5.1",
+      displayName: "OpenAI: GPT-5.1",
+      inputTypes: ["text", "image"],
+      outputTypes: ["text"],
+      capabilities: ["text.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-text-catalog", providerEndpoint: "chat.completions" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
       providerModelId: "openai/gpt-image-1",
       displayName: "OpenAI: GPT Image 1",
       inputTypes: ["text", "image"],
@@ -138,6 +149,39 @@ export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
       roles: ["generator"],
       availability: { status: "available", source: "fallback" },
       metadata: { fallback: "studio-direct-image-alias" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "polza",
+      providerModelId: "openai/gpt-4o",
+      displayName: "OpenAI GPT-4o",
+      inputTypes: ["text", "image"],
+      outputTypes: ["text"],
+      capabilities: ["text.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "polza-default-text-model", providerEndpoint: "chat" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "polza",
+      providerModelId: "openai/gpt-5.4-image-2",
+      displayName: "OpenAI GPT-5.4 Image 2",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.edit", "image.reference"],
+      roles: ["generator", "editor"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "polza-default-image-model", providerEndpoint: "media" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "polza",
+      providerModelId: "wan/2.6",
+      displayName: "WAN 2.6",
+      inputTypes: ["text", "image", "video"],
+      outputTypes: ["video"],
+      capabilities: ["video.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "polza-default-video-model", providerEndpoint: "media" }
     }),
     normalizeProviderModelToV1Input({
       provider: "polza",

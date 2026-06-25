@@ -90,12 +90,13 @@ describe("Polza adapter", () => {
   });
 
   it("normalizes provider usage cost into USD from a single source", () => {
-    process.env.BOOJUM_RUB_PER_USD = "100";
+    process.env.BOOJUM_RUB_PER_USD = "80";
 
-    expect(normalizePolzaProviderCostFromUsage({ cost: 0.165, cost_rub: 16.5 })).toEqual({ amountUsd: 0.165, currency: "USD" });
-    expect(normalizePolzaProviderCostFromUsage({ cost_rub: 16.5 })).toEqual({ amountUsd: 0.165, currency: "USD" });
-    expect(normalizePolzaProviderCostFromUsage({ cost: 16.5, currency: "RUB" })).toEqual({ amountUsd: 0.165, currency: "USD" });
-    expect(normalizePolzaProviderCostFromUsage({ cost: 16.5 })).toEqual({ amountUsd: 0.165, currency: "USD" });
+    expect(normalizePolzaProviderCostFromUsage({ cost: 4, currency: "RUB" })).toMatchObject({ amountUsd: 0.05, currency: "USD", sourceCurrency: "RUB" });
+    expect(normalizePolzaProviderCostFromUsage({ cost: 4, currency: "USD" })).toMatchObject({ amountUsd: 4, currency: "USD", sourceCurrency: "USD" });
+    expect(normalizePolzaProviderCostFromUsage({ cost: 4 }, { pricingCurrency: "RUB" })).toMatchObject({ amountUsd: 0.05, currency: "USD", sourceCurrency: "RUB" });
+    expect(normalizePolzaProviderCostFromUsage({ cost: 4 })).toEqual({ amountUsd: null, currency: "unknown", sourceCurrency: "unknown" });
+    expect(normalizePolzaProviderCostFromUsage({ cost_rub: 16.5 })).toMatchObject({ amountUsd: 0.20625, currency: "USD", sourceCurrency: "RUB" });
   });
 
   it("refreshes Polza pricing catalog when model catalog contains pricing", async () => {
@@ -126,7 +127,7 @@ describe("Polza adapter", () => {
   });
 
   it("generates text through chat completions", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: "hello" } }], usage: { cost: 0.1 } }));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: "hello" } }], usage: { cost: 0.1, currency: "USD" } }));
     const runner = createPolzaTextNodeRunner({ apiKey: "pza-test", fetchImpl });
 
     const result = await runner({
@@ -138,7 +139,7 @@ describe("Polza adapter", () => {
 
     expect(fetchImpl).toHaveBeenCalledWith("https://polza.ai/api/v1/chat/completions", expect.any(Object));
     expect(result.output).toMatchObject({ text: "hello", provider: "polza", model: "openai/gpt-4o" });
-    expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 0.001, actualCostCurrency: "USD" });
+    expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 0.1, actualCostCurrency: "USD" });
   });
 
   it("passes image inputs to Polza chat completions", async () => {
@@ -210,6 +211,7 @@ describe("Polza adapter", () => {
   });
 
   it("writes generated base64 image output", async () => {
+    process.env.BOOJUM_RUB_PER_USD = "80";
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-image-"));
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ data: [{ b64_json: Buffer.from("image").toString("base64") }], usage: { cost_rub: 1.5 } }));
     const runner = createPolzaImageNodeRunner({ apiKey: "pza-test", fetchImpl });
@@ -223,11 +225,11 @@ describe("Polza adapter", () => {
 
     expect(fetchImpl).toHaveBeenCalledWith("https://polza.ai/api/v1/media", expect.any(Object));
     expect(result.output).toMatchObject({ provider: "polza", image: { mimeType: "image/png", sizeBytes: 5 } });
-    expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 0.015, actualCostCurrency: "USD" });
+    expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 0.01875, actualCostCurrency: "USD" });
   });
 
-  it("charges Polza media usage cost as RUB when currency is omitted", async () => {
-    process.env.BOOJUM_RUB_PER_USD = "100";
+  it("falls back to the route estimate when Polza media usage cost has no known currency", async () => {
+    process.env.BOOJUM_RUB_PER_USD = "80";
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-actual-cost-"));
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({
       data: [{ b64_json: Buffer.from("image").toString("base64") }],
@@ -242,10 +244,11 @@ describe("Polza adapter", () => {
       edges: []
     }, { outputDirectory });
 
-    expect(result.nodeResults.image.actualProviderCostAmount).toBe(0.04);
-    expect(result.nodeResults.image.actualProviderCostCurrency).toBe("USD");
-    expect(result.nodeResults.image.actualCredits).toBe(40);
-    expect(result.costSummary.totalActualCredits).toBe(40);
+    expect(result.nodeResults.image.actualProviderCostAmount).toBeNull();
+    expect(result.nodeResults.image.actualProviderCostCurrency).toBe("unknown");
+    expect(result.nodeResults.image.actualCredits).toBe(4);
+    expect(result.costSummary.totalActualCredits).toBe(4);
+    expect(result.nodeResults.image.logs).toContain("Polza provider returned cost without an authoritative currency; using route estimate for credit capture.");
   });
 
   it("passes input images to Polza media image models", async () => {

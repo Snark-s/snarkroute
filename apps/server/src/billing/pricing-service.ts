@@ -1,4 +1,5 @@
 import {
+  CREDIT_UNIT,
   currentBillingPricingConfig,
   currentBillingPricingOverrides,
   currentRuntimeProviderPricingCatalog,
@@ -7,10 +8,11 @@ import {
   type BillingPricingOverride,
   type ProviderPricingCatalogEntry
 } from "@snarkroute/executor";
+import { getRubPerUsd } from "@snarkroute/protocol";
 import { listSeedProviderPricingCatalogV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache } from "@snarkroute/openrouter";
 import { readPolzaPricingCatalogCache } from "@snarkroute/polza";
-import { listLocalDevProviderPricingActualStats } from "./local-dev-ledger";
+import { listLocalDevProviderPricingActualStats } from "./local-dev-credit-store";
 import { getCloudStorage } from "../services/cloud-storage";
 import { appMode } from "../services/env";
 import { openRouterCatalogCachePath, openRouterPricingCachePath, polzaPricingCachePath } from "../server-paths";
@@ -20,7 +22,7 @@ export type EffectivePricingState = {
   overrides: BillingPricingOverride[];
   providerCatalog: ProviderPricingCatalogEntry[];
   source: "db" | "local_override" | "env_default" | "seed";
-  creditUnit: { creditsPerUsd: 1000; microusdPerCredit: 1000 };
+  creditUnit: typeof CREDIT_UNIT;
 };
 
 export type ProviderPricingActualStats = {
@@ -82,7 +84,7 @@ export async function getEffectivePricingState(): Promise<EffectivePricingState>
     overrides,
     providerCatalog,
     source: dbConfig ? "db" : localPricingConfig || localPricingOverrides ? "local_override" : envOverrides.length > 0 ? "seed" : "env_default",
-    creditUnit: { creditsPerUsd: 1000, microusdPerCredit: 1000 }
+    creditUnit: CREDIT_UNIT
   };
   applyPricingStateToProcess(cachedState);
   return cachedState;
@@ -422,13 +424,11 @@ function unitCostUsd(value: unknown, currency: string): number | null {
   if (!Number.isFinite(number) || number < 0) return null;
   const normalizedCurrency = currency.toUpperCase();
   if (!normalizedCurrency || normalizedCurrency === "USD") return number;
-  if (normalizedCurrency === "RUB") return number / rubPerUsd();
+  if (normalizedCurrency === "RUB") {
+    const rate = getRubPerUsd();
+    return rate ? number / rate : null;
+  }
   return null;
-}
-
-function rubPerUsd(): number {
-  const value = Number(process.env.BOOJUM_RUB_PER_USD ?? 100);
-  return Number.isFinite(value) && value > 0 ? value : 100;
 }
 
 export const __testing = {

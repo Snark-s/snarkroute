@@ -8,5 +8,8 @@
   "scripts": {
     "build": "tsc src/index.ts --declaration --declarationMap --outDir dist --module NodeNext --moduleResolution NodeNext --target ES2022 --strict --skipLibCheck",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "@snarkroute/protocol": "workspace:*"
   }
 }

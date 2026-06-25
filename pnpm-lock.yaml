@@ -271,7 +271,11 @@ importers:
         specifier: ^1.6.0
         version: 1.6.1(@types/node@20.19.39)
 
-  packages/model-catalog: {}
+  packages/model-catalog:
+    dependencies:
+      '@snarkroute/protocol':
+        specifier: workspace:*
+        version: link:../protocol
 
   packages/model-registry:
     devDependencies:
@@ -306,6 +310,9 @@ importers:
 
   packages/storage:
     dependencies:
+      '@snarkroute/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       pg:
         specifier: ^8.13.1
         version: 8.21.0

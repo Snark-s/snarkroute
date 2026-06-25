@@ -3,7 +3,7 @@ import { estimateRouteCost, type RunCostSummary } from "@snarkroute/executor";
 import { appMode, isCloudStorageConfigured } from "../services/env";
 import { getCloudStorage } from "../services/cloud-storage";
 import { getEffectivePricingState } from "./pricing-service";
-import { commitLocalDevCredits, getLocalDevBalance, refundLocalDevCredits, reserveLocalDevCredits } from "./local-dev-ledger";
+import { commitLocalDevCredits, getLocalDevBalance, refundLocalDevCredits, reserveLocalDevCredits } from "./local-dev-credit-store";
 
 export interface CreditBillingAdapter {
   getBalance(userId: string): Promise<{ balance: number; currency: string }>;

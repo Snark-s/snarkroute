@@ -47,21 +47,21 @@ describe("/api/routes/estimate pricing baseline", () => {
     const app = buildServer();
     try {
       await expectEstimate(app, "Polza Image", polzaImageRoute(), [
-        { nodeId: "polza", finalCredits: 40, free: false, pricingSource: "pricing_catalog", pricingConfidence: "medium" }
+        { nodeId: "polza", finalCredits: 4, free: false, pricingSource: "pricing_catalog", pricingConfidence: "medium" }
       ]);
       await expectEstimate(app, "Replicate Clarity Upscaler", clarityRoute(), [
-        { nodeId: "upscale", finalCredits: 21, free: false, pricingSource: "pricing_catalog", pricingConfidence: "high" }
+        { nodeId: "upscale", finalCredits: 3, free: false, pricingSource: "pricing_catalog", pricingConfidence: "high" }
       ]);
       await expectEstimate(app, "OpenRouter Image", openRouterImageRoute(), [
-        { nodeId: "image", finalCredits: 40, free: false, pricingSource: "pricing_catalog", pricingConfidence: "low" }
+        { nodeId: "image", finalCredits: 4, free: false, pricingSource: "pricing_catalog", pricingConfidence: "low" }
       ]);
       await expectEstimate(app, "Gemini Image", geminiImageRoute(), [
-        { nodeId: "image", finalCredits: 67, free: false, pricingSource: "pricing_catalog", pricingConfidence: "high" }
+        { nodeId: "image", finalCredits: 7, free: false, pricingSource: "pricing_catalog", pricingConfidence: "high" }
       ]);
       await expectEstimate(app, "Polza+Clarity", polzaClarityRoute(), [
         { nodeId: "input", finalCredits: 0, free: true, pricingSource: "pricing_catalog", pricingConfidence: "high" },
-        { nodeId: "polza", finalCredits: 40, free: false, pricingSource: "pricing_catalog", pricingConfidence: "medium" },
-        { nodeId: "upscale", finalCredits: 21, free: false, pricingSource: "pricing_catalog", pricingConfidence: "high" },
+        { nodeId: "polza", finalCredits: 4, free: false, pricingSource: "pricing_catalog", pricingConfidence: "medium" },
+        { nodeId: "upscale", finalCredits: 3, free: false, pricingSource: "pricing_catalog", pricingConfidence: "high" },
         { nodeId: "preview", finalCredits: 0, free: true, pricingSource: "pricing_catalog", pricingConfidence: "high" }
       ]);
       await expectEstimate(app, "Input/Preview/Output", freeRoute(), [

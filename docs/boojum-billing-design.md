@@ -42,7 +42,7 @@ Credit unit:
 - `1000 credits = 1 USD`
 - `1 credit = 0.001 USD`
 - Provider API costs are represented as integer `providerCostMicrousd`.
-- `baseCredits = ceil(providerCostMicrousd / 1000)`.
+- `baseCredits = ceil(providerCostMicrousd / CREDIT_UNIT.microusdPerCredit)`.
 
 Pricing formula:
 
@@ -84,7 +84,8 @@ Durable pricing config:
 - DB config has priority over env defaults.
 - `BOOJUM_PRICING_OVERRIDES_JSON` remains a seed/dev fallback when the DB has no overrides.
 - Model Catalog seed pricing and provider model pricing caches are part of the effective catalog. Polza pricing refresh reads `/v1/models` pricing metadata, stores it in `data/cache/model-pricing/polza.json`, and exposes USD model-specific base prices to route estimates before seed estimates are used. OpenRouter pricing refresh uses live pricing when available or cached model catalog pricing as a fallback.
-- Polza model pricing can be tiered and RUB-denominated. For MVP conversion to credits, RUB provider costs are converted to USD microusd through `BOOJUM_RUB_PER_USD` (default `100`) before applying markup. Example: 4 RUB at 100 RUB/USD becomes 40 base credits.
+- Billing uses `1 credit = $0.01` (`100 credits/USD`, `10000 microusd/credit`). Provider catalog prices are stored in `providerCostMicrousd`, so seed prices automatically scale through that unit; flat admin markups such as `BOOJUM_GLOBAL_MARKUP_CREDITS` remain literal credit amounts.
+- Polza model pricing can be tiered and RUB-denominated. RUB provider costs are converted to USD microusd through the shared RUB/USD rate from the daily CBR refresh cache, falling back to explicit `BOOJUM_RUB_PER_USD` only when the live/cache rate is unavailable. There is no built-in `100` default. Example: 4 RUB at 80 RUB/USD becomes 5 base credits. If Polza returns an actual provider cost in USD, SnarkRoute uses that USD value directly and does not convert it.
 - The server keeps an in-memory effective pricing cache; admin saves invalidate and refresh it.
 - `POST /api/model-pricing/refresh` and `POST /api/admin/pricing/refresh` invalidate the pricing cache after a successful refresh, so new model prices affect estimates without a server restart.
 - Optional daily refresh is controlled by `MODEL_PRICING_REFRESH_ENABLED`, `MODEL_PRICING_REFRESH_CRON`, and `MODEL_PRICING_REFRESH_ON_STARTUP`. In cloud mode with Postgres, refresh runs under a database advisory lock plus an in-process guard.

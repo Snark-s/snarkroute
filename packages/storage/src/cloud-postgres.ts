@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { CREDIT_UNIT, getRubPerUsd } from "@snarkroute/protocol";
 
 type PgPool = {
   query: <T = Record<string, unknown>>(sql: string, values?: unknown[]) => Promise<{ rows: T[] }>;
@@ -1248,25 +1249,25 @@ export class CloudPostgresStorageAdapter {
         pricing_snapshot_id,
         count(*) as samples,
         avg(case
-          when upper(coalesce(currency, 'USD')) = 'USD' and provider_cost_actual_amount is not null then ceil(provider_cost_actual_amount * 1000)
-          when upper(coalesce(currency, 'USD')) = 'RUB' and provider_cost_actual_amount is not null then ceil((provider_cost_actual_amount / $2) * 1000)
+          when upper(currency) = 'USD' and provider_cost_actual_amount is not null then ceil(provider_cost_actual_amount * $3)
+          when upper(currency) = 'RUB' and provider_cost_actual_amount is not null and $2 is not null then ceil((provider_cost_actual_amount / $2) * $3)
           else nullif(actual_credits, 0)
         end) as avg_actual_credits,
         max(case when rn = 1 then
           case
-            when upper(coalesce(currency, 'USD')) = 'USD' and provider_cost_actual_amount is not null then ceil(provider_cost_actual_amount * 1000)
-            when upper(coalesce(currency, 'USD')) = 'RUB' and provider_cost_actual_amount is not null then ceil((provider_cost_actual_amount / $2) * 1000)
+            when upper(currency) = 'USD' and provider_cost_actual_amount is not null then ceil(provider_cost_actual_amount * $3)
+            when upper(currency) = 'RUB' and provider_cost_actual_amount is not null and $2 is not null then ceil((provider_cost_actual_amount / $2) * $3)
             else actual_credits
           end
         end) as last_actual_credits,
         avg(case
-          when upper(coalesce(currency, 'USD')) = 'USD' and provider_cost_actual_amount is not null then provider_cost_actual_amount * 1000000
-          when upper(coalesce(currency, 'USD')) = 'RUB' and provider_cost_actual_amount is not null then (provider_cost_actual_amount / $2) * 1000000
+          when upper(currency) = 'USD' and provider_cost_actual_amount is not null then provider_cost_actual_amount * 1000000
+          when upper(currency) = 'RUB' and provider_cost_actual_amount is not null and $2 is not null then (provider_cost_actual_amount / $2) * 1000000
         end) as avg_provider_cost_microusd,
         max(case when rn = 1 then
           case
-            when upper(coalesce(currency, 'USD')) = 'USD' then provider_cost_actual_amount * 1000000
-            when upper(coalesce(currency, 'USD')) = 'RUB' then (provider_cost_actual_amount / $2) * 1000000
+            when upper(currency) = 'USD' then provider_cost_actual_amount * 1000000
+            when upper(currency) = 'RUB' and $2 is not null then (provider_cost_actual_amount / $2) * 1000000
           end
         end) as last_provider_cost_microusd,
         max(case when rn = 1 then created_at::text end) as last_created_at
@@ -1275,7 +1276,7 @@ export class CloudPostgresStorageAdapter {
       order by samples desc, provider, operation, model, pricing_snapshot_id
       limit $1
       `,
-      [Math.max(1, Math.min(2000, Math.floor(limit))), rubPerUsd()]
+      [Math.max(1, Math.min(2000, Math.floor(limit))), getRubPerUsd(), CREDIT_UNIT.creditsPerUsd]
     );
     return result.rows.map((row) => ({
       provider: row.provider,
@@ -1597,9 +1598,4 @@ function rowToAdminUserListing(row: AdminUserListingRow): CloudAdminUserListing 
 
 function dateText(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : value;
-}
-
-function rubPerUsd(): number {
-  const value = Number(process.env.BOOJUM_RUB_PER_USD ?? 100);
-  return Number.isFinite(value) && value > 0 ? value : 100;
 }

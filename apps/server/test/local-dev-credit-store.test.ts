@@ -9,7 +9,7 @@ import {
   listLocalDevBillingUsers,
   listLocalDevCreditTransactions,
   reserveLocalDevCredits
-} from "../src/billing/local-dev-ledger";
+} from "../src/billing/local-dev-credit-store";
 
 let tempDir: string | null = null;
 

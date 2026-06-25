@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { refreshModelPricing } from "../billing/model-pricing-refresh-service";
 import { requireAdmin } from "../auth/adapters";
 import { getEffectivePricingState, pricingCatalogState, savePricingConfig, savePricingOverride } from "../billing/pricing-service";
-import { adjustLocalDevCredits, ensureLocalDevSeedUsers, getLocalDevBillingUser, grantLocalDevCredits, listLocalDevBillingUsers, listLocalDevCreditTransactions, localDevAdminOverview, rememberLocalDevUser } from "../billing/local-dev-ledger";
+import { adjustLocalDevCredits, ensureLocalDevSeedUsers, getLocalDevBillingUser, grantLocalDevCredits, listLocalDevBillingUsers, listLocalDevCreditTransactions, localDevAdminOverview, rememberLocalDevUser } from "../billing/local-dev-credit-store";
 import { getCloudStorage } from "../services/cloud-storage";
 import { isCloudStorageConfigured, isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled } from "../services/env";
 import { errorMessage } from "../services/errors";

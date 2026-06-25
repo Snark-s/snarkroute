@@ -147,9 +147,9 @@ describe("executor", () => {
     expect(result.nodeResults.polza.status).toBe("failed");
     expect(result.nodeResults.polza.error).toBe("Polza.ai account has insufficient funds. No credits were charged.");
     expect(result.nodeResults.polza.actualCredits).toBe(0);
-    expect(result.costSummary.totalEstimatedCredits).toBe(40);
+    expect(result.costSummary.totalEstimatedCredits).toBe(4);
     expect(result.costSummary.totalActualCredits).toBe(0);
-    expect(result.costSummary.refundedCredits).toBe(40);
+    expect(result.costSummary.refundedCredits).toBe(4);
   });
 
   it("treats provider error usage without an artifact as non-billable", async () => {
@@ -180,15 +180,15 @@ describe("executor", () => {
       { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
     );
     expect(noMarkup.costSummary.estimates[0].baseCostMicrousd).toBe(40000);
-    expect(noMarkup.costSummary.estimates[0].baseCredits).toBe(40);
-    expect(noMarkup.costSummary.totalEstimatedCredits).toBe(40);
+    expect(noMarkup.costSummary.estimates[0].baseCredits).toBe(4);
+    expect(noMarkup.costSummary.totalEstimatedCredits).toBe(4);
 
     process.env.BOOJUM_GLOBAL_MARKUP_PERCENT = "25";
     const globalPercent = await executor.executeRoute(
       route({ nodes: [{ id: "polza", type: "polza.image.generate" }], edges: [] }),
       { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
     );
-    expect(globalPercent.costSummary.totalEstimatedCredits).toBe(50);
+    expect(globalPercent.costSummary.totalEstimatedCredits).toBe(5);
 
     process.env.BOOJUM_GLOBAL_MARKUP_PERCENT = "0";
     process.env.BOOJUM_GLOBAL_MARKUP_CREDITS = "5";
@@ -196,7 +196,7 @@ describe("executor", () => {
       route({ nodes: [{ id: "polza", type: "polza.image.generate" }], edges: [] }),
       { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
     );
-    expect(globalAbsolute.costSummary.totalEstimatedCredits).toBe(45);
+    expect(globalAbsolute.costSummary.totalEstimatedCredits).toBe(9);
 
     process.env.BOOJUM_GLOBAL_MARKUP_CREDITS = "0";
     process.env.BOOJUM_PRICING_OVERRIDES_JSON = JSON.stringify([{ provider: "polza", operation: "image.generate", markupPercent: 10, markupCredits: 3, enabled: true }]);
@@ -204,7 +204,7 @@ describe("executor", () => {
       route({ nodes: [{ id: "polza", type: "polza.image.generate" }], edges: [] }),
       { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
     );
-    expect(nodeOverride.costSummary.totalEstimatedCredits).toBe(47);
+    expect(nodeOverride.costSummary.totalEstimatedCredits).toBe(8);
   });
 
   it("uses model-specific provider pricing before generic Polza fallback", async () => {
@@ -224,8 +224,8 @@ describe("executor", () => {
       { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
     );
 
-    expect(cheap.costSummary.totalEstimatedCredits).toBe(20);
-    expect(expensive.costSummary.totalEstimatedCredits).toBe(120);
+    expect(cheap.costSummary.totalEstimatedCredits).toBe(2);
+    expect(expensive.costSummary.totalEstimatedCredits).toBe(12);
     expect(cheap.costSummary.estimates[0].model).toBe("polza/cheap-image");
     expect(expensive.costSummary.estimates[0].model).toBe("polza/expensive-image");
   });
@@ -244,12 +244,12 @@ describe("executor", () => {
       edges: []
     }));
 
-    expect(estimate.totalEstimatedCredits).toBe(132);
+    expect(estimate.totalEstimatedCredits).toBe(14);
     expect(estimate.estimates.find((entry) => entry.nodeId === "exact")).toMatchObject({
       provider: "openrouter",
       operation: "image.generate",
       model: "openai/gpt-image-1",
-      finalCredits: 87,
+      finalCredits: 9,
       pricingSource: "pricing_catalog",
       pricingConfidence: "high",
       fallback: false
@@ -258,7 +258,7 @@ describe("executor", () => {
       provider: "openrouter",
       operation: "image.generate",
       model: "google/gemini-3-pro-image-preview",
-      finalCredits: 45,
+      finalCredits: 5,
       pricingSource: "pricing_catalog",
       pricingConfidence: "medium",
       fallback: true
@@ -279,7 +279,7 @@ describe("executor", () => {
     expect(estimate.estimates[0]).toMatchObject({
       provider: "openrouter",
       model: "openai/gpt-5-image",
-      finalCredits: 51,
+      finalCredits: 6,
       pricingConfidence: "medium",
       fallback: false
     });
@@ -298,7 +298,7 @@ describe("executor", () => {
     });
 
     expect(estimate.estimates[0]).toMatchObject({
-      finalCredits: 73,
+      finalCredits: 8,
       pricingSource: "pricing_catalog",
       pricingConfidence: "high",
       fallback: false
@@ -322,8 +322,8 @@ describe("executor", () => {
       { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
     );
 
-    expect(oneK.costSummary.totalEstimatedCredits).toBe(40);
-    expect(twoK.costSummary.totalEstimatedCredits).toBe(70);
+    expect(oneK.costSummary.totalEstimatedCredits).toBe(4);
+    expect(twoK.costSummary.totalEstimatedCredits).toBe(7);
   });
 
   it("prices Replicate Clarity Upscaler as a paid provider node", () => {
@@ -333,7 +333,7 @@ describe("executor", () => {
       edges: []
     }));
 
-    expect(estimate.totalEstimatedCredits).toBe(40);
+    expect(estimate.totalEstimatedCredits).toBe(4);
     expect(estimate.estimates[0]).toMatchObject({
       nodeId: "upscale",
       nodeType: "replicate.clarity-upscaler",
@@ -342,8 +342,8 @@ describe("executor", () => {
       model: "clarity-upscaler",
       free: false,
       baseCostMicrousd: 40000,
-      baseCredits: 40,
-      finalCredits: 40,
+      baseCredits: 4,
+      finalCredits: 4,
       pricingSource: "pricing_catalog",
       pricingConfidence: "medium"
     });
@@ -361,9 +361,9 @@ describe("executor", () => {
       edges: []
     }));
 
-    expect(estimate.totalEstimatedCredits).toBe(80);
-    expect(estimate.estimates.find((entry) => entry.nodeId === "polza")?.finalCredits).toBe(40);
-    expect(estimate.estimates.find((entry) => entry.nodeId === "upscale")).toMatchObject({ finalCredits: 40, free: false });
+    expect(estimate.totalEstimatedCredits).toBe(8);
+    expect(estimate.estimates.find((entry) => entry.nodeId === "polza")?.finalCredits).toBe(4);
+    expect(estimate.estimates.find((entry) => entry.nodeId === "upscale")).toMatchObject({ finalCredits: 4, free: false });
     expect(estimate.estimates.find((entry) => entry.nodeId === "input")).toMatchObject({ finalCredits: 0, free: true });
     expect(estimate.estimates.find((entry) => entry.nodeId === "preview")).toMatchObject({ finalCredits: 0, free: true });
   });
@@ -389,12 +389,12 @@ describe("executor", () => {
       route({ nodes: [{ id: "polza", type: "polza.image.generate" }], edges: [] }),
       { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
     );
-    expect(result.costSummary.totalEstimatedCredits).toBe(40);
-    expect(result.costSummary.totalActualCredits).toBe(1000);
+    expect(result.costSummary.totalEstimatedCredits).toBe(4);
+    expect(result.costSummary.totalActualCredits).toBe(100);
   });
 
   it("converts RUB provider actual cost into actual credits", async () => {
-    process.env.BOOJUM_RUB_PER_USD = "100";
+    process.env.BOOJUM_RUB_PER_USD = "80";
     const executor = createExecutor();
     executor.registerNodeRunner("polza.image.generate", ({ node }) => ({
       output: { image: { path: "out.png", mimeType: "image/png" } },
@@ -404,10 +404,25 @@ describe("executor", () => {
       route({ nodes: [{ id: "polza", type: "polza.image.generate" }], edges: [] }),
       { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
     );
-    expect(result.costSummary.totalEstimatedCredits).toBe(40);
-    expect(result.costSummary.totalActualCredits).toBe(65);
+    expect(result.costSummary.totalEstimatedCredits).toBe(4);
+    expect(result.costSummary.totalActualCredits).toBe(9);
     expect(result.nodeResults.polza.actualProviderCostAmount).toBe(6.4238);
     expect(result.nodeResults.polza.actualProviderCostCurrency).toBe("RUB");
+  });
+
+  it("keeps Polza estimate and capture equal when provider actual cost matches the estimate", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("polza.image.generate", ({ node }) => ({
+      output: { image: { path: "out.png", mimeType: "image/png" } },
+      providerUsage: { provider: "polza", nodeId: node.id, nodeType: node.type, status: "succeeded", actualCost: 0.04, actualCostCurrency: "USD" }
+    }));
+    const result = await executor.executeRoute(
+      route({ nodes: [{ id: "polza", type: "polza.image.generate" }], edges: [] }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    const estimate = result.costSummary.estimates.find((entry) => entry.nodeId === "polza");
+    expect(estimate?.finalCredits).toBe(result.nodeResults.polza.actualCredits);
+    expect(result.costSummary.totalEstimatedCredits).toBe(result.costSummary.totalActualCredits);
   });
 
   it("does not capture provider estimated cost as actual credits", async () => {
@@ -420,8 +435,8 @@ describe("executor", () => {
       route({ nodes: [{ id: "polza", type: "polza.image.generate" }], edges: [] }),
       { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
     );
-    expect(result.costSummary.totalEstimatedCredits).toBe(40);
-    expect(result.costSummary.totalActualCredits).toBe(40);
+    expect(result.costSummary.totalEstimatedCredits).toBe(4);
+    expect(result.costSummary.totalActualCredits).toBe(4);
     expect(result.nodeResults.polza.actualProviderCostAmount).toBeNull();
     expect(result.nodeResults.polza.actualProviderCostCurrency).toBeNull();
   });
@@ -441,7 +456,7 @@ describe("executor", () => {
       nodes: [{ id: "polza", type: "polza.image.generate", params: { model: "openai/gpt-5.4-image-2", resolution: "2K" } }],
       edges: []
     }));
-    expect(estimate.totalEstimatedCredits).toBe(67);
+    expect(estimate.totalEstimatedCredits).toBe(7);
     expect(estimate.estimates[0].pricingBreakdown?.fallback).toBe(false);
     expect(estimate.estimates[0].pricingConfidence).toBe("medium");
   });

@@ -1,7 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { appDevUi, appMode, isCloudStorageConfigured, isProduction } from "../services/env";
 import { getCloudStorage } from "../services/cloud-storage";
-import { rememberLocalDevUser } from "../billing/local-dev-ledger";
+import { rememberLocalDevUser } from "../billing/local-dev-credit-store";
 
 export type DevIdentity = "guest" | "user" | "admin";
 export type AuthRequestContext = { headers?: { cookie?: string } };

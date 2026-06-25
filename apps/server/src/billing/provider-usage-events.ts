@@ -1,5 +1,6 @@
 import type { NodeResult, RunResult } from "@snarkroute/executor";
-import { saveLocalDevProviderUsageEvent } from "./local-dev-ledger";
+import { getRubPerUsd } from "@snarkroute/protocol";
+import { saveLocalDevProviderUsageEvent } from "./local-dev-credit-store";
 import { getCloudStorage } from "../services/cloud-storage";
 import { isCloudStorageConfigured } from "../services/env";
 import { redactSecrets } from "../services/errors";
@@ -62,15 +63,14 @@ export async function saveProviderUsageEventsForNodeResult(runId: string | null,
 
 function microusdFromProviderCost(cost: number | null | undefined, currency: string | null | undefined): number | null {
   if (cost === null || cost === undefined || !Number.isFinite(cost) || cost < 0) return null;
-  const normalizedCurrency = (currency ?? "USD").toUpperCase();
+  const normalizedCurrency = currency?.toUpperCase();
+  if (!normalizedCurrency) return null;
   if (normalizedCurrency === "USD") return Math.ceil(cost * 1_000_000);
-  if (normalizedCurrency === "RUB") return Math.ceil((cost / rubPerUsd()) * 1_000_000);
+  if (normalizedCurrency === "RUB") {
+    const rate = getRubPerUsd();
+    return rate ? Math.ceil((cost / rate) * 1_000_000) : null;
+  }
   return null;
-}
-
-function rubPerUsd(): number {
-  const value = Number(process.env.BOOJUM_RUB_PER_USD ?? 100);
-  return Number.isFinite(value) && value > 0 ? value : 100;
 }
 
 export function operationForProviderUsage(nodeType: string): string {

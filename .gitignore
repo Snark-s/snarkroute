@@ -15,8 +15,10 @@ data/assets/
 apps/server/data/cache/
 apps/server/data/runs/
 apps/server/data/assets/
+apps/server/data/billing/
 apps/server/data/secrets/
 **/data/ledger/
+**/data/billing/
 **/data/secrets/
 **/data/cache/
 data/secrets/*

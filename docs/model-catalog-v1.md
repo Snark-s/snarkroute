@@ -72,7 +72,7 @@ Refresh endpoints:
 - `POST /api/model-pricing/refresh`
 - `POST /api/admin/pricing/refresh`
 
-Scheduled cloud refresh is controlled by `MODEL_PRICING_REFRESH_ENABLED`, `MODEL_PRICING_REFRESH_CRON`, and `MODEL_PRICING_REFRESH_ON_STARTUP`.
+Scheduled cloud refresh is controlled by `MODEL_PRICING_REFRESH_ENABLED`, `MODEL_PRICING_REFRESH_CRON`, and `MODEL_PRICING_REFRESH_ON_STARTUP`. The same daily scheduler refreshes the shared RUB/USD cache from CBR for RUB-denominated provider pricing; `BOOJUM_RUB_PER_USD` is only an explicit fallback when live/cache FX is unavailable.
 
 ## Icons
 

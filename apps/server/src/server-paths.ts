@@ -32,6 +32,7 @@ export const openRouterCatalogCachePath = join(process.cwd(), "data", "cache", "
 export const openRouterPricingCachePath = join(process.cwd(), "data", "cache", "model-pricing", "openrouter.json");
 export const polzaPricingCachePath = join(process.cwd(), "data", "cache", "model-pricing", "polza.json");
 export const geminiPricingCachePath = join(process.cwd(), "data", "cache", "model-pricing", "gemini.json");
+export const rubPerUsdCachePath = join(process.cwd(), "data", "cache", "fx", "rub-usd.json");
 export const startupRoutePath = findExistingFile("apps", "studio", "src", "default-route.orp.json");
 export const examplesDirectory = findExistingDirectory("examples", "routes");
 export const getLedgerPath = () => process.env.SNARKROUTE_LEDGER_PATH ?? join(process.cwd(), "data", "ledger", "runs.jsonl");

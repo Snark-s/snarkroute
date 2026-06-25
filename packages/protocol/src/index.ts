@@ -1,7 +1,9 @@
 import YAML from "yaml";
 import { z } from "zod";
-export * from "./dialogue-workbench";
-export * from "./model-registry";
+export * from "./billing.js";
+export * from "./dialogue-workbench.js";
+export * from "./fx.js";
+export * from "./model-registry.js";
 
 const JsonLikeSchema: z.ZodType<unknown> = z.lazy(() =>
   z.union([

@@ -1,5 +1,7 @@
+import { refreshRubPerUsd } from "@snarkroute/protocol";
 import { refreshModelPricing } from "./model-pricing-refresh-service";
 import { appMode } from "../services/env";
+import { rubPerUsdCachePath } from "../server-paths";
 
 let schedulerStarted = false;
 
@@ -21,8 +23,9 @@ export function startModelPricingRefreshScheduler(): void {
 
 async function runScheduledRefresh(reason: "startup" | "daily"): Promise<void> {
   try {
+    const fx = await refreshRubPerUsd({ cachePath: rubPerUsdCachePath });
     const result = await refreshModelPricing("all");
-    console.info(`[model-pricing-refresh] ${reason}: ${JSON.stringify({ refreshed: result.refreshed, failed: result.failed.length, warnings: result.warnings.length, pricesUpdated: result.pricesUpdated })}`);
+    console.info(`[model-pricing-refresh] ${reason}: ${JSON.stringify({ refreshed: result.refreshed, failed: result.failed.length, warnings: result.warnings.length, pricesUpdated: result.pricesUpdated, rubPerUsd: fx?.rubPerUsd ?? null, rubPerUsdSource: fx?.source ?? null })}`);
   } catch (error) {
     console.warn(`[model-pricing-refresh] ${reason} failed: ${error instanceof Error ? error.message : String(error)}`);
   }

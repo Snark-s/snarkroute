@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { parseRoute } from "@snarkroute/protocol";
 import { getAuthAdapter } from "../auth/adapters";
 import { getBillingAdapter } from "../billing/adapters";
-import { listLocalDevCreditTransactions } from "../billing/local-dev-ledger";
+import { listLocalDevCreditTransactions } from "../billing/local-dev-credit-store";
 import { errorMessage } from "../services/errors";
 import { getCloudStorage } from "../services/cloud-storage";
 import { isCloudStorageConfigured } from "../services/env";

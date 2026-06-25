@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { CREDIT_UNIT, getRubPerUsd } from "@snarkroute/protocol";
 
 type LocalDevUser = {
   id: string;
@@ -552,24 +553,22 @@ function nullableNumber(value: unknown): number | null {
 }
 
 function providerCostMicrousdForEvent(event: LocalDevProviderUsageEvent): number | null {
-  if (event.providerCostActualAmount !== null && (!event.currency || event.currency.toUpperCase() === "USD")) return Math.ceil(event.providerCostActualAmount * 1_000_000);
-  if (event.providerCostActualAmount !== null && event.currency?.toUpperCase() === "RUB") return Math.ceil((event.providerCostActualAmount / rubPerUsd()) * 1_000_000);
+  if (event.providerCostActualAmount !== null && event.currency?.toUpperCase() === "USD") return Math.ceil(event.providerCostActualAmount * 1_000_000);
+  if (event.providerCostActualAmount !== null && event.currency?.toUpperCase() === "RUB") {
+    const rate = getRubPerUsd();
+    return rate ? Math.ceil((event.providerCostActualAmount / rate) * 1_000_000) : null;
+  }
   return event.providerCostMicrousd;
 }
 
 function actualCreditsForStats(event: LocalDevProviderUsageEvent): number | null {
   const actualProviderCostMicrousd = event.providerCostActualAmount !== null ? providerCostMicrousdForEvent(event) : null;
-  if (actualProviderCostMicrousd !== null) return Math.ceil(actualProviderCostMicrousd / 1000);
+  if (actualProviderCostMicrousd !== null) return Math.ceil(actualProviderCostMicrousd / CREDIT_UNIT.microusdPerCredit);
   return event.actualCredits;
 }
 
 function average(values: number[]): number | null {
   return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
-}
-
-function rubPerUsd(): number {
-  const value = Number(process.env.BOOJUM_RUB_PER_USD ?? 100);
-  return Number.isFinite(value) && value > 0 ? value : 100;
 }
 
 function shortId(): string {

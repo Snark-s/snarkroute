@@ -1,6 +1,7 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { OpenRoute, RouteEdge, RouteNode } from "@snarkroute/protocol";
+import { CREDIT_UNIT, creditsFromMicrousd as protocolCreditsFromMicrousd, getRubPerUsd, type OpenRoute, type RouteEdge, type RouteNode } from "@snarkroute/protocol";
+export { CREDIT_UNIT } from "@snarkroute/protocol";
 
 export type RunStatus = "pending" | "running" | "succeeded" | "failed" | "skipped";
 
@@ -847,8 +848,6 @@ export type BillingPricingOverride = {
 
 export type RuntimeProviderPricingCatalogEntry = ProviderPricingCatalogEntry;
 
-export const CREDIT_UNIT = { creditsPerUsd: 1000, microusdPerCredit: 1000 };
-
 export const PROVIDER_PRICING_CATALOG: ProviderPricingCatalogEntry[] = [];
 
 export function currentRuntimeProviderPricingCatalog(): RuntimeProviderPricingCatalogEntry[] {
@@ -871,8 +870,9 @@ function actualNodeCost(node: RouteNode, result: NodeRunnerResult, providerUsage
   const outputTokens = numberMetric(metrics, "outputTokens") ?? numberMetric(metrics, "output_tokens");
   const imageCount = numberMetric(metrics, "imageCount") ?? numberMetric(metrics, "image_count");
   const videoSeconds = numberMetric(metrics, "videoSeconds") ?? numberMetric(metrics, "video_seconds");
-  const actualProviderCostAmount = custom?.actualProviderCostAmount ?? usage?.actualCost ?? estimate?.estimatedProviderCostAmount ?? null;
-  const actualProviderCostCurrency = usage?.actualCostCurrency ?? estimate?.providerCostCurrency ?? (actualProviderCostAmount === null ? null : "USD");
+  const providerCostCurrencyUnknown = usage?.actualCostCurrency?.toUpperCase() === "UNKNOWN";
+  const actualProviderCostAmount = custom?.actualProviderCostAmount ?? usage?.actualCost ?? (providerCostCurrencyUnknown ? null : estimate?.estimatedProviderCostAmount) ?? null;
+  const actualProviderCostCurrency = usage?.actualCostCurrency ?? (providerCostCurrencyUnknown ? null : estimate?.providerCostCurrency) ?? null;
   const actualCostMicrousd = microusdFromProviderCost(actualProviderCostAmount, actualProviderCostCurrency);
   const actualPricing = actualCostMicrousd !== null && estimate?.pricingBreakdown
     ? resolveNodePricing({
@@ -1162,7 +1162,7 @@ function applyPricingMarkup(input: PricingBreakdown, config: BillingPricingConfi
 }
 
 function creditsFromMicrousd(providerCostMicrousd: number): number {
-  return integerCredits(providerCostMicrousd / CREDIT_UNIT.microusdPerCredit);
+  return integerCredits(protocolCreditsFromMicrousd(providerCostMicrousd));
 }
 
 function integerMicrousd(value: number): number {
@@ -1299,15 +1299,14 @@ function fallbackCostMicrousd(kind: "free" | "text" | "image" | "video" | "trans
 
 function microusdFromProviderCost(cost: number | null | undefined, currency: string | null | undefined): number | null {
   if (cost === null || cost === undefined || !Number.isFinite(cost) || cost < 0) return null;
-  const normalizedCurrency = (currency ?? "USD").toUpperCase();
-  if (normalizedCurrency === "RUB") return Math.ceil((cost / rubPerUsd()) * 1_000_000);
+  const normalizedCurrency = currency?.toUpperCase();
+  if (!normalizedCurrency) return null;
+  if (normalizedCurrency === "RUB") {
+    const rate = getRubPerUsd();
+    return rate ? Math.ceil((cost / rate) * 1_000_000) : null;
+  }
   if (normalizedCurrency !== "USD") return null;
   return Math.ceil(cost * 1_000_000);
-}
-
-function rubPerUsd(): number {
-  const value = Number(process.env.BOOJUM_RUB_PER_USD ?? 100);
-  return Number.isFinite(value) && value > 0 ? value : 100;
 }
 
 function numberFromEnv(name: string, fallback: number): number {

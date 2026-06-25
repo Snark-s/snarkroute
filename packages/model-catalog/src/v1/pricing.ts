@@ -1,4 +1,5 @@
 import type { ModelCapabilityV1, ModelInputTypeV1, ModelOutputTypeV1, ModelProviderIdV1 } from "./types.js";
+import { creditsFromMicrousd } from "@snarkroute/protocol";
 
 export type CanonicalModelV1 = {
   id: string;
@@ -240,7 +241,7 @@ function seededPrice(input: {
     ...input,
     priceUnit: input.priceUnit ?? "request",
     currency: "USD",
-    baseCredits: Math.ceil(input.providerCostMicrousd / 1000),
+    baseCredits: creditsFromMicrousd(input.providerCostMicrousd),
     pricingSource: input.pricingSource ?? "manual_initial_estimate",
     pricingConfidence: input.pricingConfidence ?? "medium",
     effectiveFrom: "2026-01-01",

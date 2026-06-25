@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, extname, join } from "node:path";
-import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
+import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, getRubPerUsd, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
@@ -215,7 +215,7 @@ export function polzaPricingCatalogFromModels(models: PolzaModelInfo[], ttlHours
   for (const model of models) {
     if (!model.pricing || Object.keys(model.pricing).length === 0) continue;
     catalog.models[model.id] = {
-      currency: typeof model.pricing.currency === "string" ? model.pricing.currency : "USD",
+      currency: typeof model.pricing.currency === "string" ? model.pricing.currency : "unknown",
       pricing: { ...model.pricing },
       raw: { id: model.id, name: model.name, type: model.type }
     };
@@ -315,7 +315,7 @@ export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): Nod
       params,
       inputMetadata: {}
     });
-    const providerCost = normalizePolzaProviderCostFromUsage(usage);
+    const providerCost = normalizePolzaProviderCostFromUsage(usage, { pricingCurrency: pricingQuote.currency, responseCurrency: stringParam(objectField(response, "currency") ?? objectField(response, "cost_currency")) });
     return {
       output: {
         text,
@@ -333,9 +333,9 @@ export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): Nod
         pricingQuote,
         status: "succeeded"
       },
-      logs: [`Generated text with Polza ${model}`],
+      logs: [`Generated text with Polza ${model}`, ...unknownProviderCostLogs(providerCost)],
       provenance: { provider: "polza", model },
-      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage, pricingQuote)
+      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage, pricingQuote, providerCost)
     };
   };
 }
@@ -367,7 +367,7 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
       params,
       inputMetadata: {}
     });
-    const providerCost = normalizePolzaProviderCostFromUsage(usage);
+    const providerCost = normalizePolzaProviderCostFromUsage(usage, { pricingCurrency: pricingQuote.currency, responseCurrency: stringParam(objectField(response, "currency") ?? objectField(response, "cost_currency")) });
     return {
       output: {
         image: imageAsset,
@@ -390,9 +390,9 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
         warning: imageAsset.warning,
         status: "succeeded"
       },
-      logs: [`Generated Polza image with ${model}: ${imageAsset.localPath ?? imageAsset.originalUrl ?? imageAsset.path}`],
+      logs: [`Generated Polza image with ${model}: ${imageAsset.localPath ?? imageAsset.originalUrl ?? imageAsset.path}`, ...unknownProviderCostLogs(providerCost)],
       provenance: { provider: "polza", model },
-      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage, pricingQuote)
+      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage, pricingQuote, providerCost)
     };
   };
 }
@@ -423,7 +423,7 @@ export function createPolzaVideoNodeRunner(options: PolzaClientOptions = {}): No
       params,
       inputMetadata: {}
     });
-    const providerCost = normalizePolzaProviderCostFromUsage(usage);
+    const providerCost = normalizePolzaProviderCostFromUsage(usage, { pricingCurrency: pricingQuote.currency, responseCurrency: stringParam(objectField(response, "currency") ?? objectField(response, "cost_currency")) });
     return {
       output: {
         video: videoAsset,
@@ -446,9 +446,9 @@ export function createPolzaVideoNodeRunner(options: PolzaClientOptions = {}): No
         warning: videoAsset.warning,
         status: "succeeded"
       },
-      logs: [`Generated Polza video with ${model}: ${videoAsset.localPath ?? videoAsset.originalUrl ?? videoAsset.path}`],
+      logs: [`Generated Polza video with ${model}: ${videoAsset.localPath ?? videoAsset.originalUrl ?? videoAsset.path}`, ...unknownProviderCostLogs(providerCost)],
       provenance: { provider: "polza", model },
-      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage, pricingQuote)
+      providerUsage: polzaUsageEvent(node.id, node.type, model, "succeeded", usage, pricingQuote, providerCost)
     };
   };
 }
@@ -540,7 +540,13 @@ export function createPolzaProviderAdapter(options: PolzaClientOptions = {}): Pr
 }
 
 export function estimatePolzaPricingQuote(input: ModelPricingInput): PricingQuote {
-  return estimateCatalogPricingQuote(input, input.params.pricing, "polza_catalog");
+  return estimateCatalogPricingQuote(input, polzaPricingWithKnownCurrency(input.params.pricing), "polza_catalog");
+}
+
+function polzaPricingWithKnownCurrency(pricing: unknown): unknown {
+  if (!pricing || typeof pricing !== "object" || Array.isArray(pricing)) return pricing;
+  const record = pricing as Record<string, unknown>;
+  return typeof record.currency === "string" ? pricing : { ...record, currency: "unknown" };
 }
 
 function createPolzaModelGateway(options: PolzaClientOptions, model: string, capability: "text.generate" | "image.generate" | "video.generate"): ModelGateway {
@@ -953,8 +959,7 @@ async function writeGeneratedVideo(
   };
 }
 
-function polzaUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown, pricingQuote: PricingQuote): ProviderUsageEvent {
-  const providerCost = normalizePolzaProviderCostFromUsage(usage);
+function polzaUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown, pricingQuote: PricingQuote, providerCost = normalizePolzaProviderCostFromUsage(usage, { pricingCurrency: pricingQuote.currency })): ProviderUsageEvent {
   return {
     provider: "polza",
     model,
@@ -982,23 +987,39 @@ function firstInputText(value: unknown): string | undefined {
   return undefined;
 }
 
-export function normalizePolzaProviderCostFromUsage(usage: unknown): { amountUsd: number; currency: "USD" } | null {
+export type NormalizedPolzaProviderCost = { amountUsd: number; currency: "USD"; sourceCurrency: "USD" | "RUB" } | { amountUsd: null; currency: "unknown"; sourceCurrency: "unknown" };
+
+export function normalizePolzaProviderCostFromUsage(usage: unknown, options: { pricingCurrency?: unknown; responseCurrency?: unknown } = {}): NormalizedPolzaProviderCost | null {
   if (!usage || typeof usage !== "object") return null;
   const record = usage as Record<string, unknown>;
   const costRub = numberParam(record.cost_rub);
   const cost = numberParam(record.cost);
-  const currency = stringParam(record.currency ?? record.cost_currency ?? record.actualCostCurrency)?.toUpperCase();
-  if (cost !== undefined && currency === "RUB") return { amountUsd: cost / rubPerUsd(), currency: "USD" };
-  if (cost !== undefined && currency === "USD") return { amountUsd: cost, currency: "USD" };
-  if (cost !== undefined && costRub !== undefined) return { amountUsd: cost, currency: "USD" };
-  if (costRub !== undefined) return { amountUsd: costRub / rubPerUsd(), currency: "USD" };
-  if (cost !== undefined) return { amountUsd: cost / rubPerUsd(), currency: "USD" };
+  const responseCurrency = knownProviderCostCurrency(record.currency ?? record.cost_currency ?? record.actualCostCurrency ?? options.responseCurrency);
+  const pricingCurrency = knownProviderCostCurrency(options.pricingCurrency);
+  const currency = responseCurrency ?? pricingCurrency;
+  if (cost !== undefined && currency === "RUB") return amountUsdFromRub(cost);
+  if (cost !== undefined && currency === "USD") return { amountUsd: cost, currency: "USD", sourceCurrency: "USD" };
+  if (costRub !== undefined) return amountUsdFromRub(costRub);
+  if (cost !== undefined) return { amountUsd: null, currency: "unknown", sourceCurrency: "unknown" };
   return null;
 }
 
-function rubPerUsd(): number {
-  const value = Number(process.env.BOOJUM_RUB_PER_USD ?? 100);
-  return Number.isFinite(value) && value > 0 ? value : 100;
+function amountUsdFromRub(costRub: number): NormalizedPolzaProviderCost {
+  const rate = getRubPerUsd();
+  return rate
+    ? { amountUsd: costRub / rate, currency: "USD", sourceCurrency: "RUB" }
+    : { amountUsd: null, currency: "unknown", sourceCurrency: "unknown" };
+}
+
+function knownProviderCostCurrency(value: unknown): "USD" | "RUB" | null {
+  const currency = stringParam(value)?.toUpperCase();
+  return currency === "USD" || currency === "RUB" ? currency : null;
+}
+
+function unknownProviderCostLogs(providerCost: NormalizedPolzaProviderCost | null): string[] {
+  return providerCost?.currency === "unknown"
+    ? ["Polza provider returned cost without an authoritative currency; using route estimate for credit capture."]
+    : [];
 }
 
 function objectField(value: unknown, key: string): unknown {

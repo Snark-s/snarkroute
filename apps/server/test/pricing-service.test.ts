@@ -51,7 +51,7 @@ describe("pricing service", () => {
   });
 
   it("normalizes Polza tier pricing from RUB before creating credit catalog entries", () => {
-    process.env.BOOJUM_RUB_PER_USD = "100";
+    process.env.BOOJUM_RUB_PER_USD = "80";
     const entries = __testing.pricingEntriesFromPolzaCatalog({
       fetchedAt: "2026-06-23T21:04:00.106Z",
       expiresAt: "2026-06-24T21:04:00.106Z",
@@ -70,7 +70,7 @@ describe("pricing service", () => {
         provider: "polza",
         model: "openai/gpt-5.4-image-2",
         operation: "image.generate",
-        baseCostMicrousd: 40000,
+        baseCostMicrousd: 50000,
         parameterRules: { image_resolution: "1K" }
       })
     ]);
@@ -87,9 +87,9 @@ describe("pricing service", () => {
 
     expect(state.source).toBe("local_override");
     expect(geminiFallback).toMatchObject({
-      baseCredits: 40,
+      baseCredits: 4,
       globalMarkupPercent: 11,
-      finalCredits: 45
+      finalCredits: 5
     });
     __testing.resetLocalPricingState();
   });
@@ -111,13 +111,13 @@ describe("pricing service", () => {
       entry.provider === "gemini"
       && entry.operation === "image.generate"
       && entry.model === "gemini-3.1-flash-image-preview"
-      && entry.baseCredits === 101
+      && entry.baseCredits === 11
     );
 
     expect(twoKCatalogEntry).toBeTruthy();
     expect(twoK).toMatchObject({
-      baseCredits: 101,
-      finalCredits: 101,
+      baseCredits: 11,
+      finalCredits: 11,
       pricingConfidence: "high",
       fallback: false
     });

@@ -337,7 +337,8 @@ describe("server Model Catalog V1 assembly", () => {
 
     const options = modelOptionsForNodeV1("polza.image.generate", catalog);
 
-    expect(options.map((entry) => entry.storedModelId)).toEqual(["openai/gpt-image-1.5", "qwen/image-2"]);
+    expect(options.map((entry) => entry.storedModelId)).toEqual(expect.arrayContaining(["openai/gpt-image-1.5", "openai/gpt-5.4-image-2", "qwen/image-2"]));
+    expect(options.map((entry) => entry.storedModelId)).not.toContain("topaz/image-upscale");
   });
 
   it("keeps video upscalers out of normal Polza video generation options", () => {
