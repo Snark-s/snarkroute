@@ -682,6 +682,12 @@ dd {
   cursor: grabbing;
 }
 
+.dialogueFeed,
+.dialogueFeed .dialogueMessageBody {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 .canvasBackground-plain {
   background-image: none;
 }

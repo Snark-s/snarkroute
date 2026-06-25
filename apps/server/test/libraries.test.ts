@@ -845,6 +845,69 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("resolves text input chips before saving dialogue turns and messages", async () => {
+    const app = await testServer();
+    try {
+      const sourceCreated = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const sourceNode = sourceCreated.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/text-nodes/${sourceNode.manifest.id}`,
+        payload: { text: "Resolved upstream text" }
+      });
+      const targetCreated = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 500, y: 100, width: 320, height: 180 }
+      });
+      const targetNode = targetCreated.json().nodes.find((entry: { manifest: { type: string; id: string } }) => entry.manifest.type === "text" && entry.manifest.id !== sourceNode.manifest.id);
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_text_dialogue", fromNodeId: sourceNode.manifest.id, toNodeId: targetNode.manifest.id }] }
+      });
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: { generate: { status: "succeeded", output: { text: "Assistant answer" } } }
+      });
+
+      const turn = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${targetNode.manifest.id}/conversation/turn`,
+        payload: {
+          modelId: "text.default",
+          prompt: `Use [[text:${sourceNode.manifest.id}]]`,
+          executionProvider: "auto",
+          inputNodeIds: [sourceNode.manifest.id]
+        }
+      });
+      expect(turn.statusCode).toBe(200);
+      let updated = turn.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === targetNode.manifest.id);
+      expect(updated.conversation.messages[0].content[0].text).toBe("Use Resolved upstream text");
+      expect(updated.conversation.messages[0].content[0].text).not.toContain("[[text:");
+      expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
+        nodes: [expect.objectContaining({ type: "ai.text", params: expect.objectContaining({ prompt: "USER:\nUse Resolved upstream text" }) })]
+      }));
+
+      const message = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${targetNode.manifest.id}/conversation/message`,
+        payload: { role: "user", content: `Note [[text:${sourceNode.manifest.id}]]` }
+      });
+      expect(message.statusCode).toBe(200);
+      updated = message.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === targetNode.manifest.id);
+      expect(updated.conversation.messages.at(-1).content[0].text).toBe("Note Resolved upstream text");
+      expect(updated.conversation.messages.at(-1).content[0].text).not.toContain("[[text:");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("copies dialogue image attachments into node content with relative paths", async () => {
     const app = await testServer();
     try {

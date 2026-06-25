@@ -1320,8 +1320,11 @@ export async function appendTextNodeConversationMessage(input: AppendTextNodeCon
   const libraryPath = await ensureCurrentLibrary();
   const { manifest, nodePath } = await readTextNode(input.nodeId);
   const conversation = await readTextNodeConversation(nodePath);
+  const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
   const content = [
-    ...conversationPartsFromInput(input.content),
+    ...conversationPartsFromInput(input.content).map((part) =>
+      part.type === "text" ? { ...part, text: resolveTextInputTokens(part.text, connectedInputs) } : part
+    ),
     ...await materializeConversationAttachments(libraryPath, nodePath, input.nodeId, input.attachments)
   ];
   if (!content.length) throw new Error("Message content is required.");
@@ -1342,8 +1345,10 @@ export async function runTextNodeConversationTurn(input: RunTextNodeConversation
   const libraryPath = await ensureCurrentLibrary();
   const { manifest, nodePath } = await readTextNode(input.nodeId);
   const conversation = await readTextNodeConversation(nodePath);
+  const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
+  const orderedInputs = orderConnectedInputs(connectedInputs, input.inputNodeIds);
   const promptContent: TextNodeConversationPart[] = [
-    { type: "text", text: promptTemplate },
+    { type: "text", text: resolveTextInputTokens(promptTemplate, orderedInputs) },
     ...await materializeConversationAttachments(libraryPath, nodePath, input.nodeId, input.attachments)
   ];
   conversation.messages.push({
@@ -3537,6 +3542,14 @@ function resolveInputTokens(
     const referenceSyntax = type === "image" ? imageReferenceSyntax?.trim() || defaultReferenceSyntax : defaultReferenceSyntax;
     return position >= 0 ? referenceSyntax.replaceAll("{index}", String(position + 1)) : "";
   });
+}
+
+function resolveTextInputTokens(text: string, inputs: ConnectedCanvasInput[]): string {
+  const textById = new Map(
+    inputs.filter((entry) => entry.type === "text").map((entry) => [entry.nodeId, entry.text ?? ""])
+  );
+  if (!textById.size) return text;
+  return text.replace(/\[\[text:([^\]]+)\]\]/g, (_token, nodeId: string) => textById.get(nodeId) ?? "");
 }
 
 function imageNodeIdsFromPromptTemplate(promptTemplate: string): Set<string> {
