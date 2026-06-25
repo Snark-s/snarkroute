@@ -19,6 +19,7 @@ import type {
   AppendImageStackInput,
   AppendAudioStackInput,
   AppendVideoStackInput,
+  AppendTextNodeConversationMessageInput,
   CreateNodeInput,
   CropMetadata,
   DuplicateCanvasNodeAsRepresentationInput,
@@ -55,10 +56,15 @@ import type {
   NestedLibrary,
   NodeView,
   RunCanvasNodeActionInput,
+  RunTextNodeConversationTurnInput,
   SnarkCanvasDocument,
   SnarkCanvasNode,
   SnarkLibraryManifest,
   TextNodeManifest,
+  TextNodeConversation,
+  TextNodeConversationMessage,
+  TextNodeConversationPart,
+  TextNodeConversationAttachmentInput,
   TextStackItem,
   UpdateMediaNodeRouteSettingsInput,
   VideoNodeManifest,
@@ -69,6 +75,7 @@ export type {
   AppendImageStackInput,
   AppendAudioStackInput,
   AppendVideoStackInput,
+  AppendTextNodeConversationMessageInput,
   CreateNodeInput,
   CropMetadata,
   DuplicateCanvasNodeAsRepresentationInput,
@@ -103,10 +110,14 @@ export type {
   NestedLibrary,
   NodeView,
   RunCanvasNodeActionInput,
+  RunTextNodeConversationTurnInput,
   SnarkCanvasDocument,
   SnarkCanvasNode,
   SnarkLibraryManifest,
   TextNodeManifest,
+  TextNodeConversation,
+  TextNodeConversationMessage,
+  TextNodeConversationPart,
   TextStackItem,
   UpdateMediaNodeRouteSettingsInput,
   VideoNodeManifest,
@@ -116,6 +127,7 @@ export type {
 const manifestFilename = "snark.library.json";
 const canvasFilename = "canvas.json";
 const currentPromptFilename = "current-prompt.txt";
+const conversationFilename = "conversation.json";
 const projectRegistryFilename = "projects.json";
 const defaultNodeWidth = 320;
 const defaultNodeHeight = 240;
@@ -1290,6 +1302,79 @@ export async function generateAudioNodeStackItem(input: GenerateAudioNodeInput):
 export async function generateTextNodeStackItem(input: GenerateTextNodeInput): Promise<LibrarySnapshot> {
   const promptTemplate = input.prompt?.trim();
   if (!promptTemplate) throw new Error("Prompt is required.");
+  const { text } = await runTextNodeModel(input, promptTemplate);
+  if (!text) throw new Error(`Model "${input.modelId}" did not return text.`);
+  const snapshot = await appendTextToNodeStack(input.nodeId, text, firstTextLine(text) || "Generated text");
+  const { manifest, nodePath } = await readTextNode(input.nodeId);
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    modelId: input.modelId,
+    executionProvider: executionProviderForInput(input),
+    fallbackAllowed: input.fallbackAllowed !== false,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(snapshot.path);
+}
+
+export async function appendTextNodeConversationMessage(input: AppendTextNodeConversationMessageInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readTextNode(input.nodeId);
+  const conversation = await readTextNodeConversation(nodePath);
+  const content = [
+    ...conversationPartsFromInput(input.content),
+    ...await materializeConversationAttachments(libraryPath, nodePath, input.nodeId, input.attachments)
+  ];
+  if (!content.length) throw new Error("Message content is required.");
+  conversation.messages.push({
+    id: `msg_${shortId()}`,
+    role: input.role,
+    createdAt: new Date().toISOString(),
+    content
+  });
+  await writeTextNodeConversation(nodePath, conversation);
+  await touchTextNodeManifest(nodePath, manifest);
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function runTextNodeConversationTurn(input: RunTextNodeConversationTurnInput): Promise<LibrarySnapshot> {
+  const promptTemplate = input.prompt?.trim();
+  if (!promptTemplate) throw new Error("Prompt is required.");
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readTextNode(input.nodeId);
+  const conversation = await readTextNodeConversation(nodePath);
+  const promptContent: TextNodeConversationPart[] = [
+    { type: "text", text: promptTemplate },
+    ...await materializeConversationAttachments(libraryPath, nodePath, input.nodeId, input.attachments)
+  ];
+  conversation.messages.push({
+    id: `msg_${shortId()}`,
+    role: "user",
+    createdAt: new Date().toISOString(),
+    content: promptContent
+  });
+
+  const images = limitImages(conversationImageInputs(nodePath, conversation), positiveInteger(input.maxImageInputs));
+  const modelPrompt = conversationPrompt(conversation, images, input.imageReferenceSyntax);
+  const { text, executionProvider } = await executeTextNodeModel(input, modelPrompt, images);
+  conversation.messages.push({
+    id: `msg_${shortId()}`,
+    role: "assistant",
+    createdAt: new Date().toISOString(),
+    content: [{ type: "text", text }],
+    model: { modelId: input.modelId, providerId: executionProvider }
+  });
+  await writeTextNodeConversation(nodePath, conversation);
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    modelId: input.modelId,
+    executionProvider,
+    fallbackAllowed: input.fallbackAllowed !== false,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(libraryPath);
+}
+
+async function runTextNodeModel(input: GenerateTextNodeInput, promptTemplate: string): Promise<{ text: string; executionProvider: string }> {
   const libraryPath = await ensureCurrentLibrary();
   const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
   const orderedInputs = orderConnectedInputs(connectedInputs, input.inputNodeIds);
@@ -1304,10 +1389,15 @@ export async function generateTextNodeStackItem(input: GenerateTextNodeInput): P
     positiveInteger(input.maxImageInputs)
   );
   const prompt = resolveInputTokens(promptTemplate, orderedInputs, images, input.imageReferenceSyntax);
+  return executeTextNodeModel(input, prompt, images);
+}
+
+async function executeTextNodeModel(input: GenerateTextNodeInput, prompt: string, images: GenerationImageInput[]): Promise<{ text: string; executionProvider: string }> {
+  const executionProvider = executionProviderForInput(input);
   const runResult = await runTextModelForStackItem({
     nodeId: input.nodeId,
     modelId: input.modelId,
-    executionProvider: executionProviderForInput(input),
+    executionProvider,
     fallbackAllowed: input.fallbackAllowed,
     availableExecutionProviders: input.availableExecutionProviders,
     prompt,
@@ -1321,17 +1411,7 @@ export async function generateTextNodeStackItem(input: GenerateTextNodeInput): P
   const text = output && typeof output === "object" && typeof (output as Record<string, unknown>).text === "string"
     ? String((output as Record<string, unknown>).text).trim()
     : "";
-  if (!text) throw new Error(`Model "${input.modelId}" did not return text.`);
-  const snapshot = await appendTextToNodeStack(input.nodeId, text, firstTextLine(text) || "Generated text");
-  const { manifest, nodePath } = await readTextNode(input.nodeId);
-  await writeJson(join(nodePath, "snark.node.json"), {
-    ...manifest,
-    modelId: input.modelId,
-    executionProvider: executionProviderForInput(input),
-    fallbackAllowed: input.fallbackAllowed !== false,
-    updatedAt: new Date().toISOString()
-  });
-  return readLibrarySnapshot(snapshot.path);
+  return { text, executionProvider };
 }
 
 async function runImageModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
@@ -2117,7 +2197,7 @@ export async function syncRepresentationEdge(edgeId: string): Promise<LibrarySna
   return readLibrarySnapshot(libraryPath);
 }
 
-export async function updateTextNode(nodeId: string, updates: { text?: string; color?: string; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean }): Promise<LibrarySnapshot> {
+export async function updateTextNode(nodeId: string, updates: { text?: string; color?: string; inputMode?: "text" | "dialogue"; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean }): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const canvas = await ensureCanvas(libraryPath);
   const canvasNode = canvas.nodes.find((node) => node.id === nodeId && node.type === "text");
@@ -2128,6 +2208,7 @@ export async function updateTextNode(nodeId: string, updates: { text?: string; c
   await writeJson(manifestPath, {
     ...manifest,
     text: updates.text ?? manifest.text,
+    inputMode: updates.inputMode ?? manifest.inputMode,
     color: updates.color ?? manifest.color,
     modelId: updates.modelId ?? manifest.modelId,
     executionProvider: updates.executionProvider ?? manifest.executionProvider,
@@ -2625,8 +2706,9 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
       const activeStackItem = stack.find((item) => item.id === manifest.selectedStackItemId) ?? null;
       nodes.push({
         canvas: canvasNode,
-        manifest: { ...manifest, stackPath: manifest.stackPath ?? "content", selectedStackItemId: activeStackItem?.id },
+        manifest: { ...manifest, inputMode: manifest.inputMode ?? "text", stackPath: manifest.stackPath ?? "content", selectedStackItemId: activeStackItem?.id },
         stack,
+        conversation: await readTextNodeConversation(nodePath),
         activeStackItem,
         outputText: activeStackItem?.text ?? manifest.text,
         previewUrl: activeStackItem?.previewFile ? `/api/libraries/current/text-nodes/${encodeURIComponent(manifest.id)}/stack/${encodeURIComponent(activeStackItem.id)}/preview` : null
@@ -2726,6 +2808,11 @@ export async function createTextStackPreviewReadStream(nodeId: string, stackItem
   const item = (await readTextNodeStack(nodePath, manifest)).find((candidate) => candidate.id === stackItemId);
   if (!item?.previewFile) throw new Error(`Text stack preview "${stackItemId}" was not found.`);
   return { stream: createReadStream(resolvePortablePath(nodePath, item.previewFile)), mimeType: "image/png" };
+}
+
+export async function createTextNodeConversationImageReadStream(nodeId: string, file: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
+  const { nodePath } = await readTextNode(nodeId);
+  return { stream: createReadStream(resolvePortablePath(nodePath, file)), mimeType: mimeTypeFromExtension(extname(file).toLowerCase()) };
 }
 
 async function readTextNodeStack(nodePath: string, manifest: TextNodeManifest): Promise<TextStackItem[]> {
@@ -2830,6 +2917,106 @@ async function syncMediaStackWithContent(nodePath: string, manifest: ImageNodeMa
 
 function textNodeStackDirectory(nodePath: string, manifest: TextNodeManifest): string {
   return resolvePortablePath(nodePath, manifest.stackPath ?? "content");
+}
+
+async function readTextNodeConversation(nodePath: string): Promise<TextNodeConversation> {
+  const path = join(nodePath, conversationFilename);
+  if (!await fileExists(path)) return emptyTextNodeConversation();
+  const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<TextNodeConversation>;
+  return {
+    version: 1,
+    conversationId: typeof parsed.conversationId === "string" && parsed.conversationId.trim() ? parsed.conversationId : `conv_${shortId()}`,
+    messages: Array.isArray(parsed.messages) ? parsed.messages.filter(isTextNodeConversationMessage) : []
+  };
+}
+
+async function writeTextNodeConversation(nodePath: string, conversation: TextNodeConversation): Promise<void> {
+  await writeJson(join(nodePath, conversationFilename), conversation);
+}
+
+function emptyTextNodeConversation(): TextNodeConversation {
+  return { version: 1, conversationId: `conv_${shortId()}`, messages: [] };
+}
+
+function isTextNodeConversationMessage(value: unknown): value is TextNodeConversationMessage {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<TextNodeConversationMessage>;
+  return Boolean(record.id)
+    && (record.role === "user" || record.role === "assistant" || record.role === "system")
+    && typeof record.createdAt === "string"
+    && Array.isArray(record.content)
+    && record.content.every(isTextNodeConversationPart);
+}
+
+function isTextNodeConversationPart(value: unknown): value is TextNodeConversationPart {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<TextNodeConversationPart>;
+  if (record.type === "text") return typeof record.text === "string";
+  if (record.type === "image") return typeof record.file === "string" && record.file.trim().length > 0;
+  return false;
+}
+
+function conversationPartsFromInput(content: string | TextNodeConversationPart[] | undefined): TextNodeConversationPart[] {
+  if (typeof content === "string") return content.trim() ? [{ type: "text", text: content }] : [];
+  if (!Array.isArray(content)) return [];
+  return content.filter(isTextNodeConversationPart);
+}
+
+async function materializeConversationAttachments(libraryPath: string, nodePath: string, nodeId: string, attachments: TextNodeConversationAttachmentInput[] | undefined): Promise<TextNodeConversationPart[]> {
+  if (!attachments?.length) return [];
+  const connectedInputs = await connectedCanvasInputs(libraryPath, nodeId);
+  const parts: TextNodeConversationPart[] = [];
+  for (const attachment of attachments) {
+    const sourceImage = attachment.nodeId ? connectedInputs.find((input) => input.nodeId === attachment.nodeId)?.image : undefined;
+    const sourcePath = sourceImage?.localPath ?? sourceImage?.path ?? (attachment.file ? resolvePortablePath(nodePath, attachment.file) : undefined);
+    if (!sourcePath) continue;
+    const extension = normalizedImageExtension(sourcePath);
+    const targetRelativePath = nextConversationAttachmentFilename(nodePath, extension);
+    const targetPath = resolvePortablePath(nodePath, targetRelativePath);
+    await mkdir(dirname(targetPath), { recursive: true });
+    await copyFile(sourcePath, targetPath);
+    parts.push({ type: "image", file: portableRelativePath(nodePath, targetPath), alt: attachment.alt });
+  }
+  return parts;
+}
+
+function nextConversationAttachmentFilename(nodePath: string, extension: string): string {
+  for (let index = 0; index < 10000; index += 1) {
+    const filename = `att_${Date.now().toString(36)}_${shortId()}${extension}`;
+    const relativePath = `content/${filename}`;
+    if (!isAbsolute(relativePath)) return relativePath;
+  }
+  throw new Error("Could not allocate an attachment filename.");
+}
+
+function conversationImageInputs(nodePath: string, conversation: TextNodeConversation): GenerationImageInput[] {
+  const seen = new Set<string>();
+  const images: GenerationImageInput[] = [];
+  for (const message of conversation.messages) {
+    for (const part of message.content) {
+      if (part.type !== "image" || seen.has(part.file)) continue;
+      seen.add(part.file);
+      const path = resolvePortablePath(nodePath, part.file);
+      images.push({ path, localPath: path, mimeType: mimeTypeFromExtension(extname(part.file).toLowerCase()), ref: part.file, nodeId: part.file });
+    }
+  }
+  return images;
+}
+
+function conversationPrompt(conversation: TextNodeConversation, images: GenerationImageInput[], imageReferenceSyntax: string | undefined): string {
+  return conversation.messages.map((message) => {
+    const content = message.content.map((part) => {
+      if (part.type === "text") return part.text;
+      const position = images.findIndex((image) => image.ref === part.file);
+      if (position < 0) return "";
+      return (imageReferenceSyntax?.trim() || "@image {index}").replaceAll("{index}", String(position + 1));
+    }).join("\n").trim();
+    return `${message.role.toUpperCase()}:\n${content}`;
+  }).join("\n\n");
+}
+
+async function touchTextNodeManifest(nodePath: string, manifest: TextNodeManifest): Promise<void> {
+  await writeJson(join(nodePath, "snark.node.json"), { ...manifest, updatedAt: new Date().toISOString() });
 }
 
 function portableRelativePath(root: string, path: string): string {

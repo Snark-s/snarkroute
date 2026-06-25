@@ -777,6 +777,130 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("persists text node dialogue mode and normalizes legacy nodes as text mode", async () => {
+    const app = await testServer();
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      expect(node.manifest.inputMode).toBe("text");
+
+      const switched = await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}`,
+        payload: { inputMode: "dialogue" }
+      });
+      const dialogueNode = switched.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(dialogueNode.manifest.inputMode).toBe("dialogue");
+      expect(JSON.parse(await readFile(join(libraryPath, node.canvas.nodePath, "snark.node.json"), "utf8")).inputMode).toBe("dialogue");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("runs a text-node dialogue turn without mutating the text stack", async () => {
+    const app = await testServer();
+    try {
+      const sourceImage = await importNode(app, "Dialogue turn.png");
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_dialogue_turn_image", fromNodeId: sourceImage.manifest.id, toNodeId: node.manifest.id }] }
+      });
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: { generate: { status: "succeeded", output: { text: "Assistant answer" } } }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/conversation/turn`,
+        payload: { modelId: "text.default", prompt: "Hello", executionProvider: "auto", attachments: [{ nodeId: sourceImage.manifest.id }], maxImageInputs: 1 }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const updated = response.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(updated.stack).toHaveLength(0);
+      expect(updated.outputText).toBe(node.manifest.text);
+      expect(updated.conversation.messages).toMatchObject([
+        { role: "user", content: [{ type: "text", text: "Hello" }, { type: "image" }] },
+        { role: "assistant", content: [{ type: "text", text: "Assistant answer" }], model: { modelId: "text.default", providerId: "auto" } }
+      ]);
+      expect(JSON.parse(await readFile(join(libraryPath, node.canvas.nodePath, "conversation.json"), "utf8")).messages).toHaveLength(2);
+      expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
+        nodes: [expect.objectContaining({ type: "ai.text", params: expect.objectContaining({ prompt: "USER:\nHello\n@image 1", images: [expect.objectContaining({ mimeType: "image/png" })] }) })]
+      }));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("copies dialogue image attachments into node content with relative paths", async () => {
+    const app = await testServer();
+    try {
+      const image = await importNode(app, "Dialogue source.png");
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_dialogue_image", fromNodeId: image.manifest.id, toNodeId: node.manifest.id }] }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/conversation/message`,
+        payload: { role: "user", content: "Look", attachments: [{ nodeId: image.manifest.id, alt: "source" }] }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const updated = response.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      const imagePart = updated.conversation.messages[0].content.find((part: { type: string }) => part.type === "image");
+      expect(imagePart.file).toMatch(/^content\/att_/);
+      expect(imagePart.file).not.toContain(libraryPath);
+      await expect(readFile(join(libraryPath, node.canvas.nodePath, imagePart.file))).resolves.toBeInstanceOf(Buffer);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("uses the existing text stack endpoint for dialogue excerpts", async () => {
+    const app = await testServer();
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/stack`,
+        payload: { text: "Selected dialogue excerpt" }
+      });
+      const updated = response.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(updated.activeStackItem.text).toBe("Selected dialogue excerpt");
+      expect(updated.outputText).toBe("Selected dialogue excerpt");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("falls back from a failed Polza text route when fallback is allowed", async () => {
     const app = await testServer();
     try {

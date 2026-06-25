@@ -160,6 +160,7 @@ export interface TextNodeManifest {
   type: "text";
   title: string;
   text: string;
+  inputMode?: "text" | "dialogue";
   stackPath?: string;
   selectedStackItemId?: string;
   modelId?: string;
@@ -190,6 +191,24 @@ export interface TextStackItem {
   source: "prompt" | "text";
   mimeType: string;
   previewFile?: string;
+}
+
+export type TextNodeConversationPart =
+  | { type: "text"; text: string }
+  | { type: "image"; file: string; alt?: string };
+
+export interface TextNodeConversationMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  createdAt: string;
+  content: TextNodeConversationPart[];
+  model?: { modelId: string; providerId?: string };
+}
+
+export interface TextNodeConversation {
+  version: 1;
+  conversationId: string;
+  messages: TextNodeConversationMessage[];
 }
 
 export interface LibrarySnapshot {
@@ -274,6 +293,7 @@ export interface TextNodeView {
   canvas: SnarkCanvasNode;
   manifest: TextNodeManifest;
   stack: TextStackItem[];
+  conversation: TextNodeConversation;
   activeStackItem: TextStackItem | null;
   outputText: string;
   previewUrl: string | null;
@@ -362,6 +382,24 @@ export interface GenerateTextNodeInput {
   inputNodeIds?: string[];
   maxImageInputs?: number;
   imageReferenceSyntax?: string;
+}
+
+export interface TextNodeConversationAttachmentInput {
+  nodeId?: string;
+  file?: string;
+  alt?: string;
+}
+
+export interface AppendTextNodeConversationMessageInput {
+  nodeId: string;
+  role: "user" | "system";
+  content?: string | TextNodeConversationPart[];
+  attachments?: TextNodeConversationAttachmentInput[];
+}
+
+export interface RunTextNodeConversationTurnInput extends Omit<GenerateTextNodeInput, "prompt"> {
+  prompt?: string;
+  attachments?: TextNodeConversationAttachmentInput[];
 }
 
 export type ImageGenerationSettings = Record<string, string | number | boolean>;

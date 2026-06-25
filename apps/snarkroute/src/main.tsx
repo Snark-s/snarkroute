@@ -161,6 +161,7 @@ interface TextNodeManifest {
   type: "text";
   title: string;
   text: string;
+  inputMode?: "text" | "dialogue";
   stackPath?: string;
   selectedStackItemId?: string;
   modelId?: string;
@@ -187,6 +188,24 @@ interface TextStackItem {
   source: "prompt" | "text";
   mimeType: string;
   previewFile?: string;
+}
+
+type TextNodeConversationPart =
+  | { type: "text"; text: string }
+  | { type: "image"; file: string; alt?: string };
+
+interface TextNodeConversationMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  createdAt: string;
+  content: TextNodeConversationPart[];
+  model?: { modelId: string; providerId?: string };
+}
+
+interface TextNodeConversation {
+  version: 1;
+  conversationId: string;
+  messages: TextNodeConversationMessage[];
 }
 
 interface VideoNodeView {
@@ -367,6 +386,7 @@ interface TextNodeView {
   canvas: CanvasNode;
   manifest: TextNodeManifest;
   stack: TextStackItem[];
+  conversation: TextNodeConversation;
   activeStackItem: TextStackItem | null;
   outputText: string;
   previewUrl: string | null;
@@ -1521,6 +1541,16 @@ function App() {
     }
   }
 
+  async function saveTextNodeInputMode(nodeId: string, inputMode: "text" | "dialogue") {
+    try {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, { inputMode });
+      applyLibrarySnapshot(snapshot);
+      setStatus(inputMode === "dialogue" ? "Dialogue mode enabled" : "Text mode enabled");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not switch input mode.");
+    }
+  }
+
   async function refreshProjects() {
     try {
       const projectList = await apiGet<ProjectListResponse>("/api/libraries/projects");
@@ -2229,6 +2259,50 @@ function App() {
     }
   }
 
+  async function runTextDialogueTurn(nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) {
+    setModelSearchNodeId(null);
+    setOpenStackNodeId(null);
+    setStackItemMenu(null);
+    setSelectionMenu(null);
+    setNodeCreateMenu(null);
+    try {
+      setStatus("Sending dialogue turn...");
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: true, message: "Thinking..." } }));
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/conversation/turn`, {
+        modelId: selection.modelId,
+        prompt,
+        executionProvider: selection.executionProvider,
+        fallbackAllowed: selection.fallbackAllowed,
+        availableExecutionProviders,
+        inputNodeIds,
+        maxImageInputs,
+        imageReferenceSyntax,
+        attachments: inputNodeIds?.map((inputNodeId) => ({ nodeId: inputNodeId }))
+      });
+      applyLibrarySnapshot(snapshot);
+      setStatus("Dialogue updated");
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message: "Answered" } }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not send dialogue turn.";
+      setStatus(message);
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message, error: true } }));
+    }
+  }
+
+  async function addTextDialogueMessage(nodeId: string, content: string, inputNodeIds?: string[]) {
+    try {
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/conversation/message`, {
+        role: "user",
+        content,
+        attachments: inputNodeIds?.map((inputNodeId) => ({ nodeId: inputNodeId }))
+      });
+      applyLibrarySnapshot(snapshot);
+      setStatus("Dialogue note added");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not add dialogue note.");
+    }
+  }
+
   async function trashOrphanNodeFolders() {
     if (orphanCleanupBusy) return;
     setOrphanCleanupBusy(true);
@@ -2805,6 +2879,7 @@ function App() {
               onSavePrompt={(nodeId, prompt) => void saveMediaPrompt(nodeId, prompt)}
               onSaveText={saveTextNode}
               onSaveTextColor={saveTextNodeColor}
+              onSaveTextInputMode={(nodeId, inputMode) => void saveTextNodeInputMode(nodeId, inputMode)}
               onAddTextToStack={(nodeId, text) => void addTextToStack(nodeId, text)}
               onSelectTextStackItem={(nodeId, stackItemId) => {
                 if (interactionMovedRef.current) {
@@ -2815,6 +2890,8 @@ function App() {
                 void setActiveTextStackItem(nodeId, stackItemId);
               }}
               onRunTextGeneration={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => void runTextGeneration(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
+              onRunTextDialogueTurn={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => void runTextDialogueTurn(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
+              onAddTextDialogueMessage={(nodeId, content, inputNodeIds) => void addTextDialogueMessage(nodeId, content, inputNodeIds)}
               onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
               toolbarActions={effectiveNodeToolbarConfig[node.manifest.type as EditableNodeType]}
               availableToolbarActions={availableNodeToolbarActions}
@@ -4455,9 +4532,12 @@ function ImageNode({
   onSavePrompt,
   onSaveText,
   onSaveTextColor,
+  onSaveTextInputMode,
   onAddTextToStack,
   onSelectTextStackItem,
   onRunTextGeneration,
+  onRunTextDialogueTurn,
+  onAddTextDialogueMessage,
   onRenameNode,
   toolbarActions,
   availableToolbarActions,
@@ -4497,9 +4577,12 @@ function ImageNode({
   onSavePrompt: (nodeId: string, prompt: string) => void;
   onSaveText: (nodeId: string, text: string) => void;
   onSaveTextColor: (nodeId: string, color: string) => void;
+  onSaveTextInputMode: (nodeId: string, inputMode: "text" | "dialogue") => void;
   onAddTextToStack: (nodeId: string, text: string) => void;
   onSelectTextStackItem: (nodeId: string, stackItemId: string | null) => void;
   onRunTextGeneration: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => void;
+  onRunTextDialogueTurn: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => void;
+  onAddTextDialogueMessage: (nodeId: string, content: string, inputNodeIds?: string[]) => void;
   onRenameNode: (nodeId: string, title: string) => void;
   toolbarActions: NodeToolbarActionId[];
   availableToolbarActions: NodeToolbarAction[];
@@ -4734,6 +4817,7 @@ function ImageNode({
   }
   if (node.manifest.type === "text") {
     const textNode = node as TextNodeView;
+    const inputMode = textNode.manifest.inputMode ?? "text";
     const textStackIsEmpty = textNode.stack.length === 0;
     const unsavedDraftText = draftText.trim();
     const outputText = textStackIsEmpty ? draftText : textNode.outputText;
@@ -4764,6 +4848,12 @@ function ImageNode({
               }}
             />
           ) : <span>{node.manifest.title || "Text"}</span>}
+          {active ? (
+            <div className="textInputModeSwitch" style={{ display: "inline-flex", gap: 2, padding: 2, border: "1px solid var(--line)", borderRadius: 7, pointerEvents: "auto" }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+              <button type="button" className={inputMode === "text" ? "isSelected" : ""} style={{ width: 24, height: 22, color: inputMode === "text" ? "var(--accent)" : "var(--muted)" }} aria-label="Text input mode" onClick={() => onSaveTextInputMode(node.manifest.id, "text")}><Type size={13} /></button>
+              <button type="button" className={inputMode === "dialogue" ? "isSelected" : ""} style={{ width: 24, height: 22, color: inputMode === "dialogue" ? "var(--accent)" : "var(--muted)" }} aria-label="Dialogue input mode" onClick={() => onSaveTextInputMode(node.manifest.id, "dialogue")}><MessageSquare size={13} /></button>
+            </div>
+          ) : null}
           <button
             className="nodeCollapseButton"
             type="button"
@@ -4837,7 +4927,35 @@ function ImageNode({
             </>
           ) : null}
         </div>
-        {active ? (
+        {active ? inputMode === "dialogue" ? (
+          <DialogueEditor
+            node={textNode}
+            inputNodes={orderedInputNodes}
+            imageInputs={imageInputs}
+            maxImageInputs={maxImageInputs}
+            selectedModel={selectedModel}
+            selectedModelLogo={selectedModelLogo}
+            selectedRoutes={selectedRoutes}
+            effectiveSelection={effectiveSelection}
+            visibleModels={visibleModels}
+            modelQuery={modelQuery}
+            setModelQuery={setModelQuery}
+            modelSearchOpen={modelSearchOpen}
+            generationFeedback={generationFeedback}
+            promptInsertRequest={promptInsertRequest}
+            onInsertRequestHandled={() => setPromptInsertRequest(null)}
+            onInsertInput={insertInputToken}
+            onMoveInputChip={moveInputChip}
+            onOpenInputPreview={(input) => input.type === "image" && onOpenPreview(input.id, input.activeStackIndex ?? 0, input.title)}
+            onToggleModelSearch={onToggleModelSearch}
+            onOpenModels={onOpenModels}
+            onSelectModel={onSelectModel}
+            onChangeRouteSettings={onChangeRouteSettings}
+            onRunTurn={(promptValue) => onRunTextDialogueTurn(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), promptValue, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax)}
+            onAddNote={(promptValue) => onAddTextDialogueMessage(node.manifest.id, promptValue, activeInputNodes.map((input) => input.id))}
+            onAddTextToStack={(text) => onAddTextToStack(node.manifest.id, text)}
+          />
+        ) : (
           <footer className="promptPanel textPromptPanel" onPointerDown={(event) => event.stopPropagation()}>
             <div className="inputChips">
               {orderedInputNodes.length ? orderedInputNodes.map((input) => {
@@ -5261,6 +5379,236 @@ function ImageNode({
       )}
     </article>
   );
+}
+
+function DialogueEditor({
+  node,
+  inputNodes,
+  imageInputs,
+  maxImageInputs,
+  selectedModel,
+  selectedModelLogo,
+  selectedRoutes,
+  effectiveSelection,
+  visibleModels,
+  modelQuery,
+  setModelQuery,
+  modelSearchOpen,
+  generationFeedback,
+  promptInsertRequest,
+  onInsertRequestHandled,
+  onInsertInput,
+  onMoveInputChip,
+  onOpenInputPreview,
+  onToggleModelSearch,
+  onOpenModels,
+  onSelectModel,
+  onChangeRouteSettings,
+  onRunTurn,
+  onAddNote,
+  onAddTextToStack
+}: {
+  node: TextNodeView;
+  inputNodes: InputNodeChip[];
+  imageInputs: InputNodeChip[];
+  maxImageInputs?: number;
+  selectedModel: ModelOption;
+  selectedModelLogo: ModelLogo;
+  selectedRoutes: ModelOption[];
+  effectiveSelection: ModelRouteSelection;
+  visibleModels: Array<{ model: ModelOption; providers: string[]; routes: ModelOption[] }>;
+  modelQuery: string;
+  setModelQuery: (value: string) => void;
+  modelSearchOpen: boolean;
+  generationFeedback?: GenerationFeedback;
+  promptInsertRequest: { token: string; sequence: number } | null;
+  onInsertRequestHandled: () => void;
+  onInsertInput: (input: InputNodeChip) => void;
+  onMoveInputChip: (draggedId: string, beforeId: string) => void;
+  onOpenInputPreview: (input: InputNodeChip) => void;
+  onToggleModelSearch: (nodeId: string) => void;
+  onOpenModels: () => void;
+  onSelectModel: (nodeId: string, selection: ModelRouteSelection) => void;
+  onChangeRouteSettings: (nodeId: string, selection: ModelRouteSelection) => void;
+  onRunTurn: (prompt: string) => void;
+  onAddNote: (prompt: string) => void;
+  onAddTextToStack: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [routeSettingsOpen, setRouteSettingsOpen] = useState(false);
+  const [selectedText, setSelectedText] = useState("");
+  const feedRef = useRef<HTMLDivElement | null>(null);
+  const activeInputNodes = inputNodes.filter((input) => !inputChipInactive(input, imageInputs, maxImageInputs));
+
+  function captureSelection() {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? "";
+    if (!text || !feedRef.current || !selection?.rangeCount) {
+      setSelectedText("");
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    setSelectedText(feedRef.current.contains(range.commonAncestorContainer) ? text : "");
+  }
+
+  function sendTurn() {
+    if (!draft.trim() || !selectedModel.id || generationFeedback?.busy) return;
+    const value = draft;
+    setDraft("");
+    setRouteSettingsOpen(false);
+    onRunTurn(value);
+  }
+
+  function addNote() {
+    if (!draft.trim()) return;
+    const value = draft;
+    setDraft("");
+    onAddNote(value);
+  }
+
+  return (
+    <footer className="promptPanel textPromptPanel dialoguePanel" style={{ gridTemplateRows: "minmax(120px, 1fr) 34px minmax(78px, 112px) 38px" }} onPointerDown={(event) => event.stopPropagation()}>
+      <div className="dialogueFeed" ref={feedRef} style={{ minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, padding: 8, border: "1px solid var(--line)", borderRadius: 12 }} data-canvas-wheel-scroll onMouseUp={captureSelection} onKeyUp={captureSelection}>
+        {node.conversation.messages.length ? node.conversation.messages.map((message) => (
+          <div key={message.id} className={`dialogueMessage dialogue-${message.role}`} style={{ display: "grid", gap: 5, padding: 8, border: `1px solid ${message.role === "assistant" ? "var(--accent)" : "var(--line)"}`, borderRadius: 8 }}>
+            <div className="dialogueMessageMeta" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "var(--muted)", fontSize: 11, textTransform: "uppercase" }}>
+              <span>{message.role}</span>
+              {message.role === "assistant" ? <button type="button" onClick={() => onAddTextToStack(conversationMessageText(message))}><Save size={13} /></button> : null}
+            </div>
+            <div className="dialogueMessageBody" style={{ display: "grid", gap: 7, fontSize: 12, lineHeight: 1.42, whiteSpace: "pre-wrap" }}>
+              {message.content.map((part, index) => part.type === "image" ? (
+                <img key={`${message.id}-${index}`} style={{ maxWidth: "100%", maxHeight: 120, objectFit: "contain", borderRadius: 6, border: "1px solid var(--line)" }} src={`${apiBase}/api/libraries/current/text-nodes/${encodeURIComponent(node.manifest.id)}/conversation/image?file=${encodeURIComponent(part.file)}`} alt={part.alt ?? ""} />
+              ) : message.role === "assistant" ? (
+                <DialogueMarkdown key={`${message.id}-${index}`} text={part.text} onAddTextToStack={onAddTextToStack} />
+              ) : (
+                <p key={`${message.id}-${index}`}>{part.text}</p>
+              ))}
+            </div>
+          </div>
+        )) : <div className="dialogueEmpty">No messages</div>}
+        {selectedText ? (
+          <button type="button" className="dialogueSelectionStack" style={{ alignSelf: "flex-end" }} onMouseDown={(event) => event.preventDefault()} onClick={() => onAddTextToStack(selectedText)}>
+            <Save size={13} />
+          </button>
+        ) : null}
+      </div>
+      <div className="inputChips">
+        {inputNodes.length ? inputNodes.map((input) => {
+          const inactive = inputChipInactive(input, imageInputs, maxImageInputs);
+          return (
+            <button
+              type="button"
+              className={`inputChip${input.type === "text" ? ` textColor-${input.color ?? "mint"}` : ""}${inactive ? " isInactive" : ""}`}
+              style={input.type === "text" ? inputTextChipStyle(input) : undefined}
+              key={input.id}
+              draggable
+              title={inactive ? "Model image input limit exceeded" : `Insert ${input.title} into dialogue`}
+              onDragStart={(event) => event.dataTransfer.setData("text/snarkroute-input-node", input.id)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                onMoveInputChip(event.dataTransfer.getData("text/snarkroute-input-node"), input.id);
+              }}
+              onClick={() => onInsertInput(input)}
+            >
+              <InputChipThumb input={input} />
+            </button>
+          );
+        }) : <span className="inputChip isEmpty">No inputs</span>}
+      </div>
+      <div className="textPromptEditor">
+        <PromptComposer
+          value={draft}
+          inputNodes={inputNodes}
+          maxImageInputs={maxImageInputs}
+          insertRequest={promptInsertRequest}
+          onInsertRequestHandled={onInsertRequestHandled}
+          onOpenInputPreview={onOpenInputPreview}
+          onChange={setDraft}
+          onBlur={() => undefined}
+        />
+        <button type="button" className="textAddStackButton" aria-label="Add note" disabled={!draft.trim()} onClick={addNote}><FileText size={16} /></button>
+      </div>
+      <div className="promptMeta">
+        <div className="modelPicker">
+          <button type="button" className="modelPickerButton" aria-label={`Choose text model: ${selectedModel.title}`} title={selectedModel.title} disabled={!selectedModel.id} onClick={() => onToggleModelSearch(node.manifest.id)}>
+            <ModelLogoImage logo={selectedModelLogo} />
+          </button>
+          {modelSearchOpen ? (
+            <div className="modelMenu" onPointerDown={(event) => event.stopPropagation()}>
+              <input value={modelQuery} placeholder="Search model" onChange={(event) => setModelQuery(event.currentTarget.value)} />
+              <div className="modelMenuList" data-canvas-wheel-scroll>
+                {visibleModels.map(({ model, providers }) => (
+                  <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
+                    <ModelLogoImage logo={modelLogoForOption(model)} />
+                    <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
+                  </button>
+                ))}
+                {visibleModels.length === 0 ? <div className="modelMenuEmpty"><span>Нет подключённых текстовых моделей</span><button type="button" onClick={onOpenModels}>Открыть панель моделей</button></div> : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="routeSettings">
+          <button type="button" className="routeSettingsButton" aria-label={`Execution route for ${selectedModel.title}`} aria-expanded={routeSettingsOpen} disabled={!selectedModel.id} onClick={() => setRouteSettingsOpen((current) => !current)}>
+            <Wrench size={13} />
+          </button>
+          {routeSettingsOpen ? (
+            <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
+              <strong>{selectedModel.title}</strong>
+              <small className="routeModelId">{selectedModel.id}</small>
+              <label>
+                Run via
+                <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, executionProvider: event.currentTarget.value })}>
+                  <option value="auto">Auto</option>
+                  {selectedRoutes.map((route) => <option key={route.providerId} value={route.providerId}>{executionRouteDisplayName(route.providerId)}</option>)}
+                </select>
+              </label>
+              <label className="fallbackSetting">
+                <input type="checkbox" checked={effectiveSelection.fallbackAllowed} onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, fallbackAllowed: event.currentTarget.checked })} />
+                Fallback allowed
+              </label>
+            </div>
+          ) : null}
+        </div>
+        {activeInputNodes.length ? <span className="dialogueAttachCount">{activeInputNodes.length}</span> : null}
+        {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"} title={generationFeedback.message}>{generationFeedback.message}</span> : null}
+        <button type="button" aria-label="Send" disabled={!draft.trim() || !selectedModel.id || generationFeedback?.busy} onClick={sendTurn}>
+          {generationFeedback?.busy ? <BusyGears /> : <Send size={16} />}
+        </button>
+      </div>
+    </footer>
+  );
+}
+
+function DialogueMarkdown({ text, onAddTextToStack }: { text: string; onAddTextToStack: (text: string) => void }) {
+  return (
+    <>
+      {splitMarkdownCodeBlocks(text).map((part, index) => part.kind === "code" ? (
+        <pre key={index} className="dialogueCodeBlock" style={{ position: "relative", margin: 0, padding: "28px 10px 10px", overflowX: "auto", border: "1px solid var(--line)", borderRadius: 8, background: "#070a09", color: "#d7e3dc", whiteSpace: "pre" }}><button type="button" style={{ position: "absolute", top: 5, right: 5 }} onClick={() => onAddTextToStack(part.text)}><Save size={13} /></button><code>{part.text}</code></pre>
+      ) : (
+        <p key={index} style={{ margin: 0 }}>{part.text}</p>
+      ))}
+    </>
+  );
+}
+
+function splitMarkdownCodeBlocks(text: string): Array<{ kind: "text" | "code"; text: string }> {
+  const parts: Array<{ kind: "text" | "code"; text: string }> = [];
+  const pattern = /```[^\n]*\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) parts.push({ kind: "text", text: text.slice(lastIndex, index).trim() });
+    parts.push({ kind: "code", text: match[1].trim() });
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < text.length) parts.push({ kind: "text", text: text.slice(lastIndex).trim() });
+  return parts.filter((part) => part.text);
+}
+
+function conversationMessageText(message: TextNodeConversationMessage): string {
+  return message.content.filter((part): part is Extract<TextNodeConversationPart, { type: "text" }> => part.type === "text").map((part) => part.text).join("\n\n").trim();
 }
 
 function PromptComposer({

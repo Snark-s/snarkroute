@@ -3,11 +3,13 @@ import { spawn } from "node:child_process";
 import {
   appendImageToNodeStack,
   appendAudioToNodeStack,
+  appendTextNodeConversationMessage,
   appendTextToNodeStack,
   appendVideoToNodeStack,
   createAudioStackReadStream,
   canvasNodeFolderPath,
   createImageStackReadStream,
+  createTextNodeConversationImageReadStream,
   createTextStackPreviewReadStream,
   createVideoStackReadStream,
   createLocalLibraryAssetReadStream,
@@ -29,6 +31,7 @@ import {
   generateAudioNodeStackItem,
   generateImageNodeStackItem,
   generateTextNodeStackItem,
+  runTextNodeConversationTurn,
   generateVideoNodeStackItem,
   addLibraryProject,
   createProjectCoverReadStream,
@@ -667,11 +670,13 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.put<{ Params: { nodeId: string }; Body: { text?: string; color?: string; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean } }>("/api/libraries/current/text-nodes/:nodeId", async (request, reply) => {
+  app.put<{ Params: { nodeId: string }; Body: { text?: string; color?: string; inputMode?: "text" | "dialogue"; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean } }>("/api/libraries/current/text-nodes/:nodeId", async (request, reply) => {
     try {
+      if (request.body?.inputMode !== undefined && request.body.inputMode !== "text" && request.body.inputMode !== "dialogue") return reply.code(400).send({ error: "inputMode must be text or dialogue." });
       return await updateTextNode(request.params.nodeId, {
         text: request.body?.text,
         color: request.body?.color,
+        inputMode: request.body?.inputMode,
         modelId: request.body?.modelId,
         executionProvider: request.body?.executionProvider,
         fallbackAllowed: request.body?.fallbackAllowed
@@ -743,6 +748,41 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
   app.delete<{ Params: { nodeId: string } }>("/api/libraries/current/nodes/:nodeId", async (request, reply) => {
     try {
       return await deleteCanvasNode(request.params.nodeId);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string }; Body: { role?: "user" | "system"; content?: string; attachments?: Array<{ nodeId?: string; file?: string; alt?: string }> } }>("/api/libraries/current/text-nodes/:nodeId/conversation/message", async (request, reply) => {
+    try {
+      if (request.body?.role !== "user" && request.body?.role !== "system") return reply.code(400).send({ error: "role must be user or system." });
+      return await appendTextNodeConversationMessage({
+        nodeId: request.params.nodeId,
+        role: request.body.role,
+        content: request.body.content,
+        attachments: request.body.attachments
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; attachments?: Array<{ nodeId?: string; file?: string; alt?: string }> } }>("/api/libraries/current/text-nodes/:nodeId/conversation/turn", async (request, reply) => {
+    try {
+      if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
+      return await runTextNodeConversationTurn({
+        nodeId: request.params.nodeId,
+        modelId: request.body.modelId,
+        prompt: request.body.prompt,
+        providerId: request.body.providerId,
+        executionProvider: request.body.executionProvider,
+        fallbackAllowed: request.body.fallbackAllowed,
+        availableExecutionProviders: request.body.availableExecutionProviders,
+        inputNodeIds: request.body.inputNodeIds,
+        maxImageInputs: request.body.maxImageInputs,
+        imageReferenceSyntax: request.body.imageReferenceSyntax,
+        attachments: request.body.attachments
+      });
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -834,6 +874,17 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
       const preview = await createTextStackPreviewReadStream(request.params.nodeId, request.params.stackItemId);
       reply.header("Content-Type", preview.mimeType);
       return reply.send(preview.stream);
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get<{ Params: { nodeId: string }; Querystring: { file?: string } }>("/api/libraries/current/text-nodes/:nodeId/conversation/image", async (request, reply) => {
+    try {
+      if (!request.query.file) return reply.code(400).send({ error: "file is required." });
+      const image = await createTextNodeConversationImageReadStream(request.params.nodeId, request.query.file);
+      reply.type(image.mimeType);
+      return reply.send(image.stream);
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });
     }
