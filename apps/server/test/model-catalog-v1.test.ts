@@ -185,8 +185,8 @@ describe("server Model Catalog V1 assembly", () => {
 
     const options = modelOptionsForNodeV1("polza.image.generate", catalog);
 
-    expect(options.map((entry) => entry.providerModelId)).toEqual(["openai/gpt-image-1.5"]);
-    expect(options.map((entry) => entry.storedModelId)).toEqual(["openai/gpt-image-1.5"]);
+    expect(options.map((entry) => entry.providerModelId)).toEqual(["openai/gpt-image-1.5", "qwen/unlisted-live-image"]);
+    expect(options.map((entry) => entry.storedModelId)).toEqual(["openai/gpt-image-1.5", "qwen/unlisted-live-image"]);
     expect(options.every((entry) => !entry.storedModelId.startsWith("polza:"))).toBe(true);
   });
 
@@ -216,7 +216,7 @@ describe("server Model Catalog V1 assembly", () => {
     const options = modelOptionsForNodeV1("polza.image.generate", catalog);
     const optionIds = options.map((entry) => entry.storedModelId);
 
-    expect(optionIds).not.toContain("qwen/image-2");
+    expect(optionIds).toContain("qwen/image-2");
     expect(optionIds).not.toContain("topaz/image-upscale");
     for (const id of textModelIds) expect(optionIds).not.toContain(id);
     expect(optionIds.every((id) => !id.startsWith("polza:"))).toBe(true);
@@ -337,7 +337,7 @@ describe("server Model Catalog V1 assembly", () => {
 
     const options = modelOptionsForNodeV1("polza.image.generate", catalog);
 
-    expect(options.map((entry) => entry.storedModelId)).toEqual(["openai/gpt-image-1.5"]);
+    expect(options.map((entry) => entry.storedModelId)).toEqual(["openai/gpt-image-1.5", "qwen/image-2"]);
   });
 
   it("keeps video upscalers out of normal Polza video generation options", () => {

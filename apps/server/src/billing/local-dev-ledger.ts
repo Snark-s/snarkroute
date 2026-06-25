@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
 type LocalDevUser = {
   id: string;
   role: "user" | "admin";
@@ -78,13 +81,16 @@ type LocalDevUserInput = {
 const users = new Map<string, LocalDevUser>();
 const reservations = new Map<string, LocalDevReservation>();
 const providerUsageEvents: LocalDevProviderUsageEvent[] = [];
+let loadedLedgerPath: string | null | undefined;
 
 export function rememberLocalDevUser(input: LocalDevUserInput): LocalDevUser {
+  ensureLedgerLoaded();
   const existing = users.get(input.id);
   if (existing) {
     existing.role = input.role ?? existing.role;
     existing.authProvider = input.authProvider ?? existing.authProvider;
     existing.displayName = input.displayName ?? existing.displayName;
+    persistLedger();
     return existing;
   }
   const user: LocalDevUser = {
@@ -104,6 +110,7 @@ export function rememberLocalDevUser(input: LocalDevUserInput): LocalDevUser {
     transactions: []
   };
   users.set(user.id, user);
+  persistLedger();
   return user;
 }
 
@@ -117,10 +124,12 @@ export function ensureLocalDevUser(id: string): LocalDevUser {
 }
 
 export function listLocalDevBillingUsers() {
+  ensureLedgerLoaded();
   return [...users.values()].map(localDevBillingUser);
 }
 
 export function getLocalDevBillingUser(userId: string) {
+  ensureLedgerLoaded();
   const user = users.get(userId);
   const recentProviderUsage = listLocalDevProviderUsage({ userId, limit: 50 });
   if (!user) return null;
@@ -171,6 +180,7 @@ export function grantLocalDevCredits(input: { userId: string; amount: number; re
   user.totalGranted += input.amount;
   user.lastActivityAt = new Date().toISOString();
   const transaction = pushTransaction(user, "grant", input.amount, input.reason, { actorUserId: input.actorUserId ?? null });
+  persistLedger();
   return { balance: user.balance, transactionId: transaction.id };
 }
 
@@ -182,6 +192,7 @@ export function adjustLocalDevCredits(input: { userId: string; amount: number; r
   else user.totalCaptured += Math.abs(input.amount);
   user.lastActivityAt = new Date().toISOString();
   const transaction = pushTransaction(user, "adjustment", input.amount, input.reason, { actorUserId: input.actorUserId ?? null });
+  persistLedger();
   return { balance: user.balance, transactionId: transaction.id };
 }
 
@@ -194,6 +205,7 @@ export function reserveLocalDevCredits(input: { userId: string; runId: string; a
   const reservationId = `local_res_${shortId()}`;
   reservations.set(reservationId, { id: reservationId, userId: user.id, runId: input.runId, amount: input.amount });
   pushTransaction(user, "reserve", -input.amount, "local_dev_run_reservation", { runId: input.runId });
+  persistLedger();
   return { reservationId, amount: input.amount };
 }
 
@@ -224,6 +236,7 @@ export function commitLocalDevCredits(input: { reservationId: string; actualAmou
     additionalCharge
   });
   if (refunded > 0) pushTransaction(user, "release", refunded, "local_dev_run_release", { runId: reservation.runId, reservationId: input.reservationId });
+  persistLedger();
   return { charged: actualAmount, refunded };
 }
 
@@ -238,10 +251,12 @@ export function refundLocalDevCredits(input: { reservationId: string; amount: nu
   user.lastActivityAt = new Date().toISOString();
   reservations.delete(input.reservationId);
   pushTransaction(user, "refund", refunded, "local_dev_run_refund", { runId: reservation.runId, reservationId: input.reservationId });
+  persistLedger();
   return { refunded };
 }
 
 export function listLocalDevCreditTransactions(input: { userId?: string; limit?: number } = {}) {
+  ensureLedgerLoaded();
   const source = input.userId ? ensureLocalDevUser(input.userId).transactions : [...users.values()].flatMap((user) => user.transactions);
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), 500);
   return source.sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt)).slice(0, limit);
@@ -309,10 +324,12 @@ export function saveLocalDevProviderUsageEvent(input: {
     metadata: input.metadata ?? {}
   };
   providerUsageEvents.unshift(event);
+  persistLedger();
   return { id: event.id };
 }
 
 export function listLocalDevProviderUsage(input: { userId?: string; limit?: number } = {}) {
+  ensureLedgerLoaded();
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 100), 1), 500);
   return providerUsageEvents
     .filter((event) => !input.userId || event.userId === input.userId)
@@ -355,6 +372,7 @@ export function listLocalDevProviderUsage(input: { userId?: string; limit?: numb
 }
 
 export function listLocalDevProviderPricingActualStats(limit = 500) {
+  ensureLedgerLoaded();
   const succeeded = providerUsageEvents.filter((event) =>
     /^(succeeded|completed|success|ok)$/i.test(String(event.status ?? ""))
     && (event.actualCredits !== null || event.providerCostActualAmount !== null || event.providerCostMicrousd !== null)
@@ -421,6 +439,101 @@ function pushTransaction(user: LocalDevUser, type: string, amount: number, reaso
   user.transactions.unshift(transaction);
   return transaction;
 }
+
+function ensureLedgerLoaded(): void {
+  const path = localDevLedgerPath();
+  if (loadedLedgerPath === path) return;
+  loadedLedgerPath = path;
+  users.clear();
+  reservations.clear();
+  providerUsageEvents.splice(0, providerUsageEvents.length);
+  if (!path || !existsSync(path)) return;
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<{
+      users: LocalDevUser[];
+      reservations: LocalDevReservation[];
+      providerUsageEvents: LocalDevProviderUsageEvent[];
+    }>;
+    for (const user of Array.isArray(parsed.users) ? parsed.users : []) {
+      if (isLocalDevUser(user)) users.set(user.id, user);
+    }
+    for (const event of Array.isArray(parsed.providerUsageEvents) ? parsed.providerUsageEvents : []) {
+      if (isProviderUsageEvent(event)) providerUsageEvents.push(event);
+    }
+    const restoredReservations = Array.isArray(parsed.reservations) ? parsed.reservations.filter(isReservation) : [];
+    for (const reservation of restoredReservations) releaseRecoveredReservation(reservation);
+    if (restoredReservations.length > 0) persistLedger();
+  } catch {
+    users.clear();
+    reservations.clear();
+    providerUsageEvents.splice(0, providerUsageEvents.length);
+  }
+}
+
+function releaseRecoveredReservation(reservation: LocalDevReservation): void {
+  const user = users.get(reservation.userId);
+  if (!user) return;
+  const amount = Math.max(0, Math.trunc(reservation.amount));
+  if (amount <= 0) return;
+  user.balance += amount;
+  user.activeReserved = Math.max(0, user.activeReserved - amount);
+  user.totalReleased += amount;
+  user.lastActivityAt = new Date().toISOString();
+  pushTransaction(user, "release", amount, "local_dev_restart_recovery", { runId: reservation.runId, reservationId: reservation.id });
+}
+
+function persistLedger(): void {
+  const path = localDevLedgerPath();
+  if (!path) return;
+  mkdirSync(dirname(path), { recursive: true });
+  const tmpPath = `${path}.tmp`;
+  writeFileSync(tmpPath, `${JSON.stringify({
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    users: [...users.values()],
+    reservations: [...reservations.values()],
+    providerUsageEvents
+  }, null, 2)}\n`, "utf8");
+  renameSync(tmpPath, path);
+}
+
+function localDevLedgerPath(): string | null {
+  const configured = process.env.BOOJUM_LOCAL_DEV_LEDGER_PATH?.trim();
+  if (configured) return configured;
+  if (process.env.VITEST || process.env.NODE_ENV === "test") return null;
+  return join(process.cwd(), "data", "billing", "local-dev-ledger.json");
+}
+
+function isLocalDevUser(value: unknown): value is LocalDevUser {
+  const record = value && typeof value === "object" ? value as Partial<LocalDevUser> : null;
+  return Boolean(record && typeof record.id === "string" && typeof record.balance === "number" && Array.isArray(record.transactions));
+}
+
+function isReservation(value: unknown): value is LocalDevReservation {
+  const record = value && typeof value === "object" ? value as Partial<LocalDevReservation> : null;
+  return Boolean(record && typeof record.id === "string" && typeof record.userId === "string" && typeof record.runId === "string" && typeof record.amount === "number");
+}
+
+function isProviderUsageEvent(value: unknown): value is LocalDevProviderUsageEvent {
+  const record = value && typeof value === "object" ? value as Partial<LocalDevProviderUsageEvent> : null;
+  return Boolean(record && typeof record.id === "string" && typeof record.provider === "string");
+}
+
+export const __testing = {
+  resetLocalDevLedgerForTests() {
+    users.clear();
+    reservations.clear();
+    providerUsageEvents.splice(0, providerUsageEvents.length);
+    loadedLedgerPath = undefined;
+  },
+  reloadLocalDevLedgerForTests() {
+    users.clear();
+    reservations.clear();
+    providerUsageEvents.splice(0, providerUsageEvents.length);
+    loadedLedgerPath = undefined;
+    ensureLedgerLoaded();
+  }
+};
 
 function normalizeProviderOperation(value: string | null): string | null {
   if (!value) return null;

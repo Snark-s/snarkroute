@@ -14,6 +14,12 @@ const ENV_KEYS = [
 type EnvKey = typeof ENV_KEYS[number];
 
 const savedEnv = new Map<EnvKey, string | undefined>();
+const BASELINE_PROVIDER_CATALOG = [
+  { provider: "polza", operation: "image.generate", model: "gpt-5.4-image-2", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate", pricingSnapshotId: "polza:gpt-5.4-image-2:image.generate" },
+  { provider: "replicate", operation: "image.upscale", model: "clarity-upscaler", baseCostMicrousd: 21000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_catalog", pricingSnapshotId: "replicate:clarity-upscaler:image.upscale" },
+  { provider: "openrouter", operation: "image.generate", model: "openai/gpt-image-1", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "fallback_estimate", fallback: true, pricingSnapshotId: "openrouter:openai/gpt-image-1:image.generate" },
+  { provider: "gemini", operation: "image.generate", model: "gemini-3.1-flash-image-preview", parameterRules: { image_resolution: "1K" }, baseCostMicrousd: 67000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_catalog", pricingSnapshotId: "gemini:gemini-3.1-flash-image-preview:image.generate:resolution=1K" }
+];
 
 describe("/api/routes/estimate pricing baseline", () => {
   beforeEach(() => {
@@ -23,7 +29,7 @@ describe("/api/routes/estimate pricing baseline", () => {
     process.env.BOOJUM_GLOBAL_MARKUP_PERCENT = "0";
     process.env.BOOJUM_GLOBAL_MARKUP_CREDITS = "0";
     process.env.BOOJUM_MIN_CHARGE_CREDITS = "0";
-    delete process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON;
+    process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON = JSON.stringify(BASELINE_PROVIDER_CATALOG);
     __testing.resetLocalPricingState();
   });
 
@@ -41,7 +47,7 @@ describe("/api/routes/estimate pricing baseline", () => {
     const app = buildServer();
     try {
       await expectEstimate(app, "Polza Image", polzaImageRoute(), [
-        { nodeId: "polza", finalCredits: 40, free: false, pricingSource: "pricing_catalog", pricingConfidence: "high" }
+        { nodeId: "polza", finalCredits: 40, free: false, pricingSource: "pricing_catalog", pricingConfidence: "medium" }
       ]);
       await expectEstimate(app, "Replicate Clarity Upscaler", clarityRoute(), [
         { nodeId: "upscale", finalCredits: 21, free: false, pricingSource: "pricing_catalog", pricingConfidence: "high" }
@@ -54,7 +60,7 @@ describe("/api/routes/estimate pricing baseline", () => {
       ]);
       await expectEstimate(app, "Polza+Clarity", polzaClarityRoute(), [
         { nodeId: "input", finalCredits: 0, free: true, pricingSource: "pricing_catalog", pricingConfidence: "high" },
-        { nodeId: "polza", finalCredits: 40, free: false, pricingSource: "pricing_catalog", pricingConfidence: "high" },
+        { nodeId: "polza", finalCredits: 40, free: false, pricingSource: "pricing_catalog", pricingConfidence: "medium" },
         { nodeId: "upscale", finalCredits: 21, free: false, pricingSource: "pricing_catalog", pricingConfidence: "high" },
         { nodeId: "preview", finalCredits: 0, free: true, pricingSource: "pricing_catalog", pricingConfidence: "high" }
       ]);

@@ -410,17 +410,32 @@ describe("executor", () => {
     expect(result.nodeResults.polza.actualProviderCostCurrency).toBe("RUB");
   });
 
+  it("does not capture provider estimated cost as actual credits", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("polza.image.generate", ({ node }) => ({
+      output: { image: { path: "out.png", mimeType: "image/png" } },
+      providerUsage: { provider: "polza", nodeId: node.id, nodeType: node.type, status: "succeeded", estimatedCost: 4 }
+    }));
+    const result = await executor.executeRoute(
+      route({ nodes: [{ id: "polza", type: "polza.image.generate" }], edges: [] }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.costSummary.totalEstimatedCredits).toBe(40);
+    expect(result.costSummary.totalActualCredits).toBe(40);
+    expect(result.nodeResults.polza.actualProviderCostAmount).toBeNull();
+    expect(result.nodeResults.polza.actualProviderCostCurrency).toBeNull();
+  });
+
   it("matches provider-native model aliases to catalog pricing", async () => {
     process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON = JSON.stringify([{
       provider: "polza",
       operation: "image.generate",
       model: "gpt-5.4-image-2",
-      providerNativeModelId: "openai/gpt-5.4-image-2",
       parameterRules: { resolution: "2K" },
       baseCostMicrousd: 67000,
       currency: "USD",
       effectiveFrom: "2026-01-01",
-      source: "manual_catalog"
+      source: "manual_initial_estimate"
     }]);
     const estimate = estimateRouteCost(route({
       nodes: [{ id: "polza", type: "polza.image.generate", params: { model: "openai/gpt-5.4-image-2", resolution: "2K" } }],
@@ -428,6 +443,7 @@ describe("executor", () => {
     }));
     expect(estimate.totalEstimatedCredits).toBe(67);
     expect(estimate.estimates[0].pricingBreakdown?.fallback).toBe(false);
+    expect(estimate.estimates[0].pricingConfidence).toBe("medium");
   });
 
   it("collects multiple edges into the same named input as an array", async () => {

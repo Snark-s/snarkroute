@@ -315,6 +315,7 @@ export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): Nod
       params,
       inputMetadata: {}
     });
+    const providerCost = normalizePolzaProviderCostFromUsage(usage);
     return {
       output: {
         text,
@@ -326,8 +327,8 @@ export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): Nod
         estimatedCostCurrency: pricingQuote.currency,
         estimatedCostConfidence: pricingQuote.confidence,
         actualUsage: usage,
-        actualCost: actualCostFromUsage(usage),
-        actualCostCurrency: actualCostCurrencyFromUsage(usage),
+        actualCost: providerCost?.amountUsd ?? null,
+        actualCostCurrency: providerCost?.currency ?? null,
         pricingSource: pricingQuote.pricingSource,
         pricingQuote,
         status: "succeeded"
@@ -366,6 +367,7 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
       params,
       inputMetadata: {}
     });
+    const providerCost = normalizePolzaProviderCostFromUsage(usage);
     return {
       output: {
         image: imageAsset,
@@ -378,8 +380,8 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
         estimatedCostCurrency: pricingQuote.currency,
         estimatedCostConfidence: pricingQuote.confidence,
         actualUsage: usage,
-        actualCost: actualCostFromUsage(usage),
-        actualCostCurrency: actualCostCurrencyFromUsage(usage),
+        actualCost: providerCost?.amountUsd ?? null,
+        actualCostCurrency: providerCost?.currency ?? null,
         pricingSource: pricingQuote.pricingSource,
         pricingQuote,
         inputImageCount: images.length,
@@ -421,6 +423,7 @@ export function createPolzaVideoNodeRunner(options: PolzaClientOptions = {}): No
       params,
       inputMetadata: {}
     });
+    const providerCost = normalizePolzaProviderCostFromUsage(usage);
     return {
       output: {
         video: videoAsset,
@@ -433,8 +436,8 @@ export function createPolzaVideoNodeRunner(options: PolzaClientOptions = {}): No
         estimatedCostCurrency: pricingQuote.currency,
         estimatedCostConfidence: pricingQuote.confidence,
         actualUsage: usage,
-        actualCost: actualCostFromUsage(usage),
-        actualCostCurrency: actualCostCurrencyFromUsage(usage),
+        actualCost: providerCost?.amountUsd ?? null,
+        actualCostCurrency: providerCost?.currency ?? null,
         pricingSource: pricingQuote.pricingSource,
         pricingQuote,
         inputImageCount: images.length,
@@ -951,6 +954,7 @@ async function writeGeneratedVideo(
 }
 
 function polzaUsageEvent(nodeId: string, nodeType: string, model: string, status: string, usage: unknown, pricingQuote: PricingQuote): ProviderUsageEvent {
+  const providerCost = normalizePolzaProviderCostFromUsage(usage);
   return {
     provider: "polza",
     model,
@@ -960,8 +964,8 @@ function polzaUsageEvent(nodeId: string, nodeType: string, model: string, status
     status,
     metrics: usage && typeof usage === "object" ? usage as Record<string, unknown> : undefined,
     estimatedCost: pricingQuote.estimatedCost,
-    actualCost: actualCostFromUsage(usage),
-    actualCostCurrency: actualCostCurrencyFromUsage(usage),
+    actualCost: providerCost?.amountUsd ?? null,
+    actualCostCurrency: providerCost?.currency ?? null,
     pricingHint: pricingQuote.pricingSource,
     pricingSource: pricingQuote.pricingSource,
     pricingQuote
@@ -978,17 +982,23 @@ function firstInputText(value: unknown): string | undefined {
   return undefined;
 }
 
-function actualCostFromUsage(usage: unknown): number | null {
-  if (!usage || typeof usage !== "object") return null;
-  return numberParam((usage as Record<string, unknown>).cost) ?? numberParam((usage as Record<string, unknown>).cost_rub) ?? null;
-}
-
-function actualCostCurrencyFromUsage(usage: unknown): string | null {
+export function normalizePolzaProviderCostFromUsage(usage: unknown): { amountUsd: number; currency: "USD" } | null {
   if (!usage || typeof usage !== "object") return null;
   const record = usage as Record<string, unknown>;
-  if (numberParam(record.cost_rub) !== undefined) return "RUB";
-  if (numberParam(record.cost) !== undefined) return typeof record.currency === "string" ? record.currency : null;
+  const costRub = numberParam(record.cost_rub);
+  const cost = numberParam(record.cost);
+  const currency = stringParam(record.currency ?? record.cost_currency ?? record.actualCostCurrency)?.toUpperCase();
+  if (cost !== undefined && currency === "RUB") return { amountUsd: cost / rubPerUsd(), currency: "USD" };
+  if (cost !== undefined && currency === "USD") return { amountUsd: cost, currency: "USD" };
+  if (cost !== undefined && costRub !== undefined) return { amountUsd: cost, currency: "USD" };
+  if (costRub !== undefined) return { amountUsd: costRub / rubPerUsd(), currency: "USD" };
+  if (cost !== undefined) return { amountUsd: cost / rubPerUsd(), currency: "USD" };
   return null;
+}
+
+function rubPerUsd(): number {
+  const value = Number(process.env.BOOJUM_RUB_PER_USD ?? 100);
+  return Number.isFinite(value) && value > 0 ? value : 100;
 }
 
 function objectField(value: unknown, key: string): unknown {

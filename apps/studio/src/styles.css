@@ -3130,6 +3130,11 @@ h2 {
   width: fit-content;
 }
 
+.nodeResult.withImageActions .nodeCost {
+  max-width: calc(100% - 92px);
+  white-space: normal;
+}
+
 .nodeCost span {
   line-height: 1.15;
 }

@@ -1,6 +1,7 @@
 import {
   currentBillingPricingConfig,
   currentBillingPricingOverrides,
+  currentRuntimeProviderPricingCatalog,
   pricingCatalogView,
   type BillingPricingConfig,
   type BillingPricingOverride,
@@ -208,6 +209,7 @@ async function runtimeProviderPricingCatalog(): Promise<ProviderPricingCatalogEn
       entries.push(entry);
     }
   };
+  addEntries(currentRuntimeProviderPricingCatalog().map((entry) => ({ ...entry })));
   const polzaCatalog = await readPolzaPricingCatalogCache(polzaPricingCachePath).catch(() => null);
   addEntries(pricingEntriesFromPolzaCatalog(polzaCatalog));
   const openRouterCatalog = await readOpenRouterPricingCatalogCache(openRouterPricingCachePath).catch(() => null);
@@ -390,7 +392,7 @@ function polzaTierEntries(model: string, modelType: string, pricing: Record<stri
   for (const tier of pricing.tiers) {
     if (!tier || typeof tier !== "object") continue;
     const tierRecord = tier as Record<string, unknown>;
-    const usdCost = unitCostUsd(tierRecord.cost_usd ?? tierRecord.cost, "USD") ?? unitCostUsd(tierRecord.cost_rub, "RUB") ?? unitCostUsd(tierRecord.cost, currency);
+    const usdCost = unitCostUsd(tierRecord.cost_usd, "USD") ?? unitCostUsd(tierRecord.cost_rub, "RUB") ?? unitCostUsd(tierRecord.cost, currency);
     if (usdCost === null) continue;
     const parameterRules = pricingRulesFromConditions(tierRecord.conditions);
     entries.push({
@@ -430,6 +432,7 @@ function rubPerUsd(): number {
 }
 
 export const __testing = {
+  pricingEntriesFromPolzaCatalog,
   pricingEntriesFromGenericCatalog,
   pricingEntriesFromOpenRouterModelCatalog,
   resetLocalPricingState: () => {

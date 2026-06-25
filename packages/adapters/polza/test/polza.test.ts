@@ -1,8 +1,9 @@
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
-import { buildImageRequestBody, buildMediaImageRequestBody, buildMediaVideoRequestBody, createPolzaImageNodeRunner, createPolzaTextNodeRunner, createPolzaVideoNodeRunner, estimatePolzaPricingQuote, estimatePolzaPricingQuoteFromCatalog, polzaPricingCatalogFromModels, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "../src/index";
+import { createExecutor } from "@snarkroute/executor";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildImageRequestBody, buildMediaImageRequestBody, buildMediaVideoRequestBody, createPolzaImageNodeRunner, createPolzaTextNodeRunner, createPolzaVideoNodeRunner, estimatePolzaPricingQuote, estimatePolzaPricingQuoteFromCatalog, normalizePolzaProviderCostFromUsage, polzaPricingCatalogFromModels, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "../src/index";
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -13,6 +14,10 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
 }
 
 describe("Polza adapter", () => {
+  afterEach(() => {
+    delete process.env.BOOJUM_RUB_PER_USD;
+  });
+
   it("builds OpenAI-compatible image generation payload", () => {
     expect(buildImageRequestBody("openai/gpt-5-image-mini", "draw", { aspectRatio: "16:9", imageSize: "high", outputFormat: "png" })).toMatchObject({
       model: "openai/gpt-5-image-mini",
@@ -84,6 +89,15 @@ describe("Polza adapter", () => {
     })).toMatchObject({ estimatedCost: null, confidence: "unknown" });
   });
 
+  it("normalizes provider usage cost into USD from a single source", () => {
+    process.env.BOOJUM_RUB_PER_USD = "100";
+
+    expect(normalizePolzaProviderCostFromUsage({ cost: 0.165, cost_rub: 16.5 })).toEqual({ amountUsd: 0.165, currency: "USD" });
+    expect(normalizePolzaProviderCostFromUsage({ cost_rub: 16.5 })).toEqual({ amountUsd: 0.165, currency: "USD" });
+    expect(normalizePolzaProviderCostFromUsage({ cost: 16.5, currency: "RUB" })).toEqual({ amountUsd: 0.165, currency: "USD" });
+    expect(normalizePolzaProviderCostFromUsage({ cost: 16.5 })).toEqual({ amountUsd: 0.165, currency: "USD" });
+  });
+
   it("refreshes Polza pricing catalog when model catalog contains pricing", async () => {
     const directory = await mkdtemp(join(tmpdir(), "sr-polza-pricing-"));
     const cachePath = join(directory, "polza.json");
@@ -124,7 +138,7 @@ describe("Polza adapter", () => {
 
     expect(fetchImpl).toHaveBeenCalledWith("https://polza.ai/api/v1/chat/completions", expect.any(Object));
     expect(result.output).toMatchObject({ text: "hello", provider: "polza", model: "openai/gpt-4o" });
-    expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 0.1 });
+    expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 0.001, actualCostCurrency: "USD" });
   });
 
   it("passes image inputs to Polza chat completions", async () => {
@@ -209,7 +223,29 @@ describe("Polza adapter", () => {
 
     expect(fetchImpl).toHaveBeenCalledWith("https://polza.ai/api/v1/media", expect.any(Object));
     expect(result.output).toMatchObject({ provider: "polza", image: { mimeType: "image/png", sizeBytes: 5 } });
-    expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 1.5 });
+    expect(result.providerUsage).toMatchObject({ provider: "polza", actualCost: 0.015, actualCostCurrency: "USD" });
+  });
+
+  it("charges Polza media usage cost as RUB when currency is omitted", async () => {
+    process.env.BOOJUM_RUB_PER_USD = "100";
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-actual-cost-"));
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({
+      data: [{ b64_json: Buffer.from("image").toString("base64") }],
+      usage: { cost: 4 }
+    }));
+    const executor = createExecutor();
+    executor.registerNodeRunner("polza.image.generate", createPolzaImageNodeRunner({ apiKey: "pza-test", fetchImpl }));
+
+    const result = await executor.executeRoute({
+      route: { id: "polza-cost", title: "Polza cost", version: "1.0.0" },
+      nodes: [{ id: "image", type: "polza.image.generate", params: { model: "openai/gpt-5-image-mini", prompt: "draw" } }],
+      edges: []
+    }, { outputDirectory });
+
+    expect(result.nodeResults.image.actualProviderCostAmount).toBe(0.04);
+    expect(result.nodeResults.image.actualProviderCostCurrency).toBe("USD");
+    expect(result.nodeResults.image.actualCredits).toBe(40);
+    expect(result.costSummary.totalActualCredits).toBe(40);
   });
 
   it("passes input images to Polza media image models", async () => {

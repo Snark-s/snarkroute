@@ -224,8 +224,7 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
   if (nodeType === "polza.image.generate") {
     return entry.provider === "polza"
       && hasOutputType(entry, "image")
-      && !entry.roles.includes("upscaler")
-      && isExecutablePolzaImageNodeModel(entry.providerModelId);
+      && !entry.roles.includes("upscaler");
   }
   if (nodeType === "polza.text") {
     return entry.provider === "polza" && hasOutputType(entry, "text");
@@ -428,17 +427,6 @@ function isUpscaleOnlyModel(entry: ModelCatalogEntryV1, mediaType: "image" | "vi
   return entry.roles.includes("upscaler")
     && entry.capabilities.includes(upscaleCapability)
     && !entry.capabilities.some((capability) => capability.startsWith(`${mediaType}.`) && capability !== upscaleCapability);
-}
-
-function isExecutablePolzaImageNodeModel(providerModelId: string): boolean {
-  return providerModelId === "openai/gpt-5.4-image-2"
-    || providerModelId === "openai/gpt-image-1.5"
-    || providerModelId === "openai/gpt-5-image"
-    || providerModelId === "openai/gpt-5-image-mini"
-    || providerModelId === "openai/gpt-image-1"
-    || providerModelId === "gpt-image-1"
-    || providerModelId === "dall-e-3"
-    || providerModelId === "dall-e-2";
 }
 
 function compatibilityReasonForNode(nodeType: string): string {

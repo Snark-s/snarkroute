@@ -50,6 +50,33 @@ describe("pricing service", () => {
     expect(entries.find((entry) => entry.model === "openrouter/text-token-priced" && entry.operation === "image.generate")).toBeUndefined();
   });
 
+  it("normalizes Polza tier pricing from RUB before creating credit catalog entries", () => {
+    process.env.BOOJUM_RUB_PER_USD = "100";
+    const entries = __testing.pricingEntriesFromPolzaCatalog({
+      fetchedAt: "2026-06-23T21:04:00.106Z",
+      expiresAt: "2026-06-24T21:04:00.106Z",
+      source: "polza_models_catalog",
+      models: {
+        "openai/gpt-5.4-image-2": {
+          currency: "RUB",
+          raw: { type: "image" },
+          pricing: { tiers: [{ cost: 4, conditions: ["image_resolution=1K"] }] }
+        }
+      }
+    });
+
+    expect(entries).toEqual([
+      expect.objectContaining({
+        provider: "polza",
+        model: "openai/gpt-5.4-image-2",
+        operation: "image.generate",
+        baseCostMicrousd: 40000,
+        parameterRules: { image_resolution: "1K" }
+      })
+    ]);
+    delete process.env.BOOJUM_RUB_PER_USD;
+  });
+
   it("applies admin pricing config in local mode without a database", async () => {
     __testing.resetLocalPricingState();
     delete process.env.DATABASE_URL;

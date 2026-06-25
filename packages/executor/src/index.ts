@@ -871,7 +871,7 @@ function actualNodeCost(node: RouteNode, result: NodeRunnerResult, providerUsage
   const outputTokens = numberMetric(metrics, "outputTokens") ?? numberMetric(metrics, "output_tokens");
   const imageCount = numberMetric(metrics, "imageCount") ?? numberMetric(metrics, "image_count");
   const videoSeconds = numberMetric(metrics, "videoSeconds") ?? numberMetric(metrics, "video_seconds");
-  const actualProviderCostAmount = custom?.actualProviderCostAmount ?? usage?.actualCost ?? usage?.estimatedCost ?? estimate?.estimatedProviderCostAmount ?? null;
+  const actualProviderCostAmount = custom?.actualProviderCostAmount ?? usage?.actualCost ?? estimate?.estimatedProviderCostAmount ?? null;
   const actualProviderCostCurrency = usage?.actualCostCurrency ?? estimate?.providerCostCurrency ?? (actualProviderCostAmount === null ? null : "USD");
   const actualCostMicrousd = microusdFromProviderCost(actualProviderCostAmount, actualProviderCostCurrency);
   const actualPricing = actualCostMicrousd !== null && estimate?.pricingBreakdown
@@ -1206,6 +1206,8 @@ function modelAliases(model: string): Set<string> {
   const normalized = model.trim().toLowerCase();
   if (!normalized) return new Set();
   const aliases = new Set([normalized]);
+  const firstSlash = normalized.indexOf("/");
+  if (firstSlash > 0 && firstSlash < normalized.length - 1) aliases.add(normalized.slice(firstSlash + 1));
   const tail = normalized.split("/").filter(Boolean).at(-1);
   if (tail) aliases.add(tail);
   return aliases;

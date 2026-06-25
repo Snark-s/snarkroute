@@ -2044,9 +2044,8 @@ function NodeInlineResult({
   }
   const imageSrc = versionedAssetPreviewSrc(imagePreviewSrc(result.output), previewVersion);
   const videoSrc = versionedAssetPreviewSrc(videoPreviewSrc(result.output), previewVersion);
-  const cost = costLabel(result.output) ?? nodeResultProviderCostLabel(result);
   const creditCost = result.actualCredits !== undefined && result.actualCredits > 0
-    ? `Spent: ${formatCredits(result.actualCredits)} credits${result.costEstimate?.provider ? ` · Provider: ${result.costEstimate.provider}` : ""} · Usage: ${result.usageSource ?? "unknown"}`
+    ? `Spent: ${formatCredits(result.actualCredits)} credits`
     : result.status === "failed" && result.costEstimate && result.costEstimate.estimatedCredits > 0 ? "No Boojum credits charged"
       : result.costEstimate && result.costEstimate.estimatedCredits > 0 ? `≈ ${formatCredits(result.costEstimate.estimatedCredits)} credits` : "";
   const providerBalanceHint = externalProviderBalanceHint(result.error);
@@ -2058,7 +2057,6 @@ function NodeInlineResult({
       <div className={`nodeResult panoramaResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
         {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
-        {cost ? <span className="nodeCost">{cost}</span> : null}
         <Panorama360Viewer
           src={panoramaSrc}
           title={imageTitle}
@@ -2070,10 +2068,9 @@ function NodeInlineResult({
   }
   if (imageSrc) {
     return (
-      <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
+      <div className={`nodeResult withImageActions ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
         {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
-        {cost ? <span className="nodeCost">{cost}</span> : null}
         <div className="nodeImageActions">
           <button
             className="nodeImageActionButton nodrag nopan"
@@ -2132,7 +2129,6 @@ function NodeInlineResult({
       <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
         {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
-        {cost ? <span className="nodeCost">{cost}</span> : null}
         <div className="nodeImageActions">
           <button
             className="nodeImageActionButton nodrag nopan"
@@ -2165,7 +2161,6 @@ function NodeInlineResult({
     <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
       {statusText ? <div>{statusText}</div> : null}
       {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
-      {cost ? <span className="nodeCost">{cost}</span> : null}
       {providerBalanceHint ? <span className="nodeCost warning">{providerBalanceHint}</span> : null}
       {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : preview ? <pre>{preview}</pre> : null}
       {result.status === "failed" && onConfigureMissingSecret ? <button className="nodeSmallButton nodrag nopan" onClick={onConfigureMissingSecret}><KeyRound size={14} /> Configure key</button> : null}
@@ -9137,9 +9132,7 @@ function costLabel(value: unknown): string | null {
   const estimatedUsdFromCost = numberValue(record?.estimatedUsd ?? record?.amountUsd);
   const providerAmount = numberValue(record?.amount ?? record?.cost ?? output.actualCost);
   const providerCurrency = stringValue(record?.currency ?? output.actualCostCurrency);
-  if (Number.isFinite(providerAmount) && providerCurrency && providerCurrency.toUpperCase() !== "USD") {
-    return `Provider reported cost: ${providerAmount.toFixed(4)} ${providerCurrency.toUpperCase()}`;
-  }
+  if (Number.isFinite(providerAmount) && providerCurrency && providerCurrency.toUpperCase() !== "USD") return null;
   const estimatedUsd = Number.isFinite(estimatedUsdFromCost) ? estimatedUsdFromCost : Number.isFinite(seconds) ? seconds * 0.0014 : NaN;
   if (!Number.isFinite(estimatedUsd)) return null;
   const parts = [`Estimated provider cost: $${estimatedUsd.toFixed(4)}`];
@@ -9153,9 +9146,7 @@ function nodeResultProviderCostLabel(result: NodeRunResult): string | null {
   const actualAmount = numberValue(outputRecord.actualCost ?? result.actualProviderCostAmount);
   const actualCurrency = stringValue(outputRecord.actualCostCurrency ?? result.actualProviderCostCurrency);
   if (Number.isFinite(actualAmount) && actualCurrency) {
-    return actualCurrency.toUpperCase() === "USD"
-      ? `Provider reported cost: $${actualAmount.toFixed(4)}`
-      : `Provider reported cost: ${actualAmount.toFixed(4)} ${actualCurrency.toUpperCase()}`;
+    return actualCurrency.toUpperCase() === "USD" ? `Provider reported cost: $${actualAmount.toFixed(4)}` : null;
   }
   const amount = numberValue(result.costEstimate?.estimatedProviderCostAmount ?? providerCostAmountFromMicrousd(result.costEstimate?.pricingBreakdown?.providerCostMicrousd ?? result.costEstimate?.baseCostMicrousd));
   if (!Number.isFinite(amount)) return null;
