@@ -1,7 +1,7 @@
 import { createReadStream } from "node:fs";
 import { copyFile, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { ExecuteOptions, RunResult } from "@snarkroute/executor";
 import type { OpenRoute } from "@snarkroute/protocol";
 import { builtInNodeManifests, loadInstalledNodeManifests, loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type PromptLibraryPrompt, type SnarkNodeManifest } from "@snarkroute/nodes";
@@ -20,6 +20,9 @@ import type {
   AppendAudioStackInput,
   AppendVideoStackInput,
   AppendTextNodeConversationMessageInput,
+  CollectionNodeItem,
+  CollectionNodeManifest,
+  CollectionNodeStoredItem,
   CreateNodeInput,
   CropMetadata,
   DuplicateCanvasNodeAsRepresentationInput,
@@ -76,6 +79,9 @@ export type {
   AppendAudioStackInput,
   AppendVideoStackInput,
   AppendTextNodeConversationMessageInput,
+  CollectionNodeItem,
+  CollectionNodeManifest,
+  CollectionNodeStoredItem,
   CreateNodeInput,
   CropMetadata,
   DuplicateCanvasNodeAsRepresentationInput,
@@ -245,8 +251,20 @@ export async function readLibrarySnapshot(libraryPath: string): Promise<LibraryS
   const manifest = await readLibraryManifest(libraryPath);
   const nestedLibraries = await listNestedLibraries(libraryPath);
   const canvas = await readCanvas(libraryPath, manifest);
+  if (canvas) await normalizeCollectionReferenceEdges(libraryPath, canvas);
   const nodes = canvas ? await readCanvasNodes(libraryPath, canvas) : [];
   return { manifest, path: libraryPath, nestedLibraries, canvas, nodes };
+}
+
+async function normalizeCollectionReferenceEdges(libraryPath: string, canvas: SnarkCanvasDocument): Promise<void> {
+  const collectionIds = new Set(canvas.nodes.filter((node) => node.type === "collection").map((node) => node.id));
+  let changed = false;
+  canvas.edges = (canvas.edges ?? []).map((edge) => {
+    if (!collectionIds.has(edge.fromNodeId) || edge.kind === "collectionItem") return edge;
+    changed = true;
+    return { ...edge, kind: "collectionItem" };
+  });
+  if (changed) await writeCanvas(libraryPath, canvas);
 }
 
 export async function listNestedLibraries(libraryPath: string): Promise<NestedLibrary[]> {
@@ -370,7 +388,12 @@ export async function importImageAsNode(input: ImportImageInput): Promise<Librar
     height
   });
   if (input.connectFromNodeId) {
-    canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.connectFromNodeId, toNodeId: id, kind: "crop" }];
+    canvas.edges = [...(canvas.edges ?? []), {
+      id: `edge_${shortId()}`,
+      fromNodeId: input.connectFromNodeId,
+      toNodeId: id,
+      kind: input.crop ? "crop" : undefined
+    }];
   }
   await writeCanvas(libraryPath, canvas);
   return readLibrarySnapshot(libraryPath);
@@ -534,6 +557,9 @@ export async function importTextAsNode(input: ImportTextInput): Promise<LibraryS
     width,
     height
   });
+  if (input.connectFromNodeId) {
+    canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.connectFromNodeId, toNodeId: id }];
+  }
   await writeCanvas(libraryPath, canvas);
   return readLibrarySnapshot(libraryPath);
 }
@@ -968,6 +994,20 @@ export async function setImageNodeActiveStackItem(nodeId: string, stackIndex: nu
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function setImageNodeSelectedStackItems(nodeId: string, selectedStackItemIds: string[]): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readImageNode(nodeId);
+  const requestedIds = new Set(selectedStackItemIds);
+  const selectedIds = manifest.stack.filter((item) => requestedIds.has(item.id)).map((item) => item.id);
+  if (selectedIds.length !== requestedIds.size) throw new Error("One or more selected stack items were not found.");
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    selectedStackItemIds: selectedIds,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(libraryPath);
+}
+
 export async function setVideoNodeActiveStackItem(nodeId: string, stackIndex: number): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const { manifest, nodePath } = await readVideoNode(nodeId);
@@ -1056,6 +1096,7 @@ export async function deleteImageNodeStackItem(nodeId: string, stackItemId: stri
     ...manifest,
     stack: nextStack,
     activeStackIndex: Math.max(0, nextActiveIndex),
+    selectedStackItemIds: manifest.selectedStackItemIds?.filter((id) => id !== stackItemId) ?? [],
     updatedAt: new Date().toISOString()
   });
   await replaceDeletedRepresentativeImage(libraryPath, nodeId, stackItemId, nextStack[Math.max(0, nextActiveIndex)]?.id);
@@ -1714,7 +1755,7 @@ interface GenerationMediaInput {
 
 async function connectedCanvasInputs(libraryPath: string, targetNodeId: string): Promise<ConnectedCanvasInput[]> {
   const canvas = await ensureCanvas(libraryPath);
-  const sourceNodeIds = (canvas.edges ?? []).filter((edge) => edge.toNodeId === targetNodeId).map((edge) => edge.fromNodeId);
+  const sourceNodeIds = (canvas.edges ?? []).filter((edge) => edge.toNodeId === targetNodeId && edge.kind !== "collectionItem").map((edge) => edge.fromNodeId);
   const inputs: ConnectedCanvasInput[] = [];
   for (const sourceNodeId of sourceNodeIds) {
     const sourceNode = canvas.nodes.find((node) => node.id === sourceNodeId);
@@ -1977,7 +2018,7 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
   const id = `${input.type}_${shortId()}`;
   const width = input.width ?? defaultNodeWidth;
   const height = input.height ?? defaultNodeHeight;
-  const defaultTitle = input.type === "image" ? "Image" : input.type === "video" ? "Video" : input.type === "audio" ? "Audio" : "Text";
+  const defaultTitle = input.variant === "note" ? "Note" : input.type === "image" ? "Image" : input.type === "video" ? "Video" : input.type === "audio" ? "Audio" : input.type === "collection" ? "Collection" : "Text";
   const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, defaultTitle);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   await mkdir(nodePath, { recursive: true });
@@ -2024,16 +2065,28 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
     };
     await writeJson(join(nodePath, "snark.node.json"), manifest);
     await writeCurrentPrompt(nodePath, "");
+  } else if (input.type === "collection") {
+    const manifest: CollectionNodeManifest = {
+      format: "snarkroute.node",
+      version: "0.1",
+      id,
+      type: "collection",
+      title,
+      createdAt: now,
+      updatedAt: now
+    };
+    await writeJson(join(nodePath, "snark.node.json"), manifest);
   } else {
     const manifest: TextNodeManifest = {
       format: "snarkroute.node",
       version: "0.1",
       id,
       type: "text",
+      variant: input.variant,
       title,
       text: "",
       stackPath: "content",
-      color: "mint",
+      color: input.variant === "note" ? "amber" : "mint",
       createdAt: now,
       updatedAt: now
     };
@@ -2051,7 +2104,7 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
     width,
     height
   });
-  if (input.connectFromNodeId) {
+  if (input.connectFromNodeId && input.variant !== "note") {
     canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.connectFromNodeId, toNodeId: id }];
   }
   await writeCanvas(libraryPath, canvas);
@@ -2266,7 +2319,7 @@ export async function renameCanvasNode(nodeId: string, title: string): Promise<L
   if (!canvasNode) throw new Error(`Node "${nodeId}" was not found.`);
   const currentPath = resolvePortablePath(libraryPath, canvasNode.nodePath);
   const manifestPath = join(currentPath, "snark.node.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest | CollectionNodeManifest;
   const location = await allocateCanvasNodeLocation(libraryPath, title.trim() || manifest.title, canvasNode.nodePath);
   const nextPath = resolvePortablePath(libraryPath, location.nodeRelativePath);
   if (nextPath !== currentPath) await rename(currentPath, nextPath);
@@ -2287,6 +2340,50 @@ export async function deleteCanvasNode(nodeId: string): Promise<LibrarySnapshot>
   await moveCanvasNodeFolderToTrash(libraryPath, nodePath);
   await writeCanvas(libraryPath, canvas);
   await replaceDeletedRepresentativeImage(libraryPath, nodeId);
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function duplicateCollectionItemAsNode(input: { nodeId: string; itemId: string; x: number; y: number; width?: number; height?: number }): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const collectionNode = canvas.nodes.find((node) => node.id === input.nodeId && node.type === "collection");
+  if (!collectionNode) throw new Error(`Collection node "${input.nodeId}" was not found.`);
+  const item = (await collectionNodeItems(libraryPath, canvas, input.nodeId)).find((candidate) => candidate.id === input.itemId);
+  if (!item) throw new Error(`Collection item "${input.itemId}" was not found.`);
+  const collectionPath = resolvePortablePath(libraryPath, collectionNode.nodePath);
+  const sourcePath = resolvePortablePath(collectionPath, item.file);
+  const existingNodeIds = new Set(canvas.nodes.map((node) => node.id));
+  const filename = `${sanitizeFilename(item.title) || item.type}${extname(item.file)}`;
+  const common = {
+    filename,
+    sourcePath,
+    dropX: input.x,
+    dropY: input.y,
+    width: input.width,
+    height: input.height
+  };
+  if (item.type === "image") await importImageAsNode(common);
+  else if (item.type === "video") await importVideoAsNode(common);
+  else if (item.type === "audio") await importAudioAsNode(common);
+  else await importTextAsNode({
+      filename: `${sanitizeFilename(item.title) || "text"}.md`,
+      text: item.text ?? "",
+      dropX: input.x,
+      dropY: input.y,
+      width: input.width,
+      height: input.height
+    });
+
+  const nextCanvas = await ensureCanvas(libraryPath);
+  const createdNode = nextCanvas.nodes.find((node) => !existingNodeIds.has(node.id));
+  if (!createdNode) throw new Error("Collection item did not create a node.");
+  nextCanvas.edges = [...(nextCanvas.edges ?? []), {
+    id: `edge_${shortId()}`,
+    fromNodeId: input.nodeId,
+    toNodeId: createdNode.id,
+    kind: "collectionItem"
+  }];
+  await writeCanvas(libraryPath, nextCanvas);
   return readLibrarySnapshot(libraryPath);
 }
 
@@ -2671,10 +2768,16 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
   for (const canvasNode of canvas.nodes) {
     const manifestPath = join(resolvePortablePath(libraryPath, canvasNode.nodePath), "snark.node.json");
     if (!await fileExists(manifestPath)) continue;
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest;
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest | CollectionNodeManifest;
     if (manifest.type === "image") {
       const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
-      const hydratedManifest = { ...await syncMediaStackWithContent(nodePath, manifest), currentPrompt: await readCurrentPrompt(nodePath) };
+      const syncedManifest = await syncMediaStackWithContent(nodePath, manifest);
+      const stackItemIds = new Set(syncedManifest.stack.map((item) => item.id));
+      const hydratedManifest = {
+        ...syncedManifest,
+        selectedStackItemIds: syncedManifest.selectedStackItemIds?.filter((id) => stackItemIds.has(id)) ?? [],
+        currentPrompt: await readCurrentPrompt(nodePath)
+      };
       const activeStackItem = hydratedManifest.stack[hydratedManifest.activeStackIndex] ?? null;
       nodes.push({
         canvas: canvasNode,
@@ -2719,6 +2822,17 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
         previewUrl: activeStackItem?.previewFile ? `/api/libraries/current/text-nodes/${encodeURIComponent(manifest.id)}/stack/${encodeURIComponent(activeStackItem.id)}/preview` : null
       });
     }
+    if (manifest.type === "collection") {
+      const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+      const synced = await syncCollectionNode(libraryPath, canvas, nodePath, manifest);
+      nodes.push({
+        canvas: canvasNode,
+        manifest: synced.manifest,
+        items: synced.items,
+        activeStackItem: null,
+        previewUrl: null
+      });
+    }
     if (manifest.type === "library") {
       let scan: LocalLibraryScanResult;
       try {
@@ -2748,6 +2862,163 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
     }
   }
   return nodes;
+}
+
+export async function createCollectionItemReadStream(nodeId: string, itemId: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const canvasNode = canvas.nodes.find((node) => node.id === nodeId && node.type === "collection");
+  if (!canvasNode) throw new Error(`Collection node "${nodeId}" was not found.`);
+  const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+  const manifest = JSON.parse(await readFile(join(nodePath, "snark.node.json"), "utf8")) as CollectionNodeManifest;
+  const item = manifest.items?.find((candidate) => candidate.id === itemId);
+  if (!item) throw new Error(`Collection item "${itemId}" was not found.`);
+  return { stream: createReadStream(resolvePortablePath(nodePath, item.file)), mimeType: item.mimeType };
+}
+
+interface DesiredCollectionItem extends Omit<CollectionNodeStoredItem, "file"> {
+  sourcePath?: string;
+  externalUrl?: string;
+}
+
+async function collectionNodeItems(libraryPath: string, canvas: SnarkCanvasDocument, collectionNodeId: string): Promise<CollectionNodeItem[]> {
+  const canvasNode = canvas.nodes.find((node) => node.id === collectionNodeId && node.type === "collection");
+  if (!canvasNode) return [];
+  const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+  const manifest = JSON.parse(await readFile(join(nodePath, "snark.node.json"), "utf8")) as CollectionNodeManifest;
+  return (await syncCollectionNode(libraryPath, canvas, nodePath, manifest)).items;
+}
+
+async function syncCollectionNode(
+  libraryPath: string,
+  canvas: SnarkCanvasDocument,
+  nodePath: string,
+  manifest: CollectionNodeManifest
+): Promise<{ manifest: CollectionNodeManifest; items: CollectionNodeItem[] }> {
+  const sourceNodeIds = (canvas.edges ?? []).filter((edge) => edge.toNodeId === manifest.id).map((edge) => edge.fromNodeId);
+  const desired: DesiredCollectionItem[] = [];
+  for (const sourceNodeId of sourceNodeIds) {
+    const sourceNode = canvas.nodes.find((node) => node.id === sourceNodeId);
+    if (sourceNode?.type === "image") {
+      const { manifest, nodePath } = await readImageNode(sourceNodeId);
+      const synced = await syncMediaStackWithContent(nodePath, manifest);
+      const selected = new Set(synced.selectedStackItemIds ?? []);
+      const stackItems = synced.stack.length > 1 ? synced.stack.filter((item) => selected.has(item.id)) : synced.stack;
+      for (const item of stackItems) {
+        desired.push({
+          id: collectionItemId(sourceNodeId, item.id),
+          type: "image",
+          sourceNodeId,
+          stackItemId: item.id,
+          title: synced.title,
+          mimeType: item.mimeType,
+          sourcePath: item.file ? resolvePortablePath(nodePath, item.file) : undefined,
+          externalUrl: item.externalUrl
+        });
+      }
+    }
+    if (sourceNode?.type === "video" || sourceNode?.type === "audio") {
+      const typed = sourceNode.type === "video" ? await readVideoNode(sourceNodeId) : await readAudioNode(sourceNodeId);
+      const item = typed.manifest.stack[typed.manifest.activeStackIndex];
+      if (item) {
+        desired.push({
+          id: collectionItemId(sourceNodeId, item.id),
+          type: sourceNode.type,
+          sourceNodeId,
+          stackItemId: item.id,
+          title: typed.manifest.title,
+          mimeType: item.mimeType,
+          sourcePath: item.file ? resolvePortablePath(typed.nodePath, item.file) : undefined,
+          externalUrl: item.externalUrl
+        });
+      }
+    }
+    if (sourceNode?.type === "text") {
+      const { manifest, nodePath } = await readTextNode(sourceNodeId);
+      const stack = await readTextNodeStack(nodePath, manifest);
+      const selected = stack.find((item) => item.id === manifest.selectedStackItemId);
+      desired.push({
+        id: collectionItemId(sourceNodeId, selected?.id ?? "draft"),
+        type: "text",
+        sourceNodeId,
+        stackItemId: selected?.id,
+        title: selected?.title ?? manifest.title,
+        text: selected?.text ?? manifest.text,
+        mimeType: "text/markdown"
+      });
+    }
+  }
+
+  const contentPath = join(nodePath, "content");
+  await mkdir(contentPath, { recursive: true });
+  const textStagingPath = join(nodePath, ".collection-text-sync");
+  await rm(textStagingPath, { recursive: true, force: true });
+  const storedItems: CollectionNodeStoredItem[] = [];
+  for (const item of desired) {
+    if (item.type === "text" && !item.text?.trim()) continue;
+    const extension = item.type === "text" ? ".prompt.md" : collectionItemExtension(item);
+    const itemHash = createHash("sha256").update(item.id).digest("hex").slice(0, 20);
+    const file = portableJoin("content", `${item.type}-${itemHash}${extension}`);
+    const destination = resolvePortablePath(nodePath, file);
+    if (item.type === "text") {
+      const saved = await createTextPromptAsset(textStagingPath, { title: item.title, prompt: item.text, category: "text-stack" });
+      await copyFile(saved.promptPath, destination);
+    } else if (item.sourcePath) {
+      await copyFile(item.sourcePath, destination);
+    } else if (item.externalUrl) {
+      const response = await fetchWithTimeout(item.externalUrl, 15000);
+      if (!response.ok) throw new Error(`Could not copy collection item "${item.title}" (${response.status}).`);
+      await writeFile(destination, Buffer.from(await response.arrayBuffer()));
+    } else {
+      continue;
+    }
+    storedItems.push({
+      id: item.id,
+      type: item.type,
+      sourceNodeId: item.sourceNodeId,
+      stackItemId: item.stackItemId,
+      title: item.title,
+      file,
+      mimeType: item.mimeType,
+      text: item.text
+    });
+  }
+  await rm(textStagingPath, { recursive: true, force: true });
+
+  const expectedFiles = new Set(storedItems.map((item) => basename(item.file)));
+  for (const filename of await readdir(contentPath)) {
+    if (!expectedFiles.has(filename)) await rm(join(contentPath, filename), { force: true });
+  }
+
+  const nextManifest = JSON.stringify(manifest.items ?? []) === JSON.stringify(storedItems)
+    ? manifest
+    : { ...manifest, items: storedItems, updatedAt: new Date().toISOString() };
+  if (nextManifest !== manifest) await writeJson(join(nodePath, "snark.node.json"), nextManifest);
+  return {
+    manifest: nextManifest,
+    items: storedItems.map((item) => ({
+      ...item,
+      previewUrl: item.type === "text" ? undefined : `/api/libraries/current/collection-nodes/${encodeURIComponent(manifest.id)}/items/${encodeURIComponent(item.id)}/content`
+    }))
+  };
+}
+
+function collectionItemExtension(item: DesiredCollectionItem): string {
+  const sourceExtension = extname(item.sourcePath ?? "").toLowerCase();
+  if (sourceExtension && sourceExtension.length <= 8) return sourceExtension;
+  if (item.mimeType === "image/png") return ".png";
+  if (item.mimeType === "image/jpeg") return ".jpg";
+  if (item.mimeType === "image/webp") return ".webp";
+  if (item.mimeType === "video/webm") return ".webm";
+  if (item.mimeType === "video/quicktime") return ".mov";
+  if (item.mimeType.startsWith("video/")) return ".mp4";
+  if (item.mimeType === "audio/wav") return ".wav";
+  if (item.mimeType.startsWith("audio/")) return ".mp3";
+  return ".bin";
+}
+
+function collectionItemId(sourceNodeId: string, stackItemId: string): string {
+  return `${sourceNodeId}:${stackItemId}`;
 }
 
 function resolvePortablePath(root: string, relativePath: string): string {

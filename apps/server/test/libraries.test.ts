@@ -125,6 +125,27 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("creates a sticky note as a portable text node variant", async () => {
+    const app = await testServer();
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", variant: "note", x: 500, y: 300, width: 280, height: 220 }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().nodes[0]).toMatchObject({
+        canvas: { type: "text", x: 360, y: 190, width: 280, height: 220 },
+        manifest: { type: "text", variant: "note", title: "Note", text: "", color: "amber" }
+      });
+      const storedManifest = JSON.parse(await readFile(join(libraryPath, "nodes", "Note.node", "snark.node.json"), "utf8"));
+      expect(storedManifest).toMatchObject({ type: "text", variant: "note", title: "Note", color: "amber" });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("imports an image into a title-matched node folder with stack[0] copied into content", async () => {
     const app = await testServer();
     try {
@@ -164,6 +185,175 @@ describe("SnarkRoute libraries", () => {
       const refreshed = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes[0];
       expect(refreshed.manifest.stack[1]).toMatchObject({ file: "content/manual-reference.png", mimeType: "image/png" });
       expect(refreshed.manifest.activeStackIndex).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("persists multiple selected images in an image node stack", async () => {
+    const app = await testServer();
+    try {
+      const imported = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-image",
+        payload: {
+          filename: "Selections.png",
+          dataBase64: onePixelPngBase64,
+          dropX: 500,
+          dropY: 300,
+          width: 320,
+          height: 240
+        }
+      })).json();
+      const nodeId = imported.nodes[0].manifest.id;
+      const appended = (await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${nodeId}/stack`,
+        payload: { filename: "second.png", dataBase64: onePixelPngBase64 }
+      })).json();
+      const selectedStackItemIds = appended.nodes[0].manifest.stack.map((item: { id: string }) => item.id);
+
+      const selectedResponse = await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/image-nodes/${nodeId}/stack/selected`,
+        payload: { selectedStackItemIds }
+      });
+
+      expect(selectedResponse.statusCode).toBe(200);
+      expect(selectedResponse.json().nodes[0].manifest.selectedStackItemIds).toEqual(selectedStackItemIds);
+      const refreshed = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json();
+      expect(refreshed.nodes[0].manifest.selectedStackItemIds).toEqual(selectedStackItemIds);
+
+      const deletedResponse = await app.inject({
+        method: "DELETE",
+        url: `/api/libraries/current/image-nodes/${nodeId}/stack/${selectedStackItemIds[0]}`
+      });
+      expect(deletedResponse.statusCode).toBe(200);
+      expect(deletedResponse.json().nodes[0].manifest.selectedStackItemIds).toEqual([selectedStackItemIds[1]]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("collects connected mixed assets and materializes collection items as typed nodes", async () => {
+    const app = await testServer();
+    try {
+      const imageSnapshot = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-image",
+        payload: { filename: "First.png", dataBase64: onePixelPngBase64, dropX: 200, dropY: 200, width: 320, height: 240 }
+      })).json();
+      const imageNode = imageSnapshot.nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "image");
+      const imageWithTwoItems = (await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${imageNode.manifest.id}/stack`,
+        payload: { filename: "Second.png", dataBase64: onePixelPngBase64 }
+      })).json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === imageNode.manifest.id);
+      const selectedImageIds = imageWithTwoItems.manifest.stack.map((item: { id: string }) => item.id);
+      const selectedImageId = selectedImageIds[1];
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/image-nodes/${imageNode.manifest.id}/stack/selected`,
+        payload: { selectedStackItemIds: selectedImageIds }
+      });
+
+      const textSnapshot = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-text",
+        payload: { filename: "Notes.txt", text: "Collection text", dropX: 200, dropY: 500, width: 320, height: 180 }
+      })).json();
+      const textNode = textSnapshot.nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "text");
+      const visualTextPng = writePngTextChunk(Buffer.from(onePixelPngBase64, "base64"), "snarkroute:prompt", JSON.stringify({
+        schema: "snarkroute.prompt-image.v0",
+        id: "visual-text",
+        title: "Visual text",
+        category: "text-stack",
+        prompt: "Text extracted from an image-backed text item"
+      }));
+      await writeFile(join(libraryPath, textNode.canvas.nodePath, "content", "visual-text.png"), visualTextPng);
+      const refreshedTextNode = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes
+        .find((node: { manifest: { id: string } }) => node.manifest.id === textNode.manifest.id);
+      const visualTextItem = refreshedTextNode.stack.find((item: { title: string }) => item.title === "Visual text");
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/text-nodes/${textNode.manifest.id}/stack/active`,
+        payload: { selectedStackItemId: visualTextItem.id }
+      });
+      const videoSnapshot = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-video",
+        payload: { filename: "Clip.mp4", dataBase64: sampleVideoBase64, dropX: 200, dropY: 750, width: 320, height: 240 }
+      })).json();
+      const videoNode = videoSnapshot.nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "video");
+
+      const collectionSnapshot = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "collection", x: 700, y: 450, width: 360, height: 280, connectFromNodeId: imageNode.manifest.id }
+      })).json();
+      const collectionNode = collectionSnapshot.nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "collection");
+      const canvas = collectionSnapshot.canvas;
+      canvas.edges.push(
+        { id: "edge_text_collection", fromNodeId: textNode.manifest.id, toNodeId: collectionNode.manifest.id },
+        { id: "edge_video_collection", fromNodeId: videoNode.manifest.id, toNodeId: collectionNode.manifest.id }
+      );
+      await app.inject({ method: "PUT", url: "/api/libraries/current/canvas", payload: canvas });
+
+      const collected = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes
+        .find((node: { manifest: { id: string } }) => node.manifest.id === collectionNode.manifest.id);
+      expect(collected.items.map((item: { type: string }) => item.type)).toEqual(["image", "image", "text", "video"]);
+      const collectedImages = collected.items.filter((item: { type: string }) => item.type === "image");
+      expect(new Set(collectedImages.map((item: { file: string }) => item.file)).size).toBe(2);
+      const collectedImage = collectedImages.find((item: { stackItemId: string }) => item.stackItemId === selectedImageId);
+      expect(collectedImage.stackItemId).toBe(selectedImageId);
+      expect((await app.inject({ method: "GET", url: collectedImage.previewUrl })).statusCode).toBe(200);
+      expect(collected.items.find((item: { type: string }) => item.type === "text").text).toBe("Text extracted from an image-backed text item");
+      expect(collected.items.find((item: { type: string }) => item.type === "text").file).toMatch(/\.prompt\.md$/);
+      expect(collected.items.find((item: { type: string }) => item.type === "text").previewUrl).toBeUndefined();
+      expect(collected.manifest.items).toHaveLength(4);
+      const collectionContentPath = join(libraryPath, collectionNode.canvas.nodePath, "content");
+      const collectedFiles = await readdir(collectionContentPath);
+      expect(collectedFiles.filter((file) => file.endsWith(".png"))).toHaveLength(2);
+      expect(collectedFiles.some((file) => file.endsWith(".mp4"))).toBe(true);
+      const collectedMarkdown = collectedFiles.find((file) => file.endsWith(".prompt.md"));
+      expect(collectedMarkdown).toBeTruthy();
+      await expect(readFile(join(collectionContentPath, collectedMarkdown!), "utf8")).resolves.toContain("kind: text/prompt");
+
+      const extractedImageResponse = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/collection-nodes/${collectionNode.manifest.id}/items/${encodeURIComponent(collectedImage.id)}/duplicate-node`,
+        payload: { x: 900, y: 300, width: 320, height: 240 }
+      });
+      expect(extractedImageResponse.statusCode).toBe(200);
+      const extractedImageBody = extractedImageResponse.json();
+      const extractedImage = extractedImageBody.nodes.find((node: { manifest: { id: string; type: string } }) => node.manifest.type === "image" && node.manifest.id !== imageNode.manifest.id);
+      const extractedImageEdge = extractedImageBody.canvas.edges.find((edge: { fromNodeId: string; toNodeId: string }) => edge.fromNodeId === collectionNode.manifest.id && edge.toNodeId === extractedImage.manifest.id);
+      expect(extractedImageEdge).toBeTruthy();
+      expect(extractedImageEdge.kind).toBe("collectionItem");
+
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/image-nodes/${imageNode.manifest.id}/stack/selected`,
+        payload: { selectedStackItemIds: [] }
+      });
+      const withoutImage = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes
+        .find((node: { manifest: { id: string } }) => node.manifest.id === collectionNode.manifest.id);
+      expect(withoutImage.items.some((item: { type: string }) => item.type === "image")).toBe(false);
+      expect((await readdir(collectionContentPath)).some((file) => file.endsWith(".png"))).toBe(false);
+
+      const textItem = withoutImage.items.find((item: { type: string }) => item.type === "text");
+      const extracted = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/collection-nodes/${collectionNode.manifest.id}/items/${encodeURIComponent(textItem.id)}/duplicate-node`,
+        payload: { x: 1000, y: 500, width: 320, height: 180 }
+      });
+      expect(extracted.statusCode).toBe(200);
+      const extractedText = extracted.json().nodes.find((node: { manifest: { id: string; type: string } }) => node.manifest.type === "text" && node.manifest.id !== textNode.manifest.id);
+      expect(extractedText.outputText).toBe("Text extracted from an image-backed text item");
+      expect(extractedText.activeStackItem.file).toMatch(/\.prompt\.md$/);
+      expect(extracted.json().canvas.edges).toEqual(expect.arrayContaining([
+        expect.objectContaining({ fromNodeId: collectionNode.manifest.id, toNodeId: extractedText.manifest.id, kind: "collectionItem" })
+      ]));
     } finally {
       await app.close();
     }

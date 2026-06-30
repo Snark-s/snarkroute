@@ -7,6 +7,7 @@ import {
   appendTextToNodeStack,
   appendVideoToNodeStack,
   createAudioStackReadStream,
+  createCollectionItemReadStream,
   canvasNodeFolderPath,
   createImageStackReadStream,
   createTextNodeConversationImageReadStream,
@@ -16,6 +17,7 @@ import {
   duplicateCanvasNode,
   duplicateCanvasNodeAsRepresentation,
   createEmptyCanvasNode,
+  duplicateCollectionItemAsNode,
   createLibrary,
   deleteCanvasEdge,
   deleteCanvasNode,
@@ -58,6 +60,7 @@ import {
   readVideoNode,
   setAudioNodeActiveStackItem,
   setImageNodeActiveStackItem,
+  setImageNodeSelectedStackItems,
   setTextNodeActiveStackItem,
   setVideoNodeActiveStackItem,
   setLibraryProjectCover,
@@ -344,11 +347,13 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Body: { type?: "image" | "video" | "audio" | "text"; x?: number; y?: number; width?: number; height?: number; connectFromNodeId?: string } }>("/api/libraries/current/nodes", async (request, reply) => {
+  app.post<{ Body: { type?: "image" | "video" | "audio" | "text" | "collection"; variant?: "note"; x?: number; y?: number; width?: number; height?: number; connectFromNodeId?: string } }>("/api/libraries/current/nodes", async (request, reply) => {
     try {
-      if (request.body?.type !== "image" && request.body?.type !== "video" && request.body?.type !== "audio" && request.body?.type !== "text") return reply.code(400).send({ error: "type must be image, video, audio, or text." });
+      if (request.body?.type !== "image" && request.body?.type !== "video" && request.body?.type !== "audio" && request.body?.type !== "text" && request.body?.type !== "collection") return reply.code(400).send({ error: "type must be image, video, audio, text, or collection." });
+      if (request.body.variant !== undefined && (request.body.type !== "text" || request.body.variant !== "note")) return reply.code(400).send({ error: "variant note is only supported for text nodes." });
       return await createEmptyCanvasNode({
         type: request.body.type,
+        variant: request.body.variant,
         x: Number(request.body.x ?? 0),
         y: Number(request.body.y ?? 0),
         width: request.body.width,
@@ -479,6 +484,33 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
   app.put<{ Params: { nodeId: string }; Body: { activeStackIndex?: number } }>("/api/libraries/current/image-nodes/:nodeId/stack/active", async (request, reply) => {
     try {
       return await setImageNodeActiveStackItem(request.params.nodeId, Number(request.body?.activeStackIndex ?? 0));
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string; itemId: string }; Body: { x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/collection-nodes/:nodeId/items/:itemId/duplicate-node", async (request, reply) => {
+    try {
+      return await duplicateCollectionItemAsNode({
+        nodeId: request.params.nodeId,
+        itemId: request.params.itemId,
+        x: Number(request.body?.x ?? 0),
+        y: Number(request.body?.y ?? 0),
+        width: request.body?.width,
+        height: request.body?.height
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemIds?: string[] } }>("/api/libraries/current/image-nodes/:nodeId/stack/selected", async (request, reply) => {
+    try {
+      const selectedStackItemIds = request.body?.selectedStackItemIds;
+      if (!Array.isArray(selectedStackItemIds) || !selectedStackItemIds.every((id) => typeof id === "string")) {
+        return reply.code(400).send({ error: "selectedStackItemIds must be an array of strings." });
+      }
+      return await setImageNodeSelectedStackItems(request.params.nodeId, selectedStackItemIds);
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -874,6 +906,16 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
       const preview = await createTextStackPreviewReadStream(request.params.nodeId, request.params.stackItemId);
       reply.header("Content-Type", preview.mimeType);
       return reply.send(preview.stream);
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get<{ Params: { nodeId: string; itemId: string } }>("/api/libraries/current/collection-nodes/:nodeId/items/:itemId/content", async (request, reply) => {
+    try {
+      const item = await createCollectionItemReadStream(request.params.nodeId, request.params.itemId);
+      reply.header("Content-Type", item.mimeType);
+      return reply.send(item.stream);
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });
     }

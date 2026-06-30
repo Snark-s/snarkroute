@@ -86,7 +86,7 @@ export interface SnarkCanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop" | "canvasAction";
+  kind?: "representation" | "crop" | "canvasAction" | "collectionItem";
   actionId?: string;
   note?: string;
 }
@@ -104,6 +104,7 @@ export interface ImageNodeManifest {
   crop?: CropMetadata;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -158,6 +159,7 @@ export interface TextNodeManifest {
   version: "0.1";
   id: string;
   type: "text";
+  variant?: "note";
   title: string;
   text: string;
   inputMode?: "text" | "dialogue";
@@ -299,6 +301,32 @@ export interface TextNodeView {
   previewUrl: string | null;
 }
 
+export interface CollectionNodeManifest {
+  format: "snarkroute.node";
+  version: "0.1";
+  id: string;
+  type: "collection";
+  title: string;
+  items?: CollectionNodeStoredItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CollectionNodeStoredItem {
+  id: string;
+  type: "image" | "video" | "audio" | "text";
+  sourceNodeId: string;
+  stackItemId?: string;
+  title: string;
+  file: string;
+  mimeType: string;
+  text?: string;
+}
+
+export interface CollectionNodeItem extends CollectionNodeStoredItem {
+  previewUrl?: string;
+}
+
 export interface LibraryNodeView {
   canvas: SnarkCanvasNode;
   manifest: LibraryNodeManifest;
@@ -307,7 +335,15 @@ export interface LibraryNodeView {
   previewUrl: string | null;
 }
 
-export type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView;
+export interface CollectionNodeView {
+  canvas: SnarkCanvasNode;
+  manifest: CollectionNodeManifest;
+  items: CollectionNodeItem[];
+  activeStackItem: null;
+  previewUrl: null;
+}
+
+export type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView | CollectionNodeView;
 
 export interface ImportImageInput {
   filename: string;
@@ -335,7 +371,8 @@ export interface ImportTextInput {
 }
 
 export interface CreateNodeInput {
-  type: "image" | "video" | "audio" | "text";
+  type: "image" | "video" | "audio" | "text" | "collection";
+  variant?: "note";
   x: number;
   y: number;
   width?: number;

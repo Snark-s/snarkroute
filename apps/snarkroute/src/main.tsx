@@ -107,7 +107,7 @@ interface CanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop" | "canvasAction";
+  kind?: "representation" | "crop" | "canvasAction" | "collectionItem";
   actionId?: string;
   note?: string;
 }
@@ -130,6 +130,7 @@ interface ImageNodeManifest {
   crop?: CropMetadata;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
 }
 
 interface VideoNodeManifest {
@@ -159,6 +160,7 @@ interface AudioNodeManifest {
 interface TextNodeManifest {
   id: string;
   type: "text";
+  variant?: "note";
   title: string;
   text: string;
   inputMode?: "text" | "dialogue";
@@ -296,7 +298,33 @@ interface LibraryNodeView {
   previewUrl: string | null;
 }
 
-type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView;
+interface CollectionNodeManifest {
+  id: string;
+  type: "collection";
+  title: string;
+}
+
+interface CollectionNodeItem {
+  id: string;
+  type: "image" | "video" | "audio" | "text";
+  sourceNodeId: string;
+  stackItemId?: string;
+  title: string;
+  file: string;
+  mimeType: string;
+  previewUrl?: string;
+  text?: string;
+}
+
+interface CollectionNodeView {
+  canvas: CanvasNode;
+  manifest: CollectionNodeManifest;
+  items: CollectionNodeItem[];
+  activeStackItem: null;
+  previewUrl: null;
+}
+
+type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView | CollectionNodeView;
 type EditableNodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView;
 type EditableNodeType = EditableNodeView["manifest"]["type"];
 type BuiltInNodeToolbarActionId = "download" | "crop" | "expand" | "upload" | "stack" | "collapse" | "delete";
@@ -445,6 +473,16 @@ type DragState =
       currentY: number;
     }
   | {
+      kind: "collectionItem";
+      pointerId: number;
+      nodeId: string;
+      itemId: string;
+      startClientX: number;
+      startClientY: number;
+      currentX: number;
+      currentY: number;
+    }
+  | {
       kind: "selection";
       pointerId: number;
       startClientX: number;
@@ -482,6 +520,7 @@ interface StackItemMenu {
   y: number;
   nodeId: string;
   stackItemId: string;
+  missing: boolean;
 }
 
 interface LibraryAssetMenu {
@@ -640,6 +679,7 @@ function App() {
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
   const [openStackNodeId, setOpenStackNodeId] = useState<string | null>(null);
   const [stackItemMenu, setStackItemMenu] = useState<StackItemMenu | null>(null);
+  const [missingStackItems, setMissingStackItems] = useState<Record<string, true>>({});
   const [contentMenu, setContentMenu] = useState<ContentContextMenu | null>(null);
   const [libraryAssetMenu, setLibraryAssetMenu] = useState<LibraryAssetMenu | null>(null);
   const [projectMenu, setProjectMenu] = useState<ProjectMenu | null>(null);
@@ -768,7 +808,7 @@ function App() {
 
     function handlePointerMove(event: PointerEvent) {
       if (event.pointerId !== activeDrag.pointerId) return;
-      if (activeDrag.kind === "stackItem") {
+      if (activeDrag.kind === "stackItem" || activeDrag.kind === "collectionItem") {
         const moved = Math.hypot(event.clientX - activeDrag.startClientX, event.clientY - activeDrag.startClientY) > 6;
         if (moved) interactionMovedRef.current = true;
         const point = screenToWorld(event.clientX, event.clientY);
@@ -867,6 +907,13 @@ function App() {
         const point = screenToWorld(event.clientX, event.clientY);
         if (interactionMovedRef.current && isPointInsideCanvas(event.clientX, event.clientY)) {
           void duplicateStackItemNode(activeDrag.nodeId, activeDrag.stackItemId, point);
+        }
+      }
+      if (activeDrag.kind === "collectionItem") {
+        const point = screenToWorld(event.clientX, event.clientY);
+        const moved = Math.hypot(event.clientX - activeDrag.startClientX, event.clientY - activeDrag.startClientY) > 6;
+        if (moved && isPointInsideCanvas(event.clientX, event.clientY)) {
+          void duplicateCollectionItemNode(activeDrag.nodeId, activeDrag.itemId, point);
         }
       }
       if (activeDrag.kind === "selection") {
@@ -1434,6 +1481,7 @@ function App() {
     setLibrary((current) => current ? { ...current, canvas } : current);
     try {
       await apiPut<CanvasDocument>("/api/libraries/current/canvas", canvas);
+      applyLibrarySnapshot(await apiGet<LibrarySnapshot>("/api/libraries/current"));
       setStatus("Connection saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save connection.");
@@ -1469,7 +1517,7 @@ function App() {
     }
   }
 
-  async function createConnectedNode(type: "image" | "video" | "audio" | "text") {
+  async function createConnectedNode(type: "image" | "video" | "audio" | "text" | "collection", variant?: "note") {
     if (!nodeCreateMenu) return;
     const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
     const mutationSeq = beginLibraryMutation();
@@ -1478,17 +1526,18 @@ function App() {
       pushUndoSnapshot();
       const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/current/nodes", {
         type,
+        variant,
         x: nodeCreateMenu.worldX,
         y: nodeCreateMenu.worldY,
-        width: imageNodeWidth,
-        height: type === "text" ? 180 : imageNodeHeight,
-        connectFromNodeId: nodeCreateMenu.fromNodeId
+        width: variant === "note" ? 280 : imageNodeWidth,
+        height: variant === "note" ? 220 : type === "text" ? 180 : type === "collection" ? 280 : imageNodeHeight,
+        connectFromNodeId: variant === "note" ? undefined : nodeCreateMenu.fromNodeId
       });
       if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
       const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
       setSelectedNodeId(createdNodeId);
       setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
-      setStatus(`${type === "image" ? "Image" : type === "video" ? "Video" : type === "audio" ? "Audio" : "Text"} node created`);
+      setStatus(`${variant === "note" ? "Note" : type === "image" ? "Image" : type === "video" ? "Video" : type === "audio" ? "Audio" : type === "collection" ? "Collection" : "Text"} node created`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not create node.");
     }
@@ -2082,10 +2131,86 @@ function App() {
       const route = nodeType === "text" ? "text-nodes" : mediaNodeRoute(nodeId);
       const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`);
       applyLibrarySnapshot(snapshot);
+      markStackItemMissing(nodeId, stackItemId, false);
       setStatus("Stack item deleted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete stack item.");
     }
+  }
+
+  async function duplicateCollectionItemNode(nodeId: string, itemId: string, point: { x: number; y: number }) {
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
+    try {
+      pushUndoSnapshot();
+      const snapshot = await apiPost<LibrarySnapshot>(
+        `/api/libraries/current/collection-nodes/${encodeURIComponent(nodeId)}/items/${encodeURIComponent(itemId)}/duplicate-node`,
+        { x: point.x, y: point.y, width: imageNodeWidth }
+      );
+      const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      setSelectedNodeId(createdNodeId);
+      setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
+      setStatus("Collection item pulled into a new node");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not create node from collection item.");
+    }
+  }
+
+  async function toggleStackImageSelection(nodeId: string, stackItemId: string) {
+    const node = nodes.find((candidate) => candidate.canvas.id === nodeId && candidate.manifest.type === "image") as ImageNodeView | undefined;
+    if (!node) return;
+    const selectedIds = new Set(node.manifest.selectedStackItemIds ?? []);
+    if (selectedIds.has(stackItemId)) selectedIds.delete(stackItemId);
+    else selectedIds.add(stackItemId);
+    const mutationSeq = beginLibraryMutation();
+    try {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/selected`, {
+        selectedStackItemIds: [...selectedIds]
+      });
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      setStatus(selectedIds.has(stackItemId) ? "Image marked as selected" : "Image selection removed");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not update image selection.");
+    }
+  }
+
+  async function deleteMissingStackItems(nodeId: string) {
+    setStackItemMenu(null);
+    const node = nodes.find((candidate) => candidate.canvas.id === nodeId);
+    const stack = node?.manifest.type === "text" || node?.manifest.type === "library" || node?.manifest.type === "collection" ? [] : node?.manifest.stack ?? [];
+    const missingItems = stack.filter((item) => missingStackItems[stackItemMissingKey(nodeId, item.id)] === true);
+    if (!node || missingItems.length === 0) {
+      setStatus("No missing stack items found");
+      return;
+    }
+    try {
+      const route = mediaNodeRoute(nodeId);
+      let latestSnapshot: LibrarySnapshot | null = null;
+      for (const item of missingItems) {
+        latestSnapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(item.id)}`);
+      }
+      if (latestSnapshot) applyLibrarySnapshot(latestSnapshot);
+      setMissingStackItems((current) => {
+        const next = { ...current };
+        for (const item of missingItems) delete next[stackItemMissingKey(nodeId, item.id)];
+        return next;
+      });
+      setStatus(`Deleted ${missingItems.length} missing stack item${missingItems.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not delete missing stack items.");
+    }
+  }
+
+  function markStackItemMissing(nodeId: string, stackItemId: string, missing: boolean) {
+    const key = stackItemMissingKey(nodeId, stackItemId);
+    setMissingStackItems((current) => {
+      if (missing) return current[key] ? current : { ...current, [key]: true };
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   }
 
   async function deleteLibraryAsset(nodeId: string, assetId: string) {
@@ -2778,6 +2903,41 @@ function App() {
             }}
           />
           {nodes.map((node) => {
+            if (node.manifest.type === "collection") {
+              return (
+                <CollectionCardNode
+                  key={node.manifest.id}
+                  node={node as CollectionNodeView}
+                  active={selectedNodeIds.length === 1 && selectedNodeId === node.canvas.id}
+                  selected={selectedNodeIds.includes(node.canvas.id)}
+                  collapsed={collapsedNodeIdSet.has(node.canvas.id)}
+                  onPointerDown={handleNodePointerDown}
+                  onClick={handleNodeClick}
+                  onContextMenu={handleNodeContextMenu}
+                  onInputPointerDown={handleInputPointerDown}
+                  onToggleCollapsed={toggleNodeCollapsed}
+                  onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
+                  onItemPointerDown={(event, itemId) => {
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    interactionMovedRef.current = false;
+                    const point = screenToWorld(event.clientX, event.clientY);
+                    setDragState({
+                      kind: "collectionItem",
+                      pointerId: event.pointerId,
+                      nodeId: node.canvas.id,
+                      itemId,
+                      startClientX: event.clientX,
+                      startClientY: event.clientY,
+                      currentX: point.x,
+                      currentY: point.y
+                    });
+                  }}
+                />
+              );
+            }
             if (node.manifest.type === "library") {
               return (
                 <LibraryCardNode
@@ -2833,6 +2993,7 @@ function App() {
                 }
                 void setActiveStackImage(nodeId, index);
               }}
+              onToggleStackImageSelection={(nodeId, stackItemId) => void toggleStackImageSelection(nodeId, stackItemId)}
               onDragStackImage={(event, nodeId, stackItemId) => {
                 if (event.button !== 0) return;
                 event.preventDefault();
@@ -2854,8 +3015,15 @@ function App() {
               onStackItemContextMenu={(event, nodeId, stackItemId) => {
                 event.preventDefault();
                 event.stopPropagation();
-                setStackItemMenu({ x: event.clientX, y: event.clientY, nodeId, stackItemId });
+                setStackItemMenu({
+                  x: event.clientX,
+                  y: event.clientY,
+                  nodeId,
+                  stackItemId,
+                  missing: missingStackItems[stackItemMissingKey(nodeId, stackItemId)] === true
+                });
               }}
+              onStackItemMissingChange={markStackItemMissing}
               models={nodeModels}
               modelSelection={normalizedModelRouteSelection("modelId" in node.manifest && node.manifest.modelId ? {
                 modelId: node.manifest.modelId,
@@ -2933,7 +3101,7 @@ function App() {
               />
             </div>
           ) : null}
-          {dragState?.kind === "stackItem" && interactionMovedRef.current ? (
+          {(dragState?.kind === "stackItem" || dragState?.kind === "collectionItem") && interactionMovedRef.current ? (
             <div
               className="stackItemDragPreview"
               style={{
@@ -2952,6 +3120,8 @@ function App() {
             <button type="button" onClick={() => void createConnectedNode("video")}>Create video node</button>
             <button type="button" onClick={() => void createConnectedNode("audio")}>Create audio node</button>
             <button type="button" onClick={() => void createConnectedNode("text")}>Create text node</button>
+            {!nodeCreateMenu.fromNodeId ? <button type="button" onClick={() => void createConnectedNode("text", "note")}>Create note</button> : null}
+            <button type="button" onClick={() => void createConnectedNode("collection")}>Create collection node</button>
             {(() => {
               const sourceNode = nodeCreateMenu.fromNodeId ? nodes.find((node) => node.canvas.id === nodeCreateMenu.fromNodeId) : null;
               if (!sourceNode || sourceNode.manifest.type === "text") return null;
@@ -3106,6 +3276,7 @@ function App() {
               node={nodes.find((node) => node.canvas.id === previewImage.nodeId && (node.manifest.type === "image" || node.manifest.type === "video" || node.manifest.type === "audio")) as ImageNodeView | VideoNodeView | AudioNodeView | undefined}
               onChangeIndex={(index) => setPreviewImage({ ...previewImage, index })}
               onMakeMain={(nodeId, index) => void setActiveStackImage(nodeId, index)}
+              onToggleSelected={(nodeId, stackItemId) => void toggleStackImageSelection(nodeId, stackItemId)}
             />
           </div>
         </div>
@@ -3124,6 +3295,9 @@ function App() {
           </button>
           {nodes.find((node) => node.canvas.id === stackItemMenu.nodeId)?.manifest.type === "text" ? (
             <button type="button" onClick={() => void useTextStackItemAsDraft(stackItemMenu.nodeId, stackItemMenu.stackItemId)}>Use in text field</button>
+          ) : null}
+          {stackItemMenu.missing ? (
+            <button type="button" onClick={() => void deleteMissingStackItems(stackItemMenu.nodeId)}>Delete missing</button>
           ) : null}
           <button type="button" onClick={() => void deleteStackItem(stackItemMenu.nodeId, stackItemMenu.stackItemId)}>Delete</button>
           {nodes.find((node) => node.canvas.id === stackItemMenu.nodeId)?.manifest.type !== "text" ? (
@@ -3935,6 +4109,96 @@ function providerModelCounts(models: ModelOption[], providerId: string): string[
   );
 }
 
+function CollectionCardNode({
+  node,
+  active,
+  selected,
+  collapsed,
+  onPointerDown,
+  onClick,
+  onContextMenu,
+  onInputPointerDown,
+  onToggleCollapsed,
+  onRenameNode,
+  onItemPointerDown
+}: {
+  node: CollectionNodeView;
+  active: boolean;
+  selected: boolean;
+  collapsed: boolean;
+  onPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
+  onClick: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onContextMenu: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onInputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
+  onToggleCollapsed: (nodeId: string) => void;
+  onRenameNode: (nodeId: string, title: string) => void;
+  onItemPointerDown: (event: React.PointerEvent<HTMLButtonElement>, itemId: string) => void;
+}) {
+  const displayHeight = collapsed ? collapsedNodeHeight : node.canvas.height;
+  const displayY = collapsed ? node.canvas.y + node.canvas.height / 2 - displayHeight / 2 : node.canvas.y;
+  return (
+    <article
+      className={`collectionNode${active ? " isActive" : ""}${selected ? " isSelected" : ""}${collapsed ? " isCollapsed" : ""}`}
+      style={{ transform: `translate(${node.canvas.x}px, ${displayY}px)`, width: node.canvas.width, height: displayHeight }}
+      onPointerDown={(event) => onPointerDown(event, node)}
+      onClick={(event) => onClick(event, node)}
+      onContextMenu={(event) => onContextMenu(event, node)}
+    >
+      <header className="collectionNodeHeader">
+        <Package size={15} />
+        {active ? (
+          <input
+            defaultValue={node.manifest.title}
+            aria-label="Collection title"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
+            onBlur={(event) => onRenameNode(node.manifest.id, event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
+          />
+        ) : <strong>{node.manifest.title}</strong>}
+        <span>{node.items.length}</span>
+        <button
+          className="nodeCollapseButton"
+          type="button"
+          aria-label={collapsed ? "Expand collection" : "Collapse collection"}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleCollapsed(node.manifest.id);
+          }}
+        >
+          {collapsed ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
+        </button>
+      </header>
+      <div className="nodeHandleLine nodeHandleLineInput" />
+      <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
+      {collapsed ? <div className="collectionCollapsedBody"><Package size={16} /><span>{node.items.length} items</span></div> : <div className="collectionGrid">
+        {node.items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={`collectionItem is-${item.type}`}
+            title={`${item.title} · drag to canvas`}
+            onPointerDown={(event) => onItemPointerDown(event, item.id)}
+          >
+            <span className="collectionItemPreview">
+              {item.previewUrl ? item.type === "video"
+                ? <video src={`${apiBase}${item.previewUrl}`} preload="metadata" draggable={false} />
+                : <img src={`${apiBase}${item.previewUrl}`} alt="" draggable={false} />
+                : item.type === "audio" ? <Music size={22} /> : item.type === "text" ? <FileText size={22} /> : <ImageIcon size={22} />}
+            </span>
+            <strong>{item.title}</strong>
+            <small>{item.type === "text" ? item.text || "Text" : item.type}</small>
+          </button>
+        ))}
+        {node.items.length === 0 ? <p className="collectionEmpty">Connect nodes to collect their selected outputs.</p> : null}
+      </div>}
+    </article>
+  );
+}
+
 function LibraryCardNode({
   node,
   active,
@@ -4185,13 +4449,18 @@ function CanvasEdges({
         const start = nodeOutputPoint(from);
         const end = nodeInputPoint(to);
         const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+        const isCollectionInput = targetNode?.manifest.type === "collection";
+        const isRealCrop = edge.kind === "crop"
+          && sourceNode?.manifest.type === "image"
+          && targetNode?.manifest.type === "image"
+          && targetNode.manifest.crop?.sourceNodeId === edge.fromNodeId;
         return (
           <React.Fragment key={edge.id}>
             <path
-              className={selectedEdgeId === edge.id ? "isSelected" : ""}
-              d={edgePath(start, end)}
+              className={`${selectedEdgeId === edge.id ? "isSelected" : ""}${edge.kind === "collectionItem" ? " isCollectionReference" : ""}${isCollectionInput ? " isCollectionInput" : ""}`}
+              d={edge.kind === "collectionItem" ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edgePath(start, end)}
               style={{ "--edge-color": nodeTypeWireColor(sourceNode) } as React.CSSProperties}
-              onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
+              onClick={edge.kind === "collectionItem" ? undefined : (event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
             />
             {edge.kind === "representation" ? (
               <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
@@ -4208,7 +4477,7 @@ function CanvasEdges({
                 </button>
               </foreignObject>
             ) : null}
-            {edge.kind === "crop" ? (
+            {isRealCrop ? (
               <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
                 <button
                   className="edgeSyncButton"
@@ -4518,8 +4787,10 @@ function ImageNode({
   openStack,
   onToggleStack,
   onSelectStackImage,
+  onToggleStackImageSelection,
   onDragStackImage,
   onStackItemContextMenu,
+  onStackItemMissingChange,
   models,
   modelSelection,
   generationFeedback,
@@ -4563,8 +4834,10 @@ function ImageNode({
   openStack: boolean;
   onToggleStack: (nodeId: string) => void;
   onSelectStackImage: (nodeId: string, index: number) => void;
+  onToggleStackImageSelection: (nodeId: string, stackItemId: string) => void;
   onDragStackImage: (event: React.PointerEvent<HTMLElement>, nodeId: string, stackItemId: string) => void;
   onStackItemContextMenu: (event: React.MouseEvent<HTMLElement>, nodeId: string, stackItemId: string) => void;
+  onStackItemMissingChange: (nodeId: string, stackItemId: string, missing: boolean) => void;
   models: ModelOption[];
   modelSelection: ModelRouteSelection;
   generationFeedback?: GenerationFeedback;
@@ -4743,13 +5016,14 @@ function ImageNode({
 
   if (collapsed) {
     const isTextNode = node.manifest.type === "text";
+    const isNoteNode = isTextNode && (node as TextNodeView).manifest.variant === "note";
     const collapsedStackLabel = stackCount ? (isTextNode ? `${stackCount}` : `${activeIndex || 1}/${stackCount}`) : "0";
     const portCenterY = node.canvas.y + nodeTitleHeight + (isTextNode ? textBaseHeight : node.canvas.height) / 2;
     const collapsedHeight = isAudioNode && previewUrl ? collapsedAudioNodeHeight : collapsedNodeHeight;
     const collapsedAudioStackItem = isAudioNode ? (node as AudioNodeView).activeStackItem : null;
     return (
       <article
-        className={`${isTextNode ? "textNode" : "imageNode"} isCollapsed${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
+        className={`${isTextNode ? "textNode" : "imageNode"} isCollapsed${isNoteNode ? " collapsedNoteNode" : ""}${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
         style={{
           "--image-height": `${collapsedHeight}px`,
           transform: `translate(${node.canvas.x}px, ${portCenterY - collapsedHeight / 2}px)`,
@@ -4761,7 +5035,7 @@ function ImageNode({
         onContextMenu={(event) => onContextMenu(event, node)}
       >
         <div
-          className={`collapsedNodeStrip${isAudioNode && previewUrl ? ` collapsedAudioStrip${collapsedAudioStackItem?.coverUrl ? " hasCover" : ""}` : ""}`}
+          className={`collapsedNodeStrip${isNoteNode ? " collapsedNoteStrip" : ""}${isAudioNode && previewUrl ? ` collapsedAudioStrip${collapsedAudioStackItem?.coverUrl ? " hasCover" : ""}` : ""}`}
           style={isAudioNode && previewUrl ? audioCoverStyle(collapsedAudioStackItem) : undefined}
         >
           {generationFeedback?.busy || canvasActionBusy ? (
@@ -4786,13 +5060,13 @@ function ImageNode({
                 <Music size={15} />
               ) : (
                 <img src={previewUrl} alt="" />
-              ) : isTextNode ? <span className="collapsedNodeTextIcon">T</span> : isVideoNode ? <Video size={15} /> : isAudioNode ? <Music size={15} /> : <ImageIcon size={15} />}
+              ) : isNoteNode ? <FileText size={15} /> : isTextNode ? <span className="collapsedNodeTextIcon">T</span> : isVideoNode ? <Video size={15} /> : isAudioNode ? <Music size={15} /> : <ImageIcon size={15} />}
             </span>
           )}
           {!(isAudioNode && previewUrl) && (
             <>
               <span className="collapsedNodeTitle">{node.manifest.title || (isTextNode ? "Text" : mediaLabel)}</span>
-              <span className="collapsedNodeCount">{collapsedStackLabel}</span>
+              {!isNoteNode ? <span className="collapsedNodeCount">{collapsedStackLabel}</span> : null}
             </>
           )}
           <button
@@ -4808,15 +5082,81 @@ function ImageNode({
             <Maximize2 size={13} />
           </button>
         </div>
-        <div className="nodeHandleLine nodeHandleLineInput" />
-        <div className="nodeHandleLine nodeHandleLineOutput" />
-        <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
-        <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
+        {!isNoteNode ? (
+          <>
+            <div className="nodeHandleLine nodeHandleLineInput" />
+            <div className="nodeHandleLine nodeHandleLineOutput" />
+            <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
+            <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
+          </>
+        ) : null}
       </article>
     );
   }
   if (node.manifest.type === "text") {
     const textNode = node as TextNodeView;
+    if (textNode.manifest.variant === "note") {
+      return (
+        <article
+          className={`textNode noteNode${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
+          style={{
+            "--image-height": `${textBaseHeight}px`,
+            transform: `translate(${node.canvas.x}px, ${node.canvas.y}px)`,
+            width: node.canvas.width,
+            height: textBaseHeight + nodeTitleHeight
+          } as React.CSSProperties}
+          onPointerDown={(event) => onPointerDown(event, node)}
+          onClick={(event) => onClick(event, node)}
+          onContextMenu={(event) => onContextMenu(event, node)}
+        >
+          {active ? activeNodeToolbar() : null}
+          <div className="nodeTitle noteNodeTitle">
+            {active ? (
+              <input
+                defaultValue={node.manifest.title}
+                aria-label="Note title"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onBlur={(event) => onRenameNode(node.manifest.id, event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+              />
+            ) : <span>{node.manifest.title || "Note"}</span>}
+            <button
+              className="nodeCollapseButton"
+              type="button"
+              aria-label="Collapse note"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleCollapsed(node.manifest.id);
+              }}
+            >
+              <Minimize2 size={13} />
+            </button>
+          </div>
+          <div className="noteNodePaper">
+            {active ? (
+              <textarea
+                autoFocus
+                value={draftText}
+                aria-label="Note text"
+                placeholder="Write a note..."
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => setDraftText(event.currentTarget.value)}
+                onBlur={() => onSaveText(node.manifest.id, draftText)}
+              />
+            ) : (
+              <div className="noteNodeText" data-canvas-wheel-scroll>
+                {draftText ? renderNoteLinks(draftText) : <span className="noteNodePlaceholder">Empty note</span>}
+              </div>
+            )}
+          </div>
+        </article>
+      );
+    }
     const inputMode = textNode.manifest.inputMode ?? "text";
     const textStackIsEmpty = textNode.stack.length === 0;
     const unsavedDraftText = draftText.trim();
@@ -5175,18 +5515,43 @@ function ImageNode({
             </button>
             {openStack && (
               <div className="stackBoard" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-                {mediaNode.manifest.stack.length ? mediaNode.manifest.stack.map((item, index) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={index === mediaNode.manifest.activeStackIndex ? "isActive" : ""}
-                    onPointerDown={(event) => onDragStackImage(event, node.manifest.id, item.id)}
-                    onContextMenu={(event) => onStackItemContextMenu(event, node.manifest.id, item.id)}
-                    onClick={() => onSelectStackImage(node.manifest.id, index)}
-                  >
-                    {isVideoNode ? <video draggable={false} src={stackMediaUrl(mediaNode.manifest.type, mediaNode.manifest.id, item.id)} preload="metadata" /> : isAudioNode ? <span className={`audioStackThumb${item.coverUrl ? " hasCover" : ""}`} style={audioCoverStyle(item)}><Music size={18} /></span> : <img draggable={false} src={stackMediaUrl(mediaNode.manifest.type, mediaNode.manifest.id, item.id)} alt="" />}
-                  </button>
-                )) : <span className="stackBoardEmpty">Empty stack</span>}
+                {mediaNode.manifest.stack.length ? mediaNode.manifest.stack.map((item, index) => {
+                  const isMarked = mediaNode.manifest.type === "image" && mediaNode.manifest.selectedStackItemIds?.includes(item.id);
+                  return (
+                    <div
+                      key={item.id}
+                      className={`stackBoardItem${index === mediaNode.manifest.activeStackIndex ? " isActive" : ""}${isMarked ? " isMarked" : ""}`}
+                      onContextMenu={(event) => onStackItemContextMenu(event, node.manifest.id, item.id)}
+                    >
+                      <button type="button" className="stackItemButton" onPointerDown={(event) => onDragStackImage(event, node.manifest.id, item.id)} onClick={() => onSelectStackImage(node.manifest.id, index)}>
+                        {isVideoNode ? <video draggable={false} src={stackMediaUrl(mediaNode.manifest.type, mediaNode.manifest.id, item.id)} preload="metadata" /> : isAudioNode ? <span className={`audioStackThumb${item.coverUrl ? " hasCover" : ""}`} style={audioCoverStyle(item)}><Music size={18} /></span> : (
+                          <img
+                            draggable={false}
+                            src={stackMediaUrl(mediaNode.manifest.type, mediaNode.manifest.id, item.id)}
+                            alt=""
+                            onError={() => onStackItemMissingChange(mediaNode.manifest.id, item.id, true)}
+                            onLoad={() => onStackItemMissingChange(mediaNode.manifest.id, item.id, false)}
+                          />
+                        )}
+                      </button>
+                      {mediaNode.manifest.type === "image" ? (
+                        <button
+                          type="button"
+                          className="stackSelectionToggle"
+                          aria-label={isMarked ? "Remove image selection" : "Mark image as selected"}
+                          aria-pressed={Boolean(isMarked)}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onToggleStackImageSelection(mediaNode.manifest.id, item.id);
+                          }}
+                        >
+                          {isMarked ? <Check size={12} strokeWidth={3} /> : null}
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                }) : <span className="stackBoardEmpty">Empty stack</span>}
               </div>
             )}
           </>
@@ -6057,12 +6422,14 @@ function StackPreview({
   preview,
   node,
   onChangeIndex,
-  onMakeMain
+  onMakeMain,
+  onToggleSelected
 }: {
   preview: { nodeId: string; title: string; index: number };
   node: ImageNodeView | VideoNodeView | AudioNodeView | undefined;
   onChangeIndex: (index: number) => void;
   onMakeMain: (nodeId: string, index: number) => void;
+  onToggleSelected: (nodeId: string, stackItemId: string) => void;
 }) {
   const stack = node?.manifest.stack ?? [];
   const safeIndex = stack.length ? Math.min(Math.max(preview.index, 0), stack.length - 1) : 0;
@@ -6073,6 +6440,7 @@ function StackPreview({
   const canGoPrevious = safeIndex > 0;
   const canGoNext = safeIndex < stack.length - 1;
   const isMain = node?.manifest.activeStackIndex === safeIndex;
+  const isSelected = node?.manifest.type === "image" && Boolean(item && node.manifest.selectedStackItemIds?.includes(item.id));
 
   return (
     <>
@@ -6091,6 +6459,11 @@ function StackPreview({
       </div>
       <div className="previewControls">
         <span>{stack.length ? `${safeIndex + 1} / ${stack.length}` : "0 / 0"}</span>
+        {node?.manifest.type === "image" && item ? (
+          <button type="button" aria-pressed={isSelected} onClick={() => onToggleSelected(preview.nodeId, item.id)}>
+            {isSelected ? "Selected" : "Select"}
+          </button>
+        ) : null}
         <button type="button" disabled={!item || isMain} onClick={() => onMakeMain(preview.nodeId, safeIndex)}>Make main</button>
       </div>
     </>
@@ -6099,7 +6472,7 @@ function StackPreview({
 
 function inputChipsForNode(nodeId: string, edges: CanvasEdge[], nodeById: Map<string, NodeView>): InputNodeChip[] {
   return edges
-    .filter((edge) => edge.toNodeId === nodeId)
+    .filter((edge) => edge.toNodeId === nodeId && edge.kind !== "collectionItem")
     .map((edge) => nodeById.get(edge.fromNodeId))
     .filter((node): node is NodeView => Boolean(node))
     .map((node) => {
@@ -6125,6 +6498,7 @@ function nodeTypeWireColor(node: NodeView | undefined): string {
   if (node.manifest.type === "image") return "#9fc4ff";
   if (node.manifest.type === "video") return "#f3bf45";
   if (node.manifest.type === "audio") return "#f472b6";
+  if (node.manifest.type === "collection") return "#a78bfa";
   if (node.manifest.type === "library") return "#c7d2fe";
   return "#8f9aaa";
 }
@@ -6140,6 +6514,10 @@ function stackMediaUrl(type: "image" | "video" | "audio", nodeId: string, stackI
   return `${apiBase}/api/libraries/current/${type}-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}?v=${encodeURIComponent(stackItemId)}`;
 }
 
+function stackItemMissingKey(nodeId: string, stackItemId: string): string {
+  return `${nodeId}:${stackItemId}`;
+}
+
 function audioCoverStyle(item: ImageStackItem | null | undefined): React.CSSProperties | undefined {
   return item?.coverUrl ? { "--audio-cover-url": `url("${cssUrlString(item.coverUrl)}")` } as React.CSSProperties : undefined;
 }
@@ -6151,6 +6529,34 @@ function cssUrlString(value: string): string {
 function textNodeDisplayText(node: TextNodeView): string {
   if (node.stack.length === 0) return node.manifest.text;
   return node.outputText || node.manifest.text;
+}
+
+function renderNoteLinks(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const linkPattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|((?:https?:\/\/|www\.)[^\s<>"']*[^\s<>"'.,!?;:)\]])/gi;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = linkPattern.exec(text)) !== null) {
+    if (match.index > cursor) parts.push(text.slice(cursor, match.index));
+    const rawUrl = match[2] ?? match[3];
+    const label = match[1] ?? rawUrl;
+    const href = rawUrl.startsWith("www.") ? `https://${rawUrl}` : rawUrl;
+    parts.push(
+      <a
+        key={`${match.index}-${rawUrl}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {label}
+      </a>
+    );
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts;
 }
 
 function contentPreviewUrl(node: NodeView | undefined): string {
@@ -6344,11 +6750,11 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function nodeInputPoint(node: CanvasNode) {
-  return { x: node.x, y: node.y + nodeTitleHeight + node.height / 2 };
+  return { x: node.x, y: node.y + (node.type === "collection" ? node.height / 2 : nodeTitleHeight + node.height / 2) };
 }
 
 function nodeOutputPoint(node: CanvasNode) {
-  return { x: node.x + node.width, y: node.y + nodeTitleHeight + node.height / 2 };
+  return { x: node.x + node.width, y: node.y + (node.type === "collection" ? node.height / 2 : nodeTitleHeight + node.height / 2) };
 }
 
 function edgeMidpoint(edge: CanvasEdge, nodeById: Map<string, CanvasNode>): { x: number; y: number } | null {
