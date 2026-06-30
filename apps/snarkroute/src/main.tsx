@@ -2414,20 +2414,6 @@ function App() {
     }
   }
 
-  async function addTextDialogueMessage(nodeId: string, content: string, inputNodeIds?: string[]) {
-    try {
-      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/conversation/message`, {
-        role: "user",
-        content,
-        attachments: inputNodeIds?.map((inputNodeId) => ({ nodeId: inputNodeId }))
-      });
-      applyLibrarySnapshot(snapshot);
-      setStatus("Dialogue note added");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not add dialogue note.");
-    }
-  }
-
   async function trashOrphanNodeFolders() {
     if (orphanCleanupBusy) return;
     setOrphanCleanupBusy(true);
@@ -3059,7 +3045,6 @@ function App() {
               }}
               onRunTextGeneration={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => void runTextGeneration(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
               onRunTextDialogueTurn={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => void runTextDialogueTurn(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
-              onAddTextDialogueMessage={(nodeId, content, inputNodeIds) => void addTextDialogueMessage(nodeId, content, inputNodeIds)}
               onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
               toolbarActions={effectiveNodeToolbarConfig[node.manifest.type as EditableNodeType]}
               availableToolbarActions={availableNodeToolbarActions}
@@ -4808,7 +4793,6 @@ function ImageNode({
   onSelectTextStackItem,
   onRunTextGeneration,
   onRunTextDialogueTurn,
-  onAddTextDialogueMessage,
   onRenameNode,
   toolbarActions,
   availableToolbarActions,
@@ -4855,7 +4839,6 @@ function ImageNode({
   onSelectTextStackItem: (nodeId: string, stackItemId: string | null) => void;
   onRunTextGeneration: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => void;
   onRunTextDialogueTurn: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => void;
-  onAddTextDialogueMessage: (nodeId: string, content: string, inputNodeIds?: string[]) => void;
   onRenameNode: (nodeId: string, title: string) => void;
   toolbarActions: NodeToolbarActionId[];
   availableToolbarActions: NodeToolbarAction[];
@@ -5292,7 +5275,6 @@ function ImageNode({
             onSelectModel={onSelectModel}
             onChangeRouteSettings={onChangeRouteSettings}
             onRunTurn={(promptValue) => onRunTextDialogueTurn(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), promptValue, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax)}
-            onAddNote={(promptValue) => onAddTextDialogueMessage(node.manifest.id, promptValue, activeInputNodes.map((input) => input.id))}
             onAddTextToStack={(text) => onAddTextToStack(node.manifest.id, text)}
           />
         ) : (
@@ -5770,7 +5752,6 @@ function DialogueEditor({
   onSelectModel,
   onChangeRouteSettings,
   onRunTurn,
-  onAddNote,
   onAddTextToStack
 }: {
   node: TextNodeView;
@@ -5796,12 +5777,11 @@ function DialogueEditor({
   onSelectModel: (nodeId: string, selection: ModelRouteSelection) => void;
   onChangeRouteSettings: (nodeId: string, selection: ModelRouteSelection) => void;
   onRunTurn: (prompt: string) => void;
-  onAddNote: (prompt: string) => void;
   onAddTextToStack: (text: string) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [routeSettingsOpen, setRouteSettingsOpen] = useState(false);
-  const [selectedText, setSelectedText] = useState("");
+  const [selectionAction, setSelectionAction] = useState<{ text: string; left: number; top: number } | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
   const activeInputNodes = inputNodes.filter((input) => !inputChipInactive(input, imageInputs, maxImageInputs));
 
@@ -5809,11 +5789,32 @@ function DialogueEditor({
     const selection = window.getSelection();
     const text = selection?.toString().trim() ?? "";
     if (!text || !feedRef.current || !selection?.rangeCount) {
-      setSelectedText("");
+      setSelectionAction(null);
       return;
     }
     const range = selection.getRangeAt(0);
-    setSelectedText(feedRef.current.contains(range.commonAncestorContainer) ? text : "");
+    const feed = feedRef.current;
+    if (!feed.contains(range.commonAncestorContainer)) {
+      setSelectionAction(null);
+      return;
+    }
+    const rangeRects = range.getClientRects();
+    const selectionRect = rangeRects[rangeRects.length - 1] ?? range.getBoundingClientRect();
+    const feedRect = feed.getBoundingClientRect();
+    const buttonSize = 30;
+    const gap = 6;
+    const visibleLeft = feed.scrollLeft;
+    const visibleRight = visibleLeft + feed.clientWidth;
+    const preferredLeft = selectionRect.right - feedRect.left + feed.scrollLeft + gap;
+    const fallbackLeft = selectionRect.left - feedRect.left + feed.scrollLeft - buttonSize - gap;
+    const left = preferredLeft + buttonSize <= visibleRight - 4
+      ? preferredLeft
+      : Math.max(visibleLeft + 4, fallbackLeft);
+    const top = Math.min(
+      feed.scrollTop + feed.clientHeight - buttonSize / 2 - 4,
+      Math.max(feed.scrollTop + buttonSize / 2 + 4, selectionRect.top - feedRect.top + feed.scrollTop + selectionRect.height / 2)
+    );
+    setSelectionAction({ text, left, top });
   }
 
   function sendTurn() {
@@ -5824,11 +5825,11 @@ function DialogueEditor({
     onRunTurn(value);
   }
 
-  function addNote() {
+  function addDraftToStack() {
     if (!draft.trim()) return;
     const value = draft;
     setDraft("");
-    onAddNote(value);
+    onAddTextToStack(value);
   }
 
   return (
@@ -5851,8 +5852,18 @@ function DialogueEditor({
             </div>
           </div>
         )) : <div className="dialogueEmpty">No messages</div>}
-        {selectedText ? (
-          <button type="button" className="dialogueSelectionStack" style={{ alignSelf: "flex-end" }} onMouseDown={(event) => event.preventDefault()} onClick={() => onAddTextToStack(selectedText)}>
+        {selectionAction ? (
+          <button
+            type="button"
+            className="dialogueSelectionStack"
+            style={{ left: selectionAction.left, top: selectionAction.top }}
+            aria-label="Add selected text to stack"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              onAddTextToStack(selectionAction.text);
+              setSelectionAction(null);
+            }}
+          >
             <Save size={13} />
           </button>
         ) : null}
@@ -5892,7 +5903,7 @@ function DialogueEditor({
           onChange={setDraft}
           onBlur={() => undefined}
         />
-        <button type="button" className="textAddStackButton" aria-label="Add note" disabled={!draft.trim()} onClick={addNote}><FileText size={16} /></button>
+        <button type="button" className="textAddStackButton dialogueDraftStackButton" aria-label="Add dialogue text to stack" title="Add all text to stack" disabled={!draft.trim()} onClick={addDraftToStack}><Save size={16} /></button>
       </div>
       <div className="promptMeta">
         <div className="modelPicker">

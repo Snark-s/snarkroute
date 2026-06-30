@@ -688,6 +688,32 @@ dd {
   -webkit-user-select: text;
 }
 
+.dialogueFeed {
+  position: relative;
+  max-height: min(420px, 52vh);
+  overflow-y: auto;
+  scrollbar-color: color-mix(in srgb, var(--accent) 55%, var(--line)) transparent;
+  scrollbar-width: thin;
+}
+
+.dialogueFeed::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dialogueFeed::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background-clip: padding-box;
+}
+
+.dialogueSelectionStack {
+  position: absolute !important;
+  z-index: 2;
+  transform: translateY(-50%);
+  box-shadow: 0 6px 18px var(--shadow);
+}
+
 .canvasBackground-plain {
   background-image: none;
 }
@@ -2557,6 +2583,11 @@ dd {
 
 .textAddStackButton:hover:not(:disabled) {
   border-color: var(--accent);
+}
+
+.dialogueDraftStackButton {
+  right: 10px;
+  left: auto;
 }
 
 .promptHeader,
