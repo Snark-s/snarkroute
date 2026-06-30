@@ -2876,6 +2876,26 @@ export async function createCollectionItemReadStream(nodeId: string, itemId: str
   return { stream: createReadStream(resolvePortablePath(nodePath, item.file)), mimeType: item.mimeType };
 }
 
+export async function deleteCollectionNodeItem(nodeId: string, itemId: string): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const canvasNode = canvas.nodes.find((node) => node.id === nodeId && node.type === "collection");
+  if (!canvasNode) throw new Error(`Collection node "${nodeId}" was not found.`);
+  const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+  const manifestPath = join(nodePath, "snark.node.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as CollectionNodeManifest;
+  const item = (await syncCollectionNode(libraryPath, canvas, nodePath, manifest)).items.find((candidate) => candidate.id === itemId);
+  if (!item) throw new Error(`Collection item "${itemId}" was not found.`);
+  if (item.manual) {
+    await rm(resolvePortablePath(nodePath, item.file), { force: true });
+    await writeJson(manifestPath, { ...manifest, items: (manifest.items ?? []).filter((candidate) => candidate.id !== itemId), updatedAt: new Date().toISOString() });
+  } else {
+    canvas.edges = (canvas.edges ?? []).filter((edge) => !(edge.toNodeId === nodeId && edge.fromNodeId === item.sourceNodeId));
+    await writeCanvas(libraryPath, canvas);
+  }
+  return readLibrarySnapshot(libraryPath);
+}
+
 interface DesiredCollectionItem extends Omit<CollectionNodeStoredItem, "file"> {
   sourcePath?: string;
   externalUrl?: string;
@@ -2951,6 +2971,7 @@ async function syncCollectionNode(
 
   const contentPath = join(nodePath, "content");
   await mkdir(contentPath, { recursive: true });
+  const previousManagedFiles = new Set((manifest.items ?? []).filter((item) => !item.manual).map((item) => basename(item.file)));
   const textStagingPath = join(nodePath, ".collection-text-sync");
   await rm(textStagingPath, { recursive: true, force: true });
   const storedItems: CollectionNodeStoredItem[] = [];
@@ -2987,7 +3008,24 @@ async function syncCollectionNode(
 
   const expectedFiles = new Set(storedItems.map((item) => basename(item.file)));
   for (const filename of await readdir(contentPath)) {
-    if (!expectedFiles.has(filename)) await rm(join(contentPath, filename), { force: true });
+    if (!expectedFiles.has(filename) && previousManagedFiles.has(filename)) await rm(join(contentPath, filename), { force: true });
+  }
+
+  for (const filename of await readdir(contentPath)) {
+    if (expectedFiles.has(filename)) continue;
+    const type = collectionManualItemType(filename);
+    if (!type) continue;
+    const file = portableJoin("content", filename);
+    storedItems.push({
+      id: `manual:${createHash("sha256").update(filename).digest("hex").slice(0, 20)}`,
+      type,
+      sourceNodeId: "",
+      title: basename(filename, extname(filename)),
+      file,
+      mimeType: type === "image" ? mimeTypeFromExtension(extname(filename)) : type === "video" ? videoMimeTypeFromExtension(extname(filename)) : type === "audio" ? audioMimeTypeFromExtension(extname(filename)) : "text/markdown",
+      text: type === "text" ? await readFile(join(contentPath, filename), "utf8") : undefined,
+      manual: true
+    });
   }
 
   const nextManifest = JSON.stringify(manifest.items ?? []) === JSON.stringify(storedItems)
@@ -3001,6 +3039,15 @@ async function syncCollectionNode(
       previewUrl: item.type === "text" ? undefined : `/api/libraries/current/collection-nodes/${encodeURIComponent(manifest.id)}/items/${encodeURIComponent(item.id)}/content`
     }))
   };
+}
+
+function collectionManualItemType(filename: string): CollectionNodeStoredItem["type"] | null {
+  const extension = extname(filename).toLowerCase();
+  if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"].includes(extension)) return "image";
+  if ([".mp4", ".webm", ".mov", ".mkv"].includes(extension)) return "video";
+  if ([".mp3", ".wav", ".ogg", ".m4a", ".flac"].includes(extension)) return "audio";
+  if ([".txt", ".md", ".prompt"].includes(extension) || filename.toLowerCase().endsWith(".prompt.md")) return "text";
+  return null;
 }
 
 function collectionItemExtension(item: DesiredCollectionItem): string {

@@ -1580,6 +1580,26 @@ dd {
   touch-action: none;
 }
 
+.collectionItem.isManual {
+  border-style: dashed;
+  border-color: #a78bfa;
+}
+
+.collectionPreviewDialog img,
+.collectionPreviewDialog video {
+  display: block;
+  max-width: min(80vw, 1200px);
+  max-height: 80vh;
+  object-fit: contain;
+}
+
+.collectionPreviewDialog pre {
+  max-width: min(80vw, 1000px);
+  max-height: 80vh;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .collectionItemPreview {
   display: grid;
   place-items: center;

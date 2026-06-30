@@ -319,6 +319,18 @@ describe("SnarkRoute libraries", () => {
       expect(collectedMarkdown).toBeTruthy();
       await expect(readFile(join(collectionContentPath, collectedMarkdown!), "utf8")).resolves.toContain("kind: text/prompt");
 
+      await writeFile(join(collectionContentPath, "manual.png"), Buffer.from(onePixelPngBase64, "base64"));
+      const withManual = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes
+        .find((node: { manifest: { id: string } }) => node.manifest.id === collectionNode.manifest.id);
+      const manualItem = withManual.items.find((item: { title: string }) => item.title === "manual");
+      expect(manualItem).toMatchObject({ type: "image", manual: true, sourceNodeId: "" });
+      const deleteManualResponse = await app.inject({
+        method: "DELETE",
+        url: `/api/libraries/current/collection-nodes/${collectionNode.manifest.id}/items/${encodeURIComponent(manualItem.id)}`
+      });
+      expect(deleteManualResponse.statusCode).toBe(200);
+      expect((await readdir(collectionContentPath)).includes("manual.png")).toBe(false);
+
       const extractedImageResponse = await app.inject({
         method: "POST",
         url: `/api/libraries/current/collection-nodes/${collectionNode.manifest.id}/items/${encodeURIComponent(collectedImage.id)}/duplicate-node`,
@@ -331,12 +343,15 @@ describe("SnarkRoute libraries", () => {
       expect(extractedImageEdge).toBeTruthy();
       expect(extractedImageEdge.kind).toBe("collectionItem");
 
-      await app.inject({
-        method: "PUT",
-        url: `/api/libraries/current/image-nodes/${imageNode.manifest.id}/stack/selected`,
-        payload: { selectedStackItemIds: [] }
+      const deleteLinkedResponse = await app.inject({
+        method: "DELETE",
+        url: `/api/libraries/current/collection-nodes/${collectionNode.manifest.id}/items/${encodeURIComponent(collectedImage.id)}`
       });
-      const withoutImage = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes
+      expect(deleteLinkedResponse.statusCode).toBe(200);
+      expect(deleteLinkedResponse.json().canvas.edges).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ fromNodeId: imageNode.manifest.id, toNodeId: collectionNode.manifest.id })
+      ]));
+      const withoutImage = deleteLinkedResponse.json().nodes
         .find((node: { manifest: { id: string } }) => node.manifest.id === collectionNode.manifest.id);
       expect(withoutImage.items.some((item: { type: string }) => item.type === "image")).toBe(false);
       expect((await readdir(collectionContentPath)).some((file) => file.endsWith(".png"))).toBe(false);

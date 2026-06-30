@@ -298,6 +298,13 @@ interface LibraryNodeView {
   previewUrl: string | null;
 }
 
+interface CollectionItemMenu {
+  x: number;
+  y: number;
+  nodeId: string;
+  itemId: string;
+}
+
 interface CollectionNodeManifest {
   id: string;
   type: "collection";
@@ -314,6 +321,7 @@ interface CollectionNodeItem {
   mimeType: string;
   previewUrl?: string;
   text?: string;
+  manual?: boolean;
 }
 
 interface CollectionNodeView {
@@ -682,6 +690,8 @@ function App() {
   const [stackItemMenu, setStackItemMenu] = useState<StackItemMenu | null>(null);
   const [missingStackItems, setMissingStackItems] = useState<Record<string, true>>({});
   const [contentMenu, setContentMenu] = useState<ContentContextMenu | null>(null);
+  const [collectionItemMenu, setCollectionItemMenu] = useState<CollectionItemMenu | null>(null);
+  const [collectionPreview, setCollectionPreview] = useState<CollectionNodeItem | null>(null);
   const [libraryAssetMenu, setLibraryAssetMenu] = useState<LibraryAssetMenu | null>(null);
   const [projectMenu, setProjectMenu] = useState<ProjectMenu | null>(null);
   const [coverPicker, setCoverPicker] = useState<CoverPickerState | null>(null);
@@ -971,9 +981,10 @@ function App() {
     function closeFloatingMenus(event: PointerEvent) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.closest(".stackItemMenu, .contentMenu, .nodeCreateMenu, .selectionMenu, .projectMenu, .stackBoard, .modelMenu, .nodeActionContextMenu, .canvasActionParamsDialog")) return;
+      if (target.closest(".stackItemMenu, .contentMenu, .collectionItemMenu, .nodeCreateMenu, .selectionMenu, .projectMenu, .stackBoard, .modelMenu, .nodeActionContextMenu, .canvasActionParamsDialog")) return;
       setStackItemMenu(null);
       setContentMenu(null);
+      setCollectionItemMenu(null);
       setSelectionMenu(null);
       setProjectMenu(null);
       setNodeActionContextMenu(null);
@@ -2385,6 +2396,36 @@ function App() {
     }
   }
 
+  function collectionMenuItem(menu: CollectionItemMenu) {
+    const node = nodes.find((candidate) => candidate.canvas.id === menu.nodeId);
+    return node?.manifest.type === "collection" ? (node as CollectionNodeView).items.find((item) => item.id === menu.itemId) : undefined;
+  }
+
+  async function copyCollectionItem(menu: CollectionItemMenu) {
+    const item = collectionMenuItem(menu);
+    setCollectionItemMenu(null);
+    if (!item) return;
+    try {
+      if (item.type === "text") await navigator.clipboard.writeText(item.text ?? "");
+      else if (item.type === "image" && item.previewUrl) await copyImageToClipboard(`${apiBase}${item.previewUrl}`);
+      else if (item.previewUrl) await navigator.clipboard.writeText(`${apiBase}${item.previewUrl}`);
+      setStatus("Collection item copied");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not copy collection item.");
+    }
+  }
+
+  async function deleteCollectionItem(menu: CollectionItemMenu) {
+    setCollectionItemMenu(null);
+    try {
+      const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/collection-nodes/${encodeURIComponent(menu.nodeId)}/items/${encodeURIComponent(menu.itemId)}`);
+      applyLibrarySnapshot(snapshot);
+      setStatus("Collection item deleted");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not delete collection item.");
+    }
+  }
+
   async function runTextDialogueTurn(nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) {
     setModelSearchNodeId(null);
     setOpenStackNodeId(null);
@@ -2904,6 +2945,11 @@ function App() {
                   onInputPointerDown={handleInputPointerDown}
                   onToggleCollapsed={toggleNodeCollapsed}
                   onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
+                  onItemContextMenu={(event, itemId) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setCollectionItemMenu({ x: event.clientX, y: event.clientY, nodeId: node.canvas.id, itemId });
+                  }}
                   onItemPointerDown={(event, itemId) => {
                     if (event.button !== 0) return;
                     event.preventDefault();
@@ -3267,6 +3313,17 @@ function App() {
           </div>
         </div>
       )}
+      {collectionPreview ? (
+        <div className="previewOverlay" role="dialog" aria-modal="true" onClick={() => setCollectionPreview(null)}>
+          <div className="previewDialog collectionPreviewDialog" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="previewClose" onClick={() => setCollectionPreview(null)}>×</button>
+            {collectionPreview.type === "image" && collectionPreview.previewUrl ? <img src={`${apiBase}${collectionPreview.previewUrl}`} alt={collectionPreview.title} /> : null}
+            {collectionPreview.type === "video" && collectionPreview.previewUrl ? <video src={`${apiBase}${collectionPreview.previewUrl}`} controls autoPlay /> : null}
+            {collectionPreview.type === "audio" && collectionPreview.previewUrl ? <audio src={`${apiBase}${collectionPreview.previewUrl}`} controls autoPlay /> : null}
+            {collectionPreview.type === "text" ? <pre>{collectionPreview.text}</pre> : null}
+          </div>
+        </div>
+      ) : null}
       {cropDraft ? (
         <CropEditor
           draft={cropDraft}
@@ -3299,6 +3356,17 @@ function App() {
           <button type="button" onClick={() => void saveContent(contentMenu)}><Save size={14} /> Save</button>
         </div>
       )}
+      {collectionItemMenu ? (
+        <div className="collectionItemMenu contentMenu" style={{ left: collectionItemMenu.x, top: collectionItemMenu.y }}>
+          <button type="button" onClick={() => void copyCollectionItem(collectionItemMenu)}><Copy size={14} /> Copy</button>
+          <button type="button" onClick={() => {
+            const item = collectionMenuItem(collectionItemMenu);
+            setCollectionItemMenu(null);
+            if (item) setCollectionPreview(item);
+          }}><Expand size={14} /> Expand</button>
+          <button type="button" onClick={() => void deleteCollectionItem(collectionItemMenu)}><Trash2 size={14} /> Delete</button>
+        </div>
+      ) : null}
       {projectMenu && (
         <div className="projectMenu" style={{ left: projectMenu.x, top: projectMenu.y }}>
           <button type="button" onClick={() => void copyProject(projectMenu.project)}><Copy size={14} /> Copy</button>
@@ -4106,7 +4174,8 @@ function CollectionCardNode({
   onInputPointerDown,
   onToggleCollapsed,
   onRenameNode,
-  onItemPointerDown
+  onItemPointerDown,
+  onItemContextMenu
 }: {
   node: CollectionNodeView;
   active: boolean;
@@ -4119,6 +4188,7 @@ function CollectionCardNode({
   onToggleCollapsed: (nodeId: string) => void;
   onRenameNode: (nodeId: string, title: string) => void;
   onItemPointerDown: (event: React.PointerEvent<HTMLButtonElement>, itemId: string) => void;
+  onItemContextMenu: (event: React.MouseEvent<HTMLButtonElement>, itemId: string) => void;
 }) {
   const displayHeight = collapsed ? collapsedNodeHeight : node.canvas.height;
   const displayY = collapsed ? node.canvas.y + node.canvas.height / 2 - displayHeight / 2 : node.canvas.y;
@@ -4165,9 +4235,10 @@ function CollectionCardNode({
           <button
             key={item.id}
             type="button"
-            className={`collectionItem is-${item.type}`}
+            className={`collectionItem is-${item.type}${item.manual ? " isManual" : ""}`}
             title={`${item.title} · drag to canvas`}
             onPointerDown={(event) => onItemPointerDown(event, item.id)}
+            onContextMenu={(event) => onItemContextMenu(event, item.id)}
           >
             <span className="collectionItemPreview">
               {item.previewUrl ? item.type === "video"
@@ -4176,7 +4247,7 @@ function CollectionCardNode({
                 : item.type === "audio" ? <Music size={22} /> : item.type === "text" ? <FileText size={22} /> : <ImageIcon size={22} />}
             </span>
             <strong>{item.title}</strong>
-            <small>{item.type === "text" ? item.text || "Text" : item.type}</small>
+            <small>{item.manual ? `Folder · ${item.type}` : item.type === "text" ? item.text || "Text" : item.type}</small>
           </button>
         ))}
         {node.items.length === 0 ? <p className="collectionEmpty">Connect nodes to collect their selected outputs.</p> : null}

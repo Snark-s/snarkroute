@@ -21,6 +21,7 @@ import {
   createLibrary,
   deleteCanvasEdge,
   deleteCanvasNode,
+  deleteCollectionNodeItem,
   deleteImageNodeStackItem,
   deleteAudioNodeStackItem,
   deleteLocalLibraryAsset,
@@ -499,6 +500,14 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
         width: request.body?.width,
         height: request.body?.height
       });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.delete<{ Params: { nodeId: string; itemId: string } }>("/api/libraries/current/collection-nodes/:nodeId/items/:itemId", async (request, reply) => {
+    try {
+      return await deleteCollectionNodeItem(request.params.nodeId, request.params.itemId);
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }

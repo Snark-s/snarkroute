@@ -321,6 +321,7 @@ export interface CollectionNodeStoredItem {
   file: string;
   mimeType: string;
   text?: string;
+  manual?: boolean;
 }
 
 export interface CollectionNodeItem extends CollectionNodeStoredItem {
