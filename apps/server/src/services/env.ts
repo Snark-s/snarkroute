@@ -123,6 +123,10 @@ export function isPolzaEnabled(): boolean {
   return Boolean(process.env.POLZA_AI_API_KEY?.trim());
 }
 
+export function isRuTronixEnabled(): boolean {
+  return Boolean(process.env.RUTRONIX_API_KEY?.trim());
+}
+
 export function isWorldLabsEnabled(): boolean {
   return Boolean(process.env.WORLDS_API_KEY?.trim());
 }

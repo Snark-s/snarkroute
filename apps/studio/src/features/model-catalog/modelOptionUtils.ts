@@ -273,6 +273,7 @@ export function modelOptionForNodeLabel(option: ModelOptionForNodeV1): string {
 export function providerLabelForModelOption(option: ModelOptionForNodeV1): string {
   if (option.provider === "openrouter") return providerFromSlug(option.providerModelId);
   if (option.provider === "polza") return "Polza";
+  if (option.provider === "rutronix") return "RuTronix";
   return option.provider;
 }
 

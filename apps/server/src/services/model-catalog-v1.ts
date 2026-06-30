@@ -34,6 +34,7 @@ export type RawProviderModelV1 = Record<string, unknown> & {
 };
 
 export type AssembleModelCatalogV1Input = {
+  rutronixModels?: RawProviderModelV1[];
   polzaModels?: RawProviderModelV1[];
   openRouterModels?: RawProviderModelV1[];
   fallbackModels?: ProviderModelInfoV1[];
@@ -49,6 +50,7 @@ const textOnlyProviderModelIds = new Set([
 
 export function assembleModelCatalogV1(input: AssembleModelCatalogV1Input): ModelCatalogEntryV1[] {
   return assembleProviderModelsV1(dedupeProviderModelsV1([
+    ...normalizeRuTronixModelsForCatalogV1(input.rutronixModels ?? []),
     ...normalizePolzaModelsForCatalogV1(input.polzaModels ?? []),
     ...normalizeOpenRouterModelsForCatalogV1(input.openRouterModels ?? []),
     ...(input.fallbackModels ?? [])
@@ -66,6 +68,10 @@ export function assembleProviderModelsV1(
 
 export function normalizePolzaModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
   return models.flatMap((model) => normalizeRawProviderModel("polza", model));
+}
+
+export function normalizeRuTronixModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
+  return models.flatMap((model) => normalizeRawProviderModel("rutronix", { ...model, type: model.type ?? "chat", inputTypes: model.inputTypes ?? ["text"], outputTypes: model.outputTypes ?? ["text"], capabilities: model.capabilities ?? ["text.generate"] }));
 }
 
 export function normalizeOpenRouterModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
@@ -283,7 +289,7 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
       && !isUpscaleOnlyModel(entry, "image");
   }
   if (nodeType === "ai.text") {
-    return entry.provider === "openrouter" && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
+    return (entry.provider === "openrouter" || entry.provider === "rutronix") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
   }
   if (nodeType === "ai.audio.generate") {
     return hasOutputType(entry, "audio") && !entry.roles.includes("upscaler");
@@ -295,7 +301,7 @@ export function toModelOptionForNodeV1(nodeType: string, entry: ModelCatalogEntr
   return {
     ...entry,
     nodeType,
-    storedModelId: entry.providerModelId,
+    storedModelId: entry.provider === "rutronix" ? `rutronix:${entry.providerModelId}` : entry.providerModelId,
     executionProvider: entry.provider,
     compatibilityReason: compatibilityReasonForNode(nodeType)
   };
@@ -475,14 +481,15 @@ function isUpscaleOnlyModel(entry: ModelCatalogEntryV1, mediaType: "image" | "vi
 
 function compatibilityReasonForNode(nodeType: string): string {
   if (nodeType.startsWith("polza.")) return "available through Polza with provider-native model id";
-  if (nodeType.startsWith("ai.")) return "available through OpenRouter with provider-native model id";
+  if (nodeType.startsWith("ai.")) return "available through the selected provider with provider-native model id";
   return "available through provider catalog";
 }
 
 function providerSortOrder(provider: ModelProviderIdV1): number {
   if (provider === "polza") return 0;
-  if (provider === "openrouter") return 1;
-  return 2;
+  if (provider === "rutronix") return 1;
+  if (provider === "openrouter") return 2;
+  return 3;
 }
 
 function normalizeInputTypes(values: string[]): ModelInputTypeV1[] {

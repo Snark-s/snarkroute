@@ -91,6 +91,7 @@ export interface ProviderSettings {
   replicate?: { configured?: boolean };
   gemini?: { configured?: boolean };
   polza?: { configured?: boolean };
+  rutronix?: { configured?: boolean };
   openai?: { configured?: boolean };
   seedance?: { configured?: boolean };
   openrouter?: { configured?: boolean };
@@ -219,6 +220,7 @@ export function mergeModelsForDisplay(models: ModelOption[]): DisplayModelOption
 export function providerDisplayName(providerId: string): string {
   const names: Record<string, string> = {
     polza: "polza.ai",
+    rutronix: "RuTronix",
     openrouter: "OpenRouter",
     gemini: "Gemini",
     replicate: "Replicate",
@@ -478,6 +480,7 @@ function catalogIconFilename(key: string): string | undefined {
     openai: "gpt.png",
     openrouter: "openrouter.svg",
     polza: "polza.svg",
+    rutronix: "unknown.svg",
     qwen: "qwen.png",
     replicate: "replicate.svg",
     seedance: "seedream-4-5.png",

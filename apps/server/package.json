@@ -20,6 +20,7 @@
     "@snarkroute/nodes": "workspace:*",
     "@snarkroute/openrouter": "workspace:*",
     "@snarkroute/polza": "workspace:*",
+    "@snarkroute/rutronix": "workspace:*",
     "@snarkroute/protocol": "workspace:*",
     "@snarkroute/replicate": "workspace:*",
     "@snarkroute/storage": "workspace:*",

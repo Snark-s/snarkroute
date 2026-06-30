@@ -3481,6 +3481,10 @@ function isPolzaNode(type: string): boolean {
   return type === "polza.text" || type === "polza.image.generate" || type === "polza.video.generate";
 }
 
+function isRutronixNode(type: string, params?: Record<string, unknown>): boolean {
+  return type === "ai.text" && String(params?.model ?? "").startsWith("rutronix:");
+}
+
 function executorKind(type: string, manifest?: NodeManifest): string {
   if (manifest?.origin && manifest.origin !== "bundled") return "custom";
   if (manifest?.executor.type === "plugin") return "custom";
@@ -4053,6 +4057,10 @@ function App() {
   const [polzaConfigured, setPolzaConfigured] = useState(false);
   const [polzaMaskedKey, setPolzaMaskedKey] = useState("");
   const [polzaKeyFingerprint, setPolzaKeyFingerprint] = useState("");
+  const [rutronixToken, setRutronixToken] = useState("");
+  const [rutronixConfigured, setRutronixConfigured] = useState(false);
+  const [rutronixMaskedKey, setRutronixMaskedKey] = useState("");
+  const [rutronixKeyFingerprint, setRutronixKeyFingerprint] = useState("");
   const [openRouterToken, setOpenRouterToken] = useState("");
   const [openRouterSettings, setOpenRouterSettings] = useState<OpenRouterSettings>({ configured: false });
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
@@ -4350,6 +4358,7 @@ function App() {
             onConfigureSeedance: openSeedanceSettings,
             onConfigureWorldLabs: openWorldLabsSettings,
             onConfigurePolza: openPolzaSettings,
+            onConfigureRutronix: isRutronixNode(nodeType, routeNode?.params) ? openRutronixSettings : undefined,
             onConfigureOpenRouter: openOpenRouterSettings,
             onOpenImage: setImageViewer,
             onDownloadImage: downloadImageSrc,
@@ -4389,6 +4398,8 @@ function App() {
             modelProfiles,
             polzaConfigured,
             polzaKeyFingerprint,
+            rutronixConfigured,
+            rutronixKeyFingerprint,
             polzaTextModels,
             polzaImageModels,
             polzaVideoModels,
@@ -4404,7 +4415,7 @@ function App() {
           }
         }
       }),
-    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, catalogImageModels, modelOptionsForNodes, modelProfiles, polzaConfigured, polzaKeyFingerprint, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, catalogImageModels, modelOptionsForNodes, modelProfiles, polzaConfigured, polzaKeyFingerprint, rutronixConfigured, rutronixKeyFingerprint, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
@@ -4663,6 +4674,9 @@ function App() {
       setPolzaConfigured(Boolean(result.polza?.configured));
       setPolzaMaskedKey(String(result.polza?.maskedApiKey ?? ""));
       setPolzaKeyFingerprint(String(result.polza?.apiKeyFingerprint ?? ""));
+      setRutronixConfigured(Boolean(result.rutronix?.configured));
+      setRutronixMaskedKey(String(result.rutronix?.maskedApiKey ?? ""));
+      setRutronixKeyFingerprint(String(result.rutronix?.apiKeyFingerprint ?? ""));
       setOpenRouterSettings(result.openrouter ?? { configured: false });
       setOpenRouterDefaultModel(String(result.openrouter?.defaultModel ?? "text.default"));
       setOpenRouterBudgetWarningUsd(result.openrouter?.budgetWarningUsd == null ? "" : String(result.openrouter.budgetWarningUsd));
@@ -4684,6 +4698,9 @@ function App() {
       setSeedanceBaseUrl("");
       setPolzaConfigured(false);
       setPolzaMaskedKey("");
+      setRutronixConfigured(false);
+      setRutronixMaskedKey("");
+      setRutronixKeyFingerprint("");
       setOpenRouterSettings({ configured: false });
       setApiError(message);
       setSettingsMessage(message);
@@ -5285,6 +5302,21 @@ function App() {
     }
   }
 
+  async function saveRutronixToken() {
+    const token = rutronixToken.trim();
+    if (!token) { setSettingsMessage("RuTronix key cannot be empty."); return; }
+    try {
+      const response = await fetch(`${apiBase}/api/settings/rutronix-token`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rutronixApiKey: token }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to save RuTronix key.");
+      setRutronixConfigured(Boolean(result.rutronix?.configured));
+      setRutronixMaskedKey(String(result.rutronix?.maskedApiKey ?? ""));
+      setRutronixKeyFingerprint(String(result.rutronix?.apiKeyFingerprint ?? ""));
+      setRutronixToken("");
+      setSettingsMessage("RuTronix key saved locally.");
+    } catch (error) { setSettingsMessage(error instanceof Error ? error.message : String(error)); }
+  }
+
   async function saveOpenRouterSettings() {
     const token = openRouterToken.trim();
     if (!token && !openRouterDefaultModel.trim() && !openRouterBudgetWarningUsd.trim()) {
@@ -5411,6 +5443,16 @@ function App() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your Polza.ai API key in Settings -> AI Providers -> Polza.ai.");
     setTimeout(() => document.getElementById("polza-api-key-input")?.focus(), 0);
+  }
+
+  function openRutronixSettings() {
+    setRightCollapsed(false);
+    setSettingsMessage("Paste your RuTronix API key in Settings -> AI Providers -> RuTronix.");
+    setTimeout(() => {
+      const input = document.getElementById("rutronix-api-key-input");
+      input?.scrollIntoView({ block: "center" });
+      input?.focus();
+    }, 0);
   }
 
   function openOpenRouterSettings() {
@@ -8466,6 +8508,18 @@ function App() {
           {capabilities.supportsUserApiKeys ? (
           <>
           <h3>AI Providers</h3>
+          <div className="providerCard" id="rutronix-settings-section">
+            <div className="providerHeader"><h4>RuTronix</h4><span>Text models with token billing in RUB</span></div>
+            <div className={`settingsStatus ${rutronixConfigured ? "configured" : ""}`}><KeyRound size={14} /> RuTronix: {rutronixConfigured ? `key configured (${rutronixMaskedKey || "********"}${rutronixKeyFingerprint ? ` · ${rutronixKeyFingerprint}` : ""})` : "not configured"}</div>
+            <div className="settingsLinks">
+              <a className="settingsLink" href={providerLinks.rutronix?.apiKeysUrl ?? "https://rutronix.ai/signup"} target="_blank" rel="noreferrer">Get API Key</a>
+              <a className="settingsLink" href={providerLinks.rutronix?.docsUrl ?? "https://rutronix.ai/docs"} target="_blank" rel="noreferrer">Docs</a>
+              <a className="settingsLink" href={providerLinks.rutronix?.modelsUrl ?? "https://rutronix.ai/docs#deepseek"} target="_blank" rel="noreferrer">Browse Models</a>
+              <a className="settingsLink" href={providerLinks.rutronix?.pricingUrl ?? "https://rutronix.ai/pricing"} target="_blank" rel="noreferrer">Pricing</a>
+            </div>
+            <label className="settingsField"><span>RUTRONIX_API_KEY</span><input id="rutronix-api-key-input" type="password" value={rutronixToken} placeholder={rutronixConfigured ? "***************" : "Paste key"} onChange={(event) => setRutronixToken(event.target.value)} autoComplete="off" /></label>
+            <div className="settingsActions"><button onClick={() => void saveRutronixToken()}><Save size={16} /> Save Key</button></div>
+          </div>
           <div className="providerCard">
             <div className="providerHeader">
               <h4>Polza.ai</h4>

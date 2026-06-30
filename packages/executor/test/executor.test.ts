@@ -425,6 +425,23 @@ describe("executor", () => {
     expect(result.costSummary.totalEstimatedCredits).toBe(result.costSummary.totalActualCredits);
   });
 
+  it("keeps RuTronix route estimate and capture equal when provider cost is unavailable", async () => {
+    process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON = JSON.stringify([{
+      provider: "rutronix", operation: "text.generate", baseCostMicrousd: 1000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate"
+    }]);
+    const executor = createExecutor();
+    executor.registerNodeRunner("ai.text", ({ node }) => ({
+      output: { text: "ok" },
+      providerUsage: { provider: "rutronix", model: "deepseek-v4-flash", nodeId: node.id, nodeType: node.type, status: "succeeded", actualCost: null, actualCostCurrency: null }
+    }));
+    const result = await executor.executeRoute(
+      route({ nodes: [{ id: "rutronix", type: "ai.text", params: { provider: "rutronix", model: "deepseek-v4-flash" } }], edges: [] }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    const estimate = result.costSummary.estimates.find((entry) => entry.nodeId === "rutronix");
+    expect(estimate?.finalCredits).toBe(result.nodeResults.rutronix.actualCredits);
+  });
+
   it("does not capture provider estimated cost as actual credits", async () => {
     const executor = createExecutor();
     executor.registerNodeRunner("polza.image.generate", ({ node }) => ({

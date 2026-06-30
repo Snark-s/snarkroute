@@ -93,6 +93,16 @@ const seededCanonicalModels: CanonicalModelV1[] = [
 
 const seededProviderOfferings: ProviderModelOfferingV1[] = [
   {
+    id: "rutronix:deepseek-v4-flash:text.generate",
+    provider: "rutronix",
+    providerModelId: "deepseek-v4-flash",
+    providerNativeModelId: "deepseek-v4-flash",
+    operation: "text.generate",
+    available: true,
+    availabilitySource: "manual",
+    capabilities: ["text.generate"]
+  },
+  {
     id: "replicate:clarity-upscaler:image.upscale",
     canonicalModelId: "replicate/clarity-upscaler",
     provider: "replicate",
@@ -116,6 +126,17 @@ const seededProviderOfferings: ProviderModelOfferingV1[] = [
 ];
 
 const seededProviderPricing: ProviderModelPricingV1[] = [
+  seededPrice({
+    id: "rutronix:*:text.generate",
+    provider: "rutronix",
+    providerModelId: "*",
+    operation: "text.generate",
+    priceUnit: "token",
+    providerCostMicrousd: 1000,
+    pricingSource: "manual_initial_estimate",
+    pricingConfidence: "medium",
+    notes: "Route estimate until RuTronix publishes a machine-readable pricing endpoint and exact billing schema. Provider usage capture replaces this only when cost and currency are explicit."
+  }),
   seededPrice({
     id: "polza:gpt-5.4-image-2:image.generate:resolution=1K",
     offeringId: "polza:gpt-5.4-image-2:image.generate",
