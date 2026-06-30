@@ -567,7 +567,7 @@ interface GenerationFeedback {
   error?: boolean;
 }
 
-type ProviderId = "polza" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
+type ProviderId = "polza" | "rutronix" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
 type NodeRepresentationType = "image" | "video" | "audio" | "text";
 
 interface ProviderDefinition {
@@ -592,6 +592,7 @@ interface LocalProviderConnection {
 
 const providerDefinitions: ProviderDefinition[] = [
   { id: "polza", title: "Polza", capabilityText: "Image generation catalog", settingsEndpoint: "/api/settings/polza-token", keyField: "polzaAiApiKey", refreshModels: true },
+  { id: "rutronix", title: "RuTronix", capabilityText: "Text models with RUB token billing", settingsEndpoint: "/api/settings/rutronix-token", keyField: "rutronixApiKey", refreshModels: true },
   { id: "openrouter", title: "OpenRouter", capabilityText: "Text and multimodal routed models", settingsEndpoint: "/api/settings/openrouter", keyField: "openRouterApiKey", testEndpoint: "/api/providers/openrouter/test", refreshModels: true },
   { id: "gemini", title: "Gemini", capabilityText: "Image generation / multimodal", settingsEndpoint: "/api/settings/gemini-token", keyField: "geminiApiKey" },
   { id: "replicate", title: "Replicate", capabilityText: "Hosted model endpoints", settingsEndpoint: "/api/settings/replicate-token", keyField: "replicateApiToken" },

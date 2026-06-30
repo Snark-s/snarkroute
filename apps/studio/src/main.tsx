@@ -3290,6 +3290,24 @@ function catalogItemPorts(item: NodeCatalogItem | (typeof library)[number]): { i
   return getNodePorts(item.type, "manifest" in item ? item.manifest : undefined);
 }
 
+function rutronixTextCatalogPreset(item: NodeCatalogItem, options: ModelOptionForNodeV1[]): NodeCatalogItem | null {
+  if (item.type !== "ai.text") return null;
+  const model = options.find((entry) => entry.executionProvider === "rutronix");
+  if (!model) return null;
+  return {
+    ...item,
+    type: "ai.text",
+    title: "RuTronix",
+    params: {
+      ...(item.params ?? {}),
+      model: model.storedModelId,
+      provider: "rutronix",
+      executionProvider: "rutronix",
+      providerMode: "rutronix"
+    }
+  };
+}
+
 type NodeCatalogSection = { id: string; title: string; types: string[]; items: NodeCatalogItem[] };
 
 function groupNodeCatalog(items: NodeCatalogItem[], layout: NodeLibraryLayout): NodeCatalogSection[] {
@@ -6290,25 +6308,37 @@ function App() {
 
   function renderLibraryItem(item: NodeCatalogItem, section: NodeCatalogSection) {
     const isHidden = hiddenNodeTypes.has(item.type);
+    const rutronixPreset = rutronixTextCatalogPreset(item, modelOptionsForNodes["ai.text"] ?? []);
     return (
-      <div
-        key={item.type}
-        className={`libraryItem ${isHidden ? "hiddenLibraryItem" : ""}`}
-        draggable
-        onContextMenu={(event) => openLibraryItemMenu(event, item, section)}
-        onDragStart={(event) => {
-          event.dataTransfer.setData(NODE_DRAG_MIME, item.type);
-          event.dataTransfer.effectAllowed = "copyMove";
-        }}
-      >
-        <button className="libraryItemMain" onClick={() => addNode(item.type)}>
-          <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
-          <strong>{catalogItemTitle(item)}</strong>
-          <span>{item.type}</span>
-          {item.manifest ? <small>{item.manifest.author.name} · {item.manifest.version} · {item.manifest.origin}</small> : null}
-          {isHidden ? <em>Hidden</em> : null}
-        </button>
-      </div>
+      <React.Fragment key={item.type}>
+        <div
+          className={`libraryItem ${isHidden ? "hiddenLibraryItem" : ""}`}
+          draggable
+          onContextMenu={(event) => openLibraryItemMenu(event, item, section)}
+          onDragStart={(event) => {
+            event.dataTransfer.setData(NODE_DRAG_MIME, item.type);
+            event.dataTransfer.effectAllowed = "copyMove";
+          }}
+        >
+          <button className="libraryItemMain" onClick={() => addNode(item.type)}>
+            <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
+            <strong>{catalogItemTitle(item)}</strong>
+            <span>{item.type}</span>
+            {item.manifest ? <small>{item.manifest.author.name} · {item.manifest.version} · {item.manifest.origin}</small> : null}
+            {isHidden ? <em>Hidden</em> : null}
+          </button>
+        </div>
+        {rutronixPreset ? (
+          <div className="libraryItem">
+            <button className="libraryItemMain" onClick={() => addNodeFromCatalogItem(rutronixPreset)}>
+              <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
+              <strong>RuTronix</strong>
+              <span>ai.text · RuTronix catalog preset</span>
+              <small>{rutronixPreset.params?.model as string}</small>
+            </button>
+          </div>
+        ) : null}
+      </React.Fragment>
       );
     }
 

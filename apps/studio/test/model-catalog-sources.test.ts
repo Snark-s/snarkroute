@@ -37,4 +37,12 @@ describe("Studio model catalog sources", () => {
     expect(main).toContain('id="rutronix-api-key-input"');
     expect(main).toContain('providerLinks.rutronix?.apiKeysUrl');
   });
+
+  it("offers a RuTronix preset backed by ai.text catalog options without adding a node type", () => {
+    const main = studioSource("main.tsx");
+    expect(main).toContain('modelOptionsForNodes["ai.text"]');
+    expect(main).toContain('executionProvider === "rutronix"');
+    expect(main).toContain('RuTronix catalog preset');
+    expect(main).not.toContain('type: "rutronix.');
+  });
 });
