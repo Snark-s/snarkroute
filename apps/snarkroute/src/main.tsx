@@ -1258,7 +1258,7 @@ function App() {
   }
 
   function handleCanvasWheel(event: React.WheelEvent<HTMLElement>) {
-    if (event.target instanceof Element && event.target.closest("[data-canvas-wheel-scroll]")) {
+    if (isScrollableWheelTarget(event.target, event.currentTarget)) {
       event.stopPropagation();
       return;
     }
@@ -6763,6 +6763,23 @@ function clamp(value: number, min: number, max: number): number {
 
 function nodeInputPoint(node: CanvasNode) {
   return { x: node.x, y: node.y + (node.type === "collection" ? node.height / 2 : nodeTitleHeight + node.height / 2) };
+}
+
+function isScrollableWheelTarget(target: EventTarget | null, boundary: Element): boolean {
+  if (!(target instanceof Element)) return false;
+  let element: Element | null = target;
+  while (element && element !== boundary) {
+    if (element.hasAttribute("data-canvas-wheel-scroll")) return true;
+    if (element instanceof HTMLElement) {
+      const { overflowX, overflowY } = window.getComputedStyle(element);
+      const { scrollHeight, clientHeight, scrollWidth, clientWidth } = element;
+      const scrollsVertically = /auto|scroll|overlay/.test(overflowY) && scrollHeight > clientHeight;
+      const scrollsHorizontally = /auto|scroll|overlay/.test(overflowX) && scrollWidth > clientWidth;
+      if (scrollsVertically || scrollsHorizontally) return true;
+    }
+    element = element.parentElement;
+  }
+  return false;
 }
 
 function nodeOutputPoint(node: CanvasNode) {
