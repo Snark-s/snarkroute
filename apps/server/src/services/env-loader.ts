@@ -4,7 +4,8 @@ import { envPath } from "../server-paths";
 
 let loaded = false;
 const LOCAL_SETTINGS_ENV_KEYS = [
-  "POLZA_AI_API_KEY"
+  "POLZA_AI_API_KEY",
+  "RUTRONIX_API_KEY"
 ];
 
 export function loadRootEnv(): void {

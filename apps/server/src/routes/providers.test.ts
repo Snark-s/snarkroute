@@ -94,6 +94,22 @@ describe("Polza model catalog endpoint semantics", () => {
   });
 });
 
+describe("RuTronix model catalog endpoint semantics", () => {
+  it("returns RuTronix offerings for the generic text node without requiring a key or price", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/for-node/ai.text" });
+      const models = response.json().models as Array<{ provider: string; storedModelId: string; pricing?: { status?: string } }>;
+      const rutronix = models.find((model) => model.storedModelId === "rutronix:deepseek-v4-flash");
+      expect(response.statusCode).toBe(200);
+      expect(rutronix?.storedModelId).toBe("rutronix:deepseek-v4-flash");
+      expect(rutronix?.pricing?.status ?? "missing").toBe("missing");
+    } finally {
+      await app.close();
+    }
+  });
+});
+
 function stubPolzaImageCatalog() {
   vi.stubEnv("POLZA_AI_API_KEY", "test-polza-key");
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {

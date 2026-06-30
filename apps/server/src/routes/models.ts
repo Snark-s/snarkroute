@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
+import { documentedRuTronixModels } from "@snarkroute/rutronix";
 import type { ModelOutputTypeV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { openRouterCatalogCachePath } from "../server-paths";
 import { isPolzaEnabled } from "../services/env";
@@ -96,6 +97,7 @@ async function loadLiveModelCatalogV1(nodeType?: string) {
   return assembleModelCatalogV1({
     openRouterModels,
     polzaModels,
+    rutronixModels: nodeType === undefined || nodeType === "ai.text" ? documentedRuTronixModels() : [],
     fallbackModels: fallbackProviderModelsForCatalogV1()
   });
 }

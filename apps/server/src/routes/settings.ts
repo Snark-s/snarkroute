@@ -18,6 +18,11 @@ app.get("/api/settings", async () => ({
     maskedApiKey: isPolzaEnabled() ? maskSecret(process.env.POLZA_AI_API_KEY) : "",
     apiKeyFingerprint: secretFingerprint(process.env.POLZA_AI_API_KEY)
   },
+  rutronix: {
+    configured: Boolean(process.env.RUTRONIX_API_KEY?.trim()),
+    maskedApiKey: process.env.RUTRONIX_API_KEY?.trim() ? maskSecret(process.env.RUTRONIX_API_KEY) : "",
+    apiKeyFingerprint: secretFingerprint(process.env.RUTRONIX_API_KEY)
+  },
   elevenlabs: { configured: isElevenLabsEnabled(), maskedApiKey: isElevenLabsEnabled() ? maskSecret(process.env.ELEVENLABS_API_KEY) : "" },
   openai: { configured: isOpenAiEnabled(), maskedApiKey: isOpenAiEnabled() ? maskSecret(process.env.OPENAI_API_KEY) : "" },
   worldlabs: { configured: isWorldLabsEnabled(), maskedApiKey: isWorldLabsEnabled() ? maskSecret(process.env.WORLDS_API_KEY) : "" },
@@ -73,6 +78,18 @@ app.post<{ Body: { polzaAiApiKey?: string } }>("/api/settings/polza-token", asyn
     await writeEnvValue("POLZA_AI_API_KEY", token);
     process.env.POLZA_AI_API_KEY = token;
     return { ok: true, polza: { configured: true, maskedApiKey: maskSecret(token), apiKeyFingerprint: secretFingerprint(token) } };
+  } catch (error) {
+    return reply.code(500).send({ error: errorMessage(error) });
+  }
+});
+
+app.post<{ Body: { rutronixApiKey?: string } }>("/api/settings/rutronix-token", async (request, reply) => {
+  const token = request.body?.rutronixApiKey?.trim();
+  if (!token) return reply.code(400).send({ error: "RUTRONIX_API_KEY cannot be empty." });
+  try {
+    await writeEnvValue("RUTRONIX_API_KEY", token);
+    process.env.RUTRONIX_API_KEY = token;
+    return { ok: true, rutronix: { configured: true, maskedApiKey: maskSecret(token), apiKeyFingerprint: secretFingerprint(token) } };
   } catch (error) {
     return reply.code(500).send({ error: errorMessage(error) });
   }

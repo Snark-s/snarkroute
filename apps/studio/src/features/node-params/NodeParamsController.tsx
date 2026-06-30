@@ -252,7 +252,11 @@ export function NodeParamsController({
         <label className="nodeField">
           <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={modelOptionForNodeLogo(selectedNodeModel) ?? modelLogoFor("openrouter", model)}>
-            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => {
+              const nextModel = event.target.value;
+              const option = nodeModelOptions.find((entry) => entry.storedModelId === nextModel);
+              onChange({ model: nextModel, provider: option?.executionProvider, executionProvider: option?.executionProvider, providerMode: option?.executionProvider === "rutronix" ? "rutronix" : undefined });
+            }}>
               <option value="text.default">Auto / default text model</option>
               {(nodeModelOptions.length > 0
                 ? nodeModelOptions.map((entry) => <option key={entry.id} value={entry.storedModelId}>{modelOptionForNodeLabel(entry)}</option>)
@@ -280,6 +284,7 @@ export function NodeParamsController({
             <select className="nodrag nopan nodeInput nodeSelect" value={String(params.providerMode ?? "auto")} onChange={(event) => onChange({ providerMode: event.target.value })}>
               <option value="auto">Auto</option>
               <option value="openrouter">OpenRouter</option>
+              <option value="rutronix">RuTronix</option>
               <option value="direct">Direct</option>
             </select>
           </label>

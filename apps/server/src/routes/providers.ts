@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { createReplicateClient } from "@snarkroute/replicate";
 import { createOpenRouterClient, openRouterModelInfoToModelInfo, readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache, refreshOpenRouterModelCatalog, refreshOpenRouterPricingCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient, polzaModelInfoToModelInfo, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "@snarkroute/polza";
+import { documentedRuTronixModels, rutronixModelInfoToModelInfo } from "@snarkroute/rutronix";
 import { openRouterCatalogCachePath, openRouterPricingCachePath, polzaPricingCachePath, providerLinksPath } from "../server-paths";
 import { createModelResolver } from "@snarkroute/openrouter";
 import { refreshModelPricing } from "../billing/model-pricing-refresh-service";
@@ -76,6 +77,11 @@ app.get<{ Querystring: { format?: string } }>("/api/providers/openrouter/models"
   }
   const models = cache?.models ?? [];
   return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, sourceCounts: cache?.sourceCounts, models };
+});
+
+app.get<{ Querystring: { format?: string } }>("/api/providers/rutronix/models", async (request) => {
+  const models = documentedRuTronixModels();
+  return { ok: true, configured: Boolean(process.env.RUTRONIX_API_KEY?.trim()), source: "documented", modelCount: models.length, models: request.query.format === "model-info" ? models.map(rutronixModelInfoToModelInfo) : models };
 });
 
 app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/api/model-gateway/quote", async (request, reply) => {

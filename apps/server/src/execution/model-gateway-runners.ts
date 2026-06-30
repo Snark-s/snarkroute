@@ -14,6 +14,7 @@ import {
   type ProviderMode
 } from "@snarkroute/openrouter";
 import { estimatePolzaPricingQuote, POLZA_IMAGE_DEFAULT_MODEL, POLZA_TEXT_DEFAULT_MODEL, POLZA_VIDEO_DEFAULT_MODEL, type PolzaModelInfo } from "@snarkroute/polza";
+import { createRuTronixTextNodeRunner, estimateRuTronixPricingQuote } from "@snarkroute/rutronix";
 import { getEffectivePricingState } from "../billing/pricing-service";
 
 type ResolvedPricingQuote = Omit<PricingQuote, "confidence"> & {
@@ -44,10 +45,12 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
   const openRouterRunner = createOpenRouterTextNodeRunner({ modelResolver });
   const rawOpenRouterRunner = createOpenRouterTextNodeRunner();
   const geminiRunner = createGeminiLlmNodeRunner();
+  const rutronixRunner = createRuTronixTextNodeRunner();
   return async (input) => {
     const providerMode = providerModeParam(input.params.providerMode);
     const requestedModel = stringValue(input.params.model);
     const modelId = !requestedModel || requestedModel === "text.default" ? process.env.OPENROUTER_DEFAULT_MODEL || "text.default" : requestedModel;
+    if (modelId.startsWith("rutronix:")) return rutronixRunner({ ...input, params: { ...input.params, model: modelId.slice("rutronix:".length) } });
     if (modelId.includes("/") && providerMode !== "direct") return rawOpenRouterRunner({ ...input, params: { ...input.params, model: modelId, providerMode } });
     const resolution = modelResolver({ task: "text", modelId, providerMode });
     if (resolution.provider === "openrouter") return openRouterRunner({ ...input, params: { ...input.params, model: modelId, providerMode } });
@@ -155,6 +158,11 @@ export async function quoteModelExecutingNode(options: {
     const providerMode = providerModeParam(params.providerMode);
     const requestedModel = stringValue(params.model);
     const modelId = !requestedModel || requestedModel === "text.default" ? process.env.OPENROUTER_DEFAULT_MODEL || "text.default" : requestedModel;
+    if (modelId.startsWith("rutronix:")) {
+      const providerModel = modelId.slice("rutronix:".length);
+      const quote = estimateRuTronixPricingQuote({ logicalModel: modelId, provider: "rutronix", providerModel, capability: "text.generate", params, inputMetadata: {} });
+      return { selected: withResolvedPricing(quote, options.nodeType, { ...params, model: providerModel }, pricingState.providerCatalog), alternatives: [], warnings: ["RuTronix uses a manual route estimate until machine-readable provider pricing is documented."] };
+    }
     if (modelId.includes("/") && providerMode !== "direct") {
       const model = openRouterCatalog?.models.find((entry) => entry.id === modelId);
       return { selected: withResolvedPricing(openRouterQuote(modelId, modelId, "text.generate", params, pricingForModel(openRouterPricing, modelId) ?? model?.pricing, openRouterPricing), options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };

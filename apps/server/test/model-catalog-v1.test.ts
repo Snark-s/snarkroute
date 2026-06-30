@@ -374,4 +374,19 @@ describe("server Model Catalog V1 assembly", () => {
       availability: { source: "fallback" }
     });
   });
+
+  it("keeps RuTronix text models selectable even when provider pricing is missing", () => {
+    const catalog = assembleModelCatalogV1({
+      rutronixModels: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }]
+    });
+    const option = modelOptionsForNodeV1("ai.text", catalog).find((entry) => entry.provider === "rutronix");
+    expect(option).toMatchObject({
+      id: "rutronix:deepseek-v4-flash",
+      providerModelId: "deepseek-v4-flash",
+      storedModelId: "rutronix:deepseek-v4-flash",
+      executionProvider: "rutronix",
+      availability: { status: "available" }
+    });
+    expect(option?.pricing?.status ?? "missing").toBe("missing");
+  });
 });

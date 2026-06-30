@@ -84,6 +84,9 @@ importers:
       '@snarkroute/replicate':
         specifier: workspace:*
         version: link:../../packages/adapters/replicate
+      '@snarkroute/rutronix':
+        specifier: workspace:*
+        version: link:../../packages/adapters/rutronix
       '@snarkroute/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -243,6 +246,22 @@ importers:
       '@snarkroute/executor':
         specifier: workspace:*
         version: link:../../executor
+    devDependencies:
+      vitest:
+        specifier: ^1.6.0
+        version: 1.6.1(@types/node@20.19.39)
+
+  packages/adapters/rutronix:
+    dependencies:
+      '@snarkroute/core':
+        specifier: workspace:*
+        version: link:../../core
+      '@snarkroute/executor':
+        specifier: workspace:*
+        version: link:../../executor
+      '@snarkroute/protocol':
+        specifier: workspace:*
+        version: link:../../protocol
     devDependencies:
       vitest:
         specifier: ^1.6.0

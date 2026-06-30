@@ -34,6 +34,12 @@ function v1Model(overrides: {
 }
 
 describe("Living Canvas model catalog", () => {
+  it("keeps RuTronix text models from the V1 catalog", async () => {
+    const getJson = vi.fn(async () => ({ models: [v1Model({ provider: "rutronix", providerModelId: "deepseek-v4-flash", outputTypes: ["text"], capabilities: ["text.generate"] })] }));
+    const catalog = await loadModelCatalog(getJson, { rutronix: { configured: false } });
+    expect(catalog.availableModels).toEqual([expect.objectContaining({ id: "deepseek-v4-flash", providerId: "rutronix" })]);
+    expect(providerDisplayName("rutronix")).toBe("RuTronix");
+  });
   it("does not invent provider models when the V1 catalog is unavailable", async () => {
     const getJson = vi.fn(async () => {
       throw new Error("catalog unavailable");

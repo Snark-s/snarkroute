@@ -60,6 +60,8 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
   const seedanceConfigured = Boolean(data.seedanceConfigured);
   const seedanceStatusText = String(data.seedanceStatusText ?? "");
   const polzaConfigured = Boolean(data.polzaConfigured);
+  const rutronixConfigured = Boolean(data.rutronixConfigured);
+  const rutronixKeyFingerprint = String(data.rutronixKeyFingerprint ?? "");
   const polzaKeyFingerprint = String(data.polzaKeyFingerprint ?? "");
   const openRouterConfigured = Boolean(data.openRouterConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
@@ -68,6 +70,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
   const onConfigureSeedance = data.onConfigureSeedance as (() => void) | undefined;
   const onConfigureWorldLabs = data.onConfigureWorldLabs as (() => void) | undefined;
   const onConfigurePolza = data.onConfigurePolza as (() => void) | undefined;
+  const onConfigureRutronix = data.onConfigureRutronix as (() => void) | undefined;
   const onConfigureOpenRouter = data.onConfigureOpenRouter as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
   const onDownloadImage = data.onDownloadImage as ((src: string, filename: string) => void) | undefined;
@@ -168,6 +171,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
     GEMINI_API_KEY: onConfigureGemini,
     OPENAI_API_KEY: onConfigureOpenAi,
     POLZA_AI_API_KEY: onConfigurePolza,
+    RUTRONIX_API_KEY: onConfigureRutronix,
     SEEDANCE_API_KEY: onConfigureSeedance,
     WORLDS_API_KEY: onConfigureWorldLabs
   });
@@ -328,7 +332,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
           ) : null}
         </div>
       ) : null}
-      {!paramsCollapsed && isRemoteAiNode(type) ? (
+      {!paramsCollapsed && isRemoteAiNode(type) && !isRutronixNode(type, params) ? (
         <div className={`nodeTokenStatus ${openRouterConfigured ? "configured" : "missing"}`}>
           <span>OpenRouter: {openRouterConfigured ? "key configured" : "missing"}</span>
           {!openRouterConfigured ? (
@@ -348,6 +352,18 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
               <strong>Requires Polza.ai API key</strong>
               <button className="nodeSmallButton nodrag nopan" onClick={onConfigurePolza}>Configure Polza.ai</button>
               <small>Open Settings &gt; AI Providers &gt; Polza.ai</small>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {!paramsCollapsed && isRutronixNode(type, params) ? (
+        <div className={`nodeTokenStatus ${rutronixConfigured ? "configured" : "missing"}`}>
+          <span>RuTronix: {rutronixConfigured ? `key configured${rutronixKeyFingerprint ? ` (${rutronixKeyFingerprint})` : ""}` : "missing"}</span>
+          {!rutronixConfigured ? (
+            <>
+              <strong>Requires RuTronix API key</strong>
+              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureRutronix}>Configure RuTronix</button>
+              <small>Open Settings &gt; AI Providers &gt; RuTronix</small>
             </>
           ) : null}
         </div>
@@ -816,6 +832,10 @@ function isRemoteAiNode(type: string): boolean {
 
 function isPolzaNode(type: string): boolean {
   return type === "polza.text" || type === "polza.image.generate" || type === "polza.video.generate";
+}
+
+function isRutronixNode(type: string, params: Record<string, unknown>): boolean {
+  return type === "ai.text" && String(params.model ?? "").startsWith("rutronix:");
 }
 
 
