@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@snarkroute/core": "workspace:*",
+    "@snarkroute/media-viewers": "workspace:*",
     "@snarkroute/model-catalog": "workspace:*",
     "@vitejs/plugin-react": "^4.2.1",
     "jszip": "3.10.1",

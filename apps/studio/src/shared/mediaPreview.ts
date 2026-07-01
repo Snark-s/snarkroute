@@ -195,59 +195,6 @@ export function imageOutputIdForResult(result: NodeRunResult): string {
   return "image";
 }
 
-export function renderPanoramaFrame(canvas: HTMLCanvasElement, image: HTMLImageElement, view: { yaw: number; pitch: number; fov: number }) {
-  const context = canvas.getContext("2d", { willReadFrequently: true });
-  if (!context || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;
-
-  const sourceCanvas = document.createElement("canvas");
-  sourceCanvas.width = image.naturalWidth;
-  sourceCanvas.height = image.naturalHeight;
-  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
-  if (!sourceContext) return;
-  sourceContext.drawImage(image, 0, 0);
-
-  const source = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
-  const frame = context.createImageData(canvas.width, canvas.height);
-  const sourceData = source.data;
-  const frameData = frame.data;
-  const sourceWidth = source.width;
-  const sourceHeight = source.height;
-  const fov = (view.fov * Math.PI) / 180;
-  const tanHalfVertical = Math.tan(fov / 2);
-  const tanHalfHorizontal = tanHalfVertical * (canvas.width / canvas.height);
-  const cosYaw = Math.cos(view.yaw);
-  const sinYaw = Math.sin(view.yaw);
-  const cosPitch = Math.cos(view.pitch);
-  const sinPitch = Math.sin(view.pitch);
-
-  for (let y = 0; y < canvas.height; y += 1) {
-    const ny = (1 - ((y + 0.5) / canvas.height) * 2) * tanHalfVertical;
-    for (let x = 0; x < canvas.width; x += 1) {
-      const nx = (((x + 0.5) / canvas.width) * 2 - 1) * tanHalfHorizontal;
-      const length = Math.hypot(nx, ny, 1);
-      const cameraX = nx / length;
-      const cameraY = ny / length;
-      const cameraZ = 1 / length;
-      const pitchedY = cameraY * cosPitch - cameraZ * sinPitch;
-      const pitchedZ = cameraY * sinPitch + cameraZ * cosPitch;
-      const worldX = cameraX * cosYaw + pitchedZ * sinYaw;
-      const worldY = pitchedY;
-      const worldZ = -cameraX * sinYaw + pitchedZ * cosYaw;
-      const longitude = Math.atan2(worldX, worldZ);
-      const latitude = Math.asin(clamp(worldY, -1, 1));
-      const sourceX = positiveModulo(Math.floor((longitude / (Math.PI * 2) + 0.5) * sourceWidth), sourceWidth);
-      const sourceY = clamp(Math.floor((0.5 - latitude / Math.PI) * sourceHeight), 0, sourceHeight - 1);
-      const sourceIndex = (sourceY * sourceWidth + sourceX) * 4;
-      const frameIndex = (y * canvas.width + x) * 4;
-      frameData[frameIndex] = sourceData[sourceIndex];
-      frameData[frameIndex + 1] = sourceData[sourceIndex + 1];
-      frameData[frameIndex + 2] = sourceData[sourceIndex + 2];
-      frameData[frameIndex + 3] = 255;
-    }
-  }
-  context.putImageData(frame, 0, 0);
-}
-
 export function renderFisheyeFrame(canvas: HTMLCanvasElement, image: HTMLImageElement, view: { fovDegrees: number; yawDegrees: number; pitchDegrees: number }) {
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context || image.naturalWidth <= 0 || image.naturalHeight <= 0) return;

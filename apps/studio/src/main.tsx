@@ -41,6 +41,7 @@ import {
   type ModelProfile,
   type OpenRoute
 } from "@snarkroute/protocol";
+import { Panorama360Viewer as SharedPanorama360Viewer, SplatViewer, renderPanoramaFrame, type SplatViewerRuntime as SplatRuntime } from "@snarkroute/media-viewers";
 import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Copy, Cpu, Crop, Download, Eraser, Expand, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, Music, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, Wrench, X } from "lucide-react";
 import { Archive, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clipboard, Cog, Compass, Database, EyeOff, FileAudio, FileImage, FileVideo, Filter, Flag, FlipHorizontal, FlipVertical, Folder, FolderPlus, Grid3X3, Headphones, Heart, Layers3, Link, List, Mail, Map as MapIcon, MapPin, Maximize2, MessageSquare, Mic, Minimize2, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Radio, Repeat, RotateCcw, RotateCw, Route, Scissors, Send, Settings, Share2, Shuffle, SlidersHorizontal, Square, Star, Table, Volume2, Zap, ZoomIn, ZoomOut } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -125,7 +126,6 @@ import {
   panoramaSourceSrc,
   radiansToDegrees,
   renderFisheyeFrame,
-  renderPanoramaFrame,
   roundCameraCoordinate,
   useImageDimensions,
   versionedAssetPreviewSrc,
@@ -249,7 +249,6 @@ import type {
   RunStreamEvent,
   SavedCameraPose,
   SeedanceSettings,
-  SplatRuntime,
   StableDiffusionModel,
   StudioExample,
   SubrouteFrame,
@@ -1715,115 +1714,11 @@ function WorldSplatViewer({
   onToggleFloating: () => void;
   onPublishOutputs: (outputs: { pose: SavedCameraPose; viewDataUrl: string; panoramaDataUrl: string }) => Promise<void>;
 }) {
-  const mountRef = useRef<HTMLDivElement | null>(null);
   const splatRuntimeRef = useRef<SplatRuntime | null>(null);
+  const splatMountRef = useRef<HTMLDivElement | null>(null);
   const latestPoseRef = useRef<SavedCameraPose>(initialCameraPose);
   const [loadStatus, setLoadStatus] = useState("loading splat");
   const [isPublishing, setIsPublishing] = useState(false);
-
-  useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
-
-    let disposed = false;
-    let renderer: import("three").WebGLRenderer | null = null;
-    let scene: import("three").Scene | null = null;
-    let splat: { dispose?: () => void } | null = null;
-    let spark: import("three").Object3D | null = null;
-    let resizeObserver: ResizeObserver | null = null;
-
-    void (async () => {
-      const [THREE, sparkModule] = await Promise.all([import("three"), import("@sparkjsdev/spark")]);
-      if (disposed) return;
-
-      const { SparkControls, SparkRenderer, SplatMesh } = sparkModule;
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x090d14);
-
-      const camera = new THREE.PerspectiveCamera(initialCameraPose.fov || 70, 1, 0.01, 1000);
-      const control = new THREE.Object3D();
-      control.position.set(initialCameraPose.position.x, initialCameraPose.position.y, initialCameraPose.position.z);
-      control.rotation.set(degreesToRadians(initialCameraPose.rotation.pitch), degreesToRadians(initialCameraPose.rotation.yaw), degreesToRadians(initialCameraPose.rotation.roll), "YXZ");
-      control.add(camera);
-      scene.add(control);
-
-      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      renderer.domElement.className = "chooseCameraSplatCanvas nodrag nopan";
-      renderer.domElement.tabIndex = 0;
-      mount.appendChild(renderer.domElement);
-
-      spark = new SparkRenderer({ renderer });
-      scene.add(spark);
-
-      splat = new SplatMesh({
-        url: splatUrl,
-        onLoad: () => {
-          if (!disposed) setLoadStatus("splat ready");
-        },
-        onProgress: (event: ProgressEvent) => {
-          if (disposed || !event.lengthComputable || event.total <= 0) return;
-          setLoadStatus(`loading splat ${Math.round((event.loaded / event.total) * 100)}%`);
-        }
-      });
-      (splat as unknown as import("three").Object3D).quaternion.set(1, 0, 0, 0);
-      scene.add(splat as unknown as import("three").Object3D);
-
-      const controls = new SparkControls({ canvas: renderer.domElement });
-      controls.fpsMovement.moveSpeed = 1.25;
-
-      const resize = () => {
-        if (!renderer) return;
-        const rect = mount.getBoundingClientRect();
-        const width = Math.max(1, Math.floor(rect.width));
-        const height = Math.max(1, Math.floor(rect.height));
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
-        renderer.setSize(width, height, false);
-      };
-      resizeObserver = new ResizeObserver(resize);
-      resizeObserver.observe(mount);
-      resize();
-
-      const euler = new THREE.Euler(0, 0, 0, "YXZ");
-      renderer.setAnimationLoop(() => {
-        if (!renderer || !scene) return;
-        controls.update(control, camera);
-        renderer.render(scene, camera);
-        euler.setFromQuaternion(control.quaternion, "YXZ");
-        latestPoseRef.current = {
-          position: {
-            x: roundCameraCoordinate(control.position.x),
-            y: roundCameraCoordinate(control.position.y),
-            z: roundCameraCoordinate(control.position.z)
-          },
-          rotation: {
-            yaw: wrapDegrees(radiansToDegrees(euler.y)),
-            pitch: clamp(radiansToDegrees(euler.x), -89, 89),
-            roll: radiansToDegrees(euler.z)
-          },
-          fov: camera.fov
-        };
-      });
-
-      splatRuntimeRef.current = { renderer, scene, camera, control };
-      renderer.domElement.focus();
-    })().catch((caught) => {
-      if (!disposed) setLoadStatus(caught instanceof Error ? caught.message : String(caught));
-    });
-
-    return () => {
-      disposed = true;
-      resizeObserver?.disconnect();
-      renderer?.setAnimationLoop(null);
-      if (scene && splat) scene.remove(splat as unknown as import("three").Object3D);
-      if (scene && spark) scene.remove(spark);
-      splatRuntimeRef.current = null;
-      splat?.dispose?.();
-      renderer?.dispose();
-      renderer?.domElement.remove();
-    };
-  }, [splatUrl]);
 
   async function publishCurrentOutputs() {
     const runtime = splatRuntimeRef.current;
@@ -1836,7 +1731,7 @@ function WorldSplatViewer({
     setLoadStatus("rendering view + 360");
     try {
       const viewDataUrl = captureCurrentSplatView(runtime);
-      const panoramaDataUrl = await renderSplatPanorama(runtime, mountRef.current);
+      const panoramaDataUrl = await renderSplatPanorama(runtime, splatMountRef.current);
       await onPublishOutputs({ pose: latestPoseRef.current, viewDataUrl, panoramaDataUrl });
       setLoadStatus("view + 360 published");
     } catch (caught) {
@@ -1852,7 +1747,16 @@ function WorldSplatViewer({
       onPointerEnter={() => splatRuntimeRef.current?.renderer.domElement.focus()}
       onClick={() => splatRuntimeRef.current?.renderer.domElement.focus()}
     >
-      <div ref={mountRef} className="chooseCameraSplatMount" />
+      <SplatViewer
+        splatUrl={splatUrl}
+        initialCameraPose={initialCameraPose}
+        className="chooseCameraSplatMount"
+        mountClassName="chooseCameraSplatMount"
+        canvasClassName="chooseCameraSplatCanvas nodrag nopan"
+        onReady={(runtime, mount) => { splatRuntimeRef.current = runtime; splatMountRef.current = mount; }}
+        onPoseChange={(pose) => { latestPoseRef.current = pose; }}
+        onStatusChange={setLoadStatus}
+      />
       <div className="nodeMetaLine">{loadStatus}</div>
       <div className="nodeActionRow">
         <button className="nodeSmallButton nodrag nopan" type="button" disabled={isPublishing} onClick={() => void publishCurrentOutputs()}><Save size={13} /> Отправить вид + 360 на выход</button>
@@ -2057,7 +1961,7 @@ function NodeInlineResult({
       <div className={`nodeResult panoramaResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
         {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
-        <Panorama360Viewer
+        <BoojumPanoramaPreview
           src={panoramaSrc}
           title={imageTitle}
           filename={downloadFilename(result.output)}
@@ -2265,36 +2169,9 @@ function LiveFisheyePreview({
   );
 }
 
-function Panorama360Viewer({ src, title, filename, onFixFrame }: { src: string; title: string; filename: string; onFixFrame?: (output: unknown) => void }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const imageRef = useRef<HTMLImageElement | null>(null);
-  const dragRef = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
-  const [view, setView] = useState({ yaw: 0, pitch: 0, fov: 55 });
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState("");
+function BoojumPanoramaPreview({ src, title, filename, onFixFrame }: { src: string; title: string; filename: string; onFixFrame?: (output: unknown) => void }) {
   const [fixedAt, setFixedAt] = useState("");
-
-  useEffect(() => {
-    const image = new Image();
-    image.crossOrigin = "anonymous";
-    setLoaded(false);
-    setError("");
-    setFixedAt("");
-    image.onload = () => {
-      imageRef.current = image;
-      setLoaded(true);
-    };
-    image.onerror = () => setError("Could not load panorama image.");
-    image.src = src;
-  }, [src]);
-
-  useEffect(() => {
-    if (!loaded || !imageRef.current || !canvasRef.current) return;
-    renderPanoramaFrame(canvasRef.current, imageRef.current, view);
-  }, [loaded, view]);
-
-  function currentFramePayload(): { dataUrl: string; output: unknown } | null {
-    const canvas = canvasRef.current;
+  function currentFramePayload(canvas: HTMLCanvasElement | null, view: { yaw: number; pitch: number; fov: number }): { dataUrl: string; output: unknown } | null {
     if (!canvas) return null;
     const dataUrl = canvas.toDataURL("image/png");
     const base64 = dataUrl.split(",", 2)[1];
@@ -2323,88 +2200,35 @@ function Panorama360Viewer({ src, title, filename, onFixFrame }: { src: string; 
     };
   }
 
-  function captureCurrentView() {
+  function captureCurrentView(canvas: HTMLCanvasElement | null, view: { yaw: number; pitch: number; fov: number }) {
     try {
-      const payload = currentFramePayload();
+      const payload = currentFramePayload(canvas, view);
       if (!payload) return;
       const link = document.createElement("a");
       link.href = payload.dataUrl;
       link.download = panoramaSnapshotFilename(filename);
       link.click();
-    } catch (captureError) {
-      setError(captureError instanceof Error ? captureError.message : "Could not capture current view.");
-    }
+    } catch (captureError) { console.warn(captureError); }
   }
-
-  function fixCurrentFrame() {
+  function fixCurrentFrame(canvas: HTMLCanvasElement | null, view: { yaw: number; pitch: number; fov: number }) {
     try {
-      const payload = currentFramePayload();
+      const payload = currentFramePayload(canvas, view);
       if (!payload) return;
       onFixFrame?.(payload.output);
       setFixedAt(new Date().toLocaleTimeString());
-    } catch (captureError) {
-      setError(captureError instanceof Error ? captureError.message : "Could not fix current frame.");
-    }
+    } catch (captureError) { console.warn(captureError); }
   }
-
   return (
-    <div className="panoramaViewer nodrag nopan">
-      <canvas
-        ref={canvasRef}
-        className="panoramaCanvas nodrag nopan"
-        width={360}
-        height={190}
-        title={title}
-        onPointerDown={(event) => {
-          event.currentTarget.setPointerCapture(event.pointerId);
-          dragRef.current = { x: event.clientX, y: event.clientY, yaw: view.yaw, pitch: view.pitch };
-        }}
-        onPointerMove={(event) => {
-          const drag = dragRef.current;
-          if (!drag) return;
-          setView((current) => ({
-            ...current,
-            yaw: drag.yaw - (event.clientX - drag.x) * 0.006,
-            pitch: clamp(drag.pitch + (event.clientY - drag.y) * 0.0045, -1.25, 1.25)
-          }));
-        }}
-        onPointerUp={(event) => {
-          dragRef.current = null;
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }}
-        onPointerCancel={() => {
-          dragRef.current = null;
-        }}
-        onWheel={(event) => {
-          event.preventDefault();
-          setView((current) => ({ ...current, fov: clamp(current.fov + Math.sign(event.deltaY) * 5, 35, 90) }));
-        }}
-      />
-      {!loaded && !error ? <div className="panoramaOverlay">Loading panorama...</div> : null}
-      {error ? <div className="panoramaOverlay error">{error}</div> : null}
-      <div className="panoramaControls">
-        <label className="panoramaZoomControl nodrag nopan" title="Zoom">
-          <input
-            className="nodrag nopan"
-            type="range"
-            min={35}
-            max={90}
-            step={1}
-            value={view.fov}
-            disabled={!loaded}
-            onChange={(event) => setView((current) => ({ ...current, fov: Number(event.target.value) }))}
-          />
-          <span>{view.fov}°</span>
-        </label>
-        <button className="nodeImageActionButton nodrag nopan" type="button" title="Fix current frame to node output" disabled={!loaded} onClick={fixCurrentFrame}>
-          <CheckSquare size={14} />
-        </button>
-        <button className="nodeImageActionButton nodrag nopan" type="button" title="Capture current view as PNG" disabled={!loaded} onClick={captureCurrentView}>
-          <Download size={14} />
-        </button>
-      </div>
-      {fixedAt ? <div className="panoramaFixedStatus">Fixed {fixedAt}</div> : null}
-    </div>
+    <SharedPanorama360Viewer src={src} title={title} className="panoramaViewer nodrag nopan" canvasClassName="panoramaCanvas nodrag nopan">
+      {({ loaded, canvas, view, setFov }) => <>
+        <div className="panoramaControls">
+          <label className="panoramaZoomControl nodrag nopan" title="Zoom"><input className="nodrag nopan" type="range" min={35} max={90} step={1} value={view.fov} disabled={!loaded} onChange={(event) => setFov(Number(event.target.value))} /><span>{view.fov}°</span></label>
+          <button className="nodeImageActionButton nodrag nopan" type="button" title="Fix current frame to node output" disabled={!loaded} onClick={() => fixCurrentFrame(canvas, view)}><CheckSquare size={14} /></button>
+          <button className="nodeImageActionButton nodrag nopan" type="button" title="Capture current view as PNG" disabled={!loaded} onClick={() => captureCurrentView(canvas, view)}><Download size={14} /></button>
+        </div>
+        {fixedAt ? <div className="panoramaFixedStatus">Fixed {fixedAt}</div> : null}
+      </>}
+    </SharedPanorama360Viewer>
   );
 }
 

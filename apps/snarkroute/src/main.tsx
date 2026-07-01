@@ -2,6 +2,7 @@ import "./styles.css";
 import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Cog, Copy, Crop, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Maximize2, Minimize2, Moon, Music, PanelRight, RefreshCw, Save, Scissors, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
 import { Aperture, Archive, ArrowDown, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clock3, Compass, Cpu, Database, Eraser, Eye, EyeOff, FileAudio, FileImage, FileJson, FileText, FileVideo, Film, Filter, Flag, FlipHorizontal, FlipVertical, FolderOpen, Globe, Grid3X3, Headphones, Heart, Link, List, Mail, Map as MapIcon, MapPin, MessageSquare, Mic, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Pin, Play, Plus, Radio, Repeat, RotateCcw, RotateCw, Route, Search, Send, Settings, Share2, Shuffle, SlidersHorizontal, Sparkles, Square, Star, Table, Type, Upload, Volume2, Wand2, X, Zap, ZoomIn, ZoomOut } from "lucide-react";
 import JSZip from "jszip";
+import { Panorama360Viewer, SplatViewer } from "@snarkroute/media-viewers";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { canvasActionNeedsDialog } from "./canvasActionDialog";
 import { createRoot } from "react-dom/client";
@@ -3411,14 +3412,12 @@ function App() {
             }}
           >
             <header><strong>{canvasActionRunDialog.action.title}</strong><button type="button" onClick={() => setCanvasActionRunDialog(null)}>Close</button></header>
-            {canvasActionRunDialog.action.dialog?.preview?.some((preview) => preview.source === "input") ? (() => {
+            {canvasActionRunDialog.action.dialog?.preview?.filter((preview) => preview.source === "input").map((preview, index) => (() => {
               const sourceNode = nodes.find((node) => node.canvas.id === canvasActionRunDialog.nodeId);
               const src = sourceNode?.previewUrl;
               if (!src) return null;
-              if (sourceNode.manifest.type === "video") return <video src={`${apiBase}${src}`} controls />;
-              if (sourceNode.manifest.type === "audio") return <audio src={`${apiBase}${src}`} controls />;
-              return <img src={`${apiBase}${src}`} alt="Action input preview" />;
-            })() : null}
+              return <CanvasActionMediaPreview key={index} kind={preview.kind} src={`${apiBase}${src}`} title="Action input preview" />;
+            })())}
             {(canvasActionRunDialog.action.params ?? []).filter((param) => canvasActionRunDialog.action.dialog?.params.includes(param.id)).map((param) => (
               <label className="canvasActionSettingsField" key={param.id}>
                 <span>{param.label ?? param.id}</span>
@@ -3447,9 +3446,7 @@ function App() {
                   const resultNode = canvasActionRunDialog.resultNodes?.find((node) => node.manifest.type === outputType);
                   const src = resultNode?.previewUrl;
                   if (!src) return null;
-                  if (preview.kind === "video") return <video key={index} src={`${apiBase}${src}`} controls autoPlay />;
-                  if (preview.kind === "audio") return <audio key={index} src={`${apiBase}${src}`} controls autoPlay />;
-                  return <img key={index} src={`${apiBase}${src}`} alt={`${preview.kind} result`} />;
+                  return <CanvasActionMediaPreview key={index} kind={preview.kind} src={`${apiBase}${src}`} title={`${preview.kind} result`} />;
                 })}
               </div>
             ) : null}
@@ -4430,6 +4427,14 @@ function defaultCanvasActionParamValue(type: string): unknown {
   if (type === "number") return 0;
   if (type === "boolean") return false;
   return "";
+}
+
+function CanvasActionMediaPreview({ kind, src, title }: { kind: "image" | "video" | "audio" | "panorama360" | "splat"; src: string; title: string }) {
+  if (kind === "video") return <video src={src} controls autoPlay />;
+  if (kind === "audio") return <audio src={src} controls autoPlay />;
+  if (kind === "panorama360") return <Panorama360Viewer src={src} title={title} className="panoramaViewer canvasActionPanoramaViewer" canvasClassName="panoramaCanvas" />;
+  if (kind === "splat") return <SplatViewer splatUrl={src} className="canvasActionSplatViewer" mountClassName="canvasActionSplatMount" canvasClassName="canvasActionSplatCanvas" />;
+  return <img src={src} alt={title} />;
 }
 
 function LibraryCardNode({

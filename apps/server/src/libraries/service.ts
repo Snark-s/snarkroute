@@ -1,6 +1,6 @@
 import { createReadStream } from "node:fs";
 import { copyFile, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import type { ExecuteOptions, RunResult } from "@snarkroute/executor";
 import type { OpenRoute } from "@snarkroute/protocol";
@@ -3070,7 +3070,7 @@ function collectionItemId(sourceNodeId: string, stackItemId: string): string {
 
 function resolvePortablePath(root: string, relativePath: string): string {
   if (isAbsolute(relativePath)) throw new Error("Library paths must be relative.");
-  const resolved = resolve(root, relativePath);
+  const resolved = resolve(root, relativePath.replace(/[\\/]+/g, sep));
   const rootResolved = resolve(root);
   const rel = relative(rootResolved, resolved);
   if (rel.startsWith("..") || rel === ".." || rel.split(sep).includes("..")) throw new Error("Path escapes the library folder.");
@@ -3084,7 +3084,7 @@ function isWithinDirectory(root: string, path: string): boolean {
 }
 
 function portableJoin(...parts: string[]): string {
-  return parts.join("/");
+  return posix.join(...parts.map((part) => part.replace(/\\/g, "/")));
 }
 
 async function allocateCanvasNodeLocation(libraryPath: string, requestedTitle: string, currentRelativePath?: string): Promise<{ title: string; nodeRelativePath: string }> {
