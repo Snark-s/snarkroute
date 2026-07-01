@@ -40,6 +40,7 @@ app.get("/api/nodes/canvas-actions", async () => {
         inputType: manifest.inputs[0].type,
         outputs: manifest.outputs.map((output) => ({ id: output.id, type: output.type, label: output.label ?? output.id })),
         params: manifest.params ?? [],
+        dialog: manifest.canvasAction?.dialog,
         icon: manifest.canvasAction?.icon ?? (manifest.icon ? { kind: "preset", name: manifest.icon } : undefined),
         node: nodeManifestToCatalogEntry(manifest)
       }))

@@ -3547,6 +3547,9 @@ type CanvasButtonDraft = {
   customIconDataUrl?: string;
   inputKind: string;
   outputs: Array<{ id: string; kind: string; label?: string }>;
+  params: Array<NonNullable<NodeManifest["params"]>[number] & { selected: boolean; displayLabel: string }>;
+  previewKind: "" | "image" | "video" | "audio" | "panorama360" | "splat";
+  previewSource: "input" | `output:${string}`;
 };
 
 type CanvasButtonPanelDrag = {
@@ -7458,7 +7461,7 @@ function App() {
     return String(compoundNode.compound?.inputs?.[0]?.kind ?? "json");
   }
 
-  function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string, options: { canvasAction?: { enabled: boolean; icon?: NonNullable<NodeManifest["canvasAction"]>["icon"] } } = {}): NodeManifest {
+  function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string, options: { canvasAction?: { enabled: boolean; icon?: NonNullable<NodeManifest["canvasAction"]>["icon"]; params?: NonNullable<NodeManifest["params"]>; preview?: NonNullable<NonNullable<NodeManifest["canvasAction"]>["dialog"]>["preview"] } } = {}): NodeManifest {
     const compound = compoundNode.compound ?? {};
     const inputs = (compound.inputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
     const outputs = (compound.outputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
@@ -7478,12 +7481,20 @@ function App() {
       executor: { type: "declarative" },
       inputs,
       outputs,
+      ...(options.canvasAction?.params?.length ? { params: options.canvasAction.params } : {}),
       ...(options.canvasAction?.enabled ? {
         canvasAction: {
           enabled: true,
           title,
           description: `Run "${title}" from the Living Canvas node toolbar.`,
-          icon: options.canvasAction.icon ?? { kind: "preset", name: "wrench" }
+          icon: options.canvasAction.icon ?? { kind: "preset", name: "wrench" },
+          ...(options.canvasAction.params?.length || options.canvasAction.preview?.length ? {
+            dialog: {
+              enabled: true,
+              params: (options.canvasAction.params ?? []).map((param) => param.id),
+              ...(options.canvasAction.preview?.length ? { preview: options.canvasAction.preview } : {})
+            }
+          } : {})
         }
       } : {}),
       generatedWith: {
@@ -7532,13 +7543,28 @@ function App() {
     if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode)) return;
     const inputKind = canvasActionInputKind(compoundNode);
     const title = compoundNode.compound?.title ?? compoundNode.title ?? "Canvas Action";
+    const params = compoundNode.subroute.nodes.flatMap((internalNode) => {
+      const manifest = nodeCatalog.find((item) => item.type === internalNode.type)?.manifest;
+      return (manifest?.params ?? []).map((param) => ({
+        ...param,
+        id: `${internalNode.id}.${param.id}`,
+        label: param.label ?? param.id,
+        default: internalNode.params?.[param.id] ?? param.default,
+        binding: { nodeId: internalNode.id, paramId: param.id },
+        selected: false,
+        displayLabel: `${internalNode.title ?? internalNode.id} — ${param.label ?? param.id}`
+      }));
+    });
     setCanvasButtonDraft({
       nodeId,
       title,
       packageId: makeNodePackageId(title),
       iconName: defaultCanvasActionIconName(inputKind),
       inputKind,
-      outputs: (compoundNode.compound?.outputs ?? []).map((output) => ({ id: output.id, kind: String(output.kind ?? "json"), label: output.label }))
+      outputs: (compoundNode.compound?.outputs ?? []).map((output) => ({ id: output.id, kind: String(output.kind ?? "json"), label: output.label })),
+      params,
+      previewKind: "",
+      previewSource: "input"
     });
   }
 
@@ -7551,7 +7577,12 @@ function App() {
     const icon = draft.customIconDataUrl
       ? { kind: "custom" as const, dataUrl: draft.customIconDataUrl }
       : { kind: "preset" as const, name: draft.iconName };
-    return nodeManifestFromCompoundNode(compoundNode, id, title, { canvasAction: { enabled: true, icon } });
+    const selectedParams = draft.params.filter((param) => param.selected).map(({ selected: _selected, displayLabel: _displayLabel, ...param }) => param);
+    const preview = draft.previewKind ? [{
+      kind: draft.previewKind,
+      source: draft.previewSource === "input" ? "input" as const : { output: draft.previewSource.slice("output:".length) }
+    }] : undefined;
+    return nodeManifestFromCompoundNode(compoundNode, id, title, { canvasAction: { enabled: true, icon, params: selectedParams, preview } });
   }
 
   function selectCanvasButtonPresetIcon(iconName: string) {
@@ -8203,6 +8234,41 @@ function App() {
                   </div>
                 </div>
               </div>
+              <section className="canvasButtonParamSection" aria-label="Dialog parameters">
+                <span>Dialog parameters</span>
+                {canvasButtonDraft.params.length ? canvasButtonDraft.params.map((param) => (
+                  <label key={param.id}>
+                    <input
+                      type="checkbox"
+                      checked={param.selected}
+                      onChange={(event) => setCanvasButtonDraft((draft) => draft ? {
+                        ...draft,
+                        params: draft.params.map((candidate) => candidate.id === param.id ? { ...candidate, selected: event.target.checked } : candidate)
+                      } : draft)}
+                    />
+                    <span>{param.displayLabel}</span>
+                    <small>{String(param.default ?? "")}</small>
+                  </label>
+                )) : <small>No internal node parameters are available.</small>}
+              </section>
+              <section className="canvasButtonPreviewSection" aria-label="Dialog preview">
+                <span>Preview</span>
+                <label>
+                  <span>Kind</span>
+                  <select value={canvasButtonDraft.previewKind} onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, previewKind: event.target.value as CanvasButtonDraft["previewKind"] } : draft)}>
+                    <option value="">None</option>
+                    <option value="image">Image</option><option value="video">Video</option><option value="audio">Audio</option>
+                    <option value="panorama360">Panorama 360</option><option value="splat">Splat</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Source</span>
+                  <select value={canvasButtonDraft.previewSource} onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, previewSource: event.target.value as CanvasButtonDraft["previewSource"] } : draft)}>
+                    <option value="input">Input</option>
+                    {canvasButtonDraft.outputs.map((output) => <option key={output.id} value={`output:${output.id}`}>{output.label ?? output.id}</option>)}
+                  </select>
+                </label>
+              </section>
               <section className="canvasButtonIconSection" aria-label="Button icon">
                 <span>Icon</span>
                 <div className="canvasButtonIconPicker">

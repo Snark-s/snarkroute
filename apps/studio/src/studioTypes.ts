@@ -511,12 +511,17 @@ export type NodeManifest = {
   executor: { type: string; runtime?: string; entry?: string; builtinRunner?: string };
   inputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
   outputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
-  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown }>;
+  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown; options?: Array<{ value: unknown; label?: string }>; min?: number; max?: number; step?: number; binding?: { nodeId: string; paramId: string } }>;
   canvasAction?: {
     enabled: boolean;
     title?: string;
     description?: string;
     icon?: { kind: "preset"; name: string } | { kind: "custom"; svg?: string; dataUrl?: string };
+    dialog?: {
+      enabled: boolean;
+      params: string[];
+      preview?: Array<{ kind: "image" | "video" | "audio" | "panorama360" | "splat"; source: "input" | { output: string } }>;
+    };
   };
   generatedWith?: unknown;
   ui?: {

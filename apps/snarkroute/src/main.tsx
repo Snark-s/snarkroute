@@ -3,6 +3,7 @@ import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, 
 import { Aperture, Archive, ArrowDown, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clock3, Compass, Cpu, Database, Eraser, Eye, EyeOff, FileAudio, FileImage, FileJson, FileText, FileVideo, Film, Filter, Flag, FlipHorizontal, FlipVertical, FolderOpen, Globe, Grid3X3, Headphones, Heart, Link, List, Mail, Map as MapIcon, MapPin, MessageSquare, Mic, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Pin, Play, Plus, Radio, Repeat, RotateCcw, RotateCw, Route, Search, Send, Settings, Share2, Shuffle, SlidersHorizontal, Sparkles, Square, Star, Table, Type, Upload, Volume2, Wand2, X, Zap, ZoomIn, ZoomOut } from "lucide-react";
 import JSZip from "jszip";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { canvasActionNeedsDialog } from "./canvasActionDialog";
 import { createRoot } from "react-dom/client";
 import {
   generationParameterSummary,
@@ -345,7 +346,8 @@ interface CanvasNodeAction {
   description: string;
   inputType: EditableNodeType;
   outputs: Array<{ id: string; type: EditableNodeType; label: string }>;
-  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown }>;
+  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown; options?: Array<{ value: unknown; label?: string }>; min?: number; max?: number; step?: number }>;
+  dialog?: { enabled: boolean; params: string[]; preview?: Array<{ kind: "image" | "video" | "audio" | "panorama360" | "splat"; source: "input" | { output: string } }> };
   icon?: { kind: "preset"; name: string } | { kind: "custom"; svg?: string; dataUrl?: string };
 }
 
@@ -416,6 +418,14 @@ type CanvasActionSettingsDraft = {
   iconName: string;
   customIconDataUrl?: string;
   error?: string;
+};
+
+type CanvasActionRunDialog = {
+  nodeId: string;
+  action: CanvasNodeAction;
+  point: { x: number; y: number };
+  params: Record<string, unknown>;
+  resultNodes?: NodeView[];
 };
 
 interface TextNodeView {
@@ -620,6 +630,7 @@ const themeStorageKey = "snarkroute.theme";
 const backgroundStorageKey = "snarkroute.canvasBackground";
 const nodeToolbarConfigStorageKey = "snarkroute.nodeToolbarConfig";
 const canvasActionSettingsStorageKey = "snarkroute.canvasActionSettings";
+const canvasActionParamsStorageKey = "snarkroute.canvasActionParams";
 const imageNodeWidth = 320;
 const imageNodeHeight = 240;
 const nodeTitleHeight = 24;
@@ -681,9 +692,11 @@ function App() {
   const [collapsedNodeIds, setCollapsedNodeIds] = useStoredJsonSetting<string[]>("snarkroute.collapsedNodes", []);
   const [nodeToolbarConfig, setNodeToolbarConfig] = useStoredJsonSetting<NodeToolbarConfig>(nodeToolbarConfigStorageKey, defaultNodeToolbarConfig);
   const [canvasActionSettings, setCanvasActionSettings] = useStoredJsonSetting<Record<string, CanvasActionButtonSettings>>(canvasActionSettingsStorageKey, {});
+  const [canvasActionParamValues, setCanvasActionParamValues] = useStoredJsonSetting<Record<string, Record<string, unknown>>>(canvasActionParamsStorageKey, {});
   const [nodeActionPanelOpen, setNodeActionPanelOpen] = useState(false);
   const [nodeActionContextMenu, setNodeActionContextMenu] = useState<NodeActionContextMenu | null>(null);
   const [canvasActionSettingsDraft, setCanvasActionSettingsDraft] = useState<CanvasActionSettingsDraft | null>(null);
+  const [canvasActionRunDialog, setCanvasActionRunDialog] = useState<CanvasActionRunDialog | null>(null);
   const [canvasNodeActions, setCanvasNodeActions] = useState<CanvasNodeAction[]>([]);
   const [nodeCreateMenu, setNodeCreateMenu] = useState<NodeCreateMenu | null>(null);
   const [previewImage, setPreviewImage] = useState<{ nodeId: string; title: string; index: number } | null>(null);
@@ -2869,16 +2882,30 @@ function App() {
     reader.readAsDataURL(file);
   }
 
-  async function runNodeCanvasAction(nodeId: string, actionId: string, point: { x: number; y: number }) {
+  function requestRunNodeCanvasAction(nodeId: string, actionId: string, point: { x: number; y: number }) {
+    const action = canvasNodeActions.find((candidate) => candidate.id === actionId);
+    const dialogParamIds = canvasActionNeedsDialog(action) ? action!.dialog!.params : [];
+    if (action && dialogParamIds.length > 0) {
+      const saved = canvasActionParamValues[actionId] ?? {};
+      const defaults = Object.fromEntries((action.params ?? []).filter((param) => dialogParamIds.includes(param.id)).map((param) => [param.id, saved[param.id] ?? param.default ?? defaultCanvasActionParamValue(param.type)]));
+      setCanvasActionRunDialog({ nodeId, action, point, params: defaults });
+      return;
+    }
+    void runNodeCanvasAction(nodeId, actionId, point);
+  }
+
+  async function runNodeCanvasAction(nodeId: string, actionId: string, point: { x: number; y: number }, params?: Record<string, unknown>): Promise<LibrarySnapshot | null> {
     const key = `${nodeId}:${actionId}`;
     try {
       setCanvasActionRunning((current) => ({ ...current, [key]: actionId }));
       setStatus("Running canvas action...");
-      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(actionId)}/run`, point);
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(actionId)}/run`, { ...point, ...(params ? { params } : {}) });
       applyLibrarySnapshot(snapshot);
       setStatus("Canvas action completed");
+      return snapshot;
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not run canvas action.");
+      return null;
     } finally {
       setCanvasActionRunning((current) => {
         const { [key]: _done, ...rest } = current;
@@ -3164,7 +3191,7 @@ function App() {
               toolbarActions={effectiveNodeToolbarConfig[node.manifest.type as EditableNodeType]}
               availableToolbarActions={availableNodeToolbarActions}
               runningCanvasActionId={Object.entries(canvasActionRunning).find(([key]) => key.startsWith(`${node.manifest.id}:`))?.[1] ?? null}
-              onRunCanvasAction={(nodeId, actionId, point) => void runNodeCanvasAction(nodeId, actionId, point)}
+              onRunCanvasAction={requestRunNodeCanvasAction}
               onCreateNodeWithSelectedElements={() => void createNodeWithSelectedElements(node.canvas.id)}
               onKeepOnlySelectedNodes={() => void keepOnlySelectedNodes(node.canvas.id)}
             />
@@ -3367,6 +3394,70 @@ function App() {
               <button type="button" onClick={saveCanvasActionSettingsDraft}>Save</button>
             </footer>
           </div>
+        </div>
+      ) : null}
+      {canvasActionRunDialog ? (
+        <div className="canvasActionParamsOverlay" role="dialog" aria-modal="true" onClick={() => setCanvasActionRunDialog(null)}>
+          <form
+            className="canvasActionParamsDialog"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const { nodeId, action, point, params } = canvasActionRunDialog;
+              setCanvasActionParamValues({ ...canvasActionParamValues, [action.id]: params });
+              const previousIds = new Set(nodes.map((node) => node.canvas.id));
+              const snapshot = await runNodeCanvasAction(nodeId, action.id, point, params);
+              if (snapshot) setCanvasActionRunDialog((current) => current ? { ...current, resultNodes: snapshot.nodes.filter((node) => !previousIds.has(node.canvas.id)) } : current);
+            }}
+          >
+            <header><strong>{canvasActionRunDialog.action.title}</strong><button type="button" onClick={() => setCanvasActionRunDialog(null)}>Close</button></header>
+            {canvasActionRunDialog.action.dialog?.preview?.some((preview) => preview.source === "input") ? (() => {
+              const sourceNode = nodes.find((node) => node.canvas.id === canvasActionRunDialog.nodeId);
+              const src = sourceNode?.previewUrl;
+              if (!src) return null;
+              if (sourceNode.manifest.type === "video") return <video src={`${apiBase}${src}`} controls />;
+              if (sourceNode.manifest.type === "audio") return <audio src={`${apiBase}${src}`} controls />;
+              return <img src={`${apiBase}${src}`} alt="Action input preview" />;
+            })() : null}
+            {(canvasActionRunDialog.action.params ?? []).filter((param) => canvasActionRunDialog.action.dialog?.params.includes(param.id)).map((param) => (
+              <label className="canvasActionSettingsField" key={param.id}>
+                <span>{param.label ?? param.id}</span>
+                {param.type === "boolean" ? (
+                  <input type="checkbox" checked={Boolean(canvasActionRunDialog.params[param.id])} onChange={(event) => setCanvasActionRunDialog({ ...canvasActionRunDialog, params: { ...canvasActionRunDialog.params, [param.id]: event.target.checked } })} />
+                ) : param.options?.length ? (
+                  <select value={String(canvasActionRunDialog.params[param.id] ?? "")} onChange={(event) => {
+                    const option = param.options?.find((candidate) => String(candidate.value) === event.target.value);
+                    setCanvasActionRunDialog({ ...canvasActionRunDialog, params: { ...canvasActionRunDialog.params, [param.id]: option?.value ?? event.target.value } });
+                  }}>{param.options.map((option) => <option key={String(option.value)} value={String(option.value)}>{option.label ?? String(option.value)}</option>)}</select>
+                ) : (
+                  <input
+                    type={param.type === "number" ? "number" : "text"}
+                    min={param.min} max={param.max} step={param.step}
+                    value={String(canvasActionRunDialog.params[param.id] ?? "")}
+                    onChange={(event) => setCanvasActionRunDialog({ ...canvasActionRunDialog, params: { ...canvasActionRunDialog.params, [param.id]: param.type === "number" ? event.target.valueAsNumber : event.target.value } })}
+                  />
+                )}
+              </label>
+            ))}
+            {canvasActionRunDialog.resultNodes?.length ? (
+              <div className="canvasActionResultPreviews">
+                {canvasActionRunDialog.action.dialog?.preview?.filter((preview) => preview.source !== "input").map((preview, index) => {
+                  const outputId = typeof preview.source === "object" ? preview.source.output : "";
+                  const outputType = canvasActionRunDialog.action.outputs.find((output) => output.id === outputId)?.type;
+                  const resultNode = canvasActionRunDialog.resultNodes?.find((node) => node.manifest.type === outputType);
+                  const src = resultNode?.previewUrl;
+                  if (!src) return null;
+                  if (preview.kind === "video") return <video key={index} src={`${apiBase}${src}`} controls autoPlay />;
+                  if (preview.kind === "audio") return <audio key={index} src={`${apiBase}${src}`} controls autoPlay />;
+                  return <img key={index} src={`${apiBase}${src}`} alt={`${preview.kind} result`} />;
+                })}
+              </div>
+            ) : null}
+            <footer>
+              <button type="button" onClick={() => setCanvasActionRunDialog(null)}>Cancel</button>
+              <button type="submit" disabled={Boolean(canvasActionRunning[`${canvasActionRunDialog.nodeId}:${canvasActionRunDialog.action.id}`])}>Run</button>
+            </footer>
+          </form>
         </div>
       ) : null}
       {previewImage && (
@@ -4333,6 +4424,12 @@ function CollectionCardNode({
       </div>}
     </article>
   );
+}
+
+function defaultCanvasActionParamValue(type: string): unknown {
+  if (type === "number") return 0;
+  if (type === "boolean") return false;
+  return "";
 }
 
 function LibraryCardNode({
