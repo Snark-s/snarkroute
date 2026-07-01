@@ -75,6 +75,14 @@ import {
 } from "./features/node-packages/nodePackageHelpers";
 import { apiFetch } from "./shared/apiClient";
 import { filenameFromPath } from "./shared/fileHelpers";
+import {
+  canvasButtonManifestFromDraft as buildCanvasButtonManifestFromDraft,
+  canvasButtonParamCandidates,
+  canvasButtonPreviewCandidates,
+  defaultCanvasButtonPreviewId,
+  nodeManifestFromCompoundNode,
+  type CanvasButtonDraft
+} from "./canvasButtonBuilder";
 import { navigate } from "./shared/navigation";
 import {
   canImportDroppedRouteFile,
@@ -3362,19 +3370,6 @@ function shouldShowInlineResult(type: string): boolean {
 function shouldShowNodeRunButton(type: string): boolean {
   return !type.startsWith("input.");
 }
-
-type CanvasButtonDraft = {
-  nodeId: string;
-  title: string;
-  packageId: string;
-  iconName: string;
-  customIconDataUrl?: string;
-  inputKind: string;
-  outputs: Array<{ id: string; kind: string; label?: string }>;
-  params: Array<NonNullable<NodeManifest["params"]>[number] & { selected: boolean; displayLabel: string }>;
-  previewKind: "" | "image" | "video" | "audio" | "panorama360" | "splat";
-  previewSource: "input" | `output:${string}`;
-};
 
 type CanvasButtonPanelDrag = {
   offsetX: number;
@@ -7285,51 +7280,6 @@ function App() {
     return String(compoundNode.compound?.inputs?.[0]?.kind ?? "json");
   }
 
-  function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string, options: { canvasAction?: { enabled: boolean; icon?: NonNullable<NodeManifest["canvasAction"]>["icon"]; params?: NonNullable<NodeManifest["params"]>; preview?: NonNullable<NonNullable<NodeManifest["canvasAction"]>["dialog"]>["preview"] } } = {}): NodeManifest {
-    const compound = compoundNode.compound ?? {};
-    const inputs = (compound.inputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
-    const outputs = (compound.outputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
-    return {
-      kind: "snarkroute.node",
-      schemaVersion: "0.1",
-      id,
-      title,
-      version: "0.1.0",
-      author: { name: "SnarkRoute Studio" },
-      license: "UNLICENSED",
-      origin: "generated",
-      source: "snarkroute-studio",
-      category: "Compound",
-      description: `Generated from compound route "${compound.title ?? compoundNode.title ?? compoundNode.id}".`,
-      permissions: { network: false, networkHosts: [], readFiles: false, writeOutputs: false, shell: false, env: [] },
-      executor: { type: "declarative" },
-      inputs,
-      outputs,
-      ...(options.canvasAction?.params?.length ? { params: options.canvasAction.params } : {}),
-      ...(options.canvasAction?.enabled ? {
-        canvasAction: {
-          enabled: true,
-          title,
-          description: `Run "${title}" from the Living Canvas node toolbar.`,
-          icon: options.canvasAction.icon ?? { kind: "preset", name: "wrench" },
-          ...(options.canvasAction.params?.length || options.canvasAction.preview?.length ? {
-            dialog: {
-              enabled: true,
-              params: (options.canvasAction.params ?? []).map((param) => param.id),
-              ...(options.canvasAction.preview?.length ? { preview: options.canvasAction.preview } : {})
-            }
-          } : {})
-        }
-      } : {}),
-      generatedWith: {
-        tool: "snarkroute-studio",
-        kind: "compound.subroute",
-        compound: { ...compound, title },
-        subroute: compoundNode.subroute
-      }
-    };
-  }
-
   async function saveCompoundNodeAsPackage(nodeId: string) {
     setContextMenu(null);
     const flowNode = nodes.find((node) => node.id === nodeId);
@@ -7367,18 +7317,8 @@ function App() {
     if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode)) return;
     const inputKind = canvasActionInputKind(compoundNode);
     const title = compoundNode.compound?.title ?? compoundNode.title ?? "Canvas Action";
-    const params = compoundNode.subroute.nodes.flatMap((internalNode) => {
-      const manifest = nodeCatalog.find((item) => item.type === internalNode.type)?.manifest;
-      return (manifest?.params ?? []).map((param) => ({
-        ...param,
-        id: `${internalNode.id}.${param.id}`,
-        label: param.label ?? param.id,
-        default: internalNode.params?.[param.id] ?? param.default,
-        binding: { nodeId: internalNode.id, paramId: param.id },
-        selected: false,
-        displayLabel: `${internalNode.title ?? internalNode.id} — ${param.label ?? param.id}`
-      }));
-    });
+    const params = canvasButtonParamCandidates(compoundNode, nodeCatalog.flatMap((item) => item.manifest ? [item.manifest] : []), library);
+    const previewCandidates = canvasButtonPreviewCandidates(compoundNode, inputKind);
     setCanvasButtonDraft({
       nodeId,
       title,
@@ -7387,8 +7327,8 @@ function App() {
       inputKind,
       outputs: (compoundNode.compound?.outputs ?? []).map((output) => ({ id: output.id, kind: String(output.kind ?? "json"), label: output.label })),
       params,
-      previewKind: "",
-      previewSource: "input"
+      previewCandidates,
+      selectedPreviewId: defaultCanvasButtonPreviewId(previewCandidates)
     });
   }
 
@@ -7398,15 +7338,7 @@ function App() {
     const title = draft.title.trim();
     const id = draft.packageId.trim();
     if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode) || !title || !id) return null;
-    const icon = draft.customIconDataUrl
-      ? { kind: "custom" as const, dataUrl: draft.customIconDataUrl }
-      : { kind: "preset" as const, name: draft.iconName };
-    const selectedParams = draft.params.filter((param) => param.selected).map(({ selected: _selected, displayLabel: _displayLabel, ...param }) => param);
-    const preview = draft.previewKind ? [{
-      kind: draft.previewKind,
-      source: draft.previewSource === "input" ? "input" as const : { output: draft.previewSource.slice("output:".length) }
-    }] : undefined;
-    return nodeManifestFromCompoundNode(compoundNode, id, title, { canvasAction: { enabled: true, icon, params: selectedParams, preview } });
+    return buildCanvasButtonManifestFromDraft(draft, compoundNode);
   }
 
   function selectCanvasButtonPresetIcon(iconName: string) {
@@ -8078,18 +8010,10 @@ function App() {
               <section className="canvasButtonPreviewSection" aria-label="Dialog preview">
                 <span>Preview</span>
                 <label>
-                  <span>Kind</span>
-                  <select value={canvasButtonDraft.previewKind} onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, previewKind: event.target.value as CanvasButtonDraft["previewKind"] } : draft)}>
+                  <span>Preview</span>
+                  <select value={canvasButtonDraft.selectedPreviewId} onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, selectedPreviewId: event.target.value } : draft)}>
                     <option value="">None</option>
-                    <option value="image">Image</option><option value="video">Video</option><option value="audio">Audio</option>
-                    <option value="panorama360">Panorama 360</option><option value="splat">Splat</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Source</span>
-                  <select value={canvasButtonDraft.previewSource} onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, previewSource: event.target.value as CanvasButtonDraft["previewSource"] } : draft)}>
-                    <option value="input">Input</option>
-                    {canvasButtonDraft.outputs.map((output) => <option key={output.id} value={`output:${output.id}`}>{output.label ?? output.id}</option>)}
+                    {canvasButtonDraft.previewCandidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
                   </select>
                 </label>
               </section>
