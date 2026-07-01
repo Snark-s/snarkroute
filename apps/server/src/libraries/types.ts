@@ -462,10 +462,17 @@ export interface RunCanvasNodeActionInput {
   actionId: string;
   targetNodeId?: string;
   params?: Record<string, unknown>;
+  phase?: "prepare" | "complete";
+  continuationId?: string;
   x?: number;
   y?: number;
   width?: number;
   height?: number;
+}
+
+export interface CanvasActionPrepareResult {
+  continuationId: string;
+  previews: Array<{ kind: "panorama360" | "splat"; src: string }>;
 }
 
 export interface DuplicateCanvasNodeInput {

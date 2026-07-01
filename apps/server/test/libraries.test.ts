@@ -14,6 +14,7 @@ vi.mock("../src/execution/service", () => ({
 const previousNoListen = process.env.SNARKROUTE_NO_LISTEN;
 const previousLibraryPath = process.env.SNARKROUTE_LIBRARY_PATH;
 const previousOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
+const previousCanvasActionsPath = process.env.SNARKROUTE_CANVAS_ACTIONS_PATH;
 
 describe("SnarkRoute libraries", () => {
   let libraryPath: string;
@@ -22,6 +23,7 @@ describe("SnarkRoute libraries", () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
     libraryPath = await mkdtemp(join(tmpdir(), "sr-library-"));
     process.env.SNARKROUTE_LIBRARY_PATH = libraryPath;
+    process.env.SNARKROUTE_CANVAS_ACTIONS_PATH = join(libraryPath, ".test-canvas-actions");
     executeRouteMock.mockReset();
   });
 
@@ -29,6 +31,7 @@ describe("SnarkRoute libraries", () => {
     restoreEnv("SNARKROUTE_NO_LISTEN", previousNoListen);
     restoreEnv("SNARKROUTE_LIBRARY_PATH", previousLibraryPath);
     restoreEnv("OPENROUTER_API_KEY", previousOpenRouterApiKey);
+    restoreEnv("SNARKROUTE_CANVAS_ACTIONS_PATH", previousCanvasActionsPath);
   });
 
   it("creates a portable library manifest and empty canvas", async () => {
@@ -1368,6 +1371,79 @@ describe("SnarkRoute libraries", () => {
       await app.close();
     }
   });
+
+  it("runs a pose canvas action provider exactly once across prepare and complete", async () => {
+    await writeCanvasActionManifest(libraryPath, poseCanvasActionManifest());
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Panorama.png");
+      let providerRuns = 0;
+      let providerOutput: unknown;
+      executeRouteMock.mockImplementation(async (route: { nodes: Array<{ id: string }>; edges: Array<{ from: string; to: string; fromPort?: string; toPort?: string }> }, options?: { initialNodeOutputs?: Record<string, unknown> }) => {
+        const seeded = options?.initialNodeOutputs ?? {};
+        const nodeResults: Record<string, { status: "succeeded"; output: unknown }> = {};
+        for (const node of route.nodes) {
+          if (Object.prototype.hasOwnProperty.call(seeded, node.id)) nodeResults[node.id] = { status: "succeeded", output: seeded[node.id] };
+          else if (node.id === "provider") {
+            providerRuns += 1;
+            const inputId = route.edges.find((edge) => edge.to === "provider")?.from ?? "";
+            providerOutput = { image: (nodeResults[inputId]?.output as { value?: unknown })?.value };
+            nodeResults.provider = { status: "succeeded", output: providerOutput };
+          } else if (node.id === "pause") nodeResults.pause = { status: "succeeded", output: providerOutput };
+          else if (node.id === "downstream") nodeResults.downstream = { status: "succeeded", output: providerOutput };
+        }
+        return { status: "succeeded", nodeResults };
+      });
+
+      const prepared = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "prepare" } });
+      expect(prepared.statusCode).toBe(200);
+      expect(executeRouteMock.mock.calls[0][0].nodes.map((node: { id: string }) => node.id)).toEqual(["action__input__image", "provider"]);
+      expect(providerRuns).toBe(1);
+
+      const completed = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`,
+        payload: { phase: "complete", continuationId: prepared.json().continuationId, targetNodeId: source.manifest.id, params: { "pause.yawDegrees": 35, "pause.pitchDegrees": -10, "pause.fovDegrees": 70 } }
+      });
+      expect(completed.statusCode).toBe(200);
+      expect(executeRouteMock.mock.calls[1][1].initialNodeOutputs).toHaveProperty("provider");
+      expect(providerRuns).toBe(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns 410 for an expired canvas action continuation", async () => {
+    await writeCanvasActionManifest(libraryPath, poseCanvasActionManifest());
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Expired panorama.png");
+      executeRouteMock.mockResolvedValue({ status: "succeeded", nodeResults: { action__input__image: { status: "succeeded", output: {} }, provider: { status: "succeeded", output: { image: "https://example.test/panorama.jpg" } } } });
+      const prepared = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "prepare" } });
+      vi.setSystemTime(Date.now() + 16 * 60 * 1000);
+      const completed = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "complete", continuationId: prepared.json().continuationId } });
+      expect(completed.statusCode).toBe(410);
+      expect(completed.json().error).toMatch(/expired/i);
+    } finally {
+      vi.useRealTimers();
+      await app.close();
+    }
+  });
+
+  it("keeps canvas actions without a phase on the legacy immediate-run route", async () => {
+    await writeCanvasActionManifest(libraryPath, { ...poseCanvasActionManifest(), id: "test.legacy", canvasAction: { enabled: true } });
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Legacy action.png");
+      executeRouteMock.mockResolvedValue({ status: "succeeded", nodeResults: { action: { status: "succeeded", output: { image: { localPath: join(libraryPath, source.canvas.nodePath, source.manifest.stack[0].file) } } } } });
+      const response = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.legacy/run`, payload: { targetNodeId: source.manifest.id } });
+      expect(response.statusCode).toBe(200);
+      expect(executeRouteMock.mock.calls[0][0].nodes.map((node: { id: string }) => node.id)).toEqual(["source", "action"]);
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 async function testServer() {
@@ -1391,3 +1467,27 @@ async function importNode(app: Awaited<ReturnType<typeof testServer>>, filename:
 
 const onePixelPngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const sampleVideoBase64 = "AAECAwQ=";
+
+async function writeCanvasActionManifest(libraryPath: string, manifest: Record<string, unknown>) {
+  const directory = join(libraryPath, ".test-canvas-actions", String(manifest.id));
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest));
+}
+
+function poseCanvasActionManifest() {
+  return {
+    kind: "snarkroute.node", schemaVersion: "0.1", id: "test.pose", title: "Pose action", version: "0.1.0", author: { name: "Test" }, license: "UNLICENSED", origin: "generated",
+    permissions: { network: false, readFiles: false, writeOutputs: false, shell: false, env: [] }, executor: { type: "declarative" },
+    inputs: [{ id: "image", type: "image" }], outputs: [{ id: "image", type: "image" }],
+    params: [
+      { id: "pause.yawDegrees", type: "number", binding: { nodeId: "pause", paramId: "yawDegrees" } },
+      { id: "pause.pitchDegrees", type: "number", binding: { nodeId: "pause", paramId: "pitchDegrees" } },
+      { id: "pause.fovDegrees", type: "number", binding: { nodeId: "pause", paramId: "fovDegrees" } }
+    ],
+    canvasAction: { enabled: true, poseBindings: { yaw: "pause.yawDegrees", pitch: "pause.pitchDegrees", fov: "pause.fovDegrees" }, dialog: { enabled: true, params: ["pause.yawDegrees", "pause.pitchDegrees", "pause.fovDegrees"], preview: [{ kind: "panorama360", source: { output: "image" } }] } },
+    generatedWith: {
+      kind: "compound.subroute", compound: { inputs: [{ id: "image", nodeId: "provider", port: "image" }], outputs: [{ id: "image", nodeId: "downstream", port: "image" }] },
+      subroute: { routeVersion: "0.1", route: { id: "pose", title: "Pose", author: { name: "Test" } }, nodes: [{ id: "provider", type: "test.provider" }, { id: "pause", type: "transform.panorama360ToFisheye" }, { id: "downstream", type: "test.downstream" }], edges: [{ from: "provider", to: "pause", fromPort: "image", toPort: "image" }, { from: "pause", to: "downstream", fromPort: "image", toPort: "image" }] }
+    }
+  };
+}

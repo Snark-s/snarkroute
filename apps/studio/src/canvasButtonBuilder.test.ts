@@ -53,4 +53,11 @@ describe("Living Canvas button builder", () => {
       { kind: "panorama360", source: { output: "panorama" } }
     ]);
   });
+
+  it("derives pose bindings for selected fisheye camera parameters", () => {
+    const compound = compoundWith([{ id: "fisheye", type: "transform.panorama360ToFisheye", params: { yawDegrees: 0, pitchDegrees: -90, fovDegrees: 200 } }], [{ id: "image", nodeId: "fisheye", kind: "image" }]);
+    const params = canvasButtonParamCandidates(compound, [], []).map((param) => ({ ...param, selected: true }));
+    const draft: CanvasButtonDraft = { nodeId: "compound", title: "Look", packageId: "look", iconName: "wrench", inputKind: "image", outputs: [], params, previewCandidates: [], selectedPreviewId: "" };
+    expect(canvasButtonManifestFromDraft(draft, compound)?.canvasAction?.poseBindings).toEqual({ yaw: "fisheye.yawDegrees", pitch: "fisheye.pitchDegrees", fov: "fisheye.fovDegrees" });
+  });
 });

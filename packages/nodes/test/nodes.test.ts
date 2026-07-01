@@ -127,6 +127,17 @@ describe("built-in nodes", () => {
     expect(invalid.issues.some((issue) => issue.path === "canvasAction.dialog.preview.0.source.output")).toBe(true);
   });
 
+  it("validates canvas action pose binding parameter references", () => {
+    const base = {
+      ...examplePluginManifest(),
+      params: [{ id: "view.yaw", type: "number", binding: { nodeId: "fisheye", paramId: "yawDegrees" } }],
+      inputs: [{ id: "image", type: "image" }], outputs: [{ id: "image", type: "image" }]
+    };
+    expect(validateNodeManifest({ ...base, canvasAction: { enabled: true, poseBindings: { yaw: "view.yaw" } } }).ok).toBe(true);
+    const invalid = validateNodeManifest({ ...base, canvasAction: { enabled: true, poseBindings: { yaw: "missing" } } });
+    expect(invalid.issues.some((issue) => issue.path === "canvasAction.poseBindings.yaw")).toBe(true);
+  });
+
   it("validates library manifests", () => {
     const validation = validateNodeLibraryManifest({
       kind: "snarkroute.nodeLibrary",

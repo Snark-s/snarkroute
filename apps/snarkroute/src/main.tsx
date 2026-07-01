@@ -2,7 +2,7 @@ import "./styles.css";
 import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Cog, Copy, Crop, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Maximize2, Minimize2, Moon, Music, PanelRight, RefreshCw, Save, Scissors, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
 import { Aperture, Archive, ArrowDown, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clock3, Compass, Cpu, Database, Eraser, Eye, EyeOff, FileAudio, FileImage, FileJson, FileText, FileVideo, Film, Filter, Flag, FlipHorizontal, FlipVertical, FolderOpen, Globe, Grid3X3, Headphones, Heart, Link, List, Mail, Map as MapIcon, MapPin, MessageSquare, Mic, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Pin, Play, Plus, Radio, Repeat, RotateCcw, RotateCw, Route, Search, Send, Settings, Share2, Shuffle, SlidersHorizontal, Sparkles, Square, Star, Table, Type, Upload, Volume2, Wand2, X, Zap, ZoomIn, ZoomOut } from "lucide-react";
 import JSZip from "jszip";
-import { Panorama360Viewer, SplatViewer } from "@snarkroute/media-viewers";
+import { Panorama360Viewer, SplatViewer, type CameraPose } from "@snarkroute/media-viewers";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { canvasActionNeedsDialog } from "./canvasActionDialog";
 import { createRoot } from "react-dom/client";
@@ -349,6 +349,7 @@ interface CanvasNodeAction {
   outputs: Array<{ id: string; type: EditableNodeType; label: string }>;
   params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown; options?: Array<{ value: unknown; label?: string }>; min?: number; max?: number; step?: number }>;
   dialog?: { enabled: boolean; params: string[]; preview?: Array<{ kind: "image" | "video" | "audio" | "panorama360" | "splat"; source: "input" | { output: string } }> };
+  poseBindings?: Partial<Record<"yaw" | "pitch" | "roll" | "fov" | "positionX" | "positionY" | "positionZ", string>>;
   icon?: { kind: "preset"; name: string } | { kind: "custom"; svg?: string; dataUrl?: string };
 }
 
@@ -426,6 +427,10 @@ type CanvasActionRunDialog = {
   action: CanvasNodeAction;
   point: { x: number; y: number };
   params: Record<string, unknown>;
+  continuationId?: string;
+  targetNodeId?: string;
+  preparedPreviews?: Array<{ kind: "panorama360" | "splat"; src: string }>;
+  pose?: { yaw?: number; pitch?: number; roll?: number; fov?: number; positionX?: number; positionY?: number; positionZ?: number };
   resultNodes?: NodeView[];
 };
 
@@ -2886,6 +2891,10 @@ function App() {
   function requestRunNodeCanvasAction(nodeId: string, actionId: string, point: { x: number; y: number }) {
     const action = canvasNodeActions.find((candidate) => candidate.id === actionId);
     const dialogParamIds = canvasActionNeedsDialog(action) ? action!.dialog!.params : [];
+    if (action && Object.keys(action.poseBindings ?? {}).length > 0) {
+      void prepareNodeCanvasAction(nodeId, action, point);
+      return;
+    }
     if (action && dialogParamIds.length > 0) {
       const saved = canvasActionParamValues[actionId] ?? {};
       const defaults = Object.fromEntries((action.params ?? []).filter((param) => dialogParamIds.includes(param.id)).map((param) => [param.id, saved[param.id] ?? param.default ?? defaultCanvasActionParamValue(param.type)]));
@@ -2895,12 +2904,30 @@ function App() {
     void runNodeCanvasAction(nodeId, actionId, point);
   }
 
-  async function runNodeCanvasAction(nodeId: string, actionId: string, point: { x: number; y: number }, params?: Record<string, unknown>): Promise<LibrarySnapshot | null> {
+  async function prepareNodeCanvasAction(nodeId: string, action: CanvasNodeAction, point: { x: number; y: number }, targetNodeId?: string) {
+    const key = `${nodeId}:${action.id}`;
+    try {
+      setCanvasActionRunning((current) => ({ ...current, [key]: action.id }));
+      setStatus("Preparing interactive canvas action...");
+      const prepared = await apiPost<{ continuationId: string; previews: Array<{ kind: "panorama360" | "splat"; src: string }> }>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(action.id)}/run`, { phase: "prepare", ...point });
+      const paramIds = action.dialog?.params ?? [];
+      const saved = canvasActionParamValues[action.id] ?? {};
+      const params = Object.fromEntries((action.params ?? []).filter((param) => paramIds.includes(param.id)).map((param) => [param.id, saved[param.id] ?? param.default ?? defaultCanvasActionParamValue(param.type)]));
+      setCanvasActionRunDialog({ nodeId, action, point, params, targetNodeId, continuationId: prepared.continuationId, preparedPreviews: prepared.previews });
+      setStatus("Choose a view, then run the action");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not prepare canvas action.");
+    } finally {
+      setCanvasActionRunning((current) => { const { [key]: _done, ...rest } = current; return rest; });
+    }
+  }
+
+  async function runNodeCanvasAction(nodeId: string, actionId: string, point: { x: number; y: number }, params?: Record<string, unknown>, completion?: { continuationId: string; targetNodeId?: string }): Promise<LibrarySnapshot | null> {
     const key = `${nodeId}:${actionId}`;
     try {
       setCanvasActionRunning((current) => ({ ...current, [key]: actionId }));
       setStatus("Running canvas action...");
-      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(actionId)}/run`, { ...point, ...(params ? { params } : {}) });
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(actionId)}/run`, { ...point, ...(params ? { params } : {}), ...(completion ? { phase: "complete", continuationId: completion.continuationId, targetNodeId: completion.targetNodeId } : {}) });
       applyLibrarySnapshot(snapshot);
       setStatus("Canvas action completed");
       return snapshot;
@@ -2917,6 +2944,12 @@ function App() {
 
   async function rerunCanvasActionEdge(edge: CanvasEdge) {
     if (edge.kind !== "canvasAction" || !edge.actionId) return;
+    const action = canvasNodeActions.find((candidate) => candidate.id === edge.actionId);
+    if (action && Object.keys(action.poseBindings ?? {}).length > 0) {
+      const target = nodes.find((node) => node.canvas.id === edge.toNodeId)?.canvas;
+      await prepareNodeCanvasAction(edge.fromNodeId, action, target ? { x: target.x + target.width / 2, y: target.y + target.height / 2 } : { x: 0, y: 0 }, edge.toNodeId);
+      return;
+    }
     const key = `edge:${edge.id}:${edge.actionId}`;
     try {
       setCanvasActionRunning((current) => ({ ...current, [key]: edge.actionId! }));
@@ -3404,14 +3437,24 @@ function App() {
             onClick={(event) => event.stopPropagation()}
             onSubmit={async (event) => {
               event.preventDefault();
-              const { nodeId, action, point, params } = canvasActionRunDialog;
+              const { nodeId, action, point, params, continuationId, targetNodeId, pose } = canvasActionRunDialog;
+              const poseParams = Object.fromEntries(Object.entries(action.poseBindings ?? {}).flatMap(([axis, paramId]) => paramId && pose?.[axis as keyof typeof pose] !== undefined ? [[paramId, pose[axis as keyof typeof pose]]] : []));
+              const runParams = { ...params, ...poseParams };
               setCanvasActionParamValues({ ...canvasActionParamValues, [action.id]: params });
               const previousIds = new Set(nodes.map((node) => node.canvas.id));
-              const snapshot = await runNodeCanvasAction(nodeId, action.id, point, params);
-              if (snapshot) setCanvasActionRunDialog((current) => current ? { ...current, resultNodes: snapshot.nodes.filter((node) => !previousIds.has(node.canvas.id)) } : current);
+              const snapshot = await runNodeCanvasAction(nodeId, action.id, point, runParams, continuationId ? { continuationId, targetNodeId } : undefined);
+              if (snapshot) setCanvasActionRunDialog((current) => continuationId ? null : current ? { ...current, resultNodes: snapshot.nodes.filter((node) => !previousIds.has(node.canvas.id)) } : current);
             }}
           >
             <header><strong>{canvasActionRunDialog.action.title}</strong><button type="button" onClick={() => setCanvasActionRunDialog(null)}>Close</button></header>
+            {canvasActionRunDialog.preparedPreviews?.map((preview, index) => (
+              <CanvasActionPosePreview
+                key={`${preview.kind}-${index}`}
+                kind={preview.kind}
+                src={absoluteApiUrl(preview.src)}
+                onPoseChange={(pose) => setCanvasActionRunDialog((current) => current ? { ...current, pose } : current)}
+              />
+            ))}
             {canvasActionRunDialog.action.dialog?.preview?.filter((preview) => preview.source === "input").map((preview, index) => (() => {
               const sourceNode = nodes.find((node) => node.canvas.id === canvasActionRunDialog.nodeId);
               const src = sourceNode?.previewUrl;
@@ -4427,6 +4470,27 @@ function defaultCanvasActionParamValue(type: string): unknown {
   if (type === "number") return 0;
   if (type === "boolean") return false;
   return "";
+}
+
+function CanvasActionPosePreview({ kind, src, onPoseChange }: { kind: "panorama360" | "splat"; src: string; onPoseChange: (pose: CanvasActionRunDialog["pose"]) => void }) {
+  if (kind === "splat") {
+    return <SplatViewer splatUrl={src} className="canvasActionSplatViewer" mountClassName="canvasActionSplatMount" canvasClassName="canvasActionSplatCanvas" onPoseChange={(pose: CameraPose) => onPoseChange({ yaw: pose.rotation.yaw, pitch: pose.rotation.pitch, roll: pose.rotation.roll, fov: pose.fov, positionX: pose.position.x, positionY: pose.position.y, positionZ: pose.position.z })} />;
+  }
+  return <Panorama360Viewer src={src} title="Interactive action panorama" className="panoramaViewer canvasActionPanoramaViewer" canvasClassName="panoramaCanvas">
+    {({ view, setFov }) => <>
+      <PanoramaPoseReporter view={view} onPoseChange={onPoseChange} />
+      <label className="canvasActionSettingsField"><span>Field of view</span><input type="range" min={35} max={90} value={view.fov} onChange={(event) => setFov(event.target.valueAsNumber)} /></label>
+    </>}
+  </Panorama360Viewer>;
+}
+
+function PanoramaPoseReporter({ view, onPoseChange }: { view: { yaw: number; pitch: number; fov: number }; onPoseChange: (pose: CanvasActionRunDialog["pose"]) => void }) {
+  useEffect(() => onPoseChange({ yaw: view.yaw * 180 / Math.PI, pitch: view.pitch * 180 / Math.PI, fov: view.fov }), [view.yaw, view.pitch, view.fov]);
+  return null;
+}
+
+function absoluteApiUrl(src: string): string {
+  return /^(?:https?:|data:|blob:)/i.test(src) ? src : `${apiBase}${src}`;
 }
 
 function CanvasActionMediaPreview({ kind, src, title }: { kind: "image" | "video" | "audio" | "panorama360" | "splat"; src: string; title: string }) {

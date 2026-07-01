@@ -517,6 +517,7 @@ export type NodeManifest = {
     title?: string;
     description?: string;
     icon?: { kind: "preset"; name: string } | { kind: "custom"; svg?: string; dataUrl?: string };
+    poseBindings?: Partial<Record<"yaw" | "pitch" | "roll" | "fov" | "positionX" | "positionY" | "positionZ", string>>;
     dialog?: {
       enabled: boolean;
       params: string[];

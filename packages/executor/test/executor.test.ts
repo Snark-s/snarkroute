@@ -506,7 +506,9 @@ describe("executor", () => {
 
   it("uses initial node outputs without rerunning seeded upstream nodes", async () => {
     const executor = createExecutor();
+    let sourceRuns = 0;
     executor.registerNodeRunner("source", () => {
+      sourceRuns += 1;
       throw new Error("seeded source should not run");
     });
     executor.registerNodeRunner("consumer", ({ inputs }) => ({ output: { image: inputs.image } }));
@@ -524,6 +526,7 @@ describe("executor", () => {
       }
     );
     expect(result.status).toBe("succeeded");
+    expect(sourceRuns).toBe(0);
     expect(result.nodeResults.source.logs).toEqual(["Using existing output"]);
     expect(result.nodeResults.consume.output).toEqual({ image: { path: "ready.png", mimeType: "image/png" } });
   });

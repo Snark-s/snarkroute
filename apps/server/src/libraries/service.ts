@@ -4,7 +4,7 @@ import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve,
 import { createHash, randomBytes } from "node:crypto";
 import type { ExecuteOptions, RunResult } from "@snarkroute/executor";
 import type { OpenRoute } from "@snarkroute/protocol";
-import { builtInNodeManifests, loadInstalledNodeManifests, loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type PromptLibraryPrompt, type SnarkNodeManifest } from "@snarkroute/nodes";
+import { buildCompoundTemplateExecution, builtInNodeManifests, compoundTemplateOutput, loadInstalledNodeManifests, loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type CompoundTemplateExecution, type PromptLibraryPrompt, type SnarkNodeManifest } from "@snarkroute/nodes";
 import { librariesDirectory } from "../server-paths";
 import { sanitizeFilename } from "../assets/service";
 import { createRouteExecutor } from "../execution/service";
@@ -23,6 +23,7 @@ import type {
   CollectionNodeItem,
   CollectionNodeManifest,
   CollectionNodeStoredItem,
+  CanvasActionPrepareResult,
   CreateNodeInput,
   CropMetadata,
   DuplicateCanvasNodeAsRepresentationInput,
@@ -73,6 +74,26 @@ import type {
   VideoNodeManifest,
   VideoNodeView
 } from "./types";
+
+const canvasActionContinuationTtlMs = 15 * 60 * 1000;
+const canvasActionContinuations = new Map<string, {
+  createdAt: number;
+  actionId: string;
+  sourceNodeId: string;
+  nodeOutputs: Record<string, unknown>;
+}>();
+const canvasActionContinuationCleanup = setInterval(() => cleanupCanvasActionContinuations(), 60_000);
+canvasActionContinuationCleanup.unref?.();
+
+export class CanvasActionContinuationGoneError extends Error {
+  readonly statusCode = 410;
+}
+
+function cleanupCanvasActionContinuations(now = Date.now()): void {
+  for (const [id, continuation] of canvasActionContinuations) {
+    if (now - continuation.createdAt >= canvasActionContinuationTtlMs) canvasActionContinuations.delete(id);
+  }
+}
 
 export type {
   AppendImageStackInput,
@@ -2111,7 +2132,7 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
   return readLibrarySnapshot(libraryPath);
 }
 
-export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Promise<LibrarySnapshot> {
+export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Promise<LibrarySnapshot | CanvasActionPrepareResult> {
   const libraryPath = await ensureCurrentLibrary();
   const canvas = await ensureCanvas(libraryPath);
   const action = await findCanvasActionManifest(input.actionId);
@@ -2120,26 +2141,46 @@ export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Prom
   const source = await canvasActionSourceInput(libraryPath, input.nodeId, inputPort.type);
   const targetNode = input.targetNodeId ? canvas.nodes.find((node) => node.id === input.targetNodeId) : undefined;
   if (input.targetNodeId && !targetNode) throw new Error(`Target node "${input.targetNodeId}" was not found.`);
-  const runResult = await executeSnarkRouteWithUsageStats({
-    routeVersion: "0.1",
-    route: {
-      id: `snarkroute-canvas-action-${action.id}-${input.nodeId}`,
-      title: action.canvasAction?.title?.trim() || action.title,
-      author: { name: "SnarkRoute" }
-    },
-    nodes: [
-      { id: "source", type: "utility.null" },
-      { id: "action", type: action.id, params: input.params ?? {} }
-    ],
-    edges: [{ from: "source", to: "action", fromPort: "value", toPort: inputPort.id }]
-  }, {
-    initialNodeOutputs: { source: { value: source.value } }
-  });
-  const actionResult = runResult.nodeResults.action;
-  if (runResult.status !== "succeeded" || actionResult?.status !== "succeeded") {
-    throw new Error(actionResult?.error || `Canvas action "${action.title}" failed.`);
+  let output: Record<string, unknown>;
+  if (input.phase === "prepare") {
+    const execution = canvasActionCompoundExecution(action, input.nodeId, source.value, input.params);
+    const pauseNodeId = canvasActionPauseNodeId(action);
+    const upstream = upstreamNodeIds(execution.route, pauseNodeId);
+    const prepareRoute: OpenRoute = {
+      ...execution.route,
+      nodes: execution.route.nodes.filter((node) => upstream.has(node.id)),
+      edges: execution.route.edges.filter((edge) => upstream.has(edge.from) && upstream.has(edge.to))
+    };
+    const initialNodeOutputs = Object.fromEntries(Object.entries(execution.initialNodeOutputs).filter(([nodeId]) => upstream.has(nodeId)));
+    const runResult = await executeSnarkRouteWithUsageStats(prepareRoute, { initialNodeOutputs });
+    if (runResult.status !== "succeeded") throw new Error(`Canvas action "${action.title}" failed while preparing its interactive preview.`);
+    const nodeOutputs = { ...initialNodeOutputs, ...Object.fromEntries(Object.entries(runResult.nodeResults).filter(([, result]) => result.status === "succeeded").map(([nodeId, result]) => [nodeId, result.output])) };
+    const continuationId = randomBytes(18).toString("base64url");
+    canvasActionContinuations.set(continuationId, { createdAt: Date.now(), actionId: action.id, sourceNodeId: input.nodeId, nodeOutputs });
+    return { continuationId, previews: canvasActionPreparedPreviews(action, execution, pauseNodeId, nodeOutputs) };
   }
-  const output = actionResult.output && typeof actionResult.output === "object" ? actionResult.output as Record<string, unknown> : {};
+  if (input.phase === "complete") {
+    cleanupCanvasActionContinuations();
+    const continuation = input.continuationId ? canvasActionContinuations.get(input.continuationId) : undefined;
+    if (!continuation || continuation.actionId !== action.id || continuation.sourceNodeId !== input.nodeId) {
+      throw new CanvasActionContinuationGoneError("This interactive action expired. Start the preview again.");
+    }
+    canvasActionContinuations.delete(input.continuationId!);
+    const execution = canvasActionCompoundExecution(action, input.nodeId, source.value, input.params, continuation.nodeOutputs);
+    const runResult = await executeSnarkRouteWithUsageStats(execution.route, { initialNodeOutputs: execution.initialNodeOutputs });
+    if (runResult.status !== "succeeded") throw new Error(`Canvas action "${action.title}" failed while completing.`);
+    output = compoundTemplateOutput(execution, runResult.nodeResults);
+  } else {
+    const runResult = await executeSnarkRouteWithUsageStats({
+      routeVersion: "0.1",
+      route: { id: `snarkroute-canvas-action-${action.id}-${input.nodeId}`, title: action.canvasAction?.title?.trim() || action.title, author: { name: "SnarkRoute" } },
+      nodes: [{ id: "source", type: "utility.null" }, { id: "action", type: action.id, params: input.params ?? {} }],
+      edges: [{ from: "source", to: "action", fromPort: "value", toPort: inputPort.id }]
+    }, { initialNodeOutputs: { source: { value: source.value } } });
+    const actionResult = runResult.nodeResults.action;
+    if (runResult.status !== "succeeded" || actionResult?.status !== "succeeded") throw new Error(actionResult?.error || `Canvas action "${action.title}" failed.`);
+    output = actionResult.output && typeof actionResult.output === "object" ? actionResult.output as Record<string, unknown> : {};
+  }
   let created = 0;
   for (const port of action.outputs) {
     const value = output[port.id];
@@ -2341,6 +2382,69 @@ export async function deleteCanvasNode(nodeId: string): Promise<LibrarySnapshot>
   await writeCanvas(libraryPath, canvas);
   await replaceDeletedRepresentativeImage(libraryPath, nodeId);
   return readLibrarySnapshot(libraryPath);
+}
+
+function canvasActionCompoundExecution(action: SnarkNodeManifest, sourceNodeId: string, sourceValue: unknown, params?: Record<string, unknown>, initialNodeOutputs?: Record<string, unknown>): CompoundTemplateExecution {
+  return buildCompoundTemplateExecution(action, {
+    nodeId: "action",
+    routeId: `snarkroute-canvas-action-${action.id}-${sourceNodeId}`,
+    title: action.canvasAction?.title?.trim() || action.title,
+    params,
+    inputs: { [action.inputs[0].id]: sourceValue },
+    initialNodeOutputs
+  });
+}
+
+function canvasActionPauseNodeId(action: SnarkNodeManifest): string {
+  const paramIds = Object.values(action.canvasAction?.poseBindings ?? {});
+  const nodeIds = new Set(paramIds.map((paramId) => action.params?.find((param) => param.id === paramId)?.binding?.nodeId).filter((nodeId): nodeId is string => Boolean(nodeId)));
+  if (nodeIds.size !== 1) throw new Error(`Canvas action "${action.title}" must bind its pose parameters to one pause node.`);
+  return [...nodeIds][0];
+}
+
+function upstreamNodeIds(route: OpenRoute, pauseNodeId: string): Set<string> {
+  if (!route.nodes.some((node) => node.id === pauseNodeId)) throw new Error(`Pause node "${pauseNodeId}" was not found in the action subroute.`);
+  const result = new Set<string>();
+  const pending = route.edges.filter((edge) => edge.to === pauseNodeId).map((edge) => edge.from);
+  while (pending.length > 0) {
+    const nodeId = pending.pop()!;
+    if (result.has(nodeId)) continue;
+    result.add(nodeId);
+    pending.push(...route.edges.filter((edge) => edge.to === nodeId).map((edge) => edge.from));
+  }
+  return result;
+}
+
+function canvasActionPreparedPreviews(action: SnarkNodeManifest, execution: CompoundTemplateExecution, pauseNodeId: string, nodeOutputs: Record<string, unknown>): CanvasActionPrepareResult["previews"] {
+  const preview = action.canvasAction?.dialog?.preview?.find((candidate) => candidate.kind === "panorama360" || candidate.kind === "splat");
+  if (!preview || (preview.kind !== "panorama360" && preview.kind !== "splat")) return [];
+  const kind = preview.kind;
+  const edge = execution.route.edges.find((candidate) => candidate.to === pauseNodeId);
+  if (!edge) return [];
+  const value = readCanvasActionOutputPort(nodeOutputs[edge.from], edge.fromPort);
+  const src = canvasActionPreviewSource(value, kind);
+  return src ? [{ kind, src }] : [];
+}
+
+function readCanvasActionOutputPort(output: unknown, port?: string): unknown {
+  if (!port || !output || typeof output !== "object" || Array.isArray(output)) return output;
+  return (output as Record<string, unknown>)[port] ?? output;
+}
+
+function canvasActionPreviewSource(value: unknown, kind: "panorama360" | "splat"): string | null {
+  if (typeof value === "string") return canvasActionPreviewUrl(value, kind);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const key of kind === "splat" ? ["splatUrl", "splat_url", "url", "localPath", "path", "file"] : ["url", "localPath", "path", "file", "image", "panorama"]) {
+    const found = canvasActionPreviewSource(record[key], kind);
+    if (found) return found;
+  }
+  return null;
+}
+
+function canvasActionPreviewUrl(path: string, kind: "panorama360" | "splat"): string {
+  if (/^(?:https?:|data:|blob:|\/api\/)/i.test(path)) return path;
+  return `/api/assets/preview?kind=${kind === "splat" ? "file" : "image"}&path=${encodeURIComponent(path)}`;
 }
 
 export async function duplicateCollectionItemAsNode(input: { nodeId: string; itemId: string; x: number; y: number; width?: number; height?: number }): Promise<LibrarySnapshot> {

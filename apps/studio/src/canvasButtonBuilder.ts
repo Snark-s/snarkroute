@@ -85,14 +85,15 @@ export function canvasButtonManifestFromDraft(draft: CanvasButtonDraft, compound
   const id = draft.packageId.trim();
   if (compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !title || !id) return null;
   const selectedParams = draft.params.filter((param) => param.selected).map(({ selected: _selected, displayLabel: _displayLabel, ...param }) => param);
+  const poseBindings = canvasButtonPoseBindings(selectedParams);
   const selectedPreview = draft.previewCandidates.find((candidate) => candidate.id === draft.selectedPreviewId);
   const icon = draft.customIconDataUrl ? { kind: "custom" as const, dataUrl: draft.customIconDataUrl } : { kind: "preset" as const, name: draft.iconName };
   return nodeManifestFromCompoundNode(compoundNode, id, title, {
-    canvasAction: { enabled: true, icon, params: selectedParams, preview: selectedPreview ? [{ kind: selectedPreview.kind, source: selectedPreview.source }] : undefined }
+    canvasAction: { enabled: true, icon, params: selectedParams, poseBindings, preview: selectedPreview ? [{ kind: selectedPreview.kind, source: selectedPreview.source }] : undefined }
   });
 }
 
-export function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string, options: { canvasAction?: { enabled: boolean; icon?: NonNullable<NodeManifest["canvasAction"]>["icon"]; params?: NonNullable<NodeManifest["params"]>; preview?: NonNullable<NonNullable<NodeManifest["canvasAction"]>["dialog"]>["preview"] } } = {}): NodeManifest {
+export function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string, options: { canvasAction?: { enabled: boolean; icon?: NonNullable<NodeManifest["canvasAction"]>["icon"]; params?: NonNullable<NodeManifest["params"]>; poseBindings?: NonNullable<NodeManifest["canvasAction"]>["poseBindings"]; preview?: NonNullable<NonNullable<NodeManifest["canvasAction"]>["dialog"]>["preview"] } } = {}): NodeManifest {
   const compound = compoundNode.compound ?? {};
   const inputs = (compound.inputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
   const outputs = (compound.outputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
@@ -105,10 +106,24 @@ export function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][num
     ...(options.canvasAction?.params?.length ? { params: options.canvasAction.params } : {}),
     ...(options.canvasAction?.enabled ? { canvasAction: {
       enabled: true, title, description: `Run "${title}" from the Living Canvas node toolbar.`, icon: options.canvasAction.icon ?? { kind: "preset", name: "wrench" },
+      ...(options.canvasAction.poseBindings && Object.keys(options.canvasAction.poseBindings).length ? { poseBindings: options.canvasAction.poseBindings } : {}),
       ...(options.canvasAction.params?.length || options.canvasAction.preview?.length ? { dialog: { enabled: true, params: (options.canvasAction.params ?? []).map((param) => param.id), ...(options.canvasAction.preview?.length ? { preview: options.canvasAction.preview } : {}) } } : {})
     } } : {}),
     generatedWith: { tool: "snarkroute-studio", kind: "compound.subroute", compound: { ...compound, title }, subroute: compoundNode.subroute }
   };
+}
+
+function canvasButtonPoseBindings(params: NonNullable<NodeManifest["params"]>): NonNullable<NodeManifest["canvasAction"]>["poseBindings"] {
+  const aliases: Record<string, keyof NonNullable<NonNullable<NodeManifest["canvasAction"]>["poseBindings"]>> = {
+    yaw: "yaw", yawDegrees: "yaw", pitch: "pitch", pitchDegrees: "pitch", roll: "roll", rollDegrees: "roll", fov: "fov", fovDegrees: "fov",
+    positionX: "positionX", positionY: "positionY", positionZ: "positionZ"
+  };
+  const result: NonNullable<NodeManifest["canvasAction"]>["poseBindings"] = {};
+  for (const param of params) {
+    const axis = param.binding ? aliases[param.binding.paramId] : undefined;
+    if (axis) result[axis] = param.id;
+  }
+  return result;
 }
 
 function inferredParamType(value: unknown): string {
