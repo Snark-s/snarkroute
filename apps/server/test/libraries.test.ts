@@ -589,7 +589,8 @@ describe("SnarkRoute libraries", () => {
       const params = executeRouteMock.mock.calls[0][0].nodes[0].params;
       expect(params.prompt).toBe("Use @image 1 as the opening frame");
       expect(params.images).toHaveLength(1);
-      expect(params.images[0].path).toContain(secondSource.manifest.stack[0].file.replace("/", "\\"));
+      expect(secondSource.manifest.stack[0].file).toBe("content/000-import.png");
+      expect(params.images[0].path.replaceAll("\\", "/")).toContain(secondSource.manifest.stack[0].file);
     } finally {
       await app.close();
     }
@@ -877,7 +878,8 @@ describe("SnarkRoute libraries", () => {
       expect(params.prompt).not.toContain("must not appear");
       expect(params.images).toHaveLength(1);
       expect(params).toMatchObject({ aspectRatio: "1:1", imageSize: "2K", imageResolution: "2K", quality: "standard", outputFormat: "webp" });
-      expect(params.images[0].path).toContain(secondImage.manifest.stack[0].file.replace("/", "\\"));
+      expect(secondImage.manifest.stack[0].file).toBe("content/000-import.png");
+      expect(params.images[0].path.replaceAll("\\", "/")).toContain(secondImage.manifest.stack[0].file);
     } finally {
       await app.close();
     }
