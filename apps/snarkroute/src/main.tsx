@@ -335,7 +335,7 @@ interface CollectionNodeView {
 type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView | CollectionNodeView;
 type EditableNodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView;
 type EditableNodeType = EditableNodeView["manifest"]["type"];
-type BuiltInNodeToolbarActionId = "download" | "crop" | "expand" | "upload" | "stack" | "collapse" | "delete";
+type BuiltInNodeToolbarActionId = "download" | "crop" | "expand" | "upload" | "stack" | "collapse" | "collectSelected" | "keepSelected" | "delete";
 type NodeToolbarActionId = string;
 type NodeToolbarConfig = Record<EditableNodeType, NodeToolbarActionId[]>;
 
@@ -651,6 +651,8 @@ const builtInNodeToolbarActions: Array<{ id: BuiltInNodeToolbarActionId; label: 
   { id: "upload", label: "Upload" },
   { id: "stack", label: "Stack" },
   { id: "collapse", label: "Collapse" },
+  { id: "collectSelected", label: "Create node with selected" },
+  { id: "keepSelected", label: "Keep only selected" },
   { id: "delete", label: "Delete node" }
 ];
 const defaultNodeToolbarConfig: NodeToolbarConfig = {
@@ -2396,6 +2398,72 @@ function App() {
     }
   }
 
+  async function createNodeWithSelectedElements(nodeId: string) {
+    setSelectionMenu(null);
+    const sourceNode = nodes.find((node): node is ImageNodeView => node.canvas.id === nodeId && node.manifest.type === "image");
+    const selectedIds = sourceNode?.manifest.selectedStackItemIds?.filter((id) => sourceNode.manifest.stack.some((item) => item.id === id)) ?? [];
+    if (!sourceNode) {
+      setStatus("Selected elements are available for image nodes.");
+      return;
+    }
+    if (selectedIds.length === 0) {
+      setStatus("Select stack elements first.");
+      return;
+    }
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
+    try {
+      pushUndoSnapshot();
+      let snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/duplicate`, {
+        x: sourceNode.canvas.x + 28,
+        y: sourceNode.canvas.y + 28
+      });
+      const createdNode = snapshot.nodes.find((node): node is ImageNodeView => !existingNodeIds.has(node.canvas.id) && node.manifest.type === "image");
+      if (!createdNode) throw new Error("Could not create image node.");
+      const selectedIdSet = new Set(selectedIds);
+      for (const item of createdNode.manifest.stack.filter((item) => !selectedIdSet.has(item.id))) {
+        snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(createdNode.canvas.id)}/stack/${encodeURIComponent(item.id)}`);
+      }
+      snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(createdNode.canvas.id)}/prompt`, { prompt: "" });
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      setSelectedNodeId(createdNode.canvas.id);
+      setSelectedNodeIds([createdNode.canvas.id]);
+      setSelectedEdgeId(null);
+      setStatus(`Image node created with ${selectedIds.length} selected item${selectedIds.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not create node with selected elements.");
+    }
+  }
+
+  async function keepOnlySelectedNodes(nodeId: string) {
+    setSelectionMenu(null);
+    const sourceNode = nodes.find((node): node is ImageNodeView => node.canvas.id === nodeId && node.manifest.type === "image");
+    const selectedIds = sourceNode?.manifest.selectedStackItemIds?.filter((id) => sourceNode.manifest.stack.some((item) => item.id === id)) ?? [];
+    if (!sourceNode) {
+      setStatus("Selected elements are available for image nodes.");
+      return;
+    }
+    if (selectedIds.length === 0) {
+      setStatus("Select stack elements first.");
+      return;
+    }
+    const selectedIdSet = new Set(selectedIds);
+    const itemIdsToDelete = sourceNode.manifest.stack.map((item) => item.id).filter((itemId) => !selectedIdSet.has(itemId));
+    const mutationSeq = beginLibraryMutation();
+    try {
+      pushUndoSnapshot();
+      let snapshot: LibrarySnapshot | null = null;
+      for (const itemId of itemIdsToDelete) {
+        snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(itemId)}`);
+      }
+      snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/selected`, { selectedStackItemIds: [] });
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      setStatus(`Kept ${selectedIds.length} selected item${selectedIds.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not keep only selected nodes.");
+    }
+  }
+
   function collectionMenuItem(menu: CollectionItemMenu) {
     const node = nodes.find((candidate) => candidate.canvas.id === menu.nodeId);
     return node?.manifest.type === "collection" ? (node as CollectionNodeView).items.find((item) => item.id === menu.itemId) : undefined;
@@ -3097,6 +3165,8 @@ function App() {
               availableToolbarActions={availableNodeToolbarActions}
               runningCanvasActionId={Object.entries(canvasActionRunning).find(([key]) => key.startsWith(`${node.manifest.id}:`))?.[1] ?? null}
               onRunCanvasAction={(nodeId, actionId, point) => void runNodeCanvasAction(nodeId, actionId, point)}
+              onCreateNodeWithSelectedElements={() => void createNodeWithSelectedElements(node.canvas.id)}
+              onKeepOnlySelectedNodes={() => void keepOnlySelectedNodes(node.canvas.id)}
             />
             );
           })}
@@ -3425,6 +3495,12 @@ function App() {
           })()}
           <button type="button" onClick={() => copyNode(selectionMenu.nodeId)}>Copy node</button>
           <button type="button" disabled={!copiedNodeId} onClick={() => copiedNodeId && void duplicateNode(copiedNodeId, selectionMenu.nodeId, "pasted")}>Paste node</button>
+          <button type="button" onClick={() => void createNodeWithSelectedElements(selectionMenu.nodeId)}>
+            Create node with selected
+          </button>
+          <button type="button" onClick={() => void keepOnlySelectedNodes(selectionMenu.nodeId)}>
+            Keep only selected
+          </button>
           <button type="button" onClick={() => void openNodeAsFolder(selectionMenu.nodeId)}>Open folder</button>
           <button type="button" onClick={() => void deleteSelectedNodes(selectedNodeIds)}>
             Delete {selectedNodeIds.length > 1 ? `${selectedNodeIds.length} nodes` : "node"}
@@ -3841,6 +3917,8 @@ function NodeToolbarActionIcon({ action }: { action: NodeToolbarAction }) {
   if (actionId === "expand") return <Expand size={16} />;
   if (actionId === "upload") return <ImagePlus size={16} />;
   if (actionId === "stack") return <Layers3 size={16} />;
+  if (actionId === "collectSelected") return <Package size={16} />;
+  if (actionId === "keepSelected") return <Filter size={16} />;
   if (actionId === "delete") return <Trash2 size={16} />;
   if (action.canvasAction) return <Wrench size={16} />;
   return <Minimize2 size={16} />;
@@ -3853,6 +3931,7 @@ function nodeToolbarActionLabel(actionId: NodeToolbarActionId, actions: NodeTool
 function nodeToolbarActionSupported(actionId: NodeToolbarActionId, type: EditableNodeType, actions: NodeToolbarAction[]): boolean {
   const action = actions.find((candidate) => candidate.id === actionId);
   if (action?.canvasAction) return action.canvasAction.inputType === type;
+  if (actionId === "collectSelected" || actionId === "keepSelected") return type === "image";
   if (type === "text") return actionId === "stack" || actionId === "collapse" || actionId === "delete";
   if (actionId === "crop") return type === "image";
   if (actionId === "expand") return type === "image" || type === "video";
@@ -4869,7 +4948,9 @@ function ImageNode({
   toolbarActions,
   availableToolbarActions,
   runningCanvasActionId,
-  onRunCanvasAction
+  onRunCanvasAction,
+  onCreateNodeWithSelectedElements,
+  onKeepOnlySelectedNodes
 }: {
   node: EditableNodeView;
   active: boolean;
@@ -4916,6 +4997,8 @@ function ImageNode({
   availableToolbarActions: NodeToolbarAction[];
   runningCanvasActionId: string | null;
   onRunCanvasAction: (nodeId: string, actionId: string, point: { x: number; y: number; width: number; height: number }) => void;
+  onCreateNodeWithSelectedElements: () => void;
+  onKeepOnlySelectedNodes: () => void;
 }) {
   const previewUrl = node.previewUrl ? `${apiBase}${node.previewUrl}?v=${encodeURIComponent(node.activeStackItem?.id ?? node.manifest.id)}` : "";
   const isVideoNode = node.manifest.type === "video";
@@ -5057,6 +5140,12 @@ function ImageNode({
           <span className="nodeToolbarBadge">{stackCount || 0}</span>
         </button>
       );
+    }
+    if (actionId === "collectSelected") {
+      return <button key={actionId} type="button" aria-label="Create node with selected" title="Create node with selected" onClick={onCreateNodeWithSelectedElements}><Package size={16} /></button>;
+    }
+    if (actionId === "keepSelected") {
+      return <button key={actionId} type="button" aria-label="Keep only selected" title="Keep only selected" onClick={onKeepOnlySelectedNodes}><Filter size={16} /></button>;
     }
     if (actionId === "delete") {
       return <button key={actionId} type="button" aria-label="Delete node" title="Delete node" onClick={() => onDeleteNode(node.manifest.id)}><Trash2 size={16} /></button>;
