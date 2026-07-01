@@ -1092,6 +1092,12 @@ dd {
   color: var(--muted);
 }
 
+.imageNode.isCollapsed.isSelected .collapsedNodeStrip,
+.textNode.isCollapsed.isSelected .collapsedNodeStrip {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent), 0 12px 28px var(--shadow);
+}
+
 .collapsedAudioStrip {
   position: relative;
   grid-template-columns: minmax(0, 1fr) 24px;
