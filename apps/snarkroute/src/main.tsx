@@ -5183,6 +5183,7 @@ function ImageNode({
   const activeIndex = node.manifest.type !== "text" && stackCount ? node.manifest.activeStackIndex + 1 : 0;
   const [prompt, setPrompt] = useState(node.manifest.type === "text" ? "" : node.manifest.currentPrompt ?? "");
   const [draftText, setDraftText] = useState(node.manifest.type === "text" ? node.manifest.text : "");
+  const wasActive = useRef(active);
   const [modelQuery, setModelQuery] = useState("");
   const [orderedInputNodes, setOrderedInputNodes] = useState(inputNodes);
   const [parametersOpen, setParametersOpen] = useState(false);
@@ -5242,6 +5243,13 @@ function ImageNode({
   useEffect(() => {
     if (node.manifest.type === "text") setDraftText(node.manifest.text);
   }, [node.manifest.id, node.manifest.type === "text" ? node.manifest.text : ""]);
+  useEffect(() => {
+    const textNode = node.manifest.type === "text" ? node as TextNodeView : null;
+    if (wasActive.current && !active && textNode?.manifest.variant === "note" && draftText !== textNode.manifest.text) {
+      onSaveText(textNode.manifest.id, draftText);
+    }
+    wasActive.current = active;
+  }, [active]);
 
   function insertInputToken(input: InputNodeChip) {
     if (inputChipInactive(input, imageInputs, maxImageInputs)) return;
