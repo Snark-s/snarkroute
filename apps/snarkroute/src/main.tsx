@@ -5,6 +5,7 @@ import JSZip from "jszip";
 import { Panorama360Viewer, SplatViewer, type CameraPose } from "@snarkroute/media-viewers";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { canvasActionNeedsDialog } from "./canvasActionDialog";
+import { useClampedMenuPosition } from "./menuPosition";
 import { createRoot } from "react-dom/client";
 import {
   generationParameterSummary,
@@ -679,7 +680,6 @@ const defaultNodeToolbarConfig: NodeToolbarConfig = {
   text: ["stack", "collapse"]
 };
 function App() {
-  const contentMenuRef = useRef<HTMLDivElement | null>(null);
   const [theme, setTheme] = useStoredSetting<ThemeName>(themeStorageKey, "night", ["day", "night"]);
   const [background, setBackground] = useStoredSetting<BackgroundName>(backgroundStorageKey, "gears", backgroundOptions.map((option) => option.value));
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
@@ -717,6 +717,14 @@ function App() {
   const [projectMenu, setProjectMenu] = useState<ProjectMenu | null>(null);
   const [coverPicker, setCoverPicker] = useState<CoverPickerState | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
+  const nodeCreateMenuPosition = useClampedMenuPosition(nodeCreateMenu);
+  const nodeActionMenuPosition = useClampedMenuPosition(nodeActionContextMenu);
+  const stackItemMenuPosition = useClampedMenuPosition(stackItemMenu);
+  const contentMenuPosition = useClampedMenuPosition(contentMenu);
+  const collectionItemMenuPosition = useClampedMenuPosition(collectionItemMenu);
+  const projectMenuPosition = useClampedMenuPosition(projectMenu);
+  const libraryAssetMenuPosition = useClampedMenuPosition(libraryAssetMenu);
+  const selectionMenuPosition = useClampedMenuPosition(selectionMenu);
   const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
   const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
@@ -1017,10 +1025,10 @@ function App() {
 
   useEffect(() => {
     if (!contentMenu) return;
-    const animationFrame = window.requestAnimationFrame(() => contentMenuRef.current?.focus());
+    const animationFrame = window.requestAnimationFrame(() => contentMenuPosition.ref.current?.focus());
     function closeOnFocusOutside(event: FocusEvent) {
       const target = event.target;
-      if (target instanceof Node && contentMenuRef.current?.contains(target)) return;
+      if (target instanceof Node && contentMenuPosition.ref.current?.contains(target)) return;
       setContentMenu(null);
     }
 
@@ -3278,7 +3286,7 @@ function App() {
           ) : null}
         </div>
         {nodeCreateMenu && (
-          <div className="nodeCreateMenu" style={{ left: nodeCreateMenu.x, top: nodeCreateMenu.y }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+          <div ref={nodeCreateMenuPosition.ref} className="nodeCreateMenu" data-menu-flipped-x={nodeCreateMenuPosition.flippedX || undefined} style={nodeCreateMenuPosition.style} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
             <button type="button" onClick={() => void createConnectedNode("image")}>Create image node</button>
             <button type="button" onClick={() => void createConnectedNode("video")}>Create video node</button>
             <button type="button" onClick={() => void createConnectedNode("audio")}>Create audio node</button>
@@ -3340,7 +3348,7 @@ function App() {
         />
       </section>
       {nodeActionContextMenu ? (
-        <div className="nodeActionContextMenu" style={{ left: nodeActionContextMenu.x, top: nodeActionContextMenu.y }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+        <div ref={nodeActionMenuPosition.ref} className="nodeActionContextMenu" style={nodeActionMenuPosition.style} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
           {availableNodeToolbarActions.find((action) => action.id === nodeActionContextMenu.actionId)?.canvasAction ? (
             <>
               <button type="button" onClick={() => openCanvasActionSettings(nodeActionContextMenu.actionId)}>
@@ -3533,7 +3541,7 @@ function App() {
         />
       ) : null}
       {stackItemMenu && (
-        <div className="stackItemMenu" style={{ left: stackItemMenu.x, top: stackItemMenu.y }}>
+        <div ref={stackItemMenuPosition.ref} className="stackItemMenu" style={stackItemMenuPosition.style}>
           <button type="button" onClick={() => void duplicateStackItemNode(stackItemMenu.nodeId, stackItemMenu.stackItemId, screenToWorld(stackItemMenu.x, stackItemMenu.y))}>
             {nodes.find((node) => node.canvas.id === stackItemMenu.nodeId)?.manifest.type === "text" ? "Create text node" : "Transform to node"}
           </button>
@@ -3550,7 +3558,7 @@ function App() {
         </div>
       )}
       {contentMenu && (
-        <div ref={contentMenuRef} className="contentMenu" style={{ left: contentMenu.x, top: contentMenu.y }} tabIndex={-1}>
+        <div ref={contentMenuPosition.ref} className="contentMenu" style={contentMenuPosition.style} tabIndex={-1}>
           {contentMenu.kind !== "video" && contentMenu.kind !== "audio" ? (
             <button type="button" onClick={() => void copyContent(contentMenu)}><Copy size={14} /> Copy</button>
           ) : null}
@@ -3558,7 +3566,7 @@ function App() {
         </div>
       )}
       {collectionItemMenu ? (
-        <div className="collectionItemMenu contentMenu" style={{ left: collectionItemMenu.x, top: collectionItemMenu.y }}>
+        <div ref={collectionItemMenuPosition.ref} className="collectionItemMenu contentMenu" style={collectionItemMenuPosition.style}>
           <button type="button" onClick={() => void copyCollectionItem(collectionItemMenu)}><Copy size={14} /> Copy</button>
           <button type="button" onClick={() => {
             const item = collectionMenuItem(collectionItemMenu);
@@ -3569,7 +3577,7 @@ function App() {
         </div>
       ) : null}
       {projectMenu && (
-        <div className="projectMenu" style={{ left: projectMenu.x, top: projectMenu.y }}>
+        <div ref={projectMenuPosition.ref} className="projectMenu" style={projectMenuPosition.style}>
           <button type="button" onClick={() => void copyProject(projectMenu.project)}><Copy size={14} /> Copy</button>
           <button type="button" onClick={() => void pasteProject()}><Clipboard size={14} /> Paste</button>
           <button type="button" onClick={() => void openCoverPicker(projectMenu.project)}><ImageIcon size={14} /> Choose Cover</button>
@@ -3599,12 +3607,12 @@ function App() {
         </div>
       )}
       {libraryAssetMenu && (
-        <div className="stackItemMenu" style={{ left: libraryAssetMenu.x, top: libraryAssetMenu.y }}>
+        <div ref={libraryAssetMenuPosition.ref} className="stackItemMenu" style={libraryAssetMenuPosition.style}>
           <button type="button" onClick={() => void deleteLibraryAsset(libraryAssetMenu.nodeId, libraryAssetMenu.assetId)}>Delete from library</button>
         </div>
       )}
       {selectionMenu && selectedNodeIds.length > 0 && (
-        <div className="selectionMenu" style={{ left: selectionMenu.x, top: selectionMenu.y }}>
+        <div ref={selectionMenuPosition.ref} className="selectionMenu" data-menu-flipped-x={selectionMenuPosition.flippedX || undefined} style={selectionMenuPosition.style}>
           <button type="button" onClick={() => void duplicateNode(selectionMenu.nodeId)}>Duplicate node</button>
           {(() => {
             const sourceNode = nodes.find((node) => node.canvas.id === selectionMenu.nodeId);

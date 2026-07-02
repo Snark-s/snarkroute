@@ -3553,7 +3553,6 @@ dd {
   border-radius: 10px;
   background: var(--panel);
   box-shadow: 0 16px 42px var(--shadow);
-  transform: translate(8px, 8px);
 }
 
 .stackItemMenu,
@@ -3628,6 +3627,12 @@ dd {
   border-radius: 10px;
   background: var(--panel);
   box-shadow: 0 16px 42px var(--shadow);
+}
+
+.nodeCreateMenu[data-menu-flipped-x] .nodeCreateSubmenuPanel,
+.selectionMenu[data-menu-flipped-x] .nodeCreateSubmenuPanel {
+  left: auto;
+  right: calc(100% - 1px);
 }
 
 .nodeCreateSubmenu:hover .nodeCreateSubmenuPanel,
