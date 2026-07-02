@@ -30,8 +30,24 @@ describe("Living Canvas button builder", () => {
     expect(candidates).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "upscale.scale_factor", type: "number", default: 4, binding: { nodeId: "upscale", paramId: "scale_factor" } }),
       expect.objectContaining({ id: "upscale.creativity", type: "number", default: 0.4 }),
-      expect.objectContaining({ id: "upscale.resemblance", type: "number", default: 1.5, displayLabel: "Clarity Upscaler — resemblance" })
+      expect.objectContaining({ id: "upscale.resemblance", type: "number", default: 1.5, displayLabel: "resemblance" })
     ]));
+  });
+
+  it("filters runtime, structured, and timestamp parameters that are not declared", () => {
+    const compound = compoundWith([{
+      id: "upscale",
+      type: "replicate.clarity-upscaler",
+      params: {
+        pinnedOutput: { id: "asset" },
+        pinnedOutputAt: "2026-07-02T01:02:03.000Z",
+        pollingIntervalMs: 500,
+        timeoutMs: 30_000,
+        scale_factor: 2
+      }
+    }], [{ id: "image", nodeId: "upscale", kind: "image" }]);
+
+    expect(canvasButtonParamCandidates(compound, [], []).map((param) => param.displayLabel)).toEqual(["scale_factor"]);
   });
 
   it("writes a panorama node preview candidate into the canvas action manifest", () => {

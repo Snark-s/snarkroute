@@ -24,7 +24,8 @@ export type CanvasButtonDraft = {
 
 const runtimeParamKeys = new Set([
   "output", "outputImage", "renderedImage", "renderedPanorama", "panoramaImage",
-  "marbleWorld", "pinnedMarbleWorld", "sourceImageHash"
+  "marbleWorld", "pinnedMarbleWorld", "sourceImageHash", "pinnedOutput",
+  "pinnedOutputAt", "pollingIntervalMs", "timeoutMs"
 ]);
 
 export function canvasButtonParamCandidates(
@@ -42,17 +43,17 @@ export function canvasButtonParamCandidates(
     for (const key of new Set([...Object.keys(defaults), ...Object.keys(values)])) {
       if (runtimeParamKeys.has(key)) continue;
       const value = values[key] ?? defaults[key];
+      if (isUndeclaredStructuredValue(value) || isIsoTimestampParam(key, value)) continue;
       merged.set(key, { id: key, type: inferredParamType(value), default: value });
     }
     for (const param of declared) merged.set(param.id, { ...param, default: values[param.id] ?? param.default ?? defaults[param.id] });
-    const nodeTitle = internalNode.title ?? internalNode.id;
     return Array.from(merged.values(), (param) => ({
       ...param,
       id: `${internalNode.id}.${param.id}`,
       label: param.label ?? param.id,
       binding: { nodeId: internalNode.id, paramId: param.id },
       selected: false,
-      displayLabel: `${nodeTitle} — ${param.label ?? param.id}`
+      displayLabel: param.label ?? param.id
     }));
   });
 }
@@ -128,6 +129,16 @@ function canvasButtonPoseBindings(params: NonNullable<NodeManifest["params"]>): 
 
 function inferredParamType(value: unknown): string {
   return typeof value === "number" ? "number" : typeof value === "boolean" ? "boolean" : "string";
+}
+
+function isUndeclaredStructuredValue(value: unknown): boolean {
+  return typeof value === "object" && value !== null;
+}
+
+function isIsoTimestampParam(key: string, value: unknown): boolean {
+  return key.endsWith("At")
+    && typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value);
 }
 
 function isBasicPreviewKind(value: string): value is "image" | "video" | "audio" {

@@ -7992,28 +7992,46 @@ function App() {
               </div>
               <section className="canvasButtonParamSection" aria-label="Dialog parameters">
                 <span>Dialog parameters</span>
-                {canvasButtonDraft.params.length ? canvasButtonDraft.params.map((param) => (
-                  <label key={param.id}>
-                    <input
-                      type="checkbox"
-                      checked={param.selected}
-                      onChange={(event) => setCanvasButtonDraft((draft) => draft ? {
-                        ...draft,
-                        params: draft.params.map((candidate) => candidate.id === param.id ? { ...candidate, selected: event.target.checked } : candidate)
-                      } : draft)}
-                    />
-                    <span>{param.displayLabel}</span>
-                    <small>{String(param.default ?? "")}</small>
-                  </label>
-                )) : <small>No internal node parameters are available.</small>}
+                {canvasButtonDraft.params.length ? (
+                  <div className="canvasButtonParamGroups">
+                    {((nodes.find((node) => node.id === canvasButtonDraft.nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined)?.subroute?.nodes ?? []).map((internalNode) => {
+                      const params = canvasButtonDraft.params.filter((param) => param.binding?.nodeId === internalNode.id);
+                      if (!params.length) return null;
+                      const selectedCount = params.filter((param) => param.selected).length;
+                      return (
+                        <details className="canvasButtonParamGroup" key={internalNode.id} open={selectedCount > 0 ? true : undefined}>
+                          <summary>
+                            <strong>{internalNode.title ?? internalNode.id}</strong>
+                            <small>selected {selectedCount} of {params.length}</small>
+                          </summary>
+                          <div className="canvasButtonParamList">
+                            {params.map((param) => (
+                              <label className="canvasButtonParamRow" key={param.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={param.selected}
+                                  onChange={(event) => setCanvasButtonDraft((draft) => draft ? {
+                                    ...draft,
+                                    params: draft.params.map((candidate) => candidate.id === param.id ? { ...candidate, selected: event.target.checked } : candidate)
+                                  } : draft)}
+                                />
+                                <span>{param.displayLabel}</span>
+                                <small>{typeof param.default === "object" && param.default !== null ? JSON.stringify(param.default) : String(param.default ?? "")}</small>
+                              </label>
+                            ))}
+                          </div>
+                        </details>
+                      );
+                    })}
+                  </div>
+                ) : <small>No internal node parameters are available.</small>}
               </section>
               <section className="canvasButtonPreviewSection" aria-label="Dialog preview">
-                <span>Preview</span>
                 <label>
                   <span>Preview</span>
                   <select value={canvasButtonDraft.selectedPreviewId} onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, selectedPreviewId: event.target.value } : draft)}>
                     <option value="">None</option>
-                    {canvasButtonDraft.previewCandidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
+                    {canvasButtonDraft.previewCandidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label} — {candidate.kind}</option>)}
                   </select>
                 </label>
               </section>
