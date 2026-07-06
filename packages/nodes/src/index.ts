@@ -2045,8 +2045,8 @@ function decodePngToRgba(buffer: Buffer): RgbaImage {
     offset = dataEnd + 4;
   }
   if (!width || !height || bitDepth !== 8) throw new Error("Only 8-bit PNG images are supported.");
-  const channels = colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 0 ? 1 : 0;
-  if (!channels) throw new Error("Only grayscale, RGB, and RGBA PNG images are supported.");
+  const channels = colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 4 ? 2 : colorType === 0 ? 1 : 0;
+  if (!channels) throw new Error("Only grayscale, grayscale-alpha, RGB, and RGBA PNG images are supported.");
   const raw = inflateSync(Buffer.concat(idatChunks));
   const stride = width * channels;
   const unfiltered = new Uint8Array(width * height * channels);
@@ -2071,11 +2071,11 @@ function decodePngToRgba(buffer: Buffer): RgbaImage {
   for (let pixel = 0; pixel < width * height; pixel += 1) {
     const sourceIndex = pixel * channels;
     const targetIndex = pixel * 4;
-    if (channels === 1) {
+    if (channels === 1 || channels === 2) {
       rgba[targetIndex] = unfiltered[sourceIndex];
       rgba[targetIndex + 1] = unfiltered[sourceIndex];
       rgba[targetIndex + 2] = unfiltered[sourceIndex];
-      rgba[targetIndex + 3] = 255;
+      rgba[targetIndex + 3] = channels === 2 ? unfiltered[sourceIndex + 1] : 255;
     } else {
       rgba[targetIndex] = unfiltered[sourceIndex];
       rgba[targetIndex + 1] = unfiltered[sourceIndex + 1];

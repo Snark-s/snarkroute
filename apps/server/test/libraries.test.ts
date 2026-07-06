@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractImageProvenance } from "../src/libraries/image-metadata";
-import { parsePromptPngFile, readPngTextChunk, writePngTextChunk } from "@snarkroute/nodes";
+import { createExecutor } from "@snarkroute/executor";
+import { parsePromptPngFile, readPngTextChunk, registerBuiltInNodeRunners, writePngTextChunk } from "@snarkroute/nodes";
 
 const { executeRouteMock } = vi.hoisted(() => ({ executeRouteMock: vi.fn() }));
 
@@ -1405,9 +1406,54 @@ describe("SnarkRoute libraries", () => {
         url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`,
         payload: { phase: "complete", continuationId: prepared.json().continuationId, targetNodeId: source.manifest.id, params: { "pause.yawDegrees": 35, "pause.pitchDegrees": -10, "pause.fovDegrees": 70 } }
       });
-      expect(completed.statusCode).toBe(200);
+      expect(completed.statusCode, completed.body).toBe(200);
       expect(executeRouteMock.mock.calls[1][1].initialNodeOutputs).toHaveProperty("provider");
       expect(providerRuns).toBe(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("completes a panorama pause action with pose and ordinary parameters", async () => {
+    await writeCanvasActionManifest(libraryPath, panoramaCanvasActionManifest());
+    const executor = createExecutor();
+    registerBuiltInNodeRunners(executor);
+    let providerRuns = 0;
+    let renderedView: unknown;
+    let downstreamStrength: unknown;
+    let lastRunResult: unknown;
+    executor.registerNodeRunner("test.counting-provider", ({ inputs }) => {
+      providerRuns += 1;
+      return { output: { image: inputs.image } };
+    });
+    executor.registerNodeRunner("test.downstream", ({ params, inputs }) => {
+      renderedView = inputs.image;
+      downstreamStrength = params.strength;
+      return { output: { image: inputs.image } };
+    });
+    executeRouteMock.mockImplementation(async (route, options) => {
+      lastRunResult = await executor.executeRoute(route, options);
+      return lastRunResult;
+    });
+
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Panorama cycle.png");
+      const prepared = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.panorama-cycle/run`, payload: { phase: "prepare" } });
+      expect(prepared.statusCode).toBe(200);
+
+      const completed = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.panorama-cycle/run`,
+        payload: { phase: "complete", continuationId: prepared.json().continuationId, params: { "viewer.yaw": 35, "viewer.pitch": -10, "viewer.fov": 70, "downstream.strength": 0.65 } }
+      });
+
+      expect(completed.statusCode, completed.body).toBe(200);
+      expect(completed.json().nodes.length).toBeGreaterThan(1);
+      expect(providerRuns).toBe(1);
+      expect(renderedView).toMatchObject({ width: 1, height: 1 });
+      expect(downstreamStrength).toBe(0.65);
+      expect((lastRunResult as { nodeResults?: { viewer?: { output?: { view?: unknown } } } }).nodeResults?.viewer?.output?.view).toEqual({ yaw: 35, pitch: -10, fov: 70 });
     } finally {
       await app.close();
     }
@@ -1506,6 +1552,25 @@ function poseCanvasActionManifest() {
     generatedWith: {
       kind: "compound.subroute", compound: { inputs: [{ id: "image", nodeId: "provider", port: "image" }], outputs: [{ id: "image", nodeId: "downstream", port: "image" }] },
       subroute: { routeVersion: "0.1", route: { id: "pose", title: "Pose", author: { name: "Test" } }, nodes: [{ id: "provider", type: "test.provider" }, { id: "pause", type: "transform.panorama360ToFisheye" }, { id: "downstream", type: "test.downstream" }], edges: [{ from: "provider", to: "pause", fromPort: "image", toPort: "image" }, { from: "pause", to: "downstream", fromPort: "image", toPort: "image" }] }
+    }
+  };
+}
+
+function panoramaCanvasActionManifest() {
+  return {
+    kind: "snarkroute.node", schemaVersion: "0.1", id: "test.panorama-cycle", title: "Panorama cycle", version: "0.1.0", author: { name: "Test" }, license: "UNLICENSED", origin: "generated",
+    permissions: { network: false, readFiles: true, writeOutputs: true, shell: false, env: [] }, executor: { type: "declarative" },
+    inputs: [{ id: "image", type: "image" }], outputs: [{ id: "image", type: "image" }],
+    params: [
+      { id: "viewer.yaw", type: "number", binding: { nodeId: "viewer", paramId: "yaw" } },
+      { id: "viewer.pitch", type: "number", binding: { nodeId: "viewer", paramId: "pitch" } },
+      { id: "viewer.fov", type: "number", binding: { nodeId: "viewer", paramId: "fov" } },
+      { id: "downstream.strength", type: "number", binding: { nodeId: "downstream", paramId: "strength" } }
+    ],
+    canvasAction: { enabled: true, poseBindings: { yaw: "viewer.yaw", pitch: "viewer.pitch", fov: "viewer.fov" }, dialog: { enabled: true, params: ["viewer.yaw", "viewer.pitch", "viewer.fov", "downstream.strength"], preview: [{ kind: "panorama360", source: { pause: "viewer" } }] } },
+    generatedWith: {
+      kind: "compound.subroute", compound: { inputs: [{ id: "image", nodeId: "provider", port: "image" }], outputs: [{ id: "image", nodeId: "downstream", port: "image" }] },
+      subroute: { routeVersion: "0.1", route: { id: "panorama-cycle", title: "Panorama cycle", author: { name: "Test" } }, nodes: [{ id: "provider", type: "test.counting-provider" }, { id: "viewer", type: "preview.panorama360" }, { id: "downstream", type: "test.downstream" }], edges: [{ from: "provider", to: "viewer", fromPort: "image", toPort: "image" }, { from: "viewer", to: "downstream", fromPort: "image", toPort: "image" }] }
     }
   };
 }

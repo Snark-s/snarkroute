@@ -434,7 +434,16 @@ type CanvasActionRunDialog = {
   preparedPreviews?: Array<{ kind: "panorama360" | "splat"; src: string }>;
   pose?: { yaw?: number; pitch?: number; roll?: number; fov?: number; positionX?: number; positionY?: number; positionZ?: number };
   resultNodes?: NodeView[];
+  error?: string;
+  continuationExpired?: boolean;
 };
+
+class ApiResponseError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiResponseError";
+  }
+}
 
 interface TextNodeView {
   canvas: CanvasNode;
@@ -2915,7 +2924,7 @@ function App() {
     void runNodeCanvasAction(nodeId, actionId, point);
   }
 
-  async function prepareNodeCanvasAction(nodeId: string, action: CanvasNodeAction, point: { x: number; y: number }, targetNodeId?: string) {
+  async function prepareNodeCanvasAction(nodeId: string, action: CanvasNodeAction, point: { x: number; y: number }, targetNodeId?: string, preservedParams?: Record<string, unknown>) {
     const key = `${nodeId}:${action.id}`;
     try {
       setCanvasActionRunning((current) => ({ ...current, [key]: action.id }));
@@ -2923,11 +2932,13 @@ function App() {
       const prepared = await apiPost<{ continuationId: string; previews: Array<{ kind: "panorama360" | "splat"; src: string }> }>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(action.id)}/run`, { phase: "prepare", ...point });
       const paramIds = action.dialog?.params ?? [];
       const saved = canvasActionParamValues[action.id] ?? {};
-      const params = Object.fromEntries((action.params ?? []).filter((param) => paramIds.includes(param.id)).map((param) => [param.id, saved[param.id] ?? param.default ?? defaultCanvasActionParamValue(param.type)]));
+      const params = preservedParams ?? Object.fromEntries((action.params ?? []).filter((param) => paramIds.includes(param.id)).map((param) => [param.id, saved[param.id] ?? param.default ?? defaultCanvasActionParamValue(param.type)]));
       setCanvasActionRunDialog({ nodeId, action, point, params, targetNodeId, continuationId: prepared.continuationId, preparedPreviews: prepared.previews });
       setStatus("Choose a view, then run the action");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not prepare canvas action.");
+      const message = error instanceof Error ? error.message : "Could not prepare canvas action.";
+      setStatus(message);
+      setCanvasActionRunDialog((current) => current?.nodeId === nodeId && current.action.id === action.id ? { ...current, error: message } : current);
     } finally {
       setCanvasActionRunning((current) => { const { [key]: _done, ...rest } = current; return rest; });
     }
@@ -2943,7 +2954,9 @@ function App() {
       setStatus("Canvas action completed");
       return snapshot;
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not run canvas action.");
+      const message = error instanceof Error ? error.message : "Could not run canvas action.";
+      setStatus(message);
+      setCanvasActionRunDialog((current) => current?.nodeId === nodeId && current.action.id === actionId ? { ...current, error: message, continuationExpired: Boolean(completion && error instanceof ApiResponseError && error.status === 410) } : current);
       return null;
     } finally {
       setCanvasActionRunning((current) => {
@@ -3448,6 +3461,7 @@ function App() {
             onClick={(event) => event.stopPropagation()}
             onSubmit={async (event) => {
               event.preventDefault();
+              setCanvasActionRunDialog((current) => current ? { ...current, error: undefined, continuationExpired: false } : current);
               const { nodeId, action, point, params, continuationId, targetNodeId, pose } = canvasActionRunDialog;
               const poseParams = Object.fromEntries(Object.entries(action.poseBindings ?? {}).flatMap(([axis, paramId]) => paramId && pose?.[axis as keyof typeof pose] !== undefined ? [[paramId, pose[axis as keyof typeof pose]]] : []));
               const runParams = { ...params, ...poseParams };
@@ -3458,6 +3472,13 @@ function App() {
             }}
           >
             <header><strong>{canvasActionRunDialog.action.title}</strong><button type="button" onClick={() => setCanvasActionRunDialog(null)}>Close</button></header>
+            <div className="canvasActionParamsContent">
+            {canvasActionRunDialog.error ? (
+              <div className="canvasActionErrorBanner" role="alert">
+                <span>{canvasActionRunDialog.continuationExpired ? "The prepared preview expired. Prepare it again to continue." : canvasActionRunDialog.error}</span>
+                {canvasActionRunDialog.continuationExpired ? <button type="button" onClick={() => void prepareNodeCanvasAction(canvasActionRunDialog.nodeId, canvasActionRunDialog.action, canvasActionRunDialog.point, canvasActionRunDialog.targetNodeId, canvasActionRunDialog.params)}>Подготовить заново</button> : null}
+              </div>
+            ) : null}
             {canvasActionRunDialog.preparedPreviews?.map((preview, index) => (
               <CanvasActionPosePreview
                 key={`${preview.kind}-${index}`}
@@ -3472,7 +3493,7 @@ function App() {
               if (!src) return null;
               return <CanvasActionMediaPreview key={index} kind={preview.kind} src={`${apiBase}${src}`} title="Action input preview" />;
             })())}
-            {(canvasActionRunDialog.action.params ?? []).filter((param) => canvasActionRunDialog.action.dialog?.params.includes(param.id)).map((param) => (
+            {(canvasActionRunDialog.action.params ?? []).filter((param) => canvasActionRunDialog.action.dialog?.params.includes(param.id) && !(canvasActionRunDialog.preparedPreviews?.length && Object.values(canvasActionRunDialog.action.poseBindings ?? {}).includes(param.id))).map((param) => (
               <label className="canvasActionSettingsField" key={param.id}>
                 <span>{param.label ?? param.id}</span>
                 {param.type === "boolean" ? (
@@ -3504,6 +3525,7 @@ function App() {
                 })}
               </div>
             ) : null}
+            </div>
             <footer>
               <button type="button" onClick={() => setCanvasActionRunDialog(null)}>Cancel</button>
               <button type="submit" disabled={Boolean(canvasActionRunning[`${canvasActionRunDialog.nodeId}:${canvasActionRunDialog.action.id}`])}>Run</button>
@@ -7188,7 +7210,7 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  if (!response.ok) throw new Error(await apiErrorMessage(response));
+  if (!response.ok) throw new ApiResponseError(await apiErrorMessage(response), response.status);
   return response.json() as Promise<T>;
 }
 

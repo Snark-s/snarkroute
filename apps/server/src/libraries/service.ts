@@ -2165,10 +2165,10 @@ export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Prom
     if (!continuation || continuation.actionId !== action.id || continuation.sourceNodeId !== input.nodeId) {
       throw new CanvasActionContinuationGoneError("This interactive action expired. Start the preview again.");
     }
-    canvasActionContinuations.delete(input.continuationId!);
     const execution = canvasActionCompoundExecution(action, input.nodeId, source.value, input.params, continuation.nodeOutputs);
     const runResult = await executeSnarkRouteWithUsageStats(execution.route, { initialNodeOutputs: execution.initialNodeOutputs });
     if (runResult.status !== "succeeded") throw new Error(`Canvas action "${action.title}" failed while completing.`);
+    canvasActionContinuations.delete(input.continuationId!);
     output = compoundTemplateOutput(execution, runResult.nodeResults);
   } else {
     const runResult = await executeSnarkRouteWithUsageStats({
