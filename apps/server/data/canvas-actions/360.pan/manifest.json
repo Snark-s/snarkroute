@@ -65,7 +65,7 @@
     "description": "Run \"360 pan\" from the Living Canvas node toolbar.",
     "icon": {
       "kind": "preset",
-      "name": "route"
+      "name": "map"
     },
     "poseBindings": {
       "fov": "preview_panorama360_7.fov"
@@ -75,6 +75,14 @@
       "params": [
         "preview_panorama360_7.fov",
         "replicate_clarity_upscaler_8.scale_factor"
+      ],
+      "preview": [
+        {
+          "kind": "panorama360",
+          "source": {
+            "pause": "preview_panorama360_7"
+          }
+        }
       ]
     }
   },
@@ -278,7 +286,7 @@
     }
   },
   "installConfirmation": {
-    "confirmedAt": "2026-07-06T13:07:30.660Z",
+    "confirmedAt": "2026-07-06T21:24:51.943Z",
     "warnings": []
   },
   "enabled": true
