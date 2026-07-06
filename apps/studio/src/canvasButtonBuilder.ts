@@ -5,7 +5,7 @@ export type CanvasButtonPreviewKind = "image" | "video" | "audio" | "panorama360
 export type CanvasButtonPreviewCandidate = {
   id: string;
   kind: CanvasButtonPreviewKind;
-  source: "input" | { output: string };
+  source: "input" | { output: string } | { pause: string };
   label: string;
 };
 
@@ -65,9 +65,7 @@ export function canvasButtonPreviewCandidates(compoundNode: RouteDoc["nodes"][nu
   for (const internalNode of compoundNode.subroute?.nodes ?? []) {
     const kind = internalNode.type === "preview.panorama360" ? "panorama360" : /splat/i.test(internalNode.type) ? "splat" : null;
     if (!kind) continue;
-    const output = outputs.find((candidate) => candidate.nodeId === internalNode.id);
-    if (!output) continue;
-    candidates.push({ id: `node:${internalNode.id}:${output.id}`, kind, source: { output: output.id }, label: `${internalNode.title ?? internalNode.id} (${kind === "panorama360" ? "360" : "splat"})` });
+    candidates.push({ id: `node:${internalNode.id}:pause`, kind, source: { pause: internalNode.id }, label: `${internalNode.title ?? internalNode.id} (${kind === "panorama360" ? "360" : "splat"})` });
   }
   for (const output of outputs) {
     const kind = String(output.kind ?? "");
@@ -85,9 +83,10 @@ export function canvasButtonManifestFromDraft(draft: CanvasButtonDraft, compound
   const title = draft.title.trim();
   const id = draft.packageId.trim();
   if (compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !title || !id) return null;
-  const selectedParams = draft.params.filter((param) => param.selected).map(({ selected: _selected, displayLabel: _displayLabel, ...param }) => param);
-  const poseBindings = canvasButtonPoseBindings(selectedParams);
   const selectedPreview = draft.previewCandidates.find((candidate) => candidate.id === draft.selectedPreviewId);
+  const pauseNodeId = selectedPreview && selectedPreview.source !== "input" && "pause" in selectedPreview.source ? selectedPreview.source.pause : null;
+  const selectedParams = draft.params.filter((param) => param.selected || (pauseNodeId === param.binding?.nodeId && poseAxis(param.binding.paramId))).map(({ selected: _selected, displayLabel: _displayLabel, ...param }) => param);
+  const poseBindings = canvasButtonPoseBindings(selectedParams);
   const icon = draft.customIconDataUrl ? { kind: "custom" as const, dataUrl: draft.customIconDataUrl } : { kind: "preset" as const, name: draft.iconName };
   return nodeManifestFromCompoundNode(compoundNode, id, title, {
     canvasAction: { enabled: true, icon, params: selectedParams, poseBindings, preview: selectedPreview ? [{ kind: selectedPreview.kind, source: selectedPreview.source }] : undefined }
@@ -115,16 +114,20 @@ export function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][num
 }
 
 function canvasButtonPoseBindings(params: NonNullable<NodeManifest["params"]>): NonNullable<NodeManifest["canvasAction"]>["poseBindings"] {
+  const result: NonNullable<NodeManifest["canvasAction"]>["poseBindings"] = {};
+  for (const param of params) {
+    const axis = param.binding ? poseAxis(param.binding.paramId) : undefined;
+    if (axis) result[axis] = param.id;
+  }
+  return result;
+}
+
+function poseAxis(paramId: string): keyof NonNullable<NonNullable<NodeManifest["canvasAction"]>["poseBindings"]> | undefined {
   const aliases: Record<string, keyof NonNullable<NonNullable<NodeManifest["canvasAction"]>["poseBindings"]>> = {
     yaw: "yaw", yawDegrees: "yaw", pitch: "pitch", pitchDegrees: "pitch", roll: "roll", rollDegrees: "roll", fov: "fov", fovDegrees: "fov",
     positionX: "positionX", positionY: "positionY", positionZ: "positionZ"
   };
-  const result: NonNullable<NodeManifest["canvasAction"]>["poseBindings"] = {};
-  for (const param of params) {
-    const axis = param.binding ? aliases[param.binding.paramId] : undefined;
-    if (axis) result[axis] = param.id;
-  }
-  return result;
+  return aliases[paramId];
 }
 
 function inferredParamType(value: unknown): string {

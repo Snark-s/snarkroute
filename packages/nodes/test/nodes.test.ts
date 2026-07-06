@@ -59,6 +59,11 @@ describe("built-in nodes", () => {
       inputs: [{ id: "image", type: "image", required: true, label: "Image" }],
       outputs: [{ id: "image", type: "image", label: "Image" }]
     });
+    expect(builtInNodeManifests.find((manifest) => manifest.id === "preview.panorama360")?.params).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "yaw", default: 0 }),
+      expect.objectContaining({ id: "pitch", default: 0 }),
+      expect.objectContaining({ id: "fov", default: 55 })
+    ]));
     expect(builtInNodeManifests.find((manifest) => manifest.id === "transform.imageResize")).toMatchObject({
       title: "Resize Image",
       permissions: { readFiles: true, writeOutputs: true },
@@ -125,6 +130,12 @@ describe("built-in nodes", () => {
     });
     expect(invalid.issues.some((issue) => issue.path === "canvasAction.dialog.params.0")).toBe(true);
     expect(invalid.issues.some((issue) => issue.path === "canvasAction.dialog.preview.0.source.output")).toBe(true);
+    const invalidPause = validateNodeManifest({
+      ...base,
+      canvasAction: { enabled: true, dialog: { enabled: true, params: [], preview: [{ kind: "panorama360", source: { pause: "missing" } }] } },
+      generatedWith: { kind: "compound.subroute", subroute: { nodes: [{ id: "viewer", type: "preview.panorama360" }], edges: [] } }
+    });
+    expect(invalidPause.issues.some((issue) => issue.path === "canvasAction.dialog.preview.0.source.pause")).toBe(true);
   });
 
   it("validates canvas action pose binding parameter references", () => {

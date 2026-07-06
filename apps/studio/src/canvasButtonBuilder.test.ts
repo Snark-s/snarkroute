@@ -50,24 +50,28 @@ describe("Living Canvas button builder", () => {
     expect(canvasButtonParamCandidates(compound, [], []).map((param) => param.displayLabel)).toEqual(["scale_factor"]);
   });
 
-  it("writes a panorama node preview candidate into the canvas action manifest", () => {
+  it("writes a panorama node preview candidate without an exposed output", () => {
     const compound = compoundWith([
       { id: "upscale", type: "replicate.clarity-upscaler", title: "Clarity Upscaler", params: {} },
       { id: "pano", type: "preview.panorama360", title: "Room Viewer", params: { fov: 55 } }
-    ], [
-      { id: "image", nodeId: "upscale", kind: "image", label: "Enhanced" },
-      { id: "panorama", nodeId: "pano", kind: "image", label: "Panorama" }
-    ]);
+    ], [{ id: "image", nodeId: "upscale", kind: "image", label: "Enhanced" }]);
     const previewCandidates = canvasButtonPreviewCandidates(compound, "image");
     const panorama = previewCandidates.find((candidate) => candidate.kind === "panorama360");
-    expect(panorama).toMatchObject({ label: "Room Viewer (360)", source: { output: "panorama" } });
+    expect(panorama).toMatchObject({ label: "Room Viewer (360)", source: { pause: "pano" } });
+    const params = canvasButtonParamCandidates(compound, [{ id: "preview.panorama360", title: "360", version: "0.1", author: { name: "Test" }, origin: "bundled", license: "AGPL", permissions: { network: false, readFiles: false, writeOutputs: false, shell: false, env: [] }, executor: { type: "builtin" }, inputs: [], outputs: [], params: [{ id: "yaw", type: "number", default: 0 }, { id: "pitch", type: "number", default: 0 }, { id: "fov", type: "number", default: 55 }] }], []);
     const draft: CanvasButtonDraft = {
       nodeId: "compound", title: "Enhance", packageId: "enhance", iconName: "wrench", inputKind: "image",
-      outputs: [], params: [], previewCandidates, selectedPreviewId: defaultCanvasButtonPreviewId(previewCandidates)
+      outputs: [], params, previewCandidates, selectedPreviewId: defaultCanvasButtonPreviewId(previewCandidates)
     };
     expect(canvasButtonManifestFromDraft(draft, compound)?.canvasAction?.dialog?.preview).toEqual([
-      { kind: "panorama360", source: { output: "panorama" } }
+      { kind: "panorama360", source: { pause: "pano" } }
     ]);
+    expect(canvasButtonManifestFromDraft(draft, compound)?.canvasAction?.poseBindings).toEqual({ yaw: "pano.yaw", pitch: "pano.pitch", fov: "pano.fov" });
+  });
+
+  it("keeps exposed output preview candidates", () => {
+    const candidates = canvasButtonPreviewCandidates(compoundWith([], [{ id: "image", nodeId: "upscale", kind: "image", label: "Enhanced" }]), "text");
+    expect(candidates).toContainEqual({ id: "output:image", kind: "image", source: { output: "image" }, label: "Enhanced" });
   });
 
   it("derives pose bindings for selected fisheye camera parameters", () => {

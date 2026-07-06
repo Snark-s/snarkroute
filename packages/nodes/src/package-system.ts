@@ -49,7 +49,7 @@ export interface CanvasActionManifest {
     params: string[];
     preview?: Array<{
       kind: "image" | "video" | "audio" | "panorama360" | "splat";
-      source: "input" | { output: string };
+      source: "input" | { output: string } | { pause: string };
     }>;
   };
 }
@@ -243,7 +243,7 @@ export function validateNodeManifest(input: unknown, options: { basePath?: strin
   validatePorts(record.outputs, "outputs", issues);
   if (record.params !== undefined) validatePorts(record.params, "params", issues);
   if (record.capabilities !== undefined) validateCapabilities(record.capabilities, issues);
-  if (record.canvasAction !== undefined) validateCanvasAction(record.canvasAction, record.inputs, record.outputs, record.params, issues);
+  if (record.canvasAction !== undefined) validateCanvasAction(record.canvasAction, record.inputs, record.outputs, record.params, record.generatedWith, issues);
 
   return issues.length === 0 ? { ok: true, manifest: normalizeNodeManifest(record), issues: [] } : { ok: false, issues };
 }
@@ -809,7 +809,7 @@ function validateCapabilities(value: unknown, issues: ValidationIssue[]): void {
   });
 }
 
-function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown, params: unknown, issues: ValidationIssue[]): void {
+function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown, params: unknown, generatedWith: unknown, issues: ValidationIssue[]): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     issues.push({ path: "canvasAction", message: "canvasAction must be an object." });
     return;
@@ -819,7 +819,7 @@ function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown,
   if (record.title !== undefined && typeof record.title !== "string") issues.push({ path: "canvasAction.title", message: "title must be string." });
   if (record.description !== undefined && typeof record.description !== "string") issues.push({ path: "canvasAction.description", message: "description must be string." });
   if (record.icon !== undefined) validateCanvasActionIcon(record.icon, issues);
-  if (record.dialog !== undefined) validateCanvasActionDialog(record.dialog, params, outputs, issues);
+  if (record.dialog !== undefined) validateCanvasActionDialog(record.dialog, params, outputs, generatedWith, issues);
   if (record.poseBindings !== undefined) {
     const paramIds = new Set((Array.isArray(params) ? params : []).map((param: Record<string, unknown>) => param.id).filter((id): id is string => typeof id === "string"));
     if (!record.poseBindings || typeof record.poseBindings !== "object" || Array.isArray(record.poseBindings)) {
@@ -848,7 +848,7 @@ function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown,
   });
 }
 
-function validateCanvasActionDialog(value: unknown, params: unknown, outputs: unknown, issues: ValidationIssue[]): void {
+function validateCanvasActionDialog(value: unknown, params: unknown, outputs: unknown, generatedWith: unknown, issues: ValidationIssue[]): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     issues.push({ path: "canvasAction.dialog", message: "dialog must be an object." });
     return;
@@ -864,6 +864,9 @@ function validateCanvasActionDialog(value: unknown, params: unknown, outputs: un
     });
   }
   const outputIds = new Set((Array.isArray(outputs) ? outputs : []).map((output: Record<string, unknown>) => output.id).filter((id): id is string => typeof id === "string"));
+  const generated = generatedWith && typeof generatedWith === "object" && !Array.isArray(generatedWith) ? generatedWith as Record<string, unknown> : {};
+  const subroute = generated.subroute && typeof generated.subroute === "object" && !Array.isArray(generated.subroute) ? generated.subroute as Record<string, unknown> : {};
+  const nodeIds = new Set((Array.isArray(subroute.nodes) ? subroute.nodes : []).map((node: Record<string, unknown>) => node.id).filter((id): id is string => typeof id === "string"));
   if (dialog.preview !== undefined && !Array.isArray(dialog.preview)) {
     issues.push({ path: "canvasAction.dialog.preview", message: "preview must be an array." });
   } else if (Array.isArray(dialog.preview)) {
@@ -875,12 +878,20 @@ function validateCanvasActionDialog(value: unknown, params: unknown, outputs: un
       const preview = entry as Record<string, unknown>;
       if (!["image", "video", "audio", "panorama360", "splat"].includes(String(preview.kind))) issues.push({ path: `canvasAction.dialog.preview.${index}.kind`, message: "Unsupported preview kind." });
       if (preview.source === "input") return;
-      if (!preview.source || typeof preview.source !== "object" || Array.isArray(preview.source) || typeof (preview.source as Record<string, unknown>).output !== "string") {
-        issues.push({ path: `canvasAction.dialog.preview.${index}.source`, message: 'source must be "input" or an output reference.' });
+      if (!preview.source || typeof preview.source !== "object" || Array.isArray(preview.source)) {
+        issues.push({ path: `canvasAction.dialog.preview.${index}.source`, message: 'source must be "input", an output reference, or a pause-node reference.' });
         return;
       }
-      const output = (preview.source as { output: string }).output;
-      if (!outputIds.has(output)) issues.push({ path: `canvasAction.dialog.preview.${index}.source.output`, message: `Unknown output "${output}".` });
+      const source = preview.source as Record<string, unknown>;
+      if (typeof source.pause === "string") {
+        if (!nodeIds.has(source.pause)) issues.push({ path: `canvasAction.dialog.preview.${index}.source.pause`, message: `Unknown pause node "${source.pause}".` });
+        return;
+      }
+      if (typeof source.output !== "string") {
+        issues.push({ path: `canvasAction.dialog.preview.${index}.source`, message: 'source must be "input", an output reference, or a pause-node reference.' });
+        return;
+      }
+      if (!outputIds.has(source.output)) issues.push({ path: `canvasAction.dialog.preview.${index}.source.output`, message: `Unknown output "${source.output}".` });
     });
   }
 }

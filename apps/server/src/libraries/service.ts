@@ -2396,6 +2396,8 @@ function canvasActionCompoundExecution(action: SnarkNodeManifest, sourceNodeId: 
 }
 
 function canvasActionPauseNodeId(action: SnarkNodeManifest): string {
+  const preview = action.canvasAction?.dialog?.preview?.find((candidate) => candidate.kind === "panorama360" || candidate.kind === "splat");
+  if (preview?.source !== "input" && preview?.source && "pause" in preview.source) return preview.source.pause;
   const paramIds = Object.values(action.canvasAction?.poseBindings ?? {});
   const nodeIds = new Set(paramIds.map((paramId) => action.params?.find((param) => param.id === paramId)?.binding?.nodeId).filter((nodeId): nodeId is string => Boolean(nodeId)));
   if (nodeIds.size !== 1) throw new Error(`Canvas action "${action.title}" must bind its pose parameters to one pause node.`);

@@ -521,7 +521,7 @@ export type NodeManifest = {
     dialog?: {
       enabled: boolean;
       params: string[];
-      preview?: Array<{ kind: "image" | "video" | "audio" | "panorama360" | "splat"; source: "input" | { output: string } }>;
+      preview?: Array<{ kind: "image" | "video" | "audio" | "panorama360" | "splat"; source: "input" | { output: string } | { pause: string } }>;
     };
   };
   generatedWith?: unknown;

@@ -1413,6 +1413,24 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("uses preview source.pause without pose bindings", async () => {
+    const manifest = poseCanvasActionManifest();
+    manifest.params = [];
+    manifest.canvasAction = { enabled: true, dialog: { enabled: true, params: [], preview: [{ kind: "panorama360", source: { pause: "pause" } }] } };
+    await writeCanvasActionManifest(libraryPath, manifest);
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Pause panorama.png");
+      executeRouteMock.mockResolvedValue({ status: "succeeded", nodeResults: { action__input__image: { status: "succeeded", output: {} }, provider: { status: "succeeded", output: { image: "https://example.test/panorama.jpg" } } } });
+      const prepared = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "prepare" } });
+      expect(prepared.statusCode).toBe(200);
+      expect(executeRouteMock.mock.calls[0][0].nodes.map((node: { id: string }) => node.id)).toEqual(["action__input__image", "provider"]);
+      expect(prepared.json().previews).toEqual([{ kind: "panorama360", src: "https://example.test/panorama.jpg" }]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns 410 for an expired canvas action continuation", async () => {
     await writeCanvasActionManifest(libraryPath, poseCanvasActionManifest());
     vi.useFakeTimers({ toFake: ["Date"] });
