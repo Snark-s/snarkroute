@@ -6,6 +6,7 @@ import { Panorama360Viewer, SplatViewer, type CameraPose } from "@snarkroute/med
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { canvasActionNeedsDialog } from "./canvasActionDialog";
 import { useClampedMenuPosition } from "./menuPosition";
+import { readTextDialogueDraft, writeTextDialogueDraft } from "./dialogueDraft";
 import { createRoot } from "react-dom/client";
 import {
   generationParameterSummary,
@@ -2544,10 +2545,12 @@ function App() {
       applyLibrarySnapshot(snapshot);
       setStatus("Dialogue updated");
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message: "Answered" } }));
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not send dialogue turn.";
       setStatus(message);
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message, error: true } }));
+      return false;
     }
   }
 
@@ -3228,7 +3231,7 @@ function App() {
                 void setActiveTextStackItem(nodeId, stackItemId);
               }}
               onRunTextGeneration={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => void runTextGeneration(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
-              onRunTextDialogueTurn={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => void runTextDialogueTurn(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
+              onRunTextDialogueTurn={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => runTextDialogueTurn(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
               onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
               toolbarActions={effectiveNodeToolbarConfig[node.manifest.type as EditableNodeType]}
               availableToolbarActions={availableNodeToolbarActions}
@@ -5165,7 +5168,7 @@ function ImageNode({
   onAddTextToStack: (nodeId: string, text: string) => void;
   onSelectTextStackItem: (nodeId: string, stackItemId: string | null) => void;
   onRunTextGeneration: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => void;
-  onRunTextDialogueTurn: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => void;
+  onRunTextDialogueTurn: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => Promise<boolean>;
   onRenameNode: (nodeId: string, title: string) => void;
   toolbarActions: NodeToolbarActionId[];
   availableToolbarActions: NodeToolbarAction[];
@@ -5209,7 +5212,7 @@ function ImageNode({
     capabilities: [],
     isAvailable: false
   };
-  const effectiveSelection: ModelRouteSelection = selectedRoutes.length && selectedModel.id !== modelSelection.modelId
+  const effectiveSelection: ModelRouteSelection = selectedModel.id && selectedModel.id !== modelSelection.modelId
     ? { modelId: selectedModel.id, executionProvider: "auto", fallbackAllowed: true }
     : modelSelection;
   const normalizedModelQuery = modelQuery.toLowerCase();
@@ -6119,10 +6122,10 @@ function DialogueEditor({
   onOpenModels: () => void;
   onSelectModel: (nodeId: string, selection: ModelRouteSelection) => void;
   onChangeRouteSettings: (nodeId: string, selection: ModelRouteSelection) => void;
-  onRunTurn: (prompt: string) => void;
+  onRunTurn: (prompt: string) => Promise<boolean>;
   onAddTextToStack: (text: string) => void;
 }) {
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(() => readTextDialogueDraft(sessionStorage, node.manifest.id));
   const [routeSettingsOpen, setRouteSettingsOpen] = useState(false);
   const [selectionAction, setSelectionAction] = useState<{ text: string; left: number; top: number } | null>(null);
   const feedRef = useRef<HTMLDivElement | null>(null);
@@ -6160,12 +6163,15 @@ function DialogueEditor({
     setSelectionAction({ text, left, top });
   }
 
-  function sendTurn() {
+  useEffect(() => {
+    writeTextDialogueDraft(sessionStorage, node.manifest.id, draft);
+  }, [draft, node.manifest.id]);
+
+  async function sendTurn() {
     if (!draft.trim() || !selectedModel.id || generationFeedback?.busy) return;
     const value = draft;
-    setDraft("");
     setRouteSettingsOpen(false);
-    onRunTurn(value);
+    if (await onRunTurn(value)) setDraft((current) => current === value ? "" : current);
   }
 
   function addDraftToStack() {
@@ -6292,7 +6298,7 @@ function DialogueEditor({
         </div>
         {activeInputNodes.length ? <span className="dialogueAttachCount">{activeInputNodes.length}</span> : null}
         {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"} title={generationFeedback.message}>{generationFeedback.message}</span> : null}
-        <button type="button" aria-label="Send" disabled={!draft.trim() || !selectedModel.id || generationFeedback?.busy} onClick={sendTurn}>
+        <button type="button" aria-label="Send" disabled={!draft.trim() || !selectedModel.id || generationFeedback?.busy} onClick={() => void sendTurn()}>
           {generationFeedback?.busy ? <BusyGears /> : <Send size={16} />}
         </button>
       </div>
