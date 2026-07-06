@@ -302,12 +302,13 @@ export function normalizeAvailableModelOptions(value: unknown): ModelOption[] {
     const accepts = entry.inputTypes.flatMap(contentKind);
     const generationParameters = normalizeServerParameterDefinitions(entry.parameters);
     const metadata = entry.metadata ?? {};
+    const storedModelId = entry.provider === "rutronix" ? entry.id : entry.providerModelId;
     return [{
-      id: entry.providerModelId,
+      id: storedModelId,
       title: entry.displayName,
       providerId: entry.provider,
       providerModelId: entry.providerModelId,
-      storedModelId: entry.providerModelId,
+      storedModelId,
       iconPath: resolvedCatalogIconPath(entry.iconPath, entry.iconKey, entry.originVendor, entry.providerModelId, entry.provider),
       iconKey: entry.iconKey,
       originVendor: entry.originVendor,
