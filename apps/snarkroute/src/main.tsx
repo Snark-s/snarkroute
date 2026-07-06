@@ -5,7 +5,7 @@ import JSZip from "jszip";
 import { Panorama360Viewer, SplatViewer, type CameraPose } from "@snarkroute/media-viewers";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { canvasActionNeedsDialog } from "./canvasActionDialog";
-import { useClampedMenuPosition } from "./menuPosition";
+import { useClampedMenuPosition } from "@snarkroute/media-viewers";
 import { readTextDialogueDraft, writeTextDialogueDraft } from "./dialogueDraft";
 import { createRoot } from "react-dom/client";
 import {

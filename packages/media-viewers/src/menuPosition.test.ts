@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampMenuPosition } from "./menuPosition";
+import { clampMenuPosition } from "./index.js";
 
 describe("clampMenuPosition", () => {
   const menu = { width: 180, height: 120 };

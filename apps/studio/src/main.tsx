@@ -1,5 +1,6 @@
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
+import { useClampedMenuPosition } from "@snarkroute/media-viewers";
 import defaultRouteDocument from "./default-route.orp.json";
 import {
   Background,
@@ -3974,6 +3975,12 @@ function App() {
   const [librarySectionMenu, setLibrarySectionMenu] = useState<LibrarySectionMenuState | null>(null);
   const [promptAssetMenu, setPromptAssetMenu] = useState<PromptAssetMenuState | null>(null);
   const [promptLibraryMenu, setPromptLibraryMenu] = useState<PromptLibraryMenuState | null>(null);
+  const contextMenuPosition = useClampedMenuPosition(contextMenu ? { x: contextMenu.clientX, y: contextMenu.clientY } : null);
+  const libraryItemMenuPosition = useClampedMenuPosition(libraryItemMenu ? { x: libraryItemMenu.clientX, y: libraryItemMenu.clientY } : null);
+  const librarySectionMenuPosition = useClampedMenuPosition(librarySectionMenu ? { x: librarySectionMenu.clientX, y: librarySectionMenu.clientY } : null);
+  const promptAssetMenuPosition = useClampedMenuPosition(promptAssetMenu ? { x: promptAssetMenu.clientX, y: promptAssetMenu.clientY } : null);
+  const promptLibraryMenuPosition = useClampedMenuPosition(promptLibraryMenu ? { x: promptLibraryMenu.clientX, y: promptLibraryMenu.clientY } : null);
+  const connectionNodeMenuPosition = useClampedMenuPosition(connectionNodeMenu ? { x: connectionNodeMenu.clientX, y: connectionNodeMenu.clientY } : null);
   const [promptAssetDraft, setPromptAssetDraft] = useState<PromptAssetDraft | null>(null);
   const [promptAssetError, setPromptAssetError] = useState("");
   const [promptAssetSaving, setPromptAssetSaving] = useState(false);
@@ -7890,7 +7897,7 @@ function App() {
           />
         ) : null}
         {contextMenu ? (
-          <div className="contextMenu" style={{ left: contextMenu.clientX, top: contextMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+          <div ref={contextMenuPosition.ref} className="contextMenu" style={contextMenuPosition.style} onClick={(event) => event.stopPropagation()}>
             {contextMenu.nodeId ? (
               <>
                 {contextRouteNode && shouldShowNodeRunButton(contextRouteNode.type) ? (
@@ -8099,7 +8106,7 @@ function App() {
           </div>
         ) : null}
         {libraryItemMenu ? (
-          <div className="contextMenu" style={{ left: libraryItemMenu.clientX, top: libraryItemMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+          <div ref={libraryItemMenuPosition.ref} className="contextMenu" style={libraryItemMenuPosition.style} onClick={(event) => event.stopPropagation()}>
             {(() => {
               const item = nodeCatalog.find((candidate) => candidate.type === libraryItemMenu.type);
               const isHidden = hiddenNodeTypes.has(libraryItemMenu.type);
@@ -8133,7 +8140,7 @@ function App() {
           </div>
         ) : null}
         {librarySectionMenu ? (
-          <div className="contextMenu" style={{ left: librarySectionMenu.clientX, top: librarySectionMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+          <div ref={librarySectionMenuPosition.ref} className="contextMenu" style={librarySectionMenuPosition.style} onClick={(event) => event.stopPropagation()}>
             {(() => {
               const hiddenInSection = librarySectionMenu.sectionTypes.filter((type) => hiddenNodeTypes.has(type));
               const allHidden = librarySectionMenu.sectionTypes.length > 0 && hiddenInSection.length === librarySectionMenu.sectionTypes.length;
@@ -8159,9 +8166,9 @@ function App() {
         ) : null}
         {promptAssetMenu && supportsLocalFilesystem ? (
           <div
-            ref={promptAssetMenuRef}
+            ref={(element) => { promptAssetMenuRef.current = element; promptAssetMenuPosition.ref.current = element; }}
             className="contextMenu"
-            style={{ left: promptAssetMenu.clientX, top: promptAssetMenu.clientY }}
+            style={promptAssetMenuPosition.style}
             tabIndex={-1}
             onClick={(event) => event.stopPropagation()}
           >
@@ -8183,7 +8190,7 @@ function App() {
           </div>
         ) : null}
         {promptLibraryMenu ? (
-          <div className="contextMenu promptLibraryContextMenu" style={{ left: promptLibraryMenu.clientX, top: promptLibraryMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+          <div ref={promptLibraryMenuPosition.ref} className="contextMenu promptLibraryContextMenu" style={promptLibraryMenuPosition.style} onClick={(event) => event.stopPropagation()}>
             <strong>Prompt actions</strong>
             <span className="contextMenuHint">{promptLibraryMenu.prompt.category}/{promptLibraryMenu.prompt.id}</span>
             <button onClick={() => { movePromptLibraryPrompt(promptLibraryMenu.prompt); setPromptLibraryMenu(null); }}>Move to Category...</button>
@@ -8197,8 +8204,9 @@ function App() {
         ) : null}
         {connectionNodeMenu ? (
           <div
+            ref={connectionNodeMenuPosition.ref}
             className="connectionNodeMenu nowheel"
-            style={{ left: connectionNodeMenu.clientX, top: connectionNodeMenu.clientY }}
+            style={connectionNodeMenuPosition.style}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="connectionNodeMenuHeader">
