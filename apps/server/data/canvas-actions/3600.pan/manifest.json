@@ -1,7 +1,7 @@
 {
   "kind": "snarkroute.node",
   "schemaVersion": "0.1",
-  "id": "360.pan",
+  "id": "3600.pan",
   "title": "360 pan",
   "version": "0.1.0",
   "author": {
@@ -81,7 +81,7 @@
     "description": "Run \"360 pan\" from the Living Canvas node toolbar.",
     "icon": {
       "kind": "preset",
-      "name": "rotate-left"
+      "name": "route"
     },
     "poseBindings": {
       "fov": "preview_panorama360_7.fov",
@@ -305,7 +305,7 @@
     }
   },
   "installConfirmation": {
-    "confirmedAt": "2026-07-07T14:01:25.650Z",
+    "confirmedAt": "2026-07-07T14:04:47.635Z",
     "warnings": []
   },
   "enabled": true
