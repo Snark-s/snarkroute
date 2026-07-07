@@ -349,9 +349,9 @@ interface CanvasNodeAction {
   description: string;
   inputType: EditableNodeType;
   outputs: Array<{ id: string; type: EditableNodeType; label: string }>;
-  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown; options?: Array<{ value: unknown; label?: string }>; min?: number; max?: number; step?: number }>;
+  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown; options?: Array<{ value: unknown; label?: string }>; min?: number; max?: number; step?: number; poseManaged?: boolean }>;
   dialog?: { enabled: boolean; params: string[]; preview?: Array<{ kind: "image" | "video" | "audio" | "panorama360" | "splat"; source: "input" | { output: string } }> };
-  poseBindings?: Partial<Record<"yaw" | "pitch" | "roll" | "fov" | "positionX" | "positionY" | "positionZ", string>>;
+  poseBindings?: Partial<Record<"yaw" | "pitch" | "roll" | "fov" | "positionX" | "positionY" | "positionZ" | "cameraPose", string>>;
   icon?: { kind: "preset"; name: string } | { kind: "custom"; svg?: string; dataUrl?: string };
 }
 
@@ -432,7 +432,7 @@ type CanvasActionRunDialog = {
   continuationId?: string;
   targetNodeId?: string;
   preparedPreviews?: Array<{ kind: "panorama360" | "splat"; src: string }>;
-  pose?: { yaw?: number; pitch?: number; roll?: number; fov?: number; positionX?: number; positionY?: number; positionZ?: number };
+  pose?: { yaw?: number; pitch?: number; roll?: number; fov?: number; positionX?: number; positionY?: number; positionZ?: number; cameraPose?: CameraPose };
   resultNodes?: NodeView[];
   error?: string;
   continuationExpired?: boolean;
@@ -1054,6 +1054,7 @@ function App() {
     if (!icon) return;
     const initialHref = icon.getAttribute("href") ?? "/snarkroute-icon.png";
     const initialType = icon.getAttribute("type");
+    const initialTitle = document.title;
     if (!generationRunning) {
       icon.href = initialHref;
       if (initialType) icon.type = initialType;
@@ -1061,6 +1062,7 @@ function App() {
     }
 
     let frame = 0;
+    document.title = `⚙ ${initialTitle}`;
     icon.type = "image/svg+xml";
     icon.href = busyFaviconFrames[frame];
     const timer = window.setInterval(() => {
@@ -1071,6 +1073,7 @@ function App() {
       window.clearInterval(timer);
       icon.href = initialHref;
       if (initialType) icon.type = initialType;
+      document.title = initialTitle;
     };
   }, [generationRunning]);
 
@@ -2929,11 +2932,11 @@ function App() {
     try {
       setCanvasActionRunning((current) => ({ ...current, [key]: action.id }));
       setStatus("Preparing interactive canvas action...");
-      const prepared = await apiPost<{ continuationId: string; previews: Array<{ kind: "panorama360" | "splat"; src: string }> }>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(action.id)}/run`, { phase: "prepare", ...point });
+      const prepared = await apiPost<{ continuationId: string; previews: Array<{ kind: "panorama360" | "splat"; src: string }> }>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(action.id)}/run`, { phase: "prepare", reuse: Boolean(targetNodeId), ...point });
       const paramIds = action.dialog?.params ?? [];
       const saved = canvasActionParamValues[action.id] ?? {};
       const params = preservedParams ?? Object.fromEntries((action.params ?? []).filter((param) => paramIds.includes(param.id)).map((param) => [param.id, saved[param.id] ?? param.default ?? defaultCanvasActionParamValue(param.type)]));
-      setCanvasActionRunDialog({ nodeId, action, point, params, targetNodeId, continuationId: prepared.continuationId, preparedPreviews: prepared.previews });
+      setCanvasActionRunDialog({ nodeId, action, point, params, pose: canvasActionPoseFromParams(action, params), targetNodeId, continuationId: prepared.continuationId, preparedPreviews: prepared.previews });
       setStatus("Choose a view, then run the action");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not prepare canvas action.";
@@ -3462,9 +3465,8 @@ function App() {
             onSubmit={async (event) => {
               event.preventDefault();
               setCanvasActionRunDialog((current) => current ? { ...current, error: undefined, continuationExpired: false } : current);
-              const { nodeId, action, point, params, continuationId, targetNodeId, pose } = canvasActionRunDialog;
-              const poseParams = Object.fromEntries(Object.entries(action.poseBindings ?? {}).flatMap(([axis, paramId]) => paramId && pose?.[axis as keyof typeof pose] !== undefined ? [[paramId, pose[axis as keyof typeof pose]]] : []));
-              const runParams = { ...params, ...poseParams };
+              const { nodeId, action, point, params, continuationId, targetNodeId } = canvasActionRunDialog;
+              const runParams = params;
               setCanvasActionParamValues({ ...canvasActionParamValues, [action.id]: params });
               const previousIds = new Set(nodes.map((node) => node.canvas.id));
               const snapshot = await runNodeCanvasAction(nodeId, action.id, point, runParams, continuationId ? { continuationId, targetNodeId } : undefined);
@@ -3476,7 +3478,7 @@ function App() {
             {canvasActionRunDialog.error ? (
               <div className="canvasActionErrorBanner" role="alert">
                 <span>{canvasActionRunDialog.continuationExpired ? "The prepared preview expired. Prepare it again to continue." : canvasActionRunDialog.error}</span>
-                {canvasActionRunDialog.continuationExpired ? <button type="button" onClick={() => void prepareNodeCanvasAction(canvasActionRunDialog.nodeId, canvasActionRunDialog.action, canvasActionRunDialog.point, canvasActionRunDialog.targetNodeId, canvasActionRunDialog.params)}>Подготовить заново</button> : null}
+                {canvasActionRunDialog.continuationExpired ? <button type="button" onClick={() => void prepareNodeCanvasAction(canvasActionRunDialog.nodeId, canvasActionRunDialog.action, canvasActionRunDialog.point, canvasActionRunDialog.targetNodeId, canvasActionRunDialog.params)}>Prepare again</button> : null}
               </div>
             ) : null}
             {canvasActionRunDialog.preparedPreviews?.map((preview, index) => (
@@ -3484,7 +3486,8 @@ function App() {
                 key={`${preview.kind}-${index}`}
                 kind={preview.kind}
                 src={absoluteApiUrl(preview.src)}
-                onPoseChange={(pose) => setCanvasActionRunDialog((current) => current ? { ...current, pose } : current)}
+                pose={canvasActionRunDialog.pose}
+                onPoseChange={(pose) => setCanvasActionRunDialog((current) => current ? syncCanvasActionPose(current, pose) : current)}
               />
             ))}
             {canvasActionRunDialog.action.dialog?.preview?.filter((preview) => preview.source === "input").map((preview, index) => (() => {
@@ -3493,7 +3496,11 @@ function App() {
               if (!src) return null;
               return <CanvasActionMediaPreview key={index} kind={preview.kind} src={`${apiBase}${src}`} title="Action input preview" />;
             })())}
-            {(canvasActionRunDialog.action.params ?? []).filter((param) => canvasActionRunDialog.action.dialog?.params.includes(param.id) && !(canvasActionRunDialog.preparedPreviews?.length && Object.values(canvasActionRunDialog.action.poseBindings ?? {}).includes(param.id))).map((param) => (
+            {(canvasActionRunDialog.action.params ?? []).filter((param) => {
+              if (!canvasActionRunDialog.action.dialog?.params.includes(param.id)) return false;
+              const axis = canvasActionPoseAxis(canvasActionRunDialog.action, param.id);
+              return !param.poseManaged || axis === "fov";
+            }).map((param) => (
               <label className="canvasActionSettingsField" key={param.id}>
                 <span>{param.label ?? param.id}</span>
                 {param.type === "boolean" ? (
@@ -3507,8 +3514,12 @@ function App() {
                   <input
                     type={param.type === "number" ? "number" : "text"}
                     min={param.min} max={param.max} step={param.step}
-                    value={String(canvasActionRunDialog.params[param.id] ?? "")}
-                    onChange={(event) => setCanvasActionRunDialog({ ...canvasActionRunDialog, params: { ...canvasActionRunDialog.params, [param.id]: param.type === "number" ? event.target.valueAsNumber : event.target.value } })}
+                    value={String(canvasActionPoseAxis(canvasActionRunDialog.action, param.id) === "fov" ? canvasActionRunDialog.pose?.fov ?? canvasActionRunDialog.params[param.id] ?? "" : canvasActionRunDialog.params[param.id] ?? "")}
+                    onChange={(event) => {
+                      const value = param.type === "number" ? event.target.valueAsNumber : event.target.value;
+                      const axis = canvasActionPoseAxis(canvasActionRunDialog.action, param.id);
+                      setCanvasActionRunDialog(axis === "fov" ? syncCanvasActionPose(canvasActionRunDialog, { fov: clamp(Number(value), 1, 120) }) : { ...canvasActionRunDialog, params: { ...canvasActionRunDialog.params, [param.id]: value } });
+                    }}
                   />
                 )}
               </label>
@@ -3528,7 +3539,7 @@ function App() {
             </div>
             <footer>
               <button type="button" onClick={() => setCanvasActionRunDialog(null)}>Cancel</button>
-              <button type="submit" disabled={Boolean(canvasActionRunning[`${canvasActionRunDialog.nodeId}:${canvasActionRunDialog.action.id}`])}>Run</button>
+              <button type="submit" disabled={Boolean(canvasActionRunning[`${canvasActionRunDialog.nodeId}:${canvasActionRunDialog.action.id}`])}>{canvasActionRunning[`${canvasActionRunDialog.nodeId}:${canvasActionRunDialog.action.id}`] ? <><BusyGears /> Running...</> : "Run"}</button>
             </footer>
           </form>
         </div>
@@ -4505,20 +4516,42 @@ function defaultCanvasActionParamValue(type: string): unknown {
   return "";
 }
 
-function CanvasActionPosePreview({ kind, src, onPoseChange }: { kind: "panorama360" | "splat"; src: string; onPoseChange: (pose: CanvasActionRunDialog["pose"]) => void }) {
+function canvasActionPoseAxis(action: CanvasNodeAction, paramId: string): keyof NonNullable<CanvasActionRunDialog["pose"]> | undefined {
+  return Object.entries(action.poseBindings ?? {}).find(([, boundParamId]) => boundParamId === paramId)?.[0] as keyof NonNullable<CanvasActionRunDialog["pose"]> | undefined;
+}
+
+function canvasActionPoseFromParams(action: CanvasNodeAction, params: Record<string, unknown>): CanvasActionRunDialog["pose"] {
+  return Object.fromEntries(Object.entries(action.poseBindings ?? {}).flatMap(([axis, paramId]) => paramId && params[paramId] !== undefined ? [[axis, params[paramId]]] : [])) as CanvasActionRunDialog["pose"];
+}
+
+function syncCanvasActionPose(dialog: CanvasActionRunDialog, update: CanvasActionRunDialog["pose"]): CanvasActionRunDialog {
+  const pose = { ...dialog.pose, ...update };
+  const params = { ...dialog.params };
+  for (const [axis, paramId] of Object.entries(dialog.action.poseBindings ?? {})) {
+    const value = pose[axis as keyof typeof pose];
+    if (paramId && value !== undefined) params[paramId] = value;
+  }
+  return { ...dialog, pose, params };
+}
+
+function CanvasActionPosePreview({ kind, src, pose, onPoseChange }: { kind: "panorama360" | "splat"; src: string; pose: CanvasActionRunDialog["pose"]; onPoseChange: (pose: CanvasActionRunDialog["pose"]) => void }) {
   if (kind === "splat") {
-    return <SplatViewer splatUrl={src} className="canvasActionSplatViewer" mountClassName="canvasActionSplatMount" canvasClassName="canvasActionSplatCanvas" onPoseChange={(pose: CameraPose) => onPoseChange({ yaw: pose.rotation.yaw, pitch: pose.rotation.pitch, roll: pose.rotation.roll, fov: pose.fov, positionX: pose.position.x, positionY: pose.position.y, positionZ: pose.position.z })} />;
+    return <SplatViewer splatUrl={src} className="canvasActionSplatViewer" mountClassName="canvasActionSplatMount" canvasClassName="canvasActionSplatCanvas" onPoseChange={(cameraPose: CameraPose) => onPoseChange({ yaw: cameraPose.rotation.yaw, pitch: cameraPose.rotation.pitch, roll: cameraPose.rotation.roll, fov: cameraPose.fov, positionX: cameraPose.position.x, positionY: cameraPose.position.y, positionZ: cameraPose.position.z, cameraPose })} />;
   }
   return <Panorama360Viewer src={src} title="Interactive action panorama" className="panoramaViewer canvasActionPanoramaViewer" canvasClassName="panoramaCanvas">
     {({ view, setFov }) => <>
-      <PanoramaPoseReporter view={view} onPoseChange={onPoseChange} />
-      <label className="canvasActionSettingsField"><span>Field of view</span><input type="range" min={35} max={90} value={view.fov} onChange={(event) => setFov(event.target.valueAsNumber)} /></label>
+      <PanoramaPoseReporter view={view} requestedFov={pose?.fov} setFov={setFov} onPoseChange={onPoseChange} />
+      <div className="canvasActionPoseReadout">yaw {Math.round(view.yaw * 180 / Math.PI)}° · pitch {Math.round(view.pitch * 180 / Math.PI)}° · fov {Math.round(view.fov)}°</div>
+      <label className="canvasActionSettingsField"><span>Field of view</span><input type="range" min={1} max={120} value={pose?.fov ?? view.fov} onChange={(event) => onPoseChange({ fov: clamp(event.target.valueAsNumber, 1, 120) })} /></label>
     </>}
   </Panorama360Viewer>;
 }
 
-function PanoramaPoseReporter({ view, onPoseChange }: { view: { yaw: number; pitch: number; fov: number }; onPoseChange: (pose: CanvasActionRunDialog["pose"]) => void }) {
-  useEffect(() => onPoseChange({ yaw: view.yaw * 180 / Math.PI, pitch: view.pitch * 180 / Math.PI, fov: view.fov }), [view.yaw, view.pitch, view.fov]);
+function PanoramaPoseReporter({ view, requestedFov, setFov, onPoseChange }: { view: { yaw: number; pitch: number; fov: number }; requestedFov?: number; setFov: (fov: number) => void; onPoseChange: (pose: CanvasActionRunDialog["pose"]) => void }) {
+  useEffect(() => {
+    if (requestedFov !== undefined && Math.abs(requestedFov - view.fov) > 0.01) setFov(clamp(requestedFov, 1, 120));
+  }, [requestedFov, setFov]);
+  useEffect(() => onPoseChange({ yaw: view.yaw * 180 / Math.PI, pitch: view.pitch * 180 / Math.PI, fov: requestedFov !== undefined && Math.abs(requestedFov - view.fov) > 0.01 ? requestedFov : view.fov }), [view.yaw, view.pitch, view.fov]);
   return null;
 }
 

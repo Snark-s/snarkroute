@@ -25,6 +25,7 @@ export interface NodeParamManifest extends NodePortManifest {
   max?: number;
   step?: number;
   binding?: { nodeId: string; paramId: string };
+  poseManaged?: boolean;
 }
 
 export interface NodeCapabilityManifest {
@@ -43,7 +44,7 @@ export interface CanvasActionManifest {
   title?: string;
   description?: string;
   icon?: CanvasActionIconManifest;
-  poseBindings?: Partial<Record<"yaw" | "pitch" | "roll" | "fov" | "positionX" | "positionY" | "positionZ", string>>;
+  poseBindings?: Partial<Record<"yaw" | "pitch" | "roll" | "fov" | "positionX" | "positionY" | "positionZ" | "cameraPose", string>>;
   dialog?: {
     enabled: boolean;
     params: string[];
@@ -786,6 +787,7 @@ function validatePorts(value: unknown, path: string, issues: ValidationIssue[]):
     requiredString(record.id, `${path}.${index}.id`, issues);
     requiredString(record.type, `${path}.${index}.type`, issues);
     if (record.required !== undefined && typeof record.required !== "boolean") issues.push({ path: `${path}.${index}.required`, message: "required must be boolean." });
+    if (path === "params" && record.poseManaged !== undefined && typeof record.poseManaged !== "boolean") issues.push({ path: `${path}.${index}.poseManaged`, message: "poseManaged must be boolean." });
   });
 }
 
@@ -825,7 +827,7 @@ function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown,
     if (!record.poseBindings || typeof record.poseBindings !== "object" || Array.isArray(record.poseBindings)) {
       issues.push({ path: "canvasAction.poseBindings", message: "poseBindings must be an object." });
     } else {
-      const allowed = new Set(["yaw", "pitch", "roll", "fov", "positionX", "positionY", "positionZ"]);
+      const allowed = new Set(["yaw", "pitch", "roll", "fov", "positionX", "positionY", "positionZ", "cameraPose"]);
       for (const [key, paramId] of Object.entries(record.poseBindings as Record<string, unknown>)) {
         if (!allowed.has(key) || typeof paramId !== "string" || !paramIds.has(paramId)) issues.push({ path: `canvasAction.poseBindings.${key}`, message: `Unknown pose parameter "${String(paramId)}".` });
       }

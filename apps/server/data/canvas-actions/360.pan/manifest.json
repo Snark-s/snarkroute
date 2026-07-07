@@ -41,22 +41,38 @@
     {
       "id": "preview_panorama360_7.fov",
       "type": "number",
+      "label": "FOV",
       "default": 55,
-      "label": "fov",
+      "description": "Perspective field of view in degrees.",
       "binding": {
         "nodeId": "preview_panorama360_7",
         "paramId": "fov"
-      }
+      },
+      "poseManaged": true
     },
     {
-      "id": "replicate_clarity_upscaler_8.scale_factor",
+      "id": "preview_panorama360_7.yaw",
       "type": "number",
-      "default": 2,
-      "label": "scale_factor",
+      "label": "Yaw",
+      "default": 0,
+      "description": "Horizontal view direction in degrees.",
       "binding": {
-        "nodeId": "replicate_clarity_upscaler_8",
-        "paramId": "scale_factor"
-      }
+        "nodeId": "preview_panorama360_7",
+        "paramId": "yaw"
+      },
+      "poseManaged": true
+    },
+    {
+      "id": "preview_panorama360_7.pitch",
+      "type": "number",
+      "label": "Pitch",
+      "default": 0,
+      "description": "Vertical view direction in degrees.",
+      "binding": {
+        "nodeId": "preview_panorama360_7",
+        "paramId": "pitch"
+      },
+      "poseManaged": true
     }
   ],
   "canvasAction": {
@@ -65,16 +81,19 @@
     "description": "Run \"360 pan\" from the Living Canvas node toolbar.",
     "icon": {
       "kind": "preset",
-      "name": "map"
+      "name": "rotate-left"
     },
     "poseBindings": {
-      "fov": "preview_panorama360_7.fov"
+      "fov": "preview_panorama360_7.fov",
+      "yaw": "preview_panorama360_7.yaw",
+      "pitch": "preview_panorama360_7.pitch"
     },
     "dialog": {
       "enabled": true,
       "params": [
         "preview_panorama360_7.fov",
-        "replicate_clarity_upscaler_8.scale_factor"
+        "preview_panorama360_7.yaw",
+        "preview_panorama360_7.pitch"
       ],
       "preview": [
         {
@@ -286,7 +305,7 @@
     }
   },
   "installConfirmation": {
-    "confirmedAt": "2026-07-06T21:24:51.943Z",
+    "confirmedAt": "2026-07-07T14:01:25.650Z",
     "warnings": []
   },
   "enabled": true

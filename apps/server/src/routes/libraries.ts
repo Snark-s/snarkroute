@@ -387,13 +387,14 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string; actionId: string }; Body: { targetNodeId?: string; params?: Record<string, unknown>; phase?: "prepare" | "complete"; continuationId?: string; x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/nodes/:nodeId/canvas-actions/:actionId/run", async (request, reply) => {
+  app.post<{ Params: { nodeId: string; actionId: string }; Body: { targetNodeId?: string; params?: Record<string, unknown>; phase?: "prepare" | "complete"; reuse?: boolean; continuationId?: string; x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/nodes/:nodeId/canvas-actions/:actionId/run", async (request, reply) => {
     try {
       return await runCanvasNodeAction({
         nodeId: request.params.nodeId,
         actionId: request.params.actionId,
         targetNodeId: request.body?.targetNodeId,
         phase: request.body?.phase,
+        reuse: request.body?.reuse === true,
         continuationId: request.body?.continuationId,
         params: request.body?.params && typeof request.body.params === "object" && !Array.isArray(request.body.params) ? request.body.params : undefined,
         x: request.body?.x,

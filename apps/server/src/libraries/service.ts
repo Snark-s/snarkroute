@@ -5,7 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { ExecuteOptions, RunResult } from "@snarkroute/executor";
 import type { OpenRoute } from "@snarkroute/protocol";
 import { buildCompoundTemplateExecution, builtInNodeManifests, compoundTemplateOutput, loadInstalledNodeManifests, loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type CompoundTemplateExecution, type PromptLibraryPrompt, type SnarkNodeManifest } from "@snarkroute/nodes";
-import { librariesDirectory } from "../server-paths";
+import { librariesDirectory, repoRoot } from "../server-paths";
 import { sanitizeFilename } from "../assets/service";
 import { createRouteExecutor } from "../execution/service";
 import { saveProviderUsageEventsForRunResult } from "../billing/provider-usage-events";
@@ -76,6 +76,7 @@ import type {
 } from "./types";
 
 const canvasActionContinuationTtlMs = 15 * 60 * 1000;
+const canvasActionCacheDirectory = join(repoRoot, "data", "cache", "canvas-actions");
 const canvasActionContinuations = new Map<string, {
   createdAt: number;
   actionId: string;
@@ -93,6 +94,40 @@ function cleanupCanvasActionContinuations(now = Date.now()): void {
   for (const [id, continuation] of canvasActionContinuations) {
     if (now - continuation.createdAt >= canvasActionContinuationTtlMs) canvasActionContinuations.delete(id);
   }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(",")}}`;
+  return JSON.stringify(value) ?? "undefined";
+}
+
+function canvasActionSourceHash(value: unknown): string {
+  return createHash("sha256").update(stableJson(value)).digest("hex");
+}
+
+function canvasActionCachePath(sourceNodeId: string, actionId: string): string {
+  return join(canvasActionCacheDirectory, `${createHash("sha256").update(`${sourceNodeId}\0${actionId}`).digest("hex")}.json`);
+}
+
+async function readCanvasActionCache(sourceNodeId: string, actionId: string, sourceHash: string): Promise<Record<string, unknown> | null> {
+  try {
+    const cached = JSON.parse(await readFile(canvasActionCachePath(sourceNodeId, actionId), "utf8")) as { sourceHash?: unknown; nodeOutputs?: unknown };
+    return cached.sourceHash === sourceHash && cached.nodeOutputs && typeof cached.nodeOutputs === "object" && !Array.isArray(cached.nodeOutputs) ? cached.nodeOutputs as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCanvasActionCache(sourceNodeId: string, actionId: string, sourceHash: string, nodeOutputs: Record<string, unknown>): Promise<void> {
+  await mkdir(canvasActionCacheDirectory, { recursive: true });
+  await writeFile(canvasActionCachePath(sourceNodeId, actionId), JSON.stringify({ sourceHash, nodeOutputs }));
+}
+
+function canvasActionRunFailure(action: SnarkNodeManifest, phase: "preparing" | "completing", runResult: RunResult): Error {
+  const detail = Object.values(runResult.nodeResults).find((result) => result.status === "failed")?.error
+    ?? [...runResult.logs].reverse().find((entry) => /error|fail/i.test(entry.message))?.message;
+  return new Error(`Canvas action "${action.title}" failed while ${phase}.${detail ? ` ${detail}` : ""}`);
 }
 
 export type {
@@ -2152,9 +2187,14 @@ export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Prom
       edges: execution.route.edges.filter((edge) => upstream.has(edge.from) && upstream.has(edge.to))
     };
     const initialNodeOutputs = Object.fromEntries(Object.entries(execution.initialNodeOutputs).filter(([nodeId]) => upstream.has(nodeId)));
-    const runResult = await executeSnarkRouteWithUsageStats(prepareRoute, { initialNodeOutputs });
-    if (runResult.status !== "succeeded") throw new Error(`Canvas action "${action.title}" failed while preparing its interactive preview.`);
-    const nodeOutputs = { ...initialNodeOutputs, ...Object.fromEntries(Object.entries(runResult.nodeResults).filter(([, result]) => result.status === "succeeded").map(([nodeId, result]) => [nodeId, result.output])) };
+    const sourceHash = canvasActionSourceHash(source.value);
+    let nodeOutputs = input.reuse ? await readCanvasActionCache(input.nodeId, action.id, sourceHash) : null;
+    if (!nodeOutputs) {
+      const runResult = await executeSnarkRouteWithUsageStats(prepareRoute, { initialNodeOutputs });
+      if (runResult.status !== "succeeded") throw canvasActionRunFailure(action, "preparing", runResult);
+      nodeOutputs = { ...initialNodeOutputs, ...Object.fromEntries(Object.entries(runResult.nodeResults).filter(([, result]) => result.status === "succeeded").map(([nodeId, result]) => [nodeId, result.output])) };
+      await writeCanvasActionCache(input.nodeId, action.id, sourceHash, nodeOutputs);
+    }
     const continuationId = randomBytes(18).toString("base64url");
     canvasActionContinuations.set(continuationId, { createdAt: Date.now(), actionId: action.id, sourceNodeId: input.nodeId, nodeOutputs });
     return { continuationId, previews: canvasActionPreparedPreviews(action, execution, pauseNodeId, nodeOutputs) };
@@ -2167,7 +2207,7 @@ export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Prom
     }
     const execution = canvasActionCompoundExecution(action, input.nodeId, source.value, input.params, continuation.nodeOutputs);
     const runResult = await executeSnarkRouteWithUsageStats(execution.route, { initialNodeOutputs: execution.initialNodeOutputs });
-    if (runResult.status !== "succeeded") throw new Error(`Canvas action "${action.title}" failed while completing.`);
+    if (runResult.status !== "succeeded") throw canvasActionRunFailure(action, "completing", runResult);
     canvasActionContinuations.delete(input.continuationId!);
     output = compoundTemplateOutput(execution, runResult.nodeResults);
   } else {

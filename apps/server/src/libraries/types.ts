@@ -463,6 +463,7 @@ export interface RunCanvasNodeActionInput {
   targetNodeId?: string;
   params?: Record<string, unknown>;
   phase?: "prepare" | "complete";
+  reuse?: boolean;
   continuationId?: string;
   x?: number;
   y?: number;

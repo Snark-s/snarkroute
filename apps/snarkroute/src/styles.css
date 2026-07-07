@@ -2245,6 +2245,24 @@ dd {
   background: transparent;
 }
 
+.canvasActionPanoramaViewer input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #36d7bb, #597cff);
+}
+
+.canvasActionPanoramaViewer input[type="range"]::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #36d7bb, #597cff);
+}
+
+.canvasActionPoseReadout {
+  padding: 8px 12px 0;
+  color: #b9c8dc;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
 .canvasActionParamsDialog header,
 .canvasActionParamsDialog footer {
   display: flex;

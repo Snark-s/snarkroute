@@ -1378,6 +1378,7 @@ describe("SnarkRoute libraries", () => {
     const app = await testServer();
     try {
       const source = await importNode(app, "Panorama.png");
+      const target = await importNode(app, "Panorama target.png");
       let providerRuns = 0;
       let providerOutput: unknown;
       executeRouteMock.mockImplementation(async (route: { nodes: Array<{ id: string }>; edges: Array<{ from: string; to: string; fromPort?: string; toPort?: string }> }, options?: { initialNodeOutputs?: Record<string, unknown> }) => {
@@ -1404,10 +1405,24 @@ describe("SnarkRoute libraries", () => {
       const completed = await app.inject({
         method: "POST",
         url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`,
-        payload: { phase: "complete", continuationId: prepared.json().continuationId, targetNodeId: source.manifest.id, params: { "pause.yawDegrees": 35, "pause.pitchDegrees": -10, "pause.fovDegrees": 70 } }
+        payload: { phase: "complete", continuationId: prepared.json().continuationId, targetNodeId: target.manifest.id, params: { "pause.yawDegrees": 30, "pause.pitchDegrees": -10, "pause.fovDegrees": 70 } }
       });
       expect(completed.statusCode, completed.body).toBe(200);
       expect(executeRouteMock.mock.calls[1][1].initialNodeOutputs).toHaveProperty("provider");
+      expect(providerRuns).toBe(1);
+
+      const edgePrepared = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`,
+        payload: { phase: "prepare", reuse: true }
+      });
+      expect(edgePrepared.statusCode, edgePrepared.body).toBe(200);
+      const edgeCompleted = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`,
+        payload: { phase: "complete", continuationId: edgePrepared.json().continuationId, targetNodeId: target.manifest.id, params: { "pause.yawDegrees": 30, "pause.pitchDegrees": -10, "pause.fovDegrees": 70 } }
+      });
+      expect(edgeCompleted.statusCode, edgeCompleted.body).toBe(200);
       expect(providerRuns).toBe(1);
     } finally {
       await app.close();
@@ -1445,7 +1460,7 @@ describe("SnarkRoute libraries", () => {
       const completed = await app.inject({
         method: "POST",
         url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.panorama-cycle/run`,
-        payload: { phase: "complete", continuationId: prepared.json().continuationId, params: { "viewer.yaw": 35, "viewer.pitch": -10, "viewer.fov": 70, "downstream.strength": 0.65 } }
+        payload: { phase: "complete", continuationId: prepared.json().continuationId, params: { "viewer.yaw": 30, "viewer.pitch": -10, "viewer.fov": 70, "downstream.strength": 0.65 } }
       });
 
       expect(completed.statusCode, completed.body).toBe(200);
@@ -1453,7 +1468,7 @@ describe("SnarkRoute libraries", () => {
       expect(providerRuns).toBe(1);
       expect(renderedView).toMatchObject({ width: 1, height: 1 });
       expect(downstreamStrength).toBe(0.65);
-      expect((lastRunResult as { nodeResults?: { viewer?: { output?: { view?: unknown } } } }).nodeResults?.viewer?.output?.view).toEqual({ yaw: 35, pitch: -10, fov: 70 });
+      expect((lastRunResult as { nodeResults?: { viewer?: { output?: { view?: unknown } } } }).nodeResults?.viewer?.output?.view).toEqual({ yaw: 30, pitch: -10, fov: 70 });
     } finally {
       await app.close();
     }
@@ -1491,6 +1506,23 @@ describe("SnarkRoute libraries", () => {
       expect(completed.json().error).toMatch(/expired/i);
     } finally {
       vi.useRealTimers();
+      await app.close();
+    }
+  });
+
+  it("returns the failed node detail while completing a canvas action", async () => {
+    await writeCanvasActionManifest(libraryPath, poseCanvasActionManifest());
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Failed panorama.png");
+      executeRouteMock
+        .mockResolvedValueOnce({ status: "succeeded", nodeResults: { action__input__image: { status: "succeeded", output: {} }, provider: { status: "succeeded", output: { image: "https://example.test/panorama.jpg" } } } })
+        .mockResolvedValueOnce({ status: "failed", nodeResults: { downstream: { status: "failed", error: "Upscaler timed out after 30 seconds." } }, logs: [] });
+      const prepared = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "prepare" } });
+      const completed = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "complete", continuationId: prepared.json().continuationId } });
+      expect(completed.statusCode).toBe(400);
+      expect(completed.json().error).toContain("Upscaler timed out after 30 seconds.");
+    } finally {
       await app.close();
     }
   });

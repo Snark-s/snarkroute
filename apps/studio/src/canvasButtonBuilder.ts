@@ -85,7 +85,12 @@ export function canvasButtonManifestFromDraft(draft: CanvasButtonDraft, compound
   if (compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !title || !id) return null;
   const selectedPreview = draft.previewCandidates.find((candidate) => candidate.id === draft.selectedPreviewId);
   const pauseNodeId = selectedPreview && selectedPreview.source !== "input" && "pause" in selectedPreview.source ? selectedPreview.source.pause : null;
-  const selectedParams = draft.params.filter((param) => param.selected || (pauseNodeId === param.binding?.nodeId && poseAxis(param.binding.paramId))).map(({ selected: _selected, displayLabel: _displayLabel, ...param }) => param);
+  const selectedParams = draft.params
+    .filter((param) => param.selected || (pauseNodeId === param.binding?.nodeId && poseAxis(param.binding.paramId)))
+    .map(({ selected: _selected, displayLabel: _displayLabel, ...param }) => ({
+      ...param,
+      ...(pauseNodeId === param.binding?.nodeId && poseAxis(param.binding.paramId) ? { poseManaged: true } : {})
+    }));
   const poseBindings = canvasButtonPoseBindings(selectedParams);
   const icon = draft.customIconDataUrl ? { kind: "custom" as const, dataUrl: draft.customIconDataUrl } : { kind: "preset" as const, name: draft.iconName };
   return nodeManifestFromCompoundNode(compoundNode, id, title, {
@@ -125,7 +130,7 @@ function canvasButtonPoseBindings(params: NonNullable<NodeManifest["params"]>): 
 function poseAxis(paramId: string): keyof NonNullable<NonNullable<NodeManifest["canvasAction"]>["poseBindings"]> | undefined {
   const aliases: Record<string, keyof NonNullable<NonNullable<NodeManifest["canvasAction"]>["poseBindings"]>> = {
     yaw: "yaw", yawDegrees: "yaw", pitch: "pitch", pitchDegrees: "pitch", roll: "roll", rollDegrees: "roll", fov: "fov", fovDegrees: "fov",
-    positionX: "positionX", positionY: "positionY", positionZ: "positionZ"
+    positionX: "positionX", positionY: "positionY", positionZ: "positionZ", cameraPose: "cameraPose"
   };
   return aliases[paramId];
 }

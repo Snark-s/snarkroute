@@ -67,11 +67,27 @@ describe("Living Canvas button builder", () => {
       { kind: "panorama360", source: { pause: "pano" } }
     ]);
     expect(canvasButtonManifestFromDraft(draft, compound)?.canvasAction?.poseBindings).toEqual({ yaw: "pano.yaw", pitch: "pano.pitch", fov: "pano.fov" });
+    expect(canvasButtonManifestFromDraft(draft, compound)?.params).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "pano.yaw", poseManaged: true }),
+      expect.objectContaining({ id: "pano.pitch", poseManaged: true }),
+      expect.objectContaining({ id: "pano.fov", poseManaged: true })
+    ]));
   });
 
   it("keeps exposed output preview candidates", () => {
     const candidates = canvasButtonPreviewCandidates(compoundWith([], [{ id: "image", nodeId: "upscale", kind: "image", label: "Enhanced" }]), "text");
     expect(candidates).toContainEqual({ id: "output:image", kind: "image", source: { output: "image" }, label: "Enhanced" });
+  });
+
+  it("automatically manages a splat cameraPose parameter", () => {
+    const compound = compoundWith([{ id: "splat", type: "preview.splat", title: "Splat", params: {} }], [{ id: "image", nodeId: "splat", kind: "image" }]);
+    const previewCandidates = canvasButtonPreviewCandidates(compound, "image");
+    const params = canvasButtonParamCandidates(compound, [{ id: "preview.splat", title: "Splat", version: "0.1", author: { name: "Test" }, origin: "bundled", license: "AGPL", permissions: { network: false, readFiles: false, writeOutputs: false, shell: false, env: [] }, executor: { type: "builtin" }, inputs: [], outputs: [], params: [{ id: "cameraPose", type: "json", default: { position: { x: 0, y: 0, z: 0 }, rotation: { yaw: 0, pitch: 0, roll: 0 }, fov: 70 } }] }], []);
+    const draft: CanvasButtonDraft = { nodeId: "compound", title: "Splat view", packageId: "splat-view", iconName: "wrench", inputKind: "image", outputs: [], params, previewCandidates, selectedPreviewId: previewCandidates.find((candidate) => candidate.kind === "splat")!.id };
+    expect(canvasButtonManifestFromDraft(draft, compound)).toMatchObject({
+      params: [expect.objectContaining({ id: "splat.cameraPose", poseManaged: true })],
+      canvasAction: { poseBindings: { cameraPose: "splat.cameraPose" } }
+    });
   });
 
   it("derives pose bindings for selected fisheye camera parameters", () => {
