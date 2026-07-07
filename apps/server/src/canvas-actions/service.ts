@@ -66,7 +66,21 @@ export async function preserveCanvasActionFromPath(path: string): Promise<SnarkN
 }
 
 export async function deleteCanvasActionPackage(id: string): Promise<void> {
-  await uninstallInstalledNode(id, getCanvasActionsDirectory());
+  let removed = false;
+  let notFoundError: unknown;
+  for (const directory of [getCanvasActionsDirectory(), getInstalledNodesDirectory()]) {
+    try {
+      await uninstallInstalledNode(id, directory);
+      removed = true;
+    } catch (error) {
+      if (error && typeof error === "object" && (error as { code?: unknown }).code === "NODE_PACKAGE_NOT_FOUND") {
+        notFoundError ??= error;
+        continue;
+      }
+      throw error;
+    }
+  }
+  if (!removed) throw notFoundError;
 }
 
 function isCanvasActionManifest(manifest: SnarkNodeManifest): boolean {

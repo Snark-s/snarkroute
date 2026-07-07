@@ -15,5 +15,9 @@ describe("interactive canvas actions", () => {
     expect(source).toContain("<BusyGears /> Running...");
     expect(source).toContain(">Prepare again</button>");
     expect(styles).toContain('.canvasActionPanoramaViewer input[type="range"]::-webkit-slider-runnable-track');
+    expect(styles).toContain(".canvasActionSplatViewer {\n  max-height: 50vh;\n  overflow: hidden;");
+    expect(styles).toContain("object-fit: contain;\n  border-radius: 12px 12px 0 0;");
+    expect(styles.match(/\.canvasActionPanoramaViewer,\s*\.canvasActionSplatViewer\s*\{[^}]*\}/)?.[0]).not.toContain("max-height");
+    expect(styles.match(/\.canvasActionPanoramaViewer,\s*\.canvasActionSplatViewer\s*\{[^}]*\}/)?.[0]).not.toContain("overflow");
   });
 });

@@ -2181,10 +2181,13 @@ dd {
 .canvasActionSplatViewer {
   position: relative;
   width: 100%;
-  max-height: 50vh;
-  overflow: hidden;
   border-radius: 12px;
   background: #090d14;
+}
+
+.canvasActionSplatViewer {
+  max-height: 50vh;
+  overflow: hidden;
 }
 
 .canvasActionPanoramaViewer canvas {
@@ -2194,6 +2197,7 @@ dd {
   max-height: 50vh;
   aspect-ratio: 16 / 9;
   object-fit: contain;
+  border-radius: 12px 12px 0 0;
 }
 
 .canvasActionSplatMount,

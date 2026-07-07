@@ -6,16 +6,19 @@ import { packNodePackage } from "@snarkroute/nodes";
 
 const previousNoListen = process.env.SNARKROUTE_NO_LISTEN;
 const previousInstalledNodesPath = process.env.SNARKROUTE_INSTALLED_NODES_PATH;
+const previousCanvasActionsPath = process.env.SNARKROUTE_CANVAS_ACTIONS_PATH;
 
 describe("node package upload API", () => {
   beforeEach(async () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
     process.env.SNARKROUTE_INSTALLED_NODES_PATH = await mkdtemp(join(tmpdir(), "sr-node-upload-api-"));
+    process.env.SNARKROUTE_CANVAS_ACTIONS_PATH = await mkdtemp(join(tmpdir(), "sr-canvas-action-api-"));
   });
 
   afterEach(() => {
     restoreEnv("SNARKROUTE_NO_LISTEN", previousNoListen);
     restoreEnv("SNARKROUTE_INSTALLED_NODES_PATH", previousInstalledNodesPath);
+    restoreEnv("SNARKROUTE_CANVAS_ACTIONS_PATH", previousCanvasActionsPath);
   });
 
   it("previews valid .node.json manifests", async () => {
@@ -131,6 +134,35 @@ describe("node package upload API", () => {
 
       const installed = await app.inject({ method: "GET", url: "/api/node-packages/installed" });
       expect(installed.json().nodes).toEqual([]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("deletes a canvas action from both the toolbar and installed package stores", async () => {
+    const app = await testServer();
+    const manifest = {
+      ...exampleManifest(),
+      id: "example.canvas.action",
+      inputs: [{ id: "image", type: "image" }],
+      outputs: [{ id: "image", type: "image" }],
+      canvasAction: { enabled: true, title: "Canvas action" }
+    };
+    try {
+      const install = await app.inject({
+        method: "POST",
+        url: "/api/node-packages/install",
+        payload: { filename: "canvas-action.node.json", text: JSON.stringify(manifest) }
+      });
+      expect(install.statusCode, install.body).toBe(200);
+
+      const response = await app.inject({ method: "DELETE", url: "/api/canvas-actions/example.canvas.action" });
+
+      expect(response.statusCode, response.body).toBe(200);
+      expect(await readdir(process.env.SNARKROUTE_INSTALLED_NODES_PATH!)).toEqual([]);
+      expect(await readdir(process.env.SNARKROUTE_CANVAS_ACTIONS_PATH!)).toEqual([]);
+      const actions = await app.inject({ method: "GET", url: "/api/nodes/canvas-actions" });
+      expect(actions.json().actions).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "example.canvas.action" })]));
     } finally {
       await app.close();
     }
