@@ -607,6 +607,7 @@ export type ImageViewerState = {
   src: string;
   title: string;
   filename: string;
+  mode?: "preview" | "correction";
 };
 
 export type PromptAssetDraft = {

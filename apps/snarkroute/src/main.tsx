@@ -111,8 +111,9 @@ interface CanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop" | "canvasAction" | "collectionItem";
+  kind?: "representation" | "crop" | "imageCorrection" | "canvasAction" | "collectionItem";
   actionId?: string;
+  correction?: CorrectionSettings;
   note?: string;
 }
 
@@ -147,6 +148,7 @@ interface VideoNodeManifest {
   fallbackAllowed?: boolean;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
 }
 
 interface AudioNodeManifest {
@@ -159,6 +161,7 @@ interface AudioNodeManifest {
   fallbackAllowed?: boolean;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
 }
 
 interface TextNodeManifest {
@@ -170,6 +173,7 @@ interface TextNodeManifest {
   inputMode?: "text" | "dialogue";
   stackPath?: string;
   selectedStackItemId?: string;
+  selectedStackItemIds?: string[];
   modelId?: string;
   executionProvider?: string;
   fallbackAllowed?: boolean;
@@ -339,7 +343,7 @@ interface CollectionNodeView {
 type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView | CollectionNodeView;
 type EditableNodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView;
 type EditableNodeType = EditableNodeView["manifest"]["type"];
-type BuiltInNodeToolbarActionId = "download" | "crop" | "expand" | "upload" | "stack" | "collapse" | "collectSelected" | "keepSelected" | "delete";
+type BuiltInNodeToolbarActionId = "download" | "crop" | "adjust" | "expand" | "upload" | "stack" | "collapse" | "collectSelected" | "keepSelected" | "delete";
 type NodeToolbarActionId = string;
 type NodeToolbarConfig = Record<EditableNodeType, NodeToolbarActionId[]>;
 
@@ -642,6 +646,7 @@ declare global {
 }
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
+const localJsonUploadLimitBytes = 180 * 1024 * 1024;
 const boojumRouteLabUrl = import.meta.env.VITE_BOOJUM_URL || "http://127.0.0.1:5173";
 const themeStorageKey = "snarkroute.theme";
 const backgroundStorageKey = "snarkroute.canvasBackground";
@@ -675,6 +680,7 @@ const nodeRepresentationOptions: Array<{ type: NodeRepresentationType; label: st
 const builtInNodeToolbarActions: Array<{ id: BuiltInNodeToolbarActionId; label: string }> = [
   { id: "download", label: "Download" },
   { id: "crop", label: "Crop" },
+  { id: "adjust", label: "Adjust" },
   { id: "expand", label: "Expand" },
   { id: "upload", label: "Upload" },
   { id: "stack", label: "Stack" },
@@ -716,6 +722,7 @@ function App() {
   const [canvasNodeActions, setCanvasNodeActions] = useState<CanvasNodeAction[]>([]);
   const [nodeCreateMenu, setNodeCreateMenu] = useState<NodeCreateMenu | null>(null);
   const [previewImage, setPreviewImage] = useState<{ nodeId: string; title: string; index: number } | null>(null);
+  const [imageCorrection, setImageCorrection] = useState<ImageCorrectionDraft | null>(null);
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
   const [openStackNodeId, setOpenStackNodeId] = useState<string | null>(null);
   const [stackItemMenu, setStackItemMenu] = useState<StackItemMenu | null>(null);
@@ -1998,6 +2005,18 @@ function App() {
     return "image-nodes";
   }
 
+  function stackNodeRoute(node: ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView): "image-nodes" | "video-nodes" | "audio-nodes" | "text-nodes" {
+    if (node.manifest.type === "text") return "text-nodes";
+    if (node.manifest.type === "video") return "video-nodes";
+    if (node.manifest.type === "audio") return "audio-nodes";
+    return "image-nodes";
+  }
+
+  function stackItemsForNode(node: ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView): Array<ImageStackItem | TextStackItem> {
+    if (node.manifest.type === "text") return (node as TextNodeView).stack;
+    return (node as ImageNodeView | VideoNodeView | AudioNodeView).manifest.stack;
+  }
+
   async function addFileToNodeStack(nodeId: string, file: File) {
     const route = mediaNodeRoute(nodeId);
     const kind = route === "video-nodes" ? "video" : route === "audio-nodes" ? "audio" : "image";
@@ -2109,6 +2128,60 @@ function App() {
     }
   }
 
+  function openImageCorrection(sourceNodeId: string, targetNodeId?: string, settings?: CorrectionSettings) {
+    const sourceNode = nodes.find((candidate) => candidate.canvas.id === sourceNodeId && candidate.manifest.type === "image") as ImageNodeView | undefined;
+    if (!sourceNode?.previewUrl) {
+      setStatus("Image node has no active image to adjust.");
+      return;
+    }
+    setImageCorrection({
+      sourceNodeId,
+      targetNodeId,
+      src: `${apiBase}${sourceNode.previewUrl}?v=${encodeURIComponent(sourceNode.activeStackItem?.id ?? sourceNode.manifest.id)}`,
+      title: sourceNode.manifest.title || "Image",
+      filename: `${safeDownloadName(sourceNode.manifest.title || "image")} adjusted.png`,
+      settings: settings ?? defaultCorrectionSettings
+    });
+  }
+
+  async function applyImageCorrectionResult(draft: ImageCorrectionDraft, dataUrl: string, settings: CorrectionSettings) {
+    const sourceNode = nodes.find((node) => node.canvas.id === draft.sourceNodeId && node.manifest.type === "image") as ImageNodeView | undefined;
+    if (!sourceNode || !library?.canvas) return;
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
+    try {
+      pushUndoSnapshot();
+      const dataBase64 = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+      const snapshot = draft.targetNodeId
+        ? await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(draft.targetNodeId)}/stack`, {
+          filename: draft.filename,
+          dataBase64
+        })
+        : await apiPost<LibrarySnapshot>("/api/libraries/current/import-image", {
+          filename: draft.filename,
+          dataBase64,
+          dropX: sourceNode.canvas.x + sourceNode.canvas.width + imageNodeWidth / 2 + 80,
+          dropY: sourceNode.canvas.y + imageNodeHeight / 2,
+          width: imageNodeWidth,
+          height: imageNodeHeight,
+          connectFromNodeId: draft.sourceNodeId
+        });
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      const targetNodeId = draft.targetNodeId ?? snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
+      if (!targetNodeId || !snapshot.canvas) return;
+      const canvas = withImageCorrectionEdge(snapshot.canvas, draft.sourceNodeId, targetNodeId, settings);
+      setLibrary((current) => current ? { ...current, canvas } : current);
+      await apiPut<CanvasDocument>("/api/libraries/current/canvas", canvas);
+      applyLibrarySnapshot(await apiGet<LibrarySnapshot>("/api/libraries/current"));
+      setSelectedNodeId(targetNodeId);
+      setSelectedNodeIds([targetNodeId]);
+      setImageCorrection(null);
+      setStatus(draft.targetNodeId ? "Adjustment added to stack" : "Adjustment created");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not apply image adjustment.");
+    }
+  }
+
   async function setActiveStackImage(nodeId: string, activeStackIndex: number) {
     const mutationSeq = beginLibraryMutation();
     try {
@@ -2212,20 +2285,23 @@ function App() {
   }
 
   async function toggleStackImageSelection(nodeId: string, stackItemId: string) {
-    const node = nodes.find((candidate) => candidate.canvas.id === nodeId && candidate.manifest.type === "image") as ImageNodeView | undefined;
+    const node = nodes.find((candidate): candidate is ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView =>
+      candidate.canvas.id === nodeId && (candidate.manifest.type === "image" || candidate.manifest.type === "video" || candidate.manifest.type === "audio" || candidate.manifest.type === "text")
+    );
     if (!node) return;
     const selectedIds = new Set(node.manifest.selectedStackItemIds ?? []);
     if (selectedIds.has(stackItemId)) selectedIds.delete(stackItemId);
     else selectedIds.add(stackItemId);
     const mutationSeq = beginLibraryMutation();
     try {
-      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/selected`, {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${stackNodeRoute(node)}/${encodeURIComponent(nodeId)}/stack/selected`, {
         selectedStackItemIds: [...selectedIds]
       });
       if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
-      setStatus(selectedIds.has(stackItemId) ? "Image marked as selected" : "Image selection removed");
+      const kind = node.manifest.type.charAt(0).toUpperCase() + node.manifest.type.slice(1);
+      setStatus(selectedIds.has(stackItemId) ? `${kind} item marked as selected` : `${kind} item selection removed`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not update image selection.");
+      setStatus(error instanceof Error ? error.message : "Could not update stack selection.");
     }
   }
 
@@ -2440,12 +2516,15 @@ function App() {
 
   async function createNodeWithSelectedElements(nodeId: string) {
     setSelectionMenu(null);
-    const sourceNode = nodes.find((node): node is ImageNodeView => node.canvas.id === nodeId && node.manifest.type === "image");
-    const selectedIds = sourceNode?.manifest.selectedStackItemIds?.filter((id) => sourceNode.manifest.stack.some((item) => item.id === id)) ?? [];
+    const sourceNode = nodes.find((node): node is ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView =>
+      node.canvas.id === nodeId && (node.manifest.type === "image" || node.manifest.type === "video" || node.manifest.type === "audio" || node.manifest.type === "text")
+    );
     if (!sourceNode) {
-      setStatus("Selected elements are available for image nodes.");
+      setStatus("Selected elements are available for stack nodes.");
       return;
     }
+    const stack = stackItemsForNode(sourceNode);
+    const selectedIds = sourceNode.manifest.selectedStackItemIds?.filter((id) => stack.some((item) => item.id === id)) ?? [];
     if (selectedIds.length === 0) {
       setStatus("Select stack elements first.");
       return;
@@ -2458,18 +2537,23 @@ function App() {
         x: sourceNode.canvas.x + 28,
         y: sourceNode.canvas.y + 28
       });
-      const createdNode = snapshot.nodes.find((node): node is ImageNodeView => !existingNodeIds.has(node.canvas.id) && node.manifest.type === "image");
-      if (!createdNode) throw new Error("Could not create image node.");
+      const createdNode = snapshot.nodes.find((node): node is ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView => !existingNodeIds.has(node.canvas.id) && node.manifest.type === sourceNode.manifest.type);
+      if (!createdNode) throw new Error(`Could not create ${sourceNode.manifest.type} node.`);
+      const createdStack = stackItemsForNode(createdNode);
       const selectedIdSet = new Set(selectedIds);
-      for (const item of createdNode.manifest.stack.filter((item) => !selectedIdSet.has(item.id))) {
-        snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(createdNode.canvas.id)}/stack/${encodeURIComponent(item.id)}`);
+      const route = stackNodeRoute(createdNode);
+      for (const item of createdStack.filter((item) => !selectedIdSet.has(item.id))) {
+        snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(createdNode.canvas.id)}/stack/${encodeURIComponent(item.id)}`);
       }
-      snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(createdNode.canvas.id)}/prompt`, { prompt: "" });
+      snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(createdNode.canvas.id)}/stack/selected`, { selectedStackItemIds: [] });
+      if (createdNode.manifest.type !== "text") {
+        snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(createdNode.canvas.id)}/prompt`, { prompt: "" });
+      }
       if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
       setSelectedNodeId(createdNode.canvas.id);
       setSelectedNodeIds([createdNode.canvas.id]);
       setSelectedEdgeId(null);
-      setStatus(`Image node created with ${selectedIds.length} selected item${selectedIds.length === 1 ? "" : "s"}`);
+      setStatus(`${sourceNode.manifest.type.charAt(0).toUpperCase() + sourceNode.manifest.type.slice(1)} node created with ${selectedIds.length} selected item${selectedIds.length === 1 ? "" : "s"}`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not create node with selected elements.");
     }
@@ -2477,26 +2561,30 @@ function App() {
 
   async function keepOnlySelectedNodes(nodeId: string) {
     setSelectionMenu(null);
-    const sourceNode = nodes.find((node): node is ImageNodeView => node.canvas.id === nodeId && node.manifest.type === "image");
-    const selectedIds = sourceNode?.manifest.selectedStackItemIds?.filter((id) => sourceNode.manifest.stack.some((item) => item.id === id)) ?? [];
+    const sourceNode = nodes.find((node): node is ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView =>
+      node.canvas.id === nodeId && (node.manifest.type === "image" || node.manifest.type === "video" || node.manifest.type === "audio" || node.manifest.type === "text")
+    );
     if (!sourceNode) {
-      setStatus("Selected elements are available for image nodes.");
+      setStatus("Selected elements are available for stack nodes.");
       return;
     }
+    const stack = stackItemsForNode(sourceNode);
+    const selectedIds = sourceNode.manifest.selectedStackItemIds?.filter((id) => stack.some((item) => item.id === id)) ?? [];
     if (selectedIds.length === 0) {
       setStatus("Select stack elements first.");
       return;
     }
     const selectedIdSet = new Set(selectedIds);
-    const itemIdsToDelete = sourceNode.manifest.stack.map((item) => item.id).filter((itemId) => !selectedIdSet.has(itemId));
+    const itemIdsToDelete = stack.map((item) => item.id).filter((itemId) => !selectedIdSet.has(itemId));
+    const route = stackNodeRoute(sourceNode);
     const mutationSeq = beginLibraryMutation();
     try {
       pushUndoSnapshot();
       let snapshot: LibrarySnapshot | null = null;
       for (const itemId of itemIdsToDelete) {
-        snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(itemId)}`);
+        snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(itemId)}`);
       }
-      snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(nodeId)}/stack/selected`, { selectedStackItemIds: [] });
+      snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/selected`, { selectedStackItemIds: [] });
       if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
       setStatus(`Kept ${selectedIds.length} selected item${selectedIds.length === 1 ? "" : "s"}`);
     } catch (error) {
@@ -3079,6 +3167,7 @@ function App() {
             runningEdgeActionKey={Object.keys(canvasActionRunning).find((key) => key.startsWith("edge:")) ?? null}
             onSyncRepresentation={(edgeId) => void syncRepresentationEdge(edgeId)}
             onOpenCrop={(nodeId, cropNodeId) => void openCropEditor(nodeId, cropNodeId)}
+            onOpenCorrection={(edge) => openImageCorrection(edge.fromNodeId, edge.toNodeId, edge.correction)}
             onRunCanvasActionEdge={(edge) => void rerunCanvasActionEdge(edge)}
             onSelectEdge={(edgeId) => {
               setSelectedEdgeId(edgeId);
@@ -3169,6 +3258,7 @@ function App() {
               onInputPointerDown={handleInputPointerDown}
               onOutputPointerDown={handleOutputPointerDown}
               onOpenPreview={(nodeId, index, title) => setPreviewImage({ nodeId, index, title })}
+              onOpenCorrection={(nodeId) => openImageCorrection(nodeId)}
               onOpenCrop={openCropEditor}
               onUploadStackImage={(nodeId) => void uploadImageToNodeStack(nodeId)}
               onToggleCollapsed={toggleNodeCollapsed}
@@ -3514,11 +3604,13 @@ function App() {
                   <input
                     type={param.type === "number" ? "number" : "text"}
                     min={param.min} max={param.max} step={param.step}
-                    value={String(canvasActionPoseAxis(canvasActionRunDialog.action, param.id) === "fov" ? canvasActionRunDialog.pose?.fov ?? canvasActionRunDialog.params[param.id] ?? "" : canvasActionRunDialog.params[param.id] ?? "")}
+                    value={canvasActionParamInputValue(canvasActionRunDialog, param)}
                     onChange={(event) => {
-                      const value = param.type === "number" ? event.target.valueAsNumber : event.target.value;
                       const axis = canvasActionPoseAxis(canvasActionRunDialog.action, param.id);
-                      setCanvasActionRunDialog(axis === "fov" ? syncCanvasActionPose(canvasActionRunDialog, { fov: clamp(Number(value), 1, 120) }) : { ...canvasActionRunDialog, params: { ...canvasActionRunDialog.params, [param.id]: value } });
+                      const rawValue = event.target.value;
+                      const numberValue = Number(rawValue);
+                      const parameterValue = param.type === "number" && Number.isFinite(numberValue) ? clampCanvasActionNumberParam(numberValue, param) : rawValue;
+                      setCanvasActionRunDialog(axis === "fov" && typeof parameterValue === "number" ? syncCanvasActionPose(canvasActionRunDialog, { fov: parameterValue }) : { ...canvasActionRunDialog, params: { ...canvasActionRunDialog.params, [param.id]: parameterValue } });
                     }}
                   />
                 )}
@@ -3558,6 +3650,14 @@ function App() {
           </div>
         </div>
       )}
+      {imageCorrection ? (
+        <div className="previewOverlay" role="dialog" aria-modal="true" onClick={() => setImageCorrection(null)}>
+          <div className="previewDialog correctionDialog" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="previewClose" onClick={() => setImageCorrection(null)}>×</button>
+            <ImageCorrectionPanel image={imageCorrection} onApply={(dataUrl, settings) => void applyImageCorrectionResult(imageCorrection, dataUrl, settings)} />
+          </div>
+        </div>
+      ) : null}
       {collectionPreview ? (
         <div className="previewOverlay" role="dialog" aria-modal="true" onClick={() => setCollectionPreview(null)}>
           <div className="previewDialog collectionPreviewDialog" onClick={(event) => event.stopPropagation()}>
@@ -4089,6 +4189,7 @@ function NodeToolbarActionIcon({ action }: { action: NodeToolbarAction }) {
   if (preset) return canvasActionPresetIcon(preset, 16);
   if (actionId === "download") return <Download size={16} />;
   if (actionId === "crop") return <Crop size={16} />;
+  if (actionId === "adjust") return <SlidersHorizontal size={16} />;
   if (actionId === "expand") return <Expand size={16} />;
   if (actionId === "upload") return <ImagePlus size={16} />;
   if (actionId === "stack") return <Layers3 size={16} />;
@@ -4106,9 +4207,10 @@ function nodeToolbarActionLabel(actionId: NodeToolbarActionId, actions: NodeTool
 function nodeToolbarActionSupported(actionId: NodeToolbarActionId, type: EditableNodeType, actions: NodeToolbarAction[]): boolean {
   const action = actions.find((candidate) => candidate.id === actionId);
   if (action?.canvasAction) return action.canvasAction.inputType === type;
-  if (actionId === "collectSelected" || actionId === "keepSelected") return type === "image";
+  if (actionId === "collectSelected" || actionId === "keepSelected") return true;
   if (type === "text") return actionId === "stack" || actionId === "collapse" || actionId === "delete";
   if (actionId === "crop") return type === "image";
+  if (actionId === "adjust") return type === "image";
   if (actionId === "expand") return type === "image" || type === "video";
   return true;
 }
@@ -4534,6 +4636,19 @@ function syncCanvasActionPose(dialog: CanvasActionRunDialog, update: CanvasActio
   return { ...dialog, pose, params };
 }
 
+function canvasActionParamInputValue(dialog: CanvasActionRunDialog, param: NonNullable<CanvasNodeAction["params"]>[number]): string {
+  const paramValue = dialog.params[param.id];
+  if (param.type === "number" && typeof paramValue === "string") return paramValue;
+  if (canvasActionPoseAxis(dialog.action, param.id) === "fov") return String(dialog.pose?.fov ?? paramValue ?? "");
+  return String(paramValue ?? "");
+}
+
+function clampCanvasActionNumberParam(value: number, param: NonNullable<CanvasNodeAction["params"]>[number]): number {
+  const min = Number.isFinite(param.min) ? param.min! : -Infinity;
+  const max = Number.isFinite(param.max) ? param.max! : Infinity;
+  return clamp(value, min, max);
+}
+
 function CanvasActionPosePreview({ kind, src, pose, onPoseChange }: { kind: "panorama360" | "splat"; src: string; pose: CanvasActionRunDialog["pose"]; onPoseChange: (pose: CanvasActionRunDialog["pose"]) => void }) {
   if (kind === "splat") {
     return <SplatViewer splatUrl={src} className="canvasActionSplatViewer" mountClassName="canvasActionSplatMount" canvasClassName="canvasActionSplatCanvas" onPoseChange={(cameraPose: CameraPose) => onPoseChange({ yaw: cameraPose.rotation.yaw, pitch: cameraPose.rotation.pitch, roll: cameraPose.rotation.roll, fov: cameraPose.fov, positionX: cameraPose.position.x, positionY: cameraPose.position.y, positionZ: cameraPose.position.z, cameraPose })} />;
@@ -4789,6 +4904,7 @@ function CanvasEdges({
   runningEdgeActionKey,
   onSyncRepresentation,
   onOpenCrop,
+  onOpenCorrection,
   onRunCanvasActionEdge,
   onSelectEdge
 }: {
@@ -4800,6 +4916,7 @@ function CanvasEdges({
   runningEdgeActionKey: string | null;
   onSyncRepresentation: (edgeId: string) => void;
   onOpenCrop: (nodeId: string, cropNodeId?: string) => void;
+  onOpenCorrection: (edge: CanvasEdge) => void;
   onRunCanvasActionEdge: (edge: CanvasEdge) => void;
   onSelectEdge: (edgeId: string) => void;
 }) {
@@ -4857,6 +4974,21 @@ function CanvasEdges({
                   }}
                 >
                   <Crop size={13} />
+                </button>
+              </foreignObject>
+            ) : null}
+            {edge.kind === "imageCorrection" ? (
+              <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
+                <button
+                  className="edgeSyncButton"
+                  type="button"
+                  title="Adjust again"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenCorrection(edge);
+                  }}
+                >
+                  <SlidersHorizontal size={13} />
                 </button>
               </foreignObject>
             ) : null}
@@ -5148,6 +5280,7 @@ function ImageNode({
   onInputPointerDown,
   onOutputPointerDown,
   onOpenPreview,
+  onOpenCorrection,
   onOpenCrop,
   onUploadStackImage,
   onToggleCollapsed,
@@ -5196,6 +5329,7 @@ function ImageNode({
   onInputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
   onOutputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
   onOpenPreview: (nodeId: string, index: number, title: string) => void;
+  onOpenCorrection: (nodeId: string) => void;
   onOpenCrop: (nodeId: string) => void;
   onUploadStackImage: (nodeId: string) => void;
   onToggleCollapsed: (nodeId: string) => void;
@@ -5245,6 +5379,7 @@ function ImageNode({
   const [modelQuery, setModelQuery] = useState("");
   const [orderedInputNodes, setOrderedInputNodes] = useState(inputNodes);
   const [parametersOpen, setParametersOpen] = useState(false);
+  const generationParametersRef = useRef<HTMLDivElement | null>(null);
   const [routeSettingsOpen, setRouteSettingsOpen] = useState(false);
   const [promptInsertRequest, setPromptInsertRequest] = useState<{ token: string; sequence: number } | null>(null);
   const promptInsertSequence = useRef(0);
@@ -5298,6 +5433,16 @@ function ImageNode({
     setGenerationParameters(defaultGenerationParametersForNode(selectedModel, parameterDefinitions, inputAspectRatio));
     setParametersOpen(false);
   }, [selectedModelKey, inputAspectRatio]);
+  useEffect(() => {
+    if (!parametersOpen) return;
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && generationParametersRef.current?.contains(target)) return;
+      setParametersOpen(false);
+    };
+    window.addEventListener("pointerdown", closeOnOutsidePointerDown, true);
+    return () => window.removeEventListener("pointerdown", closeOnOutsidePointerDown, true);
+  }, [parametersOpen]);
   useEffect(() => {
     if (node.manifest.type === "text") setDraftText(node.manifest.text);
   }, [node.manifest.id, node.manifest.type === "text" ? node.manifest.text : ""]);
@@ -5363,6 +5508,10 @@ function ImageNode({
     if (actionId === "crop") {
       if (!previewUrl || node.manifest.type !== "image") return null;
       return <button key={actionId} type="button" aria-label="Crop image" title="Crop" onClick={() => void onOpenCrop(node.manifest.id)}><Crop size={16} /></button>;
+    }
+    if (actionId === "adjust") {
+      if (!previewUrl || node.manifest.type !== "image") return null;
+      return <button key={actionId} type="button" aria-label="Adjust image" title="Adjust" onClick={() => onOpenCorrection(node.manifest.id)}><SlidersHorizontal size={16} /></button>;
     }
     if (actionId === "expand") {
       if (!previewUrl || node.manifest.type === "text" || node.manifest.type === "audio") return null;
@@ -5615,20 +5764,37 @@ function ImageNode({
               </button>
               {openStack ? (
                 <div className="textStackBoard" data-canvas-wheel-scroll onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-                  {textNode.stack.length ? textNode.stack.map((item) => (
-                    <button
-                      type="button"
-                      key={item.id}
-                      className={item.id === textNode.manifest.selectedStackItemId ? "isActive" : ""}
-                      onPointerDown={(event) => onDragStackImage(event, node.manifest.id, item.id)}
-                      onClick={() => onSelectTextStackItem(node.manifest.id, item.id)}
-                      onContextMenu={(event) => onStackItemContextMenu(event, node.manifest.id, item.id)}
-                    >
-                      {item.previewFile ? <img src={`${apiBase}/api/libraries/current/text-nodes/${encodeURIComponent(node.manifest.id)}/stack/${encodeURIComponent(item.id)}/preview`} alt="" /> : null}
-                      <strong>{item.title}</strong>
-                      <span>{item.text}</span>
-                    </button>
-                  )) : (
+                  {textNode.stack.length ? textNode.stack.map((item) => {
+                    const isMarked = textNode.manifest.selectedStackItemIds?.includes(item.id);
+                    return (
+                      <div key={item.id} className={`textStackBoardItem${isMarked ? " isMarked" : ""}`}>
+                        <button
+                          type="button"
+                          className={item.id === textNode.manifest.selectedStackItemId ? "isActive" : ""}
+                          onPointerDown={(event) => onDragStackImage(event, node.manifest.id, item.id)}
+                          onClick={() => onSelectTextStackItem(node.manifest.id, item.id)}
+                          onContextMenu={(event) => onStackItemContextMenu(event, node.manifest.id, item.id)}
+                        >
+                          {item.previewFile ? <img src={`${apiBase}/api/libraries/current/text-nodes/${encodeURIComponent(node.manifest.id)}/stack/${encodeURIComponent(item.id)}/preview`} alt="" /> : null}
+                          <strong>{item.title}</strong>
+                          <span>{item.text}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="stackSelectionToggle"
+                          aria-label={isMarked ? "Remove text selection" : "Mark text as selected"}
+                          aria-pressed={Boolean(isMarked)}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onToggleStackImageSelection(node.manifest.id, item.id);
+                          }}
+                        >
+                          {isMarked ? <Check size={12} strokeWidth={3} /> : null}
+                        </button>
+                      </div>
+                    );
+                  }) : (
                     <div className="textStackDraftFallback">
                       <strong>Input field</strong>
                       <span>{unsavedDraftText || "Empty stack"}</span>
@@ -5899,7 +6065,7 @@ function ImageNode({
             {openStack && (
               <div className="stackBoard" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
                 {mediaNode.manifest.stack.length ? mediaNode.manifest.stack.map((item, index) => {
-                  const isMarked = mediaNode.manifest.type === "image" && mediaNode.manifest.selectedStackItemIds?.includes(item.id);
+                  const isMarked = mediaNode.manifest.selectedStackItemIds?.includes(item.id);
                   return (
                     <div
                       key={item.id}
@@ -5917,21 +6083,19 @@ function ImageNode({
                           />
                         )}
                       </button>
-                      {mediaNode.manifest.type === "image" ? (
-                        <button
-                          type="button"
-                          className="stackSelectionToggle"
-                          aria-label={isMarked ? "Remove image selection" : "Mark image as selected"}
-                          aria-pressed={Boolean(isMarked)}
-                          onPointerDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onToggleStackImageSelection(mediaNode.manifest.id, item.id);
-                          }}
-                        >
-                          {isMarked ? <Check size={12} strokeWidth={3} /> : null}
-                        </button>
-                      ) : null}
+                      <button
+                        type="button"
+                        className="stackSelectionToggle"
+                        aria-label={isMarked ? `Remove ${mediaNode.manifest.type} selection` : `Mark ${mediaNode.manifest.type} as selected`}
+                        aria-pressed={Boolean(isMarked)}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleStackImageSelection(mediaNode.manifest.id, item.id);
+                        }}
+                      >
+                        {isMarked ? <Check size={12} strokeWidth={3} /> : null}
+                      </button>
                     </div>
                   );
                 }) : <span className="stackBoardEmpty">Empty stack</span>}
@@ -6049,7 +6213,7 @@ function ImageNode({
                 </div>
               )}
             </div>
-            <div className="generationParameters">
+            <div className="generationParameters" ref={generationParametersRef}>
               <button
                 type="button"
                 className="generationParametersButton"
@@ -6833,6 +6997,249 @@ function promptDropRange(clientX: number, clientY: number, editor: HTMLElement |
   return range;
 }
 
+type CorrectionSettings = {
+  black: number;
+  midpoint: number;
+  white: number;
+  shadowCurve: number;
+  highlightCurve: number;
+  brightness: number;
+  contrast: number;
+};
+
+type ImageHistogram = {
+  red: number[];
+  green: number[];
+  blue: number[];
+  luminance: number[];
+};
+
+type ImageCorrectionDraft = {
+  sourceNodeId: string;
+  targetNodeId?: string;
+  src: string;
+  title: string;
+  filename: string;
+  settings: CorrectionSettings;
+};
+
+const defaultCorrectionSettings: CorrectionSettings = {
+  black: 0,
+  midpoint: 1,
+  white: 255,
+  shadowCurve: 0,
+  highlightCurve: 0,
+  brightness: 0,
+  contrast: 0
+};
+
+function ImageCorrectionPanel({
+  image,
+  onApply
+}: {
+  image: ImageCorrectionDraft;
+  onApply: (dataUrl: string, settings: CorrectionSettings) => void;
+}) {
+  const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [settings, setSettings] = useState<CorrectionSettings>(image.settings);
+  const [histogram, setHistogram] = useState<ImageHistogram>(() => emptyHistogram());
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    setSettings(image.settings);
+  }, [image.settings, image.src]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      const sourceCanvas = sourceCanvasRef.current;
+      const previewCanvas = previewCanvasRef.current;
+      if (!sourceCanvas || !previewCanvas) return;
+      const maxSide = 1200;
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      const width = Math.max(1, Math.round(img.naturalWidth * scale));
+      const height = Math.max(1, Math.round(img.naturalHeight * scale));
+      sourceCanvas.width = width;
+      sourceCanvas.height = height;
+      previewCanvas.width = width;
+      previewCanvas.height = height;
+      const context = sourceCanvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+      context.drawImage(img, 0, 0, width, height);
+      try {
+        setHistogram(histogramFromImageData(context.getImageData(0, 0, width, height)));
+        setLoadError("");
+      } catch {
+        setLoadError("Histogram is unavailable for this image source.");
+      }
+    };
+    img.onerror = () => {
+      if (!cancelled) setLoadError("Could not load image for correction.");
+    };
+    img.src = image.src;
+    return () => {
+      cancelled = true;
+    };
+  }, [image.src]);
+
+  useEffect(() => {
+    const sourceCanvas = sourceCanvasRef.current;
+    const previewCanvas = previewCanvasRef.current;
+    if (!sourceCanvas || !previewCanvas || !sourceCanvas.width || !sourceCanvas.height) return;
+    const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+    const previewContext = previewCanvas.getContext("2d");
+    if (!sourceContext || !previewContext) return;
+    try {
+      const sourceData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+      previewContext.putImageData(applyCorrection(sourceData, settings), 0, 0);
+    } catch {
+      setLoadError("Correction preview is unavailable for this image source.");
+    }
+  }, [settings, histogram]);
+
+  function updateSetting(key: keyof CorrectionSettings, value: number) {
+    setSettings((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "black" && next.black >= next.white) next.black = Math.max(0, next.white - 1);
+      if (key === "white" && next.white <= next.black) next.white = Math.min(255, next.black + 1);
+      return next;
+    });
+  }
+
+  function applyAdjusted() {
+    const dataUrl = previewCanvasRef.current?.toDataURL("image/png");
+    if (dataUrl) onApply(dataUrl, settings);
+  }
+
+  return (
+    <div className="imageCorrectionBody">
+      <canvas ref={sourceCanvasRef} className="hiddenCorrectionCanvas" />
+      <div className="imageCorrectionPreview">
+        <canvas ref={previewCanvasRef} aria-label={image.title} />
+      </div>
+      <aside className="imageCorrectionControls">
+        <HistogramView histogram={histogram} />
+        {loadError ? <div className="imageCorrectionError">{loadError}</div> : null}
+        <CurveView settings={settings} histogram={histogram} />
+        <div className="correctionControlGrid">
+          <CorrectionSlider label="Black" min={0} max={254} step={1} value={settings.black} onChange={(value) => updateSetting("black", value)} />
+          <CorrectionSlider label="Mid" min={0.2} max={3} step={0.01} value={settings.midpoint} onChange={(value) => updateSetting("midpoint", value)} />
+          <CorrectionSlider label="White" min={1} max={255} step={1} value={settings.white} onChange={(value) => updateSetting("white", value)} />
+          <CorrectionSlider label="Shadows" min={-80} max={80} step={1} value={settings.shadowCurve} onChange={(value) => updateSetting("shadowCurve", value)} />
+          <CorrectionSlider label="Highlights" min={-80} max={80} step={1} value={settings.highlightCurve} onChange={(value) => updateSetting("highlightCurve", value)} />
+          <CorrectionSlider label="Brightness" min={-100} max={100} step={1} value={settings.brightness} onChange={(value) => updateSetting("brightness", value)} />
+          <CorrectionSlider label="Contrast" min={-100} max={100} step={1} value={settings.contrast} onChange={(value) => updateSetting("contrast", value)} />
+        </div>
+        <button type="button" onClick={applyAdjusted}><Check size={15} /> OK</button>
+        <button type="button" onClick={() => setSettings(defaultCorrectionSettings)}><RotateCcw size={15} /> Reset</button>
+      </aside>
+    </div>
+  );
+}
+
+function CorrectionSlider({ label, min, max, step, value, onChange }: { label: string; min: number; max: number; step: number; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="correctionSlider">
+      <span>{label}<strong>{Number.isInteger(value) ? value : value.toFixed(2)}</strong></span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    </label>
+  );
+}
+
+function HistogramView({ histogram }: { histogram: ImageHistogram }) {
+  return (
+    <div className="histogramPanel" aria-label="Input levels histogram">
+      <svg viewBox="0 0 256 96" role="img">
+        <HistogramArea values={histogram.luminance} color="rgba(238, 238, 238, 0.88)" />
+      </svg>
+    </div>
+  );
+}
+
+function CurveView({ settings, histogram }: { settings: CorrectionSettings; histogram: ImageHistogram }) {
+  const curvePoints = Array.from({ length: 64 }, (_, index) => {
+    const input = Math.round(index / 63 * 255);
+    const output = correctChannel(input, settings);
+    return `${index / 63 * 256},${96 - output / 255 * 96}`;
+  }).join(" ");
+  return (
+    <div className="curvePanel" aria-label="Curves">
+      <svg viewBox="0 0 256 96" role="img">
+        <HistogramPolyline values={histogram.luminance} color="rgba(246, 247, 242, 0.26)" />
+        <polyline points="0,96 256,0" fill="none" stroke="rgba(246, 247, 242, 0.28)" strokeWidth="1" />
+        <polyline points={curvePoints} fill="none" stroke="#f4d35e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
+function HistogramPolyline({ values, color }: { values: number[]; color: string }) {
+  const scaled = values.map((value) => Math.log1p(value));
+  const max = Math.max(1, ...scaled);
+  const points = scaled.map((value, index) => `${index},${96 - value / max * 92}`).join(" ");
+  return <polyline points={points} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" opacity="0.9" />;
+}
+
+function HistogramArea({ values, color }: { values: number[]; color: string }) {
+  const smoothed = values.map((value, index) => {
+    const previous = values[Math.max(0, index - 1)] ?? value;
+    const next = values[Math.min(values.length - 1, index + 1)] ?? value;
+    return (previous + value * 2 + next) / 4;
+  });
+  const sorted = [...smoothed].sort((a, b) => a - b);
+  const percentile = sorted[Math.max(0, Math.floor(sorted.length * 0.985) - 1)] ?? 1;
+  const max = Math.max(1, percentile);
+  const points = smoothed
+    .map((value, index) => `${index},${96 - Math.sqrt(Math.min(value, max) / max) * 88}`)
+    .join(" ");
+  return <polygon points={`0,96 ${points} 255,96`} fill={color} stroke="rgba(255, 255, 255, 0.46)" strokeWidth="0.8" />;
+}
+
+function emptyHistogram(): ImageHistogram {
+  const empty = Array.from({ length: 256 }, () => 0);
+  return { red: [...empty], green: [...empty], blue: [...empty], luminance: [...empty] };
+}
+
+function histogramFromImageData(imageData: ImageData): ImageHistogram {
+  const histogram = emptyHistogram();
+  for (let index = 0; index < imageData.data.length; index += 4) {
+    const red = imageData.data[index] ?? 0;
+    const green = imageData.data[index + 1] ?? 0;
+    const blue = imageData.data[index + 2] ?? 0;
+    histogram.red[red] += 1;
+    histogram.green[green] += 1;
+    histogram.blue[blue] += 1;
+    histogram.luminance[Math.round(red * 0.2126 + green * 0.7152 + blue * 0.0722)] += 1;
+  }
+  return histogram;
+}
+
+function applyCorrection(imageData: ImageData, settings: CorrectionSettings): ImageData {
+  const output = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  for (let index = 0; index < output.data.length; index += 4) {
+    output.data[index] = correctChannel(output.data[index] ?? 0, settings);
+    output.data[index + 1] = correctChannel(output.data[index + 1] ?? 0, settings);
+    output.data[index + 2] = correctChannel(output.data[index + 2] ?? 0, settings);
+  }
+  return output;
+}
+
+function correctChannel(value: number, settings: CorrectionSettings): number {
+  const range = Math.max(1, settings.white - settings.black);
+  let normalized = clamp((value - settings.black) / range, 0, 1);
+  normalized = Math.pow(normalized, settings.midpoint);
+  normalized += settings.shadowCurve / 100 * (1 - normalized) * normalized;
+  normalized += settings.highlightCurve / 100 * normalized * normalized;
+  let corrected = normalized * 255 + settings.brightness;
+  const contrastFactor = (259 * (settings.contrast + 255)) / (255 * (259 - settings.contrast));
+  corrected = contrastFactor * (corrected - 128) + 128;
+  return Math.round(clamp(corrected, 0, 255));
+}
+
 function StackPreview({
   preview,
   node,
@@ -6855,7 +7262,7 @@ function StackPreview({
   const canGoPrevious = safeIndex > 0;
   const canGoNext = safeIndex < stack.length - 1;
   const isMain = node?.manifest.activeStackIndex === safeIndex;
-  const isSelected = node?.manifest.type === "image" && Boolean(item && node.manifest.selectedStackItemIds?.includes(item.id));
+  const isSelected = Boolean(item && node?.manifest.selectedStackItemIds?.includes(item.id));
 
   return (
     <>
@@ -6874,7 +7281,7 @@ function StackPreview({
       </div>
       <div className="previewControls">
         <span>{stack.length ? `${safeIndex + 1} / ${stack.length}` : "0 / 0"}</span>
-        {node?.manifest.type === "image" && item ? (
+        {node && item ? (
           <button type="button" aria-pressed={isSelected} onClick={() => onToggleSelected(preview.nodeId, item.id)}>
             {isSelected ? "Selected" : "Select"}
           </button>
@@ -7198,6 +7605,17 @@ function edgeMidpoint(edge: CanvasEdge, nodeById: Map<string, CanvasNode>): { x:
   return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
 }
 
+function withImageCorrectionEdge(canvas: CanvasDocument, sourceNodeId: string, targetNodeId: string, settings: CorrectionSettings): CanvasDocument {
+  const edges = canvas.edges ?? [];
+  const hasEdge = edges.some((edge) => edge.fromNodeId === sourceNodeId && edge.toNodeId === targetNodeId);
+  return {
+    ...canvas,
+    edges: hasEdge
+      ? edges.map((edge) => edge.fromNodeId === sourceNodeId && edge.toNodeId === targetNodeId ? { ...edge, kind: "imageCorrection", correction: settings } : edge)
+      : [...edges, { id: `edge_${Date.now().toString(36)}`, fromNodeId: sourceNodeId, toNodeId: targetNodeId, kind: "imageCorrection", correction: settings }]
+  };
+}
+
 function edgePath(start: { x: number; y: number }, end: { x: number; y: number }) {
   const distance = Math.max(80, Math.abs(end.x - start.x) * 0.45);
   return `M ${start.x} ${start.y} C ${start.x + distance} ${start.y}, ${end.x - distance} ${end.y}, ${end.x} ${end.y}`;
@@ -7254,6 +7672,7 @@ async function apiDelete<T>(path: string): Promise<T> {
 }
 
 async function apiErrorMessage(response: Response): Promise<string> {
+  if (response.status === 413) return localJsonUploadTooLargeMessage();
   let parsed: unknown;
   try {
     parsed = await response.json();
@@ -7283,12 +7702,35 @@ async function fetchApi(path: string, init?: RequestInit): Promise<Response> {
 }
 
 function fileToBase64(file: File): Promise<string> {
+  assertLocalJsonUploadSize(file);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Could not read dropped image."));
+    reader.onerror = () => reject(new Error(file.size > localJsonUploadLimitBytes ? localJsonUploadTooLargeMessage(file) : "Could not read dropped image."));
     reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
     reader.readAsDataURL(file);
   });
+}
+
+function assertLocalJsonUploadSize(file: File) {
+  if (file.size > localJsonUploadLimitBytes) throw new Error(localJsonUploadTooLargeMessage(file));
+}
+
+function localJsonUploadTooLargeMessage(file?: File): string {
+  const fileSize = file ? ` (${formatBytes(file.size)})` : "";
+  return `Image file${fileSize} is too large to insert through local JSON upload. Use an image file under ${formatBytes(localJsonUploadLimitBytes)} or import it from a local library folder.`;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
 
 function clipboardImageFile(data: DataTransfer | null): File | null {

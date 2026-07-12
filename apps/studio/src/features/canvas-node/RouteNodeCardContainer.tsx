@@ -2,6 +2,7 @@ import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflo
 import { Aperture, BookOpen, Braces, Bug, ChevronDown, ChevronRight, ChevronUp, Cpu, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Globe, ImageIcon, MessageSquareText, Save, Sparkles, Type, Video, Wand2 } from "lucide-react";
 import React, { useLayoutEffect, useRef } from "react";
 import { DEFAULT_MODEL_PROFILES, normalizeDialogueWorkbenchState, type DialogueOutputType, type ModelProfile } from "@snarkroute/protocol";
+import { modelMaxImageInputsV1 } from "@snarkroute/model-catalog";
 import { geminiTokenStatusText, replicateTokenStatusText } from "../../security-ui";
 import { modelLogoFor } from "../../modelLogos";
 import { filenameFromPath } from "../../shared/fileHelpers";
@@ -722,25 +723,11 @@ function portLabel(port: PortSpec, connectedCount: number): string {
 
 
 function polzaVideoImageInputLimit(routeNode?: RouteDoc["nodes"][number]): number {
-  return polzaVideoImageInputLimitForModel({ id: String(routeNode?.params?.model ?? "") });
-}
-
-
-function polzaVideoImageInputLimitForModel(modelInfo: Pick<PolzaModel, "id" | "maxImageInputs">): number {
-  const explicit = Number(modelInfo.maxImageInputs);
-  if (Number.isFinite(explicit) && explicit > 0 && !isPolzaVideoUpscaleModelId(modelInfo.id)) return Math.max(1, Math.floor(explicit));
-  const model = String(modelInfo.id ?? "").toLowerCase();
-  if (!model) return 14;
-  if (isPolzaVideoUpscaleModelId(model)) return 1;
-  if (/veo[-_]?3/.test(model)) return 2;
-  if (/seedance/.test(model)) return 9;
-  if (/wan/.test(model)) return 2;
-  return 14;
-}
-
-
-function isPolzaVideoUpscaleModelId(modelId: string | undefined): boolean {
-  return /(^|\/)(video-)?upscale|upscaler|topaz/i.test(String(modelId ?? ""));
+  return modelMaxImageInputsV1({
+    provider: "polza",
+    providerModelId: String(routeNode?.params?.model ?? ""),
+    outputTypes: ["video"]
+  }) ?? 14;
 }
 
 

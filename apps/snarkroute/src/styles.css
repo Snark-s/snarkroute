@@ -1787,8 +1787,19 @@ dd {
   box-shadow: 0 12px 26px var(--shadow);
 }
 
-.textStackBoard button {
+.textStackBoardItem {
+  position: relative;
   min-width: 0;
+}
+
+.textStackBoardItem.isMarked {
+  box-shadow: 0 0 0 2px color-mix(in srgb, #63d69b 80%, transparent);
+  border-radius: 8px;
+}
+
+.textStackBoardItem > button:first-child {
+  min-width: 0;
+  width: 100%;
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 2px 7px;
@@ -1800,9 +1811,32 @@ dd {
   text-align: left;
 }
 
-.textStackBoard button.isActive {
+.textStackBoardItem > button:first-child.isActive {
   border-color: var(--accent);
   outline: 1px solid var(--accent);
+}
+
+.textStackBoard .stackSelectionToggle {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 55%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: #113222;
+  box-shadow: 0 2px 7px var(--shadow);
+}
+
+.textStackBoard .stackSelectionToggle[aria-pressed="true"] {
+  border-color: #63d69b;
+  background: #63d69b;
 }
 
 .textStackBoard img {
@@ -3074,6 +3108,114 @@ dd {
   text-align: center;
   color: var(--muted);
   font-size: 13px;
+}
+
+.correctionDialog {
+  max-height: min(92vh, 860px);
+  overflow: auto;
+  padding: 22px;
+  width: min(96vw, 1240px);
+}
+
+.imageCorrectionBody {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  align-items: stretch;
+}
+
+.imageCorrectionPreview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-height: min(72vh, 620px);
+  background: #000;
+}
+
+.imageCorrectionPreview canvas {
+  max-width: 100%;
+  max-height: min(72vh, 720px);
+  display: block;
+}
+
+.hiddenCorrectionCanvas {
+  display: none;
+}
+
+.imageCorrectionControls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+}
+
+.histogramPanel,
+.curvePanel {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel) 82%, #000);
+}
+
+.histogramPanel svg,
+.curvePanel svg {
+  display: block;
+  width: 100%;
+  height: 96px;
+}
+
+.correctionControlGrid {
+  display: grid;
+  gap: 9px;
+}
+
+.correctionSlider {
+  display: grid;
+  gap: 5px;
+}
+
+.correctionSlider span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.correctionSlider strong {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.correctionSlider input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.imageCorrectionError {
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, transparent);
+  border-radius: 8px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.imageCorrectionControls button {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .imageCorrectionBody {
+    grid-template-columns: 1fr;
+  }
+
+  .imageCorrectionPreview {
+    min-height: 260px;
+  }
 }
 
 .previewClose {

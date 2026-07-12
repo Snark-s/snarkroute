@@ -42,6 +42,7 @@ import {
   type ModelProfile,
   type OpenRoute
 } from "@snarkroute/protocol";
+import { modelMaxImageInputsV1 } from "@snarkroute/model-catalog";
 import { Panorama360Viewer as SharedPanorama360Viewer, SplatViewer, renderPanoramaFrame, type SplatViewerRuntime as SplatRuntime } from "@snarkroute/media-viewers";
 import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Copy, Cpu, Crop, Download, Eraser, Expand, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, Music, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, Wrench, X } from "lucide-react";
 import { Archive, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clipboard, Cog, Compass, Database, EyeOff, FileAudio, FileImage, FileVideo, Filter, Flag, FlipHorizontal, FlipVertical, Folder, FolderPlus, Grid3X3, Headphones, Heart, Layers3, Link, List, Mail, Map as MapIcon, MapPin, Maximize2, MessageSquare, Mic, Minimize2, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Radio, Repeat, RotateCcw, RotateCw, Route, Scissors, Send, Settings, Share2, Shuffle, SlidersHorizontal, Square, Star, Table, Volume2, Zap, ZoomIn, ZoomOut } from "lucide-react";
@@ -206,6 +207,7 @@ import {
   libraryNodeStatuses,
   promptStatusOptions
 } from "./studioConfig";
+
 import type {
   AdminOverview,
   AppCapabilities,
@@ -265,6 +267,8 @@ import type {
   UnifiedModelInfo,
   VideoModelOption
 } from "./studioTypes";
+
+const localJsonUploadLimitBytes = 180 * 1024 * 1024;
 
 // Compatibility note: storage keys and protocol fields keep the old node/studio names
 // so saved routes, installed node manifests, and local browser state continue to load.
@@ -1559,6 +1563,7 @@ function ChooseCameraPointParams({
       return;
     }
     const dataBase64 = dataUrl.split(",")[1] ?? "";
+    assertLocalJsonUploadBase64Length(dataBase64);
     const response = await fetch(`${apiBase}/api/assets/import`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1566,7 +1571,7 @@ function ChooseCameraPointParams({
     });
     const body = await response.json();
     if (!response.ok) {
-      setError(String(body.error ?? "Could not save rendered frame."));
+      setError(response.status === 413 ? localJsonUploadTooLargeMessage() : String(body.error ?? "Could not save rendered frame."));
       return;
     }
     const renderedImage = body.metadata ?? { path: body.path };
@@ -1700,13 +1705,14 @@ function ChooseCameraPointParams({
 
 async function importImageDataUrl(dataUrl: string, filename: string): Promise<unknown> {
   const dataBase64 = dataUrl.split(",")[1] ?? "";
+  assertLocalJsonUploadBase64Length(dataBase64);
   const response = await apiFetch(`${apiBase}/api/assets/import`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "image", filename, dataBase64 })
   });
   const body = await response.json();
-  if (!response.ok) throw new Error(String(body.error ?? `Could not save ${filename}.`));
+  if (!response.ok) throw new Error(response.status === 413 ? localJsonUploadTooLargeMessage() : String(body.error ?? `Could not save ${filename}.`));
   return body.metadata ?? { path: body.path };
 }
 
@@ -1999,6 +2005,17 @@ function NodeInlineResult({
           <button
             className="nodeImageActionButton nodrag nopan"
             type="button"
+            title="Basic image correction"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenImage?.({ src: imageSrc, title: imageTitle, filename: downloadFilename(result.output), mode: "correction" });
+            }}
+          >
+            <SlidersHorizontal size={14} />
+          </button>
+          <button
+            className="nodeImageActionButton nodrag nopan"
+            type="button"
             title="Download image"
             onClick={(event) => {
               event.stopPropagation();
@@ -2080,6 +2097,257 @@ function NodeInlineResult({
       {result.status === "succeeded" && hasPinnableOutput(result.output) ? <button className={`nodeSmallButton nodrag nopan ${outputPinned ? "pinned" : ""}`} aria-pressed={outputPinned} onClick={() => onFixNodeOutput?.(nodeId, result.output)}><Pin size={14} /> {outputPinned ? "Pinned output" : "Pin output"}</button> : null}
     </div>
   );
+}
+
+type CorrectionSettings = {
+  black: number;
+  midpoint: number;
+  white: number;
+  shadowCurve: number;
+  highlightCurve: number;
+  brightness: number;
+  contrast: number;
+};
+
+type ImageHistogram = {
+  red: number[];
+  green: number[];
+  blue: number[];
+  luminance: number[];
+};
+
+const DEFAULT_CORRECTION_SETTINGS: CorrectionSettings = {
+  black: 0,
+  midpoint: 1,
+  white: 255,
+  shadowCurve: 0,
+  highlightCurve: 0,
+  brightness: 0,
+  contrast: 0
+};
+
+function ImageCorrectionPanel({ image }: { image: ImageViewerState }) {
+  const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [settings, setSettings] = useState<CorrectionSettings>(DEFAULT_CORRECTION_SETTINGS);
+  const [histogram, setHistogram] = useState<ImageHistogram>(() => emptyHistogram());
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      const sourceCanvas = sourceCanvasRef.current;
+      const previewCanvas = previewCanvasRef.current;
+      if (!sourceCanvas || !previewCanvas) return;
+      const maxSide = 1200;
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      const width = Math.max(1, Math.round(img.naturalWidth * scale));
+      const height = Math.max(1, Math.round(img.naturalHeight * scale));
+      sourceCanvas.width = width;
+      sourceCanvas.height = height;
+      previewCanvas.width = width;
+      previewCanvas.height = height;
+      const context = sourceCanvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+      context.drawImage(img, 0, 0, width, height);
+      try {
+        setHistogram(histogramFromImageData(context.getImageData(0, 0, width, height)));
+        setLoadError("");
+      } catch {
+        setLoadError("Histogram is unavailable for this image source.");
+      }
+    };
+    img.onerror = () => {
+      if (!cancelled) setLoadError("Could not load image for correction.");
+    };
+    img.src = image.src;
+    return () => {
+      cancelled = true;
+    };
+  }, [image.src]);
+
+  useEffect(() => {
+    const sourceCanvas = sourceCanvasRef.current;
+    const previewCanvas = previewCanvasRef.current;
+    if (!sourceCanvas || !previewCanvas || !sourceCanvas.width || !sourceCanvas.height) return;
+    const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+    const previewContext = previewCanvas.getContext("2d");
+    if (!sourceContext || !previewContext) return;
+    try {
+      const sourceData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+      previewContext.putImageData(applyCorrection(sourceData, settings), 0, 0);
+    } catch {
+      setLoadError("Correction preview is unavailable for this image source.");
+    }
+  }, [settings, histogram]);
+
+  const updateSetting = (key: keyof CorrectionSettings, value: number) => {
+    setSettings((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "black" && next.black >= next.white) next.black = Math.max(0, next.white - 1);
+      if (key === "white" && next.white <= next.black) next.white = Math.min(255, next.black + 1);
+      return next;
+    });
+  };
+
+  const downloadAdjusted = () => {
+    const previewCanvas = previewCanvasRef.current;
+    if (!previewCanvas) return;
+    previewCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = correctedFilename(image.filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }, "image/png");
+  };
+
+  return (
+    <div className="imageCorrectionBody">
+      <canvas ref={sourceCanvasRef} className="hiddenCorrectionCanvas" />
+      <div className="imageCorrectionPreview">
+        <canvas ref={previewCanvasRef} aria-label={image.title} />
+      </div>
+      <aside className="imageCorrectionControls">
+        <HistogramView histogram={histogram} />
+        {loadError ? <div className="imageCorrectionError">{loadError}</div> : null}
+        <CurveView settings={settings} histogram={histogram} />
+        <div className="correctionControlGrid">
+          <CorrectionSlider label="Black" min={0} max={254} step={1} value={settings.black} onChange={(value) => updateSetting("black", value)} />
+          <CorrectionSlider label="Mid" min={0.2} max={3} step={0.01} value={settings.midpoint} onChange={(value) => updateSetting("midpoint", value)} />
+          <CorrectionSlider label="White" min={1} max={255} step={1} value={settings.white} onChange={(value) => updateSetting("white", value)} />
+          <CorrectionSlider label="Shadows" min={-80} max={80} step={1} value={settings.shadowCurve} onChange={(value) => updateSetting("shadowCurve", value)} />
+          <CorrectionSlider label="Highlights" min={-80} max={80} step={1} value={settings.highlightCurve} onChange={(value) => updateSetting("highlightCurve", value)} />
+          <CorrectionSlider label="Brightness" min={-100} max={100} step={1} value={settings.brightness} onChange={(value) => updateSetting("brightness", value)} />
+          <CorrectionSlider label="Contrast" min={-100} max={100} step={1} value={settings.contrast} onChange={(value) => updateSetting("contrast", value)} />
+        </div>
+        <button className="nodeSmallButton nodrag nopan" type="button" onClick={downloadAdjusted}>
+          <Download size={14} /> Download adjusted
+        </button>
+        <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => setSettings(DEFAULT_CORRECTION_SETTINGS)}>
+          <RotateCcw size={14} /> Reset
+        </button>
+      </aside>
+    </div>
+  );
+}
+
+function CorrectionSlider({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="correctionSlider">
+      <span>{label}<strong>{formatCorrectionValue(value)}</strong></span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    </label>
+  );
+}
+
+function HistogramView({ histogram }: { histogram: ImageHistogram }) {
+  return (
+    <div className="histogramPanel" aria-label="RGB histogram">
+      <svg viewBox="0 0 256 96" role="img">
+        <HistogramPolyline values={histogram.red} color="#ff6b6b" />
+        <HistogramPolyline values={histogram.green} color="#7dd3c0" />
+        <HistogramPolyline values={histogram.blue} color="#78a6ff" />
+      </svg>
+    </div>
+  );
+}
+
+function CurveView({ settings, histogram }: { settings: CorrectionSettings; histogram: ImageHistogram }) {
+  const curvePoints = Array.from({ length: 64 }, (_, index) => {
+    const input = Math.round(index / 63 * 255);
+    const output = correctChannel(input, settings);
+    return `${index / 63 * 256},${96 - output / 255 * 96}`;
+  }).join(" ");
+  return (
+    <div className="curvePanel" aria-label="Curves">
+      <svg viewBox="0 0 256 96" role="img">
+        <HistogramPolyline values={histogram.luminance} color="rgba(220, 232, 255, 0.24)" />
+        <polyline points="0,96 256,0" fill="none" stroke="rgba(220, 232, 255, 0.28)" strokeWidth="1" />
+        <polyline points={curvePoints} fill="none" stroke="#f8d680" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
+function HistogramPolyline({ values, color }: { values: number[]; color: string }) {
+  const max = Math.max(1, ...values);
+  const points = values.map((value, index) => `${index},${96 - value / max * 92}`).join(" ");
+  return <polyline points={points} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" opacity="0.9" />;
+}
+
+function emptyHistogram(): ImageHistogram {
+  const empty = Array.from({ length: 256 }, () => 0);
+  return { red: [...empty], green: [...empty], blue: [...empty], luminance: [...empty] };
+}
+
+function histogramFromImageData(imageData: ImageData): ImageHistogram {
+  const histogram = emptyHistogram();
+  const { data } = imageData;
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index] ?? 0;
+    const green = data[index + 1] ?? 0;
+    const blue = data[index + 2] ?? 0;
+    histogram.red[red] += 1;
+    histogram.green[green] += 1;
+    histogram.blue[blue] += 1;
+    histogram.luminance[Math.round(red * 0.2126 + green * 0.7152 + blue * 0.0722)] += 1;
+  }
+  return histogram;
+}
+
+function applyCorrection(imageData: ImageData, settings: CorrectionSettings): ImageData {
+  const output = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  for (let index = 0; index < output.data.length; index += 4) {
+    output.data[index] = correctChannel(output.data[index] ?? 0, settings);
+    output.data[index + 1] = correctChannel(output.data[index + 1] ?? 0, settings);
+    output.data[index + 2] = correctChannel(output.data[index + 2] ?? 0, settings);
+  }
+  return output;
+}
+
+function correctChannel(value: number, settings: CorrectionSettings): number {
+  const range = Math.max(1, settings.white - settings.black);
+  let normalized = clamp((value - settings.black) / range, 0, 1);
+  normalized = Math.pow(normalized, settings.midpoint);
+  normalized += settings.shadowCurve / 100 * (1 - normalized) * normalized;
+  normalized += settings.highlightCurve / 100 * normalized * normalized;
+  let corrected = normalized * 255 + settings.brightness;
+  const contrastFactor = (259 * (settings.contrast + 255)) / (255 * (259 - settings.contrast));
+  corrected = contrastFactor * (corrected - 128) + 128;
+  return Math.round(clamp(corrected, 0, 255));
+}
+
+function formatCorrectionValue(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function correctedFilename(filename: string): string {
+  const clean = filename.trim() || "image.png";
+  const dotIndex = clean.lastIndexOf(".");
+  if (dotIndex <= 0) return `${clean}-corrected.png`;
+  return `${clean.slice(0, dotIndex)}-corrected.png`;
 }
 
 function hasPinnableOutput(output: unknown): boolean {
@@ -2634,19 +2902,11 @@ function portLabel(port: PortSpec, connectedCount: number): string {
 }
 
 function polzaVideoImageInputLimit(routeNode?: RouteDoc["nodes"][number]): number {
-  return polzaVideoImageInputLimitForModel({ id: String(routeNode?.params?.model ?? "") });
-}
-
-function polzaVideoImageInputLimitForModel(modelInfo: Pick<PolzaModel, "id" | "maxImageInputs">): number {
-  const explicit = Number(modelInfo.maxImageInputs);
-  if (Number.isFinite(explicit) && explicit > 0 && !isPolzaVideoUpscaleModelId(modelInfo.id)) return Math.max(1, Math.floor(explicit));
-  const model = String(modelInfo.id ?? "").toLowerCase();
-  if (!model) return 14;
-  if (isPolzaVideoUpscaleModelId(model)) return 1;
-  if (/veo[-_]?3/.test(model)) return 2;
-  if (/seedance/.test(model)) return 9;
-  if (/wan/.test(model)) return 2;
-  return 14;
+  return modelMaxImageInputsV1({
+    provider: "polza",
+    providerModelId: String(routeNode?.params?.model ?? ""),
+    outputTypes: ["video"]
+  }) ?? 14;
 }
 
 function isPolzaVideoUpscaleModelId(modelId: string | undefined): boolean {
@@ -2724,8 +2984,7 @@ function modelInputConnectionLimit(model: ModelOptionForNodeV1 | undefined, port
 }
 
 function modelImageInputLimit(model: ModelOptionForNodeV1): number | undefined {
-  return positiveInteger((model.metadata as Record<string, unknown> | undefined)?.maxImageInputs)
-    ?? positiveInteger((model.metadata as Record<string, unknown> | undefined)?.maxImages);
+  return modelMaxImageInputsV1(model);
 }
 
 function positiveInteger(value: unknown): number | undefined {
@@ -3680,7 +3939,11 @@ function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDo
   };
 }
 
-function routeWithOnlyActiveEdges(route: RouteDoc, nodeCatalog: NodeCatalogItem[]): RouteDoc {
+function routeWithOnlyActiveEdges(
+  route: RouteDoc,
+  nodeCatalog: NodeCatalogItem[],
+  options: ActiveFlowEdgeOptions = { modelOptionsForNodes: {} }
+): RouteDoc {
   const routeNodeById = new Map(route.nodes.map((node) => [node.id, node]));
   const seenByPort = new Map<string, number>();
   return {
@@ -3690,7 +3953,9 @@ function routeWithOnlyActiveEdges(route: RouteDoc, nodeCatalog: NodeCatalogItem[
       if (!targetRouteNode || !edge.toPort) return true;
       const targetManifest = nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest;
       const targetPort = getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === edge.toPort);
-      const maxConnections = targetPort?.maxConnections ?? 1;
+      const selectedModel = selectedModelOptionForRouteNode(targetRouteNode, options.modelOptionsForNodes);
+      if (targetPort && selectedModel && !modelAcceptsPortKind(selectedModel, targetPort.kind)) return false;
+      const maxConnections = targetPort ? modelInputConnectionLimit(selectedModel, targetPort) : 1;
       const key = `${edge.to}:${edge.toPort}`;
       const index = seenByPort.get(key) ?? 0;
       seenByPort.set(key, index + 1);
@@ -4454,7 +4719,7 @@ function App() {
     }
   }
 
-  async function refreshRunCostEstimate(route: RouteDoc = routeWithOnlyActiveEdges(flowToRoute(nodesRef.current, edgesRef.current, routeBase), nodeCatalog)) {
+  async function refreshRunCostEstimate(route: RouteDoc = routeWithOnlyActiveEdges(flowToRoute(nodesRef.current, edgesRef.current, routeBase), nodeCatalog, { modelOptionsForNodes })) {
     try {
       const response = await apiFetch(`${apiBase}/api/billing/estimate`, {
         method: "POST",
@@ -7072,7 +7337,7 @@ function App() {
       setLogs((current) => [runDisabledReason, ...current]);
       return;
     }
-    const route = routeWithOnlyActiveEdges(flowToRoute(nodes, edges, routeBase), nodeCatalog);
+    const route = routeWithOnlyActiveEdges(flowToRoute(nodes, edges, routeBase), nodeCatalog, { modelOptionsForNodes });
     await refreshRunCostEstimate(route);
     await loadCreditBalance();
     markNodeResultsFresh(nodes.map((node) => node.id));
@@ -7087,7 +7352,7 @@ function App() {
   async function runNodeWithDependencies(nodeId: string) {
     const target = nodes.find((node) => node.id === nodeId);
     if (!target) return;
-    const route = routeWithOnlyActiveEdges(flowToNodeRoute(nodes, edges, routeBase, nodeId), nodeCatalog);
+    const route = routeWithOnlyActiveEdges(flowToNodeRoute(nodes, edges, routeBase, nodeId), nodeCatalog, { modelOptionsForNodes });
     markNodeResultsFresh(route.nodes.map((node) => node.id));
     setRunResult({
       status: "running",
@@ -8777,10 +9042,29 @@ function App() {
 
       {imageViewer ? (
         <div className="imageViewerOverlay" role="dialog" aria-modal="true" aria-label="Image preview" onClick={() => setImageViewer(null)}>
-          <div className="imageViewerWindow" onClick={(event) => event.stopPropagation()}>
+          <div className={`imageViewerWindow ${imageViewer.mode === "correction" ? "correction" : ""}`.trim()} onClick={(event) => event.stopPropagation()}>
             <div className="imageViewerHeader">
               <span title={imageViewer.title}>{truncateText(imageViewer.title, 96)}</span>
               <div className="imageViewerActions">
+                {imageViewer.mode === "correction" ? (
+                  <button
+                    className="imageViewerButton"
+                    type="button"
+                    title="Image preview"
+                    onClick={() => setImageViewer({ ...imageViewer, mode: "preview" })}
+                  >
+                    <Eye size={15} />
+                  </button>
+                ) : (
+                  <button
+                    className="imageViewerButton"
+                    type="button"
+                    title="Basic image correction"
+                    onClick={() => setImageViewer({ ...imageViewer, mode: "correction" })}
+                  >
+                    <SlidersHorizontal size={15} />
+                  </button>
+                )}
                 <button
                   className="imageViewerButton"
                   type="button"
@@ -8794,7 +9078,7 @@ function App() {
                 </button>
               </div>
             </div>
-            <img className="imageViewerImage" src={imageViewer.src} alt={imageViewer.title} />
+            {imageViewer.mode === "correction" ? <ImageCorrectionPanel image={imageViewer} /> : <img className="imageViewerImage" src={imageViewer.src} alt={imageViewer.title} />}
           </div>
         </div>
       ) : null}
@@ -9137,7 +9421,7 @@ async function importLocalAsset(file: File, kind: AssetKind): Promise<string> {
     body: JSON.stringify({ filename: file.name, dataBase64, kind })
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error ?? "Local import failed.");
+  if (!response.ok) throw new Error(response.status === 413 ? localJsonUploadTooLargeMessage(file, kind) : result.error ?? "Local import failed.");
   if (!result.path) throw new Error("Local import did not return a path.");
   return result.path;
 }
@@ -9169,15 +9453,45 @@ function extensionForMimeType(mimeType: string): string {
 }
 
 function fileToBase64(file: File): Promise<string> {
+  assertLocalJsonUploadSize(file);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result ?? "");
       resolve(text.includes(",") ? text.split(",")[1] : text);
     };
-    reader.onerror = () => reject(reader.error ?? new Error("Could not read file."));
+    reader.onerror = () => reject(file.size > localJsonUploadLimitBytes ? new Error(localJsonUploadTooLargeMessage(file)) : reader.error ?? new Error("Could not read file."));
     reader.readAsDataURL(file);
   });
+}
+
+function assertLocalJsonUploadSize(file: File) {
+  if (file.size > localJsonUploadLimitBytes) throw new Error(localJsonUploadTooLargeMessage(file));
+}
+
+function assertLocalJsonUploadBase64Length(dataBase64: string) {
+  const estimatedBytes = Math.floor(dataBase64.length * 3 / 4);
+  if (estimatedBytes > localJsonUploadLimitBytes) throw new Error(localJsonUploadTooLargeMessage(undefined, "image"));
+}
+
+function localJsonUploadTooLargeMessage(file?: File, kind: AssetKind = "image"): string {
+  const label = kind === "video" ? "Video file" : kind === "file" ? "File" : "Image file";
+  const noun = kind === "video" ? "video file" : kind === "file" ? "file" : "image file";
+  const fileSize = file ? ` (${formatBytes(file.size)})` : "";
+  return `${label}${fileSize} is too large to insert through local JSON upload. Use a ${noun} under ${formatBytes(localJsonUploadLimitBytes)} or import it from a local library folder.`;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
 
 async function imageUrlToPngBase64(src: string): Promise<string> {

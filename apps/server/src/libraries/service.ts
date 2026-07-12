@@ -1050,19 +1050,34 @@ export async function setImageNodeActiveStackItem(nodeId: string, stackIndex: nu
   return readLibrarySnapshot(libraryPath);
 }
 
-export async function setImageNodeSelectedStackItems(nodeId: string, selectedStackItemIds: string[]): Promise<LibrarySnapshot> {
+export async function setStackNodeSelectedStackItems(nodeId: string, selectedStackItemIds: string[]): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
-  const { manifest, nodePath } = await readImageNode(nodeId);
+  const canvas = await ensureCanvas(libraryPath);
+  const canvasNode = canvas.nodes.find((node) => node.id === nodeId);
+  if (!canvasNode) throw new Error(`Node "${nodeId}" was not found.`);
+  const typed = canvasNode.type === "image"
+    ? await readImageNode(nodeId)
+    : canvasNode.type === "video"
+      ? await readVideoNode(nodeId)
+      : canvasNode.type === "audio"
+        ? await readAudioNode(nodeId)
+        : canvasNode.type === "text"
+          ? await readTextNode(nodeId)
+          : null;
+  if (!typed) throw new Error("Selected stack items are available for stack nodes.");
+  const stack = typed.manifest.type === "text" ? await readTextNodeStack(typed.nodePath, typed.manifest) : typed.manifest.stack;
   const requestedIds = new Set(selectedStackItemIds);
-  const selectedIds = manifest.stack.filter((item) => requestedIds.has(item.id)).map((item) => item.id);
+  const selectedIds = stack.filter((item) => requestedIds.has(item.id)).map((item) => item.id);
   if (selectedIds.length !== requestedIds.size) throw new Error("One or more selected stack items were not found.");
-  await writeJson(join(nodePath, "snark.node.json"), {
-    ...manifest,
+  await writeJson(join(typed.nodePath, "snark.node.json"), {
+    ...typed.manifest,
     selectedStackItemIds: selectedIds,
     updatedAt: new Date().toISOString()
   });
   return readLibrarySnapshot(libraryPath);
 }
+
+export const setImageNodeSelectedStackItems = setStackNodeSelectedStackItems;
 
 export async function setVideoNodeActiveStackItem(nodeId: string, stackIndex: number): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
@@ -1134,6 +1149,7 @@ export async function deleteTextNodeStackItem(nodeId: string, stackItemId: strin
   await writeJson(join(nodePath, "snark.node.json"), {
     ...manifest,
     selectedStackItemId: manifest.selectedStackItemId === stackItemId ? nextStack[0]?.id : manifest.selectedStackItemId,
+    selectedStackItemIds: manifest.selectedStackItemIds?.filter((id) => id !== stackItemId) ?? [],
     updatedAt: new Date().toISOString()
   });
   return readLibrarySnapshot(libraryPath);
@@ -1172,6 +1188,7 @@ export async function deleteVideoNodeStackItem(nodeId: string, stackItemId: stri
     ...manifest,
     stack: nextStack,
     activeStackIndex: Math.max(0, nextActiveIndex),
+    selectedStackItemIds: manifest.selectedStackItemIds?.filter((id) => id !== stackItemId) ?? [],
     updatedAt: new Date().toISOString()
   });
   return readLibrarySnapshot(libraryPath);
@@ -1190,6 +1207,7 @@ export async function deleteAudioNodeStackItem(nodeId: string, stackItemId: stri
     ...manifest,
     stack: nextStack,
     activeStackIndex: Math.max(0, nextActiveIndex),
+    selectedStackItemIds: manifest.selectedStackItemIds?.filter((id) => id !== stackItemId) ?? [],
     updatedAt: new Date().toISOString()
   });
   return readLibrarySnapshot(libraryPath);
@@ -2934,7 +2952,9 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
     }
     if (manifest.type === "video") {
       const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
-      const hydratedManifest = { ...await syncMediaStackWithContent(nodePath, manifest), currentPrompt: await readCurrentPrompt(nodePath) };
+      const syncedManifest = await syncMediaStackWithContent(nodePath, manifest);
+      const stackItemIds = new Set(syncedManifest.stack.map((item) => item.id));
+      const hydratedManifest = { ...syncedManifest, selectedStackItemIds: syncedManifest.selectedStackItemIds?.filter((id) => stackItemIds.has(id)) ?? [], currentPrompt: await readCurrentPrompt(nodePath) };
       const activeStackItem = hydratedManifest.stack[hydratedManifest.activeStackIndex] ?? null;
       nodes.push({
         canvas: canvasNode,
@@ -2945,7 +2965,9 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
     }
     if (manifest.type === "audio") {
       const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
-      const hydratedManifest = { ...await syncMediaStackWithContent(nodePath, manifest), currentPrompt: await readCurrentPrompt(nodePath) };
+      const syncedManifest = await syncMediaStackWithContent(nodePath, manifest);
+      const stackItemIds = new Set(syncedManifest.stack.map((item) => item.id));
+      const hydratedManifest = { ...syncedManifest, selectedStackItemIds: syncedManifest.selectedStackItemIds?.filter((id) => stackItemIds.has(id)) ?? [], currentPrompt: await readCurrentPrompt(nodePath) };
       const activeStackItem = hydratedManifest.stack[hydratedManifest.activeStackIndex] ?? null;
       nodes.push({
         canvas: canvasNode,
@@ -2958,9 +2980,10 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
       const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
       const stack = await readTextNodeStack(nodePath, manifest);
       const activeStackItem = stack.find((item) => item.id === manifest.selectedStackItemId) ?? null;
+      const stackItemIds = new Set(stack.map((item) => item.id));
       nodes.push({
         canvas: canvasNode,
-        manifest: { ...manifest, inputMode: manifest.inputMode ?? "text", stackPath: manifest.stackPath ?? "content", selectedStackItemId: activeStackItem?.id },
+        manifest: { ...manifest, inputMode: manifest.inputMode ?? "text", stackPath: manifest.stackPath ?? "content", selectedStackItemId: activeStackItem?.id, selectedStackItemIds: manifest.selectedStackItemIds?.filter((id) => stackItemIds.has(id)) ?? [] },
         stack,
         conversation: await readTextNodeConversation(nodePath),
         activeStackItem,
@@ -3085,8 +3108,9 @@ async function syncCollectionNode(
     }
     if (sourceNode?.type === "video" || sourceNode?.type === "audio") {
       const typed = sourceNode.type === "video" ? await readVideoNode(sourceNodeId) : await readAudioNode(sourceNodeId);
-      const item = typed.manifest.stack[typed.manifest.activeStackIndex];
-      if (item) {
+      const selected = new Set(typed.manifest.selectedStackItemIds ?? []);
+      const stackItems = selected.size ? typed.manifest.stack.filter((item) => selected.has(item.id)) : typed.manifest.stack[typed.manifest.activeStackIndex] ? [typed.manifest.stack[typed.manifest.activeStackIndex]] : [];
+      for (const item of stackItems) {
         desired.push({
           id: collectionItemId(sourceNodeId, item.id),
           type: sourceNode.type,
@@ -3102,16 +3126,20 @@ async function syncCollectionNode(
     if (sourceNode?.type === "text") {
       const { manifest, nodePath } = await readTextNode(sourceNodeId);
       const stack = await readTextNodeStack(nodePath, manifest);
-      const selected = stack.find((item) => item.id === manifest.selectedStackItemId);
-      desired.push({
-        id: collectionItemId(sourceNodeId, selected?.id ?? "draft"),
-        type: "text",
-        sourceNodeId,
-        stackItemId: selected?.id,
-        title: selected?.title ?? manifest.title,
-        text: selected?.text ?? manifest.text,
-        mimeType: "text/markdown"
-      });
+      const selected = new Set(manifest.selectedStackItemIds ?? []);
+      const selectedItems = selected.size ? stack.filter((item) => selected.has(item.id)) : stack.filter((item) => item.id === manifest.selectedStackItemId);
+      const textItems = selectedItems.length ? selectedItems : [{ id: "draft", title: manifest.title, text: manifest.text }];
+      for (const item of textItems) {
+        desired.push({
+          id: collectionItemId(sourceNodeId, item.id),
+          type: "text",
+          sourceNodeId,
+          stackItemId: item.id === "draft" ? undefined : item.id,
+          title: item.title,
+          text: item.text,
+          mimeType: "text/markdown"
+        });
+      }
     }
   }
 
@@ -4098,7 +4126,8 @@ async function openRouterVideoRequestBody(input: { modelId: string; prompt: stri
   if (input.parameters.seed !== undefined) body.seed = Number(input.parameters.seed) || input.parameters.seed;
   const frameImages = await Promise.all(input.images.slice(0, 2).map(async (image, index) => ({
     frame_type: index === 0 ? "first_frame" : "last_frame",
-    image_url: await imageInputAsOpenRouterUrl(image)
+    type: "image_url",
+    image_url: { url: await imageInputAsOpenRouterUrl(image) }
   })));
   if (frameImages.length > 0) body.frame_images = frameImages;
   return body;

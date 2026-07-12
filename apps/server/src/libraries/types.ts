@@ -86,8 +86,9 @@ export interface SnarkCanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop" | "canvasAction" | "collectionItem";
+  kind?: "representation" | "crop" | "imageCorrection" | "canvasAction" | "collectionItem";
   actionId?: string;
+  correction?: ImageCorrectionSettings;
   note?: string;
 }
 
@@ -116,6 +117,16 @@ export interface CropRect {
   height: number;
 }
 
+export interface ImageCorrectionSettings {
+  black: number;
+  midpoint: number;
+  white: number;
+  shadowCurve: number;
+  highlightCurve: number;
+  brightness: number;
+  contrast: number;
+}
+
 export interface CropMetadata {
   sourceNodeId: string;
   rect: CropRect;
@@ -134,6 +145,7 @@ export interface VideoNodeManifest {
   fallbackAllowed?: boolean;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -150,6 +162,7 @@ export interface AudioNodeManifest {
   fallbackAllowed?: boolean;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -165,6 +178,7 @@ export interface TextNodeManifest {
   inputMode?: "text" | "dialogue";
   stackPath?: string;
   selectedStackItemId?: string;
+  selectedStackItemIds?: string[];
   modelId?: string;
   executionProvider?: string;
   fallbackAllowed?: boolean;

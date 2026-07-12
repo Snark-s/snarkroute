@@ -34,5 +34,8 @@ export {
   listSeedProviderOfferingsV1,
   listSeedProviderPricingCatalogV1,
   listSeedProviderPricingV1,
+  modelMaxImageInputsV1,
+  polzaVideoMaxImageInputsV1,
+  withDefaultModelInputLimitsV1,
   providerPricingToCatalogEntryV1
 } from "./v1/index.js";

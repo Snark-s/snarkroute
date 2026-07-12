@@ -278,10 +278,16 @@ describe("SnarkRoute libraries", () => {
       const refreshedTextNode = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes
         .find((node: { manifest: { id: string } }) => node.manifest.id === textNode.manifest.id);
       const visualTextItem = refreshedTextNode.stack.find((item: { title: string }) => item.title === "Visual text");
+      const importedTextItem = refreshedTextNode.stack.find((item: { text: string }) => item.text === "Collection text");
       await app.inject({
         method: "PUT",
         url: `/api/libraries/current/text-nodes/${textNode.manifest.id}/stack/active`,
         payload: { selectedStackItemId: visualTextItem.id }
+      });
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/text-nodes/${textNode.manifest.id}/stack/selected`,
+        payload: { selectedStackItemIds: [importedTextItem.id] }
       });
       const videoSnapshot = (await app.inject({
         method: "POST",
@@ -289,6 +295,17 @@ describe("SnarkRoute libraries", () => {
         payload: { filename: "Clip.mp4", dataBase64: sampleVideoBase64, dropX: 200, dropY: 750, width: 320, height: 240 }
       })).json();
       const videoNode = videoSnapshot.nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "video");
+      const videoWithTwoItems = (await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/video-nodes/${videoNode.manifest.id}/stack`,
+        payload: { filename: "Second.mp4", dataBase64: sampleVideoBase64 }
+      })).json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === videoNode.manifest.id);
+      const selectedVideoId = videoWithTwoItems.manifest.stack[1].id;
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/video-nodes/${videoNode.manifest.id}/stack/selected`,
+        payload: { selectedStackItemIds: [selectedVideoId] }
+      });
 
       const collectionSnapshot = (await app.inject({
         method: "POST",
@@ -311,9 +328,10 @@ describe("SnarkRoute libraries", () => {
       const collectedImage = collectedImages.find((item: { stackItemId: string }) => item.stackItemId === selectedImageId);
       expect(collectedImage.stackItemId).toBe(selectedImageId);
       expect((await app.inject({ method: "GET", url: collectedImage.previewUrl })).statusCode).toBe(200);
-      expect(collected.items.find((item: { type: string }) => item.type === "text").text).toBe("Text extracted from an image-backed text item");
+      expect(collected.items.find((item: { type: string }) => item.type === "text").text).toBe("Collection text");
       expect(collected.items.find((item: { type: string }) => item.type === "text").file).toMatch(/\.prompt\.md$/);
       expect(collected.items.find((item: { type: string }) => item.type === "text").previewUrl).toBeUndefined();
+      expect(collected.items.find((item: { type: string }) => item.type === "video").stackItemId).toBe(selectedVideoId);
       expect(collected.manifest.items).toHaveLength(4);
       const collectionContentPath = join(libraryPath, collectionNode.canvas.nodePath, "content");
       const collectedFiles = await readdir(collectionContentPath);
@@ -368,7 +386,7 @@ describe("SnarkRoute libraries", () => {
       });
       expect(extracted.statusCode).toBe(200);
       const extractedText = extracted.json().nodes.find((node: { manifest: { id: string; type: string } }) => node.manifest.type === "text" && node.manifest.id !== textNode.manifest.id);
-      expect(extractedText.outputText).toBe("Text extracted from an image-backed text item");
+      expect(extractedText.outputText).toBe("Collection text");
       expect(extractedText.activeStackItem.file).toMatch(/\.prompt\.md$/);
       expect(extracted.json().canvas.edges).toEqual(expect.arrayContaining([
         expect.objectContaining({ fromNodeId: collectionNode.manifest.id, toNodeId: extractedText.manifest.id, kind: "collectionItem" })
@@ -596,6 +614,57 @@ describe("SnarkRoute libraries", () => {
       expect(secondSource.manifest.stack[0].file).toBe("content/000-import.png");
       expect(params.images[0].path.replaceAll("\\", "/")).toContain(secondSource.manifest.stack[0].file);
     } finally {
+      await app.close();
+    }
+  });
+
+  it("sends OpenRouter video frame images in the documented content-part shape", async () => {
+    const app = await testServer();
+    try {
+      process.env.OPENROUTER_API_KEY = "sk-openrouter-test";
+      const source = await importNode(app, "Source.png");
+      const targetResponse = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-video",
+        payload: { filename: "Target.mp4", dataBase64: sampleVideoBase64, dropX: 600, dropY: 300, width: 320, height: 240 }
+      });
+      const target = targetResponse.json().nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "video");
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_openrouter_video_image", fromNodeId: source.manifest.id, toNodeId: target.manifest.id }] }
+      });
+      const fetchMock = vi.fn(async (url: string | URL | Request) => {
+        const value = String(url);
+        if (value.endsWith("/videos")) return new Response(JSON.stringify({ id: "job-123", status: "pending" }), { status: 202, headers: { "content-type": "application/json" } });
+        if (value.endsWith("/videos/job-123")) return new Response(JSON.stringify({ status: "completed", unsigned_urls: ["https://cdn.openrouter.ai/result.mp4"] }), { status: 200, headers: { "content-type": "application/json" } });
+        return new Response(Buffer.from(sampleVideoBase64, "base64"), { status: 200, headers: { "content-type": "video/mp4" } });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/video-nodes/${target.manifest.id}/generate`,
+        payload: {
+          modelId: "google/veo-3.1",
+          providerId: "openrouter",
+          prompt: `Animate [[image:${source.manifest.id}]]`,
+          parameters: { resolution: "720p", duration: "8" }
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const requestBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+      expect(requestBody.frame_images).toEqual([
+        {
+          frame_type: "first_frame",
+          type: "image_url",
+          image_url: { url: expect.stringMatching(/^data:image\/png;base64,/) }
+        }
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
       await app.close();
     }
   });

@@ -1,8 +1,8 @@
 {
   "kind": "snarkroute.node",
   "schemaVersion": "0.1",
-  "id": "x4",
-  "title": "x4",
+  "id": "clariti.upscaler",
+  "title": "Clariti Upscaler",
   "version": "0.1.0",
   "author": {
     "name": "SnarkRoute Studio"
@@ -11,7 +11,7 @@
   "origin": "generated",
   "source": "snarkroute-studio",
   "category": "Compound",
-  "description": "Generated from compound route \"x4\".",
+  "description": "Generated from compound route \"Clariti Upscaler\".",
   "permissions": {
     "network": false,
     "networkHosts": [],
@@ -37,26 +37,44 @@
       "label": "image"
     }
   ],
+  "params": [
+    {
+      "id": "replicate_clarity_upscaler_12.scale_factor",
+      "type": "number",
+      "default": 2,
+      "label": "scale_factor",
+      "binding": {
+        "nodeId": "replicate_clarity_upscaler_12",
+        "paramId": "scale_factor"
+      }
+    }
+  ],
   "canvasAction": {
     "enabled": true,
-    "title": "x4",
-    "description": "Run \"x4\" from the Living Canvas node toolbar.",
+    "title": "Clariti Upscaler",
+    "description": "Run \"Clariti Upscaler\" from the Living Canvas node toolbar.",
     "icon": {
       "kind": "preset",
-      "name": "sparkles"
+      "name": "chevrons-up"
+    },
+    "dialog": {
+      "enabled": true,
+      "params": [
+        "replicate_clarity_upscaler_12.scale_factor"
+      ]
     }
   },
   "generatedWith": {
     "tool": "snarkroute-studio",
     "kind": "compound.subroute",
     "compound": {
-      "title": "x4",
+      "title": "Clariti Upscaler",
       "inputs": [
         {
           "id": "image",
           "label": "image",
           "kind": "image",
-          "nodeId": "replicate_clarity_upscaler_5",
+          "nodeId": "replicate_clarity_upscaler_12",
           "port": "image"
         }
       ],
@@ -65,7 +83,7 @@
           "id": "image",
           "label": "image",
           "kind": "image",
-          "nodeId": "replicate_clarity_upscaler_5",
+          "nodeId": "replicate_clarity_upscaler_12",
           "port": "image"
         }
       ]
@@ -73,8 +91,8 @@
     "subroute": {
       "routeVersion": "0.1",
       "route": {
-        "id": "m31-http-json-test.compound_7",
-        "title": "x4",
+        "id": "m31-http-json-test.compound_14",
+        "title": "Clariti Upscaler",
         "description": "HTTP Request -> Debug Log -> Text Output.",
         "author": {
           "name": "SnarkRoute"
@@ -91,13 +109,13 @@
       },
       "nodes": [
         {
-          "id": "replicate_clarity_upscaler_5",
+          "id": "replicate_clarity_upscaler_12",
           "type": "replicate.clarity-upscaler",
           "title": "Clarity Upscaler",
           "params": {
             "prompt": "masterpiece, best quality, highres",
             "negative_prompt": "(worst quality, low quality, normal quality:2)",
-            "scale_factor": "4",
+            "scale_factor": 2,
             "dynamic": 6,
             "creativity": 0.25,
             "resemblance": 1.5,
@@ -113,20 +131,20 @@
             "timeoutMs": 120000
           },
           "ui": {
-            "x": 869.1580393326692,
-            "y": 76.95341209132926
+            "x": 2245.289759968233,
+            "y": 104.3975039178316
           }
         }
       ],
       "edges": [],
       "provenance": {
         "tool": "snarkroute-studio",
-        "updatedAt": "2026-06-24T09:50:07.640Z"
+        "updatedAt": "2026-07-11T09:06:56.429Z"
       }
     }
   },
   "installConfirmation": {
-    "confirmedAt": "2026-06-24T09:50:32.589Z",
+    "confirmedAt": "2026-07-11T09:08:00.695Z",
     "warnings": []
   },
   "enabled": true

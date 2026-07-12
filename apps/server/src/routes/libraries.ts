@@ -62,7 +62,7 @@ import {
   readVideoNode,
   setAudioNodeActiveStackItem,
   setImageNodeActiveStackItem,
-  setImageNodeSelectedStackItems,
+  setStackNodeSelectedStackItems,
   setTextNodeActiveStackItem,
   setVideoNodeActiveStackItem,
   setLibraryProjectCover,
@@ -518,17 +518,22 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemIds?: string[] } }>("/api/libraries/current/image-nodes/:nodeId/stack/selected", async (request, reply) => {
+  async function updateSelectedStackItems(request: { params: { nodeId: string }; body?: { selectedStackItemIds?: string[] } }, reply: { code: (statusCode: number) => { send: (payload: { error: string }) => unknown } }) {
     try {
       const selectedStackItemIds = request.body?.selectedStackItemIds;
       if (!Array.isArray(selectedStackItemIds) || !selectedStackItemIds.every((id) => typeof id === "string")) {
         return reply.code(400).send({ error: "selectedStackItemIds must be an array of strings." });
       }
-      return await setImageNodeSelectedStackItems(request.params.nodeId, selectedStackItemIds);
+      return await setStackNodeSelectedStackItems(request.params.nodeId, selectedStackItemIds);
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
-  });
+  }
+
+  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemIds?: string[] } }>("/api/libraries/current/image-nodes/:nodeId/stack/selected", updateSelectedStackItems);
+  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemIds?: string[] } }>("/api/libraries/current/video-nodes/:nodeId/stack/selected", updateSelectedStackItems);
+  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemIds?: string[] } }>("/api/libraries/current/audio-nodes/:nodeId/stack/selected", updateSelectedStackItems);
+  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemIds?: string[] } }>("/api/libraries/current/text-nodes/:nodeId/stack/selected", updateSelectedStackItems);
 
   app.post<{ Params: { nodeId: string; stackItemId: string }; Body: { x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/image-nodes/:nodeId/stack/:stackItemId/duplicate-node", async (request, reply) => {
     try {

@@ -1,7 +1,8 @@
 import {
   listCuratedModelMetadataV1,
   mergeProviderModelsWithCuratedMetadata,
-  normalizeProviderModelToV1Input
+  normalizeProviderModelToV1Input,
+  withDefaultModelInputLimitsV1
 } from "@snarkroute/model-catalog/dist/v1/index.js";
 
 import type {
@@ -336,22 +337,21 @@ function preserveLiveProviderIo(entry: ModelCatalogEntryV1, providerModel: Provi
 
 function enrichUiCatalogMetadata(entry: ModelCatalogEntryV1): ModelCatalogEntryV1 {
   const defaults = defaultUiCatalogMetadata(entry);
-  if (!defaults) return entry;
-  return {
+  const enriched = defaults ? {
     ...entry,
     parameters: entry.parameters.length ? entry.parameters : defaults.parameters,
     metadata: {
       ...(entry.metadata ?? {}),
       ...defaults.metadata
     }
-  };
+  } : entry;
+  return withDefaultModelInputLimitsV1(enriched);
 }
 
 function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: ModelParameterDefinitionV1[]; metadata?: Record<string, unknown> } | undefined {
   if (entry.provider === "polza" && hasOutputType(entry, "video") && !entry.roles.includes("upscaler")) {
     return {
-      parameters: [videoResolutions, videoDurations, videoMultiShots],
-      metadata: { maxImageInputs: polzaVideoMaxImageInputs(entry.providerModelId) }
+      parameters: [videoResolutions, videoDurations, videoMultiShots]
     };
   }
   if (entry.provider === "polza" && hasOutputType(entry, "image") && !entry.roles.includes("upscaler")) {
@@ -381,11 +381,6 @@ function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: Mod
     };
   }
   return undefined;
-}
-
-function polzaVideoMaxImageInputs(modelId: string): number {
-  if (modelId === "wan/2.6") return 1;
-  return 14;
 }
 
 const aspectRatios = parameter("aspectRatio", "Aspect ratio", ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"], "1:1");

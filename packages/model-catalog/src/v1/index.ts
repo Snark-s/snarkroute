@@ -42,6 +42,12 @@ export {
   listCuratedModelMetadataV1
 } from "./curated-metadata.js";
 
+export {
+  modelMaxImageInputsV1,
+  polzaVideoMaxImageInputsV1,
+  withDefaultModelInputLimitsV1
+} from "./input-limits.js";
+
 export type {
   CanonicalModelV1,
   ProviderModelOfferingV1,

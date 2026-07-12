@@ -113,7 +113,7 @@ const curatedModelMetadata = defineCuratedModelMetadataV1([
       parameter("duration", "Duration", ["5", "10"], "5"),
       parameter("resolution", "Resolution", ["720p"], "720p")
     ],
-    metadata: { maxImageInputs: 1, imageReferenceSyntax: "@image {index}" }
+    metadata: { maxImageInputs: 7, imageReferenceSyntax: "@image {index}" }
   },
   {
     provider: "polza",

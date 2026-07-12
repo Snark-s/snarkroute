@@ -164,7 +164,7 @@ describe("server Model Catalog V1 assembly", () => {
     const model = catalog.find((entry) => entry.providerModelId === "kwaivgi/kling-video-o1");
     expect(model?.inputTypes).toEqual(["text", "image"]);
     expect(model?.outputTypes).toEqual(["video"]);
-    expect(model?.metadata?.maxImageInputs).toBe(1);
+    expect(model?.metadata?.maxImageInputs).toBe(7);
   });
 
   it("normalizes OpenRouter models independently from routes", () => {

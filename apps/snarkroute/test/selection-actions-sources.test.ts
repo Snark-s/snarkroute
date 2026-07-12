@@ -10,7 +10,9 @@ describe("Living Canvas selection actions", () => {
     expect(source).toContain('{ id: "keepSelected", label: "Keep only selected" }');
     expect(source).toContain("createNodeWithSelectedElements(nodeId: string)");
     expect(source).toContain("keepOnlySelectedNodes(nodeId: string)");
-    expect(source).toContain("sourceNode?.manifest.selectedStackItemIds");
+    expect(source).toContain("sourceNode.manifest.selectedStackItemIds");
+    expect(source).toContain('return "text-nodes"');
+    expect(source).toContain("textNode.manifest.selectedStackItemIds");
     expect(source).toContain("!selectedIdSet.has(item.id)");
     expect(source).toContain("selectedStackItemIds: []");
     expect(source).toContain('createdNode.canvas.id)}/prompt`, { prompt: "" }');
