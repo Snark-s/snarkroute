@@ -1,0 +1,8 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { ModelGatewayJobService } from "./service";
+const directories: string[] = [];
+afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+describe("ModelGatewayJobService", () => { it("runs a provider-neutral request through the injected route executor and persists completion", async () => { const directory = await mkdtemp(join(tmpdir(), "snarkroute-job-")); directories.push(directory); const service = new ModelGatewayJobService(directory, async (_job, outputDirectory) => ({ runId: "r", status: "succeeded", startedAt: "a", completedAt: "b", logs: [], provenance: {}, economics: {} as never, costSummary: {} as never, outputDirectory, nodeResults: { generate: { nodeId: "generate", type: "polza.video.generate", status: "succeeded", output: { video: { path: join(outputDirectory, "video.mp4"), filename: "video.mp4", mimeType: "video/mp4" }, provider: "polza", model: "wan/2.6", estimatedCost: 1, actualCost: null }, logs: [], startedAt: "a", completedAt: "b" } } })); const created = await service.create({ capability: "video.generate", nodeType: "polza.video.generate", modelId: "wan/2.6", provider: "polza", prompt: "move" }); let current = await service.get(created.id); for (let i = 0; i < 20 && current?.status !== "completed"; i++) { await new Promise((resolve) => setTimeout(resolve, 5)); current = await service.get(created.id); } expect(current).toMatchObject({ status: "completed", result: { modelId: "wan/2.6", provider: "polza" } }); }); });

@@ -1,0 +1,5 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { jobReducer, restorePendingJob, savePendingJob } from "./state";
+const storage = new Map<string, string>();
+beforeEach(() => { storage.clear(); Object.defineProperty(globalThis, "localStorage", { configurable: true, value: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) } }); });
+describe("job state", () => { it("reduces visible phases", () => { expect(jobReducer({ phase: "idle" }, { type: "phase", phase: "running", jobId: "j" })).toEqual({ phase: "running", jobId: "j", message: undefined }); }); it("restores a persisted job", () => { const job = { jobId: "j", serverUrl: "http://127.0.0.1:4317", placeholder: { compositionId: 1, layerIndex: 1, footageItemId: 2 }, outputPath: "", createdAt: "now", status: "running", modelId: "m", provider: "polza", prompt: "p", params: {}, inputPaths: [] }; savePendingJob(job); expect(restorePendingJob()).toEqual(job); }); });

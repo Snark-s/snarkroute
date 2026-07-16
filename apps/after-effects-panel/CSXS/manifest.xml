@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ExtensionManifest Version="7.0" ExtensionBundleId="com.snarkroute.aftereffects" ExtensionBundleVersion="0.1.0" ExtensionBundleName="SnarkRoute">
+  <ExtensionList><Extension Id="com.snarkroute.aftereffects.panel" Version="0.1.0" /></ExtensionList>
+  <ExecutionEnvironment>
+    <HostList><Host Name="AEFT" Version="[18.0,99.9]" /></HostList>
+    <LocaleList><Locale Code="All" /></LocaleList>
+    <RequiredRuntimeList><RequiredRuntime Name="CSXS" Version="11.0" /></RequiredRuntimeList>
+  </ExecutionEnvironment>
+  <DispatchInfoList><Extension Id="com.snarkroute.aftereffects.panel"><DispatchInfo>
+    <Resources><MainPath>./dist/index.html</MainPath><ScriptPath>./jsx/host.jsx</ScriptPath><CEFCommandLine><Parameter>--enable-nodejs</Parameter><Parameter>--allow-file-access</Parameter></CEFCommandLine></Resources>
+    <Lifecycle><AutoVisible>true</AutoVisible></Lifecycle>
+    <UI><Type>Panel</Type><Menu>SnarkRoute</Menu><Geometry><Size><Width>360</Width><Height>680</Height></Size><MinSize><Width>280</Width><Height>420</Height></MinSize></Geometry></UI>
+  </DispatchInfo></Extension></DispatchInfoList>
+</ExtensionManifest>

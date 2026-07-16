@@ -1,0 +1,3 @@
+import { describe, expect, it, vi } from "vitest";
+import { GatewayError, SnarkRouteGatewayClient } from "./client";
+describe("gateway client", () => { it("turns server errors into human-readable GatewayError", async () => { const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: "provider unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } })) as unknown as typeof fetch; const client = new SnarkRouteGatewayClient("http://127.0.0.1:4317", fetchImpl); await expect(client.health()).rejects.toMatchObject({ message: "provider unavailable", status: 503 } satisfies Partial<GatewayError>); }); });
