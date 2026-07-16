@@ -44,7 +44,7 @@ export class SnarkRouteGatewayClient {
       return result;
     }
   }
-  async models(): Promise<VideoModel[]> { const body = await this.request<{ models: VideoModel[] }>("/api/models/for-node/polza.video.generate"); return body.models ?? []; }
+  async models(): Promise<{ models: VideoModel[]; modelCount: number; familyCount: number; diagnosticsUrl: string }> { const body = await this.request<{ models?: VideoModel[]; modelCount?: number; familyCount?: number; diagnosticsUrl?: string }>("/api/models/for-node/polza.video.generate"); const models = body.models ?? []; return { models, modelCount: body.modelCount ?? models.length, familyCount: body.familyCount ?? 0, diagnosticsUrl: body.diagnosticsUrl ?? "/api/models/for-node/polza.video.generate/debug" }; }
   async quote(model: VideoModel, params: Record<string, unknown>) { return this.request<{ selected?: { estimatedCost?: number | null; currency?: string | null }; warnings?: string[] }>("/api/model-gateway/quote", { method: "POST", body: JSON.stringify({ nodeType: model.nodeType, params: { ...params, model: model.storedModelId } }) }); }
   async importAsset(filename: string, dataBase64: string) { return this.request<ImportedAsset>("/api/assets/import", { method: "POST", body: JSON.stringify({ filename, dataBase64, kind: "image" }) }); }
   async createJob(input: { model: VideoModel; prompt: string; parameters: Record<string, unknown>; asset: ImportedAsset }) {

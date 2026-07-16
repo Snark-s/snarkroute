@@ -13,7 +13,7 @@ describe("generation input preparation", () => {
     const pending = await prepareGeneration({ serverUrl: "http://127.0.0.1:4317", model, prompt: "move", parameters: { duration: 5 } }, {
       host: {
         getActiveComposition: async () => { calls.push("getActiveComposition"); return source; },
-        renderCurrentFrame: async () => { calls.push("renderCurrentFrame"); expect(placeholderExists).toBe(false); return { path: "C:\\Temp\\input.png", filename: "input.png" }; },
+        renderCurrentFrame: async () => { calls.push("renderCurrentFrame"); expect(placeholderExists).toBe(false); return rendered("C:\\Temp\\input.png"); },
         validateInputFile: async (path) => { calls.push("validateInputFile"); return { path, sizeBytes: 128, fileError: "" }; },
         createGenerationPlaceholder: async () => { calls.push("createPlaceholder"); placeholderExists = true; return { compositionId: 17, layerIndex: 1, footageItemId: 90 }; }
       },
@@ -38,7 +38,7 @@ describe("generation input preparation", () => {
     const createJob = vi.fn();
     const createPlaceholder = vi.fn();
     await expect(prepareGeneration({ serverUrl: "local", model, prompt: "move", parameters: {} }, {
-      host: { getActiveComposition: async () => source, renderCurrentFrame: async () => ({ path: "C:\\Temp\\empty.png", filename: "empty.png" }), validateInputFile: async (path) => ({ path, sizeBytes: 0, fileError: "" }), createGenerationPlaceholder: createPlaceholder },
+      host: { getActiveComposition: async () => source, renderCurrentFrame: async () => rendered("C:\\Temp\\empty.png"), validateInputFile: async (path) => ({ path, sizeBytes: 0, fileError: "" }), createGenerationPlaceholder: createPlaceholder },
       client: { importAsset, createJob },
       readFileBase64: () => "",
       log: () => undefined
@@ -48,9 +48,24 @@ describe("generation input preparation", () => {
     expect(createPlaceholder).not.toHaveBeenCalled();
   });
 
+  it("blocks validation, upload, provider job, and placeholder after export timeout", async () => {
+    const validateInputFile = vi.fn();
+    const importAsset = vi.fn();
+    const createJob = vi.fn();
+    const createPlaceholder = vi.fn();
+    await expect(prepareGeneration({ serverUrl: "local", model, prompt: "move", parameters: {} }, {
+      host: { getActiveComposition: async () => source, renderCurrentFrame: async () => ({ ...rendered("C:\\Temp\\timeout.png"), ok: false, exists: false, size: 0, waitedMs: 10000, attempts: 68, fileError: "Timed out waiting for saveFrameToPng." }), validateInputFile, createGenerationPlaceholder: createPlaceholder },
+      client: { importAsset, createJob }, readFileBase64: () => "", log: () => undefined
+    })).rejects.toThrow(/Current frame export failed[\s\S]*waitedMs=10000/);
+    expect(validateInputFile).not.toHaveBeenCalled();
+    expect(importAsset).not.toHaveBeenCalled();
+    expect(createJob).not.toHaveBeenCalled();
+    expect(createPlaceholder).not.toHaveBeenCalled();
+  });
+
   it("continues after job creation when placeholder creation fails", async () => {
     const pending = await prepareGeneration({ serverUrl: "local", model, prompt: "move", parameters: {} }, {
-      host: { getActiveComposition: async () => source, renderCurrentFrame: async () => ({ path: "C:\\Temp\\input.png", filename: "input.png" }), validateInputFile: async (path) => ({ path, sizeBytes: 1, fileError: "" }), createGenerationPlaceholder: async () => { throw new Error("AE refused solid"); } },
+      host: { getActiveComposition: async () => source, renderCurrentFrame: async () => rendered("C:\\Temp\\input.png", 1), validateInputFile: async (path) => ({ path, sizeBytes: 1, fileError: "" }), createGenerationPlaceholder: async () => { throw new Error("AE refused solid"); } },
       client: { importAsset: async () => ({ id: "asset_input", path: "C:\\server\\input.png" }), createJob: async () => ({ id: "job_1", status: "queued", createdAt: "job-time", updatedAt: "job-time" }) },
       readFileBase64: () => "cA==",
       log: () => undefined
@@ -59,3 +74,5 @@ describe("generation input preparation", () => {
     expect(pending.warning).toContain("AE refused solid");
   });
 });
+
+function rendered(path: string, size = 128) { return { ok: true, stage: "exporting_current_frame" as const, exportMethod: "saveFrameToPng" as const, path, filename: path.split("\\").pop() ?? "input.png", exists: true, size, waitedMs: 300, attempts: 3, fileError: "", fallbackAttempted: false }; }

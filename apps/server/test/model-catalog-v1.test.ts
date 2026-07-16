@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   assembleModelCatalogV1,
   fallbackProviderModelsForCatalogV1,
+  compatibilityReasonsForNodeV1,
+  modelCompatibilityDebugForNodeV1,
   modelOptionsForNodeV1,
   normalizeOpenRouterModelsForCatalogV1,
   normalizePolzaModelsForCatalogV1
@@ -344,8 +346,8 @@ describe("server Model Catalog V1 assembly", () => {
   it("keeps video upscalers out of normal Polza video generation options", () => {
     const catalog = assembleModelCatalogV1({
       polzaModels: [
-        { id: "kling/v3-motion-control", type: "video" },
-        { id: "bytedance/seedance-2", type: "video" },
+        { id: "kling/v3-motion-control", type: "video", inputTypes: ["text", "image"] },
+        { id: "bytedance/seedance-2", type: "video", inputTypes: ["text", "image"] },
         { id: "topaz/video-upscale", type: "video" }
       ]
     });
@@ -357,6 +359,35 @@ describe("server Model Catalog V1 assembly", () => {
     expect(optionIds).toContain("bytedance/seedance-2");
     expect(optionIds).not.toContain("topaz/video-upscale");
     expect(catalog.find((entry) => entry.providerModelId === "topaz/video-upscale")?.roles).toEqual(["upscaler"]);
+  });
+
+  it("keeps WAN and HappyHorse together by enriching missing live input metadata from fallback defaults", () => {
+    const catalog = assembleModelCatalogV1({
+      polzaModels: [
+        { id: "wan/2.6", name: "Wan 2.6", type: "video", inputTypes: [] },
+        { id: "alibaba/happyhorse-1.0", name: "HappyHorse 1.0", type: "video", inputTypes: ["text", "image"] },
+        { id: "text-only/video", name: "Text only", type: "video", inputTypes: ["text"] }
+      ],
+      fallbackModels: fallbackProviderModelsForCatalogV1()
+    });
+    const options = modelOptionsForNodeV1("polza.video.generate", catalog);
+    expect(options.map((entry) => entry.providerModelId)).toEqual(["alibaba/happyhorse-1.0", "wan/2.6"]);
+    expect(options.find((entry) => entry.providerModelId === "wan/2.6")?.inputTypes).toEqual(["text", "image", "video"]);
+  });
+
+  it("reports exact image-to-video compatibility exclusions", () => {
+    const catalog = assembleModelCatalogV1({ polzaModels: [
+      { id: "valid/video", type: "video", inputTypes: ["text", "image"] },
+      { id: "text-only/video", type: "video", inputTypes: ["text"] }
+    ] });
+    const textOnly = catalog.find((entry) => entry.providerModelId === "text-only/video")!;
+    expect(compatibilityReasonsForNodeV1("polza.video.generate", textOnly)).toContain("unsupported input contract");
+    const missingId = { ...textOnly, id: "polza:missing", providerModelId: "" };
+    expect(compatibilityReasonsForNodeV1("polza.video.generate", missingId)).toContain("missing providerModelId");
+    const debug = modelCompatibilityDebugForNodeV1("polza.video.generate", catalog);
+    expect(debug.included.map((entry) => entry.providerModelId)).toEqual(["valid/video"]);
+    expect(debug.excluded.find((entry) => entry.providerModelId === "text-only/video")?.reasons).toContain("unsupported input contract");
+    expect(debug.counts).toMatchObject({ polzaVideo: 2, polzaImageToVideo: 1, nodeCompatible: 1, final: 1 });
   });
 
   it("keeps direct image fallback aliases as provider-native node options", () => {

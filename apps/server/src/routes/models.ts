@@ -5,7 +5,7 @@ import { documentedRuTronixModels } from "@snarkroute/rutronix";
 import type { ModelOutputTypeV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { openRouterCatalogCachePath } from "../server-paths";
 import { isPolzaEnabled } from "../services/env";
-import { assembleModelCatalogV1, fallbackProviderModelsForCatalogV1, modelOptionsForNodeV1, type RawProviderModelV1 } from "../services/model-catalog-v1";
+import { assembleModelCatalogV1, fallbackProviderModelsForCatalogV1, modelCompatibilityDebugForNodeV1, modelFamily, modelOptionsForNodeV1, type RawProviderModelV1 } from "../services/model-catalog-v1";
 
 interface ModelCatalogQuery {
   provider?: string;
@@ -33,12 +33,18 @@ app.addHook("onRequest", async (request, reply) => {
     return reply.send({ ok: true, modelCount: models.length, models });
   }
 
+  const debugNodeType = nodeTypeFromForNodeDebugPath(url.pathname);
+  if (debugNodeType) {
+    const debug = modelCompatibilityDebugForNodeV1(debugNodeType, await loadLiveModelCatalogV1());
+    return reply.send({ ok: true, ...debug });
+  }
+
   const nodeType = nodeTypeFromForNodePath(url.pathname);
   if (nodeType) {
     // Node-compatible endpoint: executor-safe selectable models for a specific nodeType.
     // Provider-native selectors must use storedModelId, not the unified catalog id.
     const models = modelOptionsForNodeV1(nodeType, await loadLiveModelCatalogV1(nodeType));
-    return reply.send({ ok: true, nodeType, modelCount: models.length, models });
+    return reply.send({ ok: true, nodeType, modelCount: models.length, familyCount: new Set(models.map((model) => modelFamily(model.providerModelId))).size, diagnosticsUrl: `/api/models/for-node/${encodeURIComponent(nodeType)}/debug`, models });
   }
 
   if (url.pathname !== "/api/models") return;
@@ -170,6 +176,12 @@ function nodeTypeFromForNodePath(pathname: string): string | undefined {
   const encoded = pathname.slice(prefix.length);
   if (!encoded || encoded.includes("/")) return undefined;
   return decodeURIComponent(encoded);
+}
+
+function nodeTypeFromForNodeDebugPath(pathname: string): string | undefined {
+  const suffix = "/debug";
+  if (!pathname.endsWith(suffix)) return undefined;
+  return nodeTypeFromForNodePath(pathname.slice(0, -suffix.length));
 }
 
 function dedupeById<T extends { id?: string }>(models: T[]): T[] {

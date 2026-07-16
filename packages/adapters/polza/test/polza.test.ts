@@ -418,6 +418,42 @@ describe("Polza adapter", () => {
     });
   });
 
+  it.each(["wan/2.6", "alibaba/happyhorse-1.1"])("passes the selected providerModelId through the generic video runner: %s", async (model) => {
+    const video = {
+      localPath: join(tmpdir(), `${model.replace("/", "-")}.mp4`),
+      path: join(tmpdir(), `${model.replace("/", "-")}.mp4`),
+      filename: `${model.replace("/", "-")}.mp4`,
+      mimeType: "video/mp4",
+      sizeBytes: 5,
+      sourceNodeId: "video",
+      model
+    };
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: model,
+        providerId: "polza",
+        capability: "video.generate",
+        output: { video, output: {}, request: { model }, model },
+        raw: {}
+      }))
+    };
+    const runner = createPolzaVideoNodeRunner({ modelGateway });
+
+    const result = await runner({
+      node: { id: "video", type: "polza.video.generate", params: {} },
+      params: { model, prompt: "move slowly", images: [{ assetId: "asset_frame", path: "C:\\Temp\\input.png" }] },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: tmpdir(), nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "video.generate",
+      modelRef: `model://polza/${model}`,
+      input: expect.objectContaining({ images: [expect.objectContaining({ assetId: "asset_frame" })] })
+    }));
+    expect(result.output).toMatchObject({ provider: "polza", model, video });
+  });
+
   it("generates a video through Polza media and writes the returned asset", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-video-"));
     const inputFramePath = join(outputDirectory, "actual-input.png");

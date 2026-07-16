@@ -12,3 +12,7 @@ export function filterExecutableVideoModels(models: VideoModel[], operation: "te
     (operation === "text-to-video" || model.inputTypes.includes("image"))
   );
 }
+
+export function countModelFamilies(models: VideoModel[]): number {
+  return new Set(models.map((model) => model.providerModelId.includes("/") ? model.providerModelId.split("/", 1)[0] : model.providerModelId.split(/[-_.]/, 1)[0] || "unknown")).size;
+}

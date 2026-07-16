@@ -1,6 +1,6 @@
 import type { SnarkRouteGatewayClient } from "../api/client";
 import type { AfterEffectsHostAdapter } from "../host/adapter";
-import type { CompositionSnapshot, PersistedJob, VideoModel } from "../types";
+import type { CompositionSnapshot, FrameExportDiagnostic, PersistedJob, VideoModel } from "../types";
 
 type PreparationDependencies = {
   host: Pick<AfterEffectsHostAdapter, "getActiveComposition" | "renderCurrentFrame" | "validateInputFile" | "createGenerationPlaceholder">;
@@ -10,6 +10,7 @@ type PreparationDependencies = {
   log?(label: string, details: Record<string, unknown>): void;
   onPhase?(phase: "preparing input" | "uploading"): void;
   onJobPrepared?(job: PersistedJob): void;
+  onExportDiagnostic?(diagnostic: FrameExportDiagnostic): void;
 };
 
 export type PrepareGenerationInput = {
@@ -25,7 +26,10 @@ export async function prepareGeneration(input: PrepareGenerationInput, dependenc
   const source = await dependencies.host.getActiveComposition();
   if (!source) throw new Error("Open an active composition first.");
 
+  dependencies.onExportDiagnostic?.({ stage: "exporting_current_frame", exportMethod: "saveFrameToPng", path: "waiting for After Effects…", exists: false, size: 0, waitedMs: 0, attempts: 0, fileError: "", fallbackAttempted: false });
   const frame = await dependencies.host.renderCurrentFrame(source);
+  dependencies.onExportDiagnostic?.(frame);
+  if (!frame.ok) throw currentFrameExportError(frame.path, `${frame.fileError || "Timed out waiting for PNG data."} (attempts=${frame.attempts}, waitedMs=${frame.waitedMs}, size=${frame.size})`);
   const validated = await dependencies.host.validateInputFile(frame.path);
   assertValidInputFile(validated.path, validated.sizeBytes, validated.fileError);
 
@@ -61,7 +65,8 @@ export async function prepareGeneration(input: PrepareGenerationInput, dependenc
     sourceCompositionName: source.name,
     sourceTime: source.time,
     placeholderCreatedAt: null,
-    jobCreatedAt: created.createdAt
+    jobCreatedAt: created.createdAt,
+    inputFrameExport: frame
   };
   dependencies.onJobPrepared?.(pending);
 

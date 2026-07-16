@@ -235,6 +235,24 @@ describe("model catalog API", () => {
     }
   });
 
+  it("exposes safe model filtering diagnostics for the generic Polza video runner", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/for-node/polza.video.generate/debug" });
+      const body = response.json();
+      expect(response.statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.nodeType).toBe("polza.video.generate");
+      expect(body.counts).toMatchObject({ allModels: expect.any(Number), polzaVideo: expect.any(Number), polzaImageToVideo: expect.any(Number), final: expect.any(Number) });
+      expect(body.included).toEqual(expect.any(Array));
+      expect(body.excluded).toEqual(expect.any(Array));
+      if (body.included[0]) expect(body.included[0]).not.toHaveProperty("metadata");
+      if (body.excluded[0]) expect(body.excluded[0]).not.toHaveProperty("metadata");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns iconPath and parameters array for every legacy-compatible model", async () => {
     const app = buildServer();
     try {

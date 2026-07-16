@@ -31,6 +31,22 @@ describe("panel connection flow", () => {
     await waitFor(() => expect(healthCalls(fetchMock)).toHaveLength(2));
   });
 
+  it("shows every executable model returned by the endpoint", async () => {
+    const model = { provider: "polza", inputTypes: ["text", "image"], outputTypes: ["video"], capabilities: ["video.generate"], roles: ["generator"], availability: { status: "available", configured: true }, parameters: [], nodeType: "polza.video.generate" };
+    const models = [
+      { ...model, id: "polza:wan/2.6", storedModelId: "wan/2.6", providerModelId: "wan/2.6", displayName: "WAN 2.6" },
+      { ...model, id: "polza:alibaba/happyhorse-1.0", storedModelId: "alibaba/happyhorse-1.0", providerModelId: "alibaba/happyhorse-1.0", displayName: "HappyHorse 1.0" }
+    ];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/health")
+      ? new Response('{"ok":true}', { status: 200 })
+      : new Response(JSON.stringify({ models, modelCount: 2, familyCount: 2, diagnosticsUrl: "/api/models/for-node/polza.video.generate/debug" }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    render(<App />);
+    expect(await screen.findByRole("option", { name: /WAN 2.6/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /HappyHorse 1.0/ })).toBeTruthy();
+    expect(screen.getByText("Executable models: 2")).toBeTruthy();
+    expect(screen.getByText("Families: 2")).toBeTruthy();
+  });
+
   it("shows the exact fetch error and requested URL", async () => {
     const fetchMock = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
     vi.stubGlobal("fetch", fetchMock);
