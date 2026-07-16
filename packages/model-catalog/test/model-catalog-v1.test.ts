@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelMaxImageInputsV1 } from "../src/index.js";
+import { modelInputCompatibilityReasonsV1, modelMaxImageInputsV1, modelRunnableWithSuppliedInputsV1, providerParameterIOContractV1 } from "../src/index.js";
 import type { ModelCatalogEntryV1, ModelOptionForNodeV1, ModelPricingInfoV1, ModelRoleV1 } from "../src/index.js";
 
 const baseEntry: ModelCatalogEntryV1 = {
@@ -63,6 +63,22 @@ describe("Model Catalog V1 types", () => {
       providerModelId: "wan/2.6",
       outputTypes: ["video"]
     })).toBe(1);
+  });
+
+  it.each([
+    [{ min: 1, max: 1 }, true],
+    [{ min: 1, max: 2 }, true],
+    [{ min: 0, max: 4 }, true],
+    [{ min: 2, max: 2 }, false]
+  ])("evaluates one supplied image against the shared min/max contract: %o", (images, expected) => {
+    const ioContract = providerParameterIOContractV1({ images }, [], ["video"]);
+    expect(modelRunnableWithSuppliedInputsV1({ ioContract }, { image: 1, video: 0, audio: 0 })).toBe(expected);
+  });
+
+  it("rejects text-to-video-only contracts when an image is supplied", () => {
+    const ioContract = providerParameterIOContractV1({ prompt: { required: true } }, ["text"], ["video"]);
+    expect(modelRunnableWithSuppliedInputsV1({ ioContract }, { image: 1 })).toBe(false);
+    expect(modelInputCompatibilityReasonsV1({ ioContract }, { image: 1 })).toContain("unsupported image input");
   });
 
   it("supports required pricing statuses", () => {

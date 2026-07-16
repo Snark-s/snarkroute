@@ -370,7 +370,7 @@ describe("server Model Catalog V1 assembly", () => {
       ],
       fallbackModels: fallbackProviderModelsForCatalogV1()
     });
-    const options = modelOptionsForNodeV1("polza.video.generate", catalog);
+    const options = modelOptionsForNodeV1("polza.video.generate", catalog, { image: 1, video: 0, audio: 0 });
     expect(options.map((entry) => entry.providerModelId)).toEqual(["alibaba/happyhorse-1.0", "wan/2.6"]);
     expect(options.find((entry) => entry.providerModelId === "wan/2.6")?.inputTypes).toEqual(["text", "image", "video"]);
   });
@@ -381,13 +381,27 @@ describe("server Model Catalog V1 assembly", () => {
       { id: "text-only/video", type: "video", inputTypes: ["text"] }
     ] });
     const textOnly = catalog.find((entry) => entry.providerModelId === "text-only/video")!;
-    expect(compatibilityReasonsForNodeV1("polza.video.generate", textOnly)).toContain("unsupported input contract");
+    expect(compatibilityReasonsForNodeV1("polza.video.generate", textOnly, { image: 1, video: 0, audio: 0 })).toContain("unsupported image input");
     const missingId = { ...textOnly, id: "polza:missing", providerModelId: "" };
     expect(compatibilityReasonsForNodeV1("polza.video.generate", missingId)).toContain("missing providerModelId");
-    const debug = modelCompatibilityDebugForNodeV1("polza.video.generate", catalog);
+    const debug = modelCompatibilityDebugForNodeV1("polza.video.generate", catalog, { image: 1, video: 0, audio: 0 });
     expect(debug.included.map((entry) => entry.providerModelId)).toEqual(["valid/video"]);
-    expect(debug.excluded.find((entry) => entry.providerModelId === "text-only/video")?.reasons).toContain("unsupported input contract");
+    expect(debug.excluded.find((entry) => entry.providerModelId === "text-only/video")?.reasons).toContain("unsupported image input");
     expect(debug.counts).toMatchObject({ polzaVideo: 2, polzaImageToVideo: 1, nodeCompatible: 1, final: 1 });
+  });
+
+  it("uses one shared supplied-input evaluator for Kling, Seedance, WAN, and HappyHorse", () => {
+    const video = (id: string, parameters: Record<string, unknown>) => ({ id, type: "video", top_provider: { parameters } });
+    const catalog = assembleModelCatalogV1({ polzaModels: [
+      video("kling/v3", { images: { min: 0, max: 2 } }),
+      video("bytedance/seedance-2", { images: { min: 0, max: 5 } }),
+      video("wan/2.6", { images: { min: 0, max: 1 } }),
+      video("alibaba/happyhorse-1.1", { images: { min: 0, max: 1 } }),
+      video("kling/v3-motion-control", { images: { min: 1, max: 1 }, videos: { min: 1, max: 1 } })
+    ] });
+    const options = modelOptionsForNodeV1("polza.video.generate", catalog, { image: 1, video: 0, audio: 0 });
+    expect(options.map((entry) => entry.providerModelId)).toEqual(expect.arrayContaining(["kling/v3", "bytedance/seedance-2", "wan/2.6", "alibaba/happyhorse-1.1"]));
+    expect(options.map((entry) => entry.providerModelId)).not.toContain("kling/v3-motion-control");
   });
 
   it("keeps direct image fallback aliases as provider-native node options", () => {

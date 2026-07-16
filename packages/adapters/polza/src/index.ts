@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { basename, dirname, extname, join } from "node:path";
 import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, getRubPerUsd, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
+import { providerParameterIOContractV1 } from "@snarkroute/model-catalog";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
 export const POLZA_TEXT_DEFAULT_MODEL = "openai/gpt-4o";
@@ -75,10 +76,7 @@ export function polzaModelInfoToModelInfo(model: PolzaModelInfo): ModelInfo {
     supportsImages: inputTypes.includes("image"),
     supportsVideo: inputTypes.includes("video") || outputTypes.includes("video"),
     supportsJson: Boolean(model.supported_parameters?.includes("response_format")),
-    ioContract: {
-      inputs: inputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: kind === "image" ? polzaImageInputLimit(model.id) : 1 })),
-      outputs: outputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: 1 }))
-    },
+    ioContract: providerParameterIOContractV1(providerParameters(model.top_provider), inputTypes, outputTypes),
     pricingHint: pricingHint(model.pricing),
     metadata: compactRecord(metadata)
   };
@@ -89,9 +87,9 @@ function polzaInputTypes(type: string): string[] {
   return ["text"];
 }
 
-function polzaImageInputLimit(modelId: string): number | undefined {
-  if (modelId === "wan/2.6") return 1;
-  return undefined;
+function providerParameters(topProvider: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const parameters = topProvider?.parameters;
+  return parameters && typeof parameters === "object" && !Array.isArray(parameters) ? parameters as Record<string, unknown> : undefined;
 }
 
 export function isExecutablePolzaImageModel(model: Pick<PolzaModelInfo, "id" | "type" | "architecture">): boolean {

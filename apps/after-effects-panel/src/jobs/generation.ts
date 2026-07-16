@@ -55,6 +55,7 @@ export async function prepareGeneration(input: PrepareGenerationInput, dependenc
     createdAt: created.createdAt,
     status: created.status,
     modelId: input.model.storedModelId,
+    modelDisplayName: input.model.displayName,
     provider: input.model.provider,
     prompt: input.prompt,
     params: input.parameters,
@@ -66,12 +67,14 @@ export async function prepareGeneration(input: PrepareGenerationInput, dependenc
     sourceTime: source.time,
     placeholderCreatedAt: null,
     jobCreatedAt: created.createdAt,
-    inputFrameExport: frame
+    inputFrameExport: frame,
+    inputModelContract: { requiredImageInputs: input.model.requiredImageInputs ?? 0, maximumImageInputs: input.model.maximumImageInputs ?? 1, optionalImageInputs: input.model.optionalImageInputs ?? 1, inputRoles: input.model.inputRoles ?? [], imagesSupplied: 1 }
   };
   dependencies.onJobPrepared?.(pending);
 
   try {
     const placeholder = await dependencies.host.createGenerationPlaceholder({
+      jobId: created.id,
       name: `Generating · ${input.model.displayName}`,
       duration: Number(input.parameters.duration ?? 5),
       compositionId: source.id,

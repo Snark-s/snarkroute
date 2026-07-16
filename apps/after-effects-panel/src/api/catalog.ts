@@ -9,7 +9,7 @@ export function filterExecutableVideoModels(models: VideoModel[], operation: "te
     !model.roles.includes("upscaler") &&
     model.availability.status === "available" &&
     model.availability.configured !== false &&
-    (operation === "text-to-video" || model.inputTypes.includes("image"))
+    (operation === "text-to-video" || model.runnableWithSuppliedInputs !== false)
   );
 }
 

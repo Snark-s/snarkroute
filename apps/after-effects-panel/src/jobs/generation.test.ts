@@ -15,7 +15,7 @@ describe("generation input preparation", () => {
         getActiveComposition: async () => { calls.push("getActiveComposition"); return source; },
         renderCurrentFrame: async () => { calls.push("renderCurrentFrame"); expect(placeholderExists).toBe(false); return rendered("C:\\Temp\\input.png"); },
         validateInputFile: async (path) => { calls.push("validateInputFile"); return { path, sizeBytes: 128, fileError: "" }; },
-        createGenerationPlaceholder: async () => { calls.push("createPlaceholder"); placeholderExists = true; return { compositionId: 17, layerIndex: 1, footageItemId: 90 }; }
+        createGenerationPlaceholder: async (spec) => { calls.push("createPlaceholder"); expect(spec.jobId).toBe("job_1"); placeholderExists = true; return { compositionId: 17, layerIndex: 1, footageItemId: 90, jobId: spec.jobId }; }
       },
       client: {
         importAsset: async () => { calls.push("uploadAsset"); return { id: "asset_input", path: "C:\\server\\asset_input.png" }; },
@@ -30,7 +30,7 @@ describe("generation input preparation", () => {
     expect(calls).toEqual(["getActiveComposition", "renderCurrentFrame", "validateInputFile", "uploadAsset", "createJob", "createPlaceholder"]);
     expect(persisted[0].placeholder).toBeUndefined();
     expect(persisted[1].placeholder).toBeDefined();
-    expect(pending).toMatchObject({ inputFramePath: "C:\\Temp\\input.png", inputAssetId: "asset_input", jobCreatedAt: "job-time", placeholderCreatedAt: "placeholder-time" });
+    expect(pending).toMatchObject({ inputFramePath: "C:\\Temp\\input.png", inputAssetId: "asset_input", jobCreatedAt: "job-time", placeholderCreatedAt: "placeholder-time", inputModelContract: { requiredImageInputs: 0, maximumImageInputs: 1, imagesSupplied: 1 }, placeholder: { jobId: "job_1" } });
   });
 
   it("blocks upload, provider job, and placeholder when the PNG is empty", async () => {

@@ -276,6 +276,9 @@ importers:
       '@snarkroute/executor':
         specifier: workspace:*
         version: link:../../executor
+      '@snarkroute/model-catalog':
+        specifier: workspace:*
+        version: link:../../model-catalog
     devDependencies:
       vitest:
         specifier: ^1.6.0

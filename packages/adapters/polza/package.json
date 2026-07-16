@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@snarkroute/core": "workspace:*",
-    "@snarkroute/executor": "workspace:*"
+    "@snarkroute/executor": "workspace:*",
+    "@snarkroute/model-catalog": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^1.6.0"

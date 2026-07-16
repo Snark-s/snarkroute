@@ -37,5 +37,12 @@ export {
   modelMaxImageInputsV1,
   polzaVideoMaxImageInputsV1,
   withDefaultModelInputLimitsV1,
+  modelIOContractV1,
+  modelImageInputContractV1,
+  modelInputCompatibilityReasonsV1,
+  modelRunnableWithSuppliedInputsV1,
+  providerParameterIOContractV1,
   providerPricingToCatalogEntryV1
 } from "./v1/index.js";
+
+export type { ModelImageInputContractV1, SuppliedModelInputsV1 } from "./v1/index.js";
