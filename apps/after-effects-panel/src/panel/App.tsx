@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useReducer, useState } from "react";
-import { SnarkRouteGatewayClient } from "../api/client";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { SnarkRouteGatewayClient, type ConnectionProbeResult } from "../api/client";
 import { filterExecutableVideoModels } from "../api/catalog";
 import { gatewayParameters } from "../api/parameters";
 import { ParameterFields } from "../components/ParameterFields";
@@ -15,6 +15,8 @@ export function App() {
   const [serverUrl, setServerUrl] = useState(() => localStorage.getItem("snarkroute.after-effects.server-url") ?? defaultServerUrl);
   const client = useMemo(() => new SnarkRouteGatewayClient(serverUrl), [serverUrl]);
   const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [connection, setConnection] = useState<ConnectionProbeResult | null>(null);
   const [models, setModels] = useState<VideoModel[]>([]);
   const [modelId, setModelId] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -23,22 +25,34 @@ export function App() {
   const [job, dispatch] = useReducer(jobReducer, { phase: "idle" });
   const [details, setDetails] = useState<PersistedJob | null>(() => restorePendingJob());
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const didAutoProbe = useRef(false);
   const selectedModel = models.find((model) => model.id === modelId);
 
   async function connect() {
     localStorage.setItem("snarkroute.after-effects.server-url", serverUrl.replace(/\/$/, ""));
+    setConnecting(true);
     try {
-      await client.health();
+      const probe = await client.health();
+      setConnection(probe);
+      setConnected(probe.connected);
+      if (!probe.connected) {
+        setModels([]);
+        return;
+      }
       const available = filterExecutableVideoModels(await client.models(), "image-to-video");
       setModels(available);
       setModelId((current) => available.some((model) => model.id === current) ? current : available[0]?.id ?? "");
-      setConnected(true);
     } catch (error) {
-      setConnected(false); setModels([]); dispatch({ type: "phase", phase: "failed", message: `Server unavailable. Run: pnpm dev:server. ${message(error)}` });
+      const exactError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      setModels([]);
+      setConnection((current) => ({ connected: true, url: current?.url ?? `${serverUrl.replace(/\/$/, "")}/health`, attemptedAt: current?.attemptedAt ?? new Date().toISOString(), status: current?.status ?? 200, responseBody: current?.responseBody ?? "", error: `Model catalog: ${exactError}` }));
+      console.error("[SnarkRoute] model catalog load failed", error);
+    } finally {
+      setConnecting(false);
     }
   }
 
-  useEffect(() => { void connect(); }, []);
+  useEffect(() => { if (didAutoProbe.current) return; didAutoProbe.current = true; void connect(); }, []);
   useEffect(() => { if (!selectedModel) return; setParameters(Object.fromEntries(selectedModel.parameters.map((field) => [field.id, field.default ?? (field.type === "boolean" ? false : "")]))); }, [selectedModel?.id]);
   useEffect(() => { const pending = restorePendingJob(); if (pending && pending.status !== "completed" && pending.status !== "failed") void resume(pending); }, [connected]);
 
@@ -81,7 +95,7 @@ export function App() {
   }
 
   return <main>
-    <section><h2>Connection</h2><label className="field"><span>Server URL</span><input value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} /></label><div className={connected ? "status ok" : "status error"}>SnarkRoute server: {connected ? "connected" : "disconnected"}</div><button onClick={() => void connect()}>Reconnect</button></section>
+    <section><h2>Connection</h2><label className="field"><span>Server URL</span><input value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} /></label><div className={connected ? "status ok" : "status error"}>SnarkRoute server: {connecting ? "connecting…" : connected ? "connected" : "disconnected"}</div><div className="diagnostics" aria-label="Connection diagnostics"><div>URL: {connection?.url ?? `${serverUrl.replace(/\/$/, "")}/health`}</div><div>Last attempt: {connection?.attemptedAt ?? "not attempted"}</div><div>Status: {connection?.status ?? "n/a"}</div><div>Runtime origin: {typeof window === "undefined" ? "n/a" : window.location.origin}</div>{connection?.responseBody && <div>Response: {connection.responseBody.slice(0, 300)}</div>}{connection?.error && <div className="error-text">Error: {connection.error}</div>}</div><button onClick={() => void connect()} disabled={connecting}>Reconnect</button></section>
     <section><h2>Operation</h2><select value="image-to-video" disabled><option>Image to video</option></select><small>Available operations follow the executable model catalog.</small></section>
     <section><h2>Source</h2><select value="current-frame" disabled><option>Current composition frame</option></select><small>Selected footage and work-area video follow after the MVP vertical slice.</small></section>
     <section><h2>Model</h2><select value={modelId} onChange={(event) => setModelId(event.target.value)}>{models.map((model) => <option key={model.id} value={model.id}>{model.displayName} · {model.provider}{model.originVendor ? ` / ${model.originVendor}` : ""}</option>)}</select>{selectedModel && <small>{selectedModel.availability.status}{selectedModel.pricing ? ` · pricing ${selectedModel.pricing.status ?? "available"}${selectedModel.pricing.currency ? ` (${selectedModel.pricing.currency})` : ""}` : " · catalog price unavailable"}</small>}{!models.length && connected && <small>No configured image-to-video models are available.</small>}</section>
@@ -91,6 +105,7 @@ export function App() {
     <section><button className="primary" onClick={() => void generate()} disabled={!connected || !selectedModel || ["preparing input", "uploading", "queued", "running", "downloading", "importing"].includes(job.phase)}>Generate</button></section>
     <section><h2>Current job</h2><div className={`status ${job.phase === "failed" ? "error" : ""}`}>{job.phase}{job.message ? ` · ${job.message}` : ""}</div></section>
     {details?.status === "completed" && <section><h2>Generation details</h2><div>{details.jobId}</div><div>{details.modelId}</div><button onClick={() => void generate()}>Regenerate</button><button onClick={() => void host.revealFile(details.outputPath)}>Reveal output file</button><button onClick={() => { clearPendingJob(); setDetails(null); dispatch({ type: "reset" }); }}>Clear</button></section>}
+    <footer>Build: {__SNARKROUTE_BUILD_ID__}</footer>
   </main>;
 }
 

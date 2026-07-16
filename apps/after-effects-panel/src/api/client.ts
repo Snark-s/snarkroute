@@ -2,10 +2,48 @@ import type { GenerationJob, VideoModel } from "../types";
 
 export class GatewayError extends Error { constructor(message: string, readonly status: number) { super(message); } }
 
-export class SnarkRouteGatewayClient {
-  constructor(readonly baseUrl: string, private readonly fetchImpl: typeof fetch = fetch) {}
+export type ConnectionProbeResult = {
+  connected: boolean;
+  url: string;
+  attemptedAt: string;
+  status: number | null;
+  responseBody: string;
+  error: string | null;
+};
 
-  async health(): Promise<void> { await this.request("/api/capabilities"); }
+export class SnarkRouteGatewayClient {
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(readonly baseUrl: string, fetchImpl: typeof fetch = globalThis.fetch) {
+    this.fetchImpl = fetchImpl.bind(globalThis);
+  }
+
+  async health(): Promise<ConnectionProbeResult> {
+    const url = this.url("/health");
+    const attemptedAt = new Date().toISOString();
+    const runtimeOrigin = typeof window === "undefined" ? "non-browser" : window.location.origin;
+    console.info("[SnarkRoute] connection probe start", { url, attemptedAt, runtimeOrigin });
+    try {
+      const response = await this.fetchImpl(url, { method: "GET", cache: "no-store", headers: { Accept: "application/json" } });
+      const responseBody = await response.text();
+      const result: ConnectionProbeResult = {
+        connected: response.ok,
+        url,
+        attemptedAt,
+        status: response.status,
+        responseBody,
+        error: response.ok ? null : `HTTP ${response.status} ${response.statusText}`.trim()
+      };
+      console.info("[SnarkRoute] connection probe end", result);
+      if (!response.ok) console.error("[SnarkRoute] connection probe HTTP error", result);
+      return result;
+    } catch (error) {
+      const exactError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      const result: ConnectionProbeResult = { connected: false, url, attemptedAt, status: null, responseBody: "", error: exactError };
+      console.error("[SnarkRoute] connection probe end", result, error);
+      return result;
+    }
+  }
   async models(): Promise<VideoModel[]> { const body = await this.request<{ models: VideoModel[] }>("/api/models/for-node/polza.video.generate"); return body.models ?? []; }
   async quote(model: VideoModel, params: Record<string, unknown>) { return this.request<{ selected?: { estimatedCost?: number | null; currency?: string | null }; warnings?: string[] }>("/api/model-gateway/quote", { method: "POST", body: JSON.stringify({ nodeType: model.nodeType, params: { ...params, model: model.storedModelId } }) }); }
   async importAsset(filename: string, dataBase64: string) { return this.request<{ path: string }>("/api/assets/import", { method: "POST", body: JSON.stringify({ filename, dataBase64, kind: "image" }) }); }

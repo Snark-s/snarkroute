@@ -21,5 +21,9 @@ describe("GET /health", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ ok: true, service: "snarkroute-server" });
     expect(response.headers["access-control-allow-origin"]).toBe("file://");
+
+    const opaqueOriginResponse = await app.inject({ method: "GET", url: "/health", headers: { origin: "null" } });
+    expect(opaqueOriginResponse.statusCode).toBe(200);
+    expect(opaqueOriginResponse.headers["access-control-allow-origin"]).toBe("null");
   });
 });
