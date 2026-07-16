@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { SnarkRouteGatewayClient } from "./client";
+import { providerNeutralJobRequest, SnarkRouteGatewayClient } from "./client";
+import type { VideoModel } from "../types";
 describe("gateway client", () => {
   it("returns exact health diagnostics for HTTP errors", async () => {
     const fetchImpl = vi.fn(async () => new Response("provider unavailable", { status: 503, statusText: "Unavailable" })) as unknown as typeof fetch;
@@ -14,5 +15,14 @@ describe("gateway client", () => {
     } as typeof fetch;
     const client = new SnarkRouteGatewayClient("http://127.0.0.1:4317", receiverCheckingFetch);
     await expect(client.health()).resolves.toMatchObject({ connected: true, status: 200 });
+  });
+
+  it("puts the uploaded asset id and path in the provider-neutral image input", () => {
+    const model = { nodeType: "polza.video.generate", storedModelId: "stored-wan", providerModelId: "wan/2.6", provider: "polza" } as VideoModel;
+    expect(providerNeutralJobRequest({ model, prompt: "move", parameters: {}, asset: { id: "asset_frame", path: "C:\\assets\\frame.png" } })).toMatchObject({
+      modelId: "stored-wan",
+      providerModelId: "wan/2.6",
+      inputs: [{ kind: "image", assetId: "asset_frame", path: "C:\\assets\\frame.png" }]
+    });
   });
 });

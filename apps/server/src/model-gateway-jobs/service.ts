@@ -14,10 +14,11 @@ export type GenerationJobRequest = {
   capability: "video.generate";
   nodeType: "polza.video.generate";
   modelId: string;
+  providerModelId: string;
   provider: string;
   prompt: string;
   parameters?: Record<string, unknown>;
-  inputs?: Array<{ kind: "image"; path: string }>;
+  inputs?: Array<{ kind: "image"; assetId: string; path: string }>;
 };
 
 export type GenerationJob = {
@@ -52,6 +53,13 @@ export class ModelGatewayJobService {
     validateRequest(request);
     const now = new Date().toISOString();
     const job: GenerationJob = { id: `gen_${randomUUID()}`, status: "queued", request: sanitizeRequest(request), createdAt: now, updatedAt: now };
+    console.info("[SnarkRoute] model gateway provider-neutral request", {
+      jobId: job.id,
+      modelId: job.request.modelId,
+      providerModelId: job.request.providerModelId,
+      imageInputField: "inputs[0]",
+      request: redactSecrets(job.request)
+    });
     this.jobs.set(job.id, job);
     await this.persist(job);
     void this.run(job.id);
@@ -116,7 +124,12 @@ export const modelGatewayJobService = new ModelGatewayJobService();
 
 async function executeGenerationJob(job: GenerationJob, outputDirectory: string): Promise<RunResult> {
   const executor = await createRouteExecutor();
-  const route: OpenRoute = {
+  const route = generationRouteFromJob(job);
+  return executor.executeRoute(route, { runId: job.id, outputDirectory });
+}
+
+export function generationRouteFromJob(job: GenerationJob): OpenRoute {
+  return {
     routeVersion: "0.1",
     route: { id: `after-effects-${job.id}`, title: "After Effects Video Generation", author: { name: "SnarkRoute After Effects" } },
     nodes: [{
@@ -124,27 +137,27 @@ async function executeGenerationJob(job: GenerationJob, outputDirectory: string)
       type: job.request.nodeType,
       params: {
         ...(job.request.parameters ?? {}),
-        model: job.request.modelId,
+        model: job.request.providerModelId,
         prompt: job.request.prompt,
-        images: (job.request.inputs ?? []).filter((input) => input.kind === "image").map((input) => ({ path: input.path, localPath: input.path }))
+        images: (job.request.inputs ?? []).filter((input) => input.kind === "image").map((input) => ({ assetId: input.assetId, path: input.path, localPath: input.path }))
       }
     }],
     edges: []
   };
-  return executor.executeRoute(route, { runId: job.id, outputDirectory });
 }
 
 function validateRequest(request: GenerationJobRequest): void {
   if (request.capability !== "video.generate") throw new Error("Only video.generate is supported by the first After Effects vertical slice.");
   if (request.nodeType !== "polza.video.generate" || request.provider !== "polza") throw new Error("The selected model is not executable through the current video generation node.");
   if (!request.modelId?.trim()) throw new Error("modelId is required.");
+  if (!request.providerModelId?.trim()) throw new Error("providerModelId is required.");
   if (!request.prompt?.trim()) throw new Error("prompt is required.");
-  for (const input of request.inputs ?? []) if (input.kind !== "image" || !input.path?.trim()) throw new Error("Each input must be a local image asset path.");
+  for (const input of request.inputs ?? []) if (input.kind !== "image" || !input.assetId?.trim() || !input.path?.trim()) throw new Error("Each input must include an image asset id and local path.");
 }
 
 function sanitizeRequest(request: GenerationJobRequest): GenerationJobRequest {
   const parameters = Object.fromEntries(Object.entries(request.parameters ?? {}).filter(([key]) => !/api[_-]?key|token|secret|password/i.test(key)));
-  return { ...request, modelId: request.modelId.trim(), prompt: request.prompt.trim(), parameters, inputs: request.inputs ?? [] };
+  return { ...request, modelId: request.modelId.trim(), providerModelId: request.providerModelId.trim(), prompt: request.prompt.trim(), parameters, inputs: request.inputs ?? [] };
 }
 
 function resultFromRun(run: RunResult, job: GenerationJob): NonNullable<GenerationJob["result"]> {
@@ -165,6 +178,12 @@ function resultFromRun(run: RunResult, job: GenerationJob): NonNullable<Generati
 
 function publicJob(job: GenerationJob): GenerationJob {
   return JSON.parse(JSON.stringify(job)) as GenerationJob;
+}
+
+function redactSecrets(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactSecrets);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, nested]) => [key, /api[_-]?key|token|secret|password/i.test(key) ? "[redacted]" : redactSecrets(nested)]));
 }
 
 function objectRecord(value: unknown): Record<string, unknown> {

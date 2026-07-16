@@ -5,8 +5,9 @@ import { gatewayParameters } from "../api/parameters";
 import { ParameterFields } from "../components/ParameterFields";
 import { CepAfterEffectsHostAdapter, readFileBase64, writeBinaryBase64, writeText } from "../host/adapter";
 import { serializeGenerationManifest } from "../jobs/manifest";
+import { prepareGeneration } from "../jobs/generation";
 import { clearPendingJob, jobReducer, restorePendingJob, savePendingJob } from "../jobs/state";
-import type { GenerationJob, GenerationMetadata, HostItemReference, PersistedJob, VideoModel } from "../types";
+import type { GenerationJob, GenerationMetadata, PersistedJob, VideoModel } from "../types";
 
 const defaultServerUrl = "http://127.0.0.1:4317";
 const host = new CepAfterEffectsHostAdapter();
@@ -54,7 +55,7 @@ export function App() {
 
   useEffect(() => { if (didAutoProbe.current) return; didAutoProbe.current = true; void connect(); }, []);
   useEffect(() => { if (!selectedModel) return; setParameters(Object.fromEntries(selectedModel.parameters.map((field) => [field.id, field.default ?? (field.type === "boolean" ? false : "")]))); }, [selectedModel?.id]);
-  useEffect(() => { const pending = restorePendingJob(); if (pending && pending.status !== "completed" && pending.status !== "failed") void resume(pending); }, [connected]);
+  useEffect(() => { const pending = restorePendingJob(); if (pending && pending.status !== "completed" && pending.status !== "completed_with_warning" && pending.status !== "failed") void resume(pending); }, [connected]);
 
   async function updateQuote() {
     if (!selectedModel) return;
@@ -63,16 +64,15 @@ export function App() {
 
   async function generate() {
     if (!selectedModel || !prompt.trim()) return dispatch({ type: "phase", phase: "failed", message: "Choose a model and enter a prompt." });
-    let reference: HostItemReference | undefined;
     try {
-      dispatch({ type: "phase", phase: "preparing input" });
-      const frame = await host.getCurrentFrameSource();
       const params = gatewayParameters(selectedModel.parameters, parameters);
-      reference = await host.createGenerationPlaceholder({ name: `Generating · ${selectedModel.displayName} · image-to-video`, duration: Number(params.duration ?? 5) });
-      dispatch({ type: "phase", phase: "uploading" });
-      const imported = await client.importAsset(frame.filename, readFileBase64(frame.path));
-      const created = await client.createJob({ model: selectedModel, prompt, parameters: params, assetPath: imported.path });
-      const pending: PersistedJob = { jobId: created.id, serverUrl, placeholder: reference, outputPath: "", createdAt: created.createdAt, status: created.status, modelId: selectedModel.storedModelId, provider: selectedModel.provider, prompt, params, inputPaths: [imported.path] };
+      const pending = await prepareGeneration({ serverUrl, model: selectedModel, prompt, parameters: params }, {
+        host,
+        client,
+        readFileBase64,
+        onPhase: (phase) => dispatch({ type: "phase", phase }),
+        onJobPrepared: (prepared) => { savePendingJob(prepared); setDetails(prepared); }
+      });
       savePendingJob(pending); setDetails(pending);
       await pollAndImport(pending);
     } catch (error) { dispatch({ type: "phase", phase: "failed", message: message(error) }); }
@@ -88,10 +88,16 @@ export function App() {
     const outputPath = joinPath(directory, remote.result.filename || `${remote.id}.mp4`);
     dispatch({ type: "phase", phase: "downloading", jobId: remote.id }); writeBinaryBase64(outputPath, await client.download(remote.resultUrl));
     const manifestPath = `${outputPath}.json`;
-    const metadata: GenerationMetadata = { jobId: remote.id, modelId: pending.modelId, provider: pending.provider, capability: "video.generate", prompt: pending.prompt, params: pending.params, inputs: pending.inputPaths, createdAt: pending.createdAt, estimatedCost: remote.result.estimatedCost, actualCost: remote.result.actualCost, manifestPath };
+    const metadata: GenerationMetadata = { jobId: remote.id, modelId: pending.modelId, provider: pending.provider, capability: "video.generate", prompt: pending.prompt, params: pending.params, inputs: pending.inputPaths, createdAt: pending.createdAt, estimatedCost: remote.result.estimatedCost, actualCost: remote.result.actualCost, manifestPath, inputFramePath: pending.inputFramePath, inputAssetId: pending.inputAssetId, sourceCompositionId: pending.sourceCompositionId, sourceCompositionName: pending.sourceCompositionName, sourceTime: pending.sourceTime, placeholderCreatedAt: pending.placeholderCreatedAt, jobCreatedAt: pending.jobCreatedAt };
     writeText(manifestPath, serializeGenerationManifest(metadata));
-    dispatch({ type: "phase", phase: "importing", jobId: remote.id }); await host.replacePlaceholderSource(pending.placeholder, outputPath); await host.writeGenerationMetadata(pending.placeholder, metadata);
-    const completed = { ...pending, outputPath, status: "completed" }; savePendingJob(completed); setDetails(completed); dispatch({ type: "phase", phase: "completed", message: outputPath, jobId: remote.id });
+    if (pending.placeholder) {
+      dispatch({ type: "phase", phase: "importing", jobId: remote.id });
+      await host.replacePlaceholderSource(pending.placeholder, outputPath);
+      await host.writeGenerationMetadata(pending.placeholder, metadata);
+    }
+    const completedStatus = pending.warning ? "completed_with_warning" : "completed";
+    const completed = { ...pending, outputPath, status: completedStatus };
+    savePendingJob(completed); setDetails(completed); dispatch({ type: "phase", phase: "completed", message: pending.warning ? `${outputPath} · ${pending.warning}` : outputPath, jobId: remote.id });
   }
 
   return <main>
@@ -103,8 +109,8 @@ export function App() {
     {selectedModel && <section><h2>Parameters</h2><ParameterFields fields={selectedModel.parameters} values={parameters} onChange={(id, value) => setParameters((current) => ({ ...current, [id]: value }))} /><button className="link" onClick={() => setAdvancedOpen((value) => !value)}>Advanced parameters {advancedOpen ? "▴" : "▾"}</button>{advancedOpen && <ParameterFields advanced fields={selectedModel.parameters} values={parameters} onChange={(id, value) => setParameters((current) => ({ ...current, [id]: value }))} />}</section>}
     <section><h2>Quote</h2><div>{quote}</div><button onClick={() => void updateQuote()} disabled={!selectedModel}>Refresh quote</button></section>
     <section><button className="primary" onClick={() => void generate()} disabled={!connected || !selectedModel || ["preparing input", "uploading", "queued", "running", "downloading", "importing"].includes(job.phase)}>Generate</button></section>
-    <section><h2>Current job</h2><div className={`status ${job.phase === "failed" ? "error" : ""}`}>{job.phase}{job.message ? ` · ${job.message}` : ""}</div></section>
-    {details?.status === "completed" && <section><h2>Generation details</h2><div>{details.jobId}</div><div>{details.modelId}</div><button onClick={() => void generate()}>Regenerate</button><button onClick={() => void host.revealFile(details.outputPath)}>Reveal output file</button><button onClick={() => { clearPendingJob(); setDetails(null); dispatch({ type: "reset" }); }}>Clear</button></section>}
+    <section><h2>Current job</h2><div className={`status ${job.phase === "failed" ? "error" : ""}`}>{job.phase}{job.message ? ` · ${job.message}` : ""}</div>{details?.inputFramePath && <><div className="diagnostics"><div>Input frame:</div><div>{details.inputFramePath}</div><div>Asset: {details.inputAssetId}</div><div>Source: {details.sourceCompositionName} ({details.sourceCompositionId}) at {details.sourceTime}</div></div><button onClick={() => void host.revealFile(details.inputFramePath)}>Reveal input frame</button><button onClick={() => void host.openFile(details.inputFramePath)}>Open input frame</button></>}</section>
+    {(details?.status === "completed" || details?.status === "completed_with_warning") && <section><h2>Generation details</h2><div>{details.jobId}</div><div>{details.modelId}</div><button onClick={() => void generate()}>Regenerate</button><button onClick={() => void host.revealFile(details.outputPath)}>Reveal output file</button><button onClick={() => { clearPendingJob(); setDetails(null); dispatch({ type: "reset" }); }}>Clear</button></section>}
     <footer>Build: {__SNARKROUTE_BUILD_ID__}</footer>
   </main>;
 }

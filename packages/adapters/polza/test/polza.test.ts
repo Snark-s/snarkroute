@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createExecutor } from "@snarkroute/executor";
@@ -420,6 +420,8 @@ describe("Polza adapter", () => {
 
   it("generates a video through Polza media and writes the returned asset", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-video-"));
+    const inputFramePath = join(outputDirectory, "actual-input.png");
+    await writeFile(inputFramePath, Buffer.from("png"));
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ data: { url: "https://cdn.polza.ai/out.mp4" }, status: "completed" }))
       .mockResolvedValueOnce(new Response(Buffer.from("video"), { status: 200, headers: { "content-type": "video/mp4" } }));
@@ -427,7 +429,7 @@ describe("Polza adapter", () => {
 
     const result = await runner({
       node: { id: "video", type: "polza.video.generate", params: {} },
-      params: { model: "wan/2.6", prompt: "move slowly", resolution: "1080p", duration: "10" },
+      params: { model: "wan/2.6", prompt: "move slowly", resolution: "1080p", duration: "10", images: [{ assetId: "asset_frame", path: inputFramePath, localPath: inputFramePath }] },
       inputs: {},
       context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
     });
@@ -437,6 +439,9 @@ describe("Polza adapter", () => {
     }));
     expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://polza.ai/api/v1/media", expect.objectContaining({
       body: expect.stringContaining("\"duration\":\"10\"")
+    }));
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://polza.ai/api/v1/media", expect.objectContaining({
+      body: expect.stringContaining("data:image/png;base64,cG5n")
     }));
     expect(result.output).toMatchObject({ provider: "polza", video: { mimeType: "video/mp4", sizeBytes: 5 } });
   });

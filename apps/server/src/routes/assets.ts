@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access } from "node:fs/promises";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -59,10 +60,11 @@ app.post<{ Body: { filename?: string; dataBase64?: string; kind?: LocalAssetKind
     const kind = request.body?.kind ?? "file";
     if (!dataBase64) return reply.code(400).send({ error: "dataBase64 is required." });
     await mkdir(assetsDirectory, { recursive: true });
-    const path = join(assetsDirectory, `${Date.now()}-${filename}`);
+    const id = `asset_${randomUUID()}`;
+    const path = join(assetsDirectory, `${id}-${filename}`);
     await writeFile(path, Buffer.from(dataBase64, "base64"));
     const metadata = await getLocalAssetMetadata(path, kind);
-    return { path, metadata };
+    return { id, path, metadata };
   } catch (error) {
     return reply.code(400).send({ error: errorMessage(error) });
   }
