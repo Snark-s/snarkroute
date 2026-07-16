@@ -1403,6 +1403,37 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("renames collection nodes together with their folder path", async () => {
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Reference.png");
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "collection", x: 700, y: 450, width: 360, height: 280, connectFromNodeId: source.manifest.id }
+      });
+      expect(created.statusCode).toBe(200);
+      const collection = created.json().nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "collection");
+      expect(collection.manifest.title).toBe("Collection");
+      expect(collection.canvas.nodePath).toBe("nodes/Collection.node");
+
+      const response = await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/nodes/${collection.manifest.id}/title`,
+        payload: { title: "Итог" }
+      });
+      expect(response.statusCode).toBe(200);
+      const renamed = response.json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === collection.manifest.id);
+      expect(renamed.manifest.title).toBe("Итог");
+      expect(renamed.canvas.nodePath).toBe("nodes/Итог.node");
+      await expect(readFile(join(libraryPath, "nodes", "Collection.node", "snark.node.json"), "utf8")).rejects.toThrow();
+      await expect(readFile(join(libraryPath, "nodes", "Итог.node", "snark.node.json"), "utf8")).resolves.toContain("\"title\": \"Итог\"");
+      await expect(readdir(join(libraryPath, "nodes", "Итог.node", "content"))).resolves.toHaveLength(1);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("downloads a generated remote image into the node stack and does not send its current image as input", async () => {
     const app = await testServer();
     try {

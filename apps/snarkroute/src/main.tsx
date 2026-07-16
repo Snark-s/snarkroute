@@ -707,6 +707,8 @@ function App() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [viewport, setViewport] = useStoredJsonSetting<CanvasViewport>("snarkroute.canvasViewport", { x: 0, y: 0, scale: 1 });
   const [miniMapCollapsed, setMiniMapCollapsed] = useStoredJsonSetting<boolean>("snarkroute.miniMapCollapsed", false);
+  const [collectionDockOpen, setCollectionDockOpen] = useStoredJsonSetting<boolean>("snarkroute.collectionDockOpen", true);
+  const [dockedCollectionIds, setDockedCollectionIds] = useStoredJsonSetting<string[]>("snarkroute.dockedCollectionIds", []);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -936,6 +938,18 @@ function App() {
             Math.round(activeDrag.startY + dy)
           );
         }
+        const draggedNode = nodeById.get(activeDrag.nodeId);
+        if (draggedNode?.manifest.type === "collection" && !activeDrag.groupStartPositions?.length) {
+          const canvasBounds = canvasRef.current?.getBoundingClientRect();
+          const overDock = Boolean(canvasBounds
+            && event.clientX >= canvasBounds.left + 64
+            && event.clientX <= canvasBounds.right - 64
+            && event.clientY >= canvasBounds.top
+            && event.clientY <= canvasBounds.top + (collectionDockOpen ? 140 : 24));
+          setDockedCollectionIds(overDock
+            ? [...new Set([...dockedCollectionIds, activeDrag.nodeId])]
+            : dockedCollectionIds.filter((id) => id !== activeDrag.nodeId));
+        }
       }
       if (activeDrag.kind === "connection") {
         const target = document.elementFromPoint(event.clientX, event.clientY);
@@ -996,7 +1010,7 @@ function App() {
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerCancel);
     };
-  }, [dragState, library, viewport, viewportScale, nodes]);
+  }, [dragState, library, viewport, viewportScale, nodes, nodeById, collectionDockOpen, dockedCollectionIds]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -1418,13 +1432,13 @@ function App() {
     });
   }
 
-  function handleInputPointerDown(event: React.PointerEvent<HTMLElement>, node: NodeView) {
+  function handleInputPointerDown(event: React.PointerEvent<HTMLElement>, node: NodeView, pointOverride?: { x: number; y: number }) {
     if (event.button !== 0) return;
     event.stopPropagation();
     setNodeCreateMenu(null);
     setSelectedEdgeId(null);
     interactionMovedRef.current = false;
-    const start = nodeInputPoint(node.canvas);
+    const start = pointOverride ?? nodeInputPoint(node.canvas);
     setDragState({
       kind: "connection",
       pointerId: event.pointerId,
@@ -3086,6 +3100,14 @@ function App() {
 
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
   const selectedEdgeNotePosition = selectedEdge ? edgeMidpoint(selectedEdge, new Map(nodes.map((node) => [node.canvas.id, node.canvas]))) : null;
+  const collectionNodes = nodes.filter((node): node is CollectionNodeView => node.manifest.type === "collection" && dockedCollectionIds.includes(node.canvas.id));
+  const collectionDockPoint = (nodeId: string) => {
+    const index = Math.max(0, collectionNodes.findIndex((node) => node.canvas.id === nodeId));
+    const slotWidths = collectionNodes.map((node) => Math.max(180, node.canvas.width / 2));
+    const slotStart = slotWidths.slice(0, index).reduce((sum, width) => sum + width, 0) + index * 8;
+    const screenPoint = { x: 64 + slotStart + (slotWidths[index] ?? 180) / 2, y: collectionDockOpen ? 154 : 21 };
+    return { x: (screenPoint.x - viewport.x) / viewportScale, y: (screenPoint.y - viewport.y) / viewportScale };
+  };
 
   return (
     <main className={`livingCanvasShell${libraryOpen ? "" : " libraryCollapsed"}${inspectorOpen ? " inspectorOpen" : ""}`}>
@@ -3144,7 +3166,7 @@ function App() {
 
       <section
         ref={canvasRef}
-        className={`canvas canvasBackground-${background}${isDragging ? " isDragging" : ""}${dragState?.kind === "canvas" ? " isPanning" : ""}`}
+        className={`canvas canvasBackground-${background}${isDragging ? " isDragging" : ""}${dragState?.kind === "canvas" ? " isPanning" : ""}${dragState?.kind === "node" && nodeById.get(dragState.nodeId)?.manifest.type === "collection" ? " isDraggingCollection" : ""}`}
         style={canvasStyle(background, viewport)}
         onPointerDown={handleCanvasPointerDown}
         onContextMenu={handleCanvasContextMenu}
@@ -3161,6 +3183,8 @@ function App() {
           <CanvasEdges
             nodes={nodes}
             edges={edges}
+            collectionInputPoint={(nodeId) => dockedCollectionIds.includes(nodeId) ? collectionDockPoint(nodeId) : null}
+            isDockedCollection={(nodeId) => dockedCollectionIds.includes(nodeId)}
             preview={connectionPreview}
             selectedEdgeId={selectedEdgeId}
             actions={availableNodeToolbarActions}
@@ -3175,7 +3199,7 @@ function App() {
               setSelectedNodeIds([]);
             }}
           />
-          {nodes.map((node) => {
+          {nodes.filter((node) => node.manifest.type !== "collection" || !dockedCollectionIds.includes(node.canvas.id)).map((node) => {
             if (node.manifest.type === "collection") {
               return (
                 <CollectionCardNode
@@ -3394,6 +3418,43 @@ function App() {
             </div>
           ) : null}
         </div>
+        <CollectionDock
+          nodes={collectionNodes}
+          open={collectionDockOpen}
+          selectedNodeIds={selectedNodeIds}
+          onToggle={() => setCollectionDockOpen(!collectionDockOpen)}
+          onSelect={handleNodeClick}
+          onNodePointerDown={(event, node) => {
+            if (event.button === 0) setDockedCollectionIds(dockedCollectionIds.filter((id) => id !== node.canvas.id));
+            handleNodePointerDown(event, node);
+          }}
+          onNodeContextMenu={handleNodeContextMenu}
+          onItemContextMenu={(event, node, itemId) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setCollectionItemMenu({ x: event.clientX, y: event.clientY, nodeId: node.canvas.id, itemId });
+          }}
+          onItemPointerDown={(event, node, itemId) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            interactionMovedRef.current = false;
+            const point = screenToWorld(event.clientX, event.clientY);
+            setDragState({
+              kind: "collectionItem",
+              pointerId: event.pointerId,
+              nodeId: node.canvas.id,
+              itemId,
+              startClientX: event.clientX,
+              startClientY: event.clientY,
+              currentX: point.x,
+              currentY: point.y
+            });
+          }}
+          onInputPointerDown={(event, node) => handleInputPointerDown(event, node, collectionDockPoint(node.canvas.id))}
+          onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
+        />
         {nodeCreateMenu && (
           <div ref={nodeCreateMenuPosition.ref} className="nodeCreateMenu" data-menu-flipped-x={nodeCreateMenuPosition.flippedX || undefined} style={nodeCreateMenuPosition.style} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
             <button type="button" onClick={() => void createConnectedNode("image")}>Create image node</button>
@@ -4519,6 +4580,99 @@ function providerModelCounts(models: ModelOption[], providerId: string): string[
   );
 }
 
+function CollectionDock({
+  nodes,
+  open,
+  selectedNodeIds,
+  onToggle,
+  onSelect,
+  onNodePointerDown,
+  onNodeContextMenu,
+  onItemContextMenu,
+  onItemPointerDown,
+  onInputPointerDown,
+  onRenameNode
+}: {
+  nodes: CollectionNodeView[];
+  open: boolean;
+  selectedNodeIds: string[];
+  onToggle: () => void;
+  onSelect: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onNodePointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
+  onNodeContextMenu: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onItemContextMenu: (event: React.MouseEvent<HTMLElement>, node: CollectionNodeView, itemId: string) => void;
+  onItemPointerDown: (event: React.PointerEvent<HTMLButtonElement>, node: CollectionNodeView, itemId: string) => void;
+  onInputPointerDown: (event: React.PointerEvent<HTMLElement>, node: CollectionNodeView) => void;
+  onRenameNode: (nodeId: string, title: string) => void;
+}) {
+  return (
+    <aside className={`collectionDock${open ? " isOpen" : " isCollapsed"}`} onPointerDown={(event) => event.stopPropagation()}>
+      <button
+        className="collectionDockToggle"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        title={open ? "Collapse collections" : "Expand collections"}
+      >
+        {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+      </button>
+      <div
+        className="collectionDockCells"
+        style={{ gridTemplateColumns: nodes.length
+          ? nodes.map((node) => `${Math.max(180, node.canvas.width / 2)}px`).join(" ")
+          : "minmax(180px, 1fr)" }}
+      >
+        {open && nodes.length === 0 ? <div className="collectionDockEmpty">Drag collection nodes here</div> : null}
+        {nodes.map((node) => (
+          <article
+            key={node.canvas.id}
+            className={`collectionDockCell${selectedNodeIds.includes(node.canvas.id) ? " isSelected" : ""}`}
+            onPointerDown={(event) => onNodePointerDown(event, node)}
+            onClick={(event) => onSelect(event, node)}
+            onContextMenu={(event) => onNodeContextMenu(event, node)}
+          >
+            <div
+              className="collectionDockInput nodeHandle nodeHandleInput"
+              title={`Connect resource to ${node.manifest.title}`}
+              data-node-input-id={node.canvas.id}
+              onPointerDown={(event) => onInputPointerDown(event, node)}
+            />
+            {open ? (
+              <>
+                <header>
+                  <Package size={14} />
+                  <CollectionTitleInput nodeId={node.manifest.id} title={node.manifest.title} onRenameNode={onRenameNode} />
+                  <span>{node.items.length}</span>
+                </header>
+                <div className="collectionDockGrid" data-canvas-wheel-scroll>
+                  {node.items.map((item) => (
+                    <button
+                      type="button"
+                      className={`collectionDockItem is-${item.type}`}
+                      key={item.id}
+                      title={item.title}
+                      onPointerDown={(event) => onItemPointerDown(event, node, item.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      onContextMenu={(event) => onItemContextMenu(event, node, item.id)}
+                    >
+                      {item.previewUrl ? item.type === "video"
+                        ? <video src={`${apiBase}${item.previewUrl}`} preload="metadata" />
+                        : <img src={`${apiBase}${item.previewUrl}`} alt="" />
+                        : item.type === "audio" ? <Music size={20} /> : item.type === "text" ? <FileText size={20} /> : <ImageIcon size={20} />}
+                      <span>{item.title}</span>
+                    </button>
+                  ))}
+                  {!node.items.length ? <p>Connect resources to this collection.</p> : null}
+                </div>
+              </>
+            ) : <span className="collectionDockMarker" title={node.manifest.title}><Package size={12} /><strong>{node.manifest.title}</strong><small>{node.items.length}</small></span>}
+          </article>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 function CollectionCardNode({
   node,
   active,
@@ -4559,16 +4713,7 @@ function CollectionCardNode({
       <header className="collectionNodeHeader">
         <Package size={15} />
         {active ? (
-          <input
-            defaultValue={node.manifest.title}
-            aria-label="Collection title"
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={(event) => event.stopPropagation()}
-            onBlur={(event) => onRenameNode(node.manifest.id, event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") event.currentTarget.blur();
-            }}
-          />
+          <CollectionTitleInput nodeId={node.manifest.id} title={node.manifest.title} onRenameNode={onRenameNode} />
         ) : <strong>{node.manifest.title}</strong>}
         <span>{node.items.length}</span>
         <button
@@ -4609,6 +4754,45 @@ function CollectionCardNode({
         {node.items.length === 0 ? <p className="collectionEmpty">Connect nodes to collect their selected outputs.</p> : null}
       </div>}
     </article>
+  );
+}
+
+function CollectionTitleInput({
+  nodeId,
+  title,
+  onRenameNode
+}: {
+  nodeId: string;
+  title: string;
+  onRenameNode: (nodeId: string, title: string) => void;
+}) {
+  const [draft, setDraft] = useState(title);
+
+  useEffect(() => {
+    setDraft(title);
+  }, [nodeId, title]);
+
+  function commit() {
+    if (draft === title) return;
+    onRenameNode(nodeId, draft);
+  }
+
+  return (
+    <input
+      value={draft}
+      aria-label="Collection title"
+      onChange={(event) => setDraft(event.currentTarget.value)}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        event.stopPropagation();
+        commit();
+        event.currentTarget.blur();
+      }}
+    />
   );
 }
 
@@ -4898,6 +5082,8 @@ function CanvasMiniMap({
 function CanvasEdges({
   nodes,
   edges,
+  collectionInputPoint,
+  isDockedCollection,
   preview,
   selectedEdgeId,
   actions,
@@ -4910,6 +5096,8 @@ function CanvasEdges({
 }: {
   nodes: NodeView[];
   edges: CanvasEdge[];
+  collectionInputPoint: (nodeId: string) => { x: number; y: number } | null;
+  isDockedCollection: (nodeId: string) => boolean;
   preview: Extract<DragState, { kind: "connection" }> | null;
   selectedEdgeId: string | null;
   actions: NodeToolbarAction[];
@@ -4931,8 +5119,10 @@ function CanvasEdges({
         const sourceNode = viewById.get(edge.fromNodeId);
         const targetNode = viewById.get(edge.toNodeId);
         if (!from || !to) return null;
+        if (sourceNode?.manifest.type === "collection" && isDockedCollection(edge.fromNodeId)) return null;
         const start = nodeOutputPoint(from);
-        const end = nodeInputPoint(to);
+        const dockedCollectionPoint = targetNode?.manifest.type === "collection" ? collectionInputPoint(edge.toNodeId) : null;
+        const end = dockedCollectionPoint ?? nodeInputPoint(to);
         const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
         const isCollectionInput = targetNode?.manifest.type === "collection";
         const isRealCrop = edge.kind === "crop"
@@ -4943,7 +5133,7 @@ function CanvasEdges({
           <React.Fragment key={edge.id}>
             <path
               className={`${selectedEdgeId === edge.id ? "isSelected" : ""}${edge.kind === "collectionItem" ? " isCollectionReference" : ""}${isCollectionInput ? " isCollectionInput" : ""}`}
-              d={edge.kind === "collectionItem" ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edgePath(start, end)}
+              d={dockedCollectionPoint ? dockedCollectionEdgePath(start, end) : edge.kind === "collectionItem" ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edgePath(start, end)}
               style={{ "--edge-color": nodeTypeWireColor(sourceNode) } as React.CSSProperties}
               onClick={edge.kind === "collectionItem" ? undefined : (event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
             />
@@ -7663,6 +7853,11 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
   });
   if (!response.ok) throw new ApiResponseError(await apiErrorMessage(response), response.status);
   return response.json() as Promise<T>;
+}
+
+function dockedCollectionEdgePath(start: { x: number; y: number }, end: { x: number; y: number }) {
+  const verticalApproach = Math.max(70, Math.min(180, Math.abs(end.y - start.y) * 0.4));
+  return `M ${start.x} ${start.y} C ${start.x + 80} ${start.y}, ${end.x} ${end.y + verticalApproach}, ${end.x} ${end.y}`;
 }
 
 async function apiDelete<T>(path: string): Promise<T> {
