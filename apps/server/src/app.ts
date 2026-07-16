@@ -29,6 +29,7 @@ export function buildServer() {
   assertProductionSafety();
   const app = Fastify({ logger: true, bodyLimit: 250 * 1024 * 1024 });
   app.register(cors, { origin: localCorsOrigin, credentials: true });
+  app.get("/health", async () => ({ ok: true, service: "snarkroute-server" }));
   void ensureDevUsers();
   void refreshPromptLibraryCache();
   void registerAdminRoutes(app);
