@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelInputCompatibilityReasonsV1, modelMaxImageInputsV1, modelRunnableWithSuppliedInputsV1, providerParameterIOContractV1 } from "../src/index.js";
+import { modelInputCompatibilityReasonsV1, modelMaxImageInputsV1, modelParameterValidationReasonsV1, modelRunnableWithSuppliedInputsV1, normalizeModelParameterValuesV1, providerParameterDefinitionsV1, providerParameterIOContractV1 } from "../src/index.js";
 import type { ModelCatalogEntryV1, ModelOptionForNodeV1, ModelPricingInfoV1, ModelRoleV1 } from "../src/index.js";
 
 const baseEntry: ModelCatalogEntryV1 = {
@@ -84,5 +84,21 @@ describe("Model Catalog V1 types", () => {
   it("supports required pricing statuses", () => {
     const statuses: Array<ModelPricingInfoV1["status"]> = ["fresh", "stale", "missing", "unknown"];
     expect(statuses).toEqual(["fresh", "stale", "missing", "unknown"]);
+  });
+
+  it("normalizes provider required enums and validates all schema-derived required params", () => {
+    const schema = providerParameterDefinitionsV1({
+      prompt: { required: true },
+      images: { min: 0, max: 1 },
+      aspect_ratio: { required: true, values: ["1:1", "16:9", "9:16"] },
+      duration: { required: true, default: "5", values: ["5", "10"] }
+    });
+
+    expect(schema).toEqual([
+      { id: "aspect_ratio", label: "Aspect ratio", type: "select", required: true, options: [{ value: "1:1" }, { value: "16:9" }, { value: "9:16" }] },
+      { id: "duration", label: "Duration", type: "select", required: true, default: "5", options: [{ value: "5" }, { value: "10" }] }
+    ]);
+    expect(modelParameterValidationReasonsV1(schema, { duration: "5" })).toEqual(["Aspect ratio is required"]);
+    expect(normalizeModelParameterValuesV1(schema, { aspect_ratio: "16:9", duration: "10", ignored: "x" })).toEqual({ aspect_ratio: "16:9", duration: "10" });
   });
 });

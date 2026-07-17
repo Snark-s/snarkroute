@@ -25,4 +25,11 @@ describe("gateway client", () => {
       inputs: [{ kind: "image", assetId: "asset_frame", path: "C:\\assets\\frame.png" }]
     });
   });
+
+  it("preserves schema-derived required params in the gateway request", () => {
+    const model = { nodeType: "polza.video.generate", storedModelId: "kling/v2.6", providerModelId: "kling/v2.6", provider: "polza" } as VideoModel;
+    expect(providerNeutralJobRequest({ model, prompt: "move", parameters: { aspect_ratio: "16:9", sound: "false" }, asset: { id: "asset_frame", path: "C:\\assets\\frame.png" } })).toMatchObject({
+      parameters: { aspect_ratio: "16:9", sound: "false" }
+    });
+  });
 });

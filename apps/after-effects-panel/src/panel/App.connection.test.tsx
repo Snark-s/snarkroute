@@ -5,6 +5,7 @@ import { App } from "./App";
 
 beforeEach(() => {
   localStorage.clear();
+  delete window.__adobe_cep__;
   vi.restoreAllMocks();
   vi.spyOn(console, "info").mockImplementation(() => undefined);
   vi.spyOn(console, "error").mockImplementation(() => undefined);
@@ -46,6 +47,35 @@ describe("panel connection flow", () => {
     expect(screen.getByText("Executable models: 2")).toBeTruthy();
     expect(screen.getByText("Families: 2")).toBeTruthy();
     expect(screen.getByText("Maximum images: 5")).toBeTruthy();
+  });
+
+  it("auto-selects a schema aspect ratio from the composition and lets the user change it", async () => {
+    const model = {
+      id: "polza:kling/v2.6", storedModelId: "kling/v2.6", providerModelId: "kling/v2.6", displayName: "Kling 2.6",
+      provider: "polza", inputTypes: ["image"], outputTypes: ["video"], capabilities: ["video.generate"], roles: ["generator"],
+      availability: { status: "available", configured: true }, nodeType: "polza.video.generate", runnableWithSuppliedInputs: true,
+      parameters: [{ id: "aspect_ratio", label: "Aspect ratio", type: "select", required: true, options: ["1:1", "16:9", "9:16"].map((value) => ({ value })) }]
+    };
+    window.__adobe_cep__ = { evalScript(script, callback) {
+      callback(script.includes("getActiveComposition")
+        ? JSON.stringify({ ok: true, value: { id: 1, name: "HD", time: 0, width: 1920, height: 1080, frameRate: 25, duration: 5, pixelAspect: 1 } })
+        : '{"ok":true,"value":null}');
+    } };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).endsWith("/health")
+      ? new Response('{"ok":true}', { status: 200 })
+      : new Response(JSON.stringify({ models: [model] }), { status: 200, headers: { "Content-Type": "application/json" } })));
+
+    render(<App />);
+    const aspectRatio = await screen.findByRole("combobox", { name: "Aspect ratio" }) as HTMLSelectElement;
+    await waitFor(() => expect(aspectRatio.value).toBe("16:9"));
+    fireEvent.change(aspectRatio, { target: { value: "9:16" } });
+    expect(aspectRatio.value).toBe("9:16");
+    fireEvent.change(screen.getByPlaceholderText("Describe the motion and scene"), { target: { value: "move" } });
+    expect(screen.getByRole("button", { name: "Generate" }).hasAttribute("disabled")).toBe(false);
+
+    fireEvent.change(aspectRatio, { target: { value: "" } });
+    expect(screen.getByRole("button", { name: "Generate" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("Aspect ratio is required")).toBeTruthy();
   });
 
   it("shows the exact fetch error and requested URL", async () => {

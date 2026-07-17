@@ -361,6 +361,29 @@ describe("server Model Catalog V1 assembly", () => {
     expect(catalog.find((entry) => entry.providerModelId === "topaz/video-upscale")?.roles).toEqual(["upscaler"]);
   });
 
+  it("uses the live provider schema for Kling 2.6 required video parameters", () => {
+    const catalog = assembleModelCatalogV1({
+      polzaModels: [{
+        id: "kling/v2.6",
+        type: "video",
+        top_provider: { parameters: {
+          prompt: { required: true },
+          aspect_ratio: { required: true, values: ["1:1", "16:9", "9:16"] },
+          duration: { required: true, default: "5", values: ["5", "10"] },
+          images: { min: 0, max: 1 },
+          sound: { required: true, default: "false", values: ["true", "false"] }
+        } }
+      }]
+    });
+
+    expect(catalog[0]?.parameters).toEqual([
+      expect.objectContaining({ id: "aspect_ratio", type: "select", required: true, options: [{ value: "1:1" }, { value: "16:9" }, { value: "9:16" }] }),
+      expect.objectContaining({ id: "duration", required: true, default: "5" }),
+      expect.objectContaining({ id: "sound", required: true, default: "false" })
+    ]);
+    expect(catalog[0]?.parameters.map((field) => field.id)).not.toContain("resolution");
+  });
+
   it("keeps WAN and HappyHorse together by enriching missing live input metadata from fallback defaults", () => {
     const catalog = assembleModelCatalogV1({
       polzaModels: [

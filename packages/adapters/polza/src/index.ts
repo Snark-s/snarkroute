@@ -662,12 +662,14 @@ export function buildMediaImageRequestBody(model: string, prompt: string, params
 export function buildMediaVideoRequestBody(model: string, prompt: string, params: Record<string, unknown>, imageInputs: Array<{ type: "url" | "base64"; data: string }> = []): Record<string, unknown> {
   const input: Record<string, unknown> = {
     prompt,
+    ...providerNativeVideoParameters(params),
     resolution: stringParam(params.resolution) ?? "720p",
     duration: String(numberParam(params.duration) ?? stringParam(params.duration) ?? "5"),
     multi_shots: params.multi_shots === true || stringParam(params.multi_shots) === "true" ? "true" : "false"
   };
-  if (params.generate_audio !== undefined || params.audio !== undefined || params.sound !== undefined || supportsVideoAudioModel(model)) {
-    input.generate_audio = booleanParam(params.generate_audio ?? params.audio ?? params.sound);
+  if (params.aspect_ratio === undefined && params.aspectRatio !== undefined) input.aspect_ratio = params.aspectRatio;
+  if (params.generate_audio !== undefined || params.audio !== undefined || supportsVideoAudioModel(model)) {
+    input.generate_audio = booleanParam(params.generate_audio ?? params.audio);
   }
   if (imageInputs.length > 0) input.images = imageInputs;
   return { model, input, async: true, user: stringParam(params.user) };
@@ -973,6 +975,15 @@ function polzaUsageEvent(nodeId: string, nodeType: string, model: string, status
     pricingSource: pricingQuote.pricingSource,
     pricingQuote
   };
+}
+
+function providerNativeVideoParameters(params: Record<string, unknown>): Record<string, string | number | boolean> {
+  const internal = new Set(["model", "prompt", "images", "user", "pricing", "executionProvider", "fallbackAllowed", "availableExecutionProviders", "aspectRatio", "audio"]);
+  return Object.fromEntries(Object.entries(params).filter(([key, value]) =>
+    !internal.has(key)
+    && /^[a-zA-Z][a-zA-Z0-9_]*$/.test(key)
+    && (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+  )) as Record<string, string | number | boolean>;
 }
 
 function firstInputText(value: unknown): string | undefined {

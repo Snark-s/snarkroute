@@ -482,6 +482,29 @@ describe("Polza adapter", () => {
     expect(result.output).toMatchObject({ provider: "polza", video: { mimeType: "video/mp4", sizeBytes: 5 } });
   });
 
+  it("maps schema-derived required video params to the Polza native input", () => {
+    expect(buildMediaVideoRequestBody("kling/v2.6", "move", {
+      aspect_ratio: "16:9",
+      duration: "10",
+      sound: "false",
+      negative_prompt: "blur"
+    })).toMatchObject({
+      model: "kling/v2.6",
+      input: {
+        aspect_ratio: "16:9",
+        duration: "10",
+        sound: "false",
+        negative_prompt: "blur"
+      }
+    });
+  });
+
+  it("maps the common camel-case aspect ratio alias without losing other params", () => {
+    expect(buildMediaVideoRequestBody("vendor/video", "move", { aspectRatio: "9:16", seed: 42 })).toMatchObject({
+      input: { aspect_ratio: "9:16", seed: 42 }
+    });
+  });
+
   it("polls a video generation when Polza returns its pending job token as text", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-video-pending-"));
     const fetchImpl = vi.fn()

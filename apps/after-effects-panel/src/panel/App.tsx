@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { SnarkRouteGatewayClient, type ConnectionProbeResult } from "../api/client";
 import { countModelFamilies, filterExecutableVideoModels } from "../api/catalog";
-import { gatewayParameters } from "../api/parameters";
+import { applyCompositionAspectRatioDefault } from "../api/aspect-ratio";
+import { gatewayParameters, parameterDiagnostics, parameterValidationReasons } from "../api/parameters";
 import { ParameterFields } from "../components/ParameterFields";
 import { CepAfterEffectsHostAdapter, readFileBase64, writeBinaryBase64 } from "../host/adapter";
 import { prepareGeneration } from "../jobs/generation";
@@ -32,6 +33,14 @@ export function App() {
   const [exportDiagnostic, setExportDiagnostic] = useState<FrameExportDiagnostic | null>(null);
   const didAutoProbe = useRef(false);
   const selectedModel = models.find((model) => model.id === modelId);
+  const normalizedParameters = selectedModel ? gatewayParameters(selectedModel.parameters, parameters) : {};
+  const diagnosticParameters = parameterDiagnostics(normalizedParameters);
+  const parameterErrors = selectedModel ? parameterValidationReasons(selectedModel.parameters, parameters) : [];
+  const busy = ["exporting_current_frame", "validating_input", "uploading_asset", "creating_job", "provider_queued", "provider_running", "downloading_result", "importing_result", "replacing_layer_source", "writing_manifest", "writing_ae_metadata"].includes(job.phase);
+  const generateDisabledReason = !connected ? "SnarkRoute server is disconnected."
+    : !selectedModel ? "Choose a model."
+      : !prompt.trim() ? "Enter a prompt."
+        : parameterErrors[0] ?? (busy ? "A generation is already in progress." : "");
 
   async function connect() {
     localStorage.setItem("snarkroute.after-effects.server-url", serverUrl.replace(/\/$/, ""));
@@ -60,7 +69,14 @@ export function App() {
   }
 
   useEffect(() => { if (didAutoProbe.current) return; didAutoProbe.current = true; void connect(); }, []);
-  useEffect(() => { if (!selectedModel) return; setParameters(Object.fromEntries(selectedModel.parameters.map((field) => [field.id, field.default ?? (field.type === "boolean" ? false : "")]))); }, [selectedModel?.id]);
+  useEffect(() => {
+    if (!selectedModel) return;
+    const schema = selectedModel.parameters;
+    setParameters(Object.fromEntries(schema.map((field) => [field.id, field.default ?? (field.type === "boolean" ? false : "")])));
+    void host.getActiveComposition()
+      .then((composition) => setParameters((current) => applyCompositionAspectRatioDefault(schema, current, composition)))
+      .catch((error) => console.info("[SnarkRoute] composition aspect ratio auto-detection unavailable", error));
+  }, [selectedModel?.id]);
   useEffect(() => { const pending = restorePendingJob(); if (connected && pending && pending.status !== "completed" && !(pending.status === "completed_with_warning" && pending.outputPath)) void resume(pending); }, [connected]);
 
   async function updateQuote() {
@@ -70,9 +86,13 @@ export function App() {
 
   async function generate() {
     if (!selectedModel || !prompt.trim()) return dispatch({ type: "phase", phase: "failed", message: "Choose a model and enter a prompt." });
+    const validationErrors = parameterValidationReasons(selectedModel.parameters, parameters);
+    if (validationErrors.length) return dispatch({ type: "phase", phase: "failed", message: validationErrors.join("; ") });
     try {
       setExportDiagnostic(null);
       const params = gatewayParameters(selectedModel.parameters, parameters);
+      console.info("[SnarkRoute] normalized params", parameterDiagnostics(params));
+      console.info("[SnarkRoute] provider params", parameterDiagnostics(params));
       const pending = await prepareGeneration({ serverUrl, model: selectedModel, prompt, parameters: params }, {
         host,
         client,
@@ -130,9 +150,9 @@ export function App() {
     <section><h2>Source</h2><select value="current-frame" disabled><option>Current composition frame</option></select><small>Selected footage and work-area video follow after the MVP vertical slice.</small></section>
     <section><h2>Model</h2><select value={modelId} onChange={(event) => setModelId(event.target.value)}>{models.map((model) => <option key={model.id} value={model.id}>{model.displayName} · {model.provider}{model.originVendor ? ` / ${model.originVendor}` : ""}</option>)}</select>{selectedModel && <><small>{selectedModel.availability.status}{selectedModel.pricing ? ` · pricing ${selectedModel.pricing.status ?? "available"}${selectedModel.pricing.currency ? ` (${selectedModel.pricing.currency})` : ""}` : " · catalog price unavailable"}</small><div className="diagnostics"><div>Input model contract:</div><div>Required images: {selectedModel.requiredImageInputs ?? 0}</div><div>Maximum images: {selectedModel.maximumImageInputs ?? "unknown"}</div><div>Images supplied: 1</div></div></>}{connected && <div className="diagnostics"><div>Executable models: {models.length}</div><div>Families: {countModelFamilies(models)}</div>{countModelFamilies(models) === 1 && <div>Catalog filtering diagnostics available: {modelDiagnosticsUrl}</div>}</div>}{!models.length && connected && <small>No configured image-to-video models are available.</small>}</section>
     <section><h2>Prompt</h2><textarea rows={4} value={prompt} onChange={(event) => setPrompt(event.target.value)} placeholder="Describe the motion and scene" /></section>
-    {selectedModel && <section><h2>Parameters</h2><ParameterFields fields={selectedModel.parameters} values={parameters} onChange={(id, value) => setParameters((current) => ({ ...current, [id]: value }))} /><button className="link" onClick={() => setAdvancedOpen((value) => !value)}>Advanced parameters {advancedOpen ? "▴" : "▾"}</button>{advancedOpen && <ParameterFields advanced fields={selectedModel.parameters} values={parameters} onChange={(id, value) => setParameters((current) => ({ ...current, [id]: value }))} />}</section>}
+    {selectedModel && <section><h2>Parameters</h2><ParameterFields fields={selectedModel.parameters} values={parameters} onChange={(id, value) => setParameters((current) => ({ ...current, [id]: value }))} /><button className="link" onClick={() => setAdvancedOpen((value) => !value)}>Advanced parameters {advancedOpen ? "▴" : "▾"}</button>{advancedOpen && <ParameterFields advanced fields={selectedModel.parameters} values={parameters} onChange={(id, value) => setParameters((current) => ({ ...current, [id]: value }))} />}<div className="diagnostics" aria-label="Parameter diagnostics"><div>Normalized params: {JSON.stringify(diagnosticParameters)}</div><div>Provider params: {JSON.stringify(diagnosticParameters)}</div>{parameterErrors.map((reason) => <div className="error-text" key={reason}>Error: {reason}</div>)}</div></section>}
     <section><h2>Quote</h2><div>{quote}</div><button onClick={() => void updateQuote()} disabled={!selectedModel}>Refresh quote</button></section>
-    <section><button className="primary" onClick={() => void generate()} disabled={!connected || !selectedModel || ["exporting_current_frame", "validating_input", "uploading_asset", "creating_job", "provider_queued", "provider_running", "downloading_result", "importing_result", "replacing_layer_source", "writing_manifest", "writing_ae_metadata"].includes(job.phase)}>Generate</button></section>
+    <section><button className="primary" onClick={() => void generate()} disabled={Boolean(generateDisabledReason)}>Generate</button>{generateDisabledReason && <small className="error-text">{generateDisabledReason}</small>}</section>
     <section><h2>Current job</h2><div className={`status ${job.phase === "failed" ? "error" : ""}`}>Stage: {job.phase}{job.message ? ` · ${job.message}` : ""}</div>{(exportDiagnostic ?? details?.inputFrameExport) && <ExportDiagnostics diagnostic={(exportDiagnostic ?? details?.inputFrameExport)!} />}{details?.inputFramePath && <><div className="diagnostics"><div>Input frame:</div><div>{details.inputFramePath}</div><div>Asset: {details.inputAssetId}</div><div>Source: {details.sourceCompositionName} ({details.sourceCompositionId}) at {details.sourceTime}</div></div><button onClick={() => void host.revealFile(details.inputFramePath)}>Reveal input frame</button><button onClick={() => void host.openFile(details.inputFramePath)}>Open input frame</button></>}</section>
     {details?.outputPath && <section><h2>Result post-processing</h2><div className="diagnostics"><div>Result: {details.outputPath}</div><div>Manifest: {details.metadata?.manifestPath ?? "not prepared"}</div><div>Imported footage: {details.importedFootage?.importedItemName ?? "not imported"}</div><div>Project folder: {details.importedFootage?.projectFolderName ?? "n/a"}</div><div>Layer source replaced: {details.layerReplacement?.sourceReplaced ? "yes" : "no"}</div>{details.failure && <><div>Error: {details.failure.message}</div><pre>{details.failure.technicalDetails}</pre></>}{details.importedFootage?.importError && <div>Error: {details.importedFootage.importError}</div>}{details.layerReplacement?.replaceSourceError && <div>Error: {details.layerReplacement.replaceSourceError}</div>}</div>{details.manifestDiagnostic && !details.manifestDiagnostic.ok && <button onClick={() => void retryManifest(details)}>Retry manifest</button>}{(!details.importedFootage?.ok || !details.layerReplacement?.sourceReplaced) && <button onClick={() => void retryImport(details)}>Retry import</button>}<button onClick={() => void host.revealFile(details.outputPath)}>Reveal output file</button><button onClick={() => void host.revealFolder(details.outputPath)}>Reveal output folder</button>{details.importedFootage?.importedItemId && <button onClick={() => void host.revealProjectItem(details.importedFootage!.importedItemId!)}>Reveal in Project</button>}<button onClick={() => void copyText(JSON.stringify({ stage: details.lastStage, failure: details.failure, manifest: details.manifestDiagnostic, importedFootage: details.importedFootage, layerReplacement: details.layerReplacement }, null, 2))}>Copy diagnostics</button></section>}
     {(details?.status === "completed" || details?.status === "completed_with_warning") && <section><h2>Generation details</h2><div>{details.jobId}</div><div>{details.modelId}</div><button onClick={() => void generate()}>Regenerate</button><button onClick={() => { clearPendingJob(); setDetails(null); dispatch({ type: "reset" }); }}>Clear</button></section>}

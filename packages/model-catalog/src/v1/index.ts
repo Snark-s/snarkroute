@@ -57,6 +57,14 @@ export {
   providerParameterIOContractV1
 } from "./input-contracts.js";
 
+export {
+  mergeModelParameterDefinitionsV1,
+  modelParameterValidationReasonsV1,
+  normalizeModelParameterValuesV1,
+  parameterSemanticIdV1,
+  providerParameterDefinitionsV1
+} from "./parameters.js";
+
 export type {
   CanonicalModelV1,
   ProviderModelOfferingV1,

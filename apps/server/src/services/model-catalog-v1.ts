@@ -5,6 +5,8 @@ import {
   modelImageInputContractV1,
   modelInputCompatibilityReasonsV1,
   modelRunnableWithSuppliedInputsV1,
+  mergeModelParameterDefinitionsV1,
+  providerParameterDefinitionsV1,
   providerParameterIOContractV1,
   withDefaultModelInputLimitsV1
 } from "@snarkroute/model-catalog/dist/v1/index.js";
@@ -346,7 +348,7 @@ function normalizeRawProviderModel(provider: ModelProviderIdV1, model: RawProvid
     capabilities,
     roles: rolesForCapabilities(capabilities),
     availability: { status: "available", source: "live" },
-    metadata: { providerRaw: model },
+    metadata: { providerRaw: model, providerParameters: providerParameters(model) },
     ioContract: providerParameterIOContractV1(providerParameters(model), inputTypesForModel(model), outputTypes)
   })];
 }
@@ -363,15 +365,26 @@ function preserveLiveProviderIo(entry: ModelCatalogEntryV1, providerModel: Provi
 
 function enrichUiCatalogMetadata(entry: ModelCatalogEntryV1): ModelCatalogEntryV1 {
   const defaults = defaultUiCatalogMetadata(entry);
+  const liveParameters = providerParameterDefinitionsV1(liveProviderParameters(entry));
+  const schemaParameters = liveParameters.length
+    ? mergeModelParameterDefinitionsV1(liveParameters, entry.parameters)
+    : entry.parameters;
   const enriched = defaults ? {
     ...entry,
-    parameters: entry.parameters.length ? entry.parameters : defaults.parameters,
+    parameters: schemaParameters.length ? schemaParameters : defaults.parameters,
     metadata: {
       ...(entry.metadata ?? {}),
       ...defaults.metadata
     }
-  } : entry;
+  } : { ...entry, parameters: schemaParameters };
   return withDefaultModelInputLimitsV1(enriched);
+}
+
+function liveProviderParameters(entry: ModelCatalogEntryV1): Record<string, unknown> | undefined {
+  const provider = entry.metadata?.provider;
+  if (!provider || typeof provider !== "object" || Array.isArray(provider)) return undefined;
+  const parameters = (provider as Record<string, unknown>).providerParameters;
+  return parameters && typeof parameters === "object" && !Array.isArray(parameters) ? parameters as Record<string, unknown> : undefined;
 }
 
 export function compatibilityReasonsForNodeV1(nodeType: string, entry: ModelCatalogEntryV1, suppliedInputs?: SuppliedModelInputsV1): string[] {
