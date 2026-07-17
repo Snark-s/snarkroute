@@ -49,7 +49,7 @@ describe("downloaded result import", () => {
       .mockResolvedValueOnce({ ok: true, sourceReplaced: true, placeholderDeleted: false, placeholderCompositionId: 17, placeholderLayerIndex: 4, newSourceId: 120, newSourceType: "FileSource" });
     const host = { importResultFootage, replacePlaceholderSource, writeGenerationMetadata: vi.fn(async () => undefined) };
     const failed = await importDownloadedResult(baseJob, metadata, { host });
-    expect(failed).toMatchObject({ status: "failed", outputPath: baseJob.outputPath, warning: "AE refused replaceSource" });
+    expect(failed).toMatchObject({ status: "completed_with_warning", failedStage: "replacing_layer_source", outputPath: baseJob.outputPath, warning: "AE refused replaceSource" });
     const completed = await importDownloadedResult(failed, metadata, { host });
     expect(completed.status).toBe("completed");
     expect(importResultFootage).toHaveBeenCalledTimes(2);

@@ -8,7 +8,7 @@ type PreparationDependencies = {
   readFileBase64(path: string): string;
   now?(): string;
   log?(label: string, details: Record<string, unknown>): void;
-  onPhase?(phase: "preparing input" | "uploading"): void;
+  onPhase?(phase: "exporting_current_frame" | "validating_input" | "uploading_asset" | "creating_job"): void;
   onJobPrepared?(job: PersistedJob): void;
   onExportDiagnostic?(diagnostic: FrameExportDiagnostic): void;
 };
@@ -22,14 +22,15 @@ export type PrepareGenerationInput = {
 
 export async function prepareGeneration(input: PrepareGenerationInput, dependencies: PreparationDependencies): Promise<PersistedJob> {
   const now = dependencies.now ?? (() => new Date().toISOString());
-  dependencies.onPhase?.("preparing input");
   const source = await dependencies.host.getActiveComposition();
   if (!source) throw new Error("Open an active composition first.");
 
+  dependencies.onPhase?.("exporting_current_frame");
   dependencies.onExportDiagnostic?.({ stage: "exporting_current_frame", exportMethod: "saveFrameToPng", path: "waiting for After Effects…", exists: false, size: 0, waitedMs: 0, attempts: 0, fileError: "", fallbackAttempted: false });
   const frame = await dependencies.host.renderCurrentFrame(source);
   dependencies.onExportDiagnostic?.(frame);
   if (!frame.ok) throw currentFrameExportError(frame.path, `${frame.fileError || "Timed out waiting for PNG data."} (attempts=${frame.attempts}, waitedMs=${frame.waitedMs}, size=${frame.size})`);
+  dependencies.onPhase?.("validating_input");
   const validated = await dependencies.host.validateInputFile(frame.path);
   assertValidInputFile(validated.path, validated.sizeBytes, validated.fileError);
 
@@ -40,12 +41,13 @@ export async function prepareGeneration(input: PrepareGenerationInput, dependenc
     throw currentFrameExportError(validated.path, error instanceof Error ? error.message : String(error));
   }
 
-  dependencies.onPhase?.("uploading");
+  dependencies.onPhase?.("uploading_asset");
   const asset = await dependencies.client.importAsset(frame.filename, dataBase64);
   if (!asset.id || !asset.path) throw new Error("Uploaded input asset did not include an id and path.");
 
   const diagnostic = inputDiagnostic(source, validated.path, validated.sizeBytes, asset.id, input.model);
   (dependencies.log ?? ((label, details) => console.info(label, details)))("[SnarkRoute] prepared image-to-video input", diagnostic);
+  dependencies.onPhase?.("creating_job");
   const created = await dependencies.client.createJob({ model: input.model, prompt: input.prompt, parameters: input.parameters, asset });
 
   let pending: PersistedJob = {
@@ -54,6 +56,7 @@ export async function prepareGeneration(input: PrepareGenerationInput, dependenc
     outputPath: "",
     createdAt: created.createdAt,
     status: created.status,
+    lastStage: "creating_job",
     modelId: input.model.storedModelId,
     modelDisplayName: input.model.displayName,
     provider: input.model.provider,

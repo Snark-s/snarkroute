@@ -42,6 +42,14 @@ describe("After Effects host placeholder", () => {
     expect(run.replaced).toMatchObject({ ok: true, sourceReplaced: true, solidRetainedBecauseUsed: true });
     expect(run.solidRemoved).toBe(false);
   });
+
+  it("reports project and fallback paths without writing manifests in ExtendScript", () => {
+    expect(source).toContain("getProjectFileContext");
+    expect(source).toContain("projectDirectory:");
+    expect(source).toContain("appDataPath:");
+    expect(source).toContain("tempPath:");
+    expect(source).not.toContain("writeText");
+  });
 });
 
 describe("After Effects current frame export", () => {

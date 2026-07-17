@@ -79,6 +79,23 @@ describe("panel connection flow", () => {
     expect(scripts[1]).toContain("openFile");
     expect(scripts[1]).toContain("sent-frame.png");
   });
+
+  it("shows late manifest diagnostics, recovery actions, commit and timestamp", async () => {
+    localStorage.setItem("snarkroute.after-effects.active-job.v1", JSON.stringify({
+      jobId: "job_manifest", serverUrl: "http://127.0.0.1:4317", outputPath: "C:\\Проект\\SnarkRoute Generations\\ready.mp4", createdAt: "now", status: "completed_with_warning", lastStage: "completed_with_warning", failedStage: "writing_manifest",
+      modelId: "wan/2.5", provider: "polza", prompt: "move", params: {}, inputPaths: [], inputFramePath: "C:\\Temp\\frame.png", inputAssetId: "asset", sourceCompositionId: 1, sourceCompositionName: "Comp", sourceTime: 0, placeholderCreatedAt: "now", jobCreatedAt: "now",
+      metadata: { manifestPath: "C:\\Проект\\SnarkRoute Generations\\ready.mp4.json" }, manifestDiagnostic: { ok: false }, failure: { failedStage: "writing_manifest", message: "Manifest write failed", technicalDetails: "Node error code: EACCES\nNode error message: access denied", outputPath: "C:\\Проект\\SnarkRoute Generations\\ready.mp4", manifestPath: "C:\\Проект\\SnarkRoute Generations\\ready.mp4.json", jobId: "job_manifest", providerJobId: "job_manifest", layerSourceReplaced: false }
+    }));
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("offline"); }));
+    render(<App />);
+    expect(await screen.findByText("Stage: completed_with_warning")).toBeTruthy();
+    expect(screen.queryByText("Stage: exporting_current_frame")).toBeNull();
+    expect(screen.getByText("Manifest: C:\\Проект\\SnarkRoute Generations\\ready.mp4.json")).toBeTruthy();
+    expect(screen.getByText(/Node error code: EACCES/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry manifest" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry import" })).toBeTruthy();
+    expect(screen.getByText(/^Build: (?:[0-9a-f]+|commit unknown) · \d{4}-\d{2}-\d{2}T/)).toBeTruthy();
+  });
 });
 
 function healthCalls(mock: { mock: { calls: ReadonlyArray<ReadonlyArray<unknown>> } }) {

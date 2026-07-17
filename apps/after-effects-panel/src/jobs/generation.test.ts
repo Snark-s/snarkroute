@@ -8,6 +8,7 @@ const model: VideoModel = { id: "polza:wan/2.6", provider: "polza", providerMode
 describe("generation input preparation", () => {
   it("orders render, validation, upload, job creation, then placeholder", async () => {
     const calls: string[] = [];
+    const phases: string[] = [];
     const persisted: Array<{ placeholder?: unknown; warning?: string }> = [];
     let placeholderExists = false;
     const pending = await prepareGeneration({ serverUrl: "http://127.0.0.1:4317", model, prompt: "move", parameters: { duration: 5 } }, {
@@ -24,10 +25,12 @@ describe("generation input preparation", () => {
       readFileBase64: () => "cG5n",
       now: () => "placeholder-time",
       log: () => undefined,
-      onJobPrepared: (job) => persisted.push(job)
+      onJobPrepared: (job) => persisted.push(job),
+      onPhase: (phase) => phases.push(phase)
     });
 
     expect(calls).toEqual(["getActiveComposition", "renderCurrentFrame", "validateInputFile", "uploadAsset", "createJob", "createPlaceholder"]);
+    expect(phases).toEqual(["exporting_current_frame", "validating_input", "uploading_asset", "creating_job"]);
     expect(persisted[0].placeholder).toBeUndefined();
     expect(persisted[1].placeholder).toBeDefined();
     expect(pending).toMatchObject({ inputFramePath: "C:\\Temp\\input.png", inputAssetId: "asset_input", jobCreatedAt: "job-time", placeholderCreatedAt: "placeholder-time", inputModelContract: { requiredImageInputs: 0, maximumImageInputs: 1, imagesSupplied: 1 }, placeholder: { jobId: "job_1" } });
