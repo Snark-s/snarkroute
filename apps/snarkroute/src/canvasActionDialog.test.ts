@@ -7,4 +7,10 @@ describe("canvas action dialog compatibility", () => {
     expect(canvasActionNeedsDialog({})).toBe(false);
     expect(canvasActionNeedsDialog({ dialog: { enabled: true, params: [] } })).toBe(false);
   });
+
+  it("opens for a preview even when no parameters are exposed", () => {
+    expect(canvasActionNeedsDialog({
+      dialog: { enabled: true, params: [], preview: [{ kind: "panorama360", source: { pause: "viewer_node" } }] }
+    })).toBe(true);
+  });
 });

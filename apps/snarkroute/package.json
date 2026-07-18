@@ -11,6 +11,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@snarkroute/canvas-action-host": "workspace:*",
     "@snarkroute/core": "workspace:*",
     "@snarkroute/media-viewers": "workspace:*",
     "@snarkroute/model-catalog": "workspace:*",
