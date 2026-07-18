@@ -3892,7 +3892,7 @@ function App() {
                 Boojum
               </button>
               <button type="button" onClick={() => void openBrandeshmyg()} title="Open Brandeshmyg tools">
-                <ExternalLink size={14} />
+                <img className="brandeshmygButtonIcon" src="/brandeshmyg-icon.png" alt="" />
                 Brandeshmyg
               </button>
               <button type="button" onClick={() => void exportCanvasSettingsArchive()} title="Export settings archive">

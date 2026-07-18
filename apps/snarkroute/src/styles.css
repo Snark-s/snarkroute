@@ -238,6 +238,14 @@ dd {
   border-color: var(--accent);
 }
 
+.brandeshmygButtonIcon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: cover;
+  object-position: center;
+}
+
 .buttonSetupActions button:disabled {
   cursor: wait;
   opacity: 0.78;
