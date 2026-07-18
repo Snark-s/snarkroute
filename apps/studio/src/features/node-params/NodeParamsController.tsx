@@ -1,8 +1,8 @@
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { normalizeDialogueWorkbenchState, type ModelProfile } from "@snarkroute/protocol";
-import { creditPriceExplanation, formatCredits } from "../../shared/costFormatting";
-import { isUnsetOrManifestDefaultResizeDimension, useImageDimensions } from "../../shared/mediaPreview";
+import { creditPriceExplanation, formatEstimatedCreditsLabel } from "../../shared/costFormatting";
+import { useImageDimensions } from "../../shared/mediaPreview";
 import { modelLogoFor } from "../../modelLogos";
 import { GEMINI_LLM_MODEL_OPTIONS, POLZA_IMAGE_ASPECT_RATIOS, POLZA_IMAGE_FORMATS, POLZA_IMAGE_QUALITIES, POLZA_IMAGE_RESOLUTIONS, POLZA_VIDEO_DURATIONS, POLZA_VIDEO_RESOLUTIONS } from "../../studioConfig";
 import { AssetNodeParams } from "./AssetNodeParams";
@@ -105,15 +105,6 @@ export function NodeParamsController({
   useLayoutEffect(() => {
     restorePendingTextSelection(pendingTextSelectionRef);
   }, [params]);
-
-  useEffect(() => {
-    if (type !== "transform.imageResize" || !resizeInputDimensions.dimensions) return;
-    const { width, height } = resizeInputDimensions.dimensions;
-    const patch: Record<string, unknown> = {};
-    if (isUnsetOrManifestDefaultResizeDimension(params.width) && Number(params.width) !== width) patch.width = width;
-    if (isUnsetOrManifestDefaultResizeDimension(params.height) && Number(params.height) !== height) patch.height = height;
-    if (Object.keys(patch).length > 0) onChange(patch);
-  }, [type, resizeInputDimensions.dimensions?.width, resizeInputDimensions.dimensions?.height, params.width, params.height, onChange]);
 
   function updateTextParam(key: string, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>, transform: (value: string) => unknown = (value) => value) {
     updateTextFieldPreservingCaret(event, pendingTextSelectionRef, (value) => onChange({ [key]: transform(value) }));
@@ -261,7 +252,11 @@ export function NodeParamsController({
         <label className="nodeField">
           <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={modelOptionForNodeLogo(selectedNodeModel) ?? modelLogoFor("openrouter", model)}>
-            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => {
+              const nextModel = event.target.value;
+              const option = nodeModelOptions.find((entry) => entry.storedModelId === nextModel);
+              onChange({ model: nextModel, provider: option?.executionProvider, executionProvider: option?.executionProvider, providerMode: option?.executionProvider === "rutronix" ? "rutronix" : undefined });
+            }}>
               <option value="text.default">Auto / default text model</option>
               {(nodeModelOptions.length > 0
                 ? nodeModelOptions.map((entry) => <option key={entry.id} value={entry.storedModelId}>{modelOptionForNodeLabel(entry)}</option>)
@@ -289,6 +284,7 @@ export function NodeParamsController({
             <select className="nodrag nopan nodeInput nodeSelect" value={String(params.providerMode ?? "auto")} onChange={(event) => onChange({ providerMode: event.target.value })}>
               <option value="auto">Auto</option>
               <option value="openrouter">OpenRouter</option>
+              <option value="rutronix">RuTronix</option>
               <option value="direct">Direct</option>
             </select>
           </label>
@@ -304,15 +300,16 @@ export function NodeParamsController({
   if (type === "ai.image.generate") {
     const promptConnected = connectedInputPorts.has("prompt");
     const model = String(params.model ?? "image.nano-banana");
-    const connectionRoute = String(params.providerMode ?? "auto");
     const nodeModelOptions = modelOptionsForNodes["ai.image.generate"] ?? [];
     const modelOptions = nodeModelOptions.length > 0
       ? imageModelOptionsFromNodeOptions(nodeModelOptions, model)
       : enrichImageGenerationModelOptions(imageGenerationModelOptions(openRouterModels, model), catalogImageModels ?? []);
     const selectedModel = modelOptions.find((entry) => entry.id === model);
+    const connectionRoute = imageConnectionRouteFromParams(params, selectedModel);
     const aspectRatioOptions = imageAspectRatioOptions(selectedModel);
     const imageSizeOptions = imageSizeOptionsForModel(selectedModel);
-    const aspectRatio = supportedOptionValue(params.aspectRatio, aspectRatioOptions);
+    const aspectRatio = typeof params.aspectRatio === "string" && params.aspectRatio.trim() ? params.aspectRatio : supportedOptionValue(params.aspectRatio, aspectRatioOptions);
+    const visibleAspectRatioOptions = aspectRatio && !aspectRatioOptions.includes(aspectRatio) ? [aspectRatio, ...aspectRatioOptions] : aspectRatioOptions;
     const imageSize = supportedOptionValue(params.imageSize, imageSizeOptions);
     const routePreview = imageRoutePreview(selectedModel, connectionRoute);
     return (
@@ -325,11 +322,10 @@ export function NodeParamsController({
               value={model}
               onChange={(event) => {
                 const nextModel = modelOptions.find((entry) => entry.id === event.target.value);
-                const nextAspectRatios = imageAspectRatioOptions(nextModel);
                 const nextImageSizes = imageSizeOptionsForModel(nextModel);
                 onChange({
                   model: event.target.value,
-                  aspectRatio: supportedOptionValue(params.aspectRatio, nextAspectRatios),
+                  ...imageRouteParamsForModel(nextModel),
                   imageSize: supportedOptionValue(params.imageSize, nextImageSizes)
                 });
               }}
@@ -349,7 +345,7 @@ export function NodeParamsController({
           <label className="nodeField">
             <span>aspect ratio</span>
             <select className="nodrag nopan nodeInput nodeSelect" value={aspectRatio} onChange={(event) => onChange({ aspectRatio: event.target.value })}>
-              {aspectRatioOptions.map((value) => <option key={value} value={value}>{value}</option>)}
+              {visibleAspectRatioOptions.map((value) => <option key={value} value={value}>{value}</option>)}
             </select>
           </label>
           <label className="nodeField">
@@ -363,7 +359,7 @@ export function NodeParamsController({
           <summary>Advanced</summary>
           <label className="nodeField">
             <span>Connection route</span>
-            <select className="nodrag nopan nodeInput nodeSelect" value={connectionRoute} onChange={(event) => onChange({ providerMode: event.target.value })}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={connectionRoute} onChange={(event) => onChange(imageRouteParamsForConnectionRoute(event.target.value))}>
               <option value="auto">Auto</option>
               <option value="openrouter">OpenRouter</option>
               <option value="direct">Direct API</option>
@@ -745,9 +741,35 @@ function ModelCreditBadge({ costEstimate }: { costEstimate?: CostEstimate }) {
   return (
     <span className="modelCreditBadge" title={creditPriceExplanation(costEstimate)}>
       <span className="modelCreditDot" aria-hidden="true" />
-      <span>{formatCredits(costEstimate.estimatedCredits)}</span>
+      <span>{formatEstimatedCreditsLabel(costEstimate, costEstimate.estimatedCredits)}</span>
     </span>
   );
+}
+
+function imageConnectionRouteFromParams(params: Record<string, unknown>, selectedModel: { executionProvider?: string; routeSupport?: { openrouter: string; direct: string } } | undefined): string {
+  const explicitRoute = String(params.providerMode ?? "");
+  if (explicitRoute === "openrouter" || explicitRoute === "direct" || explicitRoute === "auto") return explicitRoute;
+  const executionProvider = String(params.executionProvider ?? params.provider ?? params.providerId ?? selectedModel?.executionProvider ?? "");
+  if (executionProvider === "openrouter") return "openrouter";
+  if (executionProvider === "gemini") return "direct";
+  if (selectedModel?.routeSupport?.openrouter === "supported") return "openrouter";
+  if (selectedModel?.routeSupport?.direct === "supported") return "direct";
+  return "auto";
+}
+
+function imageRouteParamsForModel(model: { executionProvider?: string; routeSupport?: { openrouter: string; direct: string } } | undefined): Record<string, unknown> {
+  const executionProvider = model?.executionProvider;
+  if (executionProvider === "openrouter") return { provider: "openrouter", executionProvider: "openrouter", providerMode: "openrouter" };
+  if (executionProvider === "gemini") return { provider: "gemini", executionProvider: "gemini", providerMode: "direct" };
+  if (model?.routeSupport?.openrouter === "supported") return { provider: "openrouter", executionProvider: "openrouter", providerMode: "openrouter" };
+  if (model?.routeSupport?.direct === "supported") return { provider: "gemini", executionProvider: "gemini", providerMode: "direct" };
+  return {};
+}
+
+function imageRouteParamsForConnectionRoute(route: string): Record<string, unknown> {
+  if (route === "openrouter") return { provider: "openrouter", executionProvider: "openrouter", providerMode: "openrouter" };
+  if (route === "direct") return { provider: "gemini", executionProvider: "gemini", providerMode: "direct" };
+  return { provider: undefined, executionProvider: undefined, providerMode: "auto" };
 }
 
 

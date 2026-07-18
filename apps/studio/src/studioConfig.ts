@@ -20,7 +20,9 @@ export const DEFAULT_APP_CAPABILITIES: AppCapabilities = {
   supportsCloudStoredUserKeys: false,
   supportsLocalFilesystem: true,
   supportsPublicSharing: false,
-  supportsDeveloperDiagnostics: false
+  supportsDeveloperDiagnostics: false,
+  cloudStorageConfigured: false,
+  cloudAuthReady: true
 };
 
 export const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";

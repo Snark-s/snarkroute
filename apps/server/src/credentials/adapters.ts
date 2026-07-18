@@ -1,4 +1,4 @@
-export type CredentialProvider = "openrouter" | "polza" | "replicate" | string;
+export type CredentialProvider = "openrouter" | "polza" | "replicate" | "rutronix" | string;
 
 export interface CredentialAdapter {
   getCredential(provider: CredentialProvider, ref?: string): Promise<string | null>;
@@ -21,7 +21,7 @@ export class ServerOwnedCredentialAdapter implements CredentialAdapter {
   }
 
   async listCredentials() {
-    return ["openrouter", "polza", "replicate"]
+    return ["openrouter", "polza", "replicate", "rutronix"]
       .filter((provider) => Boolean(serverOwnedCredential(provider)))
       .map((provider) => ({ provider, ref: "default", mode: "server-owned" as const }));
   }
@@ -75,6 +75,7 @@ export function envKeyForProvider(provider: string): string | null {
   if (provider === "openrouter") return "OPENROUTER_API_KEY";
   if (provider === "polza") return "POLZA_AI_API_KEY";
   if (provider === "replicate") return "REPLICATE_API_TOKEN";
+  if (provider === "rutronix") return "RUTRONIX_API_KEY";
   return null;
 }
 
@@ -82,6 +83,7 @@ export function serverOwnedCredential(provider: string): string | null {
   if (provider === "openrouter") return process.env.OPENROUTER_API_KEY?.trim() || null;
   if (provider === "polza") return process.env.POLZA_API_KEY?.trim() || process.env.POLZA_AI_API_KEY?.trim() || null;
   if (provider === "replicate") return process.env.REPLICATE_API_KEY?.trim() || process.env.REPLICATE_API_TOKEN?.trim() || null;
+  if (provider === "rutronix") return process.env.RUTRONIX_API_KEY?.trim() || null;
   return null;
 }
 

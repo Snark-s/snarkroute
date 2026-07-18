@@ -2,9 +2,11 @@ import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflo
 import { Aperture, BookOpen, Braces, Bug, ChevronDown, ChevronRight, ChevronUp, Cpu, Eraser, Eye, FileJson, FileText, Film, FolderOpen, Globe, ImageIcon, MessageSquareText, Save, Sparkles, Type, Video, Wand2 } from "lucide-react";
 import React, { useLayoutEffect, useRef } from "react";
 import { DEFAULT_MODEL_PROFILES, normalizeDialogueWorkbenchState, type DialogueOutputType, type ModelProfile } from "@snarkroute/protocol";
+import { modelMaxImageInputsV1 } from "@snarkroute/model-catalog";
 import { geminiTokenStatusText, replicateTokenStatusText } from "../../security-ui";
 import { modelLogoFor } from "../../modelLogos";
 import { filenameFromPath } from "../../shared/fileHelpers";
+import { creditPriceExplanation, formatCredits, formatEstimatedCreditsLabel } from "../../shared/costFormatting";
 import { imageLabel, imagePreviewSrc, lastImageValue, localImagePreviewSrc } from "../../shared/mediaPreview";
 import { routeNodeParamsCollapsed } from "../route-io/routeFlow";
 import { ModelLogoMark } from "../model-catalog/ModelViews";
@@ -59,6 +61,9 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
   const seedanceConfigured = Boolean(data.seedanceConfigured);
   const seedanceStatusText = String(data.seedanceStatusText ?? "");
   const polzaConfigured = Boolean(data.polzaConfigured);
+  const rutronixConfigured = Boolean(data.rutronixConfigured);
+  const rutronixKeyFingerprint = String(data.rutronixKeyFingerprint ?? "");
+  const polzaKeyFingerprint = String(data.polzaKeyFingerprint ?? "");
   const openRouterConfigured = Boolean(data.openRouterConfigured);
   const onConfigureReplicate = data.onConfigureReplicate as (() => void) | undefined;
   const onConfigureGemini = data.onConfigureGemini as (() => void) | undefined;
@@ -66,6 +71,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
   const onConfigureSeedance = data.onConfigureSeedance as (() => void) | undefined;
   const onConfigureWorldLabs = data.onConfigureWorldLabs as (() => void) | undefined;
   const onConfigurePolza = data.onConfigurePolza as (() => void) | undefined;
+  const onConfigureRutronix = data.onConfigureRutronix as (() => void) | undefined;
   const onConfigureOpenRouter = data.onConfigureOpenRouter as (() => void) | undefined;
   const onOpenImage = data.onOpenImage as ((image: ImageViewerState) => void) | undefined;
   const onDownloadImage = data.onDownloadImage as ((src: string, filename: string) => void) | undefined;
@@ -105,7 +111,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
   const connectedInputCounts = (data.connectedInputCounts as Record<string, number> | undefined) ?? {};
   const creditBalance = data.creditBalance as { balance: number; currency: string } | null | undefined;
   const canRunNodeOnly = Boolean(data.canRunNodeOnly);
-  const nodeNeedsCredits = Number(costEstimate?.estimatedCredits ?? 0);
+  const nodeNeedsCredits = Math.max(0, Math.ceil(Number(costEstimate?.finalCredits ?? costEstimate?.estimatedCredits ?? 0)));
   const nodeHasEnoughCredits = !creditBalance || creditBalance.balance >= nodeNeedsCredits;
   const ports = getNodePorts(type, manifest, routeNode);
   const outputPinned = pinnedOutputFromParams(params) !== undefined;
@@ -166,6 +172,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
     GEMINI_API_KEY: onConfigureGemini,
     OPENAI_API_KEY: onConfigureOpenAi,
     POLZA_AI_API_KEY: onConfigurePolza,
+    RUTRONIX_API_KEY: onConfigureRutronix,
     SEEDANCE_API_KEY: onConfigureSeedance,
     WORLDS_API_KEY: onConfigureWorldLabs
   });
@@ -326,7 +333,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
           ) : null}
         </div>
       ) : null}
-      {!paramsCollapsed && isRemoteAiNode(type) ? (
+      {!paramsCollapsed && isRemoteAiNode(type) && !isRutronixNode(type, params) ? (
         <div className={`nodeTokenStatus ${openRouterConfigured ? "configured" : "missing"}`}>
           <span>OpenRouter: {openRouterConfigured ? "key configured" : "missing"}</span>
           {!openRouterConfigured ? (
@@ -340,7 +347,7 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
       ) : null}
       {!paramsCollapsed && isPolzaNode(type) ? (
         <div className={`nodeTokenStatus ${polzaConfigured ? "configured" : "missing"}`}>
-          <span>Polza.ai: {polzaConfigured ? "key configured" : "missing"}</span>
+          <span>Polza.ai: {polzaConfigured ? `key configured${polzaKeyFingerprint ? ` (${polzaKeyFingerprint})` : ""}` : "missing"}</span>
           {!polzaConfigured ? (
             <>
               <strong>Requires Polza.ai API key</strong>
@@ -349,6 +356,25 @@ export function RouteNodeCardContainer({ id, data }: NodeProps) {
             </>
           ) : null}
         </div>
+      ) : null}
+      {!paramsCollapsed && isRutronixNode(type, params) ? (
+        <div className={`nodeTokenStatus ${rutronixConfigured ? "configured" : "missing"}`}>
+          <span>RuTronix: {rutronixConfigured ? `key configured${rutronixKeyFingerprint ? ` (${rutronixKeyFingerprint})` : ""}` : "missing"}</span>
+          {!rutronixConfigured ? (
+            <>
+              <strong>Requires RuTronix API key</strong>
+              <button className="nodeSmallButton nodrag nopan" onClick={onConfigureRutronix}>Configure RuTronix</button>
+              <small>Open Settings &gt; AI Providers &gt; RuTronix</small>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+      {!paramsCollapsed ? (
+        <NodePricingSummary
+          costEstimate={costEstimate}
+          creditBalance={creditBalance ?? null}
+          nodeHasEnoughCredits={nodeHasEnoughCredits}
+        />
       ) : null}
       {!paramsCollapsed ? (
         <NodeParamsController
@@ -428,6 +454,33 @@ function DialogueNodeMeta({ routeNode, modelProfiles }: { routeNode: RouteDoc["n
       </div>
       <div className="nodeMetaLine">{state.selectedOutputs.length} selected output(s)</div>
     </>
+  );
+}
+
+
+function NodePricingSummary({
+  costEstimate,
+  creditBalance,
+  nodeHasEnoughCredits
+}: {
+  costEstimate?: CostEstimate;
+  creditBalance: { balance: number; currency: string } | null;
+  nodeHasEnoughCredits: boolean;
+}) {
+  if (!costEstimate || costEstimate.free || costEstimate.estimatedCredits <= 0) return null;
+  const estimatedCredits = Math.max(0, Math.ceil(costEstimate.finalCredits ?? costEstimate.estimatedCredits));
+  return (
+    <div className={`nodePricingSummary ${nodeHasEnoughCredits ? "" : "insufficient"}`.trim()} title={creditPriceExplanation(costEstimate)}>
+      <div>
+        <span>Estimated</span>
+        <strong>{formatEstimatedCreditsLabel(costEstimate, estimatedCredits)} credits</strong>
+      </div>
+      <div>
+        <span>Balance</span>
+        <strong>{creditBalance ? `${formatCredits(creditBalance.balance)} credits` : "unknown"}</strong>
+      </div>
+      {!nodeHasEnoughCredits ? <p>Not enough credits</p> : null}
+    </div>
   );
 }
 
@@ -670,25 +723,11 @@ function portLabel(port: PortSpec, connectedCount: number): string {
 
 
 function polzaVideoImageInputLimit(routeNode?: RouteDoc["nodes"][number]): number {
-  return polzaVideoImageInputLimitForModel({ id: String(routeNode?.params?.model ?? "") });
-}
-
-
-function polzaVideoImageInputLimitForModel(modelInfo: Pick<PolzaModel, "id" | "maxImageInputs">): number {
-  const explicit = Number(modelInfo.maxImageInputs);
-  if (Number.isFinite(explicit) && explicit > 0 && !isPolzaVideoUpscaleModelId(modelInfo.id)) return Math.max(1, Math.floor(explicit));
-  const model = String(modelInfo.id ?? "").toLowerCase();
-  if (!model) return 14;
-  if (isPolzaVideoUpscaleModelId(model)) return 1;
-  if (/veo[-_]?3/.test(model)) return 2;
-  if (/seedance/.test(model)) return 9;
-  if (/wan/.test(model)) return 2;
-  return 14;
-}
-
-
-function isPolzaVideoUpscaleModelId(modelId: string | undefined): boolean {
-  return /(^|\/)(video-)?upscale|upscaler|topaz/i.test(String(modelId ?? ""));
+  return modelMaxImageInputsV1({
+    provider: "polza",
+    providerModelId: String(routeNode?.params?.model ?? ""),
+    outputTypes: ["video"]
+  }) ?? 14;
 }
 
 
@@ -780,6 +819,10 @@ function isRemoteAiNode(type: string): boolean {
 
 function isPolzaNode(type: string): boolean {
   return type === "polza.text" || type === "polza.image.generate" || type === "polza.video.generate";
+}
+
+function isRutronixNode(type: string, params: Record<string, unknown>): boolean {
+  return type === "ai.text" && String(params.model ?? "").startsWith("rutronix:");
 }
 
 

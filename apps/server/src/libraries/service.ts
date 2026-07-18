@@ -1,19 +1,29 @@
 import { createReadStream } from "node:fs";
 import { copyFile, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { randomBytes } from "node:crypto";
-import { builtInNodeManifests, loadInstalledNodeManifests, loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type PromptLibraryPrompt, type SnarkNodeManifest } from "@snarkroute/nodes";
-import { librariesDirectory } from "../server-paths";
+import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+import type { ExecuteOptions, RunResult } from "@snarkroute/executor";
+import type { OpenRoute } from "@snarkroute/protocol";
+import { buildCompoundTemplateExecution, builtInNodeManifests, compoundTemplateOutput, loadInstalledNodeManifests, loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type CompoundTemplateExecution, type PromptLibraryPrompt, type SnarkNodeManifest } from "@snarkroute/nodes";
+import { librariesDirectory, repoRoot } from "../server-paths";
 import { sanitizeFilename } from "../assets/service";
 import { createRouteExecutor } from "../execution/service";
+import { saveProviderUsageEventsForRunResult } from "../billing/provider-usage-events";
 import { createTextPromptAsset } from "../prompt-library/service";
 import { fetchWithTimeout } from "../services/http";
+import { appMode } from "../services/env";
 import { providerNodeManifests } from "../providers/provider-node-manifests";
+import { loadCanvasActionManifests } from "../canvas-actions/service";
 import { embedImageProvenance, imageMetadataSchema, type SnarkImageMetadata } from "./image-metadata";
 import type {
   AppendImageStackInput,
   AppendAudioStackInput,
   AppendVideoStackInput,
+  AppendTextNodeConversationMessageInput,
+  CollectionNodeItem,
+  CollectionNodeManifest,
+  CollectionNodeStoredItem,
+  CanvasActionPrepareResult,
   CreateNodeInput,
   CropMetadata,
   DuplicateCanvasNodeAsRepresentationInput,
@@ -50,20 +60,86 @@ import type {
   NestedLibrary,
   NodeView,
   RunCanvasNodeActionInput,
+  RunCanvasActionSessionInput,
+  CanvasActionSessionResult,
+  RunTextNodeConversationTurnInput,
   SnarkCanvasDocument,
   SnarkCanvasNode,
   SnarkLibraryManifest,
   TextNodeManifest,
+  TextNodeConversation,
+  TextNodeConversationMessage,
+  TextNodeConversationPart,
+  TextNodeConversationAttachmentInput,
   TextStackItem,
   UpdateMediaNodeRouteSettingsInput,
   VideoNodeManifest,
   VideoNodeView
 } from "./types";
 
+const canvasActionContinuationTtlMs = 15 * 60 * 1000;
+const canvasActionCacheDirectory = join(repoRoot, "data", "cache", "canvas-actions");
+const canvasActionContinuations = new Map<string, {
+  createdAt: number;
+  actionId: string;
+  sourceNodeId: string;
+  nodeOutputs: Record<string, unknown>;
+}>();
+const canvasActionContinuationCleanup = setInterval(() => cleanupCanvasActionContinuations(), 60_000);
+canvasActionContinuationCleanup.unref?.();
+
+export class CanvasActionContinuationGoneError extends Error {
+  readonly statusCode = 410;
+}
+
+function cleanupCanvasActionContinuations(now = Date.now()): void {
+  for (const [id, continuation] of canvasActionContinuations) {
+    if (now - continuation.createdAt >= canvasActionContinuationTtlMs) canvasActionContinuations.delete(id);
+  }
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`).join(",")}}`;
+  return JSON.stringify(value) ?? "undefined";
+}
+
+function canvasActionSourceHash(value: unknown): string {
+  return createHash("sha256").update(stableJson(value)).digest("hex");
+}
+
+function canvasActionCachePath(sourceNodeId: string, actionId: string): string {
+  return join(canvasActionCacheDirectory, `${createHash("sha256").update(`${sourceNodeId}\0${actionId}`).digest("hex")}.json`);
+}
+
+async function readCanvasActionCache(sourceNodeId: string, actionId: string, sourceHash: string): Promise<Record<string, unknown> | null> {
+  try {
+    const cached = JSON.parse(await readFile(canvasActionCachePath(sourceNodeId, actionId), "utf8")) as { sourceHash?: unknown; nodeOutputs?: unknown };
+    return cached.sourceHash === sourceHash && cached.nodeOutputs && typeof cached.nodeOutputs === "object" && !Array.isArray(cached.nodeOutputs) ? cached.nodeOutputs as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCanvasActionCache(sourceNodeId: string, actionId: string, sourceHash: string, nodeOutputs: Record<string, unknown>): Promise<void> {
+  await mkdir(canvasActionCacheDirectory, { recursive: true });
+  await writeFile(canvasActionCachePath(sourceNodeId, actionId), JSON.stringify({ sourceHash, nodeOutputs }));
+}
+
+function canvasActionRunFailure(action: SnarkNodeManifest, phase: "preparing" | "completing", runResult: RunResult): Error {
+  const detail = Object.values(runResult.nodeResults).find((result) => result.status === "failed")?.error
+    ?? [...runResult.logs].reverse().find((entry) => /error|fail/i.test(entry.message))?.message;
+  return new Error(`Canvas action "${action.title}" failed while ${phase}.${detail ? ` ${detail}` : ""}`);
+}
+
 export type {
   AppendImageStackInput,
   AppendAudioStackInput,
   AppendVideoStackInput,
+  AppendTextNodeConversationMessageInput,
+  CollectionNodeItem,
+  CollectionNodeManifest,
+  CollectionNodeStoredItem,
   CreateNodeInput,
   CropMetadata,
   DuplicateCanvasNodeAsRepresentationInput,
@@ -98,10 +174,14 @@ export type {
   NestedLibrary,
   NodeView,
   RunCanvasNodeActionInput,
+  RunTextNodeConversationTurnInput,
   SnarkCanvasDocument,
   SnarkCanvasNode,
   SnarkLibraryManifest,
   TextNodeManifest,
+  TextNodeConversation,
+  TextNodeConversationMessage,
+  TextNodeConversationPart,
   TextStackItem,
   UpdateMediaNodeRouteSettingsInput,
   VideoNodeManifest,
@@ -111,6 +191,7 @@ export type {
 const manifestFilename = "snark.library.json";
 const canvasFilename = "canvas.json";
 const currentPromptFilename = "current-prompt.txt";
+const conversationFilename = "conversation.json";
 const projectRegistryFilename = "projects.json";
 const defaultNodeWidth = 320;
 const defaultNodeHeight = 240;
@@ -228,8 +309,20 @@ export async function readLibrarySnapshot(libraryPath: string): Promise<LibraryS
   const manifest = await readLibraryManifest(libraryPath);
   const nestedLibraries = await listNestedLibraries(libraryPath);
   const canvas = await readCanvas(libraryPath, manifest);
+  if (canvas) await normalizeCollectionReferenceEdges(libraryPath, canvas);
   const nodes = canvas ? await readCanvasNodes(libraryPath, canvas) : [];
   return { manifest, path: libraryPath, nestedLibraries, canvas, nodes };
+}
+
+async function normalizeCollectionReferenceEdges(libraryPath: string, canvas: SnarkCanvasDocument): Promise<void> {
+  const collectionIds = new Set(canvas.nodes.filter((node) => node.type === "collection").map((node) => node.id));
+  let changed = false;
+  canvas.edges = (canvas.edges ?? []).map((edge) => {
+    if (!collectionIds.has(edge.fromNodeId) || edge.kind === "collectionItem") return edge;
+    changed = true;
+    return { ...edge, kind: "collectionItem" };
+  });
+  if (changed) await writeCanvas(libraryPath, canvas);
 }
 
 export async function listNestedLibraries(libraryPath: string): Promise<NestedLibrary[]> {
@@ -353,7 +446,12 @@ export async function importImageAsNode(input: ImportImageInput): Promise<Librar
     height
   });
   if (input.connectFromNodeId) {
-    canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.connectFromNodeId, toNodeId: id, kind: "crop" }];
+    canvas.edges = [...(canvas.edges ?? []), {
+      id: `edge_${shortId()}`,
+      fromNodeId: input.connectFromNodeId,
+      toNodeId: id,
+      kind: input.crop ? "crop" : undefined
+    }];
   }
   await writeCanvas(libraryPath, canvas);
   return readLibrarySnapshot(libraryPath);
@@ -517,6 +615,9 @@ export async function importTextAsNode(input: ImportTextInput): Promise<LibraryS
     width,
     height
   });
+  if (input.connectFromNodeId) {
+    canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.connectFromNodeId, toNodeId: id }];
+  }
   await writeCanvas(libraryPath, canvas);
   return readLibrarySnapshot(libraryPath);
 }
@@ -951,6 +1052,35 @@ export async function setImageNodeActiveStackItem(nodeId: string, stackIndex: nu
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function setStackNodeSelectedStackItems(nodeId: string, selectedStackItemIds: string[]): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const canvasNode = canvas.nodes.find((node) => node.id === nodeId);
+  if (!canvasNode) throw new Error(`Node "${nodeId}" was not found.`);
+  const typed = canvasNode.type === "image"
+    ? await readImageNode(nodeId)
+    : canvasNode.type === "video"
+      ? await readVideoNode(nodeId)
+      : canvasNode.type === "audio"
+        ? await readAudioNode(nodeId)
+        : canvasNode.type === "text"
+          ? await readTextNode(nodeId)
+          : null;
+  if (!typed) throw new Error("Selected stack items are available for stack nodes.");
+  const stack = typed.manifest.type === "text" ? await readTextNodeStack(typed.nodePath, typed.manifest) : typed.manifest.stack;
+  const requestedIds = new Set(selectedStackItemIds);
+  const selectedIds = stack.filter((item) => requestedIds.has(item.id)).map((item) => item.id);
+  if (selectedIds.length !== requestedIds.size) throw new Error("One or more selected stack items were not found.");
+  await writeJson(join(typed.nodePath, "snark.node.json"), {
+    ...typed.manifest,
+    selectedStackItemIds: selectedIds,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(libraryPath);
+}
+
+export const setImageNodeSelectedStackItems = setStackNodeSelectedStackItems;
+
 export async function setVideoNodeActiveStackItem(nodeId: string, stackIndex: number): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const { manifest, nodePath } = await readVideoNode(nodeId);
@@ -1021,6 +1151,7 @@ export async function deleteTextNodeStackItem(nodeId: string, stackItemId: strin
   await writeJson(join(nodePath, "snark.node.json"), {
     ...manifest,
     selectedStackItemId: manifest.selectedStackItemId === stackItemId ? nextStack[0]?.id : manifest.selectedStackItemId,
+    selectedStackItemIds: manifest.selectedStackItemIds?.filter((id) => id !== stackItemId) ?? [],
     updatedAt: new Date().toISOString()
   });
   return readLibrarySnapshot(libraryPath);
@@ -1039,6 +1170,7 @@ export async function deleteImageNodeStackItem(nodeId: string, stackItemId: stri
     ...manifest,
     stack: nextStack,
     activeStackIndex: Math.max(0, nextActiveIndex),
+    selectedStackItemIds: manifest.selectedStackItemIds?.filter((id) => id !== stackItemId) ?? [],
     updatedAt: new Date().toISOString()
   });
   await replaceDeletedRepresentativeImage(libraryPath, nodeId, stackItemId, nextStack[Math.max(0, nextActiveIndex)]?.id);
@@ -1058,6 +1190,7 @@ export async function deleteVideoNodeStackItem(nodeId: string, stackItemId: stri
     ...manifest,
     stack: nextStack,
     activeStackIndex: Math.max(0, nextActiveIndex),
+    selectedStackItemIds: manifest.selectedStackItemIds?.filter((id) => id !== stackItemId) ?? [],
     updatedAt: new Date().toISOString()
   });
   return readLibrarySnapshot(libraryPath);
@@ -1076,6 +1209,7 @@ export async function deleteAudioNodeStackItem(nodeId: string, stackItemId: stri
     ...manifest,
     stack: nextStack,
     activeStackIndex: Math.max(0, nextActiveIndex),
+    selectedStackItemIds: manifest.selectedStackItemIds?.filter((id) => id !== stackItemId) ?? [],
     updatedAt: new Date().toISOString()
   });
   return readLibrarySnapshot(libraryPath);
@@ -1285,6 +1419,84 @@ export async function generateAudioNodeStackItem(input: GenerateAudioNodeInput):
 export async function generateTextNodeStackItem(input: GenerateTextNodeInput): Promise<LibrarySnapshot> {
   const promptTemplate = input.prompt?.trim();
   if (!promptTemplate) throw new Error("Prompt is required.");
+  const { text } = await runTextNodeModel(input, promptTemplate);
+  if (!text) throw new Error(`Model "${input.modelId}" did not return text.`);
+  const snapshot = await appendTextToNodeStack(input.nodeId, text, firstTextLine(text) || "Generated text");
+  const { manifest, nodePath } = await readTextNode(input.nodeId);
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    modelId: input.modelId,
+    executionProvider: executionProviderForInput(input),
+    fallbackAllowed: input.fallbackAllowed !== false,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(snapshot.path);
+}
+
+export async function appendTextNodeConversationMessage(input: AppendTextNodeConversationMessageInput): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readTextNode(input.nodeId);
+  const conversation = await readTextNodeConversation(nodePath);
+  const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
+  const content = [
+    ...conversationPartsFromInput(input.content).map((part) =>
+      part.type === "text" ? { ...part, text: resolveTextInputTokens(part.text, connectedInputs) } : part
+    ),
+    ...await materializeConversationAttachments(libraryPath, nodePath, input.nodeId, input.attachments)
+  ];
+  if (!content.length) throw new Error("Message content is required.");
+  conversation.messages.push({
+    id: `msg_${shortId()}`,
+    role: input.role,
+    createdAt: new Date().toISOString(),
+    content
+  });
+  await writeTextNodeConversation(nodePath, conversation);
+  await touchTextNodeManifest(nodePath, manifest);
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function runTextNodeConversationTurn(input: RunTextNodeConversationTurnInput): Promise<LibrarySnapshot> {
+  const promptTemplate = input.prompt?.trim();
+  if (!promptTemplate) throw new Error("Prompt is required.");
+  const libraryPath = await ensureCurrentLibrary();
+  const { manifest, nodePath } = await readTextNode(input.nodeId);
+  const conversation = await readTextNodeConversation(nodePath);
+  const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
+  const orderedInputs = orderConnectedInputs(connectedInputs, input.inputNodeIds);
+  const promptContent: TextNodeConversationPart[] = [
+    { type: "text", text: resolveTextInputTokens(promptTemplate, orderedInputs) },
+    ...await materializeConversationAttachments(libraryPath, nodePath, input.nodeId, input.attachments)
+  ];
+  conversation.messages.push({
+    id: `msg_${shortId()}`,
+    role: "user",
+    createdAt: new Date().toISOString(),
+    content: promptContent
+  });
+
+  const images = limitImages(conversationImageInputs(nodePath, conversation), positiveInteger(input.maxImageInputs));
+  const modelPrompt = conversationPrompt(conversation, images, input.imageReferenceSyntax);
+  const { text, executionProvider } = await executeTextNodeModel(input, modelPrompt, images);
+  conversation.messages.push({
+    id: `msg_${shortId()}`,
+    role: "assistant",
+    createdAt: new Date().toISOString(),
+    content: [{ type: "text", text }],
+    model: { modelId: input.modelId, providerId: executionProvider }
+  });
+  await writeTextNodeConversation(nodePath, conversation);
+  await writeJson(join(nodePath, "snark.node.json"), {
+    ...manifest,
+    modelId: input.modelId,
+    executionProvider,
+    fallbackAllowed: input.fallbackAllowed !== false,
+    updatedAt: new Date().toISOString()
+  });
+  return readLibrarySnapshot(libraryPath);
+}
+
+async function runTextNodeModel(input: GenerateTextNodeInput, promptTemplate: string): Promise<{ text: string; executionProvider: string }> {
   const libraryPath = await ensureCurrentLibrary();
   const connectedInputs = await connectedCanvasInputs(libraryPath, input.nodeId);
   const orderedInputs = orderConnectedInputs(connectedInputs, input.inputNodeIds);
@@ -1299,10 +1511,15 @@ export async function generateTextNodeStackItem(input: GenerateTextNodeInput): P
     positiveInteger(input.maxImageInputs)
   );
   const prompt = resolveInputTokens(promptTemplate, orderedInputs, images, input.imageReferenceSyntax);
+  return executeTextNodeModel(input, prompt, images);
+}
+
+async function executeTextNodeModel(input: GenerateTextNodeInput, prompt: string, images: GenerationImageInput[]): Promise<{ text: string; executionProvider: string }> {
+  const executionProvider = executionProviderForInput(input);
   const runResult = await runTextModelForStackItem({
     nodeId: input.nodeId,
     modelId: input.modelId,
-    executionProvider: executionProviderForInput(input),
+    executionProvider,
     fallbackAllowed: input.fallbackAllowed,
     availableExecutionProviders: input.availableExecutionProviders,
     prompt,
@@ -1316,17 +1533,7 @@ export async function generateTextNodeStackItem(input: GenerateTextNodeInput): P
   const text = output && typeof output === "object" && typeof (output as Record<string, unknown>).text === "string"
     ? String((output as Record<string, unknown>).text).trim()
     : "";
-  if (!text) throw new Error(`Model "${input.modelId}" did not return text.`);
-  const snapshot = await appendTextToNodeStack(input.nodeId, text, firstTextLine(text) || "Generated text");
-  const { manifest, nodePath } = await readTextNode(input.nodeId);
-  await writeJson(join(nodePath, "snark.node.json"), {
-    ...manifest,
-    modelId: input.modelId,
-    executionProvider: executionProviderForInput(input),
-    fallbackAllowed: input.fallbackAllowed !== false,
-    updatedAt: new Date().toISOString()
-  });
-  return readLibrarySnapshot(snapshot.path);
+  return { text, executionProvider };
 }
 
 async function runImageModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
@@ -1335,7 +1542,6 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
   }
   const autoOnlyPolza = input.executionProvider === "auto" && input.availableExecutionProviders?.length === 1 && input.availableExecutionProviders[0] === "polza";
   const nodeType = input.executionProvider === "polza" || autoOnlyPolza ? "polza.image.generate" : "ai.image.generate";
-  const executor = await createRouteExecutor();
   const route = {
     routeVersion: "0.1",
     route: {
@@ -1350,7 +1556,7 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
     }],
     edges: []
   };
-  return executor.executeRoute(route);
+  return executeSnarkRouteWithUsageStats(route);
 }
 
 async function runTextModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[] }) {
@@ -1362,8 +1568,7 @@ async function runTextModelForStackItem(input: { nodeId: string; modelId: string
   const canFallbackFromPolza = input.executionProvider === "polza"
     && input.fallbackAllowed !== false
     && (input.availableExecutionProviders?.some((provider) => provider !== "polza") ?? true);
-  const executor = await createRouteExecutor();
-  const executeTextRoute = (nodeType: "ai.text" | "polza.text", executionProvider: string, providerMode: string) => executor.executeRoute({
+  const executeTextRoute = (nodeType: "ai.text" | "polza.text", executionProvider: string, providerMode: string) => executeSnarkRouteWithUsageStats({
       routeVersion: "0.1",
       route: { id: `snarkroute-text-generation-${input.nodeId}`, title: "SnarkRoute Text Generation", author: { name: "SnarkRoute" } },
       nodes: [{
@@ -1402,10 +1607,25 @@ function generationRunFailed(runResult: { status?: string; nodeResults?: Record<
   return runResult.status === "failed" || runResult.nodeResults?.generate?.status === "failed";
 }
 
+async function executeSnarkRouteWithUsageStats(route: OpenRoute, options?: ExecuteOptions): Promise<RunResult> {
+  const executor = await createRouteExecutor();
+  const runResult = options ? await executor.executeRoute(route, options) : await executor.executeRoute(route);
+  await persistSnarkUsageStats(runResult);
+  return runResult;
+}
+
+async function persistSnarkUsageStats(runResult: RunResult): Promise<void> {
+  if (appMode() !== "cloud") return;
+  try {
+    await saveProviderUsageEventsForRunResult(runResult, { recordCredits: true });
+  } catch {
+    // Usage statistics must not break Snark canvas generation.
+  }
+}
+
 async function runVideoModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
   if (input.executionProvider === "openrouter") return runOpenRouterVideoModelForStackItem(input);
   if (input.executionProvider !== "auto" && input.executionProvider !== "polza") throw new Error("Video generation is currently available through polza.ai or OpenRouter.");
-  const executor = await createRouteExecutor();
   const route = {
     routeVersion: "0.1",
     route: {
@@ -1420,7 +1640,7 @@ async function runVideoModelForStackItem(input: { nodeId: string; modelId: strin
     }],
     edges: []
   };
-  return executor.executeRoute(route);
+  return executeSnarkRouteWithUsageStats(route);
 }
 
 async function runAudioModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; prompt: string; mediaInputs: GenerationMediaInput[]; parameters: ImageGenerationSettings }) {
@@ -1611,7 +1831,7 @@ interface GenerationMediaInput {
 
 async function connectedCanvasInputs(libraryPath: string, targetNodeId: string): Promise<ConnectedCanvasInput[]> {
   const canvas = await ensureCanvas(libraryPath);
-  const sourceNodeIds = (canvas.edges ?? []).filter((edge) => edge.toNodeId === targetNodeId).map((edge) => edge.fromNodeId);
+  const sourceNodeIds = (canvas.edges ?? []).filter((edge) => edge.toNodeId === targetNodeId && edge.kind !== "collectionItem").map((edge) => edge.fromNodeId);
   const inputs: ConnectedCanvasInput[] = [];
   for (const sourceNodeId of sourceNodeIds) {
     const sourceNode = canvas.nodes.find((node) => node.id === sourceNodeId);
@@ -1874,7 +2094,7 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
   const id = `${input.type}_${shortId()}`;
   const width = input.width ?? defaultNodeWidth;
   const height = input.height ?? defaultNodeHeight;
-  const defaultTitle = input.type === "image" ? "Image" : input.type === "video" ? "Video" : input.type === "audio" ? "Audio" : "Text";
+  const defaultTitle = input.variant === "note" ? "Note" : input.type === "image" ? "Image" : input.type === "video" ? "Video" : input.type === "audio" ? "Audio" : input.type === "collection" ? "Collection" : "Text";
   const { title, nodeRelativePath } = await allocateCanvasNodeLocation(libraryPath, defaultTitle);
   const nodePath = resolvePortablePath(libraryPath, nodeRelativePath);
   await mkdir(nodePath, { recursive: true });
@@ -1921,16 +2141,28 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
     };
     await writeJson(join(nodePath, "snark.node.json"), manifest);
     await writeCurrentPrompt(nodePath, "");
+  } else if (input.type === "collection") {
+    const manifest: CollectionNodeManifest = {
+      format: "snarkroute.node",
+      version: "0.1",
+      id,
+      type: "collection",
+      title,
+      createdAt: now,
+      updatedAt: now
+    };
+    await writeJson(join(nodePath, "snark.node.json"), manifest);
   } else {
     const manifest: TextNodeManifest = {
       format: "snarkroute.node",
       version: "0.1",
       id,
       type: "text",
+      variant: input.variant,
       title,
       text: "",
       stackPath: "content",
-      color: "mint",
+      color: input.variant === "note" ? "amber" : "mint",
       createdAt: now,
       updatedAt: now
     };
@@ -1948,47 +2180,86 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
     width,
     height
   });
-  if (input.connectFromNodeId) {
+  if (input.connectFromNodeId && input.variant !== "note") {
     canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: input.connectFromNodeId, toNodeId: id }];
   }
   await writeCanvas(libraryPath, canvas);
   return readLibrarySnapshot(libraryPath);
 }
 
-export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Promise<LibrarySnapshot> {
+export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Promise<LibrarySnapshot | CanvasActionPrepareResult> {
   const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
   const action = await findCanvasActionManifest(input.actionId);
   if (!action) throw new Error(`Canvas action "${input.actionId}" was not found.`);
   const inputPort = action.inputs[0];
   const source = await canvasActionSourceInput(libraryPath, input.nodeId, inputPort.type);
-  const executor = await createRouteExecutor();
-  const runResult = await executor.executeRoute({
-    routeVersion: "0.1",
-    route: {
-      id: `snarkroute-canvas-action-${action.id}-${input.nodeId}`,
-      title: action.canvasAction?.title?.trim() || action.title,
-      author: { name: "SnarkRoute" }
-    },
-    nodes: [
-      { id: "source", type: "utility.null" },
-      { id: "action", type: action.id, params: input.params ?? {} }
-    ],
-    edges: [{ from: "source", to: "action", fromPort: "value", toPort: inputPort.id }]
-  }, {
-    initialNodeOutputs: { source: { value: source.value } }
-  });
-  const actionResult = runResult.nodeResults.action;
-  if (runResult.status !== "succeeded" || actionResult?.status !== "succeeded") {
-    throw new Error(actionResult?.error || `Canvas action "${action.title}" failed.`);
+  const targetNode = input.targetNodeId ? canvas.nodes.find((node) => node.id === input.targetNodeId) : undefined;
+  if (input.targetNodeId && !targetNode) throw new Error(`Target node "${input.targetNodeId}" was not found.`);
+  let output: Record<string, unknown>;
+  if (input.phase === "prepare") {
+    const execution = canvasActionCompoundExecution(action, input.nodeId, source.value, input.params);
+    const pauseNodeId = canvasActionPauseNodeId(action);
+    const upstream = upstreamNodeIds(execution.route, pauseNodeId);
+    const prepareRoute: OpenRoute = {
+      ...execution.route,
+      nodes: execution.route.nodes.filter((node) => upstream.has(node.id)),
+      edges: execution.route.edges.filter((edge) => upstream.has(edge.from) && upstream.has(edge.to))
+    };
+    const initialNodeOutputs = Object.fromEntries(Object.entries(execution.initialNodeOutputs).filter(([nodeId]) => upstream.has(nodeId)));
+    const sourceHash = canvasActionSourceHash(source.value);
+    let nodeOutputs = input.reuse ? await readCanvasActionCache(input.nodeId, action.id, sourceHash) : null;
+    if (!nodeOutputs) {
+      const runResult = await executeSnarkRouteWithUsageStats(prepareRoute, { initialNodeOutputs });
+      if (runResult.status !== "succeeded") throw canvasActionRunFailure(action, "preparing", runResult);
+      nodeOutputs = { ...initialNodeOutputs, ...Object.fromEntries(Object.entries(runResult.nodeResults).filter(([, result]) => result.status === "succeeded").map(([nodeId, result]) => [nodeId, result.output])) };
+      await writeCanvasActionCache(input.nodeId, action.id, sourceHash, nodeOutputs);
+    }
+    const continuationId = randomBytes(18).toString("base64url");
+    canvasActionContinuations.set(continuationId, { createdAt: Date.now(), actionId: action.id, sourceNodeId: input.nodeId, nodeOutputs });
+    return { continuationId, previews: canvasActionPreparedPreviews(action, execution, pauseNodeId, nodeOutputs) };
   }
-  const output = actionResult.output && typeof actionResult.output === "object" ? actionResult.output as Record<string, unknown> : {};
+  if (input.phase === "complete") {
+    cleanupCanvasActionContinuations();
+    const continuation = input.continuationId ? canvasActionContinuations.get(input.continuationId) : undefined;
+    if (!continuation || continuation.actionId !== action.id || continuation.sourceNodeId !== input.nodeId) {
+      throw new CanvasActionContinuationGoneError("This interactive action expired. Start the preview again.");
+    }
+    const execution = canvasActionCompoundExecution(action, input.nodeId, source.value, input.params, continuation.nodeOutputs);
+    const runResult = await executeSnarkRouteWithUsageStats(execution.route, { initialNodeOutputs: execution.initialNodeOutputs });
+    if (runResult.status !== "succeeded") throw canvasActionRunFailure(action, "completing", runResult);
+    canvasActionContinuations.delete(input.continuationId!);
+    output = compoundTemplateOutput(execution, runResult.nodeResults);
+  } else {
+    const runResult = await executeSnarkRouteWithUsageStats({
+      routeVersion: "0.1",
+      route: { id: `snarkroute-canvas-action-${action.id}-${input.nodeId}`, title: action.canvasAction?.title?.trim() || action.title, author: { name: "SnarkRoute" } },
+      nodes: [{ id: "source", type: "utility.null" }, { id: "action", type: action.id, params: input.params ?? {} }],
+      edges: [{ from: "source", to: "action", fromPort: "value", toPort: inputPort.id }]
+    }, { initialNodeOutputs: { source: { value: source.value } } });
+    const actionResult = runResult.nodeResults.action;
+    if (runResult.status !== "succeeded" || actionResult?.status !== "succeeded") throw new Error(actionResult?.error || `Canvas action "${action.title}" failed.`);
+    output = actionResult.output && typeof actionResult.output === "object" ? actionResult.output as Record<string, unknown> : {};
+  }
   let created = 0;
   for (const port of action.outputs) {
     const value = output[port.id];
     if (value === undefined || value === null) continue;
+    if (targetNode) {
+      if (targetNode.type !== port.type) continue;
+      await appendCanvasActionOutputToTargetStack({
+        targetNodeId: targetNode.id,
+        title: port.label ?? action.canvasAction?.title ?? action.title,
+        type: port.type,
+        value
+      });
+      created += 1;
+      continue;
+    }
     await materializeCanvasActionOutput({
       libraryPath,
       sourceNodeId: input.nodeId,
+      actionId: input.actionId,
       title: port.label ?? action.canvasAction?.title ?? action.title,
       type: port.type,
       value,
@@ -2085,7 +2356,7 @@ export async function syncRepresentationEdge(edgeId: string): Promise<LibrarySna
   return readLibrarySnapshot(libraryPath);
 }
 
-export async function updateTextNode(nodeId: string, updates: { text?: string; color?: string; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean }): Promise<LibrarySnapshot> {
+export async function updateTextNode(nodeId: string, updates: { text?: string; color?: string; inputMode?: "text" | "dialogue"; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean }): Promise<LibrarySnapshot> {
   const libraryPath = await ensureCurrentLibrary();
   const canvas = await ensureCanvas(libraryPath);
   const canvasNode = canvas.nodes.find((node) => node.id === nodeId && node.type === "text");
@@ -2096,6 +2367,7 @@ export async function updateTextNode(nodeId: string, updates: { text?: string; c
   await writeJson(manifestPath, {
     ...manifest,
     text: updates.text ?? manifest.text,
+    inputMode: updates.inputMode ?? manifest.inputMode,
     color: updates.color ?? manifest.color,
     modelId: updates.modelId ?? manifest.modelId,
     executionProvider: updates.executionProvider ?? manifest.executionProvider,
@@ -2148,7 +2420,7 @@ export async function renameCanvasNode(nodeId: string, title: string): Promise<L
   if (!canvasNode) throw new Error(`Node "${nodeId}" was not found.`);
   const currentPath = resolvePortablePath(libraryPath, canvasNode.nodePath);
   const manifestPath = join(currentPath, "snark.node.json");
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | TextNodeManifest | LibraryNodeManifest;
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest | CollectionNodeManifest;
   const location = await allocateCanvasNodeLocation(libraryPath, title.trim() || manifest.title, canvasNode.nodePath);
   const nextPath = resolvePortablePath(libraryPath, location.nodeRelativePath);
   if (nextPath !== currentPath) await rename(currentPath, nextPath);
@@ -2166,12 +2438,232 @@ export async function deleteCanvasNode(nodeId: string): Promise<LibrarySnapshot>
   const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
   canvas.nodes = canvas.nodes.filter((node) => node.id !== nodeId);
   canvas.edges = (canvas.edges ?? []).filter((edge) => edge.fromNodeId !== nodeId && edge.toNodeId !== nodeId);
+  await moveCanvasNodeFolderToTrash(libraryPath, nodePath);
   await writeCanvas(libraryPath, canvas);
-  const trashDirectory = join(libraryPath, ".trash", "nodes");
-  await mkdir(trashDirectory, { recursive: true });
-  await rename(nodePath, join(trashDirectory, `${basename(nodePath)}-${Date.now().toString(36)}-${shortId()}`));
   await replaceDeletedRepresentativeImage(libraryPath, nodeId);
   return readLibrarySnapshot(libraryPath);
+}
+
+export async function runCanvasActionSession(input: RunCanvasActionSessionInput): Promise<CanvasActionSessionResult> {
+  const action = await findCanvasActionManifest(input.actionId);
+  if (!action) throw new Error(`Canvas action "${input.actionId}" was not found.`);
+  if (action.inputs[0].type !== input.input.type) throw new Error(`Canvas action expects ${action.inputs[0].type}, but the session input is ${input.input.type}.`);
+  const sourceKey = `session:${input.sessionId}`;
+  const value = await canvasActionSessionInputValue(input);
+
+  if (input.phase === "prepare") {
+    const execution = canvasActionCompoundExecution(action, sourceKey, value, input.params);
+    const pauseNodeId = canvasActionPauseNodeId(action);
+    const upstream = upstreamNodeIds(execution.route, pauseNodeId);
+    const prepareRoute: OpenRoute = {
+      ...execution.route,
+      nodes: execution.route.nodes.filter((node) => upstream.has(node.id)),
+      edges: execution.route.edges.filter((edge) => upstream.has(edge.from) && upstream.has(edge.to))
+    };
+    const initialNodeOutputs = Object.fromEntries(Object.entries(execution.initialNodeOutputs).filter(([nodeId]) => upstream.has(nodeId)));
+    const runResult = await executeSnarkRouteWithUsageStats(prepareRoute, { initialNodeOutputs });
+    if (runResult.status !== "succeeded") throw canvasActionRunFailure(action, "preparing", runResult);
+    const nodeOutputs = { ...initialNodeOutputs, ...Object.fromEntries(Object.entries(runResult.nodeResults).filter(([, result]) => result.status === "succeeded").map(([nodeId, result]) => [nodeId, result.output])) };
+    const continuationId = randomBytes(18).toString("base64url");
+    canvasActionContinuations.set(continuationId, { createdAt: Date.now(), actionId: action.id, sourceNodeId: sourceKey, nodeOutputs });
+    return { status: "paused", continuationId, previews: canvasActionPreparedPreviews(action, execution, pauseNodeId, nodeOutputs), results: [] };
+  }
+
+  let output: Record<string, unknown>;
+  if (input.phase === "complete") {
+    cleanupCanvasActionContinuations();
+    const continuation = input.continuationId ? canvasActionContinuations.get(input.continuationId) : undefined;
+    if (!continuation || continuation.actionId !== action.id || continuation.sourceNodeId !== sourceKey) {
+      throw new CanvasActionContinuationGoneError("This interactive action expired. Start the preview again.");
+    }
+    const execution = canvasActionCompoundExecution(action, sourceKey, value, input.params, continuation.nodeOutputs);
+    const runResult = await executeSnarkRouteWithUsageStats(execution.route, { initialNodeOutputs: execution.initialNodeOutputs });
+    if (runResult.status !== "succeeded") throw canvasActionRunFailure(action, "completing", runResult);
+    canvasActionContinuations.delete(input.continuationId!);
+    output = compoundTemplateOutput(execution, runResult.nodeResults);
+  } else {
+    const runResult = await executeSnarkRouteWithUsageStats({
+      routeVersion: "0.1",
+      route: { id: `brandeshmyg-${action.id}-${createHash("sha256").update(input.sessionId).digest("hex").slice(0, 12)}`, title: action.canvasAction?.title?.trim() || action.title, author: { name: "Brandeshmyg" } },
+      nodes: [{ id: "source", type: "utility.null" }, { id: "action", type: action.id, params: input.params ?? {} }],
+      edges: [{ from: "source", to: "action", fromPort: "value", toPort: action.inputs[0].id }]
+    }, { initialNodeOutputs: { source: { value } } });
+    const actionResult = runResult.nodeResults.action;
+    if (runResult.status !== "succeeded" || actionResult?.status !== "succeeded") throw new Error(actionResult?.error || `Canvas action "${action.title}" failed.`);
+    output = actionResult.output && typeof actionResult.output === "object" ? actionResult.output as Record<string, unknown> : {};
+  }
+  return { status: "completed", results: normalizeCanvasActionResults(action, output) };
+}
+
+export async function disposeCanvasActionSession(sessionId: string): Promise<void> {
+  const sourceKey = `session:${sessionId}`;
+  for (const [continuationId, continuation] of canvasActionContinuations) {
+    if (continuation.sourceNodeId === sourceKey) canvasActionContinuations.delete(continuationId);
+  }
+  await rm(canvasActionSessionDirectory(sessionId), { recursive: true, force: true });
+}
+
+function canvasActionCompoundExecution(action: SnarkNodeManifest, sourceNodeId: string, sourceValue: unknown, params?: Record<string, unknown>, initialNodeOutputs?: Record<string, unknown>): CompoundTemplateExecution {
+  return buildCompoundTemplateExecution(action, {
+    nodeId: "action",
+    routeId: `snarkroute-canvas-action-${action.id}-${sourceNodeId}`,
+    title: action.canvasAction?.title?.trim() || action.title,
+    params,
+    inputs: { [action.inputs[0].id]: sourceValue },
+    initialNodeOutputs
+  });
+}
+
+function canvasActionPauseNodeId(action: SnarkNodeManifest): string {
+  const preview = action.canvasAction?.dialog?.preview?.find((candidate) => candidate.kind === "panorama360" || candidate.kind === "splat");
+  if (preview?.source !== "input" && preview?.source && "pause" in preview.source) return preview.source.pause;
+  const paramIds = Object.values(action.canvasAction?.poseBindings ?? {});
+  const nodeIds = new Set(paramIds.map((paramId) => action.params?.find((param) => param.id === paramId)?.binding?.nodeId).filter((nodeId): nodeId is string => Boolean(nodeId)));
+  if (nodeIds.size !== 1) throw new Error(`Canvas action "${action.title}" must bind its pose parameters to one pause node.`);
+  return [...nodeIds][0];
+}
+
+function upstreamNodeIds(route: OpenRoute, pauseNodeId: string): Set<string> {
+  if (!route.nodes.some((node) => node.id === pauseNodeId)) throw new Error(`Pause node "${pauseNodeId}" was not found in the action subroute.`);
+  const result = new Set<string>();
+  const pending = route.edges.filter((edge) => edge.to === pauseNodeId).map((edge) => edge.from);
+  while (pending.length > 0) {
+    const nodeId = pending.pop()!;
+    if (result.has(nodeId)) continue;
+    result.add(nodeId);
+    pending.push(...route.edges.filter((edge) => edge.to === nodeId).map((edge) => edge.from));
+  }
+  return result;
+}
+
+function canvasActionPreparedPreviews(action: SnarkNodeManifest, execution: CompoundTemplateExecution, pauseNodeId: string, nodeOutputs: Record<string, unknown>): CanvasActionPrepareResult["previews"] {
+  const preview = action.canvasAction?.dialog?.preview?.find((candidate) => candidate.kind === "panorama360" || candidate.kind === "splat");
+  if (!preview || (preview.kind !== "panorama360" && preview.kind !== "splat")) return [];
+  const kind = preview.kind;
+  const edge = execution.route.edges.find((candidate) => candidate.to === pauseNodeId);
+  if (!edge) return [];
+  const value = readCanvasActionOutputPort(nodeOutputs[edge.from], edge.fromPort);
+  const src = canvasActionPreviewSource(value, kind);
+  return src ? [{ kind, src }] : [];
+}
+
+function readCanvasActionOutputPort(output: unknown, port?: string): unknown {
+  if (!port || !output || typeof output !== "object" || Array.isArray(output)) return output;
+  return (output as Record<string, unknown>)[port] ?? output;
+}
+
+function canvasActionPreviewSource(value: unknown, kind: "panorama360" | "splat"): string | null {
+  if (typeof value === "string") return canvasActionPreviewUrl(value, kind);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const key of kind === "splat" ? ["splatUrl", "splat_url", "url", "localPath", "path", "file"] : ["url", "localPath", "path", "file", "image", "panorama"]) {
+    const found = canvasActionPreviewSource(record[key], kind);
+    if (found) return found;
+  }
+  return null;
+}
+
+function canvasActionPreviewUrl(path: string, kind: "panorama360" | "splat"): string {
+  if (/^(?:https?:|data:|blob:|\/api\/)/i.test(path)) return path;
+  return `/api/assets/preview?kind=${kind === "splat" ? "file" : "image"}&path=${encodeURIComponent(path)}`;
+}
+
+export async function duplicateCollectionItemAsNode(input: { nodeId: string; itemId: string; x: number; y: number; width?: number; height?: number }): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const collectionNode = canvas.nodes.find((node) => node.id === input.nodeId && node.type === "collection");
+  if (!collectionNode) throw new Error(`Collection node "${input.nodeId}" was not found.`);
+  const item = (await collectionNodeItems(libraryPath, canvas, input.nodeId)).find((candidate) => candidate.id === input.itemId);
+  if (!item) throw new Error(`Collection item "${input.itemId}" was not found.`);
+  const collectionPath = resolvePortablePath(libraryPath, collectionNode.nodePath);
+  const sourcePath = resolvePortablePath(collectionPath, item.file);
+  const existingNodeIds = new Set(canvas.nodes.map((node) => node.id));
+  const filename = `${sanitizeFilename(item.title) || item.type}${extname(item.file)}`;
+  const common = {
+    filename,
+    sourcePath,
+    dropX: input.x,
+    dropY: input.y,
+    width: input.width,
+    height: input.height
+  };
+  if (item.type === "image") await importImageAsNode(common);
+  else if (item.type === "video") await importVideoAsNode(common);
+  else if (item.type === "audio") await importAudioAsNode(common);
+  else await importTextAsNode({
+      filename: `${sanitizeFilename(item.title) || "text"}.md`,
+      text: item.text ?? "",
+      dropX: input.x,
+      dropY: input.y,
+      width: input.width,
+      height: input.height
+    });
+
+  const nextCanvas = await ensureCanvas(libraryPath);
+  const createdNode = nextCanvas.nodes.find((node) => !existingNodeIds.has(node.id));
+  if (!createdNode) throw new Error("Collection item did not create a node.");
+  nextCanvas.edges = [...(nextCanvas.edges ?? []), {
+    id: `edge_${shortId()}`,
+    fromNodeId: input.nodeId,
+    toNodeId: createdNode.id,
+    kind: "collectionItem"
+  }];
+  await writeCanvas(libraryPath, nextCanvas);
+  return readLibrarySnapshot(libraryPath);
+}
+
+export async function trashOrphanCanvasNodeFolders(): Promise<{ snapshot: LibrarySnapshot; movedCount: number; movedNodePaths: string[]; failedCount: number; failedNodePaths: Array<{ nodePath: string; error: string }> }> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const hydratedNodes = await readCanvasNodes(libraryPath, canvas);
+  const retainedNodeIds = new Set(hydratedNodes.map((node) => node.canvas.id));
+  const retainedCanvasNodes = hydratedNodes.map((node) => node.canvas);
+  const referencedNodePaths = new Set(retainedCanvasNodes.map((node) => node.nodePath.split("\\").join("/").toLowerCase()));
+  const nodesDirectory = join(libraryPath, "nodes");
+  const entries = await readdir(nodesDirectory, { withFileTypes: true }).catch(() => []);
+  const movedNodePaths: string[] = [];
+  const failedNodePaths: Array<{ nodePath: string; error: string }> = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.endsWith(".node")) continue;
+    const nodePath = join(nodesDirectory, entry.name);
+    const relativePath = portableRelativePath(libraryPath, nodePath);
+    if (referencedNodePaths.has(relativePath.toLowerCase())) continue;
+    try {
+      await moveCanvasNodeFolderToTrash(libraryPath, nodePath);
+      movedNodePaths.push(relativePath);
+    } catch (error) {
+      failedNodePaths.push({ nodePath: relativePath, error: errorMessageText(error) });
+    }
+  }
+
+  canvas.nodes = retainedCanvasNodes;
+  canvas.edges = (canvas.edges ?? []).filter((edge) => retainedNodeIds.has(edge.fromNodeId) && retainedNodeIds.has(edge.toNodeId));
+  await writeCanvas(libraryPath, canvas);
+
+  return { snapshot: await readLibrarySnapshot(libraryPath), movedCount: movedNodePaths.length, movedNodePaths, failedCount: failedNodePaths.length, failedNodePaths };
+}
+
+async function moveCanvasNodeFolderToTrash(libraryPath: string, nodePath: string): Promise<void> {
+  if (!await pathExists(nodePath)) return;
+  const trashDirectory = join(libraryPath, ".trash", "nodes");
+  await mkdir(trashDirectory, { recursive: true });
+  const targetPath = join(trashDirectory, `${basename(nodePath)}-${Date.now().toString(36)}-${shortId()}`);
+  try {
+    await rename(nodePath, targetPath);
+  } catch (error) {
+    await cp(nodePath, targetPath, { recursive: true, force: false, errorOnExist: true });
+    try {
+      await rm(nodePath, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 });
+    } catch (removeError) {
+      await rm(targetPath, { recursive: true, force: true, maxRetries: 3, retryDelay: 150 }).catch(() => undefined);
+      throw removeError;
+    }
+  }
+}
+
+function errorMessageText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export async function deleteCanvasEdge(edgeId: string): Promise<LibrarySnapshot> {
@@ -2501,10 +2993,16 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
   for (const canvasNode of canvas.nodes) {
     const manifestPath = join(resolvePortablePath(libraryPath, canvasNode.nodePath), "snark.node.json");
     if (!await fileExists(manifestPath)) continue;
-    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest;
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as ImageNodeManifest | VideoNodeManifest | AudioNodeManifest | TextNodeManifest | LibraryNodeManifest | CollectionNodeManifest;
     if (manifest.type === "image") {
       const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
-      const hydratedManifest = { ...await syncMediaStackWithContent(nodePath, manifest), currentPrompt: await readCurrentPrompt(nodePath) };
+      const syncedManifest = await syncMediaStackWithContent(nodePath, manifest);
+      const stackItemIds = new Set(syncedManifest.stack.map((item) => item.id));
+      const hydratedManifest = {
+        ...syncedManifest,
+        selectedStackItemIds: syncedManifest.selectedStackItemIds?.filter((id) => stackItemIds.has(id)) ?? [],
+        currentPrompt: await readCurrentPrompt(nodePath)
+      };
       const activeStackItem = hydratedManifest.stack[hydratedManifest.activeStackIndex] ?? null;
       nodes.push({
         canvas: canvasNode,
@@ -2515,7 +3013,9 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
     }
     if (manifest.type === "video") {
       const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
-      const hydratedManifest = { ...await syncMediaStackWithContent(nodePath, manifest), currentPrompt: await readCurrentPrompt(nodePath) };
+      const syncedManifest = await syncMediaStackWithContent(nodePath, manifest);
+      const stackItemIds = new Set(syncedManifest.stack.map((item) => item.id));
+      const hydratedManifest = { ...syncedManifest, selectedStackItemIds: syncedManifest.selectedStackItemIds?.filter((id) => stackItemIds.has(id)) ?? [], currentPrompt: await readCurrentPrompt(nodePath) };
       const activeStackItem = hydratedManifest.stack[hydratedManifest.activeStackIndex] ?? null;
       nodes.push({
         canvas: canvasNode,
@@ -2526,7 +3026,9 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
     }
     if (manifest.type === "audio") {
       const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
-      const hydratedManifest = { ...await syncMediaStackWithContent(nodePath, manifest), currentPrompt: await readCurrentPrompt(nodePath) };
+      const syncedManifest = await syncMediaStackWithContent(nodePath, manifest);
+      const stackItemIds = new Set(syncedManifest.stack.map((item) => item.id));
+      const hydratedManifest = { ...syncedManifest, selectedStackItemIds: syncedManifest.selectedStackItemIds?.filter((id) => stackItemIds.has(id)) ?? [], currentPrompt: await readCurrentPrompt(nodePath) };
       const activeStackItem = hydratedManifest.stack[hydratedManifest.activeStackIndex] ?? null;
       nodes.push({
         canvas: canvasNode,
@@ -2539,13 +3041,26 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
       const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
       const stack = await readTextNodeStack(nodePath, manifest);
       const activeStackItem = stack.find((item) => item.id === manifest.selectedStackItemId) ?? null;
+      const stackItemIds = new Set(stack.map((item) => item.id));
       nodes.push({
         canvas: canvasNode,
-        manifest: { ...manifest, stackPath: manifest.stackPath ?? "content", selectedStackItemId: activeStackItem?.id },
+        manifest: { ...manifest, inputMode: manifest.inputMode ?? "text", stackPath: manifest.stackPath ?? "content", selectedStackItemId: activeStackItem?.id, selectedStackItemIds: manifest.selectedStackItemIds?.filter((id) => stackItemIds.has(id)) ?? [] },
         stack,
+        conversation: await readTextNodeConversation(nodePath),
         activeStackItem,
         outputText: activeStackItem?.text ?? manifest.text,
         previewUrl: activeStackItem?.previewFile ? `/api/libraries/current/text-nodes/${encodeURIComponent(manifest.id)}/stack/${encodeURIComponent(activeStackItem.id)}/preview` : null
+      });
+    }
+    if (manifest.type === "collection") {
+      const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+      const synced = await syncCollectionNode(libraryPath, canvas, nodePath, manifest);
+      nodes.push({
+        canvas: canvasNode,
+        manifest: synced.manifest,
+        items: synced.items,
+        activeStackItem: null,
+        previewUrl: null
       });
     }
     if (manifest.type === "library") {
@@ -2579,9 +3094,218 @@ async function readCanvasNodes(libraryPath: string, canvas: SnarkCanvasDocument)
   return nodes;
 }
 
+export async function createCollectionItemReadStream(nodeId: string, itemId: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const canvasNode = canvas.nodes.find((node) => node.id === nodeId && node.type === "collection");
+  if (!canvasNode) throw new Error(`Collection node "${nodeId}" was not found.`);
+  const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+  const manifest = JSON.parse(await readFile(join(nodePath, "snark.node.json"), "utf8")) as CollectionNodeManifest;
+  const item = manifest.items?.find((candidate) => candidate.id === itemId);
+  if (!item) throw new Error(`Collection item "${itemId}" was not found.`);
+  return { stream: createReadStream(resolvePortablePath(nodePath, item.file)), mimeType: item.mimeType };
+}
+
+export async function deleteCollectionNodeItem(nodeId: string, itemId: string): Promise<LibrarySnapshot> {
+  const libraryPath = await ensureCurrentLibrary();
+  const canvas = await ensureCanvas(libraryPath);
+  const canvasNode = canvas.nodes.find((node) => node.id === nodeId && node.type === "collection");
+  if (!canvasNode) throw new Error(`Collection node "${nodeId}" was not found.`);
+  const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+  const manifestPath = join(nodePath, "snark.node.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as CollectionNodeManifest;
+  const item = (await syncCollectionNode(libraryPath, canvas, nodePath, manifest)).items.find((candidate) => candidate.id === itemId);
+  if (!item) throw new Error(`Collection item "${itemId}" was not found.`);
+  if (item.manual) {
+    await rm(resolvePortablePath(nodePath, item.file), { force: true });
+    await writeJson(manifestPath, { ...manifest, items: (manifest.items ?? []).filter((candidate) => candidate.id !== itemId), updatedAt: new Date().toISOString() });
+  } else {
+    canvas.edges = (canvas.edges ?? []).filter((edge) => !(edge.toNodeId === nodeId && edge.fromNodeId === item.sourceNodeId));
+    await writeCanvas(libraryPath, canvas);
+  }
+  return readLibrarySnapshot(libraryPath);
+}
+
+interface DesiredCollectionItem extends Omit<CollectionNodeStoredItem, "file"> {
+  sourcePath?: string;
+  externalUrl?: string;
+}
+
+async function collectionNodeItems(libraryPath: string, canvas: SnarkCanvasDocument, collectionNodeId: string): Promise<CollectionNodeItem[]> {
+  const canvasNode = canvas.nodes.find((node) => node.id === collectionNodeId && node.type === "collection");
+  if (!canvasNode) return [];
+  const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
+  const manifest = JSON.parse(await readFile(join(nodePath, "snark.node.json"), "utf8")) as CollectionNodeManifest;
+  return (await syncCollectionNode(libraryPath, canvas, nodePath, manifest)).items;
+}
+
+async function syncCollectionNode(
+  libraryPath: string,
+  canvas: SnarkCanvasDocument,
+  nodePath: string,
+  manifest: CollectionNodeManifest
+): Promise<{ manifest: CollectionNodeManifest; items: CollectionNodeItem[] }> {
+  const sourceNodeIds = (canvas.edges ?? []).filter((edge) => edge.toNodeId === manifest.id).map((edge) => edge.fromNodeId);
+  const desired: DesiredCollectionItem[] = [];
+  for (const sourceNodeId of sourceNodeIds) {
+    const sourceNode = canvas.nodes.find((node) => node.id === sourceNodeId);
+    if (sourceNode?.type === "image") {
+      const { manifest, nodePath } = await readImageNode(sourceNodeId);
+      const synced = await syncMediaStackWithContent(nodePath, manifest);
+      const selected = new Set(synced.selectedStackItemIds ?? []);
+      const stackItems = synced.stack.length > 1 ? synced.stack.filter((item) => selected.has(item.id)) : synced.stack;
+      for (const item of stackItems) {
+        desired.push({
+          id: collectionItemId(sourceNodeId, item.id),
+          type: "image",
+          sourceNodeId,
+          stackItemId: item.id,
+          title: synced.title,
+          mimeType: item.mimeType,
+          sourcePath: item.file ? resolvePortablePath(nodePath, item.file) : undefined,
+          externalUrl: item.externalUrl
+        });
+      }
+    }
+    if (sourceNode?.type === "video" || sourceNode?.type === "audio") {
+      const typed = sourceNode.type === "video" ? await readVideoNode(sourceNodeId) : await readAudioNode(sourceNodeId);
+      const selected = new Set(typed.manifest.selectedStackItemIds ?? []);
+      const stackItems = selected.size ? typed.manifest.stack.filter((item) => selected.has(item.id)) : typed.manifest.stack[typed.manifest.activeStackIndex] ? [typed.manifest.stack[typed.manifest.activeStackIndex]] : [];
+      for (const item of stackItems) {
+        desired.push({
+          id: collectionItemId(sourceNodeId, item.id),
+          type: sourceNode.type,
+          sourceNodeId,
+          stackItemId: item.id,
+          title: typed.manifest.title,
+          mimeType: item.mimeType,
+          sourcePath: item.file ? resolvePortablePath(typed.nodePath, item.file) : undefined,
+          externalUrl: item.externalUrl
+        });
+      }
+    }
+    if (sourceNode?.type === "text") {
+      const { manifest, nodePath } = await readTextNode(sourceNodeId);
+      const stack = await readTextNodeStack(nodePath, manifest);
+      const selected = new Set(manifest.selectedStackItemIds ?? []);
+      const selectedItems = selected.size ? stack.filter((item) => selected.has(item.id)) : stack.filter((item) => item.id === manifest.selectedStackItemId);
+      const textItems = selectedItems.length ? selectedItems : [{ id: "draft", title: manifest.title, text: manifest.text }];
+      for (const item of textItems) {
+        desired.push({
+          id: collectionItemId(sourceNodeId, item.id),
+          type: "text",
+          sourceNodeId,
+          stackItemId: item.id === "draft" ? undefined : item.id,
+          title: item.title,
+          text: item.text,
+          mimeType: "text/markdown"
+        });
+      }
+    }
+  }
+
+  const contentPath = join(nodePath, "content");
+  await mkdir(contentPath, { recursive: true });
+  const previousManagedFiles = new Set((manifest.items ?? []).filter((item) => !item.manual).map((item) => basename(item.file)));
+  const textStagingPath = join(nodePath, ".collection-text-sync");
+  await rm(textStagingPath, { recursive: true, force: true });
+  const storedItems: CollectionNodeStoredItem[] = [];
+  for (const item of desired) {
+    if (item.type === "text" && !item.text?.trim()) continue;
+    const extension = item.type === "text" ? ".prompt.md" : collectionItemExtension(item);
+    const itemHash = createHash("sha256").update(item.id).digest("hex").slice(0, 20);
+    const file = portableJoin("content", `${item.type}-${itemHash}${extension}`);
+    const destination = resolvePortablePath(nodePath, file);
+    if (item.type === "text") {
+      const saved = await createTextPromptAsset(textStagingPath, { title: item.title, prompt: item.text, category: "text-stack" });
+      await copyFile(saved.promptPath, destination);
+    } else if (item.sourcePath) {
+      await copyFile(item.sourcePath, destination);
+    } else if (item.externalUrl) {
+      const response = await fetchWithTimeout(item.externalUrl, 15000);
+      if (!response.ok) throw new Error(`Could not copy collection item "${item.title}" (${response.status}).`);
+      await writeFile(destination, Buffer.from(await response.arrayBuffer()));
+    } else {
+      continue;
+    }
+    storedItems.push({
+      id: item.id,
+      type: item.type,
+      sourceNodeId: item.sourceNodeId,
+      stackItemId: item.stackItemId,
+      title: item.title,
+      file,
+      mimeType: item.mimeType,
+      text: item.text
+    });
+  }
+  await rm(textStagingPath, { recursive: true, force: true });
+
+  const expectedFiles = new Set(storedItems.map((item) => basename(item.file)));
+  for (const filename of await readdir(contentPath)) {
+    if (!expectedFiles.has(filename) && previousManagedFiles.has(filename)) await rm(join(contentPath, filename), { force: true });
+  }
+
+  for (const filename of await readdir(contentPath)) {
+    if (expectedFiles.has(filename)) continue;
+    const type = collectionManualItemType(filename);
+    if (!type) continue;
+    const file = portableJoin("content", filename);
+    storedItems.push({
+      id: `manual:${createHash("sha256").update(filename).digest("hex").slice(0, 20)}`,
+      type,
+      sourceNodeId: "",
+      title: basename(filename, extname(filename)),
+      file,
+      mimeType: type === "image" ? mimeTypeFromExtension(extname(filename)) : type === "video" ? videoMimeTypeFromExtension(extname(filename)) : type === "audio" ? audioMimeTypeFromExtension(extname(filename)) : "text/markdown",
+      text: type === "text" ? await readFile(join(contentPath, filename), "utf8") : undefined,
+      manual: true
+    });
+  }
+
+  const nextManifest = JSON.stringify(manifest.items ?? []) === JSON.stringify(storedItems)
+    ? manifest
+    : { ...manifest, items: storedItems, updatedAt: new Date().toISOString() };
+  if (nextManifest !== manifest) await writeJson(join(nodePath, "snark.node.json"), nextManifest);
+  return {
+    manifest: nextManifest,
+    items: storedItems.map((item) => ({
+      ...item,
+      previewUrl: item.type === "text" ? undefined : `/api/libraries/current/collection-nodes/${encodeURIComponent(manifest.id)}/items/${encodeURIComponent(item.id)}/content`
+    }))
+  };
+}
+
+function collectionManualItemType(filename: string): CollectionNodeStoredItem["type"] | null {
+  const extension = extname(filename).toLowerCase();
+  if ([".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif"].includes(extension)) return "image";
+  if ([".mp4", ".webm", ".mov", ".mkv"].includes(extension)) return "video";
+  if ([".mp3", ".wav", ".ogg", ".m4a", ".flac"].includes(extension)) return "audio";
+  if ([".txt", ".md", ".prompt"].includes(extension) || filename.toLowerCase().endsWith(".prompt.md")) return "text";
+  return null;
+}
+
+function collectionItemExtension(item: DesiredCollectionItem): string {
+  const sourceExtension = extname(item.sourcePath ?? "").toLowerCase();
+  if (sourceExtension && sourceExtension.length <= 8) return sourceExtension;
+  if (item.mimeType === "image/png") return ".png";
+  if (item.mimeType === "image/jpeg") return ".jpg";
+  if (item.mimeType === "image/webp") return ".webp";
+  if (item.mimeType === "video/webm") return ".webm";
+  if (item.mimeType === "video/quicktime") return ".mov";
+  if (item.mimeType.startsWith("video/")) return ".mp4";
+  if (item.mimeType === "audio/wav") return ".wav";
+  if (item.mimeType.startsWith("audio/")) return ".mp3";
+  return ".bin";
+}
+
+function collectionItemId(sourceNodeId: string, stackItemId: string): string {
+  return `${sourceNodeId}:${stackItemId}`;
+}
+
 function resolvePortablePath(root: string, relativePath: string): string {
   if (isAbsolute(relativePath)) throw new Error("Library paths must be relative.");
-  const resolved = resolve(root, relativePath);
+  const resolved = resolve(root, relativePath.replace(/[\\/]+/g, sep));
   const rootResolved = resolve(root);
   const rel = relative(rootResolved, resolved);
   if (rel.startsWith("..") || rel === ".." || rel.split(sep).includes("..")) throw new Error("Path escapes the library folder.");
@@ -2595,7 +3319,7 @@ function isWithinDirectory(root: string, path: string): boolean {
 }
 
 function portableJoin(...parts: string[]): string {
-  return parts.join("/");
+  return posix.join(...parts.map((part) => part.replace(/\\/g, "/")));
 }
 
 async function allocateCanvasNodeLocation(libraryPath: string, requestedTitle: string, currentRelativePath?: string): Promise<{ title: string; nodeRelativePath: string }> {
@@ -2642,6 +3366,11 @@ export async function createTextStackPreviewReadStream(nodeId: string, stackItem
   const item = (await readTextNodeStack(nodePath, manifest)).find((candidate) => candidate.id === stackItemId);
   if (!item?.previewFile) throw new Error(`Text stack preview "${stackItemId}" was not found.`);
   return { stream: createReadStream(resolvePortablePath(nodePath, item.previewFile)), mimeType: "image/png" };
+}
+
+export async function createTextNodeConversationImageReadStream(nodeId: string, file: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
+  const { nodePath } = await readTextNode(nodeId);
+  return { stream: createReadStream(resolvePortablePath(nodePath, file)), mimeType: mimeTypeFromExtension(extname(file).toLowerCase()) };
 }
 
 async function readTextNodeStack(nodePath: string, manifest: TextNodeManifest): Promise<TextStackItem[]> {
@@ -2748,6 +3477,106 @@ function textNodeStackDirectory(nodePath: string, manifest: TextNodeManifest): s
   return resolvePortablePath(nodePath, manifest.stackPath ?? "content");
 }
 
+async function readTextNodeConversation(nodePath: string): Promise<TextNodeConversation> {
+  const path = join(nodePath, conversationFilename);
+  if (!await fileExists(path)) return emptyTextNodeConversation();
+  const parsed = JSON.parse(await readFile(path, "utf8")) as Partial<TextNodeConversation>;
+  return {
+    version: 1,
+    conversationId: typeof parsed.conversationId === "string" && parsed.conversationId.trim() ? parsed.conversationId : `conv_${shortId()}`,
+    messages: Array.isArray(parsed.messages) ? parsed.messages.filter(isTextNodeConversationMessage) : []
+  };
+}
+
+async function writeTextNodeConversation(nodePath: string, conversation: TextNodeConversation): Promise<void> {
+  await writeJson(join(nodePath, conversationFilename), conversation);
+}
+
+function emptyTextNodeConversation(): TextNodeConversation {
+  return { version: 1, conversationId: `conv_${shortId()}`, messages: [] };
+}
+
+function isTextNodeConversationMessage(value: unknown): value is TextNodeConversationMessage {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<TextNodeConversationMessage>;
+  return Boolean(record.id)
+    && (record.role === "user" || record.role === "assistant" || record.role === "system")
+    && typeof record.createdAt === "string"
+    && Array.isArray(record.content)
+    && record.content.every(isTextNodeConversationPart);
+}
+
+function isTextNodeConversationPart(value: unknown): value is TextNodeConversationPart {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<TextNodeConversationPart>;
+  if (record.type === "text") return typeof record.text === "string";
+  if (record.type === "image") return typeof record.file === "string" && record.file.trim().length > 0;
+  return false;
+}
+
+function conversationPartsFromInput(content: string | TextNodeConversationPart[] | undefined): TextNodeConversationPart[] {
+  if (typeof content === "string") return content.trim() ? [{ type: "text", text: content }] : [];
+  if (!Array.isArray(content)) return [];
+  return content.filter(isTextNodeConversationPart);
+}
+
+async function materializeConversationAttachments(libraryPath: string, nodePath: string, nodeId: string, attachments: TextNodeConversationAttachmentInput[] | undefined): Promise<TextNodeConversationPart[]> {
+  if (!attachments?.length) return [];
+  const connectedInputs = await connectedCanvasInputs(libraryPath, nodeId);
+  const parts: TextNodeConversationPart[] = [];
+  for (const attachment of attachments) {
+    const sourceImage = attachment.nodeId ? connectedInputs.find((input) => input.nodeId === attachment.nodeId)?.image : undefined;
+    const sourcePath = sourceImage?.localPath ?? sourceImage?.path ?? (attachment.file ? resolvePortablePath(nodePath, attachment.file) : undefined);
+    if (!sourcePath) continue;
+    const extension = normalizedImageExtension(sourcePath);
+    const targetRelativePath = nextConversationAttachmentFilename(nodePath, extension);
+    const targetPath = resolvePortablePath(nodePath, targetRelativePath);
+    await mkdir(dirname(targetPath), { recursive: true });
+    await copyFile(sourcePath, targetPath);
+    parts.push({ type: "image", file: portableRelativePath(nodePath, targetPath), alt: attachment.alt });
+  }
+  return parts;
+}
+
+function nextConversationAttachmentFilename(nodePath: string, extension: string): string {
+  for (let index = 0; index < 10000; index += 1) {
+    const filename = `att_${Date.now().toString(36)}_${shortId()}${extension}`;
+    const relativePath = `content/${filename}`;
+    if (!isAbsolute(relativePath)) return relativePath;
+  }
+  throw new Error("Could not allocate an attachment filename.");
+}
+
+function conversationImageInputs(nodePath: string, conversation: TextNodeConversation): GenerationImageInput[] {
+  const seen = new Set<string>();
+  const images: GenerationImageInput[] = [];
+  for (const message of conversation.messages) {
+    for (const part of message.content) {
+      if (part.type !== "image" || seen.has(part.file)) continue;
+      seen.add(part.file);
+      const path = resolvePortablePath(nodePath, part.file);
+      images.push({ path, localPath: path, mimeType: mimeTypeFromExtension(extname(part.file).toLowerCase()), ref: part.file, nodeId: part.file });
+    }
+  }
+  return images;
+}
+
+function conversationPrompt(conversation: TextNodeConversation, images: GenerationImageInput[], imageReferenceSyntax: string | undefined): string {
+  return conversation.messages.map((message) => {
+    const content = message.content.map((part) => {
+      if (part.type === "text") return part.text;
+      const position = images.findIndex((image) => image.ref === part.file);
+      if (position < 0) return "";
+      return (imageReferenceSyntax?.trim() || "@image {index}").replaceAll("{index}", String(position + 1));
+    }).join("\n").trim();
+    return `${message.role.toUpperCase()}:\n${content}`;
+  }).join("\n\n");
+}
+
+async function touchTextNodeManifest(nodePath: string, manifest: TextNodeManifest): Promise<void> {
+  await writeJson(join(nodePath, "snark.node.json"), { ...manifest, updatedAt: new Date().toISOString() });
+}
+
 function portableRelativePath(root: string, path: string): string {
   const relativePath = relative(resolve(root), resolve(path)).split(sep).join("/");
   resolvePortablePath(root, relativePath);
@@ -2807,7 +3636,8 @@ async function findCanvasActionManifest(actionId: string): Promise<SnarkNodeMani
   const manifests = [
     ...builtInNodeManifests,
     ...providerNodeManifests(),
-    ...await loadInstalledNodeManifests()
+    ...await loadInstalledNodeManifests(),
+    ...await loadCanvasActionManifests()
   ];
   return manifests.find((manifest) =>
     manifest.id === actionId
@@ -2842,7 +3672,7 @@ async function canvasActionSourceInput(libraryPath: string, nodeId: string, expe
   return { value: active?.text ?? manifest.text ?? "", canvas: canvasNode };
 }
 
-async function materializeCanvasActionOutput(input: { libraryPath: string; sourceNodeId: string; title: string; type: string; value: unknown; x: number; y: number; width: number; height: number }): Promise<void> {
+async function materializeCanvasActionOutput(input: { libraryPath: string; sourceNodeId: string; actionId: string; title: string; type: string; value: unknown; x: number; y: number; width: number; height: number }): Promise<void> {
   if (input.type === "text") {
     const text = textFromActionOutput(input.value);
     if (!text.trim()) return;
@@ -2852,9 +3682,9 @@ async function materializeCanvasActionOutput(input: { libraryPath: string; sourc
       dropX: input.x,
       dropY: input.y,
       width: input.width,
-      height: 180,
-      connectFromNodeId: input.sourceNodeId
+      height: 180
     });
+    await connectLatestCanvasNode(input.libraryPath, input.sourceNodeId, "canvasAction", input.actionId);
     return;
   }
   const asset = assetFromActionOutput(input.value);
@@ -2876,8 +3706,7 @@ async function materializeCanvasActionOutput(input: { libraryPath: string; sourc
       dropX: input.x,
       dropY: input.y,
       width: input.width,
-      height: input.height,
-      connectFromNodeId: input.sourceNodeId
+      height: input.height
     });
   } else if (input.type === "audio") {
     await importAudioAsNode({
@@ -2886,11 +3715,41 @@ async function materializeCanvasActionOutput(input: { libraryPath: string; sourc
       dropX: input.x,
       dropY: input.y,
       width: input.width,
-      height: input.height,
-      connectFromNodeId: input.sourceNodeId
+      height: input.height
     });
   }
-  if (input.type === "image") await connectLatestCanvasNode(input.libraryPath, input.sourceNodeId);
+  if (input.type === "image" || input.type === "video" || input.type === "audio") await connectLatestCanvasNode(input.libraryPath, input.sourceNodeId, "canvasAction", input.actionId);
+}
+
+async function appendCanvasActionOutputToTargetStack(input: { targetNodeId: string; title: string; type: string; value: unknown }): Promise<void> {
+  if (input.type === "text") {
+    const text = textFromActionOutput(input.value);
+    if (!text.trim()) return;
+    await appendTextToNodeStack(input.targetNodeId, text, input.title);
+    return;
+  }
+  const asset = assetFromActionOutput(input.value);
+  const sourcePath = asset.localPath ?? asset.path;
+  if (!sourcePath) return;
+  if (input.type === "image") {
+    await appendImageToNodeStack({
+      nodeId: input.targetNodeId,
+      filename: asset.filename ?? (basename(sourcePath) || "output.png"),
+      sourcePath: await localActionAssetPath(sourcePath, "image")
+    });
+  } else if (input.type === "video") {
+    await appendVideoToNodeStack({
+      nodeId: input.targetNodeId,
+      filename: asset.filename ?? (basename(sourcePath) || "output.mp4"),
+      sourcePath: await localActionAssetPath(sourcePath, "video")
+    });
+  } else if (input.type === "audio") {
+    await appendAudioToNodeStack({
+      nodeId: input.targetNodeId,
+      filename: asset.filename ?? (basename(sourcePath) || "output.mp3"),
+      sourcePath: await localActionAssetPath(sourcePath, "audio")
+    });
+  }
 }
 
 async function localActionAssetPath(path: string, kind: "image" | "video" | "audio"): Promise<string> {
@@ -2906,11 +3765,11 @@ async function localActionAssetPath(path: string, kind: "image" | "video" | "aud
   return temporaryPath;
 }
 
-async function connectLatestCanvasNode(libraryPath: string, sourceNodeId: string): Promise<void> {
+async function connectLatestCanvasNode(libraryPath: string, sourceNodeId: string, kind?: "canvasAction", actionId?: string): Promise<void> {
   const canvas = await ensureCanvas(libraryPath);
   const target = canvas.nodes[canvas.nodes.length - 1];
   if (!target || target.id === sourceNodeId) return;
-  canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: sourceNodeId, toNodeId: target.id }];
+  canvas.edges = [...(canvas.edges ?? []), { id: `edge_${shortId()}`, fromNodeId: sourceNodeId, toNodeId: target.id, kind, actionId }];
   await writeCanvas(libraryPath, canvas);
 }
 
@@ -3238,6 +4097,73 @@ function resolveInputTokens(
   });
 }
 
+async function canvasActionSessionInputValue(input: RunCanvasActionSessionInput): Promise<unknown> {
+  if (input.input.type === "text") return input.input.text ?? "";
+  if (!input.input.dataBase64) {
+    const existing = join(canvasActionSessionDirectory(input.sessionId), sanitizeFilename(input.input.filename ?? `input.${input.input.type}`));
+    if (!(await stat(existing).catch(() => null))) throw new Error("The input file must be selected again.");
+    return canvasActionSessionFileValue(input, existing);
+  }
+  const directory = canvasActionSessionDirectory(input.sessionId);
+  await mkdir(directory, { recursive: true });
+  const filename = sanitizeFilename(input.input.filename ?? `input.${input.input.type}`) || `input.${input.input.type}`;
+  const path = join(directory, filename);
+  const base64 = input.input.dataBase64.replace(/^data:[^;]+;base64,/i, "");
+  await writeFile(path, Buffer.from(base64, "base64"));
+  return canvasActionSessionFileValue(input, path);
+}
+
+function canvasActionSessionDirectory(sessionId: string): string {
+  return join(canvasActionCacheDirectory, "sessions", createHash("sha256").update(sessionId).digest("hex"));
+}
+
+function canvasActionSessionFileValue(input: RunCanvasActionSessionInput, path: string): Record<string, unknown> {
+  return {
+    type: input.input.type,
+    path,
+    localPath: path,
+    ref: `session://${input.sessionId}/input`,
+    filename: input.input.filename ?? basename(path),
+    mimeType: input.input.mimeType
+  };
+}
+
+export function normalizeCanvasActionResults(action: SnarkNodeManifest, output: Record<string, unknown>): CanvasActionSessionResult["results"] {
+  return action.outputs.flatMap((port) => {
+    const raw = output[port.id];
+    const values = Array.isArray(raw) ? raw : raw === undefined || raw === null ? [] : [raw];
+    return values.map((value, index) => {
+      const label = port.label ?? port.id;
+      const id = `${port.id}:${index}`;
+      if (port.type === "text") return { id, outputId: port.id, type: "text" as const, label, text: textFromActionOutput(value), value };
+      const asset = assetFromActionOutput(value);
+      const path = asset.localPath ?? asset.path;
+      return {
+        id,
+        outputId: port.id,
+        type: port.type as "image" | "video" | "audio",
+        label,
+        value,
+        filename: asset.filename,
+        ...(path ? { url: canvasActionResultUrl(path, port.type as "image" | "video" | "audio") } : {})
+      };
+    });
+  });
+}
+
+function canvasActionResultUrl(path: string, type: "image" | "video" | "audio" | "text"): string {
+  if (/^(?:https?:|data:|blob:|\/api\/)/i.test(path)) return path;
+  return `/api/assets/preview?kind=${type}&path=${encodeURIComponent(path)}`;
+}
+
+function resolveTextInputTokens(text: string, inputs: ConnectedCanvasInput[]): string {
+  const textById = new Map(
+    inputs.filter((entry) => entry.type === "text").map((entry) => [entry.nodeId, entry.text ?? ""])
+  );
+  if (!textById.size) return text;
+  return text.replace(/\[\[text:([^\]]+)\]\]/g, (_token, nodeId: string) => textById.get(nodeId) ?? "");
+}
+
 function imageNodeIdsFromPromptTemplate(promptTemplate: string): Set<string> {
   return new Set([...promptTemplate.matchAll(/\[\[image:([^\]]+)\]\]/g)].map((match) => match[1]).filter(Boolean));
 }
@@ -3320,7 +4246,8 @@ async function openRouterVideoRequestBody(input: { modelId: string; prompt: stri
   if (input.parameters.seed !== undefined) body.seed = Number(input.parameters.seed) || input.parameters.seed;
   const frameImages = await Promise.all(input.images.slice(0, 2).map(async (image, index) => ({
     frame_type: index === 0 ? "first_frame" : "last_frame",
-    image_url: await imageInputAsOpenRouterUrl(image)
+    type: "image_url",
+    image_url: { url: await imageInputAsOpenRouterUrl(image) }
   })));
   if (frameImages.length > 0) body.frame_images = frameImages;
   return body;

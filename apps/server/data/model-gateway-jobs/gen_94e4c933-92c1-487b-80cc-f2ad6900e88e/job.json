@@ -1,0 +1,27 @@
+{
+  "id": "gen_94e4c933-92c1-487b-80cc-f2ad6900e88e",
+  "status": "failed",
+  "request": {
+    "capability": "video.generate",
+    "nodeType": "polza.video.generate",
+    "modelId": "kling/v3",
+    "providerModelId": "kling/v3",
+    "provider": "polza",
+    "prompt": "Робот встает и делает шаг. Хромакей.",
+    "parameters": {
+      "resolution": "1080p",
+      "duration": "5",
+      "multi_shots": "false"
+    },
+    "inputs": [
+      {
+        "kind": "image",
+        "assetId": "asset_dfcfed3c-6d7f-4c8c-b058-c4540f2235ff",
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_dfcfed3c-6d7f-4c8c-b058-c4540f2235ff-frame-1784297211159-879455566.png"
+      }
+    ]
+  },
+  "createdAt": "2026-07-17T14:06:51.645Z",
+  "updatedAt": "2026-07-17T14:06:52.033Z",
+  "error": "External Polza.ai API rejected the request with status 402. Endpoint: /v1/media. API key fingerprint: fc53a5179742. Provider response: Недостаточно средств. Требуется: 225.00 ₽, доступно: 89.30 ₽ (баланс: 89.30 ₽, зарезервировано: 0.00 ₽). Пожалуйста, пополните баланс. This is not the Boojum credit balance; check the Polza.ai account tied to this API key fingerprint, tariff/model access, or provider-side balance. No credits were charged."
+}

@@ -15,7 +15,7 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
       category: "Text",
       description: "Runs remote text models through OpenRouter by default, with Direct mode in Advanced.",
       enabled: true,
-      permissions: { network: true, networkHosts: ["openrouter.ai", "generativelanguage.googleapis.com"], readFiles: true, writeOutputs: false, shell: false, env: ["OPENROUTER_API_KEY", "GEMINI_API_KEY"] },
+      permissions: { network: true, networkHosts: ["openrouter.ai", "generativelanguage.googleapis.com", "rutronix.ai", "api.rutronix.ai"], readFiles: true, writeOutputs: false, shell: false, env: ["OPENROUTER_API_KEY", "GEMINI_API_KEY", "RUTRONIX_API_KEY"] },
       executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.text" },
       inputs: [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "systemPrompt", type: "text", required: false, label: "System" }, { id: "images", type: "image", required: false, label: "Images" }],
       outputs: [{ id: "text", type: "text", label: "Text" }, { id: "output", type: "json", label: "JSON" }],

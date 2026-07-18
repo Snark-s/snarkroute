@@ -64,6 +64,7 @@ export type NodeRunResult = {
   actualUsage?: ActualUsage;
   actualCredits?: number;
   actualProviderCostAmount?: number | null;
+  actualProviderCostCurrency?: string | null;
   usageSource?: "provider" | "estimated" | "unknown";
   startedAt?: string;
   completedAt?: string;
@@ -99,6 +100,13 @@ export type CostEstimate = {
   maxChargeCredits?: number;
   pricingSource?: string;
   pricingConfidence?: string;
+  pricingSnapshotId?: string;
+  parameterRules?: Record<string, unknown>;
+  canonicalModelId?: string;
+  providerNativeModelId?: string;
+  fetchedAt?: string;
+  staleAfter?: string;
+  fallback?: boolean;
   pricingBreakdown?: PricingBreakdown;
   usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate";
 };
@@ -123,6 +131,13 @@ export type PricingBreakdown = {
   maxChargeCredits?: number;
   pricingSource?: string;
   pricingConfidence?: string;
+  pricingSnapshotId?: string;
+  parameterRules?: Record<string, unknown>;
+  canonicalModelId?: string;
+  providerNativeModelId?: string;
+  fetchedAt?: string;
+  staleAfter?: string;
+  fallback?: boolean;
   source?: string;
   notes?: string;
 };
@@ -236,6 +251,8 @@ export type AppCapabilities = {
   supportsLocalFilesystem: boolean;
   supportsPublicSharing: boolean;
   supportsDeveloperDiagnostics: boolean;
+  cloudStorageConfigured: boolean;
+  cloudAuthReady: boolean;
 };
 
 export type CurrentUser = {
@@ -247,6 +264,8 @@ export type CurrentUser = {
 };
 
 export type AdminOverview = {
+  storageMode?: "cloud-postgres" | "local-dev";
+  storageConfigured?: boolean;
   usersCount: number;
   runsCount?: number;
   nodeRunsCount?: number;
@@ -359,6 +378,7 @@ export type ImageModelOption = {
   slug: string;
   label: string;
   provider: string;
+  executionProvider?: string;
   capabilities: string[];
   iconPath?: string;
   parameters?: ModelParameterDefinition[];
@@ -491,12 +511,18 @@ export type NodeManifest = {
   executor: { type: string; runtime?: string; entry?: string; builtinRunner?: string };
   inputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
   outputs: Array<{ id: string; type: string; label?: string; required?: boolean }>;
-  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown }>;
+  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown; options?: Array<{ value: unknown; label?: string }>; min?: number; max?: number; step?: number; binding?: { nodeId: string; paramId: string }; poseManaged?: boolean }>;
   canvasAction?: {
     enabled: boolean;
     title?: string;
     description?: string;
     icon?: { kind: "preset"; name: string } | { kind: "custom"; svg?: string; dataUrl?: string };
+    poseBindings?: Partial<Record<"yaw" | "pitch" | "roll" | "fov" | "positionX" | "positionY" | "positionZ" | "cameraPose", string>>;
+    dialog?: {
+      enabled: boolean;
+      params: string[];
+      preview?: Array<{ kind: "image" | "video" | "audio" | "panorama360" | "splat"; source: "input" | { output: string } | { pause: string } }>;
+    };
   };
   generatedWith?: unknown;
   ui?: {
@@ -581,6 +607,7 @@ export type ImageViewerState = {
   src: string;
   title: string;
   filename: string;
+  mode?: "preview" | "correction";
 };
 
 export type PromptAssetDraft = {

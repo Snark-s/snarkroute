@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { modelMaxImageInputsV1 } from "../src/index.js";
 import type { ModelCatalogEntryV1, ModelOptionForNodeV1, ModelPricingInfoV1, ModelRoleV1 } from "../src/index.js";
 
 const baseEntry: ModelCatalogEntryV1 = {
@@ -47,6 +48,21 @@ describe("Model Catalog V1 types", () => {
   it("supports required availability sources", () => {
     const sources: Array<ModelCatalogEntryV1["availability"]["source"]> = ["live", "cache", "curated", "fallback"];
     expect(sources).toEqual(["live", "cache", "curated", "fallback"]);
+  });
+
+  it("resolves image input limits from shared catalog metadata", () => {
+    expect(modelMaxImageInputsV1({
+      provider: "openrouter",
+      providerModelId: "kwaivgi/kling-video-o1",
+      outputTypes: ["video"],
+      metadata: { maxImageInputs: 7 }
+    })).toBe(7);
+
+    expect(modelMaxImageInputsV1({
+      provider: "polza",
+      providerModelId: "wan/2.6",
+      outputTypes: ["video"]
+    })).toBe(1);
   });
 
   it("supports required pricing statuses", () => {

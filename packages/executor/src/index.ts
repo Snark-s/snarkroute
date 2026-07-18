@@ -1,6 +1,7 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { OpenRoute, RouteEdge, RouteNode } from "@snarkroute/protocol";
+import { CREDIT_UNIT, creditsFromMicrousd as protocolCreditsFromMicrousd, getRubPerUsd, type OpenRoute, type RouteEdge, type RouteNode } from "@snarkroute/protocol";
+export { CREDIT_UNIT } from "@snarkroute/protocol";
 
 export type RunStatus = "pending" | "running" | "succeeded" | "failed" | "skipped";
 
@@ -53,6 +54,12 @@ export interface CostEstimate {
   maxChargeCredits?: number;
   pricingSource?: PricingSource;
   pricingConfidence?: PricingConfidence;
+  pricingSnapshotId?: string;
+  canonicalModelId?: string;
+  providerNativeModelId?: string;
+  fetchedAt?: string;
+  staleAfter?: string;
+  fallback?: boolean;
   pricingBreakdown?: PricingBreakdown;
   usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate";
 }
@@ -80,6 +87,13 @@ export interface PricingBreakdown {
   maxChargeCredits: number;
   pricingSource: PricingSource;
   pricingConfidence: PricingConfidence;
+  pricingSnapshotId?: string;
+  parameterRules?: Record<string, unknown>;
+  canonicalModelId?: string;
+  providerNativeModelId?: string;
+  fetchedAt?: string;
+  staleAfter?: string;
+  fallback?: boolean;
   source: string;
   notes?: string;
 }
@@ -93,13 +107,19 @@ export interface ActualUsage {
 }
 
 export interface NodeCostModel {
-  estimateNode: (node: RouteNode) => CostEstimate;
-  actualNode?: (node: RouteNode, result: NodeRunnerResult, providerUsage: ProviderUsageEvent[]) => Partial<CostEstimate> & { actualCredits?: number; actualProviderCostAmount?: number | null; usageUnits?: ActualUsage };
+  estimateNode: (node: RouteNode, context?: NodeCostModelContext) => CostEstimate;
+  actualNode?: (node: RouteNode, result: NodeRunnerResult, providerUsage: ProviderUsageEvent[]) => Partial<CostEstimate> & { actualCredits?: number; actualProviderCostAmount?: number | null; actualProviderCostCurrency?: string | null; usageUnits?: ActualUsage };
+}
+
+export interface NodeCostModelContext {
+  providerCatalog?: ProviderPricingCatalogEntry[];
+  config?: BillingPricingConfig;
+  overrides?: BillingPricingOverride[];
 }
 
 export interface RunCostSummary {
   estimates: CostEstimate[];
-  actuals: Array<CostEstimate & { actualCredits: number; actualProviderCostAmount: number | null }>;
+  actuals: Array<CostEstimate & { actualCredits: number; actualProviderCostAmount: number | null; actualProviderCostCurrency?: string | null }>;
   totalEstimatedCredits: number;
   totalActualCredits: number;
   refundedCredits: number;
@@ -120,6 +140,7 @@ export interface NodeResult {
   actualUsage?: ActualUsage;
   actualCredits?: number;
   actualProviderCostAmount?: number | null;
+  actualProviderCostCurrency?: string | null;
   usageSource?: "provider" | "estimated" | "unknown" | "catalog_estimate";
   providerUsage?: ProviderUsageEvent[];
   startedAt: string;
@@ -310,6 +331,7 @@ export function createExecutor(): RouteExecutor {
               actualUsage: { requestCount: 0 },
               actualCredits: 0,
               actualProviderCostAmount: 0,
+              actualProviderCostCurrency: null,
               usageSource: "estimated",
               startedAt: now,
               completedAt: now
@@ -331,6 +353,7 @@ export function createExecutor(): RouteExecutor {
               actualUsage: { requestCount: 0 },
               actualCredits: 0,
               actualProviderCostAmount: 0,
+              actualProviderCostCurrency: null,
               usageSource: "estimated",
               startedAt: now,
               completedAt: now
@@ -389,6 +412,7 @@ export function createExecutor(): RouteExecutor {
                 actualUsage: { requestCount: nodeProviderUsage.length > 0 ? 1 : 0 },
                 actualCredits: 0,
                 actualProviderCostAmount: 0,
+                actualProviderCostCurrency: null,
                 usageSource: "provider",
                 providerUsage: nodeProviderUsage.map((event) => ({ ...event, status: providerFailureStatus(event.status) ? event.status : "error" })),
                 startedAt: nodeStartedAt,
@@ -423,6 +447,7 @@ export function createExecutor(): RouteExecutor {
               actualUsage: actualCost.usageUnits,
               actualCredits: actualCost.actualCredits,
               actualProviderCostAmount: actualCost.actualProviderCostAmount,
+              actualProviderCostCurrency: actualCost.actualProviderCostCurrency,
               usageSource: actualCost.usageSource,
               providerUsage: nodeProviderUsage,
               startedAt: nodeStartedAt,
@@ -459,6 +484,7 @@ export function createExecutor(): RouteExecutor {
               actualUsage: { requestCount: 0 },
               actualCredits: 0,
               actualProviderCostAmount: 0,
+              actualProviderCostCurrency: null,
               usageSource: "provider",
               startedAt: nodeStartedAt,
               completedAt: new Date().toISOString()
@@ -723,8 +749,8 @@ function completeRun(
   };
 }
 
-export function estimateRouteCost(route: OpenRoute, costModel: NodeCostModel = DEFAULT_NODE_COST_MODEL): RunCostSummary {
-  const estimates = (route.nodes as RouteNode[]).map((node) => costModel.estimateNode(node));
+export function estimateRouteCost(route: OpenRoute, costModel: NodeCostModel = DEFAULT_NODE_COST_MODEL, context: NodeCostModelContext = {}): RunCostSummary {
+  const estimates = (route.nodes as RouteNode[]).map((node) => costModel.estimateNode(node, context));
   return {
     estimates,
     actuals: [],
@@ -735,12 +761,12 @@ export function estimateRouteCost(route: OpenRoute, costModel: NodeCostModel = D
 }
 
 export const DEFAULT_NODE_COST_MODEL: NodeCostModel = {
-  estimateNode(node) {
+  estimateNode(node, context) {
     const kind = nodeCostKind(node.type);
-    const provider = providerFromNodeType(node.type);
-    const model = stringParam((node.params ?? {}).model);
+    const provider = providerForPricing(node);
+    const model = modelForPricing(node);
     const operation = operationFromNodeType(node.type, kind);
-    const pricingBreakdown = priceNode({ node, nodeType: node.type, provider, model, operation, kind });
+    const pricingBreakdown = resolveNodePricing({ node, nodeType: node.type, provider, model, operation, kind, catalog: context?.providerCatalog, config: context?.config, overrides: context?.overrides });
     return {
       nodeId: node.id,
       nodeType: node.type,
@@ -767,6 +793,12 @@ export const DEFAULT_NODE_COST_MODEL: NodeCostModel = {
       maxChargeCredits: pricingBreakdown.maxChargeCredits,
       pricingSource: pricingBreakdown.pricingSource,
       pricingConfidence: pricingBreakdown.pricingConfidence,
+      pricingSnapshotId: pricingBreakdown.pricingSnapshotId,
+      canonicalModelId: pricingBreakdown.canonicalModelId,
+      providerNativeModelId: pricingBreakdown.providerNativeModelId,
+      fetchedAt: pricingBreakdown.fetchedAt,
+      staleAfter: pricingBreakdown.staleAfter,
+      fallback: pricingBreakdown.fallback,
       pricingBreakdown,
       usageSource: pricingBreakdown.pricingSource === "pricing_catalog" ? "catalog_estimate" : "estimated"
     };
@@ -782,6 +814,13 @@ export type ProviderPricingCatalogEntry = {
   currency: "USD";
   effectiveFrom: string;
   source: string;
+  canonicalModelId?: string;
+  providerModelId?: string;
+  providerNativeModelId?: string;
+  pricingSnapshotId?: string;
+  fetchedAt?: string;
+  staleAfter?: string;
+  fallback?: boolean;
   notes?: string;
 };
 
@@ -809,21 +848,7 @@ export type BillingPricingOverride = {
 
 export type RuntimeProviderPricingCatalogEntry = ProviderPricingCatalogEntry;
 
-export const CREDIT_UNIT = { creditsPerUsd: 1000, microusdPerCredit: 1000 };
-
-export const PROVIDER_PRICING_CATALOG: ProviderPricingCatalogEntry[] = [
-  { provider: "polza", operation: "image.generate", model: "gpt-5.4-image-2", parameterRules: { resolution: "1K" }, baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate", notes: "Temporary until provider exact billing metadata is available." },
-  { provider: "polza", operation: "image.generate", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate", notes: "Temporary until provider exact billing metadata is available." },
-  { provider: "polza", operation: "video.generate", baseCostMicrousd: 80000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate", notes: "Temporary until provider exact billing metadata is available." },
-  { provider: "polza", operation: "text.generate", baseCostMicrousd: 1000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
-  { provider: "replicate", model: "clarity-upscaler", operation: "image.upscale", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
-  { provider: "replicate", operation: "image.generate", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
-  { provider: "gemini", operation: "image.generate", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
-  { provider: "gemini", operation: "text.generate", baseCostMicrousd: 1000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
-  { provider: "openrouter", operation: "image.generate", baseCostMicrousd: 40000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
-  { provider: "openrouter", operation: "text.generate", baseCostMicrousd: 1000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" },
-  { provider: "seedance", operation: "video.generate", baseCostMicrousd: 80000, currency: "USD", effectiveFrom: "2026-01-01", source: "manual_initial_estimate" }
-];
+export const PROVIDER_PRICING_CATALOG: ProviderPricingCatalogEntry[] = [];
 
 export function currentRuntimeProviderPricingCatalog(): RuntimeProviderPricingCatalogEntry[] {
   const raw = process.env.BOOJUM_PROVIDER_PRICING_CATALOG_JSON?.trim();
@@ -845,24 +870,30 @@ function actualNodeCost(node: RouteNode, result: NodeRunnerResult, providerUsage
   const outputTokens = numberMetric(metrics, "outputTokens") ?? numberMetric(metrics, "output_tokens");
   const imageCount = numberMetric(metrics, "imageCount") ?? numberMetric(metrics, "image_count");
   const videoSeconds = numberMetric(metrics, "videoSeconds") ?? numberMetric(metrics, "video_seconds");
-  const actualProviderCostAmount = custom?.actualProviderCostAmount ?? usage?.actualCost ?? usage?.estimatedCost ?? estimate?.estimatedProviderCostAmount ?? null;
-  const actualCostMicrousd = microusdFromProviderCost(actualProviderCostAmount, usage?.actualCostCurrency ?? estimate?.providerCostCurrency ?? "USD");
+  const providerCostCurrencyUnknown = usage?.actualCostCurrency?.toUpperCase() === "UNKNOWN";
+  const actualProviderCostAmount = custom?.actualProviderCostAmount ?? usage?.actualCost ?? (providerCostCurrencyUnknown ? null : estimate?.estimatedProviderCostAmount) ?? null;
+  const actualProviderCostCurrency = usage?.actualCostCurrency ?? (providerCostCurrencyUnknown ? null : estimate?.providerCostCurrency) ?? null;
+  const actualCostMicrousd = microusdFromProviderCost(actualProviderCostAmount, actualProviderCostCurrency);
   const actualPricing = actualCostMicrousd !== null && estimate?.pricingBreakdown
-    ? applyPricingMarkup({
-      ...estimate.pricingBreakdown,
-      providerCostMicrousd: actualCostMicrousd,
-      baseCostMicrousd: actualCostMicrousd,
-      baseCredits: creditsFromMicrousd(actualCostMicrousd),
+    ? resolveNodePricing({
+      node,
+      nodeType: node.type,
+      provider: estimate.provider,
+      model: estimate.model,
+      operation: estimate.operation ?? operationFromNodeType(node.type, nodeCostKind(node.type)),
+      kind: nodeCostKind(node.type),
+      params: node.params ?? {},
+      actualCostMicrousd,
       pricingSource: "provider_actual",
       pricingConfidence: "high",
       source: "provider_actual"
     })
     : null;
-  const maxChargeCredits = estimate?.maxChargeCredits ?? estimate?.estimatedCredits ?? Number.MAX_SAFE_INTEGER;
-  const calculatedActualCredits = actualPricing ? Math.min(actualPricing.finalCredits, maxChargeCredits) : estimate?.estimatedCredits ?? 0;
+  const calculatedActualCredits = actualPricing ? actualPricing.finalCredits : estimate?.estimatedCredits ?? 0;
   return {
     actualCredits: integerCredits(custom?.actualCredits ?? calculatedActualCredits),
     actualProviderCostAmount,
+    actualProviderCostCurrency,
     usageUnits: custom?.usageUnits ?? {
       inputTokens,
       outputTokens,
@@ -871,7 +902,7 @@ function actualNodeCost(node: RouteNode, result: NodeRunnerResult, providerUsage
       requestCount: 1
     },
     usageSource: custom?.usageSource ?? (usage?.actualCost != null ? "provider" : estimate ? "catalog_estimate" : "unknown")
-  } satisfies { actualCredits: number; actualProviderCostAmount: number | null; usageUnits: ActualUsage; usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate" };
+  } satisfies { actualCredits: number; actualProviderCostAmount: number | null; actualProviderCostCurrency: string | null; usageUnits: ActualUsage; usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate" };
 }
 
 function nonBillableProviderFailure(node: RouteNode, output: unknown, providerUsage: ProviderUsageEvent[], estimate: CostEstimate | undefined): string | null {
@@ -935,6 +966,7 @@ function finalizeRunCostSummary(estimateSummary: RunCostSummary, nodeResults: Re
       }),
       actualCredits: integerCredits(result.actualCredits ?? (result.status === "succeeded" ? result.costEstimate?.estimatedCredits ?? 0 : 0)),
       actualProviderCostAmount: result.actualProviderCostAmount ?? result.costEstimate?.estimatedProviderCostAmount ?? null,
+      actualProviderCostCurrency: result.actualProviderCostCurrency ?? result.costEstimate?.providerCostCurrency ?? null,
       usageUnits: result.actualUsage ?? result.costEstimate?.usageUnits ?? {},
       usageSource: result.usageSource ?? result.costEstimate?.usageSource ?? "unknown"
     }));
@@ -1019,25 +1051,53 @@ export function pricingCatalogView(config = currentBillingPricingConfig(), overr
       finalCredits: 0,
       maxChargeCredits: 0,
       pricingSource: "pricing_catalog",
-      pricingConfidence: entry.source === "manual_initial_estimate" ? "medium" : "high",
+      pricingConfidence: pricingConfidenceForCatalogSource(entry.source),
+      pricingSnapshotId: entry.pricingSnapshotId ?? pricingCatalogKey(entry),
+      parameterRules: entry.parameterRules,
+      canonicalModelId: entry.canonicalModelId,
+      providerNativeModelId: entry.providerNativeModelId,
+      fetchedAt: entry.fetchedAt,
+      staleAfter: entry.staleAfter,
+      fallback: entry.fallback === true,
       source: entry.source,
       notes: entry.notes
     }, config);
   });
 }
 
-function priceNode(input: { node: RouteNode; nodeType: string; provider?: string; model?: string; operation: string; kind: "free" | "text" | "image" | "video" | "transform" }): PricingBreakdown {
-  const config = currentBillingPricingConfig();
-  if (input.kind === "free" || input.kind === "transform") {
-    return freePricingBreakdown(input.node, input.nodeType, input.operation, input.provider, input.model);
+export function resolveNodePricing(input: {
+  node?: RouteNode;
+  nodeId?: string;
+  title?: string;
+  nodeType: string;
+  provider?: string;
+  model?: string;
+  operation: string;
+  kind?: "free" | "text" | "image" | "video" | "transform";
+  params?: Record<string, unknown>;
+  catalog?: ProviderPricingCatalogEntry[];
+  config?: BillingPricingConfig;
+  overrides?: BillingPricingOverride[];
+  actualCostMicrousd?: number | null;
+  pricingSource?: PricingSource;
+  pricingConfidence?: PricingConfidence;
+  source?: string;
+}): PricingBreakdown {
+  const config = input.config ?? currentBillingPricingConfig();
+  const params = input.params ?? input.node?.params ?? {};
+  const kind = input.kind ?? nodeCostKind(input.nodeType);
+  if (kind === "free" || kind === "transform") {
+    return freePricingBreakdown(input.node, input.nodeId, input.title, input.nodeType, input.operation, input.provider, input.model);
   }
-  const catalogMatch = findPricingCatalogEntry(input.provider, input.operation, input.model, input.nodeType, input.node.params ?? {});
-  const fallbackMicrousd = fallbackCostMicrousd(input.kind);
-  const baseCostMicrousd = integerCredits(catalogMatch?.baseCostMicrousd ?? fallbackMicrousd);
-  const override = matchingPricingOverride({ provider: input.provider, operation: input.operation, model: input.model, nodeType: input.nodeType }, currentBillingPricingOverrides());
+  const catalogMatch = findPricingCatalogEntry(input.provider, input.operation, input.model, input.nodeType, params, input.catalog);
+  const fallbackMicrousd = fallbackCostMicrousd(kind);
+  const baseCostMicrousd = integerMicrousd(input.actualCostMicrousd ?? catalogMatch?.baseCostMicrousd ?? fallbackMicrousd);
+  const override = matchingPricingOverride({ provider: input.provider, operation: input.operation, model: input.model, nodeType: input.nodeType }, input.overrides ?? currentBillingPricingOverrides());
+  const pricingSource = input.pricingSource ?? (input.actualCostMicrousd !== null && input.actualCostMicrousd !== undefined ? "provider_actual" : catalogMatch ? "pricing_catalog" : "fallback_estimate");
+  const pricingConfidence = input.pricingConfidence ?? (input.actualCostMicrousd !== null && input.actualCostMicrousd !== undefined ? "high" : catalogMatch ? pricingConfidenceForCatalogSource(catalogMatch.source) : "low");
   return applyPricingMarkup({
-    nodeId: input.node.id,
-    title: input.node.title,
+    nodeId: input.node?.id ?? input.nodeId ?? input.nodeType,
+    title: input.node?.title ?? input.title,
     nodeType: input.nodeType,
     provider: input.provider,
     operation: input.operation,
@@ -1053,17 +1113,24 @@ function priceNode(input: { node: RouteNode; nodeType: string; provider?: string
     markupCredits: 0,
     finalCredits: 0,
     maxChargeCredits: 0,
-    pricingSource: catalogMatch ? "pricing_catalog" : "fallback_estimate",
-    pricingConfidence: catalogMatch ? catalogMatch.source === "manual_initial_estimate" ? "medium" : "high" : "low",
-    source: catalogMatch?.source ?? "fallback_estimate",
+    pricingSource,
+    pricingConfidence,
+    pricingSnapshotId: catalogMatch?.pricingSnapshotId ?? (catalogMatch ? pricingCatalogKey(catalogMatch) : fallbackPricingSnapshotId(input.provider, input.operation, input.model, input.nodeType)),
+    parameterRules: catalogMatch?.parameterRules,
+    canonicalModelId: catalogMatch?.canonicalModelId,
+    providerNativeModelId: catalogMatch?.providerNativeModelId,
+    fetchedAt: catalogMatch?.fetchedAt,
+    staleAfter: catalogMatch?.staleAfter,
+    fallback: pricingSource === "fallback_estimate" || catalogMatch?.fallback === true,
+    source: input.source ?? catalogMatch?.source ?? pricingSource,
     notes: catalogMatch?.notes ?? "Fallback estimate; replace with provider pricing catalog or actual billing metadata."
   }, config);
 }
 
-function freePricingBreakdown(node: RouteNode, nodeType: string, operation: string, provider?: string, model?: string): PricingBreakdown {
+function freePricingBreakdown(node: RouteNode | undefined, nodeId: string | undefined, title: string | undefined, nodeType: string, operation: string, provider?: string, model?: string): PricingBreakdown {
   return {
-    nodeId: node.id,
-    title: node.title,
+    nodeId: node?.id ?? nodeId ?? nodeType,
+    title: node?.title ?? title,
     nodeType,
     provider,
     operation,
@@ -1081,6 +1148,7 @@ function freePricingBreakdown(node: RouteNode, nodeType: string, operation: stri
     maxChargeCredits: 0,
     pricingSource: "pricing_catalog",
     pricingConfidence: "high",
+    fallback: false,
     source: "free_node"
   };
 }
@@ -1094,7 +1162,12 @@ function applyPricingMarkup(input: PricingBreakdown, config: BillingPricingConfi
 }
 
 function creditsFromMicrousd(providerCostMicrousd: number): number {
-  return integerCredits(providerCostMicrousd / CREDIT_UNIT.microusdPerCredit);
+  return integerCredits(protocolCreditsFromMicrousd(providerCostMicrousd));
+}
+
+function integerMicrousd(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.ceil(value));
 }
 
 function percentMarkupCredits(baseCredits: number, percent: number): number {
@@ -1102,14 +1175,42 @@ function percentMarkupCredits(baseCredits: number, percent: number): number {
   return Math.ceil((baseCredits * percent) / 100);
 }
 
-function findPricingCatalogEntry(provider: string | undefined, operation: string, model: string | undefined, nodeType: string, params: Record<string, unknown> = {}): ProviderPricingCatalogEntry | undefined {
-  const entries = mergedProviderPricingCatalog().filter((entry) => entry.provider === provider && entry.operation === operation);
+function findPricingCatalogEntry(provider: string | undefined, operation: string, model: string | undefined, nodeType: string, params: Record<string, unknown> = {}, catalog?: ProviderPricingCatalogEntry[]): ProviderPricingCatalogEntry | undefined {
+  const entries = mergedProviderPricingCatalog(catalog).filter((entry) => entry.provider === provider && entry.operation === operation);
   const nodeTypeLower = nodeType.toLowerCase();
-  return entries.find((entry) => entry.model && entry.model === model && entry.parameterRules && pricingParameterRulesMatch(entry.parameterRules, params))
-    ?? entries.find((entry) => entry.model && entry.model === model && !entry.parameterRules)
-    ?? entries.find((entry) => entry.model && nodeTypeLower.includes(entry.model.toLowerCase()) && entry.parameterRules && pricingParameterRulesMatch(entry.parameterRules, params))
+  return entries.find((entry) => modelMatchesPricingEntry(entry, model) && entry.parameterRules && pricingParameterRulesMatch(entry.parameterRules, params))
+    ?? entries.find((entry) => modelMatchesPricingEntry(entry, model) && !entry.parameterRules)
+    ?? entries.find((entry) => pricingEntryMatchesNodeType(entry, nodeTypeLower) && entry.parameterRules && pricingParameterRulesMatch(entry.parameterRules, params))
     ?? entries.find((entry) => !entry.model && entry.parameterRules && pricingParameterRulesMatch(entry.parameterRules, params))
     ?? entries.find((entry) => !entry.model);
+}
+
+function modelMatchesPricingEntry(entry: ProviderPricingCatalogEntry, model: string | undefined): boolean {
+  if (!model) return false;
+  const requestedAliases = modelAliases(model);
+  return pricingEntryModelCandidates(entry).some((candidate) => {
+    const aliases = modelAliases(candidate);
+    return [...requestedAliases].some((alias) => aliases.has(alias));
+  });
+}
+
+function pricingEntryMatchesNodeType(entry: ProviderPricingCatalogEntry, nodeTypeLower: string): boolean {
+  return pricingEntryModelCandidates(entry).some((candidate) => nodeTypeLower.includes(candidate.toLowerCase()));
+}
+
+function pricingEntryModelCandidates(entry: ProviderPricingCatalogEntry): string[] {
+  return [entry.model, entry.providerModelId, entry.providerNativeModelId, entry.canonicalModelId].filter((value): value is string => Boolean(value));
+}
+
+function modelAliases(model: string): Set<string> {
+  const normalized = model.trim().toLowerCase();
+  if (!normalized) return new Set();
+  const aliases = new Set([normalized]);
+  const firstSlash = normalized.indexOf("/");
+  if (firstSlash > 0 && firstSlash < normalized.length - 1) aliases.add(normalized.slice(firstSlash + 1));
+  const tail = normalized.split("/").filter(Boolean).at(-1);
+  if (tail) aliases.add(tail);
+  return aliases;
 }
 
 function pricingParameterRulesMatch(rules: Record<string, unknown> | undefined, params: Record<string, unknown>): boolean {
@@ -1152,8 +1253,8 @@ function normalizePricingOverride(value: unknown): BillingPricingOverride | null
   };
 }
 
-function mergedProviderPricingCatalog(): ProviderPricingCatalogEntry[] {
-  const runtime = currentRuntimeProviderPricingCatalog();
+function mergedProviderPricingCatalog(catalog?: ProviderPricingCatalogEntry[]): ProviderPricingCatalogEntry[] {
+  const runtime = catalog ?? currentRuntimeProviderPricingCatalog();
   const runtimeKeys = new Set(runtime.map(pricingCatalogKey));
   return [...runtime, ...PROVIDER_PRICING_CATALOG.filter((entry) => !runtimeKeys.has(pricingCatalogKey(entry)))];
 }
@@ -1167,7 +1268,7 @@ function normalizeRuntimeProviderPricingEntry(value: unknown): RuntimeProviderPr
   const record = value as Record<string, unknown>;
   const provider = typeof record.provider === "string" ? record.provider.trim() : "";
   const operation = typeof record.operation === "string" ? record.operation.trim() : "";
-  const baseCostMicrousd = integerCredits(numberValue(record.baseCostMicrousd, 0));
+  const baseCostMicrousd = integerMicrousd(numberValue(record.baseCostMicrousd, 0));
   if (!provider || !operation || baseCostMicrousd <= 0) return null;
   return {
     provider,
@@ -1178,6 +1279,13 @@ function normalizeRuntimeProviderPricingEntry(value: unknown): RuntimeProviderPr
     currency: "USD",
     effectiveFrom: typeof record.effectiveFrom === "string" ? record.effectiveFrom : new Date(0).toISOString(),
     source: typeof record.source === "string" ? record.source : "runtime_pricing_catalog",
+    canonicalModelId: typeof record.canonicalModelId === "string" ? record.canonicalModelId : undefined,
+    providerModelId: typeof record.providerModelId === "string" ? record.providerModelId : undefined,
+    providerNativeModelId: typeof record.providerNativeModelId === "string" ? record.providerNativeModelId : undefined,
+    pricingSnapshotId: typeof record.pricingSnapshotId === "string" ? record.pricingSnapshotId : undefined,
+    fetchedAt: typeof record.fetchedAt === "string" ? record.fetchedAt : undefined,
+    staleAfter: typeof record.staleAfter === "string" ? record.staleAfter : undefined,
+    fallback: record.fallback === true,
     notes: typeof record.notes === "string" ? record.notes : undefined
   };
 }
@@ -1191,7 +1299,13 @@ function fallbackCostMicrousd(kind: "free" | "text" | "image" | "video" | "trans
 
 function microusdFromProviderCost(cost: number | null | undefined, currency: string | null | undefined): number | null {
   if (cost === null || cost === undefined || !Number.isFinite(cost) || cost < 0) return null;
-  if (currency && currency.toUpperCase() !== "USD") return null;
+  const normalizedCurrency = currency?.toUpperCase();
+  if (!normalizedCurrency) return null;
+  if (normalizedCurrency === "RUB") {
+    const rate = getRubPerUsd();
+    return rate ? Math.ceil((cost / rate) * 1_000_000) : null;
+  }
+  if (normalizedCurrency !== "USD") return null;
   return Math.ceil(cost * 1_000_000);
 }
 
@@ -1212,6 +1326,26 @@ function operationFromNodeType(type: string, kind: "free" | "text" | "image" | "
   return "utility.local";
 }
 
+function modelForPricing(node: RouteNode): string | undefined {
+  const explicitModel = stringParam((node.params ?? {}).model);
+  if (explicitModel) return explicitModel;
+  if (node.type === "replicate.clarity-upscaler") return "clarity-upscaler";
+  if (node.type === "gemini.nano-banana-2") return "gemini-3.1-flash-image-preview";
+  return undefined;
+}
+
+function fallbackPricingSnapshotId(provider: string | undefined, operation: string, model: string | undefined, nodeType: string): string {
+  return `fallback:${provider ?? "unknown"}:${operation}:${model ?? nodeType}`;
+}
+
+function pricingConfidenceForCatalogSource(source: string): PricingConfidence {
+  if (source === "manual_catalog") return "high";
+  if (source === "manual_initial_estimate") return "medium";
+  if (source === "fallback_estimate") return "low";
+  if (/estimate/i.test(source)) return "medium";
+  return "high";
+}
+
 function integerCredits(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.ceil(value));
@@ -1224,6 +1358,23 @@ function providerFromNodeType(type: string): string | undefined {
   if (/replicate/i.test(type)) return "replicate";
   if (/seedance/i.test(type)) return "seedance";
   return undefined;
+}
+
+function providerForPricing(node: RouteNode): string | undefined {
+  const params = node.params ?? {};
+  return stringParam(params.provider)
+    ?? stringParam(params.executionProvider)
+    ?? stringParam(params.providerId)
+    ?? providerFromProviderMode(params.providerMode)
+    ?? providerFromNodeType(node.type);
+}
+
+function providerFromProviderMode(value: unknown): string | undefined {
+  const providerMode = stringParam(value);
+  if (providerMode === "openrouter") return "openrouter";
+  if (providerMode === "direct") return undefined;
+  if (providerMode === "auto") return undefined;
+  return providerMode;
 }
 
 function numberMetric(metrics: Record<string, unknown>, key: string): number | undefined {

@@ -1,7 +1,12 @@
 import "./styles.css";
 import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Cog, Copy, Crop, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Maximize2, Minimize2, Moon, Music, PanelRight, RefreshCw, Save, Scissors, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
 import { Aperture, Archive, ArrowDown, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clock3, Compass, Cpu, Database, Eraser, Eye, EyeOff, FileAudio, FileImage, FileJson, FileText, FileVideo, Film, Filter, Flag, FlipHorizontal, FlipVertical, FolderOpen, Globe, Grid3X3, Headphones, Heart, Link, List, Mail, Map as MapIcon, MapPin, MessageSquare, Mic, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Pin, Play, Plus, Radio, Repeat, RotateCcw, RotateCw, Route, Search, Send, Settings, Share2, Shuffle, SlidersHorizontal, Sparkles, Square, Star, Table, Type, Upload, Volume2, Wand2, X, Zap, ZoomIn, ZoomOut } from "lucide-react";
+import JSZip from "jszip";
+import { Panorama360Viewer, SplatViewer, type CameraPose } from "@snarkroute/media-viewers";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { canvasActionNeedsDialog } from "./canvasActionDialog";
+import { useClampedMenuPosition } from "@snarkroute/media-viewers";
+import { readTextDialogueDraft, writeTextDialogueDraft } from "./dialogueDraft";
 import { createRoot } from "react-dom/client";
 import {
   generationParameterSummary,
@@ -106,7 +111,9 @@ interface CanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop";
+  kind?: "representation" | "crop" | "imageCorrection" | "canvasAction" | "collectionItem";
+  actionId?: string;
+  correction?: CorrectionSettings;
   note?: string;
 }
 
@@ -128,6 +135,7 @@ interface ImageNodeManifest {
   crop?: CropMetadata;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
 }
 
 interface VideoNodeManifest {
@@ -140,6 +148,7 @@ interface VideoNodeManifest {
   fallbackAllowed?: boolean;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
 }
 
 interface AudioNodeManifest {
@@ -152,15 +161,19 @@ interface AudioNodeManifest {
   fallbackAllowed?: boolean;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
 }
 
 interface TextNodeManifest {
   id: string;
   type: "text";
+  variant?: "note";
   title: string;
   text: string;
+  inputMode?: "text" | "dialogue";
   stackPath?: string;
   selectedStackItemId?: string;
+  selectedStackItemIds?: string[];
   modelId?: string;
   executionProvider?: string;
   fallbackAllowed?: boolean;
@@ -185,6 +198,24 @@ interface TextStackItem {
   source: "prompt" | "text";
   mimeType: string;
   previewFile?: string;
+}
+
+type TextNodeConversationPart =
+  | { type: "text"; text: string }
+  | { type: "image"; file: string; alt?: string };
+
+interface TextNodeConversationMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  createdAt: string;
+  content: TextNodeConversationPart[];
+  model?: { modelId: string; providerId?: string };
+}
+
+interface TextNodeConversation {
+  version: 1;
+  conversationId: string;
+  messages: TextNodeConversationMessage[];
 }
 
 interface VideoNodeView {
@@ -275,10 +306,44 @@ interface LibraryNodeView {
   previewUrl: string | null;
 }
 
-type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView;
+interface CollectionItemMenu {
+  x: number;
+  y: number;
+  nodeId: string;
+  itemId: string;
+}
+
+interface CollectionNodeManifest {
+  id: string;
+  type: "collection";
+  title: string;
+}
+
+interface CollectionNodeItem {
+  id: string;
+  type: "image" | "video" | "audio" | "text";
+  sourceNodeId: string;
+  stackItemId?: string;
+  title: string;
+  file: string;
+  mimeType: string;
+  previewUrl?: string;
+  text?: string;
+  manual?: boolean;
+}
+
+interface CollectionNodeView {
+  canvas: CanvasNode;
+  manifest: CollectionNodeManifest;
+  items: CollectionNodeItem[];
+  activeStackItem: null;
+  previewUrl: null;
+}
+
+type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView | CollectionNodeView;
 type EditableNodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView;
 type EditableNodeType = EditableNodeView["manifest"]["type"];
-type BuiltInNodeToolbarActionId = "download" | "crop" | "expand" | "upload" | "stack" | "collapse";
+type BuiltInNodeToolbarActionId = "download" | "crop" | "adjust" | "expand" | "upload" | "stack" | "collapse" | "collectSelected" | "keepSelected" | "delete";
 type NodeToolbarActionId = string;
 type NodeToolbarConfig = Record<EditableNodeType, NodeToolbarActionId[]>;
 
@@ -288,12 +353,52 @@ interface CanvasNodeAction {
   description: string;
   inputType: EditableNodeType;
   outputs: Array<{ id: string; type: EditableNodeType; label: string }>;
-  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown }>;
+  params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown; options?: Array<{ value: unknown; label?: string }>; min?: number; max?: number; step?: number; poseManaged?: boolean }>;
+  dialog?: { enabled: boolean; params: string[]; preview?: Array<{ kind: "image" | "video" | "audio" | "panorama360" | "splat"; source: "input" | { output: string } }> };
+  poseBindings?: Partial<Record<"yaw" | "pitch" | "roll" | "fov" | "positionX" | "positionY" | "positionZ" | "cameraPose", string>>;
   icon?: { kind: "preset"; name: string } | { kind: "custom"; svg?: string; dataUrl?: string };
 }
 
 interface CanvasNodeActionsResponse {
   actions: CanvasNodeAction[];
+}
+
+interface NodePackageExportResponse {
+  ok: boolean;
+  filename?: string;
+  contentType?: string;
+  text?: string;
+  dataBase64?: string;
+  error?: string;
+}
+
+interface CanvasSettingsPackageEntry {
+  path: string;
+  filename: string;
+  contentType?: string;
+}
+
+interface CanvasSettingsManifestFile {
+  format: "snarkroute.settings";
+  version: "0.1";
+  exportedAt: string;
+  product: "snarkroute";
+  sections: string[];
+}
+
+interface LivingCanvasSettingsFile {
+  nodeToolbarConfig: NodeToolbarConfig;
+  canvasActionSettings: Record<string, CanvasActionButtonSettings>;
+  buttonPackages: CanvasSettingsPackageEntry[];
+}
+
+interface LegacyCanvasButtonSetupFile {
+  format: "snarkroute.livingCanvasButtonSetup";
+  version: "0.1";
+  exportedAt: string;
+  nodeToolbarConfig: NodeToolbarConfig;
+  canvasActionSettings: Record<string, CanvasActionButtonSettings>;
+  packages: Array<{ filename: string; contentType?: string; text?: string; dataBase64?: string }>;
 }
 
 interface NodeToolbarAction {
@@ -323,10 +428,32 @@ type CanvasActionSettingsDraft = {
   error?: string;
 };
 
+type CanvasActionRunDialog = {
+  nodeId: string;
+  action: CanvasNodeAction;
+  point: { x: number; y: number };
+  params: Record<string, unknown>;
+  continuationId?: string;
+  targetNodeId?: string;
+  preparedPreviews?: Array<{ kind: "panorama360" | "splat"; src: string }>;
+  pose?: { yaw?: number; pitch?: number; roll?: number; fov?: number; positionX?: number; positionY?: number; positionZ?: number; cameraPose?: CameraPose };
+  resultNodes?: NodeView[];
+  error?: string;
+  continuationExpired?: boolean;
+};
+
+class ApiResponseError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ApiResponseError";
+  }
+}
+
 interface TextNodeView {
   canvas: CanvasNode;
   manifest: TextNodeManifest;
   stack: TextStackItem[];
+  conversation: TextNodeConversation;
   activeStackItem: TextStackItem | null;
   outputText: string;
   previewUrl: string | null;
@@ -385,6 +512,16 @@ type DragState =
       currentY: number;
     }
   | {
+      kind: "collectionItem";
+      pointerId: number;
+      nodeId: string;
+      itemId: string;
+      startClientX: number;
+      startClientY: number;
+      currentX: number;
+      currentY: number;
+    }
+  | {
       kind: "selection";
       pointerId: number;
       startClientX: number;
@@ -422,6 +559,7 @@ interface StackItemMenu {
   y: number;
   nodeId: string;
   stackItemId: string;
+  missing: boolean;
 }
 
 interface LibraryAssetMenu {
@@ -468,7 +606,7 @@ interface GenerationFeedback {
   error?: boolean;
 }
 
-type ProviderId = "polza" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
+type ProviderId = "polza" | "rutronix" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
 type NodeRepresentationType = "image" | "video" | "audio" | "text";
 
 interface ProviderDefinition {
@@ -493,6 +631,7 @@ interface LocalProviderConnection {
 
 const providerDefinitions: ProviderDefinition[] = [
   { id: "polza", title: "Polza", capabilityText: "Image generation catalog", settingsEndpoint: "/api/settings/polza-token", keyField: "polzaAiApiKey", refreshModels: true },
+  { id: "rutronix", title: "RuTronix", capabilityText: "Text models with RUB token billing", settingsEndpoint: "/api/settings/rutronix-token", keyField: "rutronixApiKey", refreshModels: true },
   { id: "openrouter", title: "OpenRouter", capabilityText: "Text and multimodal routed models", settingsEndpoint: "/api/settings/openrouter", keyField: "openRouterApiKey", testEndpoint: "/api/providers/openrouter/test", refreshModels: true },
   { id: "gemini", title: "Gemini", capabilityText: "Image generation / multimodal", settingsEndpoint: "/api/settings/gemini-token", keyField: "geminiApiKey" },
   { id: "replicate", title: "Replicate", capabilityText: "Hosted model endpoints", settingsEndpoint: "/api/settings/replicate-token", keyField: "replicateApiToken" },
@@ -507,10 +646,14 @@ declare global {
 }
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
+const brandeshmygBase = import.meta.env.VITE_BRANDESHMYG_URL || "http://127.0.0.1:5175";
+const localJsonUploadLimitBytes = 180 * 1024 * 1024;
+const boojumRouteLabUrl = import.meta.env.VITE_BOOJUM_URL || "http://127.0.0.1:5173";
 const themeStorageKey = "snarkroute.theme";
 const backgroundStorageKey = "snarkroute.canvasBackground";
 const nodeToolbarConfigStorageKey = "snarkroute.nodeToolbarConfig";
 const canvasActionSettingsStorageKey = "snarkroute.canvasActionSettings";
+const canvasActionParamsStorageKey = "snarkroute.canvasActionParams";
 const imageNodeWidth = 320;
 const imageNodeHeight = 240;
 const nodeTitleHeight = 24;
@@ -538,10 +681,14 @@ const nodeRepresentationOptions: Array<{ type: NodeRepresentationType; label: st
 const builtInNodeToolbarActions: Array<{ id: BuiltInNodeToolbarActionId; label: string }> = [
   { id: "download", label: "Download" },
   { id: "crop", label: "Crop" },
+  { id: "adjust", label: "Adjust" },
   { id: "expand", label: "Expand" },
   { id: "upload", label: "Upload" },
   { id: "stack", label: "Stack" },
-  { id: "collapse", label: "Collapse" }
+  { id: "collapse", label: "Collapse" },
+  { id: "collectSelected", label: "Create node with selected" },
+  { id: "keepSelected", label: "Keep only selected" },
+  { id: "delete", label: "Delete node" }
 ];
 const defaultNodeToolbarConfig: NodeToolbarConfig = {
   image: ["download", "crop", "expand"],
@@ -550,7 +697,6 @@ const defaultNodeToolbarConfig: NodeToolbarConfig = {
   text: ["stack", "collapse"]
 };
 function App() {
-  const contentMenuRef = useRef<HTMLDivElement | null>(null);
   const [theme, setTheme] = useStoredSetting<ThemeName>(themeStorageKey, "night", ["day", "night"]);
   const [background, setBackground] = useStoredSetting<BackgroundName>(backgroundStorageKey, "gears", backgroundOptions.map((option) => option.value));
   const [library, setLibrary] = useState<LibrarySnapshot | null>(null);
@@ -562,6 +708,8 @@ function App() {
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [viewport, setViewport] = useStoredJsonSetting<CanvasViewport>("snarkroute.canvasViewport", { x: 0, y: 0, scale: 1 });
   const [miniMapCollapsed, setMiniMapCollapsed] = useStoredJsonSetting<boolean>("snarkroute.miniMapCollapsed", false);
+  const [collectionDockOpen, setCollectionDockOpen] = useStoredJsonSetting<boolean>("snarkroute.collectionDockOpen", true);
+  const [dockedCollectionIds, setDockedCollectionIds] = useStoredJsonSetting<string[]>("snarkroute.dockedCollectionIds", []);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -569,25 +717,41 @@ function App() {
   const [collapsedNodeIds, setCollapsedNodeIds] = useStoredJsonSetting<string[]>("snarkroute.collapsedNodes", []);
   const [nodeToolbarConfig, setNodeToolbarConfig] = useStoredJsonSetting<NodeToolbarConfig>(nodeToolbarConfigStorageKey, defaultNodeToolbarConfig);
   const [canvasActionSettings, setCanvasActionSettings] = useStoredJsonSetting<Record<string, CanvasActionButtonSettings>>(canvasActionSettingsStorageKey, {});
+  const [canvasActionParamValues, setCanvasActionParamValues] = useStoredJsonSetting<Record<string, Record<string, unknown>>>(canvasActionParamsStorageKey, {});
   const [nodeActionPanelOpen, setNodeActionPanelOpen] = useState(false);
   const [nodeActionContextMenu, setNodeActionContextMenu] = useState<NodeActionContextMenu | null>(null);
   const [canvasActionSettingsDraft, setCanvasActionSettingsDraft] = useState<CanvasActionSettingsDraft | null>(null);
+  const [canvasActionRunDialog, setCanvasActionRunDialog] = useState<CanvasActionRunDialog | null>(null);
   const [canvasNodeActions, setCanvasNodeActions] = useState<CanvasNodeAction[]>([]);
   const [nodeCreateMenu, setNodeCreateMenu] = useState<NodeCreateMenu | null>(null);
   const [previewImage, setPreviewImage] = useState<{ nodeId: string; title: string; index: number } | null>(null);
+  const [imageCorrection, setImageCorrection] = useState<ImageCorrectionDraft | null>(null);
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
   const [openStackNodeId, setOpenStackNodeId] = useState<string | null>(null);
   const [stackItemMenu, setStackItemMenu] = useState<StackItemMenu | null>(null);
+  const [missingStackItems, setMissingStackItems] = useState<Record<string, true>>({});
   const [contentMenu, setContentMenu] = useState<ContentContextMenu | null>(null);
+  const [collectionItemMenu, setCollectionItemMenu] = useState<CollectionItemMenu | null>(null);
+  const [collectionPreview, setCollectionPreview] = useState<CollectionNodeItem | null>(null);
   const [libraryAssetMenu, setLibraryAssetMenu] = useState<LibraryAssetMenu | null>(null);
   const [projectMenu, setProjectMenu] = useState<ProjectMenu | null>(null);
   const [coverPicker, setCoverPicker] = useState<CoverPickerState | null>(null);
   const [selectionMenu, setSelectionMenu] = useState<SelectionMenu | null>(null);
+  const nodeCreateMenuPosition = useClampedMenuPosition(nodeCreateMenu);
+  const nodeActionMenuPosition = useClampedMenuPosition(nodeActionContextMenu);
+  const stackItemMenuPosition = useClampedMenuPosition(stackItemMenu);
+  const contentMenuPosition = useClampedMenuPosition(contentMenu);
+  const collectionItemMenuPosition = useClampedMenuPosition(collectionItemMenu);
+  const projectMenuPosition = useClampedMenuPosition(projectMenu);
+  const libraryAssetMenuPosition = useClampedMenuPosition(libraryAssetMenu);
+  const selectionMenuPosition = useClampedMenuPosition(selectionMenu);
   const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<ModelOption[]>([]);
   const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
   const [providerErrors, setProviderErrors] = useState<Partial<Record<string, string>>>({});
   const [providerNotice, setProviderNotice] = useState<Partial<Record<string, string>>>({});
+  const [orphanCleanupBusy, setOrphanCleanupBusy] = useState(false);
+  const [orphanCleanupMessage, setOrphanCleanupMessage] = useState("");
   const [customModels, setCustomModels] = useStoredJsonSetting<ModelOption[]>("snarkroute.customModels", []);
   const [localProviders, setLocalProviders] = useStoredJsonSetting<LocalProviderConnection[]>("snarkroute.localProviders", []);
   const [modelSearchNodeId, setModelSearchNodeId] = useState<string | null>(null);
@@ -600,6 +764,7 @@ function App() {
   const interactionMovedRef = useRef(false);
   const undoStackRef = useRef<CanvasDocument[]>([]);
   const libraryMutationSeqRef = useRef(0);
+  const canvasButtonSetupInputRef = useRef<HTMLInputElement | null>(null);
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -703,7 +868,7 @@ function App() {
 
     function handlePointerMove(event: PointerEvent) {
       if (event.pointerId !== activeDrag.pointerId) return;
-      if (activeDrag.kind === "stackItem") {
+      if (activeDrag.kind === "stackItem" || activeDrag.kind === "collectionItem") {
         const moved = Math.hypot(event.clientX - activeDrag.startClientX, event.clientY - activeDrag.startClientY) > 6;
         if (moved) interactionMovedRef.current = true;
         const point = screenToWorld(event.clientX, event.clientY);
@@ -774,6 +939,18 @@ function App() {
             Math.round(activeDrag.startY + dy)
           );
         }
+        const draggedNode = nodeById.get(activeDrag.nodeId);
+        if (draggedNode?.manifest.type === "collection" && !activeDrag.groupStartPositions?.length) {
+          const canvasBounds = canvasRef.current?.getBoundingClientRect();
+          const overDock = Boolean(canvasBounds
+            && event.clientX >= canvasBounds.left + 64
+            && event.clientX <= canvasBounds.right - 64
+            && event.clientY >= canvasBounds.top
+            && event.clientY <= canvasBounds.top + (collectionDockOpen ? 140 : 24));
+          setDockedCollectionIds(overDock
+            ? [...new Set([...dockedCollectionIds, activeDrag.nodeId])]
+            : dockedCollectionIds.filter((id) => id !== activeDrag.nodeId));
+        }
       }
       if (activeDrag.kind === "connection") {
         const target = document.elementFromPoint(event.clientX, event.clientY);
@@ -804,6 +981,13 @@ function App() {
           void duplicateStackItemNode(activeDrag.nodeId, activeDrag.stackItemId, point);
         }
       }
+      if (activeDrag.kind === "collectionItem") {
+        const point = screenToWorld(event.clientX, event.clientY);
+        const moved = Math.hypot(event.clientX - activeDrag.startClientX, event.clientY - activeDrag.startClientY) > 6;
+        if (moved && isPointInsideCanvas(event.clientX, event.clientY)) {
+          void duplicateCollectionItemNode(activeDrag.nodeId, activeDrag.itemId, point);
+        }
+      }
       if (activeDrag.kind === "selection") {
         const bounds = normalizedRect(activeDrag.startX, activeDrag.startY, activeDrag.currentX, activeDrag.currentY);
         const selected = nodes.filter((node) => rectIntersects(bounds, node.canvas)).map((node) => node.canvas.id);
@@ -827,7 +1011,7 @@ function App() {
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerCancel);
     };
-  }, [dragState, library, viewport, viewportScale, nodes]);
+  }, [dragState, library, viewport, viewportScale, nodes, nodeById, collectionDockOpen, dockedCollectionIds]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -858,9 +1042,10 @@ function App() {
     function closeFloatingMenus(event: PointerEvent) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
-      if (target.closest(".stackItemMenu, .contentMenu, .nodeCreateMenu, .selectionMenu, .projectMenu, .stackBoard, .modelMenu, .nodeActionContextMenu, .canvasActionParamsDialog")) return;
+      if (target.closest(".stackItemMenu, .contentMenu, .collectionItemMenu, .nodeCreateMenu, .selectionMenu, .projectMenu, .stackBoard, .modelMenu, .nodeActionContextMenu, .canvasActionParamsDialog")) return;
       setStackItemMenu(null);
       setContentMenu(null);
+      setCollectionItemMenu(null);
       setSelectionMenu(null);
       setProjectMenu(null);
       setNodeActionContextMenu(null);
@@ -872,10 +1057,10 @@ function App() {
 
   useEffect(() => {
     if (!contentMenu) return;
-    const animationFrame = window.requestAnimationFrame(() => contentMenuRef.current?.focus());
+    const animationFrame = window.requestAnimationFrame(() => contentMenuPosition.ref.current?.focus());
     function closeOnFocusOutside(event: FocusEvent) {
       const target = event.target;
-      if (target instanceof Node && contentMenuRef.current?.contains(target)) return;
+      if (target instanceof Node && contentMenuPosition.ref.current?.contains(target)) return;
       setContentMenu(null);
     }
 
@@ -891,6 +1076,7 @@ function App() {
     if (!icon) return;
     const initialHref = icon.getAttribute("href") ?? "/snarkroute-icon.png";
     const initialType = icon.getAttribute("type");
+    const initialTitle = document.title;
     if (!generationRunning) {
       icon.href = initialHref;
       if (initialType) icon.type = initialType;
@@ -898,6 +1084,7 @@ function App() {
     }
 
     let frame = 0;
+    document.title = `⚙ ${initialTitle}`;
     icon.type = "image/svg+xml";
     icon.href = busyFaviconFrames[frame];
     const timer = window.setInterval(() => {
@@ -908,6 +1095,7 @@ function App() {
       window.clearInterval(timer);
       icon.href = initialHref;
       if (initialType) icon.type = initialType;
+      document.title = initialTitle;
     };
   }, [generationRunning]);
 
@@ -1057,6 +1245,16 @@ function App() {
       return;
     }
     const files = [...event.dataTransfer.files];
+    const setupFile = files.find((item) => canImportCanvasSettingsFilename(item.name));
+    if (setupFile) {
+      await importCanvasSettingsFile(setupFile);
+      return;
+    }
+    const packageFile = files.find((item) => canImportNodePackageFilename(item.name));
+    if (packageFile) {
+      await importNodePackageFile(packageFile);
+      return;
+    }
     const file = files.find((item) => isImageFile(item) || isVideoFile(item) || isAudioFile(item) || isTextFile(item));
     const canvas = canvasRef.current;
     if (!file || !canvas) {
@@ -1135,7 +1333,7 @@ function App() {
   }
 
   function handleCanvasWheel(event: React.WheelEvent<HTMLElement>) {
-    if (event.target instanceof Element && event.target.closest("[data-canvas-wheel-scroll]")) {
+    if (isScrollableWheelTarget(event.target, event.currentTarget)) {
       event.stopPropagation();
       return;
     }
@@ -1235,13 +1433,13 @@ function App() {
     });
   }
 
-  function handleInputPointerDown(event: React.PointerEvent<HTMLElement>, node: NodeView) {
+  function handleInputPointerDown(event: React.PointerEvent<HTMLElement>, node: NodeView, pointOverride?: { x: number; y: number }) {
     if (event.button !== 0) return;
     event.stopPropagation();
     setNodeCreateMenu(null);
     setSelectedEdgeId(null);
     interactionMovedRef.current = false;
-    const start = nodeInputPoint(node.canvas);
+    const start = pointOverride ?? nodeInputPoint(node.canvas);
     setDragState({
       kind: "connection",
       pointerId: event.pointerId,
@@ -1359,6 +1557,7 @@ function App() {
     setLibrary((current) => current ? { ...current, canvas } : current);
     try {
       await apiPut<CanvasDocument>("/api/libraries/current/canvas", canvas);
+      applyLibrarySnapshot(await apiGet<LibrarySnapshot>("/api/libraries/current"));
       setStatus("Connection saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save connection.");
@@ -1394,7 +1593,7 @@ function App() {
     }
   }
 
-  async function createConnectedNode(type: "image" | "video" | "audio" | "text") {
+  async function createConnectedNode(type: "image" | "video" | "audio" | "text" | "collection", variant?: "note") {
     if (!nodeCreateMenu) return;
     const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
     const mutationSeq = beginLibraryMutation();
@@ -1403,17 +1602,18 @@ function App() {
       pushUndoSnapshot();
       const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/current/nodes", {
         type,
+        variant,
         x: nodeCreateMenu.worldX,
         y: nodeCreateMenu.worldY,
-        width: imageNodeWidth,
-        height: type === "text" ? 180 : imageNodeHeight,
-        connectFromNodeId: nodeCreateMenu.fromNodeId
+        width: variant === "note" ? 280 : imageNodeWidth,
+        height: variant === "note" ? 220 : type === "text" ? 180 : type === "collection" ? 280 : imageNodeHeight,
+        connectFromNodeId: variant === "note" ? undefined : nodeCreateMenu.fromNodeId
       });
       if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
       const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
       setSelectedNodeId(createdNodeId);
       setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
-      setStatus(`${type === "image" ? "Image" : type === "video" ? "Video" : type === "audio" ? "Audio" : "Text"} node created`);
+      setStatus(`${variant === "note" ? "Note" : type === "image" ? "Image" : type === "video" ? "Video" : type === "audio" ? "Audio" : type === "collection" ? "Collection" : "Text"} node created`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not create node.");
     }
@@ -1463,6 +1663,16 @@ function App() {
       setStatus("Text color saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save text color.");
+    }
+  }
+
+  async function saveTextNodeInputMode(nodeId: string, inputMode: "text" | "dialogue") {
+    try {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, { inputMode });
+      applyLibrarySnapshot(snapshot);
+      setStatus(inputMode === "dialogue" ? "Dialogue mode enabled" : "Text mode enabled");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not switch input mode.");
     }
   }
 
@@ -1810,6 +2020,18 @@ function App() {
     return "image-nodes";
   }
 
+  function stackNodeRoute(node: ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView): "image-nodes" | "video-nodes" | "audio-nodes" | "text-nodes" {
+    if (node.manifest.type === "text") return "text-nodes";
+    if (node.manifest.type === "video") return "video-nodes";
+    if (node.manifest.type === "audio") return "audio-nodes";
+    return "image-nodes";
+  }
+
+  function stackItemsForNode(node: ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView): Array<ImageStackItem | TextStackItem> {
+    if (node.manifest.type === "text") return (node as TextNodeView).stack;
+    return (node as ImageNodeView | VideoNodeView | AudioNodeView).manifest.stack;
+  }
+
   async function addFileToNodeStack(nodeId: string, file: File) {
     const route = mediaNodeRoute(nodeId);
     const kind = route === "video-nodes" ? "video" : route === "audio-nodes" ? "audio" : "image";
@@ -1921,6 +2143,60 @@ function App() {
     }
   }
 
+  function openImageCorrection(sourceNodeId: string, targetNodeId?: string, settings?: CorrectionSettings) {
+    const sourceNode = nodes.find((candidate) => candidate.canvas.id === sourceNodeId && candidate.manifest.type === "image") as ImageNodeView | undefined;
+    if (!sourceNode?.previewUrl) {
+      setStatus("Image node has no active image to adjust.");
+      return;
+    }
+    setImageCorrection({
+      sourceNodeId,
+      targetNodeId,
+      src: `${apiBase}${sourceNode.previewUrl}?v=${encodeURIComponent(sourceNode.activeStackItem?.id ?? sourceNode.manifest.id)}`,
+      title: sourceNode.manifest.title || "Image",
+      filename: `${safeDownloadName(sourceNode.manifest.title || "image")} adjusted.png`,
+      settings: settings ?? defaultCorrectionSettings
+    });
+  }
+
+  async function applyImageCorrectionResult(draft: ImageCorrectionDraft, dataUrl: string, settings: CorrectionSettings) {
+    const sourceNode = nodes.find((node) => node.canvas.id === draft.sourceNodeId && node.manifest.type === "image") as ImageNodeView | undefined;
+    if (!sourceNode || !library?.canvas) return;
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
+    try {
+      pushUndoSnapshot();
+      const dataBase64 = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+      const snapshot = draft.targetNodeId
+        ? await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(draft.targetNodeId)}/stack`, {
+          filename: draft.filename,
+          dataBase64
+        })
+        : await apiPost<LibrarySnapshot>("/api/libraries/current/import-image", {
+          filename: draft.filename,
+          dataBase64,
+          dropX: sourceNode.canvas.x + sourceNode.canvas.width + imageNodeWidth / 2 + 80,
+          dropY: sourceNode.canvas.y + imageNodeHeight / 2,
+          width: imageNodeWidth,
+          height: imageNodeHeight,
+          connectFromNodeId: draft.sourceNodeId
+        });
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      const targetNodeId = draft.targetNodeId ?? snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
+      if (!targetNodeId || !snapshot.canvas) return;
+      const canvas = withImageCorrectionEdge(snapshot.canvas, draft.sourceNodeId, targetNodeId, settings);
+      setLibrary((current) => current ? { ...current, canvas } : current);
+      await apiPut<CanvasDocument>("/api/libraries/current/canvas", canvas);
+      applyLibrarySnapshot(await apiGet<LibrarySnapshot>("/api/libraries/current"));
+      setSelectedNodeId(targetNodeId);
+      setSelectedNodeIds([targetNodeId]);
+      setImageCorrection(null);
+      setStatus(draft.targetNodeId ? "Adjustment added to stack" : "Adjustment created");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not apply image adjustment.");
+    }
+  }
+
   async function setActiveStackImage(nodeId: string, activeStackIndex: number) {
     const mutationSeq = beginLibraryMutation();
     try {
@@ -1997,10 +2273,89 @@ function App() {
       const route = nodeType === "text" ? "text-nodes" : mediaNodeRoute(nodeId);
       const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}`);
       applyLibrarySnapshot(snapshot);
+      markStackItemMissing(nodeId, stackItemId, false);
       setStatus("Stack item deleted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete stack item.");
     }
+  }
+
+  async function duplicateCollectionItemNode(nodeId: string, itemId: string, point: { x: number; y: number }) {
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
+    try {
+      pushUndoSnapshot();
+      const snapshot = await apiPost<LibrarySnapshot>(
+        `/api/libraries/current/collection-nodes/${encodeURIComponent(nodeId)}/items/${encodeURIComponent(itemId)}/duplicate-node`,
+        { x: point.x, y: point.y, width: imageNodeWidth }
+      );
+      const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      setSelectedNodeId(createdNodeId);
+      setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
+      setStatus("Collection item pulled into a new node");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not create node from collection item.");
+    }
+  }
+
+  async function toggleStackImageSelection(nodeId: string, stackItemId: string) {
+    const node = nodes.find((candidate): candidate is ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView =>
+      candidate.canvas.id === nodeId && (candidate.manifest.type === "image" || candidate.manifest.type === "video" || candidate.manifest.type === "audio" || candidate.manifest.type === "text")
+    );
+    if (!node) return;
+    const selectedIds = new Set(node.manifest.selectedStackItemIds ?? []);
+    if (selectedIds.has(stackItemId)) selectedIds.delete(stackItemId);
+    else selectedIds.add(stackItemId);
+    const mutationSeq = beginLibraryMutation();
+    try {
+      const snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${stackNodeRoute(node)}/${encodeURIComponent(nodeId)}/stack/selected`, {
+        selectedStackItemIds: [...selectedIds]
+      });
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      const kind = node.manifest.type.charAt(0).toUpperCase() + node.manifest.type.slice(1);
+      setStatus(selectedIds.has(stackItemId) ? `${kind} item marked as selected` : `${kind} item selection removed`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not update stack selection.");
+    }
+  }
+
+  async function deleteMissingStackItems(nodeId: string) {
+    setStackItemMenu(null);
+    const node = nodes.find((candidate) => candidate.canvas.id === nodeId);
+    const stack = node?.manifest.type === "text" || node?.manifest.type === "library" || node?.manifest.type === "collection" ? [] : node?.manifest.stack ?? [];
+    const missingItems = stack.filter((item) => missingStackItems[stackItemMissingKey(nodeId, item.id)] === true);
+    if (!node || missingItems.length === 0) {
+      setStatus("No missing stack items found");
+      return;
+    }
+    try {
+      const route = mediaNodeRoute(nodeId);
+      let latestSnapshot: LibrarySnapshot | null = null;
+      for (const item of missingItems) {
+        latestSnapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(item.id)}`);
+      }
+      if (latestSnapshot) applyLibrarySnapshot(latestSnapshot);
+      setMissingStackItems((current) => {
+        const next = { ...current };
+        for (const item of missingItems) delete next[stackItemMissingKey(nodeId, item.id)];
+        return next;
+      });
+      setStatus(`Deleted ${missingItems.length} missing stack item${missingItems.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not delete missing stack items.");
+    }
+  }
+
+  function markStackItemMissing(nodeId: string, stackItemId: string, missing: boolean) {
+    const key = stackItemMissingKey(nodeId, stackItemId);
+    setMissingStackItems((current) => {
+      if (missing) return current[key] ? current : { ...current, [key]: true };
+      if (!current[key]) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
   }
 
   async function deleteLibraryAsset(nodeId: string, assetId: string) {
@@ -2174,6 +2529,170 @@ function App() {
     }
   }
 
+  async function createNodeWithSelectedElements(nodeId: string) {
+    setSelectionMenu(null);
+    const sourceNode = nodes.find((node): node is ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView =>
+      node.canvas.id === nodeId && (node.manifest.type === "image" || node.manifest.type === "video" || node.manifest.type === "audio" || node.manifest.type === "text")
+    );
+    if (!sourceNode) {
+      setStatus("Selected elements are available for stack nodes.");
+      return;
+    }
+    const stack = stackItemsForNode(sourceNode);
+    const selectedIds = sourceNode.manifest.selectedStackItemIds?.filter((id) => stack.some((item) => item.id === id)) ?? [];
+    if (selectedIds.length === 0) {
+      setStatus("Select stack elements first.");
+      return;
+    }
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
+    try {
+      pushUndoSnapshot();
+      let snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/duplicate`, {
+        x: sourceNode.canvas.x + 28,
+        y: sourceNode.canvas.y + 28
+      });
+      const createdNode = snapshot.nodes.find((node): node is ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView => !existingNodeIds.has(node.canvas.id) && node.manifest.type === sourceNode.manifest.type);
+      if (!createdNode) throw new Error(`Could not create ${sourceNode.manifest.type} node.`);
+      const createdStack = stackItemsForNode(createdNode);
+      const selectedIdSet = new Set(selectedIds);
+      const route = stackNodeRoute(createdNode);
+      for (const item of createdStack.filter((item) => !selectedIdSet.has(item.id))) {
+        snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(createdNode.canvas.id)}/stack/${encodeURIComponent(item.id)}`);
+      }
+      snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(createdNode.canvas.id)}/stack/selected`, { selectedStackItemIds: [] });
+      if (createdNode.manifest.type !== "text") {
+        snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(createdNode.canvas.id)}/prompt`, { prompt: "" });
+      }
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      setSelectedNodeId(createdNode.canvas.id);
+      setSelectedNodeIds([createdNode.canvas.id]);
+      setSelectedEdgeId(null);
+      setStatus(`${sourceNode.manifest.type.charAt(0).toUpperCase() + sourceNode.manifest.type.slice(1)} node created with ${selectedIds.length} selected item${selectedIds.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not create node with selected elements.");
+    }
+  }
+
+  async function keepOnlySelectedNodes(nodeId: string) {
+    setSelectionMenu(null);
+    const sourceNode = nodes.find((node): node is ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView =>
+      node.canvas.id === nodeId && (node.manifest.type === "image" || node.manifest.type === "video" || node.manifest.type === "audio" || node.manifest.type === "text")
+    );
+    if (!sourceNode) {
+      setStatus("Selected elements are available for stack nodes.");
+      return;
+    }
+    const stack = stackItemsForNode(sourceNode);
+    const selectedIds = sourceNode.manifest.selectedStackItemIds?.filter((id) => stack.some((item) => item.id === id)) ?? [];
+    if (selectedIds.length === 0) {
+      setStatus("Select stack elements first.");
+      return;
+    }
+    const selectedIdSet = new Set(selectedIds);
+    const itemIdsToDelete = stack.map((item) => item.id).filter((itemId) => !selectedIdSet.has(itemId));
+    const route = stackNodeRoute(sourceNode);
+    const mutationSeq = beginLibraryMutation();
+    try {
+      pushUndoSnapshot();
+      let snapshot: LibrarySnapshot | null = null;
+      for (const itemId of itemIdsToDelete) {
+        snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(itemId)}`);
+      }
+      snapshot = await apiPut<LibrarySnapshot>(`/api/libraries/current/${route}/${encodeURIComponent(nodeId)}/stack/selected`, { selectedStackItemIds: [] });
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      setStatus(`Kept ${selectedIds.length} selected item${selectedIds.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not keep only selected nodes.");
+    }
+  }
+
+  function collectionMenuItem(menu: CollectionItemMenu) {
+    const node = nodes.find((candidate) => candidate.canvas.id === menu.nodeId);
+    return node?.manifest.type === "collection" ? (node as CollectionNodeView).items.find((item) => item.id === menu.itemId) : undefined;
+  }
+
+  async function copyCollectionItem(menu: CollectionItemMenu) {
+    const item = collectionMenuItem(menu);
+    setCollectionItemMenu(null);
+    if (!item) return;
+    try {
+      if (item.type === "text") await navigator.clipboard.writeText(item.text ?? "");
+      else if (item.type === "image" && item.previewUrl) await copyImageToClipboard(`${apiBase}${item.previewUrl}`);
+      else if (item.previewUrl) await navigator.clipboard.writeText(`${apiBase}${item.previewUrl}`);
+      setStatus("Collection item copied");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not copy collection item.");
+    }
+  }
+
+  async function deleteCollectionItem(menu: CollectionItemMenu) {
+    setCollectionItemMenu(null);
+    try {
+      const snapshot = await apiDelete<LibrarySnapshot>(`/api/libraries/current/collection-nodes/${encodeURIComponent(menu.nodeId)}/items/${encodeURIComponent(menu.itemId)}`);
+      applyLibrarySnapshot(snapshot);
+      setStatus("Collection item deleted");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not delete collection item.");
+    }
+  }
+
+  async function runTextDialogueTurn(nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) {
+    setModelSearchNodeId(null);
+    setOpenStackNodeId(null);
+    setStackItemMenu(null);
+    setSelectionMenu(null);
+    setNodeCreateMenu(null);
+    try {
+      setStatus("Sending dialogue turn...");
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: true, message: "Thinking..." } }));
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/conversation/turn`, {
+        modelId: selection.modelId,
+        prompt,
+        executionProvider: selection.executionProvider,
+        fallbackAllowed: selection.fallbackAllowed,
+        availableExecutionProviders,
+        inputNodeIds,
+        maxImageInputs,
+        imageReferenceSyntax,
+        attachments: inputNodeIds?.map((inputNodeId) => ({ nodeId: inputNodeId }))
+      });
+      applyLibrarySnapshot(snapshot);
+      setStatus("Dialogue updated");
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message: "Answered" } }));
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not send dialogue turn.";
+      setStatus(message);
+      setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message, error: true } }));
+      return false;
+    }
+  }
+
+  async function trashOrphanNodeFolders() {
+    if (orphanCleanupBusy) return;
+    setOrphanCleanupBusy(true);
+    setOrphanCleanupMessage("Scanning node folders...");
+    setStatus("Scanning orphan node folders...");
+    try {
+      const result = await apiPost<{ snapshot: LibrarySnapshot; movedCount: number; movedNodePaths: string[]; failedCount?: number; failedNodePaths?: Array<{ nodePath: string; error: string }> }>("/api/libraries/current/nodes/trash-orphans", {});
+      applyLibrarySnapshot(result.snapshot);
+      const failedCount = result.failedCount ?? 0;
+      const firstFailure = result.failedNodePaths?.[0];
+      const message = failedCount > 0
+        ? `Moved ${result.movedCount}; ${failedCount} folder(s) blocked${firstFailure ? `: ${firstFailure.nodePath}` : ""}`
+        : result.movedCount === 0 ? "No orphan node folders found" : `Moved ${result.movedCount} orphan node folder(s) to .trash`;
+      setOrphanCleanupMessage(message);
+      setStatus(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not clean orphan node folders.";
+      setOrphanCleanupMessage(message);
+      setStatus(message);
+    } finally {
+      setOrphanCleanupBusy(false);
+    }
+  }
+
   async function deleteSelectedEdge(edgeId: string) {
     try {
       pushUndoSnapshot();
@@ -2272,13 +2791,186 @@ function App() {
     const canvasActionId = canvasActionIdFromToolbarId(actionId);
     if (!canvasActionId) return;
     try {
-      await apiDelete(`/api/node-packages/${encodeURIComponent(canvasActionId)}`);
+      await apiDelete(`/api/canvas-actions/${encodeURIComponent(canvasActionId)}`);
       const { [canvasActionId]: _removed, ...rest } = canvasActionSettings;
       setCanvasActionSettings(rest);
       await refreshCanvasNodeActions();
       setStatus("Canvas action deleted");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not delete canvas action package.");
+    }
+  }
+
+  async function exportCanvasActionPackage(actionId: NodeToolbarActionId) {
+    setNodeActionContextMenu(null);
+    const canvasActionId = canvasActionIdFromToolbarId(actionId);
+    const action = availableNodeToolbarActions.find((candidate) => candidate.id === actionId)?.canvasAction;
+    if (!canvasActionId || !action) return;
+    const settings = canvasActionSettings[canvasActionId];
+    const icon = settings?.icon ?? action.icon;
+    try {
+      const result = await apiPost<NodePackageExportResponse>(`/api/node-packages/${encodeURIComponent(canvasActionId)}/export`, {
+        canvasAction: {
+          title: settings?.title?.trim() || action.title,
+          ...(icon ? { icon } : {})
+        }
+      });
+      if (!result.ok) throw new Error(result.error ?? "Export failed.");
+      const bytes = result.dataBase64 ? Uint8Array.from(atob(result.dataBase64), (char) => char.charCodeAt(0)) : String(result.text ?? "");
+      downloadBlob(new Blob([bytes], { type: result.contentType ?? "application/octet-stream" }), result.filename ?? `${canvasActionId}.snarknode`);
+      setStatus("Canvas action exported");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not export canvas action.");
+    }
+  }
+
+  async function importNodePackageFile(file: File) {
+    try {
+      const isArchive = /\.snarknode$/i.test(file.name);
+      const payload = {
+        filename: file.name,
+        fileName: file.name,
+        text: isArchive ? "" : await file.text(),
+        dataBase64: isArchive ? await fileToBase64(file) : undefined,
+        source: file.name
+      };
+      const result = await apiPost<{ ok: boolean; manifest?: { id?: string; title?: string }; error?: string; issues?: unknown }>("/api/node-packages/install", payload);
+      if (!result.ok) throw new Error(result.error ?? "Could not install node package.");
+      await refreshCanvasNodeActions();
+      setStatus(`Installed ${result.manifest?.title ?? result.manifest?.id ?? file.name}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not install dropped node package.");
+    }
+  }
+
+  async function exportCanvasSettingsArchive() {
+    try {
+      const zip = new JSZip();
+      const packages: CanvasSettingsPackageEntry[] = [];
+      for (const action of canvasNodeActions) {
+        const settings = canvasActionSettings[action.id];
+        const icon = settings?.icon ?? action.icon;
+        const result = await apiPost<NodePackageExportResponse>(`/api/node-packages/${encodeURIComponent(action.id)}/export`, {
+          canvasAction: {
+            title: settings?.title?.trim() || action.title,
+            ...(icon ? { icon } : {})
+          }
+        });
+        if (!result.ok) throw new Error(result.error ?? `Could not export ${action.id}.`);
+        const filename = result.filename ?? `${action.id}.snarknode`;
+        const path = `buttons/${safeArchivePathSegment(filename)}`;
+        const content = result.dataBase64 ? Uint8Array.from(atob(result.dataBase64), (char) => char.charCodeAt(0)) : String(result.text ?? "");
+        zip.file(path, content);
+        packages.push({
+          path,
+          filename,
+          contentType: result.contentType
+        });
+      }
+      const exportedAt = new Date().toISOString();
+      const manifest: CanvasSettingsManifestFile = {
+        format: "snarkroute.settings",
+        version: "0.1",
+        exportedAt,
+        product: "snarkroute",
+        sections: ["livingCanvas"]
+      };
+      const livingCanvasSettings: LivingCanvasSettingsFile = {
+        nodeToolbarConfig: effectiveNodeToolbarConfig,
+        canvasActionSettings,
+        buttonPackages: packages
+      };
+      zip.file("settings/manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+      zip.file("settings/living-canvas.json", `${JSON.stringify(livingCanvasSettings, null, 2)}\n`);
+      zip.file("README.txt", [
+        "SnarkRoute settings archive.",
+        "Drop this archive onto Living Canvas or import it from the right settings panel.",
+        "buttons/ contains portable Living Canvas action node packages."
+      ].join("\n"));
+      const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 9 } });
+      downloadBlob(blob, "snarkroute-settings.snarksettings.zip");
+      setStatus("Settings exported");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not export settings.");
+    }
+  }
+
+  async function importCanvasSettingsFile(file: File) {
+    try {
+      if (/\.snarkbuttons\.json$/i.test(file.name)) {
+        await importLegacyCanvasButtonSetupFile(file);
+        return;
+      }
+      const zip = await JSZip.loadAsync(await file.arrayBuffer());
+      const manifestEntry = zip.file("settings/manifest.json");
+      const livingCanvasEntry = zip.file("settings/living-canvas.json");
+      if (!manifestEntry || !livingCanvasEntry) throw new Error("Unsupported settings archive.");
+      const manifest = JSON.parse(await manifestEntry.async("text")) as Partial<CanvasSettingsManifestFile>;
+      const settings = JSON.parse(await livingCanvasEntry.async("text")) as Partial<LivingCanvasSettingsFile>;
+      if (manifest.format !== "snarkroute.settings" || !Array.isArray(settings.buttonPackages)) throw new Error("Unsupported settings archive.");
+      for (const entry of settings.buttonPackages) {
+        const packageEntry = zip.file(entry.path);
+        if (!packageEntry) throw new Error(`Settings archive is missing ${entry.path}.`);
+        const isArchive = /\.snarknode$/i.test(entry.filename);
+        const data = await packageEntry.async(isArchive ? "uint8array" : "text");
+        await apiPost("/api/node-packages/install", {
+          filename: entry.filename,
+          fileName: entry.filename,
+          text: isArchive ? "" : data,
+          dataBase64: isArchive ? uint8ArrayToBase64(data as Uint8Array) : undefined,
+          source: entry.filename
+        });
+      }
+      if (settings.nodeToolbarConfig) setNodeToolbarConfig(settings.nodeToolbarConfig);
+      if (settings.canvasActionSettings) setCanvasActionSettings(settings.canvasActionSettings);
+      await refreshCanvasNodeActions();
+      setStatus("Settings imported");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not import settings.");
+    }
+  }
+
+  async function importLegacyCanvasButtonSetupFile(file: File) {
+    const setup = JSON.parse(await file.text()) as Partial<LegacyCanvasButtonSetupFile>;
+    if (setup.format !== "snarkroute.livingCanvasButtonSetup" || !Array.isArray(setup.packages)) throw new Error("Unsupported button setup file.");
+    for (const entry of setup.packages) {
+      await apiPost("/api/node-packages/install", {
+        filename: entry.filename,
+        fileName: entry.filename,
+        text: entry.text ?? "",
+        dataBase64: entry.dataBase64,
+        source: entry.filename
+      });
+    }
+    if (setup.nodeToolbarConfig) setNodeToolbarConfig(setup.nodeToolbarConfig);
+    if (setup.canvasActionSettings) setCanvasActionSettings(setup.canvasActionSettings);
+    await refreshCanvasNodeActions();
+    setStatus("Legacy button setup imported");
+  }
+
+  async function openBoojumRouteLab() {
+    try {
+      const result = await apiPost<{ ok: boolean; url?: string; started?: boolean }>("/api/system/open-boojum", { studioPort: new URL(boojumRouteLabUrl).port || "5173" });
+      const opened = window.open(result.url ?? boojumRouteLabUrl, "boojumroute-lab");
+      opened?.focus();
+      setStatus(result.started ? "Starting BoojumRoute Lab..." : "Opening BoojumRoute Lab");
+    } catch (error) {
+      const opened = window.open(boojumRouteLabUrl, "boojumroute-lab");
+      opened?.focus();
+      setStatus(error instanceof Error ? error.message : "Opening BoojumRoute Lab");
+    }
+  }
+
+  async function openBrandeshmyg() {
+    try {
+      const result = await apiPost<{ ok: boolean; url?: string; started?: boolean }>("/api/system/open-brandeshmyg", { brandeshmygPort: new URL(brandeshmygBase).port || "5175" });
+      const opened = window.open(result.url ?? brandeshmygBase, "brandeshmyg-tools");
+      opened?.focus();
+      setStatus(result.started ? "Starting Brandeshmyg..." : "Opening Brandeshmyg");
+    } catch (error) {
+      const opened = window.open(brandeshmygBase, "brandeshmyg-tools");
+      opened?.focus();
+      setStatus(error instanceof Error ? error.message : "Opening Brandeshmyg");
     }
   }
 
@@ -2335,16 +3027,83 @@ function App() {
     reader.readAsDataURL(file);
   }
 
-  async function runNodeCanvasAction(nodeId: string, actionId: string, point: { x: number; y: number }) {
+  function requestRunNodeCanvasAction(nodeId: string, actionId: string, point: { x: number; y: number }) {
+    const action = canvasNodeActions.find((candidate) => candidate.id === actionId);
+    const dialogParamIds = canvasActionNeedsDialog(action) ? action!.dialog!.params : [];
+    if (action && Object.keys(action.poseBindings ?? {}).length > 0) {
+      void prepareNodeCanvasAction(nodeId, action, point);
+      return;
+    }
+    if (action && canvasActionNeedsDialog(action)) {
+      const saved = canvasActionParamValues[actionId] ?? {};
+      const defaults = Object.fromEntries((action.params ?? []).filter((param) => dialogParamIds.includes(param.id)).map((param) => [param.id, saved[param.id] ?? param.default ?? defaultCanvasActionParamValue(param.type)]));
+      setCanvasActionRunDialog({ nodeId, action, point, params: defaults });
+      return;
+    }
+    void runNodeCanvasAction(nodeId, actionId, point);
+  }
+
+  async function prepareNodeCanvasAction(nodeId: string, action: CanvasNodeAction, point: { x: number; y: number }, targetNodeId?: string, preservedParams?: Record<string, unknown>) {
+    const key = `${nodeId}:${action.id}`;
+    try {
+      setCanvasActionRunning((current) => ({ ...current, [key]: action.id }));
+      setStatus("Preparing interactive canvas action...");
+      const prepared = await apiPost<{ continuationId: string; previews: Array<{ kind: "panorama360" | "splat"; src: string }> }>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(action.id)}/run`, { phase: "prepare", reuse: Boolean(targetNodeId), ...point });
+      const paramIds = action.dialog?.params ?? [];
+      const saved = canvasActionParamValues[action.id] ?? {};
+      const params = preservedParams ?? Object.fromEntries((action.params ?? []).filter((param) => paramIds.includes(param.id)).map((param) => [param.id, saved[param.id] ?? param.default ?? defaultCanvasActionParamValue(param.type)]));
+      setCanvasActionRunDialog({ nodeId, action, point, params, pose: canvasActionPoseFromParams(action, params), targetNodeId, continuationId: prepared.continuationId, preparedPreviews: prepared.previews });
+      setStatus("Choose a view, then run the action");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not prepare canvas action.";
+      setStatus(message);
+      setCanvasActionRunDialog((current) => current?.nodeId === nodeId && current.action.id === action.id ? { ...current, error: message } : current);
+    } finally {
+      setCanvasActionRunning((current) => { const { [key]: _done, ...rest } = current; return rest; });
+    }
+  }
+
+  async function runNodeCanvasAction(nodeId: string, actionId: string, point: { x: number; y: number }, params?: Record<string, unknown>, completion?: { continuationId: string; targetNodeId?: string }): Promise<LibrarySnapshot | null> {
     const key = `${nodeId}:${actionId}`;
     try {
       setCanvasActionRunning((current) => ({ ...current, [key]: actionId }));
       setStatus("Running canvas action...");
-      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(actionId)}/run`, point);
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeId)}/canvas-actions/${encodeURIComponent(actionId)}/run`, { ...point, ...(params ? { params } : {}), ...(completion ? { phase: "complete", continuationId: completion.continuationId, targetNodeId: completion.targetNodeId } : {}) });
       applyLibrarySnapshot(snapshot);
       setStatus("Canvas action completed");
+      return snapshot;
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Could not run canvas action.");
+      const message = error instanceof Error ? error.message : "Could not run canvas action.";
+      setStatus(message);
+      setCanvasActionRunDialog((current) => current?.nodeId === nodeId && current.action.id === actionId ? { ...current, error: message, continuationExpired: Boolean(completion && error instanceof ApiResponseError && error.status === 410) } : current);
+      return null;
+    } finally {
+      setCanvasActionRunning((current) => {
+        const { [key]: _done, ...rest } = current;
+        return rest;
+      });
+    }
+  }
+
+  async function rerunCanvasActionEdge(edge: CanvasEdge) {
+    if (edge.kind !== "canvasAction" || !edge.actionId) return;
+    const action = canvasNodeActions.find((candidate) => candidate.id === edge.actionId);
+    if (action && Object.keys(action.poseBindings ?? {}).length > 0) {
+      const target = nodes.find((node) => node.canvas.id === edge.toNodeId)?.canvas;
+      await prepareNodeCanvasAction(edge.fromNodeId, action, target ? { x: target.x + target.width / 2, y: target.y + target.height / 2 } : { x: 0, y: 0 }, edge.toNodeId);
+      return;
+    }
+    const key = `edge:${edge.id}:${edge.actionId}`;
+    try {
+      setCanvasActionRunning((current) => ({ ...current, [key]: edge.actionId! }));
+      setStatus("Refreshing action connection...");
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(edge.fromNodeId)}/canvas-actions/${encodeURIComponent(edge.actionId)}/run`, {
+        targetNodeId: edge.toNodeId
+      });
+      applyLibrarySnapshot(snapshot);
+      setStatus("Action result added to stack");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not refresh action connection.");
     } finally {
       setCanvasActionRunning((current) => {
         const { [key]: _done, ...rest } = current;
@@ -2355,6 +3114,14 @@ function App() {
 
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
   const selectedEdgeNotePosition = selectedEdge ? edgeMidpoint(selectedEdge, new Map(nodes.map((node) => [node.canvas.id, node.canvas]))) : null;
+  const collectionNodes = nodes.filter((node): node is CollectionNodeView => node.manifest.type === "collection" && dockedCollectionIds.includes(node.canvas.id));
+  const collectionDockPoint = (nodeId: string) => {
+    const index = Math.max(0, collectionNodes.findIndex((node) => node.canvas.id === nodeId));
+    const slotWidths = collectionNodes.map((node) => Math.max(180, node.canvas.width / 2));
+    const slotStart = slotWidths.slice(0, index).reduce((sum, width) => sum + width, 0) + index * 8;
+    const screenPoint = { x: 64 + slotStart + (slotWidths[index] ?? 180) / 2, y: collectionDockOpen ? 154 : 21 };
+    return { x: (screenPoint.x - viewport.x) / viewportScale, y: (screenPoint.y - viewport.y) / viewportScale };
+  };
 
   return (
     <main className={`livingCanvasShell${libraryOpen ? "" : " libraryCollapsed"}${inspectorOpen ? " inspectorOpen" : ""}`}>
@@ -2413,7 +3180,7 @@ function App() {
 
       <section
         ref={canvasRef}
-        className={`canvas canvasBackground-${background}${isDragging ? " isDragging" : ""}${dragState?.kind === "canvas" ? " isPanning" : ""}`}
+        className={`canvas canvasBackground-${background}${isDragging ? " isDragging" : ""}${dragState?.kind === "canvas" ? " isPanning" : ""}${dragState?.kind === "node" && nodeById.get(dragState.nodeId)?.manifest.type === "collection" ? " isDraggingCollection" : ""}`}
         style={canvasStyle(background, viewport)}
         onPointerDown={handleCanvasPointerDown}
         onContextMenu={handleCanvasContextMenu}
@@ -2430,17 +3197,63 @@ function App() {
           <CanvasEdges
             nodes={nodes}
             edges={edges}
+            collectionInputPoint={(nodeId) => dockedCollectionIds.includes(nodeId) ? collectionDockPoint(nodeId) : null}
+            isDockedCollection={(nodeId) => dockedCollectionIds.includes(nodeId)}
             preview={connectionPreview}
             selectedEdgeId={selectedEdgeId}
+            actions={availableNodeToolbarActions}
+            runningEdgeActionKey={Object.keys(canvasActionRunning).find((key) => key.startsWith("edge:")) ?? null}
             onSyncRepresentation={(edgeId) => void syncRepresentationEdge(edgeId)}
             onOpenCrop={(nodeId, cropNodeId) => void openCropEditor(nodeId, cropNodeId)}
+            onOpenCorrection={(edge) => openImageCorrection(edge.fromNodeId, edge.toNodeId, edge.correction)}
+            onRunCanvasActionEdge={(edge) => void rerunCanvasActionEdge(edge)}
             onSelectEdge={(edgeId) => {
               setSelectedEdgeId(edgeId);
               setSelectedNodeId(null);
               setSelectedNodeIds([]);
             }}
           />
-          {nodes.map((node) => {
+          {nodes.filter((node) => node.manifest.type !== "collection" || !dockedCollectionIds.includes(node.canvas.id)).map((node) => {
+            if (node.manifest.type === "collection") {
+              return (
+                <CollectionCardNode
+                  key={node.manifest.id}
+                  node={node as CollectionNodeView}
+                  active={selectedNodeIds.length === 1 && selectedNodeId === node.canvas.id}
+                  selected={selectedNodeIds.includes(node.canvas.id)}
+                  collapsed={collapsedNodeIdSet.has(node.canvas.id)}
+                  onPointerDown={handleNodePointerDown}
+                  onClick={handleNodeClick}
+                  onContextMenu={handleNodeContextMenu}
+                  onInputPointerDown={handleInputPointerDown}
+                  onToggleCollapsed={toggleNodeCollapsed}
+                  onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
+                  onItemContextMenu={(event, itemId) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setCollectionItemMenu({ x: event.clientX, y: event.clientY, nodeId: node.canvas.id, itemId });
+                  }}
+                  onItemPointerDown={(event, itemId) => {
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    interactionMovedRef.current = false;
+                    const point = screenToWorld(event.clientX, event.clientY);
+                    setDragState({
+                      kind: "collectionItem",
+                      pointerId: event.pointerId,
+                      nodeId: node.canvas.id,
+                      itemId,
+                      startClientX: event.clientX,
+                      startClientY: event.clientY,
+                      currentX: point.x,
+                      currentY: point.y
+                    });
+                  }}
+                />
+              );
+            }
             if (node.manifest.type === "library") {
               return (
                 <LibraryCardNode
@@ -2483,9 +3296,11 @@ function App() {
               onInputPointerDown={handleInputPointerDown}
               onOutputPointerDown={handleOutputPointerDown}
               onOpenPreview={(nodeId, index, title) => setPreviewImage({ nodeId, index, title })}
+              onOpenCorrection={(nodeId) => openImageCorrection(nodeId)}
               onOpenCrop={openCropEditor}
               onUploadStackImage={(nodeId) => void uploadImageToNodeStack(nodeId)}
               onToggleCollapsed={toggleNodeCollapsed}
+              onDeleteNode={(nodeId) => void deleteSelectedNodes([nodeId])}
               openStack={openStackNodeId === node.canvas.id}
               onToggleStack={(nodeId) => setOpenStackNodeId((current) => current === nodeId ? null : nodeId)}
               onSelectStackImage={(nodeId, index) => {
@@ -2495,6 +3310,7 @@ function App() {
                 }
                 void setActiveStackImage(nodeId, index);
               }}
+              onToggleStackImageSelection={(nodeId, stackItemId) => void toggleStackImageSelection(nodeId, stackItemId)}
               onDragStackImage={(event, nodeId, stackItemId) => {
                 if (event.button !== 0) return;
                 event.preventDefault();
@@ -2516,8 +3332,15 @@ function App() {
               onStackItemContextMenu={(event, nodeId, stackItemId) => {
                 event.preventDefault();
                 event.stopPropagation();
-                setStackItemMenu({ x: event.clientX, y: event.clientY, nodeId, stackItemId });
+                setStackItemMenu({
+                  x: event.clientX,
+                  y: event.clientY,
+                  nodeId,
+                  stackItemId,
+                  missing: missingStackItems[stackItemMissingKey(nodeId, stackItemId)] === true
+                });
               }}
+              onStackItemMissingChange={markStackItemMissing}
               models={nodeModels}
               modelSelection={normalizedModelRouteSelection("modelId" in node.manifest && node.manifest.modelId ? {
                 modelId: node.manifest.modelId,
@@ -2541,6 +3364,7 @@ function App() {
               onSavePrompt={(nodeId, prompt) => void saveMediaPrompt(nodeId, prompt)}
               onSaveText={saveTextNode}
               onSaveTextColor={saveTextNodeColor}
+              onSaveTextInputMode={(nodeId, inputMode) => void saveTextNodeInputMode(nodeId, inputMode)}
               onAddTextToStack={(nodeId, text) => void addTextToStack(nodeId, text)}
               onSelectTextStackItem={(nodeId, stackItemId) => {
                 if (interactionMovedRef.current) {
@@ -2551,11 +3375,14 @@ function App() {
                 void setActiveTextStackItem(nodeId, stackItemId);
               }}
               onRunTextGeneration={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => void runTextGeneration(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
+              onRunTextDialogueTurn={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => runTextDialogueTurn(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
               onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
               toolbarActions={effectiveNodeToolbarConfig[node.manifest.type as EditableNodeType]}
               availableToolbarActions={availableNodeToolbarActions}
               runningCanvasActionId={Object.entries(canvasActionRunning).find(([key]) => key.startsWith(`${node.manifest.id}:`))?.[1] ?? null}
-              onRunCanvasAction={(nodeId, actionId, point) => void runNodeCanvasAction(nodeId, actionId, point)}
+              onRunCanvasAction={requestRunNodeCanvasAction}
+              onCreateNodeWithSelectedElements={() => void createNodeWithSelectedElements(node.canvas.id)}
+              onKeepOnlySelectedNodes={() => void keepOnlySelectedNodes(node.canvas.id)}
             />
             );
           })}
@@ -2566,15 +3393,16 @@ function App() {
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => event.stopPropagation()}
             >
-              <button
-                className="edgeBreakButton"
-                type="button"
-                title="Разорвать связь"
-                aria-label="Разорвать связь"
-                onClick={() => void deleteSelectedEdge(selectedEdge.id)}
-              >
-                <Scissors size={15} />
-              </button>
+              <div className="edgeActionToolbar" aria-label="Connection actions">
+                <button
+                  type="button"
+                  title="Разорвать связь"
+                  aria-label="Разорвать связь"
+                  onClick={() => void deleteSelectedEdge(selectedEdge.id)}
+                >
+                  <Scissors size={15} />
+                </button>
+              </div>
               <textarea
                 value={edgeNoteDraft}
                 placeholder="Заметка"
@@ -2591,7 +3419,7 @@ function App() {
               />
             </div>
           ) : null}
-          {dragState?.kind === "stackItem" && interactionMovedRef.current ? (
+          {(dragState?.kind === "stackItem" || dragState?.kind === "collectionItem") && interactionMovedRef.current ? (
             <div
               className="stackItemDragPreview"
               style={{
@@ -2604,12 +3432,51 @@ function App() {
             </div>
           ) : null}
         </div>
+        <CollectionDock
+          nodes={collectionNodes}
+          open={collectionDockOpen}
+          selectedNodeIds={selectedNodeIds}
+          onToggle={() => setCollectionDockOpen(!collectionDockOpen)}
+          onSelect={handleNodeClick}
+          onNodePointerDown={(event, node) => {
+            if (event.button === 0) setDockedCollectionIds(dockedCollectionIds.filter((id) => id !== node.canvas.id));
+            handleNodePointerDown(event, node);
+          }}
+          onNodeContextMenu={handleNodeContextMenu}
+          onItemContextMenu={(event, node, itemId) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setCollectionItemMenu({ x: event.clientX, y: event.clientY, nodeId: node.canvas.id, itemId });
+          }}
+          onItemPointerDown={(event, node, itemId) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            interactionMovedRef.current = false;
+            const point = screenToWorld(event.clientX, event.clientY);
+            setDragState({
+              kind: "collectionItem",
+              pointerId: event.pointerId,
+              nodeId: node.canvas.id,
+              itemId,
+              startClientX: event.clientX,
+              startClientY: event.clientY,
+              currentX: point.x,
+              currentY: point.y
+            });
+          }}
+          onInputPointerDown={(event, node) => handleInputPointerDown(event, node, collectionDockPoint(node.canvas.id))}
+          onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
+        />
         {nodeCreateMenu && (
-          <div className="nodeCreateMenu" style={{ left: nodeCreateMenu.x, top: nodeCreateMenu.y }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+          <div ref={nodeCreateMenuPosition.ref} className="nodeCreateMenu" data-menu-flipped-x={nodeCreateMenuPosition.flippedX || undefined} style={nodeCreateMenuPosition.style} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
             <button type="button" onClick={() => void createConnectedNode("image")}>Create image node</button>
             <button type="button" onClick={() => void createConnectedNode("video")}>Create video node</button>
             <button type="button" onClick={() => void createConnectedNode("audio")}>Create audio node</button>
             <button type="button" onClick={() => void createConnectedNode("text")}>Create text node</button>
+            {!nodeCreateMenu.fromNodeId ? <button type="button" onClick={() => void createConnectedNode("text", "note")}>Create note</button> : null}
+            <button type="button" onClick={() => void createConnectedNode("collection")}>Create collection node</button>
             {(() => {
               const sourceNode = nodeCreateMenu.fromNodeId ? nodes.find((node) => node.canvas.id === nodeCreateMenu.fromNodeId) : null;
               if (!sourceNode || sourceNode.manifest.type === "text") return null;
@@ -2665,11 +3532,23 @@ function App() {
         />
       </section>
       {nodeActionContextMenu ? (
-        <div className="nodeActionContextMenu" style={{ left: nodeActionContextMenu.x, top: nodeActionContextMenu.y }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+        <div ref={nodeActionMenuPosition.ref} className="nodeActionContextMenu" style={nodeActionMenuPosition.style} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
           {availableNodeToolbarActions.find((action) => action.id === nodeActionContextMenu.actionId)?.canvasAction ? (
-            <button type="button" onClick={() => openCanvasActionSettings(nodeActionContextMenu.actionId)}>
-              <Cog size={14} /> Edit button
-            </button>
+            <>
+              <button type="button" onClick={() => openCanvasActionSettings(nodeActionContextMenu.actionId)}>
+                <Cog size={14} /> Edit button
+              </button>
+              <button type="button" onClick={() => void exportCanvasActionPackage(nodeActionContextMenu.actionId)}>
+                <Download size={14} /> Export
+              </button>
+              <button type="button" onClick={() => {
+                const actionId = canvasActionIdFromToolbarId(nodeActionContextMenu.actionId);
+                if (actionId) window.open(`${brandeshmygBase}/?action=${encodeURIComponent(actionId)}`, "_blank", "noopener,noreferrer");
+                setNodeActionContextMenu(null);
+              }}>
+                <ExternalLink size={14} /> Open in Brandeshmyg
+              </button>
+            </>
           ) : null}
           <button type="button" onClick={() => void deleteNodeToolbarAction(nodeActionContextMenu.actionId, nodeActionContextMenu.type)}>
             <Trash2 size={14} /> {nodeActionContextMenu.type ? "Remove from type" : "Delete"}
@@ -2750,6 +3629,95 @@ function App() {
           </div>
         </div>
       ) : null}
+      {canvasActionRunDialog ? (
+        <div className="canvasActionParamsOverlay" role="dialog" aria-modal="true" onClick={() => setCanvasActionRunDialog(null)}>
+          <form
+            className="canvasActionParamsDialog"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={async (event) => {
+              event.preventDefault();
+              setCanvasActionRunDialog((current) => current ? { ...current, error: undefined, continuationExpired: false } : current);
+              const { nodeId, action, point, params, continuationId, targetNodeId } = canvasActionRunDialog;
+              const runParams = params;
+              setCanvasActionParamValues({ ...canvasActionParamValues, [action.id]: params });
+              const previousIds = new Set(nodes.map((node) => node.canvas.id));
+              const snapshot = await runNodeCanvasAction(nodeId, action.id, point, runParams, continuationId ? { continuationId, targetNodeId } : undefined);
+              if (snapshot) setCanvasActionRunDialog((current) => continuationId ? null : current ? { ...current, resultNodes: snapshot.nodes.filter((node) => !previousIds.has(node.canvas.id)) } : current);
+            }}
+          >
+            <header><strong>{canvasActionRunDialog.action.title}</strong><button type="button" onClick={() => setCanvasActionRunDialog(null)}>Close</button></header>
+            <div className="canvasActionParamsContent">
+            {canvasActionRunDialog.error ? (
+              <div className="canvasActionErrorBanner" role="alert">
+                <span>{canvasActionRunDialog.continuationExpired ? "The prepared preview expired. Prepare it again to continue." : canvasActionRunDialog.error}</span>
+                {canvasActionRunDialog.continuationExpired ? <button type="button" onClick={() => void prepareNodeCanvasAction(canvasActionRunDialog.nodeId, canvasActionRunDialog.action, canvasActionRunDialog.point, canvasActionRunDialog.targetNodeId, canvasActionRunDialog.params)}>Prepare again</button> : null}
+              </div>
+            ) : null}
+            {canvasActionRunDialog.preparedPreviews?.map((preview, index) => (
+              <CanvasActionPosePreview
+                key={`${preview.kind}-${index}`}
+                kind={preview.kind}
+                src={absoluteApiUrl(preview.src)}
+                pose={canvasActionRunDialog.pose}
+                onPoseChange={(pose) => setCanvasActionRunDialog((current) => current ? syncCanvasActionPose(current, pose) : current)}
+              />
+            ))}
+            {canvasActionRunDialog.action.dialog?.preview?.filter((preview) => preview.source === "input").map((preview, index) => (() => {
+              const sourceNode = nodes.find((node) => node.canvas.id === canvasActionRunDialog.nodeId);
+              const src = sourceNode?.previewUrl;
+              if (!src) return null;
+              return <CanvasActionMediaPreview key={index} kind={preview.kind} src={`${apiBase}${src}`} title="Action input preview" />;
+            })())}
+            {(canvasActionRunDialog.action.params ?? []).filter((param) => {
+              if (!canvasActionRunDialog.action.dialog?.params.includes(param.id)) return false;
+              const axis = canvasActionPoseAxis(canvasActionRunDialog.action, param.id);
+              return !param.poseManaged || axis === "fov";
+            }).map((param) => (
+              <label className="canvasActionSettingsField" key={param.id}>
+                <span>{param.label ?? param.id}</span>
+                {param.type === "boolean" ? (
+                  <input type="checkbox" checked={Boolean(canvasActionRunDialog.params[param.id])} onChange={(event) => setCanvasActionRunDialog({ ...canvasActionRunDialog, params: { ...canvasActionRunDialog.params, [param.id]: event.target.checked } })} />
+                ) : param.options?.length ? (
+                  <select value={String(canvasActionRunDialog.params[param.id] ?? "")} onChange={(event) => {
+                    const option = param.options?.find((candidate) => String(candidate.value) === event.target.value);
+                    setCanvasActionRunDialog({ ...canvasActionRunDialog, params: { ...canvasActionRunDialog.params, [param.id]: option?.value ?? event.target.value } });
+                  }}>{param.options.map((option) => <option key={String(option.value)} value={String(option.value)}>{option.label ?? String(option.value)}</option>)}</select>
+                ) : (
+                  <input
+                    type={param.type === "number" ? "number" : "text"}
+                    min={param.min} max={param.max} step={param.step}
+                    value={canvasActionParamInputValue(canvasActionRunDialog, param)}
+                    onChange={(event) => {
+                      const axis = canvasActionPoseAxis(canvasActionRunDialog.action, param.id);
+                      const rawValue = event.target.value;
+                      const numberValue = Number(rawValue);
+                      const parameterValue = param.type === "number" && Number.isFinite(numberValue) ? clampCanvasActionNumberParam(numberValue, param) : rawValue;
+                      setCanvasActionRunDialog(axis === "fov" && typeof parameterValue === "number" ? syncCanvasActionPose(canvasActionRunDialog, { fov: parameterValue }) : { ...canvasActionRunDialog, params: { ...canvasActionRunDialog.params, [param.id]: parameterValue } });
+                    }}
+                  />
+                )}
+              </label>
+            ))}
+            {canvasActionRunDialog.resultNodes?.length ? (
+              <div className="canvasActionResultPreviews">
+                {canvasActionRunDialog.action.dialog?.preview?.filter((preview) => preview.source !== "input").map((preview, index) => {
+                  const outputId = typeof preview.source === "object" ? preview.source.output : "";
+                  const outputType = canvasActionRunDialog.action.outputs.find((output) => output.id === outputId)?.type;
+                  const resultNode = canvasActionRunDialog.resultNodes?.find((node) => node.manifest.type === outputType);
+                  const src = resultNode?.previewUrl;
+                  if (!src) return null;
+                  return <CanvasActionMediaPreview key={index} kind={preview.kind} src={`${apiBase}${src}`} title={`${preview.kind} result`} />;
+                })}
+              </div>
+            ) : null}
+            </div>
+            <footer>
+              <button type="button" onClick={() => setCanvasActionRunDialog(null)}>Cancel</button>
+              <button type="submit" disabled={Boolean(canvasActionRunning[`${canvasActionRunDialog.nodeId}:${canvasActionRunDialog.action.id}`])}>{canvasActionRunning[`${canvasActionRunDialog.nodeId}:${canvasActionRunDialog.action.id}`] ? <><BusyGears /> Running...</> : "Run"}</button>
+            </footer>
+          </form>
+        </div>
+      ) : null}
       {previewImage && (
         <div className="previewOverlay" role="dialog" aria-modal="true" onClick={() => setPreviewImage(null)}>
           <div className="previewDialog" onClick={(event) => event.stopPropagation()}>
@@ -2759,10 +3727,30 @@ function App() {
               node={nodes.find((node) => node.canvas.id === previewImage.nodeId && (node.manifest.type === "image" || node.manifest.type === "video" || node.manifest.type === "audio")) as ImageNodeView | VideoNodeView | AudioNodeView | undefined}
               onChangeIndex={(index) => setPreviewImage({ ...previewImage, index })}
               onMakeMain={(nodeId, index) => void setActiveStackImage(nodeId, index)}
+              onToggleSelected={(nodeId, stackItemId) => void toggleStackImageSelection(nodeId, stackItemId)}
             />
           </div>
         </div>
       )}
+      {imageCorrection ? (
+        <div className="previewOverlay" role="dialog" aria-modal="true" onClick={() => setImageCorrection(null)}>
+          <div className="previewDialog correctionDialog" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="previewClose" onClick={() => setImageCorrection(null)}>×</button>
+            <ImageCorrectionPanel image={imageCorrection} onApply={(dataUrl, settings) => void applyImageCorrectionResult(imageCorrection, dataUrl, settings)} />
+          </div>
+        </div>
+      ) : null}
+      {collectionPreview ? (
+        <div className="previewOverlay" role="dialog" aria-modal="true" onClick={() => setCollectionPreview(null)}>
+          <div className="previewDialog collectionPreviewDialog" onClick={(event) => event.stopPropagation()}>
+            <button type="button" className="previewClose" onClick={() => setCollectionPreview(null)}>×</button>
+            {collectionPreview.type === "image" && collectionPreview.previewUrl ? <img src={`${apiBase}${collectionPreview.previewUrl}`} alt={collectionPreview.title} /> : null}
+            {collectionPreview.type === "video" && collectionPreview.previewUrl ? <video src={`${apiBase}${collectionPreview.previewUrl}`} controls autoPlay /> : null}
+            {collectionPreview.type === "audio" && collectionPreview.previewUrl ? <audio src={`${apiBase}${collectionPreview.previewUrl}`} controls autoPlay /> : null}
+            {collectionPreview.type === "text" ? <pre>{collectionPreview.text}</pre> : null}
+          </div>
+        </div>
+      ) : null}
       {cropDraft ? (
         <CropEditor
           draft={cropDraft}
@@ -2771,12 +3759,15 @@ function App() {
         />
       ) : null}
       {stackItemMenu && (
-        <div className="stackItemMenu" style={{ left: stackItemMenu.x, top: stackItemMenu.y }}>
+        <div ref={stackItemMenuPosition.ref} className="stackItemMenu" style={stackItemMenuPosition.style}>
           <button type="button" onClick={() => void duplicateStackItemNode(stackItemMenu.nodeId, stackItemMenu.stackItemId, screenToWorld(stackItemMenu.x, stackItemMenu.y))}>
             {nodes.find((node) => node.canvas.id === stackItemMenu.nodeId)?.manifest.type === "text" ? "Create text node" : "Transform to node"}
           </button>
           {nodes.find((node) => node.canvas.id === stackItemMenu.nodeId)?.manifest.type === "text" ? (
             <button type="button" onClick={() => void useTextStackItemAsDraft(stackItemMenu.nodeId, stackItemMenu.stackItemId)}>Use in text field</button>
+          ) : null}
+          {stackItemMenu.missing ? (
+            <button type="button" onClick={() => void deleteMissingStackItems(stackItemMenu.nodeId)}>Delete missing</button>
           ) : null}
           <button type="button" onClick={() => void deleteStackItem(stackItemMenu.nodeId, stackItemMenu.stackItemId)}>Delete</button>
           {nodes.find((node) => node.canvas.id === stackItemMenu.nodeId)?.manifest.type !== "text" ? (
@@ -2785,15 +3776,26 @@ function App() {
         </div>
       )}
       {contentMenu && (
-        <div ref={contentMenuRef} className="contentMenu" style={{ left: contentMenu.x, top: contentMenu.y }} tabIndex={-1}>
+        <div ref={contentMenuPosition.ref} className="contentMenu" style={contentMenuPosition.style} tabIndex={-1}>
           {contentMenu.kind !== "video" && contentMenu.kind !== "audio" ? (
             <button type="button" onClick={() => void copyContent(contentMenu)}><Copy size={14} /> Copy</button>
           ) : null}
           <button type="button" onClick={() => void saveContent(contentMenu)}><Save size={14} /> Save</button>
         </div>
       )}
+      {collectionItemMenu ? (
+        <div ref={collectionItemMenuPosition.ref} className="collectionItemMenu contentMenu" style={collectionItemMenuPosition.style}>
+          <button type="button" onClick={() => void copyCollectionItem(collectionItemMenu)}><Copy size={14} /> Copy</button>
+          <button type="button" onClick={() => {
+            const item = collectionMenuItem(collectionItemMenu);
+            setCollectionItemMenu(null);
+            if (item) setCollectionPreview(item);
+          }}><Expand size={14} /> Expand</button>
+          <button type="button" onClick={() => void deleteCollectionItem(collectionItemMenu)}><Trash2 size={14} /> Delete</button>
+        </div>
+      ) : null}
       {projectMenu && (
-        <div className="projectMenu" style={{ left: projectMenu.x, top: projectMenu.y }}>
+        <div ref={projectMenuPosition.ref} className="projectMenu" style={projectMenuPosition.style}>
           <button type="button" onClick={() => void copyProject(projectMenu.project)}><Copy size={14} /> Copy</button>
           <button type="button" onClick={() => void pasteProject()}><Clipboard size={14} /> Paste</button>
           <button type="button" onClick={() => void openCoverPicker(projectMenu.project)}><ImageIcon size={14} /> Choose Cover</button>
@@ -2823,12 +3825,12 @@ function App() {
         </div>
       )}
       {libraryAssetMenu && (
-        <div className="stackItemMenu" style={{ left: libraryAssetMenu.x, top: libraryAssetMenu.y }}>
+        <div ref={libraryAssetMenuPosition.ref} className="stackItemMenu" style={libraryAssetMenuPosition.style}>
           <button type="button" onClick={() => void deleteLibraryAsset(libraryAssetMenu.nodeId, libraryAssetMenu.assetId)}>Delete from library</button>
         </div>
       )}
       {selectionMenu && selectedNodeIds.length > 0 && (
-        <div className="selectionMenu" style={{ left: selectionMenu.x, top: selectionMenu.y }}>
+        <div ref={selectionMenuPosition.ref} className="selectionMenu" data-menu-flipped-x={selectionMenuPosition.flippedX || undefined} style={selectionMenuPosition.style}>
           <button type="button" onClick={() => void duplicateNode(selectionMenu.nodeId)}>Duplicate node</button>
           {(() => {
             const sourceNode = nodes.find((node) => node.canvas.id === selectionMenu.nodeId);
@@ -2850,6 +3852,12 @@ function App() {
           })()}
           <button type="button" onClick={() => copyNode(selectionMenu.nodeId)}>Copy node</button>
           <button type="button" disabled={!copiedNodeId} onClick={() => copiedNodeId && void duplicateNode(copiedNodeId, selectionMenu.nodeId, "pasted")}>Paste node</button>
+          <button type="button" onClick={() => void createNodeWithSelectedElements(selectionMenu.nodeId)}>
+            Create node with selected
+          </button>
+          <button type="button" onClick={() => void keepOnlySelectedNodes(selectionMenu.nodeId)}>
+            Keep only selected
+          </button>
           <button type="button" onClick={() => void openNodeAsFolder(selectionMenu.nodeId)}>Open folder</button>
           <button type="button" onClick={() => void deleteSelectedNodes(selectedNodeIds)}>
             Delete {selectedNodeIds.length > 1 ? `${selectedNodeIds.length} nodes` : "node"}
@@ -2873,6 +3881,45 @@ function App() {
               <PanelRight size={18} />
             </button>
           </div>
+          <section className="buttonSetupPanel" aria-label="Settings">
+            <header>
+              <strong>Settings</strong>
+              <span>{canvasNodeActions.length} actions</span>
+            </header>
+            <div className="buttonSetupActions">
+              <button type="button" onClick={() => void openBoojumRouteLab()} title="Open BoojumRoute Lab">
+                <ExternalLink size={14} />
+                Boojum
+              </button>
+              <button type="button" onClick={() => void openBrandeshmyg()} title="Open Brandeshmyg tools">
+                <img className="brandeshmygButtonIcon" src="/brandeshmyg-icon.png" alt="" />
+                Brandeshmyg
+              </button>
+              <button type="button" onClick={() => void exportCanvasSettingsArchive()} title="Export settings archive">
+                <FileDown size={14} />
+                Export
+              </button>
+              <button type="button" onClick={() => canvasButtonSetupInputRef.current?.click()} title="Import settings archive">
+                <FileUp size={14} />
+                Import
+              </button>
+              <button type="button" disabled={orphanCleanupBusy} onClick={() => void trashOrphanNodeFolders()} title="Move node folders not referenced by visible canvas nodes to .trash">
+                {orphanCleanupBusy ? <RefreshCw size={14} /> : <Trash2 size={14} />}
+                {orphanCleanupBusy ? "Cleaning..." : "Trash orphans"}
+              </button>
+              <input
+                ref={canvasButtonSetupInputRef}
+                type="file"
+                accept=".snarksettings.zip,.snarkbuttons.json,application/zip,application/json"
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = "";
+                  if (file) void importCanvasSettingsFile(file);
+                }}
+              />
+            </div>
+            {orphanCleanupMessage ? <p className="buttonSetupMessage">{orphanCleanupMessage}</p> : null}
+          </section>
           <ModelsPanel
             settings={providerSettings}
             errors={providerErrors}
@@ -2915,16 +3962,68 @@ function NodeActionPanel({
 }) {
   const builtInActions = actions.filter((action) => !action.canvasAction);
   const canvasActions = actions.filter((action) => action.canvasAction);
+  const [pointerDrag, setPointerDrag] = useState<{ actionId: NodeToolbarActionId; startX: number; startY: number; x: number; y: number; active: boolean } | null>(null);
+  const suppressTokenClickRef = useRef(false);
 
   function actionFromDrop(event: React.DragEvent<HTMLElement>): NodeToolbarActionId | null {
-    const actionId = event.dataTransfer.getData("text/snarkroute-toolbar-action") as NodeToolbarActionId;
+    const actionId = (event.dataTransfer.getData("text/snarkroute-toolbar-action") || event.dataTransfer.getData("text/plain")) as NodeToolbarActionId;
     return actions.some((action) => action.id === actionId) ? actionId : null;
+  }
+
+  function beginActionDrag(event: React.DragEvent<HTMLElement>, actionId: NodeToolbarActionId) {
+    event.dataTransfer.effectAllowed = "copyMove";
+    event.dataTransfer.setData("text/snarkroute-toolbar-action", actionId);
+    event.dataTransfer.setData("text/plain", actionId);
   }
 
   function supportedActionFromDrop(event: React.DragEvent<HTMLElement>, type: EditableNodeType): NodeToolbarActionId | null {
     const actionId = actionFromDrop(event);
     return actionId && nodeToolbarActionSupported(actionId, type, actions) ? actionId : null;
   }
+
+  function beginPointerActionDrag(event: React.PointerEvent<HTMLElement>, actionId: NodeToolbarActionId) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    setPointerDrag({ actionId, startX: event.clientX, startY: event.clientY, x: event.clientX, y: event.clientY, active: false });
+  }
+
+  useEffect(() => {
+    if (!pointerDrag) return;
+
+    function handlePointerMove(event: PointerEvent) {
+      setPointerDrag((current) => {
+        if (!current) return current;
+        const moved = Math.hypot(event.clientX - current.startX, event.clientY - current.startY) > 4;
+        return { ...current, x: event.clientX, y: event.clientY, active: current.active || moved };
+      });
+    }
+
+    function handlePointerUp(event: PointerEvent) {
+      setPointerDrag((current) => {
+        if (!current) return null;
+        if (current.active) {
+          suppressTokenClickRef.current = true;
+          const targetElement = document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null;
+          const target = targetElement?.closest<HTMLElement>("[data-node-action-target-type]");
+          const type = target?.dataset.nodeActionTargetType as EditableNodeType | undefined;
+          if (type && nodeToolbarActionSupported(current.actionId, type, actions)) onAddAction(type, current.actionId);
+          window.setTimeout(() => {
+            suppressTokenClickRef.current = false;
+          }, 0);
+        }
+        return null;
+      });
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp, { once: true });
+    window.addEventListener("pointercancel", handlePointerUp, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [actions, onAddAction, pointerDrag]);
 
   return (
     <div className={`nodeActionPanel${open ? " isOpen" : ""}`} data-canvas-wheel-scroll onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
@@ -2939,10 +4038,11 @@ function NodeActionPanel({
                 key={action.id}
                 type="button"
                 className="nodeActionToken"
-                draggable
+                draggable={false}
                 title={action.label}
                 aria-label={action.label}
-                onDragStart={(event) => event.dataTransfer.setData("text/snarkroute-toolbar-action", action.id)}
+                onPointerDown={(event) => beginPointerActionDrag(event, action.id)}
+                onDragStart={(event) => beginActionDrag(event, action.id)}
               >
                 <NodeToolbarActionIcon action={action} />
               </button>
@@ -2954,10 +4054,11 @@ function NodeActionPanel({
                 key={action.id}
                 type="button"
                 className={`nodeActionToken ${nodeActionTypeClass(action.type)}`}
-                draggable
+                draggable={false}
                 title={`${action.label} · ${action.type}`}
                 aria-label={`${action.label} ${action.type}`}
-                onDragStart={(event) => event.dataTransfer.setData("text/snarkroute-toolbar-action", action.id)}
+                onPointerDown={(event) => beginPointerActionDrag(event, action.id)}
+                onDragStart={(event) => beginActionDrag(event, action.id)}
                 onContextMenu={(event) => onActionContextMenu(event, action.id)}
               >
                 <NodeToolbarActionIcon action={action} />
@@ -2972,12 +4073,14 @@ function NodeActionPanel({
                 <section
                   key={type}
                   className={`nodeActionTarget ${nodeActionTypeClass(type)}`}
+                  data-node-action-target-type={type}
                   onDragOver={(event) => {
                     event.preventDefault();
                     event.dataTransfer.dropEffect = "copy";
                   }}
                   onDrop={(event) => {
                     event.preventDefault();
+                    event.stopPropagation();
                     const actionId = supportedActionFromDrop(event, type);
                     if (actionId) onAddAction(type, actionId);
                   }}
@@ -2989,12 +4092,26 @@ function NodeActionPanel({
                         key={actionId}
                         type="button"
                         className={`nodeActionToken ${nodeActionTypeClass(actions.find((action) => action.id === actionId)?.type)}`}
-                        draggable
+                        draggable={false}
                         title={`Remove ${nodeToolbarActionLabel(actionId, actions)}`}
                         aria-label={`Remove ${nodeToolbarActionLabel(actionId, actions)} from ${option.label}`}
-                        onDragStart={(event) => event.dataTransfer.setData("text/snarkroute-toolbar-action", actionId)}
+                        onPointerDown={(event) => beginPointerActionDrag(event, actionId)}
+                        onDragStart={(event) => beginActionDrag(event, actionId)}
+                        onDragOver={(event) => {
+                          event.preventDefault();
+                          event.dataTransfer.dropEffect = "copy";
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          const droppedActionId = supportedActionFromDrop(event, type);
+                          if (droppedActionId) onAddAction(type, droppedActionId);
+                        }}
                         onContextMenu={(event) => onActionContextMenu(event, actionId, type)}
-                        onClick={() => onRemoveAction(type, actionId)}
+                        onClick={() => {
+                          if (suppressTokenClickRef.current) return;
+                          onRemoveAction(type, actionId);
+                        }}
                       >
                         <NodeToolbarActionIcon action={actions.find((action) => action.id === actionId) ?? { id: actionId, label: actionId }} />
                       </button>
@@ -3004,6 +4121,11 @@ function NodeActionPanel({
               );
             })}
           </div>
+          {pointerDrag?.active ? (
+            <div className="nodeActionDragGhost" style={{ left: pointerDrag.x, top: pointerDrag.y }}>
+              <NodeToolbarActionIcon action={actions.find((action) => action.id === pointerDrag.actionId) ?? { id: pointerDrag.actionId, label: pointerDrag.actionId }} />
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -3147,15 +4269,19 @@ function canvasActionPresetIcon(name: string, size = 16) {
 function NodeToolbarActionIcon({ action }: { action: NodeToolbarAction }) {
   const actionId = action.id;
   const icon = action.canvasAction?.icon;
-  if (icon?.kind === "custom" && icon.dataUrl) return <img src={icon.dataUrl} alt="" />;
-  if (icon?.kind === "custom" && icon.svg) return <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(icon.svg)}`} alt="" />;
+  if (icon?.kind === "custom" && icon.dataUrl) return <img src={icon.dataUrl} alt="" draggable={false} />;
+  if (icon?.kind === "custom" && icon.svg) return <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(icon.svg)}`} alt="" draggable={false} />;
   const preset = icon?.kind === "preset" ? icon.name : "";
   if (preset) return canvasActionPresetIcon(preset, 16);
   if (actionId === "download") return <Download size={16} />;
   if (actionId === "crop") return <Crop size={16} />;
+  if (actionId === "adjust") return <SlidersHorizontal size={16} />;
   if (actionId === "expand") return <Expand size={16} />;
   if (actionId === "upload") return <ImagePlus size={16} />;
   if (actionId === "stack") return <Layers3 size={16} />;
+  if (actionId === "collectSelected") return <Package size={16} />;
+  if (actionId === "keepSelected") return <Filter size={16} />;
+  if (actionId === "delete") return <Trash2 size={16} />;
   if (action.canvasAction) return <Wrench size={16} />;
   return <Minimize2 size={16} />;
 }
@@ -3167,8 +4293,10 @@ function nodeToolbarActionLabel(actionId: NodeToolbarActionId, actions: NodeTool
 function nodeToolbarActionSupported(actionId: NodeToolbarActionId, type: EditableNodeType, actions: NodeToolbarAction[]): boolean {
   const action = actions.find((candidate) => candidate.id === actionId);
   if (action?.canvasAction) return action.canvasAction.inputType === type;
-  if (type === "text") return actionId === "stack" || actionId === "collapse";
+  if (actionId === "collectSelected" || actionId === "keepSelected") return true;
+  if (type === "text") return actionId === "stack" || actionId === "collapse" || actionId === "delete";
   if (actionId === "crop") return type === "image";
+  if (actionId === "adjust") return type === "image";
   if (actionId === "expand") return type === "image" || type === "video";
   return true;
 }
@@ -3477,6 +4605,292 @@ function providerModelCounts(models: ModelOption[], providerId: string): string[
   );
 }
 
+function CollectionDock({
+  nodes,
+  open,
+  selectedNodeIds,
+  onToggle,
+  onSelect,
+  onNodePointerDown,
+  onNodeContextMenu,
+  onItemContextMenu,
+  onItemPointerDown,
+  onInputPointerDown,
+  onRenameNode
+}: {
+  nodes: CollectionNodeView[];
+  open: boolean;
+  selectedNodeIds: string[];
+  onToggle: () => void;
+  onSelect: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onNodePointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
+  onNodeContextMenu: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onItemContextMenu: (event: React.MouseEvent<HTMLElement>, node: CollectionNodeView, itemId: string) => void;
+  onItemPointerDown: (event: React.PointerEvent<HTMLButtonElement>, node: CollectionNodeView, itemId: string) => void;
+  onInputPointerDown: (event: React.PointerEvent<HTMLElement>, node: CollectionNodeView) => void;
+  onRenameNode: (nodeId: string, title: string) => void;
+}) {
+  return (
+    <aside className={`collectionDock${open ? " isOpen" : " isCollapsed"}`} onPointerDown={(event) => event.stopPropagation()}>
+      <button
+        className="collectionDockToggle"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        title={open ? "Collapse collections" : "Expand collections"}
+      >
+        {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+      </button>
+      <div
+        className="collectionDockCells"
+        style={{ gridTemplateColumns: nodes.length
+          ? nodes.map((node) => `${Math.max(180, node.canvas.width / 2)}px`).join(" ")
+          : "minmax(180px, 1fr)" }}
+      >
+        {open && nodes.length === 0 ? <div className="collectionDockEmpty">Drag collection nodes here</div> : null}
+        {nodes.map((node) => (
+          <article
+            key={node.canvas.id}
+            className={`collectionDockCell${selectedNodeIds.includes(node.canvas.id) ? " isSelected" : ""}`}
+            onPointerDown={(event) => onNodePointerDown(event, node)}
+            onClick={(event) => onSelect(event, node)}
+            onContextMenu={(event) => onNodeContextMenu(event, node)}
+          >
+            <div
+              className="collectionDockInput nodeHandle nodeHandleInput"
+              title={`Connect resource to ${node.manifest.title}`}
+              data-node-input-id={node.canvas.id}
+              onPointerDown={(event) => onInputPointerDown(event, node)}
+            />
+            {open ? (
+              <>
+                <header>
+                  <Package size={14} />
+                  <CollectionTitleInput nodeId={node.manifest.id} title={node.manifest.title} onRenameNode={onRenameNode} />
+                  <span>{node.items.length}</span>
+                </header>
+                <div className="collectionDockGrid" data-canvas-wheel-scroll>
+                  {node.items.map((item) => (
+                    <button
+                      type="button"
+                      className={`collectionDockItem is-${item.type}`}
+                      key={item.id}
+                      title={item.title}
+                      onPointerDown={(event) => onItemPointerDown(event, node, item.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      onContextMenu={(event) => onItemContextMenu(event, node, item.id)}
+                    >
+                      {item.previewUrl ? item.type === "video"
+                        ? <video src={`${apiBase}${item.previewUrl}`} preload="metadata" />
+                        : <img src={`${apiBase}${item.previewUrl}`} alt="" />
+                        : item.type === "audio" ? <Music size={20} /> : item.type === "text" ? <FileText size={20} /> : <ImageIcon size={20} />}
+                      <span>{item.title}</span>
+                    </button>
+                  ))}
+                  {!node.items.length ? <p>Connect resources to this collection.</p> : null}
+                </div>
+              </>
+            ) : <span className="collectionDockMarker" title={node.manifest.title}><Package size={12} /><strong>{node.manifest.title}</strong><small>{node.items.length}</small></span>}
+          </article>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function CollectionCardNode({
+  node,
+  active,
+  selected,
+  collapsed,
+  onPointerDown,
+  onClick,
+  onContextMenu,
+  onInputPointerDown,
+  onToggleCollapsed,
+  onRenameNode,
+  onItemPointerDown,
+  onItemContextMenu
+}: {
+  node: CollectionNodeView;
+  active: boolean;
+  selected: boolean;
+  collapsed: boolean;
+  onPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
+  onClick: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onContextMenu: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onInputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
+  onToggleCollapsed: (nodeId: string) => void;
+  onRenameNode: (nodeId: string, title: string) => void;
+  onItemPointerDown: (event: React.PointerEvent<HTMLButtonElement>, itemId: string) => void;
+  onItemContextMenu: (event: React.MouseEvent<HTMLButtonElement>, itemId: string) => void;
+}) {
+  const displayHeight = collapsed ? collapsedNodeHeight : node.canvas.height;
+  const displayY = collapsed ? node.canvas.y + node.canvas.height / 2 - displayHeight / 2 : node.canvas.y;
+  return (
+    <article
+      className={`collectionNode${active ? " isActive" : ""}${selected ? " isSelected" : ""}${collapsed ? " isCollapsed" : ""}`}
+      style={{ transform: `translate(${node.canvas.x}px, ${displayY}px)`, width: node.canvas.width, height: displayHeight }}
+      onPointerDown={(event) => onPointerDown(event, node)}
+      onClick={(event) => onClick(event, node)}
+      onContextMenu={(event) => onContextMenu(event, node)}
+    >
+      <header className="collectionNodeHeader">
+        <Package size={15} />
+        {active ? (
+          <CollectionTitleInput nodeId={node.manifest.id} title={node.manifest.title} onRenameNode={onRenameNode} />
+        ) : <strong>{node.manifest.title}</strong>}
+        <span>{node.items.length}</span>
+        <button
+          className="nodeCollapseButton"
+          type="button"
+          aria-label={collapsed ? "Expand collection" : "Collapse collection"}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleCollapsed(node.manifest.id);
+          }}
+        >
+          {collapsed ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
+        </button>
+      </header>
+      <div className="nodeHandleLine nodeHandleLineInput" />
+      <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
+      {collapsed ? <div className="collectionCollapsedBody"><Package size={16} /><span>{node.items.length} items</span></div> : <div className="collectionGrid">
+        {node.items.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={`collectionItem is-${item.type}${item.manual ? " isManual" : ""}`}
+            title={`${item.title} · drag to canvas`}
+            onPointerDown={(event) => onItemPointerDown(event, item.id)}
+            onContextMenu={(event) => onItemContextMenu(event, item.id)}
+          >
+            <span className="collectionItemPreview">
+              {item.previewUrl ? item.type === "video"
+                ? <video src={`${apiBase}${item.previewUrl}`} preload="metadata" draggable={false} />
+                : <img src={`${apiBase}${item.previewUrl}`} alt="" draggable={false} />
+                : item.type === "audio" ? <Music size={22} /> : item.type === "text" ? <FileText size={22} /> : <ImageIcon size={22} />}
+            </span>
+            <strong>{item.title}</strong>
+            <small>{item.manual ? `Folder · ${item.type}` : item.type === "text" ? item.text || "Text" : item.type}</small>
+          </button>
+        ))}
+        {node.items.length === 0 ? <p className="collectionEmpty">Connect nodes to collect their selected outputs.</p> : null}
+      </div>}
+    </article>
+  );
+}
+
+function CollectionTitleInput({
+  nodeId,
+  title,
+  onRenameNode
+}: {
+  nodeId: string;
+  title: string;
+  onRenameNode: (nodeId: string, title: string) => void;
+}) {
+  const [draft, setDraft] = useState(title);
+
+  useEffect(() => {
+    setDraft(title);
+  }, [nodeId, title]);
+
+  function commit() {
+    if (draft === title) return;
+    onRenameNode(nodeId, draft);
+  }
+
+  return (
+    <input
+      value={draft}
+      aria-label="Collection title"
+      onChange={(event) => setDraft(event.currentTarget.value)}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => event.stopPropagation()}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        event.stopPropagation();
+        commit();
+        event.currentTarget.blur();
+      }}
+    />
+  );
+}
+
+function defaultCanvasActionParamValue(type: string): unknown {
+  if (type === "number") return 0;
+  if (type === "boolean") return false;
+  return "";
+}
+
+function canvasActionPoseAxis(action: CanvasNodeAction, paramId: string): keyof NonNullable<CanvasActionRunDialog["pose"]> | undefined {
+  return Object.entries(action.poseBindings ?? {}).find(([, boundParamId]) => boundParamId === paramId)?.[0] as keyof NonNullable<CanvasActionRunDialog["pose"]> | undefined;
+}
+
+function canvasActionPoseFromParams(action: CanvasNodeAction, params: Record<string, unknown>): CanvasActionRunDialog["pose"] {
+  return Object.fromEntries(Object.entries(action.poseBindings ?? {}).flatMap(([axis, paramId]) => paramId && params[paramId] !== undefined ? [[axis, params[paramId]]] : [])) as CanvasActionRunDialog["pose"];
+}
+
+function syncCanvasActionPose(dialog: CanvasActionRunDialog, update: CanvasActionRunDialog["pose"]): CanvasActionRunDialog {
+  const pose = { ...dialog.pose, ...update };
+  const params = { ...dialog.params };
+  for (const [axis, paramId] of Object.entries(dialog.action.poseBindings ?? {})) {
+    const value = pose[axis as keyof typeof pose];
+    if (paramId && value !== undefined) params[paramId] = value;
+  }
+  return { ...dialog, pose, params };
+}
+
+function canvasActionParamInputValue(dialog: CanvasActionRunDialog, param: NonNullable<CanvasNodeAction["params"]>[number]): string {
+  const paramValue = dialog.params[param.id];
+  if (param.type === "number" && typeof paramValue === "string") return paramValue;
+  if (canvasActionPoseAxis(dialog.action, param.id) === "fov") return String(dialog.pose?.fov ?? paramValue ?? "");
+  return String(paramValue ?? "");
+}
+
+function clampCanvasActionNumberParam(value: number, param: NonNullable<CanvasNodeAction["params"]>[number]): number {
+  const min = Number.isFinite(param.min) ? param.min! : -Infinity;
+  const max = Number.isFinite(param.max) ? param.max! : Infinity;
+  return clamp(value, min, max);
+}
+
+function CanvasActionPosePreview({ kind, src, pose, onPoseChange }: { kind: "panorama360" | "splat"; src: string; pose: CanvasActionRunDialog["pose"]; onPoseChange: (pose: CanvasActionRunDialog["pose"]) => void }) {
+  if (kind === "splat") {
+    return <SplatViewer splatUrl={src} className="canvasActionSplatViewer" mountClassName="canvasActionSplatMount" canvasClassName="canvasActionSplatCanvas" onPoseChange={(cameraPose: CameraPose) => onPoseChange({ yaw: cameraPose.rotation.yaw, pitch: cameraPose.rotation.pitch, roll: cameraPose.rotation.roll, fov: cameraPose.fov, positionX: cameraPose.position.x, positionY: cameraPose.position.y, positionZ: cameraPose.position.z, cameraPose })} />;
+  }
+  return <Panorama360Viewer src={src} title="Interactive action panorama" className="panoramaViewer canvasActionPanoramaViewer" canvasClassName="panoramaCanvas">
+    {({ view, setFov }) => <>
+      <PanoramaPoseReporter view={view} requestedFov={pose?.fov} setFov={setFov} onPoseChange={onPoseChange} />
+      <div className="canvasActionPoseReadout">yaw {Math.round(view.yaw * 180 / Math.PI)}° · pitch {Math.round(view.pitch * 180 / Math.PI)}° · fov {Math.round(view.fov)}°</div>
+      <label className="canvasActionSettingsField"><span>Field of view</span><input type="range" min={1} max={120} value={pose?.fov ?? view.fov} onChange={(event) => onPoseChange({ fov: clamp(event.target.valueAsNumber, 1, 120) })} /></label>
+    </>}
+  </Panorama360Viewer>;
+}
+
+function PanoramaPoseReporter({ view, requestedFov, setFov, onPoseChange }: { view: { yaw: number; pitch: number; fov: number }; requestedFov?: number; setFov: (fov: number) => void; onPoseChange: (pose: CanvasActionRunDialog["pose"]) => void }) {
+  useEffect(() => {
+    if (requestedFov !== undefined && Math.abs(requestedFov - view.fov) > 0.01) setFov(clamp(requestedFov, 1, 120));
+  }, [requestedFov, setFov]);
+  useEffect(() => onPoseChange({ yaw: view.yaw * 180 / Math.PI, pitch: view.pitch * 180 / Math.PI, fov: requestedFov !== undefined && Math.abs(requestedFov - view.fov) > 0.01 ? requestedFov : view.fov }), [view.yaw, view.pitch, view.fov]);
+  return null;
+}
+
+function absoluteApiUrl(src: string): string {
+  return /^(?:https?:|data:|blob:)/i.test(src) ? src : `${apiBase}${src}`;
+}
+
+function CanvasActionMediaPreview({ kind, src, title }: { kind: "image" | "video" | "audio" | "panorama360" | "splat"; src: string; title: string }) {
+  if (kind === "video") return <video src={src} controls autoPlay />;
+  if (kind === "audio") return <audio src={src} controls autoPlay />;
+  if (kind === "panorama360") return <Panorama360Viewer src={src} title={title} className="panoramaViewer canvasActionPanoramaViewer" canvasClassName="panoramaCanvas" />;
+  if (kind === "splat") return <SplatViewer splatUrl={src} className="canvasActionSplatViewer" mountClassName="canvasActionSplatMount" canvasClassName="canvasActionSplatCanvas" />;
+  return <img src={src} alt={title} />;
+}
+
 function LibraryCardNode({
   node,
   active,
@@ -3693,18 +5107,30 @@ function CanvasMiniMap({
 function CanvasEdges({
   nodes,
   edges,
+  collectionInputPoint,
+  isDockedCollection,
   preview,
   selectedEdgeId,
+  actions,
+  runningEdgeActionKey,
   onSyncRepresentation,
   onOpenCrop,
+  onOpenCorrection,
+  onRunCanvasActionEdge,
   onSelectEdge
 }: {
   nodes: NodeView[];
   edges: CanvasEdge[];
+  collectionInputPoint: (nodeId: string) => { x: number; y: number } | null;
+  isDockedCollection: (nodeId: string) => boolean;
   preview: Extract<DragState, { kind: "connection" }> | null;
   selectedEdgeId: string | null;
+  actions: NodeToolbarAction[];
+  runningEdgeActionKey: string | null;
   onSyncRepresentation: (edgeId: string) => void;
   onOpenCrop: (nodeId: string, cropNodeId?: string) => void;
+  onOpenCorrection: (edge: CanvasEdge) => void;
+  onRunCanvasActionEdge: (edge: CanvasEdge) => void;
   onSelectEdge: (edgeId: string) => void;
 }) {
   const nodeById = new Map(nodes.map((node) => [node.canvas.id, node.canvas]));
@@ -3716,17 +5142,25 @@ function CanvasEdges({
         const from = nodeById.get(edge.fromNodeId);
         const to = nodeById.get(edge.toNodeId);
         const sourceNode = viewById.get(edge.fromNodeId);
+        const targetNode = viewById.get(edge.toNodeId);
         if (!from || !to) return null;
+        if (sourceNode?.manifest.type === "collection" && isDockedCollection(edge.fromNodeId)) return null;
         const start = nodeOutputPoint(from);
-        const end = nodeInputPoint(to);
+        const dockedCollectionPoint = targetNode?.manifest.type === "collection" ? collectionInputPoint(edge.toNodeId) : null;
+        const end = dockedCollectionPoint ?? nodeInputPoint(to);
         const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+        const isCollectionInput = targetNode?.manifest.type === "collection";
+        const isRealCrop = edge.kind === "crop"
+          && sourceNode?.manifest.type === "image"
+          && targetNode?.manifest.type === "image"
+          && targetNode.manifest.crop?.sourceNodeId === edge.fromNodeId;
         return (
           <React.Fragment key={edge.id}>
             <path
-              className={selectedEdgeId === edge.id ? "isSelected" : ""}
-              d={edgePath(start, end)}
+              className={`${selectedEdgeId === edge.id ? "isSelected" : ""}${edge.kind === "collectionItem" ? " isCollectionReference" : ""}${isCollectionInput ? " isCollectionInput" : ""}`}
+              d={dockedCollectionPoint ? dockedCollectionEdgePath(start, end) : edge.kind === "collectionItem" ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edgePath(start, end)}
               style={{ "--edge-color": nodeTypeWireColor(sourceNode) } as React.CSSProperties}
-              onClick={(event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
+              onClick={edge.kind === "collectionItem" ? undefined : (event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
             />
             {edge.kind === "representation" ? (
               <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
@@ -3743,7 +5177,7 @@ function CanvasEdges({
                 </button>
               </foreignObject>
             ) : null}
-            {edge.kind === "crop" ? (
+            {isRealCrop ? (
               <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
                 <button
                   className="edgeSyncButton"
@@ -3758,6 +5192,56 @@ function CanvasEdges({
                 </button>
               </foreignObject>
             ) : null}
+            {edge.kind === "imageCorrection" ? (
+              <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
+                <button
+                  className="edgeSyncButton"
+                  type="button"
+                  title="Adjust again"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenCorrection(edge);
+                  }}
+                >
+                  <SlidersHorizontal size={13} />
+                </button>
+              </foreignObject>
+            ) : null}
+            {edge.kind === "canvasAction" && edge.actionId ? (() => {
+              const action = actions.find((candidate) => candidate.id === canvasActionToolbarId(edge.actionId!));
+              if (!action?.canvasAction) {
+                return (
+                  <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
+                    <button
+                      className="edgeSyncButton edgeMissingActionButton"
+                      type="button"
+                      title={`Action "${edge.actionId}" is no longer available. This connection was created by that action.`}
+                      aria-label={`Missing action ${edge.actionId}`}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      ?
+                    </button>
+                  </foreignObject>
+                );
+              }
+              const running = runningEdgeActionKey === `edge:${edge.id}:${edge.actionId}`;
+              return (
+                <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
+                  <button
+                    className="edgeSyncButton"
+                    type="button"
+                    title={action.label}
+                    disabled={running}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRunCanvasActionEdge(edge);
+                    }}
+                  >
+                    {running ? <BusyGears /> : <NodeToolbarActionIcon action={action} />}
+                  </button>
+                </foreignObject>
+              );
+            })() : null}
             {edge.note ? (
               <foreignObject x={midpoint.x - 12} y={midpoint.y + 12} width={24} height={24}>
                 <button
@@ -4011,14 +5495,18 @@ function ImageNode({
   onInputPointerDown,
   onOutputPointerDown,
   onOpenPreview,
+  onOpenCorrection,
   onOpenCrop,
   onUploadStackImage,
   onToggleCollapsed,
+  onDeleteNode,
   openStack,
   onToggleStack,
   onSelectStackImage,
+  onToggleStackImageSelection,
   onDragStackImage,
   onStackItemContextMenu,
+  onStackItemMissingChange,
   models,
   modelSelection,
   generationFeedback,
@@ -4031,14 +5519,18 @@ function ImageNode({
   onSavePrompt,
   onSaveText,
   onSaveTextColor,
+  onSaveTextInputMode,
   onAddTextToStack,
   onSelectTextStackItem,
   onRunTextGeneration,
+  onRunTextDialogueTurn,
   onRenameNode,
   toolbarActions,
   availableToolbarActions,
   runningCanvasActionId,
-  onRunCanvasAction
+  onRunCanvasAction,
+  onCreateNodeWithSelectedElements,
+  onKeepOnlySelectedNodes
 }: {
   node: EditableNodeView;
   active: boolean;
@@ -4052,14 +5544,18 @@ function ImageNode({
   onInputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
   onOutputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
   onOpenPreview: (nodeId: string, index: number, title: string) => void;
+  onOpenCorrection: (nodeId: string) => void;
   onOpenCrop: (nodeId: string) => void;
   onUploadStackImage: (nodeId: string) => void;
   onToggleCollapsed: (nodeId: string) => void;
+  onDeleteNode: (nodeId: string) => void;
   openStack: boolean;
   onToggleStack: (nodeId: string) => void;
   onSelectStackImage: (nodeId: string, index: number) => void;
+  onToggleStackImageSelection: (nodeId: string, stackItemId: string) => void;
   onDragStackImage: (event: React.PointerEvent<HTMLElement>, nodeId: string, stackItemId: string) => void;
   onStackItemContextMenu: (event: React.MouseEvent<HTMLElement>, nodeId: string, stackItemId: string) => void;
+  onStackItemMissingChange: (nodeId: string, stackItemId: string, missing: boolean) => void;
   models: ModelOption[];
   modelSelection: ModelRouteSelection;
   generationFeedback?: GenerationFeedback;
@@ -4072,14 +5568,18 @@ function ImageNode({
   onSavePrompt: (nodeId: string, prompt: string) => void;
   onSaveText: (nodeId: string, text: string) => void;
   onSaveTextColor: (nodeId: string, color: string) => void;
+  onSaveTextInputMode: (nodeId: string, inputMode: "text" | "dialogue") => void;
   onAddTextToStack: (nodeId: string, text: string) => void;
   onSelectTextStackItem: (nodeId: string, stackItemId: string | null) => void;
   onRunTextGeneration: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => void;
+  onRunTextDialogueTurn: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => Promise<boolean>;
   onRenameNode: (nodeId: string, title: string) => void;
   toolbarActions: NodeToolbarActionId[];
   availableToolbarActions: NodeToolbarAction[];
   runningCanvasActionId: string | null;
   onRunCanvasAction: (nodeId: string, actionId: string, point: { x: number; y: number; width: number; height: number }) => void;
+  onCreateNodeWithSelectedElements: () => void;
+  onKeepOnlySelectedNodes: () => void;
 }) {
   const previewUrl = node.previewUrl ? `${apiBase}${node.previewUrl}?v=${encodeURIComponent(node.activeStackItem?.id ?? node.manifest.id)}` : "";
   const isVideoNode = node.manifest.type === "video";
@@ -4090,13 +5590,16 @@ function ImageNode({
   const activeIndex = node.manifest.type !== "text" && stackCount ? node.manifest.activeStackIndex + 1 : 0;
   const [prompt, setPrompt] = useState(node.manifest.type === "text" ? "" : node.manifest.currentPrompt ?? "");
   const [draftText, setDraftText] = useState(node.manifest.type === "text" ? node.manifest.text : "");
+  const wasActive = useRef(active);
   const [modelQuery, setModelQuery] = useState("");
   const [orderedInputNodes, setOrderedInputNodes] = useState(inputNodes);
   const [parametersOpen, setParametersOpen] = useState(false);
+  const generationParametersRef = useRef<HTMLDivElement | null>(null);
   const [routeSettingsOpen, setRouteSettingsOpen] = useState(false);
   const [promptInsertRequest, setPromptInsertRequest] = useState<{ token: string; sequence: number } | null>(null);
   const promptInsertSequence = useRef(0);
   const textBaseHeight = node.manifest.type === "text" ? Math.min(node.canvas.height, textNodeBaseHeight) : node.canvas.height;
+  const canvasActionBusy = Boolean(runningCanvasActionId);
   const hasImageInput = inputNodes.some((input) => input.type === "image") || (node.manifest.type === "image" && node.manifest.stack.length > 0);
   const compatibleModels = modelsCompatibleWithNodeInputs(models, node.manifest.type as ContentKind, hasImageInput);
   const displayModels = mergeModelsForDisplay(compatibleModels);
@@ -4114,7 +5617,7 @@ function ImageNode({
     capabilities: [],
     isAvailable: false
   };
-  const effectiveSelection: ModelRouteSelection = selectedRoutes.length && selectedModel.id !== modelSelection.modelId
+  const effectiveSelection: ModelRouteSelection = selectedModel.id && selectedModel.id !== modelSelection.modelId
     ? { modelId: selectedModel.id, executionProvider: "auto", fallbackAllowed: true }
     : modelSelection;
   const normalizedModelQuery = modelQuery.toLowerCase();
@@ -4146,8 +5649,25 @@ function ImageNode({
     setParametersOpen(false);
   }, [selectedModelKey, inputAspectRatio]);
   useEffect(() => {
+    if (!parametersOpen) return;
+    const closeOnOutsidePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && generationParametersRef.current?.contains(target)) return;
+      setParametersOpen(false);
+    };
+    window.addEventListener("pointerdown", closeOnOutsidePointerDown, true);
+    return () => window.removeEventListener("pointerdown", closeOnOutsidePointerDown, true);
+  }, [parametersOpen]);
+  useEffect(() => {
     if (node.manifest.type === "text") setDraftText(node.manifest.text);
   }, [node.manifest.id, node.manifest.type === "text" ? node.manifest.text : ""]);
+  useEffect(() => {
+    const textNode = node.manifest.type === "text" ? node as TextNodeView : null;
+    if (wasActive.current && !active && textNode?.manifest.variant === "note" && draftText !== textNode.manifest.text) {
+      onSaveText(textNode.manifest.id, draftText);
+    }
+    wasActive.current = active;
+  }, [active]);
 
   function insertInputToken(input: InputNodeChip) {
     if (inputChipInactive(input, imageInputs, maxImageInputs)) return;
@@ -4204,6 +5724,10 @@ function ImageNode({
       if (!previewUrl || node.manifest.type !== "image") return null;
       return <button key={actionId} type="button" aria-label="Crop image" title="Crop" onClick={() => void onOpenCrop(node.manifest.id)}><Crop size={16} /></button>;
     }
+    if (actionId === "adjust") {
+      if (!previewUrl || node.manifest.type !== "image") return null;
+      return <button key={actionId} type="button" aria-label="Adjust image" title="Adjust" onClick={() => onOpenCorrection(node.manifest.id)}><SlidersHorizontal size={16} /></button>;
+    }
     if (actionId === "expand") {
       if (!previewUrl || node.manifest.type === "text" || node.manifest.type === "audio") return null;
       const mediaNodeForToolbar = node as ImageNodeView | VideoNodeView;
@@ -4221,6 +5745,15 @@ function ImageNode({
         </button>
       );
     }
+    if (actionId === "collectSelected") {
+      return <button key={actionId} type="button" aria-label="Create node with selected" title="Create node with selected" onClick={onCreateNodeWithSelectedElements}><Package size={16} /></button>;
+    }
+    if (actionId === "keepSelected") {
+      return <button key={actionId} type="button" aria-label="Keep only selected" title="Keep only selected" onClick={onKeepOnlySelectedNodes}><Filter size={16} /></button>;
+    }
+    if (actionId === "delete") {
+      return <button key={actionId} type="button" aria-label="Delete node" title="Delete node" onClick={() => onDeleteNode(node.manifest.id)}><Trash2 size={16} /></button>;
+    }
     return <button key={actionId} type="button" aria-label="Collapse node" title="Collapse" onClick={() => onToggleCollapsed(node.manifest.id)}><Minimize2 size={16} /></button>;
   }
 
@@ -4231,13 +5764,14 @@ function ImageNode({
 
   if (collapsed) {
     const isTextNode = node.manifest.type === "text";
+    const isNoteNode = isTextNode && (node as TextNodeView).manifest.variant === "note";
     const collapsedStackLabel = stackCount ? (isTextNode ? `${stackCount}` : `${activeIndex || 1}/${stackCount}`) : "0";
     const portCenterY = node.canvas.y + nodeTitleHeight + (isTextNode ? textBaseHeight : node.canvas.height) / 2;
     const collapsedHeight = isAudioNode && previewUrl ? collapsedAudioNodeHeight : collapsedNodeHeight;
     const collapsedAudioStackItem = isAudioNode ? (node as AudioNodeView).activeStackItem : null;
     return (
       <article
-        className={`${isTextNode ? "textNode" : "imageNode"} isCollapsed${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
+        className={`${isTextNode ? "textNode" : "imageNode"} isCollapsed${isNoteNode ? " collapsedNoteNode" : ""}${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
         style={{
           "--image-height": `${collapsedHeight}px`,
           transform: `translate(${node.canvas.x}px, ${portCenterY - collapsedHeight / 2}px)`,
@@ -4249,10 +5783,10 @@ function ImageNode({
         onContextMenu={(event) => onContextMenu(event, node)}
       >
         <div
-          className={`collapsedNodeStrip${isAudioNode && previewUrl ? ` collapsedAudioStrip${collapsedAudioStackItem?.coverUrl ? " hasCover" : ""}` : ""}`}
+          className={`collapsedNodeStrip${isNoteNode ? " collapsedNoteStrip" : ""}${isAudioNode && previewUrl ? ` collapsedAudioStrip${collapsedAudioStackItem?.coverUrl ? " hasCover" : ""}` : ""}`}
           style={isAudioNode && previewUrl ? audioCoverStyle(collapsedAudioStackItem) : undefined}
         >
-          {generationFeedback?.busy ? (
+          {generationFeedback?.busy || canvasActionBusy ? (
             <span className="nodeBusyGears" aria-label="Generating">
               <Cog size={12} className="nodeBusyGearLarge" />
               <Cog size={9} className="nodeBusyGearSmall" />
@@ -4274,13 +5808,13 @@ function ImageNode({
                 <Music size={15} />
               ) : (
                 <img src={previewUrl} alt="" />
-              ) : isTextNode ? <span className="collapsedNodeTextIcon">T</span> : isVideoNode ? <Video size={15} /> : isAudioNode ? <Music size={15} /> : <ImageIcon size={15} />}
+              ) : isNoteNode ? <FileText size={15} /> : isTextNode ? <span className="collapsedNodeTextIcon">T</span> : isVideoNode ? <Video size={15} /> : isAudioNode ? <Music size={15} /> : <ImageIcon size={15} />}
             </span>
           )}
           {!(isAudioNode && previewUrl) && (
             <>
               <span className="collapsedNodeTitle">{node.manifest.title || (isTextNode ? "Text" : mediaLabel)}</span>
-              <span className="collapsedNodeCount">{collapsedStackLabel}</span>
+              {!isNoteNode ? <span className="collapsedNodeCount">{collapsedStackLabel}</span> : null}
             </>
           )}
           <button
@@ -4296,15 +5830,82 @@ function ImageNode({
             <Maximize2 size={13} />
           </button>
         </div>
-        <div className="nodeHandleLine nodeHandleLineInput" />
-        <div className="nodeHandleLine nodeHandleLineOutput" />
-        <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
-        <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
+        {!isNoteNode ? (
+          <>
+            <div className="nodeHandleLine nodeHandleLineInput" />
+            <div className="nodeHandleLine nodeHandleLineOutput" />
+            <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
+            <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
+          </>
+        ) : null}
       </article>
     );
   }
   if (node.manifest.type === "text") {
     const textNode = node as TextNodeView;
+    if (textNode.manifest.variant === "note") {
+      return (
+        <article
+          className={`textNode noteNode${active ? " isActive" : ""}${selected ? " isSelected" : ""}`}
+          style={{
+            "--image-height": `${textBaseHeight}px`,
+            transform: `translate(${node.canvas.x}px, ${node.canvas.y}px)`,
+            width: node.canvas.width,
+            height: textBaseHeight + nodeTitleHeight
+          } as React.CSSProperties}
+          onPointerDown={(event) => onPointerDown(event, node)}
+          onClick={(event) => onClick(event, node)}
+          onContextMenu={(event) => onContextMenu(event, node)}
+        >
+          {active ? activeNodeToolbar() : null}
+          <div className="nodeTitle noteNodeTitle">
+            {active ? (
+              <input
+                defaultValue={node.manifest.title}
+                aria-label="Note title"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onBlur={(event) => onRenameNode(node.manifest.id, event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+              />
+            ) : <span>{node.manifest.title || "Note"}</span>}
+            <button
+              className="nodeCollapseButton"
+              type="button"
+              aria-label="Collapse note"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleCollapsed(node.manifest.id);
+              }}
+            >
+              <Minimize2 size={13} />
+            </button>
+          </div>
+          <div className="noteNodePaper">
+            {active ? (
+              <textarea
+                autoFocus
+                value={draftText}
+                aria-label="Note text"
+                placeholder="Write a note..."
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => setDraftText(event.currentTarget.value)}
+                onBlur={() => onSaveText(node.manifest.id, draftText)}
+              />
+            ) : (
+              <div className="noteNodeText" data-canvas-wheel-scroll>
+                {draftText ? renderNoteLinks(draftText) : <span className="noteNodePlaceholder">Empty note</span>}
+              </div>
+            )}
+          </div>
+        </article>
+      );
+    }
+    const inputMode = textNode.manifest.inputMode ?? "text";
     const textStackIsEmpty = textNode.stack.length === 0;
     const unsavedDraftText = draftText.trim();
     const outputText = textStackIsEmpty ? draftText : textNode.outputText;
@@ -4335,6 +5936,12 @@ function ImageNode({
               }}
             />
           ) : <span>{node.manifest.title || "Text"}</span>}
+          {active ? (
+            <div className="textInputModeSwitch" style={{ display: "inline-flex", gap: 2, padding: 2, border: "1px solid var(--line)", borderRadius: 7, pointerEvents: "auto" }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+              <button type="button" className={inputMode === "text" ? "isSelected" : ""} style={{ width: 24, height: 22, color: inputMode === "text" ? "var(--accent)" : "var(--muted)" }} aria-label="Text input mode" onClick={() => onSaveTextInputMode(node.manifest.id, "text")}><Type size={13} /></button>
+              <button type="button" className={inputMode === "dialogue" ? "isSelected" : ""} style={{ width: 24, height: 22, color: inputMode === "dialogue" ? "var(--accent)" : "var(--muted)" }} aria-label="Dialogue input mode" onClick={() => onSaveTextInputMode(node.manifest.id, "dialogue")}><MessageSquare size={13} /></button>
+            </div>
+          ) : null}
           <button
             className="nodeCollapseButton"
             type="button"
@@ -4372,20 +5979,37 @@ function ImageNode({
               </button>
               {openStack ? (
                 <div className="textStackBoard" data-canvas-wheel-scroll onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-                  {textNode.stack.length ? textNode.stack.map((item) => (
-                    <button
-                      type="button"
-                      key={item.id}
-                      className={item.id === textNode.manifest.selectedStackItemId ? "isActive" : ""}
-                      onPointerDown={(event) => onDragStackImage(event, node.manifest.id, item.id)}
-                      onClick={() => onSelectTextStackItem(node.manifest.id, item.id)}
-                      onContextMenu={(event) => onStackItemContextMenu(event, node.manifest.id, item.id)}
-                    >
-                      {item.previewFile ? <img src={`${apiBase}/api/libraries/current/text-nodes/${encodeURIComponent(node.manifest.id)}/stack/${encodeURIComponent(item.id)}/preview`} alt="" /> : null}
-                      <strong>{item.title}</strong>
-                      <span>{item.text}</span>
-                    </button>
-                  )) : (
+                  {textNode.stack.length ? textNode.stack.map((item) => {
+                    const isMarked = textNode.manifest.selectedStackItemIds?.includes(item.id);
+                    return (
+                      <div key={item.id} className={`textStackBoardItem${isMarked ? " isMarked" : ""}`}>
+                        <button
+                          type="button"
+                          className={item.id === textNode.manifest.selectedStackItemId ? "isActive" : ""}
+                          onPointerDown={(event) => onDragStackImage(event, node.manifest.id, item.id)}
+                          onClick={() => onSelectTextStackItem(node.manifest.id, item.id)}
+                          onContextMenu={(event) => onStackItemContextMenu(event, node.manifest.id, item.id)}
+                        >
+                          {item.previewFile ? <img src={`${apiBase}/api/libraries/current/text-nodes/${encodeURIComponent(node.manifest.id)}/stack/${encodeURIComponent(item.id)}/preview`} alt="" /> : null}
+                          <strong>{item.title}</strong>
+                          <span>{item.text}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="stackSelectionToggle"
+                          aria-label={isMarked ? "Remove text selection" : "Mark text as selected"}
+                          aria-pressed={Boolean(isMarked)}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onToggleStackImageSelection(node.manifest.id, item.id);
+                          }}
+                        >
+                          {isMarked ? <Check size={12} strokeWidth={3} /> : null}
+                        </button>
+                      </div>
+                    );
+                  }) : (
                     <div className="textStackDraftFallback">
                       <strong>Input field</strong>
                       <span>{unsavedDraftText || "Empty stack"}</span>
@@ -4408,7 +6032,34 @@ function ImageNode({
             </>
           ) : null}
         </div>
-        {active ? (
+        {active ? inputMode === "dialogue" ? (
+          <DialogueEditor
+            node={textNode}
+            inputNodes={orderedInputNodes}
+            imageInputs={imageInputs}
+            maxImageInputs={maxImageInputs}
+            selectedModel={selectedModel}
+            selectedModelLogo={selectedModelLogo}
+            selectedRoutes={selectedRoutes}
+            effectiveSelection={effectiveSelection}
+            visibleModels={visibleModels}
+            modelQuery={modelQuery}
+            setModelQuery={setModelQuery}
+            modelSearchOpen={modelSearchOpen}
+            generationFeedback={generationFeedback}
+            promptInsertRequest={promptInsertRequest}
+            onInsertRequestHandled={() => setPromptInsertRequest(null)}
+            onInsertInput={insertInputToken}
+            onMoveInputChip={moveInputChip}
+            onOpenInputPreview={(input) => input.type === "image" && onOpenPreview(input.id, input.activeStackIndex ?? 0, input.title)}
+            onToggleModelSearch={onToggleModelSearch}
+            onOpenModels={onOpenModels}
+            onSelectModel={onSelectModel}
+            onChangeRouteSettings={onChangeRouteSettings}
+            onRunTurn={(promptValue) => onRunTextDialogueTurn(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), promptValue, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax)}
+            onAddTextToStack={(text) => onAddTextToStack(node.manifest.id, text)}
+          />
+        ) : (
           <footer className="promptPanel textPromptPanel" onPointerDown={(event) => event.stopPropagation()}>
             <div className="inputChips">
               {orderedInputNodes.length ? orderedInputNodes.map((input) => {
@@ -4543,7 +6194,7 @@ function ImageNode({
     >
       {active ? activeNodeToolbar() : null}
       <div className="nodeTitle">
-        {generationFeedback?.busy ? (
+        {generationFeedback?.busy || canvasActionBusy ? (
           <span className="nodeBusyGears" aria-label="Generating">
             <Cog size={12} className="nodeBusyGearLarge" />
             <Cog size={9} className="nodeBusyGearSmall" />
@@ -4628,18 +6279,41 @@ function ImageNode({
             </button>
             {openStack && (
               <div className="stackBoard" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
-                {mediaNode.manifest.stack.length ? mediaNode.manifest.stack.map((item, index) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className={index === mediaNode.manifest.activeStackIndex ? "isActive" : ""}
-                    onPointerDown={(event) => onDragStackImage(event, node.manifest.id, item.id)}
-                    onContextMenu={(event) => onStackItemContextMenu(event, node.manifest.id, item.id)}
-                    onClick={() => onSelectStackImage(node.manifest.id, index)}
-                  >
-                    {isVideoNode ? <video draggable={false} src={stackMediaUrl(mediaNode.manifest.type, mediaNode.manifest.id, item.id)} preload="metadata" /> : isAudioNode ? <span className={`audioStackThumb${item.coverUrl ? " hasCover" : ""}`} style={audioCoverStyle(item)}><Music size={18} /></span> : <img draggable={false} src={stackMediaUrl(mediaNode.manifest.type, mediaNode.manifest.id, item.id)} alt="" />}
-                  </button>
-                )) : <span className="stackBoardEmpty">Empty stack</span>}
+                {mediaNode.manifest.stack.length ? mediaNode.manifest.stack.map((item, index) => {
+                  const isMarked = mediaNode.manifest.selectedStackItemIds?.includes(item.id);
+                  return (
+                    <div
+                      key={item.id}
+                      className={`stackBoardItem${index === mediaNode.manifest.activeStackIndex ? " isActive" : ""}${isMarked ? " isMarked" : ""}`}
+                      onContextMenu={(event) => onStackItemContextMenu(event, node.manifest.id, item.id)}
+                    >
+                      <button type="button" className="stackItemButton" onPointerDown={(event) => onDragStackImage(event, node.manifest.id, item.id)} onClick={() => onSelectStackImage(node.manifest.id, index)}>
+                        {isVideoNode ? <video draggable={false} src={stackMediaUrl(mediaNode.manifest.type, mediaNode.manifest.id, item.id)} preload="metadata" /> : isAudioNode ? <span className={`audioStackThumb${item.coverUrl ? " hasCover" : ""}`} style={audioCoverStyle(item)}><Music size={18} /></span> : (
+                          <img
+                            draggable={false}
+                            src={stackMediaUrl(mediaNode.manifest.type, mediaNode.manifest.id, item.id)}
+                            alt=""
+                            onError={() => onStackItemMissingChange(mediaNode.manifest.id, item.id, true)}
+                            onLoad={() => onStackItemMissingChange(mediaNode.manifest.id, item.id, false)}
+                          />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="stackSelectionToggle"
+                        aria-label={isMarked ? `Remove ${mediaNode.manifest.type} selection` : `Mark ${mediaNode.manifest.type} as selected`}
+                        aria-pressed={Boolean(isMarked)}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleStackImageSelection(mediaNode.manifest.id, item.id);
+                        }}
+                      >
+                        {isMarked ? <Check size={12} strokeWidth={3} /> : null}
+                      </button>
+                    </div>
+                  );
+                }) : <span className="stackBoardEmpty">Empty stack</span>}
               </div>
             )}
           </>
@@ -4754,7 +6428,7 @@ function ImageNode({
                 </div>
               )}
             </div>
-            <div className="generationParameters">
+            <div className="generationParameters" ref={generationParametersRef}>
               <button
                 type="button"
                 className="generationParametersButton"
@@ -4832,6 +6506,268 @@ function ImageNode({
       )}
     </article>
   );
+}
+
+function DialogueEditor({
+  node,
+  inputNodes,
+  imageInputs,
+  maxImageInputs,
+  selectedModel,
+  selectedModelLogo,
+  selectedRoutes,
+  effectiveSelection,
+  visibleModels,
+  modelQuery,
+  setModelQuery,
+  modelSearchOpen,
+  generationFeedback,
+  promptInsertRequest,
+  onInsertRequestHandled,
+  onInsertInput,
+  onMoveInputChip,
+  onOpenInputPreview,
+  onToggleModelSearch,
+  onOpenModels,
+  onSelectModel,
+  onChangeRouteSettings,
+  onRunTurn,
+  onAddTextToStack
+}: {
+  node: TextNodeView;
+  inputNodes: InputNodeChip[];
+  imageInputs: InputNodeChip[];
+  maxImageInputs?: number;
+  selectedModel: ModelOption;
+  selectedModelLogo: ModelLogo;
+  selectedRoutes: ModelOption[];
+  effectiveSelection: ModelRouteSelection;
+  visibleModels: Array<{ model: ModelOption; providers: string[]; routes: ModelOption[] }>;
+  modelQuery: string;
+  setModelQuery: (value: string) => void;
+  modelSearchOpen: boolean;
+  generationFeedback?: GenerationFeedback;
+  promptInsertRequest: { token: string; sequence: number } | null;
+  onInsertRequestHandled: () => void;
+  onInsertInput: (input: InputNodeChip) => void;
+  onMoveInputChip: (draggedId: string, beforeId: string) => void;
+  onOpenInputPreview: (input: InputNodeChip) => void;
+  onToggleModelSearch: (nodeId: string) => void;
+  onOpenModels: () => void;
+  onSelectModel: (nodeId: string, selection: ModelRouteSelection) => void;
+  onChangeRouteSettings: (nodeId: string, selection: ModelRouteSelection) => void;
+  onRunTurn: (prompt: string) => Promise<boolean>;
+  onAddTextToStack: (text: string) => void;
+}) {
+  const [draft, setDraft] = useState(() => readTextDialogueDraft(sessionStorage, node.manifest.id));
+  const [routeSettingsOpen, setRouteSettingsOpen] = useState(false);
+  const [selectionAction, setSelectionAction] = useState<{ text: string; left: number; top: number } | null>(null);
+  const feedRef = useRef<HTMLDivElement | null>(null);
+  const activeInputNodes = inputNodes.filter((input) => !inputChipInactive(input, imageInputs, maxImageInputs));
+
+  function captureSelection() {
+    const selection = window.getSelection();
+    const text = selection?.toString().trim() ?? "";
+    if (!text || !feedRef.current || !selection?.rangeCount) {
+      setSelectionAction(null);
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    const feed = feedRef.current;
+    if (!feed.contains(range.commonAncestorContainer)) {
+      setSelectionAction(null);
+      return;
+    }
+    const rangeRects = range.getClientRects();
+    const selectionRect = rangeRects[rangeRects.length - 1] ?? range.getBoundingClientRect();
+    const feedRect = feed.getBoundingClientRect();
+    const buttonSize = 30;
+    const gap = 6;
+    const visibleLeft = feed.scrollLeft;
+    const visibleRight = visibleLeft + feed.clientWidth;
+    const preferredLeft = selectionRect.right - feedRect.left + feed.scrollLeft + gap;
+    const fallbackLeft = selectionRect.left - feedRect.left + feed.scrollLeft - buttonSize - gap;
+    const left = preferredLeft + buttonSize <= visibleRight - 4
+      ? preferredLeft
+      : Math.max(visibleLeft + 4, fallbackLeft);
+    const top = Math.min(
+      feed.scrollTop + feed.clientHeight - buttonSize / 2 - 4,
+      Math.max(feed.scrollTop + buttonSize / 2 + 4, selectionRect.top - feedRect.top + feed.scrollTop + selectionRect.height / 2)
+    );
+    setSelectionAction({ text, left, top });
+  }
+
+  useEffect(() => {
+    writeTextDialogueDraft(sessionStorage, node.manifest.id, draft);
+  }, [draft, node.manifest.id]);
+
+  async function sendTurn() {
+    if (!draft.trim() || !selectedModel.id || generationFeedback?.busy) return;
+    const value = draft;
+    setRouteSettingsOpen(false);
+    if (await onRunTurn(value)) setDraft((current) => current === value ? "" : current);
+  }
+
+  function addDraftToStack() {
+    if (!draft.trim()) return;
+    const value = draft;
+    setDraft("");
+    onAddTextToStack(value);
+  }
+
+  return (
+    <footer className="promptPanel textPromptPanel dialoguePanel" style={{ gridTemplateRows: "minmax(120px, 1fr) 34px minmax(78px, 112px) 38px" }} onPointerDown={(event) => event.stopPropagation()}>
+      <div className="dialogueFeed" ref={feedRef} style={{ minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 8, padding: 8, border: "1px solid var(--line)", borderRadius: 12 }} data-canvas-wheel-scroll onMouseUp={captureSelection} onKeyUp={captureSelection}>
+        {node.conversation.messages.length ? node.conversation.messages.map((message) => (
+          <div key={message.id} className={`dialogueMessage dialogue-${message.role}`} style={{ display: "grid", gap: 5, padding: 8, border: `1px solid ${message.role === "assistant" ? "var(--accent)" : "var(--line)"}`, borderRadius: 8 }}>
+            <div className="dialogueMessageMeta" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, color: "var(--muted)", fontSize: 11, textTransform: "uppercase" }}>
+              <span>{message.role}</span>
+              {message.role === "assistant" ? <button type="button" onClick={() => onAddTextToStack(conversationMessageText(message))}><Save size={13} /></button> : null}
+            </div>
+            <div className="dialogueMessageBody" style={{ display: "grid", gap: 7, fontSize: 12, lineHeight: 1.42, whiteSpace: "pre-wrap" }}>
+              {message.content.map((part, index) => part.type === "image" ? (
+                <img key={`${message.id}-${index}`} style={{ maxWidth: "100%", maxHeight: 120, objectFit: "contain", borderRadius: 6, border: "1px solid var(--line)" }} src={`${apiBase}/api/libraries/current/text-nodes/${encodeURIComponent(node.manifest.id)}/conversation/image?file=${encodeURIComponent(part.file)}`} alt={part.alt ?? ""} />
+              ) : message.role === "assistant" ? (
+                <DialogueMarkdown key={`${message.id}-${index}`} text={part.text} onAddTextToStack={onAddTextToStack} />
+              ) : (
+                <p key={`${message.id}-${index}`}>{part.text}</p>
+              ))}
+            </div>
+          </div>
+        )) : <div className="dialogueEmpty">No messages</div>}
+        {selectionAction ? (
+          <button
+            type="button"
+            className="dialogueSelectionStack"
+            style={{ left: selectionAction.left, top: selectionAction.top }}
+            aria-label="Add selected text to stack"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              onAddTextToStack(selectionAction.text);
+              setSelectionAction(null);
+            }}
+          >
+            <Save size={13} />
+          </button>
+        ) : null}
+      </div>
+      <div className="inputChips">
+        {inputNodes.length ? inputNodes.map((input) => {
+          const inactive = inputChipInactive(input, imageInputs, maxImageInputs);
+          return (
+            <button
+              type="button"
+              className={`inputChip${input.type === "text" ? ` textColor-${input.color ?? "mint"}` : ""}${inactive ? " isInactive" : ""}`}
+              style={input.type === "text" ? inputTextChipStyle(input) : undefined}
+              key={input.id}
+              draggable
+              title={inactive ? "Model image input limit exceeded" : `Insert ${input.title} into dialogue`}
+              onDragStart={(event) => event.dataTransfer.setData("text/snarkroute-input-node", input.id)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                onMoveInputChip(event.dataTransfer.getData("text/snarkroute-input-node"), input.id);
+              }}
+              onClick={() => onInsertInput(input)}
+            >
+              <InputChipThumb input={input} />
+            </button>
+          );
+        }) : <span className="inputChip isEmpty">No inputs</span>}
+      </div>
+      <div className="textPromptEditor">
+        <PromptComposer
+          value={draft}
+          inputNodes={inputNodes}
+          maxImageInputs={maxImageInputs}
+          insertRequest={promptInsertRequest}
+          onInsertRequestHandled={onInsertRequestHandled}
+          onOpenInputPreview={onOpenInputPreview}
+          onChange={setDraft}
+          onBlur={() => undefined}
+        />
+        <button type="button" className="textAddStackButton dialogueDraftStackButton" aria-label="Add dialogue text to stack" title="Add all text to stack" disabled={!draft.trim()} onClick={addDraftToStack}><Save size={16} /></button>
+      </div>
+      <div className="promptMeta">
+        <div className="modelPicker">
+          <button type="button" className="modelPickerButton" aria-label={`Choose text model: ${selectedModel.title}`} title={selectedModel.title} disabled={!selectedModel.id} onClick={() => onToggleModelSearch(node.manifest.id)}>
+            <ModelLogoImage logo={selectedModelLogo} />
+          </button>
+          {modelSearchOpen ? (
+            <div className="modelMenu" onPointerDown={(event) => event.stopPropagation()}>
+              <input value={modelQuery} placeholder="Search model" onChange={(event) => setModelQuery(event.currentTarget.value)} />
+              <div className="modelMenuList" data-canvas-wheel-scroll>
+                {visibleModels.map(({ model, providers }) => (
+                  <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
+                    <ModelLogoImage logo={modelLogoForOption(model)} />
+                    <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
+                  </button>
+                ))}
+                {visibleModels.length === 0 ? <div className="modelMenuEmpty"><span>Нет подключённых текстовых моделей</span><button type="button" onClick={onOpenModels}>Открыть панель моделей</button></div> : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        <div className="routeSettings">
+          <button type="button" className="routeSettingsButton" aria-label={`Execution route for ${selectedModel.title}`} aria-expanded={routeSettingsOpen} disabled={!selectedModel.id} onClick={() => setRouteSettingsOpen((current) => !current)}>
+            <Wrench size={13} />
+          </button>
+          {routeSettingsOpen ? (
+            <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
+              <strong>{selectedModel.title}</strong>
+              <small className="routeModelId">{selectedModel.id}</small>
+              <label>
+                Run via
+                <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, executionProvider: event.currentTarget.value })}>
+                  <option value="auto">Auto</option>
+                  {selectedRoutes.map((route) => <option key={route.providerId} value={route.providerId}>{executionRouteDisplayName(route.providerId)}</option>)}
+                </select>
+              </label>
+              <label className="fallbackSetting">
+                <input type="checkbox" checked={effectiveSelection.fallbackAllowed} onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, fallbackAllowed: event.currentTarget.checked })} />
+                Fallback allowed
+              </label>
+            </div>
+          ) : null}
+        </div>
+        {activeInputNodes.length ? <span className="dialogueAttachCount">{activeInputNodes.length}</span> : null}
+        {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"} title={generationFeedback.message}>{generationFeedback.message}</span> : null}
+        <button type="button" aria-label="Send" disabled={!draft.trim() || !selectedModel.id || generationFeedback?.busy} onClick={() => void sendTurn()}>
+          {generationFeedback?.busy ? <BusyGears /> : <Send size={16} />}
+        </button>
+      </div>
+    </footer>
+  );
+}
+
+function DialogueMarkdown({ text, onAddTextToStack }: { text: string; onAddTextToStack: (text: string) => void }) {
+  return (
+    <>
+      {splitMarkdownCodeBlocks(text).map((part, index) => part.kind === "code" ? (
+        <pre key={index} className="dialogueCodeBlock" style={{ position: "relative", margin: 0, padding: "28px 10px 10px", overflowX: "auto", border: "1px solid var(--line)", borderRadius: 8, background: "#070a09", color: "#d7e3dc", whiteSpace: "pre" }}><button type="button" style={{ position: "absolute", top: 5, right: 5 }} onClick={() => onAddTextToStack(part.text)}><Save size={13} /></button><code>{part.text}</code></pre>
+      ) : (
+        <p key={index} style={{ margin: 0 }}>{part.text}</p>
+      ))}
+    </>
+  );
+}
+
+function splitMarkdownCodeBlocks(text: string): Array<{ kind: "text" | "code"; text: string }> {
+  const parts: Array<{ kind: "text" | "code"; text: string }> = [];
+  const pattern = /```[^\n]*\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  for (const match of text.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) parts.push({ kind: "text", text: text.slice(lastIndex, index).trim() });
+    parts.push({ kind: "code", text: match[1].trim() });
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < text.length) parts.push({ kind: "text", text: text.slice(lastIndex).trim() });
+  return parts.filter((part) => part.text);
+}
+
+function conversationMessageText(message: TextNodeConversationMessage): string {
+  return message.content.filter((part): part is Extract<TextNodeConversationPart, { type: "text" }> => part.type === "text").map((part) => part.text).join("\n\n").trim();
 }
 
 function PromptComposer({
@@ -5276,16 +7212,261 @@ function promptDropRange(clientX: number, clientY: number, editor: HTMLElement |
   return range;
 }
 
+type CorrectionSettings = {
+  black: number;
+  midpoint: number;
+  white: number;
+  shadowCurve: number;
+  highlightCurve: number;
+  brightness: number;
+  contrast: number;
+};
+
+type ImageHistogram = {
+  red: number[];
+  green: number[];
+  blue: number[];
+  luminance: number[];
+};
+
+type ImageCorrectionDraft = {
+  sourceNodeId: string;
+  targetNodeId?: string;
+  src: string;
+  title: string;
+  filename: string;
+  settings: CorrectionSettings;
+};
+
+const defaultCorrectionSettings: CorrectionSettings = {
+  black: 0,
+  midpoint: 1,
+  white: 255,
+  shadowCurve: 0,
+  highlightCurve: 0,
+  brightness: 0,
+  contrast: 0
+};
+
+function ImageCorrectionPanel({
+  image,
+  onApply
+}: {
+  image: ImageCorrectionDraft;
+  onApply: (dataUrl: string, settings: CorrectionSettings) => void;
+}) {
+  const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [settings, setSettings] = useState<CorrectionSettings>(image.settings);
+  const [histogram, setHistogram] = useState<ImageHistogram>(() => emptyHistogram());
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    setSettings(image.settings);
+  }, [image.settings, image.src]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      const sourceCanvas = sourceCanvasRef.current;
+      const previewCanvas = previewCanvasRef.current;
+      if (!sourceCanvas || !previewCanvas) return;
+      const maxSide = 1200;
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      const width = Math.max(1, Math.round(img.naturalWidth * scale));
+      const height = Math.max(1, Math.round(img.naturalHeight * scale));
+      sourceCanvas.width = width;
+      sourceCanvas.height = height;
+      previewCanvas.width = width;
+      previewCanvas.height = height;
+      const context = sourceCanvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+      context.drawImage(img, 0, 0, width, height);
+      try {
+        setHistogram(histogramFromImageData(context.getImageData(0, 0, width, height)));
+        setLoadError("");
+      } catch {
+        setLoadError("Histogram is unavailable for this image source.");
+      }
+    };
+    img.onerror = () => {
+      if (!cancelled) setLoadError("Could not load image for correction.");
+    };
+    img.src = image.src;
+    return () => {
+      cancelled = true;
+    };
+  }, [image.src]);
+
+  useEffect(() => {
+    const sourceCanvas = sourceCanvasRef.current;
+    const previewCanvas = previewCanvasRef.current;
+    if (!sourceCanvas || !previewCanvas || !sourceCanvas.width || !sourceCanvas.height) return;
+    const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+    const previewContext = previewCanvas.getContext("2d");
+    if (!sourceContext || !previewContext) return;
+    try {
+      const sourceData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+      previewContext.putImageData(applyCorrection(sourceData, settings), 0, 0);
+    } catch {
+      setLoadError("Correction preview is unavailable for this image source.");
+    }
+  }, [settings, histogram]);
+
+  function updateSetting(key: keyof CorrectionSettings, value: number) {
+    setSettings((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "black" && next.black >= next.white) next.black = Math.max(0, next.white - 1);
+      if (key === "white" && next.white <= next.black) next.white = Math.min(255, next.black + 1);
+      return next;
+    });
+  }
+
+  function applyAdjusted() {
+    const dataUrl = previewCanvasRef.current?.toDataURL("image/png");
+    if (dataUrl) onApply(dataUrl, settings);
+  }
+
+  return (
+    <div className="imageCorrectionBody">
+      <canvas ref={sourceCanvasRef} className="hiddenCorrectionCanvas" />
+      <div className="imageCorrectionPreview">
+        <canvas ref={previewCanvasRef} aria-label={image.title} />
+      </div>
+      <aside className="imageCorrectionControls">
+        <HistogramView histogram={histogram} />
+        {loadError ? <div className="imageCorrectionError">{loadError}</div> : null}
+        <CurveView settings={settings} histogram={histogram} />
+        <div className="correctionControlGrid">
+          <CorrectionSlider label="Black" min={0} max={254} step={1} value={settings.black} onChange={(value) => updateSetting("black", value)} />
+          <CorrectionSlider label="Mid" min={0.2} max={3} step={0.01} value={settings.midpoint} onChange={(value) => updateSetting("midpoint", value)} />
+          <CorrectionSlider label="White" min={1} max={255} step={1} value={settings.white} onChange={(value) => updateSetting("white", value)} />
+          <CorrectionSlider label="Shadows" min={-80} max={80} step={1} value={settings.shadowCurve} onChange={(value) => updateSetting("shadowCurve", value)} />
+          <CorrectionSlider label="Highlights" min={-80} max={80} step={1} value={settings.highlightCurve} onChange={(value) => updateSetting("highlightCurve", value)} />
+          <CorrectionSlider label="Brightness" min={-100} max={100} step={1} value={settings.brightness} onChange={(value) => updateSetting("brightness", value)} />
+          <CorrectionSlider label="Contrast" min={-100} max={100} step={1} value={settings.contrast} onChange={(value) => updateSetting("contrast", value)} />
+        </div>
+        <button type="button" onClick={applyAdjusted}><Check size={15} /> OK</button>
+        <button type="button" onClick={() => setSettings(defaultCorrectionSettings)}><RotateCcw size={15} /> Reset</button>
+      </aside>
+    </div>
+  );
+}
+
+function CorrectionSlider({ label, min, max, step, value, onChange }: { label: string; min: number; max: number; step: number; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="correctionSlider">
+      <span>{label}<strong>{Number.isInteger(value) ? value : value.toFixed(2)}</strong></span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    </label>
+  );
+}
+
+function HistogramView({ histogram }: { histogram: ImageHistogram }) {
+  return (
+    <div className="histogramPanel" aria-label="Input levels histogram">
+      <svg viewBox="0 0 256 96" role="img">
+        <HistogramArea values={histogram.luminance} color="rgba(238, 238, 238, 0.88)" />
+      </svg>
+    </div>
+  );
+}
+
+function CurveView({ settings, histogram }: { settings: CorrectionSettings; histogram: ImageHistogram }) {
+  const curvePoints = Array.from({ length: 64 }, (_, index) => {
+    const input = Math.round(index / 63 * 255);
+    const output = correctChannel(input, settings);
+    return `${index / 63 * 256},${96 - output / 255 * 96}`;
+  }).join(" ");
+  return (
+    <div className="curvePanel" aria-label="Curves">
+      <svg viewBox="0 0 256 96" role="img">
+        <HistogramPolyline values={histogram.luminance} color="rgba(246, 247, 242, 0.26)" />
+        <polyline points="0,96 256,0" fill="none" stroke="rgba(246, 247, 242, 0.28)" strokeWidth="1" />
+        <polyline points={curvePoints} fill="none" stroke="#f4d35e" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
+function HistogramPolyline({ values, color }: { values: number[]; color: string }) {
+  const scaled = values.map((value) => Math.log1p(value));
+  const max = Math.max(1, ...scaled);
+  const points = scaled.map((value, index) => `${index},${96 - value / max * 92}`).join(" ");
+  return <polyline points={points} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" opacity="0.9" />;
+}
+
+function HistogramArea({ values, color }: { values: number[]; color: string }) {
+  const smoothed = values.map((value, index) => {
+    const previous = values[Math.max(0, index - 1)] ?? value;
+    const next = values[Math.min(values.length - 1, index + 1)] ?? value;
+    return (previous + value * 2 + next) / 4;
+  });
+  const sorted = [...smoothed].sort((a, b) => a - b);
+  const percentile = sorted[Math.max(0, Math.floor(sorted.length * 0.985) - 1)] ?? 1;
+  const max = Math.max(1, percentile);
+  const points = smoothed
+    .map((value, index) => `${index},${96 - Math.sqrt(Math.min(value, max) / max) * 88}`)
+    .join(" ");
+  return <polygon points={`0,96 ${points} 255,96`} fill={color} stroke="rgba(255, 255, 255, 0.46)" strokeWidth="0.8" />;
+}
+
+function emptyHistogram(): ImageHistogram {
+  const empty = Array.from({ length: 256 }, () => 0);
+  return { red: [...empty], green: [...empty], blue: [...empty], luminance: [...empty] };
+}
+
+function histogramFromImageData(imageData: ImageData): ImageHistogram {
+  const histogram = emptyHistogram();
+  for (let index = 0; index < imageData.data.length; index += 4) {
+    const red = imageData.data[index] ?? 0;
+    const green = imageData.data[index + 1] ?? 0;
+    const blue = imageData.data[index + 2] ?? 0;
+    histogram.red[red] += 1;
+    histogram.green[green] += 1;
+    histogram.blue[blue] += 1;
+    histogram.luminance[Math.round(red * 0.2126 + green * 0.7152 + blue * 0.0722)] += 1;
+  }
+  return histogram;
+}
+
+function applyCorrection(imageData: ImageData, settings: CorrectionSettings): ImageData {
+  const output = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  for (let index = 0; index < output.data.length; index += 4) {
+    output.data[index] = correctChannel(output.data[index] ?? 0, settings);
+    output.data[index + 1] = correctChannel(output.data[index + 1] ?? 0, settings);
+    output.data[index + 2] = correctChannel(output.data[index + 2] ?? 0, settings);
+  }
+  return output;
+}
+
+function correctChannel(value: number, settings: CorrectionSettings): number {
+  const range = Math.max(1, settings.white - settings.black);
+  let normalized = clamp((value - settings.black) / range, 0, 1);
+  normalized = Math.pow(normalized, settings.midpoint);
+  normalized += settings.shadowCurve / 100 * (1 - normalized) * normalized;
+  normalized += settings.highlightCurve / 100 * normalized * normalized;
+  let corrected = normalized * 255 + settings.brightness;
+  const contrastFactor = (259 * (settings.contrast + 255)) / (255 * (259 - settings.contrast));
+  corrected = contrastFactor * (corrected - 128) + 128;
+  return Math.round(clamp(corrected, 0, 255));
+}
+
 function StackPreview({
   preview,
   node,
   onChangeIndex,
-  onMakeMain
+  onMakeMain,
+  onToggleSelected
 }: {
   preview: { nodeId: string; title: string; index: number };
   node: ImageNodeView | VideoNodeView | AudioNodeView | undefined;
   onChangeIndex: (index: number) => void;
   onMakeMain: (nodeId: string, index: number) => void;
+  onToggleSelected: (nodeId: string, stackItemId: string) => void;
 }) {
   const stack = node?.manifest.stack ?? [];
   const safeIndex = stack.length ? Math.min(Math.max(preview.index, 0), stack.length - 1) : 0;
@@ -5296,6 +7477,7 @@ function StackPreview({
   const canGoPrevious = safeIndex > 0;
   const canGoNext = safeIndex < stack.length - 1;
   const isMain = node?.manifest.activeStackIndex === safeIndex;
+  const isSelected = Boolean(item && node?.manifest.selectedStackItemIds?.includes(item.id));
 
   return (
     <>
@@ -5314,6 +7496,11 @@ function StackPreview({
       </div>
       <div className="previewControls">
         <span>{stack.length ? `${safeIndex + 1} / ${stack.length}` : "0 / 0"}</span>
+        {node && item ? (
+          <button type="button" aria-pressed={isSelected} onClick={() => onToggleSelected(preview.nodeId, item.id)}>
+            {isSelected ? "Selected" : "Select"}
+          </button>
+        ) : null}
         <button type="button" disabled={!item || isMain} onClick={() => onMakeMain(preview.nodeId, safeIndex)}>Make main</button>
       </div>
     </>
@@ -5322,7 +7509,7 @@ function StackPreview({
 
 function inputChipsForNode(nodeId: string, edges: CanvasEdge[], nodeById: Map<string, NodeView>): InputNodeChip[] {
   return edges
-    .filter((edge) => edge.toNodeId === nodeId)
+    .filter((edge) => edge.toNodeId === nodeId && edge.kind !== "collectionItem")
     .map((edge) => nodeById.get(edge.fromNodeId))
     .filter((node): node is NodeView => Boolean(node))
     .map((node) => {
@@ -5348,6 +7535,7 @@ function nodeTypeWireColor(node: NodeView | undefined): string {
   if (node.manifest.type === "image") return "#9fc4ff";
   if (node.manifest.type === "video") return "#f3bf45";
   if (node.manifest.type === "audio") return "#f472b6";
+  if (node.manifest.type === "collection") return "#a78bfa";
   if (node.manifest.type === "library") return "#c7d2fe";
   return "#8f9aaa";
 }
@@ -5363,6 +7551,10 @@ function stackMediaUrl(type: "image" | "video" | "audio", nodeId: string, stackI
   return `${apiBase}/api/libraries/current/${type}-nodes/${encodeURIComponent(nodeId)}/stack/${encodeURIComponent(stackItemId)}?v=${encodeURIComponent(stackItemId)}`;
 }
 
+function stackItemMissingKey(nodeId: string, stackItemId: string): string {
+  return `${nodeId}:${stackItemId}`;
+}
+
 function audioCoverStyle(item: ImageStackItem | null | undefined): React.CSSProperties | undefined {
   return item?.coverUrl ? { "--audio-cover-url": `url("${cssUrlString(item.coverUrl)}")` } as React.CSSProperties : undefined;
 }
@@ -5374,6 +7566,34 @@ function cssUrlString(value: string): string {
 function textNodeDisplayText(node: TextNodeView): string {
   if (node.stack.length === 0) return node.manifest.text;
   return node.outputText || node.manifest.text;
+}
+
+function renderNoteLinks(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const linkPattern = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|((?:https?:\/\/|www\.)[^\s<>"']*[^\s<>"'.,!?;:)\]])/gi;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+  while ((match = linkPattern.exec(text)) !== null) {
+    if (match.index > cursor) parts.push(text.slice(cursor, match.index));
+    const rawUrl = match[2] ?? match[3];
+    const label = match[1] ?? rawUrl;
+    const href = rawUrl.startsWith("www.") ? `https://${rawUrl}` : rawUrl;
+    parts.push(
+      <a
+        key={`${match.index}-${rawUrl}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        {label}
+      </a>
+    );
+    cursor = match.index + match[0].length;
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts;
 }
 
 function contentPreviewUrl(node: NodeView | undefined): string {
@@ -5567,11 +7787,28 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function nodeInputPoint(node: CanvasNode) {
-  return { x: node.x, y: node.y + nodeTitleHeight + node.height / 2 };
+  return { x: node.x, y: node.y + (node.type === "collection" ? node.height / 2 : nodeTitleHeight + node.height / 2) };
+}
+
+function isScrollableWheelTarget(target: EventTarget | null, boundary: Element): boolean {
+  if (!(target instanceof Element)) return false;
+  let element: Element | null = target;
+  while (element && element !== boundary) {
+    if (element.hasAttribute("data-canvas-wheel-scroll")) return true;
+    if (element instanceof HTMLElement) {
+      const { overflowX, overflowY } = window.getComputedStyle(element);
+      const { scrollHeight, clientHeight, scrollWidth, clientWidth } = element;
+      const scrollsVertically = /auto|scroll|overlay/.test(overflowY) && scrollHeight > clientHeight;
+      const scrollsHorizontally = /auto|scroll|overlay/.test(overflowX) && scrollWidth > clientWidth;
+      if (scrollsVertically || scrollsHorizontally) return true;
+    }
+    element = element.parentElement;
+  }
+  return false;
 }
 
 function nodeOutputPoint(node: CanvasNode) {
-  return { x: node.x + node.width, y: node.y + nodeTitleHeight + node.height / 2 };
+  return { x: node.x + node.width, y: node.y + (node.type === "collection" ? node.height / 2 : nodeTitleHeight + node.height / 2) };
 }
 
 function edgeMidpoint(edge: CanvasEdge, nodeById: Map<string, CanvasNode>): { x: number; y: number } | null {
@@ -5581,6 +7818,17 @@ function edgeMidpoint(edge: CanvasEdge, nodeById: Map<string, CanvasNode>): { x:
   const start = nodeOutputPoint(from);
   const end = nodeInputPoint(to);
   return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+}
+
+function withImageCorrectionEdge(canvas: CanvasDocument, sourceNodeId: string, targetNodeId: string, settings: CorrectionSettings): CanvasDocument {
+  const edges = canvas.edges ?? [];
+  const hasEdge = edges.some((edge) => edge.fromNodeId === sourceNodeId && edge.toNodeId === targetNodeId);
+  return {
+    ...canvas,
+    edges: hasEdge
+      ? edges.map((edge) => edge.fromNodeId === sourceNodeId && edge.toNodeId === targetNodeId ? { ...edge, kind: "imageCorrection", correction: settings } : edge)
+      : [...edges, { id: `edge_${Date.now().toString(36)}`, fromNodeId: sourceNodeId, toNodeId: targetNodeId, kind: "imageCorrection", correction: settings }]
+  };
 }
 
 function edgePath(start: { x: number; y: number }, end: { x: number; y: number }) {
@@ -5628,8 +7876,13 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  if (!response.ok) throw new Error(await apiErrorMessage(response));
+  if (!response.ok) throw new ApiResponseError(await apiErrorMessage(response), response.status);
   return response.json() as Promise<T>;
+}
+
+function dockedCollectionEdgePath(start: { x: number; y: number }, end: { x: number; y: number }) {
+  const verticalApproach = Math.max(70, Math.min(180, Math.abs(end.y - start.y) * 0.4));
+  return `M ${start.x} ${start.y} C ${start.x + 80} ${start.y}, ${end.x} ${end.y + verticalApproach}, ${end.x} ${end.y}`;
 }
 
 async function apiDelete<T>(path: string): Promise<T> {
@@ -5639,6 +7892,7 @@ async function apiDelete<T>(path: string): Promise<T> {
 }
 
 async function apiErrorMessage(response: Response): Promise<string> {
+  if (response.status === 413) return localJsonUploadTooLargeMessage();
   let parsed: unknown;
   try {
     parsed = await response.json();
@@ -5668,12 +7922,35 @@ async function fetchApi(path: string, init?: RequestInit): Promise<Response> {
 }
 
 function fileToBase64(file: File): Promise<string> {
+  assertLocalJsonUploadSize(file);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Could not read dropped image."));
+    reader.onerror = () => reject(new Error(file.size > localJsonUploadLimitBytes ? localJsonUploadTooLargeMessage(file) : "Could not read dropped image."));
     reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
     reader.readAsDataURL(file);
   });
+}
+
+function assertLocalJsonUploadSize(file: File) {
+  if (file.size > localJsonUploadLimitBytes) throw new Error(localJsonUploadTooLargeMessage(file));
+}
+
+function localJsonUploadTooLargeMessage(file?: File): string {
+  const fileSize = file ? ` (${formatBytes(file.size)})` : "";
+  return `Image file${fileSize} is too large to insert through local JSON upload. Use an image file under ${formatBytes(localJsonUploadLimitBytes)} or import it from a local library folder.`;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
 
 function clipboardImageFile(data: DataTransfer | null): File | null {
@@ -5702,6 +7979,27 @@ function isAudioFile(file: File): boolean {
 
 function isTextFile(file: File): boolean {
   return file.type.startsWith("text/") || /\.(md|txt)$/i.test(file.name);
+}
+
+function canImportNodePackageFilename(filename: string): boolean {
+  return /\.snarknode$/i.test(filename) || /\.node\.json$/i.test(filename);
+}
+
+function canImportCanvasSettingsFilename(filename: string): boolean {
+  return /\.snarksettings\.zip$/i.test(filename) || /\.snarkbuttons\.json$/i.test(filename);
+}
+
+function safeArchivePathSegment(filename: string): string {
+  return filename.replace(/[\\/:"*?<>|]+/g, "-").replace(/^\.+/, "").trim() || "package.snarknode";
+}
+
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.slice(index, index + chunkSize));
+  }
+  return btoa(binary);
 }
 
 function chooseLocalFolderAction(scan: LocalLibraryScanResult): "open" | "image" | "text" | "video" | "audio" | null {

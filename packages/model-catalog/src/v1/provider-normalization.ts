@@ -41,6 +41,14 @@ export function normalizeProviderModelToV1Input(input: ProviderModelToV1Input): 
 
 export function inferOriginVendorFromProviderModelId(providerModelId: string): ModelOriginVendorV1 {
   const normalized = providerModelId.trim().toLowerCase();
+  if (normalized.startsWith("gpt-")) return "openai";
+  if (normalized.startsWith("claude-")) return "anthropic";
+  if (normalized.startsWith("gemini-")) return "google";
+  if (normalized.startsWith("grok-")) return "x-ai";
+  if (normalized.startsWith("deepseek-")) return "deepseek";
+  if (normalized.startsWith("sonar")) return "perplexity";
+  if (normalized.startsWith("yandexgpt-")) return "yandex";
+  if (normalized.startsWith("minimax-")) return "minimax";
   if (normalized === "image.nano-banana" || normalized.includes("nano-banana")) return "nano-banana";
   if (/^google\/gemini-.+-image-preview$/.test(normalized)) return "nano-banana";
   const prefix = normalized.split("/")[0];

@@ -21,7 +21,7 @@ describe("model gateway quote route", () => {
 
     expect(response.statusCode).toBe(200);
     const body = response.json();
-    expect(body.selected).toMatchObject({ provider: "gemini", providerModel: "gemini-3.1-flash-image-preview", estimatedCost: null, confidence: "unknown" });
+    expect(body.selected).toMatchObject({ provider: "gemini", providerModel: "gemini-3.1-flash-image-preview", estimatedCost: null, confidence: "low", pricingConfidence: "low" });
     expect(response.body).not.toContain("sk-hidden");
     await app.close();
   });
@@ -88,6 +88,53 @@ describe("Polza model catalog endpoint semantics", () => {
       expect(body.models.every((model: { storedModelId: string; providerModelId: string }) =>
         !model.storedModelId.startsWith("polza:") && !model.providerModelId.startsWith("polza:")
       )).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("RuTronix model catalog endpoint semantics", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("returns RuTronix offerings for the generic text node without requiring a key or price", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/for-node/ai.text" });
+      const models = response.json().models as Array<{ provider: string; storedModelId: string; pricing?: { status?: string } }>;
+      const rutronix = models.find((model) => model.storedModelId === "rutronix:deepseek-v4-flash");
+      expect(response.statusCode).toBe(200);
+      expect(rutronix?.storedModelId).toBe("rutronix:deepseek-v4-flash");
+      expect(rutronix?.pricing?.status ?? "missing").toBe("missing");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns available models when an optional Polza catalog request stalls", async () => {
+    vi.stubEnv("POLZA_AI_API_KEY", "test-polza-key");
+    vi.stubEnv("MODEL_CATALOG_REQUEST_TIMEOUT_MS", "20");
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("type=audio") || url.includes("type=embedding")) {
+        return new Promise<Response>(() => undefined);
+      }
+      return new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }));
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/v1" });
+      const body = response.json() as { models: Array<{ provider: string }> };
+
+      expect(response.statusCode).toBe(200);
+      expect(body.models.some((model) => model.provider === "rutronix")).toBe(true);
     } finally {
       await app.close();
     }

@@ -136,11 +136,17 @@ describe("model catalog API", () => {
       const response = await app.inject({ method: "GET", url: "/api/models/for-node/ai.image.generate" });
       const body = response.json();
       const optionIds = body.models.map((model: { storedModelId: string }) => model.storedModelId);
+      const openRouterOptionIds = body.models
+        .filter((model: { provider: string }) => model.provider === "openrouter")
+        .map((model: { storedModelId: string }) => model.storedModelId);
 
       expect(response.statusCode).toBe(200);
       expect(body.ok).toBe(true);
       expect(body.nodeType).toBe("ai.image.generate");
+      expect(body.modelCount).toBeGreaterThan(1);
       expect(optionIds).toContain("image.nano-banana");
+      expect(openRouterOptionIds.length).toBeGreaterThan(1);
+      expect(openRouterOptionIds).toContain("openai/gpt-image-1");
       expect(optionIds).not.toContain("openrouter/auto");
       expect(body.models.every((model: { storedModelId: string; providerModelId: string }) =>
         model.storedModelId === model.providerModelId

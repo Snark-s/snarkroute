@@ -10,6 +10,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@snarkroute/protocol": "workspace:*",
     "pg": "^8.13.1"
   }
 }

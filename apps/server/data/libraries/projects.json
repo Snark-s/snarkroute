@@ -1,11 +1,19 @@
 {
   "version": 1,
-  "currentProjectPath": "Y:\\Работа\\Мрамор",
+  "currentProjectPath": "Y:\\Процесс\\epiQRus",
   "projects": [
+    {
+      "path": "Y:\\Процесс\\epiQRus",
+      "addedAt": "2026-07-16T17:02:42.600Z"
+    },
+    {
+      "path": "Y:\\Процесс\\Город будущего",
+      "addedAt": "2026-07-08T14:11:32.084Z"
+    },
     {
       "path": "Y:\\Работа\\Childrens book",
       "addedAt": "2026-06-13T17:02:03.691Z",
-      "coverPath": "Y:\\Работа\\Childrens book\\nodes\\Image (3).node\\content\\000-import.png"
+      "coverPath": "Y:\\Работа\\Childrens book\\nodes\\Стиль.node\\content\\005-import.png"
     },
     {
       "path": "Y:\\Работа\\Мрамор",

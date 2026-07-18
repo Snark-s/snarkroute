@@ -111,7 +111,7 @@ describe("settings API", () => {
     }
   });
 
-  it("keeps local filesystem enabled for Boojum even when APP_MODE is cloud", async () => {
+  it("hides local filesystem capabilities for Boojum Cloud", async () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
     const previousProduct = process.env.APP_PRODUCT;
     const previousMode = process.env.APP_MODE;
@@ -126,7 +126,12 @@ describe("settings API", () => {
       expect(response.json()).toMatchObject({
         product: "boojum",
         mode: "cloud",
-        supportsLocalFilesystem: true
+        authRequiredForSave: true,
+        supportsCredits: true,
+        supportsUserApiKeys: false,
+        supportsLocalFilesystem: false,
+        cloudStorageConfigured: false,
+        cloudAuthReady: true
       });
     } finally {
       await app.close();
@@ -134,6 +139,152 @@ describe("settings API", () => {
       else process.env.APP_PRODUCT = previousProduct;
       if (previousMode === undefined) delete process.env.APP_MODE;
       else process.env.APP_MODE = previousMode;
+      delete process.env.SNARKROUTE_NO_LISTEN;
+    }
+  });
+
+  it("requires admin before changing app mode while already in cloud mode", async () => {
+    process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previousMode = process.env.APP_MODE;
+    process.env.APP_MODE = "cloud";
+    const { buildServer } = await import("../src/index");
+    const app = buildServer();
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/settings/app-mode",
+        payload: { mode: "local" }
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toMatchObject({ error: "Login is required." });
+      expect(process.env.APP_MODE).toBe("cloud");
+    } finally {
+      await app.close();
+      if (previousMode === undefined) delete process.env.APP_MODE;
+      else process.env.APP_MODE = previousMode;
+      delete process.env.SNARKROUTE_NO_LISTEN;
+    }
+  });
+
+  it("allows local cloud OAuth start when DATABASE_URL is missing outside production", async () => {
+    process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previous = snapshotEnv(["APP_MODE", "DATABASE_URL", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "NODE_ENV"]);
+    process.env.APP_MODE = "cloud";
+    process.env.NODE_ENV = "development";
+    delete process.env.DATABASE_URL;
+    process.env.GOOGLE_CLIENT_ID = "google-client";
+    process.env.GOOGLE_CLIENT_SECRET = "google-secret";
+    const { buildServer } = await import("../src/index");
+    const app = buildServer();
+
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/auth/google/start" });
+      expect(response.statusCode).toBe(302);
+      expect(response.headers.location).toContain("https://accounts.google.com/o/oauth2/v2/auth");
+    } finally {
+      await app.close();
+      restoreEnv(previous);
+      delete process.env.SNARKROUTE_NO_LISTEN;
+    }
+  });
+
+  it("reads local cloud auth sessions when DATABASE_URL is missing", async () => {
+    process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previous = snapshotEnv(["APP_MODE", "DATABASE_URL", "AUTH_HASH_SECRET", "NODE_ENV"]);
+    process.env.APP_MODE = "cloud";
+    process.env.NODE_ENV = "development";
+    delete process.env.DATABASE_URL;
+    process.env.AUTH_HASH_SECRET = "0123456789abcdef0123456789abcdef";
+    const [{ buildServer }, { createLocalCloudSessionToken }] = await Promise.all([
+      import("../src/index"),
+      import("../src/auth/adapters")
+    ]);
+    const app = buildServer();
+
+    try {
+      const token = createLocalCloudSessionToken("google", "subject-1", 600);
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/auth/current",
+        headers: { cookie: `boojum_session=${encodeURIComponent(token)}` }
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().user).toMatchObject({ authProvider: "google", role: "admin" });
+    } finally {
+      await app.close();
+      restoreEnv(previous);
+      delete process.env.SNARKROUTE_NO_LISTEN;
+    }
+  });
+
+  it("returns local development admin overview when DATABASE_URL is missing", async () => {
+    process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previous = snapshotEnv(["APP_MODE", "DATABASE_URL", "AUTH_HASH_SECRET", "NODE_ENV"]);
+    process.env.APP_MODE = "cloud";
+    process.env.NODE_ENV = "development";
+    delete process.env.DATABASE_URL;
+    process.env.AUTH_HASH_SECRET = "0123456789abcdef0123456789abcdef";
+    const [{ buildServer }, { createLocalCloudSessionToken }] = await Promise.all([
+      import("../src/index"),
+      import("../src/auth/adapters")
+    ]);
+    const app = buildServer();
+
+    try {
+      const token = createLocalCloudSessionToken("google", "subject-1", 600);
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/admin/overview",
+        headers: { cookie: `boojum_session=${encodeURIComponent(token)}` }
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        storageMode: "local-dev",
+        storageConfigured: false,
+        usersCount: 3
+      });
+    } finally {
+      await app.close();
+      restoreEnv(previous);
+      delete process.env.SNARKROUTE_NO_LISTEN;
+    }
+  });
+
+  it("supports local development credit grants when DATABASE_URL is missing", async () => {
+    process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previous = snapshotEnv(["APP_MODE", "DATABASE_URL", "AUTH_HASH_SECRET", "NODE_ENV"]);
+    process.env.APP_MODE = "cloud";
+    process.env.NODE_ENV = "development";
+    delete process.env.DATABASE_URL;
+    process.env.AUTH_HASH_SECRET = "0123456789abcdef0123456789abcdef";
+    const [{ buildServer }, { createLocalCloudSessionToken }] = await Promise.all([
+      import("../src/index"),
+      import("../src/auth/adapters")
+    ]);
+    const app = buildServer();
+
+    try {
+      const token = createLocalCloudSessionToken("google", "subject-grant", 600);
+      const cookie = `boojum_session=${encodeURIComponent(token)}`;
+      const currentResponse = await app.inject({ method: "GET", url: "/api/auth/current", headers: { cookie } });
+      expect(currentResponse.statusCode).toBe(200);
+      const userId = currentResponse.json().user.id;
+      const grantResponse = await app.inject({
+        method: "POST",
+        url: `/api/admin/users/${encodeURIComponent(userId)}/grant-credits`,
+        headers: { cookie },
+        payload: { amount: 123, reason: "test grant" }
+      });
+      expect(grantResponse.statusCode).toBe(200);
+      expect(grantResponse.json().balance).toBe(123);
+
+      const balanceResponse = await app.inject({ method: "GET", url: "/api/billing/balance", headers: { cookie } });
+      expect(balanceResponse.statusCode).toBe(200);
+      expect(balanceResponse.json().balance).toBe(123);
+    } finally {
+      await app.close();
+      restoreEnv(previous);
       delete process.env.SNARKROUTE_NO_LISTEN;
     }
   });

@@ -221,6 +221,7 @@ const iconFilenamesByKey: Record<string, string> = {
   polza: "polza.svg",
   qwen: "qwen.png",
   replicate: "replicate.svg",
+  rutronix: "unknown.svg",
   seedance: "seedream-4-5.png",
   seedream: "seedream-4-5.png",
   "seedream-4-5": "seedream-4-5.png",
@@ -242,6 +243,7 @@ const providerIconFilenamesByKey = new Map([
   ["openrouter", "openrouter.svg"],
   ["polza", "polza.svg"],
   ["replicate", "replicate.svg"],
+  ["rutronix", "unknown.svg"],
   ["local", "local.svg"]
 ]);
 

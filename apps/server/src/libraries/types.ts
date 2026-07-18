@@ -86,7 +86,9 @@ export interface SnarkCanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop";
+  kind?: "representation" | "crop" | "imageCorrection" | "canvasAction" | "collectionItem";
+  actionId?: string;
+  correction?: ImageCorrectionSettings;
   note?: string;
 }
 
@@ -103,6 +105,7 @@ export interface ImageNodeManifest {
   crop?: CropMetadata;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -112,6 +115,16 @@ export interface CropRect {
   y: number;
   width: number;
   height: number;
+}
+
+export interface ImageCorrectionSettings {
+  black: number;
+  midpoint: number;
+  white: number;
+  shadowCurve: number;
+  highlightCurve: number;
+  brightness: number;
+  contrast: number;
 }
 
 export interface CropMetadata {
@@ -132,6 +145,7 @@ export interface VideoNodeManifest {
   fallbackAllowed?: boolean;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -148,6 +162,7 @@ export interface AudioNodeManifest {
   fallbackAllowed?: boolean;
   stack: ImageStackItem[];
   activeStackIndex: number;
+  selectedStackItemIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -157,10 +172,13 @@ export interface TextNodeManifest {
   version: "0.1";
   id: string;
   type: "text";
+  variant?: "note";
   title: string;
   text: string;
+  inputMode?: "text" | "dialogue";
   stackPath?: string;
   selectedStackItemId?: string;
+  selectedStackItemIds?: string[];
   modelId?: string;
   executionProvider?: string;
   fallbackAllowed?: boolean;
@@ -189,6 +207,24 @@ export interface TextStackItem {
   source: "prompt" | "text";
   mimeType: string;
   previewFile?: string;
+}
+
+export type TextNodeConversationPart =
+  | { type: "text"; text: string }
+  | { type: "image"; file: string; alt?: string };
+
+export interface TextNodeConversationMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  createdAt: string;
+  content: TextNodeConversationPart[];
+  model?: { modelId: string; providerId?: string };
+}
+
+export interface TextNodeConversation {
+  version: 1;
+  conversationId: string;
+  messages: TextNodeConversationMessage[];
 }
 
 export interface LibrarySnapshot {
@@ -273,9 +309,37 @@ export interface TextNodeView {
   canvas: SnarkCanvasNode;
   manifest: TextNodeManifest;
   stack: TextStackItem[];
+  conversation: TextNodeConversation;
   activeStackItem: TextStackItem | null;
   outputText: string;
   previewUrl: string | null;
+}
+
+export interface CollectionNodeManifest {
+  format: "snarkroute.node";
+  version: "0.1";
+  id: string;
+  type: "collection";
+  title: string;
+  items?: CollectionNodeStoredItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CollectionNodeStoredItem {
+  id: string;
+  type: "image" | "video" | "audio" | "text";
+  sourceNodeId: string;
+  stackItemId?: string;
+  title: string;
+  file: string;
+  mimeType: string;
+  text?: string;
+  manual?: boolean;
+}
+
+export interface CollectionNodeItem extends CollectionNodeStoredItem {
+  previewUrl?: string;
 }
 
 export interface LibraryNodeView {
@@ -286,7 +350,15 @@ export interface LibraryNodeView {
   previewUrl: string | null;
 }
 
-export type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView;
+export interface CollectionNodeView {
+  canvas: SnarkCanvasNode;
+  manifest: CollectionNodeManifest;
+  items: CollectionNodeItem[];
+  activeStackItem: null;
+  previewUrl: null;
+}
+
+export type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView | CollectionNodeView;
 
 export interface ImportImageInput {
   filename: string;
@@ -314,7 +386,8 @@ export interface ImportTextInput {
 }
 
 export interface CreateNodeInput {
-  type: "image" | "video" | "audio" | "text";
+  type: "image" | "video" | "audio" | "text" | "collection";
+  variant?: "note";
   x: number;
   y: number;
   width?: number;
@@ -363,6 +436,24 @@ export interface GenerateTextNodeInput {
   imageReferenceSyntax?: string;
 }
 
+export interface TextNodeConversationAttachmentInput {
+  nodeId?: string;
+  file?: string;
+  alt?: string;
+}
+
+export interface AppendTextNodeConversationMessageInput {
+  nodeId: string;
+  role: "user" | "system";
+  content?: string | TextNodeConversationPart[];
+  attachments?: TextNodeConversationAttachmentInput[];
+}
+
+export interface RunTextNodeConversationTurnInput extends Omit<GenerateTextNodeInput, "prompt"> {
+  prompt?: string;
+  attachments?: TextNodeConversationAttachmentInput[];
+}
+
 export type ImageGenerationSettings = Record<string, string | number | boolean>;
 
 export interface UpdateMediaNodeRouteSettingsInput {
@@ -383,11 +474,51 @@ export interface DuplicateStackItemInput {
 export interface RunCanvasNodeActionInput {
   nodeId: string;
   actionId: string;
+  targetNodeId?: string;
   params?: Record<string, unknown>;
+  phase?: "prepare" | "complete";
+  reuse?: boolean;
+  continuationId?: string;
   x?: number;
   y?: number;
   width?: number;
   height?: number;
+}
+
+export interface CanvasActionPrepareResult {
+  continuationId: string;
+  previews: Array<{ kind: "panorama360" | "splat"; src: string }>;
+}
+
+export interface RunCanvasActionSessionInput {
+  sessionId: string;
+  actionId: string;
+  input: {
+    type: "image" | "video" | "audio" | "text";
+    text?: string;
+    filename?: string;
+    mimeType?: string;
+    dataBase64?: string;
+  };
+  params?: Record<string, unknown>;
+  phase?: "prepare" | "complete";
+  continuationId?: string;
+}
+
+export interface CanvasActionSessionResult {
+  status: "paused" | "completed";
+  continuationId?: string;
+  previews?: Array<{ kind: "panorama360" | "splat"; src: string }>;
+  results: Array<{
+    id: string;
+    outputId: string;
+    type: "image" | "video" | "audio" | "text";
+    label: string;
+    value?: unknown;
+    text?: string;
+    url?: string;
+    filename?: string;
+  }>;
 }
 
 export interface DuplicateCanvasNodeInput {

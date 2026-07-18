@@ -59,6 +59,11 @@ describe("built-in nodes", () => {
       inputs: [{ id: "image", type: "image", required: true, label: "Image" }],
       outputs: [{ id: "image", type: "image", label: "Image" }]
     });
+    expect(builtInNodeManifests.find((manifest) => manifest.id === "preview.panorama360")?.params).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "yaw", default: 0 }),
+      expect.objectContaining({ id: "pitch", default: 0 }),
+      expect.objectContaining({ id: "fov", default: 55 })
+    ]));
     expect(builtInNodeManifests.find((manifest) => manifest.id === "transform.imageResize")).toMatchObject({
       title: "Resize Image",
       permissions: { readFiles: true, writeOutputs: true },
@@ -106,6 +111,42 @@ describe("built-in nodes", () => {
     });
     expect(invalid.ok).toBe(false);
     expect(invalid.issues.some((issue) => issue.path === "canvasAction")).toBe(true);
+  });
+
+  it("validates canvas action dialog references", () => {
+    const base = {
+      ...examplePluginManifest(),
+      params: [{ id: "strength", type: "number", default: 0.5 }],
+      inputs: [{ id: "image", type: "image", required: true }],
+      outputs: [{ id: "image", type: "image", label: "Image" }]
+    };
+    expect(validateNodeManifest({
+      ...base,
+      canvasAction: { enabled: true, dialog: { enabled: true, params: ["strength"], preview: [{ kind: "image", source: { output: "image" } }] } }
+    }).ok).toBe(true);
+    const invalid = validateNodeManifest({
+      ...base,
+      canvasAction: { enabled: true, dialog: { enabled: true, params: ["missing"], preview: [{ kind: "image", source: { output: "missing" } }] } }
+    });
+    expect(invalid.issues.some((issue) => issue.path === "canvasAction.dialog.params.0")).toBe(true);
+    expect(invalid.issues.some((issue) => issue.path === "canvasAction.dialog.preview.0.source.output")).toBe(true);
+    const invalidPause = validateNodeManifest({
+      ...base,
+      canvasAction: { enabled: true, dialog: { enabled: true, params: [], preview: [{ kind: "panorama360", source: { pause: "missing" } }] } },
+      generatedWith: { kind: "compound.subroute", subroute: { nodes: [{ id: "viewer", type: "preview.panorama360" }], edges: [] } }
+    });
+    expect(invalidPause.issues.some((issue) => issue.path === "canvasAction.dialog.preview.0.source.pause")).toBe(true);
+  });
+
+  it("validates canvas action pose binding parameter references", () => {
+    const base = {
+      ...examplePluginManifest(),
+      params: [{ id: "view.yaw", type: "number", binding: { nodeId: "fisheye", paramId: "yawDegrees" } }],
+      inputs: [{ id: "image", type: "image" }], outputs: [{ id: "image", type: "image" }]
+    };
+    expect(validateNodeManifest({ ...base, canvasAction: { enabled: true, poseBindings: { yaw: "view.yaw" } } }).ok).toBe(true);
+    const invalid = validateNodeManifest({ ...base, canvasAction: { enabled: true, poseBindings: { yaw: "missing" } } });
+    expect(invalid.issues.some((issue) => issue.path === "canvasAction.poseBindings.yaw")).toBe(true);
   });
 
   it("validates library manifests", () => {
@@ -280,6 +321,52 @@ describe("built-in nodes", () => {
     );
     expect(result.status).toBe("succeeded");
     expect(result.nodeResults.pair.output).toEqual({ left: "hello", right: "hello" });
+  });
+
+  it("binds generated compound params and warns for unbound values", async () => {
+    const installedDirectory = await mkdtemp(join(tmpdir(), "sr-generated-param-nodes-"));
+    await installNodePackageFromManifest({
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "generated.boundParam",
+      title: "Bound Param",
+      version: "0.1.0",
+      author: { name: "Test Author" },
+      license: "UNLICENSED",
+      origin: "generated",
+      permissions: { network: false, readFiles: false, writeOutputs: false, shell: false, env: [] },
+      executor: { type: "declarative" },
+      inputs: [{ id: "text", type: "text" }],
+      outputs: [{ id: "value", type: "json" }],
+      params: [
+        { id: "amount", type: "number", default: 1, binding: { nodeId: "capture", paramId: "amount" } },
+        { id: "unused", type: "text", default: "saved" }
+      ],
+      generatedWith: {
+        kind: "compound.subroute",
+        compound: { inputs: [], outputs: [{ id: "value", nodeId: "capture", port: "value" }] },
+        subroute: {
+          routeVersion: "0.1",
+          route: { id: "sub", title: "Sub", author: {} },
+          economics: { enabled: false },
+          nodes: [{ id: "capture", type: "test.capture", params: { amount: 1 } }],
+          edges: []
+        }
+      }
+    }, { installedDirectory });
+    const executor = createExecutor();
+    executor.registerNodeRunner("test.capture", ({ params }) => ({ output: { value: params.amount } }));
+    await registerInstalledNodeRunners(executor, installedDirectory);
+    const result = await executor.executeRoute({
+      routeVersion: "0.1",
+      route: { id: "r", title: "R", author: {} },
+      economics: { enabled: false },
+      nodes: [{ id: "action", type: "generated.boundParam", params: { amount: 7, unused: "ignored" } }],
+      edges: []
+    }, { outputDirectory: await mkdtemp(join(tmpdir(), "sr-generated-param-run-")) });
+    expect(result.status).toBe("succeeded");
+    expect(result.nodeResults.action.output).toEqual({ value: 7 });
+    expect(result.logs.some((entry) => entry.message.includes('ignored unbound parameter "unused"'))).toBe(true);
   });
 
   it("uninstalls local node packages from the installed directory", async () => {

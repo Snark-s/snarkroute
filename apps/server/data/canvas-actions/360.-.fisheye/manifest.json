@@ -1,0 +1,194 @@
+{
+  "kind": "snarkroute.node",
+  "schemaVersion": "0.1",
+  "id": "360.-.fisheye",
+  "title": "360 -> fisheye",
+  "version": "0.1.0",
+  "author": {
+    "name": "SnarkRoute Studio"
+  },
+  "license": "UNLICENSED",
+  "origin": "generated",
+  "source": "snarkroute-studio",
+  "category": "Compound",
+  "description": "Generated from compound route \"360 -> fisheye\".",
+  "permissions": {
+    "network": false,
+    "networkHosts": [],
+    "readFiles": false,
+    "writeOutputs": false,
+    "shell": false,
+    "env": []
+  },
+  "executor": {
+    "type": "declarative"
+  },
+  "inputs": [
+    {
+      "id": "image",
+      "type": "image",
+      "label": "image"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "image",
+      "type": "image",
+      "label": "image"
+    }
+  ],
+  "params": [
+    {
+      "id": "transform_panorama360ToFisheye_11.fovDegrees",
+      "type": "number",
+      "label": "Angle",
+      "default": 242,
+      "description": "Fisheye field of view in degrees, from 1 to 360.",
+      "binding": {
+        "nodeId": "transform_panorama360ToFisheye_11",
+        "paramId": "fovDegrees"
+      }
+    },
+    {
+      "id": "transform_panorama360ToFisheye_11.yawDegrees",
+      "type": "number",
+      "label": "Yaw",
+      "default": -54,
+      "description": "Horizontal view direction in degrees.",
+      "binding": {
+        "nodeId": "transform_panorama360ToFisheye_11",
+        "paramId": "yawDegrees"
+      }
+    },
+    {
+      "id": "transform_panorama360ToFisheye_11.pitchDegrees",
+      "type": "number",
+      "label": "Pitch",
+      "default": -74,
+      "description": "Vertical view direction in degrees.",
+      "binding": {
+        "nodeId": "transform_panorama360ToFisheye_11",
+        "paramId": "pitchDegrees"
+      }
+    }
+  ],
+  "canvasAction": {
+    "enabled": true,
+    "title": "360 -> fisheye",
+    "description": "Run \"360 -> fisheye\" from the Living Canvas node toolbar.",
+    "icon": {
+      "kind": "preset",
+      "name": "globe"
+    },
+    "poseBindings": {
+      "fov": "transform_panorama360ToFisheye_11.fovDegrees",
+      "yaw": "transform_panorama360ToFisheye_11.yawDegrees",
+      "pitch": "transform_panorama360ToFisheye_11.pitchDegrees"
+    },
+    "dialog": {
+      "enabled": true,
+      "params": [
+        "transform_panorama360ToFisheye_11.fovDegrees",
+        "transform_panorama360ToFisheye_11.yawDegrees",
+        "transform_panorama360ToFisheye_11.pitchDegrees"
+      ],
+      "preview": [
+        {
+          "kind": "image",
+          "source": {
+            "output": "image"
+          }
+        }
+      ]
+    }
+  },
+  "generatedWith": {
+    "tool": "snarkroute-studio",
+    "kind": "compound.subroute",
+    "compound": {
+      "title": "360 -> fisheye",
+      "inputs": [
+        {
+          "id": "image",
+          "label": "image",
+          "kind": "image",
+          "nodeId": "transform_panorama360ToFisheye_11",
+          "port": "image"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "image",
+          "label": "image",
+          "kind": "image",
+          "nodeId": "preview_image_12",
+          "port": "image"
+        }
+      ]
+    },
+    "subroute": {
+      "routeVersion": "0.1",
+      "route": {
+        "id": "m31-http-json-test.compound_14",
+        "title": "360 -> fisheye",
+        "description": "HTTP Request -> Debug Log -> Text Output.",
+        "author": {
+          "name": "SnarkRoute"
+        },
+        "tags": [
+          "milestone-3.1",
+          "http",
+          "json"
+        ]
+      },
+      "economics": {
+        "enabled": false,
+        "mode": "disabled"
+      },
+      "nodes": [
+        {
+          "id": "transform_panorama360ToFisheye_11",
+          "type": "transform.panorama360ToFisheye",
+          "title": "360 Panorama to Fisheye",
+          "params": {
+            "fovDegrees": 242,
+            "yawDegrees": -54,
+            "pitchDegrees": -74
+          },
+          "ui": {
+            "x": 2256.7280032785266,
+            "y": 1488.135042890066
+          }
+        },
+        {
+          "id": "preview_image_12",
+          "type": "preview.image",
+          "title": "Image Preview",
+          "params": {},
+          "ui": {
+            "x": 2694.973533342025,
+            "y": 1528.7307833624125
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "xy-edge__transform_panorama360ToFisheye_11image-preview_image_12image",
+          "from": "transform_panorama360ToFisheye_11",
+          "to": "preview_image_12",
+          "fromPort": "image",
+          "toPort": "image"
+        }
+      ],
+      "provenance": {
+        "tool": "snarkroute-studio",
+        "updatedAt": "2026-07-12T11:36:46.734Z"
+      }
+    }
+  },
+  "installConfirmation": {
+    "confirmedAt": "2026-07-12T11:37:34.302Z",
+    "warnings": []
+  },
+  "enabled": true
+}

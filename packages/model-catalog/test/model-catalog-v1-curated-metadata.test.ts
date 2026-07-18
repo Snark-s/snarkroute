@@ -63,7 +63,7 @@ describe("Model Catalog V1 curated metadata registry", () => {
     expect(metadata.originVendor).toBe("kling");
     expect(metadata.inputTypes).toEqual(["text", "image"]);
     expect(metadata.outputTypes).toEqual(["video"]);
-    expect(metadata.metadata?.maxImageInputs).toBe(1);
+    expect(metadata.metadata?.maxImageInputs).toBe(7);
   });
 
   it("is not a whitelist", () => {

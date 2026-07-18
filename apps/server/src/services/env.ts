@@ -16,6 +16,8 @@ export type AppCapabilities = {
   supportsLocalFilesystem: boolean;
   supportsPublicSharing: boolean;
   supportsDeveloperDiagnostics: boolean;
+  cloudStorageConfigured: boolean;
+  cloudAuthReady: boolean;
 };
 
 export function appProduct(): AppProduct {
@@ -32,6 +34,7 @@ export function appMode(): AppMode {
 export function appCapabilities(): AppCapabilities {
   const product = appProduct();
   const mode = appMode();
+  const cloudStorageConfigured = isCloudStorageConfigured();
   return {
     product,
     mode,
@@ -41,9 +44,11 @@ export function appCapabilities(): AppCapabilities {
     supportsUserApiKeys: mode !== "cloud",
     supportsBrowserVault: false,
     supportsCloudStoredUserKeys: false,
-    supportsLocalFilesystem: product === "boojum" || mode !== "cloud",
+    supportsLocalFilesystem: mode !== "cloud",
     supportsPublicSharing: false,
-    supportsDeveloperDiagnostics: appDevUi() && !isProduction()
+    supportsDeveloperDiagnostics: appDevUi() && !isProduction(),
+    cloudStorageConfigured,
+    cloudAuthReady: mode !== "cloud" || cloudStorageConfigured || !isProduction()
   };
 }
 
@@ -54,6 +59,10 @@ export function appDevUi(): boolean {
 
 export function isProduction(): boolean {
   return process.env.NODE_ENV?.trim().toLowerCase() === "production";
+}
+
+export function isCloudStorageConfigured(): boolean {
+  return Boolean(process.env.DATABASE_URL?.trim());
 }
 
 export function assertProductionSafety(): void {
@@ -112,6 +121,10 @@ export function isElevenLabsEnabled(): boolean {
 
 export function isPolzaEnabled(): boolean {
   return Boolean(process.env.POLZA_AI_API_KEY?.trim());
+}
+
+export function isRuTronixEnabled(): boolean {
+  return Boolean(process.env.RUTRONIX_API_KEY?.trim());
 }
 
 export function isWorldLabsEnabled(): boolean {

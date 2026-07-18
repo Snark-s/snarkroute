@@ -5,10 +5,12 @@ import { createClarityUpscalerNodeRunner, createReplicateNodeRunner } from "@sna
 import { createModelResolver } from "@snarkroute/openrouter";
 import { createPolzaImageNodeRunner, createPolzaTextNodeRunner, createPolzaVideoNodeRunner } from "@snarkroute/polza";
 import { createRemoteImageNodeRunner, createRemoteTextNodeRunner, loadModelRouteMappings } from "./model-gateway-runners";
+import { getCanvasActionsDirectory } from "../canvas-actions/service";
 export async function createRouteExecutor() {
   const executor = createExecutor();
   registerBuiltInNodeRunners(executor);
   await registerInstalledNodeRunners(executor);
+  await registerInstalledNodeRunners(executor, getCanvasActionsDirectory());
   executor.registerNodeRunner("output.text", ({ params, inputs }) => {
     const from = params.from ?? Object.values(inputs)[0] ?? "";
     const text = typeof from === "string" ? from : JSON.stringify(from, null, 2);

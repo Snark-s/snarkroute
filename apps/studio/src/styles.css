@@ -2989,6 +2989,110 @@ h2 {
   font-size: 11px;
 }
 
+.canvasButtonParamSection,
+.canvasButtonPreviewSection {
+  display: grid;
+  gap: 7px;
+}
+
+.canvasButtonParamSection > span,
+.canvasButtonPreviewSection label > span {
+  color: #aeb6c5;
+  font-size: 12px;
+}
+
+.canvasButtonParamGroups {
+  display: grid;
+  gap: 7px;
+}
+
+.canvasButtonParamGroup {
+  background: #0e131b;
+  border: 1px solid #343c4b;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.canvasButtonParamGroup summary {
+  align-items: center;
+  cursor: pointer;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  padding: 9px 11px;
+}
+
+.canvasButtonParamGroup summary small,
+.canvasButtonParamRow small {
+  color: #7f8999;
+  font-weight: 400;
+}
+
+.canvasButtonParamList {
+  border-top: 1px solid #2a3240;
+  display: grid;
+  padding: 4px 0;
+}
+
+.canvasButtonParamRow {
+  align-items: center;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  min-height: 32px;
+  padding: 4px 11px;
+}
+
+.canvasButtonParamRow small {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.canvasButtonPreviewSection select {
+  width: 100%;
+}
+
+.nodePricingSummary {
+  border: 1px solid #465166;
+  border-radius: 6px;
+  color: #d6deea;
+  display: grid;
+  font-size: 12px;
+  gap: 5px;
+  margin: 10px 0;
+  padding: 8px;
+  text-align: left;
+}
+
+.nodePricingSummary div {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.nodePricingSummary span {
+  color: #9da8ba;
+}
+
+.nodePricingSummary strong {
+  color: #f8d680;
+  font-size: 12px;
+}
+
+.nodePricingSummary p {
+  color: #ff9ca8;
+  font-size: 11px;
+  font-weight: 700;
+  margin: 2px 0 0;
+}
+
+.nodePricingSummary.insufficient {
+  border-color: #7b4a54;
+}
+
 .nodeWarningButton {
   appearance: none;
   cursor: pointer;
@@ -3089,6 +3193,11 @@ h2 {
   margin-bottom: 6px;
   padding: 3px 8px;
   width: fit-content;
+}
+
+.nodeResult.withImageActions .nodeCost {
+  max-width: calc(100% - 124px);
+  white-space: normal;
 }
 
 .nodeCost span {
@@ -3386,6 +3495,11 @@ h2 {
   overflow: hidden;
 }
 
+.imageViewerWindow.correction {
+  max-width: min(96vw, 1240px);
+  width: min(96vw, 1240px);
+}
+
 .imageViewerHeader {
   align-items: center;
   border-bottom: 1px solid #273244;
@@ -3442,6 +3556,109 @@ h2 {
   max-width: 100%;
   object-fit: contain;
   width: 100%;
+}
+
+.imageCorrectionBody {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  min-height: 0;
+  padding: 12px;
+}
+
+.imageCorrectionPreview {
+  align-items: center;
+  background: #070b12;
+  border: 1px solid #2e3948;
+  border-radius: 6px;
+  display: flex;
+  justify-content: center;
+  min-height: 360px;
+  overflow: hidden;
+}
+
+.imageCorrectionPreview canvas {
+  display: block;
+  max-height: min(72vh, 780px);
+  max-width: 100%;
+}
+
+.hiddenCorrectionCanvas {
+  display: none;
+}
+
+.imageCorrectionControls {
+  background: #0c121b;
+  border: 1px solid #334154;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+}
+
+.histogramPanel,
+.curvePanel {
+  background: #070b12;
+  border: 1px solid #2e3948;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.histogramPanel svg,
+.curvePanel svg {
+  display: block;
+  height: 96px;
+  width: 100%;
+}
+
+.correctionControlGrid {
+  display: grid;
+  gap: 9px;
+}
+
+.correctionSlider {
+  display: grid;
+  gap: 5px;
+}
+
+.correctionSlider span {
+  align-items: center;
+  color: #b9c7da;
+  display: flex;
+  font-size: 11px;
+  justify-content: space-between;
+  text-transform: uppercase;
+}
+
+.correctionSlider strong {
+  color: #f8d680;
+  font-size: 11px;
+}
+
+.correctionSlider input {
+  accent-color: #7dd3c0;
+  width: 100%;
+}
+
+.imageCorrectionError {
+  background: rgba(255, 209, 102, 0.1);
+  border: 1px solid rgba(255, 209, 102, 0.3);
+  border-radius: 5px;
+  color: #ffd88a;
+  font-size: 12px;
+  padding: 7px 8px;
+}
+
+@media (max-width: 900px) {
+  .imageCorrectionBody {
+    grid-template-columns: 1fr;
+  }
+
+  .imageCorrectionPreview {
+    min-height: 260px;
+  }
 }
 
 .promptAssetOverlay {
@@ -4332,8 +4549,12 @@ textarea {
 
 .adminUsersTableHeader.pricing,
 .adminUsersTableRow.pricing {
-  grid-template-columns: 88px 120px minmax(130px, 1.1fr) 92px 74px 104px 104px 84px minmax(130px, 1fr);
-  min-width: 980px;
+  grid-template-columns: 82px 112px minmax(130px, 1fr) minmax(140px, 0.95fr) minmax(130px, 0.9fr) 80px 82px 82px 58px 70px 76px 96px 96px minmax(110px, 0.8fr) 118px 60px;
+  min-width: 1640px;
+}
+
+.pricingRefreshActions {
+  margin: 8px 0 10px;
 }
 
 .pricingConfig,

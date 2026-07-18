@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 import { createReplicateClient } from "@snarkroute/replicate";
-import { createOpenRouterClient, openRouterModelInfoToModelInfo, readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache, refreshOpenRouterModelCatalog, refreshOpenRouterPricingCatalog, refreshOpenRouterPricingCatalogFromModelCache } from "@snarkroute/openrouter";
+import { createOpenRouterClient, openRouterModelInfoToModelInfo, readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache, refreshOpenRouterModelCatalog, refreshOpenRouterPricingCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient, polzaModelInfoToModelInfo, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "@snarkroute/polza";
+import { documentedRuTronixModels, rutronixModelInfoToModelInfo } from "@snarkroute/rutronix";
 import { openRouterCatalogCachePath, openRouterPricingCachePath, polzaPricingCachePath, providerLinksPath } from "../server-paths";
 import { createModelResolver } from "@snarkroute/openrouter";
-import { invalidatePricingCache } from "../billing/pricing-service";
+import { refreshModelPricing } from "../billing/model-pricing-refresh-service";
 import { loadModelRouteMappings, quoteModelExecutingNode } from "../execution/model-gateway-runners";
 import { isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled } from "../services/env";
 import { errorMessage } from "../services/errors";
@@ -62,51 +63,7 @@ app.post("/api/providers/openrouter/refresh-model-catalog", async (request, repl
 });
 
 app.post<{ Body: { provider?: "openrouter" | "polza" | "gemini" | "all" | string } }>("/api/model-pricing/refresh", async (request) => {
-  const provider = request.body?.provider ?? "all";
-  const targets = provider === "all" ? ["openrouter", "polza"] : [provider];
-  const refreshed: string[] = [];
-  const failed: Array<{ provider: string; error: string }> = [];
-  const warnings: string[] = [];
-  for (const target of targets) {
-    if (target === "openrouter") {
-      try {
-        await refreshWithTimeout(
-          refreshOpenRouterPricingCatalog({ cachePath: openRouterPricingCachePath, modelCatalogCachePath: openRouterCatalogCachePath }),
-          8000
-        );
-        refreshed.push("openrouter");
-      } catch (error) {
-        const fromModelCache = await refreshOpenRouterPricingCatalogFromModelCache({ cachePath: openRouterPricingCachePath, modelCatalogCachePath: openRouterCatalogCachePath }).catch(() => null);
-        if (fromModelCache) {
-          refreshed.push("openrouter");
-          warnings.push("OpenRouter pricing refresh used cached model catalog because live refresh failed.");
-        } else {
-          failed.push({ provider: "openrouter", error: errorMessage(error) });
-        }
-      }
-      continue;
-    }
-    if (target === "polza") {
-      if (!isPolzaEnabled()) {
-        failed.push({ provider: "polza", error: "Polza.ai API key is not configured." });
-        continue;
-      }
-      try {
-        await refreshWithTimeout(refreshPolzaPricingCatalog({ cachePath: polzaPricingCachePath }), 8000);
-        refreshed.push("polza");
-      } catch (error) {
-        failed.push({ provider: "polza", error: errorMessage(error) });
-      }
-      continue;
-    }
-    if (target === "gemini") {
-      warnings.push("Gemini pricing has no machine-readable refresh source configured; manual override fallback remains in use.");
-      continue;
-    }
-    failed.push({ provider: target, error: "Unsupported pricing provider." });
-  }
-  if (refreshed.length > 0) invalidatePricingCache();
-  return { refreshed, failed, warnings };
+  return refreshModelPricing(request.body?.provider ?? "all");
 });
 
 app.get<{ Querystring: { format?: string } }>("/api/providers/openrouter/models", async (request) => {
@@ -120,6 +77,11 @@ app.get<{ Querystring: { format?: string } }>("/api/providers/openrouter/models"
   }
   const models = cache?.models ?? [];
   return { ok: true, refreshedAt: cache?.refreshedAt ?? null, modelCount: models.length, sourceCounts: cache?.sourceCounts, models };
+});
+
+app.get<{ Querystring: { format?: string } }>("/api/providers/rutronix/models", async (request) => {
+  const models = documentedRuTronixModels();
+  return { ok: true, configured: Boolean(process.env.RUTRONIX_API_KEY?.trim()), source: "documented", modelCount: models.length, models: request.query.format === "model-info" ? models.map(rutronixModelInfoToModelInfo) : models };
 });
 
 app.post<{ Body: { nodeType?: string; params?: Record<string, unknown> } }>("/api/model-gateway/quote", async (request, reply) => {

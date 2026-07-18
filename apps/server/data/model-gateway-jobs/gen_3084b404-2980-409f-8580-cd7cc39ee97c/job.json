@@ -1,0 +1,35 @@
+{
+  "id": "gen_3084b404-2980-409f-8580-cd7cc39ee97c",
+  "status": "completed",
+  "request": {
+    "capability": "video.generate",
+    "nodeType": "polza.video.generate",
+    "modelId": "wan/2.5",
+    "providerModelId": "wan/2.5",
+    "provider": "polza",
+    "prompt": "Робот встает",
+    "parameters": {
+      "resolution": "720p",
+      "duration": "5",
+      "multi_shots": "false"
+    },
+    "inputs": [
+      {
+        "kind": "image",
+        "assetId": "asset_0b7f8312-b8d2-4244-bd8f-c2002466ed89",
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_0b7f8312-b8d2-4244-bd8f-c2002466ed89-frame-1784295743521-507904052.png"
+      }
+    ]
+  },
+  "createdAt": "2026-07-17T13:42:23.859Z",
+  "updatedAt": "2026-07-17T13:43:36.415Z",
+  "result": {
+    "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\model-gateway-jobs\\gen_3084b404-2980-409f-8580-cd7cc39ee97c\\run\\assets\\generate-1784295816409.mp4",
+    "filename": "generate-1784295816409.mp4",
+    "mimeType": "video/mp4",
+    "provider": "polza",
+    "modelId": "wan/2.5",
+    "estimatedCost": null,
+    "actualCost": null
+  }
+}

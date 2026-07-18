@@ -12,14 +12,15 @@
 8. Provider errors produce failed node results. Failed nodes without recorded actual usage now charge `0`; the run billing commit captures only actual successful credits and releases the unused reservation.
 9. Explicit run cancellation is not implemented yet. Partial failure is handled by charging only completed provider work and releasing unused reserved credits.
 10. Free nodes are `input.*`, `asset.*`, `preview.*`, `output.*`, `debug.*`, `utility.*`, `library.*`, `compound.*`, `text.promptCompose`, and `text.static`.
-11. Provider-node price is now set in one internal provider pricing catalog, `PROVIDER_PRICING_CATALOG`, in `packages/executor/src/index.ts`.
-12. Before this pass, prices were mostly heuristic in `nodeCostKind()` plus provider cost metadata in adapters. The MVP now maps provider API cost in micro-USD to integer credits, then applies configured markup.
+11. Provider-node base prices now come from Model Catalog provider pricing. `packages/executor` applies markup and fallback behavior, but no longer owns the seeded provider pricing catalog.
+12. Before this pass, prices were mostly heuristic in `nodeCostKind()` plus provider cost metadata in adapters. The MVP now maps Model Catalog/provider cache API cost in micro-USD to integer credits, then applies configured markup.
 
 ## Current Schema
 
 - `credit_accounts`: one row per user/currency with integer `balance_minor`.
 - `credit_transactions`: append-only ledger. Reservations are negative rows, captures are zero-amount audit rows, releases/refunds/grants/adjustments are correcting rows.
 - `provider_usage_events`: one row per paid provider call or provider-estimate fallback. It stores node, provider, model, operation, status, estimated/actual credits, usage source, provider cost metadata, and sanitized pricing metadata.
+- `canonical_models`, `provider_model_offerings`, `provider_model_pricing`: durable Model Catalog pricing tables for canonical models, provider-specific availability/ids, and pricing snapshots/history.
 - `node_runs`: stores per-node estimated and actual credits for run inspection.
 - `runs`: stores run status, sanitized inputs/outputs, and errors.
 
@@ -41,7 +42,7 @@ Credit unit:
 - `1000 credits = 1 USD`
 - `1 credit = 0.001 USD`
 - Provider API costs are represented as integer `providerCostMicrousd`.
-- `baseCredits = ceil(providerCostMicrousd / 1000)`.
+- `baseCredits = ceil(providerCostMicrousd / CREDIT_UNIT.microusdPerCredit)`.
 
 Pricing formula:
 
@@ -67,7 +68,7 @@ Pricing source priority:
 2. Provider pricing catalog, when actual cost is not returned.
 3. Fallback estimate, marked `pricingConfidence=low`.
 
-Pricing catalog entries include provider, operation, optional model, parameter rules, `baseCostMicrousd`, `currency=USD`, effective date, source, and notes. Current Polza image values keep the old `40 credits` estimate as `baseCostMicrousd=40000`, `source=manual_initial_estimate`, until exact provider billing metadata is available.
+Pricing catalog entries originate from Model Catalog provider pricing and include provider, operation, optional model, provider-native model id, canonical model id, parameter rules, `baseCostMicrousd`, `currency=USD`, effective date, source, freshness, snapshot id, and notes. Current Polza image seed values keep the old `40 credits` estimate as `baseCostMicrousd=40000`, `source=manual_initial_estimate`, until exact provider billing metadata is available.
 
 Markup levels:
 
@@ -82,10 +83,12 @@ Durable pricing config:
 - `billing_pricing_overrides` stores per-provider/operation/model/node overrides in Postgres.
 - DB config has priority over env defaults.
 - `BOOJUM_PRICING_OVERRIDES_JSON` remains a seed/dev fallback when the DB has no overrides.
-- Provider model pricing cache is part of the effective catalog. Polza pricing refresh reads `/v1/models` pricing metadata, stores it in `data/cache/model-pricing/polza.json`, and exposes USD model-specific base prices to route estimates before the generic fallback catalog is used.
-- Polza model pricing can be tiered and RUB-denominated. For MVP conversion to credits, RUB provider costs are converted to USD microusd through `BOOJUM_RUB_PER_USD` (default `100`) before applying markup. Example: 4 RUB at 100 RUB/USD becomes 40 base credits.
+- Model Catalog seed pricing and provider model pricing caches are part of the effective catalog. Polza pricing refresh reads `/v1/models` pricing metadata, stores it in `data/cache/model-pricing/polza.json`, and exposes USD model-specific base prices to route estimates before seed estimates are used. OpenRouter pricing refresh uses live pricing when available or cached model catalog pricing as a fallback.
+- Billing uses `1 credit = $0.01` (`100 credits/USD`, `10000 microusd/credit`). Provider catalog prices are stored in `providerCostMicrousd`, so seed prices automatically scale through that unit; flat admin markups such as `BOOJUM_GLOBAL_MARKUP_CREDITS` remain literal credit amounts.
+- Polza model pricing can be tiered and RUB-denominated. RUB provider costs are converted to USD microusd through the shared RUB/USD rate from the daily CBR refresh cache, falling back to explicit `BOOJUM_RUB_PER_USD` only when the live/cache rate is unavailable. There is no built-in `100` default. Example: 4 RUB at 80 RUB/USD becomes 5 base credits. If Polza returns an actual provider cost in USD, SnarkRoute uses that USD value directly and does not convert it.
 - The server keeps an in-memory effective pricing cache; admin saves invalidate and refresh it.
-- `POST /api/model-pricing/refresh` invalidates the pricing cache after a successful refresh, so new model prices affect estimates without a server restart.
+- `POST /api/model-pricing/refresh` and `POST /api/admin/pricing/refresh` invalidate the pricing cache after a successful refresh, so new model prices affect estimates without a server restart.
+- Optional daily refresh is controlled by `MODEL_PRICING_REFRESH_ENABLED`, `MODEL_PRICING_REFRESH_CRON`, and `MODEL_PRICING_REFRESH_ON_STARTUP`. In cloud mode with Postgres, refresh runs under a database advisory lock plus an in-process guard.
 - Every pricing config or override change writes an `audit_events` row with actor, old value, new value, and reason.
 
 The ledger is immutable. `credit_transactions` must not be updated or deleted after insertion; corrections are new transactions.
@@ -120,11 +123,11 @@ Paid node families:
 - provider upscaling
 - provider text/audio calls when enabled
 
-Internal pricing catalog examples:
+Model Catalog pricing examples:
 
 - `polza.image.generate`: generic fallback `baseCostMicrousd=40000`, `baseCredits=40`; real Polza model rows should come from the refreshed Polza model pricing cache or model-specific admin overrides.
 - `polza.video.generate`: generic fallback `baseCostMicrousd=80000`, `baseCredits=80`; real Polza model rows should come from the refreshed Polza model pricing cache or model-specific admin overrides.
-- `replicate.clarity-upscaler`: `baseCostMicrousd=40000`, `baseCredits=40`
+- `replicate.clarity-upscaler`: canonical model `replicate/clarity-upscaler`, provider-native id `philz1337x/clarity-upscaler`, `baseCostMicrousd=40000`, `baseCredits=40`
 - `openrouter.text.generate`: `baseCostMicrousd=1000`, `baseCredits=1`
 
 User API:
@@ -145,6 +148,7 @@ Admin API:
 - compare estimated vs actual through node runs and provider usage rows
 - view pricing catalog through `GET /api/admin/pricing/catalog`
 - view/update in-process global pricing config through `GET/POST /api/admin/pricing/config`
+- refresh all/provider pricing through `POST /api/admin/pricing/refresh`
 
 Admin scripts:
 
@@ -165,7 +169,7 @@ Admin pricing UI:
 
 - `/admin` includes a `Pricing` section.
 - It shows the credit unit, global markup percent, global markup credits, and min charge credits.
-- It lists provider pricing rows with provider, operation, model, base API cost, base credits, global markup, node markup, final estimated credits, and source.
+- It lists provider pricing rows with provider, operation, canonical model, provider-native id, base API cost, base credits, global markup, node markup, final estimated credits, source, fetched time, and stale status.
 - Saving global pricing config writes `billing_pricing_config` and an audit event.
 - Saving an override writes `billing_pricing_overrides` and an audit event.
 - The UI shows whether the effective pricing config came from DB, env defaults, or seed fallback.
@@ -173,7 +177,7 @@ Admin pricing UI:
 User-facing node explanation:
 
 - Paid provider nodes show estimated final credits and balance.
-- The info tooltip explains base API credits, global markup, node markup, final credits, source, and confidence.
+- The info tooltip explains canonical model, provider-native model id, base API credits, global markup, node markup, final credits, source, confidence, freshness, and whether a fallback estimate was used.
 - Free nodes show `Free` or no price and do not participate in route totals.
 
 Guest demo:

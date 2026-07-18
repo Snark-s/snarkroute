@@ -1,5 +1,6 @@
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
+import { useClampedMenuPosition } from "@snarkroute/media-viewers";
 import defaultRouteDocument from "./default-route.orp.json";
 import {
   Background,
@@ -41,6 +42,8 @@ import {
   type ModelProfile,
   type OpenRoute
 } from "@snarkroute/protocol";
+import { modelMaxImageInputsV1 } from "@snarkroute/model-catalog";
+import { Panorama360Viewer as SharedPanorama360Viewer, SplatViewer, renderPanoramaFrame, type SplatViewerRuntime as SplatRuntime } from "@snarkroute/media-viewers";
 import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Copy, Cpu, Crop, Download, Eraser, Expand, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, Music, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, Wrench, X } from "lucide-react";
 import { Archive, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clipboard, Cog, Compass, Database, EyeOff, FileAudio, FileImage, FileVideo, Filter, Flag, FlipHorizontal, FlipVertical, Folder, FolderPlus, Grid3X3, Headphones, Heart, Layers3, Link, List, Mail, Map as MapIcon, MapPin, Maximize2, MessageSquare, Mic, Minimize2, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Radio, Repeat, RotateCcw, RotateCw, Route, Scissors, Send, Settings, Share2, Shuffle, SlidersHorizontal, Square, Star, Table, Volume2, Zap, ZoomIn, ZoomOut } from "lucide-react";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -74,6 +77,14 @@ import {
 } from "./features/node-packages/nodePackageHelpers";
 import { apiFetch } from "./shared/apiClient";
 import { filenameFromPath } from "./shared/fileHelpers";
+import {
+  canvasButtonManifestFromDraft as buildCanvasButtonManifestFromDraft,
+  canvasButtonParamCandidates,
+  canvasButtonPreviewCandidates,
+  defaultCanvasButtonPreviewId,
+  nodeManifestFromCompoundNode,
+  type CanvasButtonDraft
+} from "./canvasButtonBuilder";
 import { navigate } from "./shared/navigation";
 import {
   canImportDroppedRouteFile,
@@ -125,7 +136,6 @@ import {
   panoramaSourceSrc,
   radiansToDegrees,
   renderFisheyeFrame,
-  renderPanoramaFrame,
   roundCameraCoordinate,
   useImageDimensions,
   versionedAssetPreviewSrc,
@@ -135,7 +145,6 @@ import {
 import {
   connectionRouteHelper,
   enrichImageGenerationModelOptions,
-  enrichPolzaImageModelOptions,
   geminiLlmPricingLabel,
   imageGenerationModelOptions,
   imageModelCostLabel,
@@ -150,11 +159,9 @@ import {
   modelOptionForNodeLogo,
   modelSupportsText,
   openRouterCostLabel,
-  openRouterModelSupportsVisionInput,
   polzaImageModelLogo,
   polzaModelHint,
   polzaProviderModelId,
-  polzaModelsFromNodeOptions,
   polzaModelSupportsVisionInput,
   polzaVideoSupportsAudio,
   providerFromSlug,
@@ -200,6 +207,7 @@ import {
   libraryNodeStatuses,
   promptStatusOptions
 } from "./studioConfig";
+
 import type {
   AdminOverview,
   AppCapabilities,
@@ -252,7 +260,6 @@ import type {
   RunStreamEvent,
   SavedCameraPose,
   SeedanceSettings,
-  SplatRuntime,
   StableDiffusionModel,
   StudioExample,
   SubrouteFrame,
@@ -260,6 +267,8 @@ import type {
   UnifiedModelInfo,
   VideoModelOption
 } from "./studioTypes";
+
+const localJsonUploadLimitBytes = 180 * 1024 * 1024;
 
 // Compatibility note: storage keys and protocol fields keep the old node/studio names
 // so saved routes, installed node manifests, and local browser state continue to load.
@@ -1554,6 +1563,7 @@ function ChooseCameraPointParams({
       return;
     }
     const dataBase64 = dataUrl.split(",")[1] ?? "";
+    assertLocalJsonUploadBase64Length(dataBase64);
     const response = await fetch(`${apiBase}/api/assets/import`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1561,7 +1571,7 @@ function ChooseCameraPointParams({
     });
     const body = await response.json();
     if (!response.ok) {
-      setError(String(body.error ?? "Could not save rendered frame."));
+      setError(response.status === 413 ? localJsonUploadTooLargeMessage() : String(body.error ?? "Could not save rendered frame."));
       return;
     }
     const renderedImage = body.metadata ?? { path: body.path };
@@ -1695,13 +1705,14 @@ function ChooseCameraPointParams({
 
 async function importImageDataUrl(dataUrl: string, filename: string): Promise<unknown> {
   const dataBase64 = dataUrl.split(",")[1] ?? "";
+  assertLocalJsonUploadBase64Length(dataBase64);
   const response = await apiFetch(`${apiBase}/api/assets/import`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ kind: "image", filename, dataBase64 })
   });
   const body = await response.json();
-  if (!response.ok) throw new Error(String(body.error ?? `Could not save ${filename}.`));
+  if (!response.ok) throw new Error(response.status === 413 ? localJsonUploadTooLargeMessage() : String(body.error ?? `Could not save ${filename}.`));
   return body.metadata ?? { path: body.path };
 }
 
@@ -1718,115 +1729,11 @@ function WorldSplatViewer({
   onToggleFloating: () => void;
   onPublishOutputs: (outputs: { pose: SavedCameraPose; viewDataUrl: string; panoramaDataUrl: string }) => Promise<void>;
 }) {
-  const mountRef = useRef<HTMLDivElement | null>(null);
   const splatRuntimeRef = useRef<SplatRuntime | null>(null);
+  const splatMountRef = useRef<HTMLDivElement | null>(null);
   const latestPoseRef = useRef<SavedCameraPose>(initialCameraPose);
   const [loadStatus, setLoadStatus] = useState("loading splat");
   const [isPublishing, setIsPublishing] = useState(false);
-
-  useEffect(() => {
-    const mount = mountRef.current;
-    if (!mount) return;
-
-    let disposed = false;
-    let renderer: import("three").WebGLRenderer | null = null;
-    let scene: import("three").Scene | null = null;
-    let splat: { dispose?: () => void } | null = null;
-    let spark: import("three").Object3D | null = null;
-    let resizeObserver: ResizeObserver | null = null;
-
-    void (async () => {
-      const [THREE, sparkModule] = await Promise.all([import("three"), import("@sparkjsdev/spark")]);
-      if (disposed) return;
-
-      const { SparkControls, SparkRenderer, SplatMesh } = sparkModule;
-      scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x090d14);
-
-      const camera = new THREE.PerspectiveCamera(initialCameraPose.fov || 70, 1, 0.01, 1000);
-      const control = new THREE.Object3D();
-      control.position.set(initialCameraPose.position.x, initialCameraPose.position.y, initialCameraPose.position.z);
-      control.rotation.set(degreesToRadians(initialCameraPose.rotation.pitch), degreesToRadians(initialCameraPose.rotation.yaw), degreesToRadians(initialCameraPose.rotation.roll), "YXZ");
-      control.add(camera);
-      scene.add(control);
-
-      renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      renderer.domElement.className = "chooseCameraSplatCanvas nodrag nopan";
-      renderer.domElement.tabIndex = 0;
-      mount.appendChild(renderer.domElement);
-
-      spark = new SparkRenderer({ renderer });
-      scene.add(spark);
-
-      splat = new SplatMesh({
-        url: splatUrl,
-        onLoad: () => {
-          if (!disposed) setLoadStatus("splat ready");
-        },
-        onProgress: (event: ProgressEvent) => {
-          if (disposed || !event.lengthComputable || event.total <= 0) return;
-          setLoadStatus(`loading splat ${Math.round((event.loaded / event.total) * 100)}%`);
-        }
-      });
-      (splat as unknown as import("three").Object3D).quaternion.set(1, 0, 0, 0);
-      scene.add(splat as unknown as import("three").Object3D);
-
-      const controls = new SparkControls({ canvas: renderer.domElement });
-      controls.fpsMovement.moveSpeed = 1.25;
-
-      const resize = () => {
-        if (!renderer) return;
-        const rect = mount.getBoundingClientRect();
-        const width = Math.max(1, Math.floor(rect.width));
-        const height = Math.max(1, Math.floor(rect.height));
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
-        renderer.setSize(width, height, false);
-      };
-      resizeObserver = new ResizeObserver(resize);
-      resizeObserver.observe(mount);
-      resize();
-
-      const euler = new THREE.Euler(0, 0, 0, "YXZ");
-      renderer.setAnimationLoop(() => {
-        if (!renderer || !scene) return;
-        controls.update(control, camera);
-        renderer.render(scene, camera);
-        euler.setFromQuaternion(control.quaternion, "YXZ");
-        latestPoseRef.current = {
-          position: {
-            x: roundCameraCoordinate(control.position.x),
-            y: roundCameraCoordinate(control.position.y),
-            z: roundCameraCoordinate(control.position.z)
-          },
-          rotation: {
-            yaw: wrapDegrees(radiansToDegrees(euler.y)),
-            pitch: clamp(radiansToDegrees(euler.x), -89, 89),
-            roll: radiansToDegrees(euler.z)
-          },
-          fov: camera.fov
-        };
-      });
-
-      splatRuntimeRef.current = { renderer, scene, camera, control };
-      renderer.domElement.focus();
-    })().catch((caught) => {
-      if (!disposed) setLoadStatus(caught instanceof Error ? caught.message : String(caught));
-    });
-
-    return () => {
-      disposed = true;
-      resizeObserver?.disconnect();
-      renderer?.setAnimationLoop(null);
-      if (scene && splat) scene.remove(splat as unknown as import("three").Object3D);
-      if (scene && spark) scene.remove(spark);
-      splatRuntimeRef.current = null;
-      splat?.dispose?.();
-      renderer?.dispose();
-      renderer?.domElement.remove();
-    };
-  }, [splatUrl]);
 
   async function publishCurrentOutputs() {
     const runtime = splatRuntimeRef.current;
@@ -1839,7 +1746,7 @@ function WorldSplatViewer({
     setLoadStatus("rendering view + 360");
     try {
       const viewDataUrl = captureCurrentSplatView(runtime);
-      const panoramaDataUrl = await renderSplatPanorama(runtime, mountRef.current);
+      const panoramaDataUrl = await renderSplatPanorama(runtime, splatMountRef.current);
       await onPublishOutputs({ pose: latestPoseRef.current, viewDataUrl, panoramaDataUrl });
       setLoadStatus("view + 360 published");
     } catch (caught) {
@@ -1855,7 +1762,16 @@ function WorldSplatViewer({
       onPointerEnter={() => splatRuntimeRef.current?.renderer.domElement.focus()}
       onClick={() => splatRuntimeRef.current?.renderer.domElement.focus()}
     >
-      <div ref={mountRef} className="chooseCameraSplatMount" />
+      <SplatViewer
+        splatUrl={splatUrl}
+        initialCameraPose={initialCameraPose}
+        className="chooseCameraSplatMount"
+        mountClassName="chooseCameraSplatMount"
+        canvasClassName="chooseCameraSplatCanvas nodrag nopan"
+        onReady={(runtime, mount) => { splatRuntimeRef.current = runtime; splatMountRef.current = mount; }}
+        onPoseChange={(pose) => { latestPoseRef.current = pose; }}
+        onStatusChange={setLoadStatus}
+      />
       <div className="nodeMetaLine">{loadStatus}</div>
       <div className="nodeActionRow">
         <button className="nodeSmallButton nodrag nopan" type="button" disabled={isPublishing} onClick={() => void publishCurrentOutputs()}><Save size={13} /> Отправить вид + 360 на выход</button>
@@ -2047,10 +1963,11 @@ function NodeInlineResult({
   }
   const imageSrc = versionedAssetPreviewSrc(imagePreviewSrc(result.output), previewVersion);
   const videoSrc = versionedAssetPreviewSrc(videoPreviewSrc(result.output), previewVersion);
-  const cost = costLabel(result.output);
   const creditCost = result.actualCredits !== undefined && result.actualCredits > 0
-    ? `Spent: ${formatCredits(result.actualCredits)} credits${result.costEstimate?.provider ? ` · Provider: ${result.costEstimate.provider}` : ""} · Usage: ${result.usageSource ?? "unknown"}`
-    : result.costEstimate && result.costEstimate.estimatedCredits > 0 ? `≈ ${formatCredits(result.costEstimate.estimatedCredits)} credits` : "";
+    ? `Spent: ${formatCredits(result.actualCredits)} credits`
+    : result.status === "failed" && result.costEstimate && result.costEstimate.estimatedCredits > 0 ? "No Boojum credits charged"
+      : result.costEstimate && result.costEstimate.estimatedCredits > 0 ? `≈ ${formatCredits(result.costEstimate.estimatedCredits)} credits` : "";
+  const providerBalanceHint = externalProviderBalanceHint(result.error);
   const statusText = result.status && result.status !== "succeeded" ? result.status : null;
   const imageTitle = imageLabel(result.output);
   const panoramaSrc = type === "preview.panorama360" ? versionedAssetPreviewSrc(panoramaSourceSrc(result.output), previewVersion) ?? imageSrc : null;
@@ -2059,8 +1976,7 @@ function NodeInlineResult({
       <div className={`nodeResult panoramaResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
         {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
-        {cost ? <span className="nodeCost">{cost}</span> : null}
-        <Panorama360Viewer
+        <BoojumPanoramaPreview
           src={panoramaSrc}
           title={imageTitle}
           filename={downloadFilename(result.output)}
@@ -2071,10 +1987,9 @@ function NodeInlineResult({
   }
   if (imageSrc) {
     return (
-      <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
+      <div className={`nodeResult withImageActions ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
         {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
-        {cost ? <span className="nodeCost">{cost}</span> : null}
         <div className="nodeImageActions">
           <button
             className="nodeImageActionButton nodrag nopan"
@@ -2086,6 +2001,17 @@ function NodeInlineResult({
             }}
           >
             <Eye size={16} strokeWidth={2.2} />
+          </button>
+          <button
+            className="nodeImageActionButton nodrag nopan"
+            type="button"
+            title="Basic image correction"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenImage?.({ src: imageSrc, title: imageTitle, filename: downloadFilename(result.output), mode: "correction" });
+            }}
+          >
+            <SlidersHorizontal size={14} />
           </button>
           <button
             className="nodeImageActionButton nodrag nopan"
@@ -2133,7 +2059,6 @@ function NodeInlineResult({
       <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
         {statusText ? <div>{statusText}</div> : null}
         {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
-        {cost ? <span className="nodeCost">{cost}</span> : null}
         <div className="nodeImageActions">
           <button
             className="nodeImageActionButton nodrag nopan"
@@ -2166,12 +2091,263 @@ function NodeInlineResult({
     <div className={`nodeResult ${result.status === "failed" ? "failed" : "succeeded"}`}>
       {statusText ? <div>{statusText}</div> : null}
       {creditCost ? <span className="nodeCost">{creditCost}</span> : null}
-      {cost ? <span className="nodeCost">{cost}</span> : null}
+      {providerBalanceHint ? <span className="nodeCost warning">{providerBalanceHint}</span> : null}
       {textOutput !== null ? <textarea className="nodrag nopan nodeTextarea outputTextArea" readOnly value={textOutput} /> : preview ? <pre>{preview}</pre> : null}
       {result.status === "failed" && onConfigureMissingSecret ? <button className="nodeSmallButton nodrag nopan" onClick={onConfigureMissingSecret}><KeyRound size={14} /> Configure key</button> : null}
       {result.status === "succeeded" && hasPinnableOutput(result.output) ? <button className={`nodeSmallButton nodrag nopan ${outputPinned ? "pinned" : ""}`} aria-pressed={outputPinned} onClick={() => onFixNodeOutput?.(nodeId, result.output)}><Pin size={14} /> {outputPinned ? "Pinned output" : "Pin output"}</button> : null}
     </div>
   );
+}
+
+type CorrectionSettings = {
+  black: number;
+  midpoint: number;
+  white: number;
+  shadowCurve: number;
+  highlightCurve: number;
+  brightness: number;
+  contrast: number;
+};
+
+type ImageHistogram = {
+  red: number[];
+  green: number[];
+  blue: number[];
+  luminance: number[];
+};
+
+const DEFAULT_CORRECTION_SETTINGS: CorrectionSettings = {
+  black: 0,
+  midpoint: 1,
+  white: 255,
+  shadowCurve: 0,
+  highlightCurve: 0,
+  brightness: 0,
+  contrast: 0
+};
+
+function ImageCorrectionPanel({ image }: { image: ImageViewerState }) {
+  const sourceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [settings, setSettings] = useState<CorrectionSettings>(DEFAULT_CORRECTION_SETTINGS);
+  const [histogram, setHistogram] = useState<ImageHistogram>(() => emptyHistogram());
+  const [loadError, setLoadError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if (cancelled) return;
+      const sourceCanvas = sourceCanvasRef.current;
+      const previewCanvas = previewCanvasRef.current;
+      if (!sourceCanvas || !previewCanvas) return;
+      const maxSide = 1200;
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      const width = Math.max(1, Math.round(img.naturalWidth * scale));
+      const height = Math.max(1, Math.round(img.naturalHeight * scale));
+      sourceCanvas.width = width;
+      sourceCanvas.height = height;
+      previewCanvas.width = width;
+      previewCanvas.height = height;
+      const context = sourceCanvas.getContext("2d", { willReadFrequently: true });
+      if (!context) return;
+      context.drawImage(img, 0, 0, width, height);
+      try {
+        setHistogram(histogramFromImageData(context.getImageData(0, 0, width, height)));
+        setLoadError("");
+      } catch {
+        setLoadError("Histogram is unavailable for this image source.");
+      }
+    };
+    img.onerror = () => {
+      if (!cancelled) setLoadError("Could not load image for correction.");
+    };
+    img.src = image.src;
+    return () => {
+      cancelled = true;
+    };
+  }, [image.src]);
+
+  useEffect(() => {
+    const sourceCanvas = sourceCanvasRef.current;
+    const previewCanvas = previewCanvasRef.current;
+    if (!sourceCanvas || !previewCanvas || !sourceCanvas.width || !sourceCanvas.height) return;
+    const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+    const previewContext = previewCanvas.getContext("2d");
+    if (!sourceContext || !previewContext) return;
+    try {
+      const sourceData = sourceContext.getImageData(0, 0, sourceCanvas.width, sourceCanvas.height);
+      previewContext.putImageData(applyCorrection(sourceData, settings), 0, 0);
+    } catch {
+      setLoadError("Correction preview is unavailable for this image source.");
+    }
+  }, [settings, histogram]);
+
+  const updateSetting = (key: keyof CorrectionSettings, value: number) => {
+    setSettings((current) => {
+      const next = { ...current, [key]: value };
+      if (key === "black" && next.black >= next.white) next.black = Math.max(0, next.white - 1);
+      if (key === "white" && next.white <= next.black) next.white = Math.min(255, next.black + 1);
+      return next;
+    });
+  };
+
+  const downloadAdjusted = () => {
+    const previewCanvas = previewCanvasRef.current;
+    if (!previewCanvas) return;
+    previewCanvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = correctedFilename(image.filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    }, "image/png");
+  };
+
+  return (
+    <div className="imageCorrectionBody">
+      <canvas ref={sourceCanvasRef} className="hiddenCorrectionCanvas" />
+      <div className="imageCorrectionPreview">
+        <canvas ref={previewCanvasRef} aria-label={image.title} />
+      </div>
+      <aside className="imageCorrectionControls">
+        <HistogramView histogram={histogram} />
+        {loadError ? <div className="imageCorrectionError">{loadError}</div> : null}
+        <CurveView settings={settings} histogram={histogram} />
+        <div className="correctionControlGrid">
+          <CorrectionSlider label="Black" min={0} max={254} step={1} value={settings.black} onChange={(value) => updateSetting("black", value)} />
+          <CorrectionSlider label="Mid" min={0.2} max={3} step={0.01} value={settings.midpoint} onChange={(value) => updateSetting("midpoint", value)} />
+          <CorrectionSlider label="White" min={1} max={255} step={1} value={settings.white} onChange={(value) => updateSetting("white", value)} />
+          <CorrectionSlider label="Shadows" min={-80} max={80} step={1} value={settings.shadowCurve} onChange={(value) => updateSetting("shadowCurve", value)} />
+          <CorrectionSlider label="Highlights" min={-80} max={80} step={1} value={settings.highlightCurve} onChange={(value) => updateSetting("highlightCurve", value)} />
+          <CorrectionSlider label="Brightness" min={-100} max={100} step={1} value={settings.brightness} onChange={(value) => updateSetting("brightness", value)} />
+          <CorrectionSlider label="Contrast" min={-100} max={100} step={1} value={settings.contrast} onChange={(value) => updateSetting("contrast", value)} />
+        </div>
+        <button className="nodeSmallButton nodrag nopan" type="button" onClick={downloadAdjusted}>
+          <Download size={14} /> Download adjusted
+        </button>
+        <button className="nodeSmallButton nodrag nopan" type="button" onClick={() => setSettings(DEFAULT_CORRECTION_SETTINGS)}>
+          <RotateCcw size={14} /> Reset
+        </button>
+      </aside>
+    </div>
+  );
+}
+
+function CorrectionSlider({
+  label,
+  min,
+  max,
+  step,
+  value,
+  onChange
+}: {
+  label: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="correctionSlider">
+      <span>{label}<strong>{formatCorrectionValue(value)}</strong></span>
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(event) => onChange(Number(event.target.value))} />
+    </label>
+  );
+}
+
+function HistogramView({ histogram }: { histogram: ImageHistogram }) {
+  return (
+    <div className="histogramPanel" aria-label="RGB histogram">
+      <svg viewBox="0 0 256 96" role="img">
+        <HistogramPolyline values={histogram.red} color="#ff6b6b" />
+        <HistogramPolyline values={histogram.green} color="#7dd3c0" />
+        <HistogramPolyline values={histogram.blue} color="#78a6ff" />
+      </svg>
+    </div>
+  );
+}
+
+function CurveView({ settings, histogram }: { settings: CorrectionSettings; histogram: ImageHistogram }) {
+  const curvePoints = Array.from({ length: 64 }, (_, index) => {
+    const input = Math.round(index / 63 * 255);
+    const output = correctChannel(input, settings);
+    return `${index / 63 * 256},${96 - output / 255 * 96}`;
+  }).join(" ");
+  return (
+    <div className="curvePanel" aria-label="Curves">
+      <svg viewBox="0 0 256 96" role="img">
+        <HistogramPolyline values={histogram.luminance} color="rgba(220, 232, 255, 0.24)" />
+        <polyline points="0,96 256,0" fill="none" stroke="rgba(220, 232, 255, 0.28)" strokeWidth="1" />
+        <polyline points={curvePoints} fill="none" stroke="#f8d680" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
+}
+
+function HistogramPolyline({ values, color }: { values: number[]; color: string }) {
+  const max = Math.max(1, ...values);
+  const points = values.map((value, index) => `${index},${96 - value / max * 92}`).join(" ");
+  return <polyline points={points} fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" opacity="0.9" />;
+}
+
+function emptyHistogram(): ImageHistogram {
+  const empty = Array.from({ length: 256 }, () => 0);
+  return { red: [...empty], green: [...empty], blue: [...empty], luminance: [...empty] };
+}
+
+function histogramFromImageData(imageData: ImageData): ImageHistogram {
+  const histogram = emptyHistogram();
+  const { data } = imageData;
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index] ?? 0;
+    const green = data[index + 1] ?? 0;
+    const blue = data[index + 2] ?? 0;
+    histogram.red[red] += 1;
+    histogram.green[green] += 1;
+    histogram.blue[blue] += 1;
+    histogram.luminance[Math.round(red * 0.2126 + green * 0.7152 + blue * 0.0722)] += 1;
+  }
+  return histogram;
+}
+
+function applyCorrection(imageData: ImageData, settings: CorrectionSettings): ImageData {
+  const output = new ImageData(new Uint8ClampedArray(imageData.data), imageData.width, imageData.height);
+  for (let index = 0; index < output.data.length; index += 4) {
+    output.data[index] = correctChannel(output.data[index] ?? 0, settings);
+    output.data[index + 1] = correctChannel(output.data[index + 1] ?? 0, settings);
+    output.data[index + 2] = correctChannel(output.data[index + 2] ?? 0, settings);
+  }
+  return output;
+}
+
+function correctChannel(value: number, settings: CorrectionSettings): number {
+  const range = Math.max(1, settings.white - settings.black);
+  let normalized = clamp((value - settings.black) / range, 0, 1);
+  normalized = Math.pow(normalized, settings.midpoint);
+  normalized += settings.shadowCurve / 100 * (1 - normalized) * normalized;
+  normalized += settings.highlightCurve / 100 * normalized * normalized;
+  let corrected = normalized * 255 + settings.brightness;
+  const contrastFactor = (259 * (settings.contrast + 255)) / (255 * (259 - settings.contrast));
+  corrected = contrastFactor * (corrected - 128) + 128;
+  return Math.round(clamp(corrected, 0, 255));
+}
+
+function formatCorrectionValue(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function correctedFilename(filename: string): string {
+  const clean = filename.trim() || "image.png";
+  const dotIndex = clean.lastIndexOf(".");
+  if (dotIndex <= 0) return `${clean}-corrected.png`;
+  return `${clean.slice(0, dotIndex)}-corrected.png`;
 }
 
 function hasPinnableOutput(output: unknown): boolean {
@@ -2270,36 +2446,9 @@ function LiveFisheyePreview({
   );
 }
 
-function Panorama360Viewer({ src, title, filename, onFixFrame }: { src: string; title: string; filename: string; onFixFrame?: (output: unknown) => void }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const imageRef = useRef<HTMLImageElement | null>(null);
-  const dragRef = useRef<{ x: number; y: number; yaw: number; pitch: number } | null>(null);
-  const [view, setView] = useState({ yaw: 0, pitch: 0, fov: 55 });
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState("");
+function BoojumPanoramaPreview({ src, title, filename, onFixFrame }: { src: string; title: string; filename: string; onFixFrame?: (output: unknown) => void }) {
   const [fixedAt, setFixedAt] = useState("");
-
-  useEffect(() => {
-    const image = new Image();
-    image.crossOrigin = "anonymous";
-    setLoaded(false);
-    setError("");
-    setFixedAt("");
-    image.onload = () => {
-      imageRef.current = image;
-      setLoaded(true);
-    };
-    image.onerror = () => setError("Could not load panorama image.");
-    image.src = src;
-  }, [src]);
-
-  useEffect(() => {
-    if (!loaded || !imageRef.current || !canvasRef.current) return;
-    renderPanoramaFrame(canvasRef.current, imageRef.current, view);
-  }, [loaded, view]);
-
-  function currentFramePayload(): { dataUrl: string; output: unknown } | null {
-    const canvas = canvasRef.current;
+  function currentFramePayload(canvas: HTMLCanvasElement | null, view: { yaw: number; pitch: number; fov: number }): { dataUrl: string; output: unknown } | null {
     if (!canvas) return null;
     const dataUrl = canvas.toDataURL("image/png");
     const base64 = dataUrl.split(",", 2)[1];
@@ -2328,88 +2477,35 @@ function Panorama360Viewer({ src, title, filename, onFixFrame }: { src: string; 
     };
   }
 
-  function captureCurrentView() {
+  function captureCurrentView(canvas: HTMLCanvasElement | null, view: { yaw: number; pitch: number; fov: number }) {
     try {
-      const payload = currentFramePayload();
+      const payload = currentFramePayload(canvas, view);
       if (!payload) return;
       const link = document.createElement("a");
       link.href = payload.dataUrl;
       link.download = panoramaSnapshotFilename(filename);
       link.click();
-    } catch (captureError) {
-      setError(captureError instanceof Error ? captureError.message : "Could not capture current view.");
-    }
+    } catch (captureError) { console.warn(captureError); }
   }
-
-  function fixCurrentFrame() {
+  function fixCurrentFrame(canvas: HTMLCanvasElement | null, view: { yaw: number; pitch: number; fov: number }) {
     try {
-      const payload = currentFramePayload();
+      const payload = currentFramePayload(canvas, view);
       if (!payload) return;
       onFixFrame?.(payload.output);
       setFixedAt(new Date().toLocaleTimeString());
-    } catch (captureError) {
-      setError(captureError instanceof Error ? captureError.message : "Could not fix current frame.");
-    }
+    } catch (captureError) { console.warn(captureError); }
   }
-
   return (
-    <div className="panoramaViewer nodrag nopan">
-      <canvas
-        ref={canvasRef}
-        className="panoramaCanvas nodrag nopan"
-        width={360}
-        height={190}
-        title={title}
-        onPointerDown={(event) => {
-          event.currentTarget.setPointerCapture(event.pointerId);
-          dragRef.current = { x: event.clientX, y: event.clientY, yaw: view.yaw, pitch: view.pitch };
-        }}
-        onPointerMove={(event) => {
-          const drag = dragRef.current;
-          if (!drag) return;
-          setView((current) => ({
-            ...current,
-            yaw: drag.yaw - (event.clientX - drag.x) * 0.006,
-            pitch: clamp(drag.pitch + (event.clientY - drag.y) * 0.0045, -1.25, 1.25)
-          }));
-        }}
-        onPointerUp={(event) => {
-          dragRef.current = null;
-          event.currentTarget.releasePointerCapture(event.pointerId);
-        }}
-        onPointerCancel={() => {
-          dragRef.current = null;
-        }}
-        onWheel={(event) => {
-          event.preventDefault();
-          setView((current) => ({ ...current, fov: clamp(current.fov + Math.sign(event.deltaY) * 5, 35, 90) }));
-        }}
-      />
-      {!loaded && !error ? <div className="panoramaOverlay">Loading panorama...</div> : null}
-      {error ? <div className="panoramaOverlay error">{error}</div> : null}
-      <div className="panoramaControls">
-        <label className="panoramaZoomControl nodrag nopan" title="Zoom">
-          <input
-            className="nodrag nopan"
-            type="range"
-            min={35}
-            max={90}
-            step={1}
-            value={view.fov}
-            disabled={!loaded}
-            onChange={(event) => setView((current) => ({ ...current, fov: Number(event.target.value) }))}
-          />
-          <span>{view.fov}°</span>
-        </label>
-        <button className="nodeImageActionButton nodrag nopan" type="button" title="Fix current frame to node output" disabled={!loaded} onClick={fixCurrentFrame}>
-          <CheckSquare size={14} />
-        </button>
-        <button className="nodeImageActionButton nodrag nopan" type="button" title="Capture current view as PNG" disabled={!loaded} onClick={captureCurrentView}>
-          <Download size={14} />
-        </button>
-      </div>
-      {fixedAt ? <div className="panoramaFixedStatus">Fixed {fixedAt}</div> : null}
-    </div>
+    <SharedPanorama360Viewer src={src} title={title} className="panoramaViewer nodrag nopan" canvasClassName="panoramaCanvas nodrag nopan">
+      {({ loaded, canvas, view, setFov }) => <>
+        <div className="panoramaControls">
+          <label className="panoramaZoomControl nodrag nopan" title="Zoom"><input className="nodrag nopan" type="range" min={35} max={90} step={1} value={view.fov} disabled={!loaded} onChange={(event) => setFov(Number(event.target.value))} /><span>{view.fov}°</span></label>
+          <button className="nodeImageActionButton nodrag nopan" type="button" title="Fix current frame to node output" disabled={!loaded} onClick={() => fixCurrentFrame(canvas, view)}><CheckSquare size={14} /></button>
+          <button className="nodeImageActionButton nodrag nopan" type="button" title="Capture current view as PNG" disabled={!loaded} onClick={() => captureCurrentView(canvas, view)}><Download size={14} /></button>
+        </div>
+        {fixedAt ? <div className="panoramaFixedStatus">Fixed {fixedAt}</div> : null}
+      </>}
+    </SharedPanorama360Viewer>
   );
 }
 
@@ -2806,19 +2902,11 @@ function portLabel(port: PortSpec, connectedCount: number): string {
 }
 
 function polzaVideoImageInputLimit(routeNode?: RouteDoc["nodes"][number]): number {
-  return polzaVideoImageInputLimitForModel({ id: String(routeNode?.params?.model ?? "") });
-}
-
-function polzaVideoImageInputLimitForModel(modelInfo: Pick<PolzaModel, "id" | "maxImageInputs">): number {
-  const explicit = Number(modelInfo.maxImageInputs);
-  if (Number.isFinite(explicit) && explicit > 0 && !isPolzaVideoUpscaleModelId(modelInfo.id)) return Math.max(1, Math.floor(explicit));
-  const model = String(modelInfo.id ?? "").toLowerCase();
-  if (!model) return 14;
-  if (isPolzaVideoUpscaleModelId(model)) return 1;
-  if (/veo[-_]?3/.test(model)) return 2;
-  if (/seedance/.test(model)) return 9;
-  if (/wan/.test(model)) return 2;
-  return 14;
+  return modelMaxImageInputsV1({
+    provider: "polza",
+    providerModelId: String(routeNode?.params?.model ?? ""),
+    outputTypes: ["video"]
+  }) ?? 14;
 }
 
 function isPolzaVideoUpscaleModelId(modelId: string | undefined): boolean {
@@ -2838,7 +2926,11 @@ function inputConnectionCounts(nodeId: string, edges: Edge[]): Record<string, nu
   return counts;
 }
 
-function activeFlowEdgeIds(nodes: Node[], edges: Edge[], nodeCatalog: NodeCatalogItem[]): Set<string> {
+type ActiveFlowEdgeOptions = {
+  modelOptionsForNodes: Record<string, ModelOptionForNodeV1[] | undefined>;
+};
+
+function activeFlowEdgeIds(nodes: Node[], edges: Edge[], nodeCatalog: NodeCatalogItem[], options: ActiveFlowEdgeOptions): Set<string> {
   const routeNodeById = new Map<string, RouteDoc["nodes"][number]>();
   for (const node of nodes) {
     if (isCompoundInterfaceNode(node)) continue;
@@ -2854,13 +2946,62 @@ function activeFlowEdgeIds(nodes: Node[], edges: Edge[], nodeCatalog: NodeCatalo
     }
     const targetManifest = nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest;
     const targetPort = getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === edge.targetHandle);
-    const maxConnections = targetPort?.maxConnections ?? 1;
+    const selectedModel = selectedModelOptionForRouteNode(targetRouteNode, options.modelOptionsForNodes);
+    if (targetPort && selectedModel && !modelAcceptsPortKind(selectedModel, targetPort.kind)) continue;
+    const maxConnections = targetPort ? modelInputConnectionLimit(selectedModel, targetPort) : 1;
     const key = `${edge.target}:${edge.targetHandle}`;
     const index = seenByPort.get(key) ?? 0;
     seenByPort.set(key, index + 1);
     if (index < maxConnections) active.add(edge.id);
   }
   return active;
+}
+
+function selectedModelOptionForRouteNode(
+  routeNode: RouteDoc["nodes"][number],
+  modelOptionsForNodes: Record<string, ModelOptionForNodeV1[] | undefined>
+): ModelOptionForNodeV1 | undefined {
+  const selectedModelId = String(routeNode.params?.model ?? "");
+  if (!selectedModelId) return undefined;
+  return (modelOptionsForNodes[routeNode.type] ?? []).find((model) =>
+    model.storedModelId === selectedModelId ||
+    model.providerModelId === selectedModelId ||
+    model.id === selectedModelId
+  );
+}
+
+function modelAcceptsPortKind(model: ModelOptionForNodeV1, kind: PortKind): boolean {
+  const inputTypes = model.inputTypes.map((type) => type.toLowerCase());
+  if (inputTypes.length === 0) return true;
+  if (inputTypes.includes(kind)) return true;
+  if (kind === "image" && modelImageInputLimit(model) !== undefined) return true;
+  return false;
+}
+
+function modelInputConnectionLimit(model: ModelOptionForNodeV1 | undefined, port: PortSpec): number {
+  if (model && port.kind === "image") return modelImageInputLimit(model) ?? port.maxConnections ?? 1;
+  return port.maxConnections ?? 1;
+}
+
+function modelImageInputLimit(model: ModelOptionForNodeV1): number | undefined {
+  return modelMaxImageInputsV1(model);
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : undefined;
+}
+
+function unusedSourceNodeIds(edges: Edge[], activeEdgeIds: Set<string>): Set<string> {
+  const outgoing = new Map<string, number>();
+  const activeOutgoing = new Map<string, number>();
+  for (const edge of edges) {
+    outgoing.set(edge.source, (outgoing.get(edge.source) ?? 0) + 1);
+    if (activeEdgeIds.has(edge.id)) {
+      activeOutgoing.set(edge.source, (activeOutgoing.get(edge.source) ?? 0) + 1);
+    }
+  }
+  return new Set([...outgoing.entries()].flatMap(([nodeId]) => activeOutgoing.has(nodeId) ? [] : [nodeId]));
 }
 
 function inputConnectionCountsForActiveEdges(nodeId: string, edges: Edge[], activeEdgeIds: Set<string>): Record<string, number> {
@@ -3241,6 +3382,24 @@ function catalogItemPorts(item: NodeCatalogItem | (typeof library)[number]): { i
   return getNodePorts(item.type, "manifest" in item ? item.manifest : undefined);
 }
 
+function rutronixTextCatalogPreset(item: NodeCatalogItem, options: ModelOptionForNodeV1[]): NodeCatalogItem | null {
+  if (item.type !== "ai.text") return null;
+  const model = options.find((entry) => entry.executionProvider === "rutronix");
+  if (!model) return null;
+  return {
+    ...item,
+    type: "ai.text",
+    title: "RuTronix",
+    params: {
+      ...(item.params ?? {}),
+      model: model.storedModelId,
+      provider: "rutronix",
+      executionProvider: "rutronix",
+      providerMode: "rutronix"
+    }
+  };
+}
+
 type NodeCatalogSection = { id: string; title: string; types: string[]; items: NodeCatalogItem[] };
 
 function groupNodeCatalog(items: NodeCatalogItem[], layout: NodeLibraryLayout): NodeCatalogSection[] {
@@ -3432,6 +3591,10 @@ function isPolzaNode(type: string): boolean {
   return type === "polza.text" || type === "polza.image.generate" || type === "polza.video.generate";
 }
 
+function isRutronixNode(type: string, params?: Record<string, unknown>): boolean {
+  return type === "ai.text" && String(params?.model ?? "").startsWith("rutronix:");
+}
+
 function executorKind(type: string, manifest?: NodeManifest): string {
   if (manifest?.origin && manifest.origin !== "bundled") return "custom";
   if (manifest?.executor.type === "plugin") return "custom";
@@ -3467,16 +3630,6 @@ function shouldShowInlineResult(type: string): boolean {
 function shouldShowNodeRunButton(type: string): boolean {
   return !type.startsWith("input.");
 }
-
-type CanvasButtonDraft = {
-  nodeId: string;
-  title: string;
-  packageId: string;
-  iconName: string;
-  customIconDataUrl?: string;
-  inputKind: string;
-  outputs: Array<{ id: string; kind: string; label?: string }>;
-};
 
 type CanvasButtonPanelDrag = {
   offsetX: number;
@@ -3786,7 +3939,11 @@ function flowToRoute(nodes: Node[], edges: Edge[], baseRoute: RouteDoc): RouteDo
   };
 }
 
-function routeWithOnlyActiveEdges(route: RouteDoc, nodeCatalog: NodeCatalogItem[]): RouteDoc {
+function routeWithOnlyActiveEdges(
+  route: RouteDoc,
+  nodeCatalog: NodeCatalogItem[],
+  options: ActiveFlowEdgeOptions = { modelOptionsForNodes: {} }
+): RouteDoc {
   const routeNodeById = new Map(route.nodes.map((node) => [node.id, node]));
   const seenByPort = new Map<string, number>();
   return {
@@ -3796,7 +3953,9 @@ function routeWithOnlyActiveEdges(route: RouteDoc, nodeCatalog: NodeCatalogItem[
       if (!targetRouteNode || !edge.toPort) return true;
       const targetManifest = nodeCatalog.find((item) => item.type === targetRouteNode.type)?.manifest;
       const targetPort = getNodePorts(targetRouteNode.type, targetManifest, targetRouteNode).inputs.find((port) => port.id === edge.toPort);
-      const maxConnections = targetPort?.maxConnections ?? 1;
+      const selectedModel = selectedModelOptionForRouteNode(targetRouteNode, options.modelOptionsForNodes);
+      if (targetPort && selectedModel && !modelAcceptsPortKind(selectedModel, targetPort.kind)) return false;
+      const maxConnections = targetPort ? modelInputConnectionLimit(selectedModel, targetPort) : 1;
       const key = `${edge.to}:${edge.toPort}`;
       const index = seenByPort.get(key) ?? 0;
       seenByPort.set(key, index + 1);
@@ -4003,6 +4162,11 @@ function App() {
   const [polzaToken, setPolzaToken] = useState("");
   const [polzaConfigured, setPolzaConfigured] = useState(false);
   const [polzaMaskedKey, setPolzaMaskedKey] = useState("");
+  const [polzaKeyFingerprint, setPolzaKeyFingerprint] = useState("");
+  const [rutronixToken, setRutronixToken] = useState("");
+  const [rutronixConfigured, setRutronixConfigured] = useState(false);
+  const [rutronixMaskedKey, setRutronixMaskedKey] = useState("");
+  const [rutronixKeyFingerprint, setRutronixKeyFingerprint] = useState("");
   const [openRouterToken, setOpenRouterToken] = useState("");
   const [openRouterSettings, setOpenRouterSettings] = useState<OpenRouterSettings>({ configured: false });
   const [openRouterModels, setOpenRouterModels] = useState<OpenRouterModel[]>([]);
@@ -4024,6 +4188,7 @@ function App() {
   const [creditHistoryOpen, setCreditHistoryOpen] = useState(false);
   const [runCostEstimate, setRunCostEstimate] = useState<RunCostSummary | null>(null);
   const [userSessionCredentials, setUserSessionCredentials] = useState<Record<string, string>>({});
+  const [appModeSaving, setAppModeSaving] = useState(false);
   const [apiConnected, setApiConnected] = useState(false);
   const [apiError, setApiError] = useState("");
   const [shuttingDown, setShuttingDown] = useState(false);
@@ -4075,6 +4240,12 @@ function App() {
   const [librarySectionMenu, setLibrarySectionMenu] = useState<LibrarySectionMenuState | null>(null);
   const [promptAssetMenu, setPromptAssetMenu] = useState<PromptAssetMenuState | null>(null);
   const [promptLibraryMenu, setPromptLibraryMenu] = useState<PromptLibraryMenuState | null>(null);
+  const contextMenuPosition = useClampedMenuPosition(contextMenu ? { x: contextMenu.clientX, y: contextMenu.clientY } : null);
+  const libraryItemMenuPosition = useClampedMenuPosition(libraryItemMenu ? { x: libraryItemMenu.clientX, y: libraryItemMenu.clientY } : null);
+  const librarySectionMenuPosition = useClampedMenuPosition(librarySectionMenu ? { x: librarySectionMenu.clientX, y: librarySectionMenu.clientY } : null);
+  const promptAssetMenuPosition = useClampedMenuPosition(promptAssetMenu ? { x: promptAssetMenu.clientX, y: promptAssetMenu.clientY } : null);
+  const promptLibraryMenuPosition = useClampedMenuPosition(promptLibraryMenu ? { x: promptLibraryMenu.clientX, y: promptLibraryMenu.clientY } : null);
+  const connectionNodeMenuPosition = useClampedMenuPosition(connectionNodeMenu ? { x: connectionNodeMenu.clientX, y: connectionNodeMenu.clientY } : null);
   const [promptAssetDraft, setPromptAssetDraft] = useState<PromptAssetDraft | null>(null);
   const [promptAssetError, setPromptAssetError] = useState("");
   const [promptAssetSaving, setPromptAssetSaving] = useState(false);
@@ -4088,6 +4259,8 @@ function App() {
   const supportsLocalFilesystem = capabilities.supportsLocalFilesystem;
   const isCloudMode = capabilities.mode === "cloud";
   const isAdmin = currentUser?.role === "admin";
+  const canShowAppModeSwitch = !isCloudMode || isAdmin;
+  const cloudAuthReady = !isCloudMode || capabilities.cloudAuthReady;
   const showDeveloperDiagnostics = capabilities.supportsDeveloperDiagnostics && (!isCloudMode || isAdmin);
   const productLabel = capabilities.product === "snark" ? "SnarkRoute" : "Boojum";
   const currentUserLabel = currentUser ? (currentUser.displayName || currentUser.email || currentUser.id) : "Guest";
@@ -4183,12 +4356,16 @@ function App() {
   const contextRouteNode = contextNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
   const selectedNodeCount = nodes.filter((node) => node.selected).length;
   const selectedEdgeCount = edges.filter((edge) => edge.selected).length;
-  const activeEdgeIds = useMemo(() => activeFlowEdgeIds(nodes, edges, nodeCatalog), [nodes, edges, nodeCatalog]);
+  const activeEdgeIds = useMemo(
+    () => activeFlowEdgeIds(nodes, edges, nodeCatalog, { modelOptionsForNodes }),
+    [nodes, edges, nodeCatalog, modelOptionsForNodes]
+  );
+  const unusedFlowSourceNodeIds = useMemo(() => unusedSourceNodeIds(edges, activeEdgeIds), [edges, activeEdgeIds]);
   const highlightedNodeIds = useMemo(() => new Set(nodes.filter((node) => node.selected || node.id === selectedId).map((node) => node.id)), [nodes, selectedId]);
   const displayEdges = useMemo(
     () => edges.map((edge) => {
       const selected = Boolean(edge.selected);
-      const inactive = !activeEdgeIds.has(edge.id);
+      const inactive = !activeEdgeIds.has(edge.id) || unusedFlowSourceNodeIds.has(edge.source);
       const highlighted = selected || highlightedNodeIds.has(edge.source) || highlightedNodeIds.has(edge.target);
       if (!highlighted && !inactive) return edge;
       return {
@@ -4204,7 +4381,7 @@ function App() {
         zIndex: selected ? 1001 : 1000
       };
     }),
-    [edges, highlightedNodeIds, activeEdgeIds]
+    [edges, highlightedNodeIds, activeEdgeIds, unusedFlowSourceNodeIds]
   );
   const canvasThemeConfig = availableCanvasThemes.find((theme) => theme.id === canvasBackgroundTheme) ?? availableCanvasThemes[0];
   const catalogSections = useMemo(() => groupNodeCatalog(nodeCatalog, nodeLibraryLayout), [nodeCatalog, nodeLibraryLayout]);
@@ -4293,6 +4470,7 @@ function App() {
             onConfigureSeedance: openSeedanceSettings,
             onConfigureWorldLabs: openWorldLabsSettings,
             onConfigurePolza: openPolzaSettings,
+            onConfigureRutronix: isRutronixNode(nodeType, routeNode?.params) ? openRutronixSettings : undefined,
             onConfigureOpenRouter: openOpenRouterSettings,
             onOpenImage: setImageViewer,
             onDownloadImage: downloadImageSrc,
@@ -4331,6 +4509,9 @@ function App() {
             modelOptionsForNodes,
             modelProfiles,
             polzaConfigured,
+            polzaKeyFingerprint,
+            rutronixConfigured,
+            rutronixKeyFingerprint,
             polzaTextModels,
             polzaImageModels,
             polzaVideoModels,
@@ -4346,7 +4527,7 @@ function App() {
           }
         }
       }),
-    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, catalogImageModels, modelOptionsForNodes, modelProfiles, polzaConfigured, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
+    [nodes, edges, activeEdgeIds, runResult, staleResultNodeIds, promptLibrary, promptLibraryStatusFilter, stableDiffusionModels, supportsLocalFilesystem, runCostEstimate, openRouterSettings.configured, openRouterModels, catalogImageModels, modelOptionsForNodes, modelProfiles, polzaConfigured, polzaKeyFingerprint, rutronixConfigured, rutronixKeyFingerprint, polzaTextModels, polzaImageModels, polzaVideoModels, modelQuotePreviews, currentUser, creditBalance, openAiConfigured, seedanceConfigured, seedanceSettings.statusText, replicateConfigured, geminiConfigured, nodeCatalog]
   );
 
   useEffect(() => {
@@ -4538,7 +4719,7 @@ function App() {
     }
   }
 
-  async function refreshRunCostEstimate(route: RouteDoc = routeWithOnlyActiveEdges(flowToRoute(nodesRef.current, edgesRef.current, routeBase), nodeCatalog)) {
+  async function refreshRunCostEstimate(route: RouteDoc = routeWithOnlyActiveEdges(flowToRoute(nodesRef.current, edgesRef.current, routeBase), nodeCatalog, { modelOptionsForNodes })) {
     try {
       const response = await apiFetch(`${apiBase}/api/billing/estimate`, {
         method: "POST",
@@ -4604,6 +4785,10 @@ function App() {
       setSeedanceBaseUrl(nextSeedance.baseUrlSource === "custom" ? String(nextSeedance.baseUrl ?? "") : "");
       setPolzaConfigured(Boolean(result.polza?.configured));
       setPolzaMaskedKey(String(result.polza?.maskedApiKey ?? ""));
+      setPolzaKeyFingerprint(String(result.polza?.apiKeyFingerprint ?? ""));
+      setRutronixConfigured(Boolean(result.rutronix?.configured));
+      setRutronixMaskedKey(String(result.rutronix?.maskedApiKey ?? ""));
+      setRutronixKeyFingerprint(String(result.rutronix?.apiKeyFingerprint ?? ""));
       setOpenRouterSettings(result.openrouter ?? { configured: false });
       setOpenRouterDefaultModel(String(result.openrouter?.defaultModel ?? "text.default"));
       setOpenRouterBudgetWarningUsd(result.openrouter?.budgetWarningUsd == null ? "" : String(result.openrouter.budgetWarningUsd));
@@ -4625,9 +4810,39 @@ function App() {
       setSeedanceBaseUrl("");
       setPolzaConfigured(false);
       setPolzaMaskedKey("");
+      setRutronixConfigured(false);
+      setRutronixMaskedKey("");
+      setRutronixKeyFingerprint("");
       setOpenRouterSettings({ configured: false });
       setApiError(message);
       setSettingsMessage(message);
+    }
+  }
+
+  async function saveAppMode(nextMode: "local" | "cloud") {
+    if (appModeSaving || nextMode === capabilities.mode) return;
+    const confirmed = window.confirm(`Switch Boojum to ${nextMode === "cloud" ? "Cloud" : "Local"} mode? Some controls update immediately; restart the app if your launcher or environment still shows the previous mode.`);
+    if (!confirmed) return;
+    setAppModeSaving(true);
+    try {
+      const response = await apiFetch(`${apiBase}/api/settings/app-mode`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: nextMode })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Failed to save app mode.");
+      setCapabilities({ ...DEFAULT_APP_CAPABILITIES, ...(result.capabilities ?? {}) });
+      await loadCurrentUser();
+      await loadSettings();
+      void loadCreditBalance();
+      setSettingsMessage(`App mode switched to ${nextMode}. Restart the app if any launcher-provided environment still points at the previous mode.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    } finally {
+      setAppModeSaving(false);
     }
   }
 
@@ -5187,15 +5402,31 @@ function App() {
       if (!response.ok) throw new Error(result.error ?? "Failed to save Polza.ai key.");
       setPolzaConfigured(Boolean(result.polza?.configured));
       setPolzaMaskedKey(String(result.polza?.maskedApiKey ?? ""));
+      setPolzaKeyFingerprint(String(result.polza?.apiKeyFingerprint ?? ""));
       setPolzaToken("");
-      setSettingsMessage("Polza.ai key saved locally.");
-      setLogs((current) => ["Polza.ai key saved locally.", ...current]);
+      setSettingsMessage(`Polza.ai key saved locally${result.polza?.apiKeyFingerprint ? ` (fingerprint ${result.polza.apiKeyFingerprint})` : ""}.`);
+      setLogs((current) => [`Polza.ai key saved locally${result.polza?.apiKeyFingerprint ? ` (fingerprint ${result.polza.apiKeyFingerprint})` : ""}.`, ...current]);
       await loadPolzaModels();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSettingsMessage(message);
       setLogs((current) => [`Settings error: ${message}`, ...current]);
     }
+  }
+
+  async function saveRutronixToken() {
+    const token = rutronixToken.trim();
+    if (!token) { setSettingsMessage("RuTronix key cannot be empty."); return; }
+    try {
+      const response = await fetch(`${apiBase}/api/settings/rutronix-token`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rutronixApiKey: token }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to save RuTronix key.");
+      setRutronixConfigured(Boolean(result.rutronix?.configured));
+      setRutronixMaskedKey(String(result.rutronix?.maskedApiKey ?? ""));
+      setRutronixKeyFingerprint(String(result.rutronix?.apiKeyFingerprint ?? ""));
+      setRutronixToken("");
+      setSettingsMessage("RuTronix key saved locally.");
+    } catch (error) { setSettingsMessage(error instanceof Error ? error.message : String(error)); }
   }
 
   async function saveOpenRouterSettings() {
@@ -5326,6 +5557,16 @@ function App() {
     setTimeout(() => document.getElementById("polza-api-key-input")?.focus(), 0);
   }
 
+  function openRutronixSettings() {
+    setRightCollapsed(false);
+    setSettingsMessage("Paste your RuTronix API key in Settings -> AI Providers -> RuTronix.");
+    setTimeout(() => {
+      const input = document.getElementById("rutronix-api-key-input");
+      input?.scrollIntoView({ block: "center" });
+      input?.focus();
+    }, 0);
+  }
+
   function openOpenRouterSettings() {
     setRightCollapsed(false);
     setSettingsMessage("Paste your OpenRouter API key in Settings → AI Providers → OpenRouter.");
@@ -5333,20 +5574,15 @@ function App() {
   }
 
   async function browseAsset(nodeId: string, kind: AssetKind) {
-    if (!supportsLocalFilesystem) {
-      setLogs((entries) => [`Local ${kind} browsing is disabled in ${capabilities.mode} mode.`, ...entries]);
-      return;
-    }
     setPendingBrowse({ nodeId, kind });
     setTimeout(() => document.getElementById("asset-file-picker")?.click(), 0);
   }
 
   async function applyLocalFile(nodeId: string, file: File, kind: AssetKind) {
-    if (!supportsLocalFilesystem) throw new Error(`Local ${kind} import is disabled in ${capabilities.mode} mode.`);
     const path = await importLocalAsset(file, kind);
     const current = nodes.find((node) => node.id === nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined;
     updateNodeParams(nodeId, { ...(current?.params ?? {}), path });
-    setLogs((entries) => [`Selected ${kind}: ${path}`, ...entries]);
+    setLogs((entries) => [`Uploaded ${kind}: ${path}`, ...entries]);
   }
 
   async function handleFallbackFile(file: File | null) {
@@ -5415,15 +5651,19 @@ function App() {
     const files = Array.from(event.dataTransfer.files ?? []);
     const file = files[0];
     if (!file) return;
-    if (!supportsLocalFilesystem) {
-      setLogs((entries) => [`Local file drops are disabled in ${capabilities.mode} mode.`, ...entries]);
-      return;
-    }
     if (files.length === 1 && canImportNodePackageFile(file)) {
+      if (!supportsLocalFilesystem) {
+        setLogs((entries) => [`Local block package drops are disabled in ${capabilities.mode} mode.`, ...entries]);
+        return;
+      }
       await importNodePackageFile(file, flowPositionFromEvent(event));
       return;
     }
     if (files.length === 1 && canImportDroppedRouteFile(file)) {
+      if (!supportsLocalFilesystem) {
+        setLogs((entries) => [`Local route file drops are disabled in ${capabilities.mode} mode.`, ...entries]);
+        return;
+      }
       try {
         await importRouteOntoCanvas(file, flowPositionFromEvent(event));
       } catch (error) {
@@ -6162,25 +6402,37 @@ function App() {
 
   function renderLibraryItem(item: NodeCatalogItem, section: NodeCatalogSection) {
     const isHidden = hiddenNodeTypes.has(item.type);
+    const rutronixPreset = rutronixTextCatalogPreset(item, modelOptionsForNodes["ai.text"] ?? []);
     return (
-      <div
-        key={item.type}
-        className={`libraryItem ${isHidden ? "hiddenLibraryItem" : ""}`}
-        draggable
-        onContextMenu={(event) => openLibraryItemMenu(event, item, section)}
-        onDragStart={(event) => {
-          event.dataTransfer.setData(NODE_DRAG_MIME, item.type);
-          event.dataTransfer.effectAllowed = "copyMove";
-        }}
-      >
-        <button className="libraryItemMain" onClick={() => addNode(item.type)}>
-          <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
-          <strong>{catalogItemTitle(item)}</strong>
-          <span>{item.type}</span>
-          {item.manifest ? <small>{item.manifest.author.name} · {item.manifest.version} · {item.manifest.origin}</small> : null}
-          {isHidden ? <em>Hidden</em> : null}
-        </button>
-      </div>
+      <React.Fragment key={item.type}>
+        <div
+          className={`libraryItem ${isHidden ? "hiddenLibraryItem" : ""}`}
+          draggable
+          onContextMenu={(event) => openLibraryItemMenu(event, item, section)}
+          onDragStart={(event) => {
+            event.dataTransfer.setData(NODE_DRAG_MIME, item.type);
+            event.dataTransfer.effectAllowed = "copyMove";
+          }}
+        >
+          <button className="libraryItemMain" onClick={() => addNode(item.type)}>
+            <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
+            <strong>{catalogItemTitle(item)}</strong>
+            <span>{item.type}</span>
+            {item.manifest ? <small>{item.manifest.author.name} · {item.manifest.version} · {item.manifest.origin}</small> : null}
+            {isHidden ? <em>Hidden</em> : null}
+          </button>
+        </div>
+        {rutronixPreset ? (
+          <div className="libraryItem">
+            <button className="libraryItemMain" onClick={() => addNodeFromCatalogItem(rutronixPreset)}>
+              <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
+              <strong>RuTronix</strong>
+              <span>ai.text · RuTronix catalog preset</span>
+              <small>{rutronixPreset.params?.model as string}</small>
+            </button>
+          </div>
+        ) : null}
+      </React.Fragment>
       );
     }
 
@@ -6245,6 +6497,22 @@ function App() {
     clearNodeRunResults([...selectedNodeIds]);
     setLogs((current) => [`Deleted ${selectedNodeIds.size} block(s), ${selectedEdgeIds.size} edge(s).`, ...current]);
   }
+
+  function handleCanvasDeleteKey(event: KeyboardEvent | React.KeyboardEvent) {
+    if (event.defaultPrevented || (event.key !== "Delete" && event.key !== "Backspace") || isTextEditingTarget(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    deleteSelection();
+  }
+
+  useEffect(() => {
+    function handleWindowDeleteKey(event: KeyboardEvent) {
+      handleCanvasDeleteKey(event);
+    }
+
+    window.addEventListener("keydown", handleWindowDeleteKey);
+    return () => window.removeEventListener("keydown", handleWindowDeleteKey);
+  }, [nodes, edges, selectedId]);
 
   function collapseSelectedNodes() {
     const selectedNodeIds = new Set(nodes.filter((node) => node.selected).map((node) => node.id));
@@ -7069,7 +7337,7 @@ function App() {
       setLogs((current) => [runDisabledReason, ...current]);
       return;
     }
-    const route = routeWithOnlyActiveEdges(flowToRoute(nodes, edges, routeBase), nodeCatalog);
+    const route = routeWithOnlyActiveEdges(flowToRoute(nodes, edges, routeBase), nodeCatalog, { modelOptionsForNodes });
     await refreshRunCostEstimate(route);
     await loadCreditBalance();
     markNodeResultsFresh(nodes.map((node) => node.id));
@@ -7084,7 +7352,7 @@ function App() {
   async function runNodeWithDependencies(nodeId: string) {
     const target = nodes.find((node) => node.id === nodeId);
     if (!target) return;
-    const route = routeWithOnlyActiveEdges(flowToNodeRoute(nodes, edges, routeBase, nodeId), nodeCatalog);
+    const route = routeWithOnlyActiveEdges(flowToNodeRoute(nodes, edges, routeBase, nodeId), nodeCatalog, { modelOptionsForNodes });
     markNodeResultsFresh(route.nodes.map((node) => node.id));
     setRunResult({
       status: "running",
@@ -7284,43 +7552,6 @@ function App() {
     return String(compoundNode.compound?.inputs?.[0]?.kind ?? "json");
   }
 
-  function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string, options: { canvasAction?: { enabled: boolean; icon?: NonNullable<NodeManifest["canvasAction"]>["icon"] } } = {}): NodeManifest {
-    const compound = compoundNode.compound ?? {};
-    const inputs = (compound.inputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
-    const outputs = (compound.outputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
-    return {
-      kind: "snarkroute.node",
-      schemaVersion: "0.1",
-      id,
-      title,
-      version: "0.1.0",
-      author: { name: "SnarkRoute Studio" },
-      license: "UNLICENSED",
-      origin: "generated",
-      source: "snarkroute-studio",
-      category: "Compound",
-      description: `Generated from compound route "${compound.title ?? compoundNode.title ?? compoundNode.id}".`,
-      permissions: { network: false, networkHosts: [], readFiles: false, writeOutputs: false, shell: false, env: [] },
-      executor: { type: "declarative" },
-      inputs,
-      outputs,
-      ...(options.canvasAction?.enabled ? {
-        canvasAction: {
-          enabled: true,
-          title,
-          description: `Run "${title}" from the Living Canvas node toolbar.`,
-          icon: options.canvasAction.icon ?? { kind: "preset", name: "wrench" }
-        }
-      } : {}),
-      generatedWith: {
-        tool: "snarkroute-studio",
-        kind: "compound.subroute",
-        compound: { ...compound, title },
-        subroute: compoundNode.subroute
-      }
-    };
-  }
-
   async function saveCompoundNodeAsPackage(nodeId: string) {
     setContextMenu(null);
     const flowNode = nodes.find((node) => node.id === nodeId);
@@ -7358,13 +7589,18 @@ function App() {
     if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode)) return;
     const inputKind = canvasActionInputKind(compoundNode);
     const title = compoundNode.compound?.title ?? compoundNode.title ?? "Canvas Action";
+    const params = canvasButtonParamCandidates(compoundNode, nodeCatalog.flatMap((item) => item.manifest ? [item.manifest] : []), library);
+    const previewCandidates = canvasButtonPreviewCandidates(compoundNode, inputKind);
     setCanvasButtonDraft({
       nodeId,
       title,
       packageId: makeNodePackageId(title),
       iconName: defaultCanvasActionIconName(inputKind),
       inputKind,
-      outputs: (compoundNode.compound?.outputs ?? []).map((output) => ({ id: output.id, kind: String(output.kind ?? "json"), label: output.label }))
+      outputs: (compoundNode.compound?.outputs ?? []).map((output) => ({ id: output.id, kind: String(output.kind ?? "json"), label: output.label })),
+      params,
+      previewCandidates,
+      selectedPreviewId: defaultCanvasButtonPreviewId(previewCandidates)
     });
   }
 
@@ -7374,10 +7610,7 @@ function App() {
     const title = draft.title.trim();
     const id = draft.packageId.trim();
     if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode) || !title || !id) return null;
-    const icon = draft.customIconDataUrl
-      ? { kind: "custom" as const, dataUrl: draft.customIconDataUrl }
-      : { kind: "preset" as const, name: draft.iconName };
-    return nodeManifestFromCompoundNode(compoundNode, id, title, { canvasAction: { enabled: true, icon } });
+    return buildCanvasButtonManifestFromDraft(draft, compoundNode);
   }
 
   function selectCanvasButtonPresetIcon(iconName: string) {
@@ -7883,11 +8116,7 @@ function App() {
             setPromptAssetMenu(null);
             setPromptLibraryMenu(null);
           }}
-          onKeyDown={(event) => {
-            if ((event.key === "Delete" || event.key === "Backspace") && !isTextEditingTarget(event.target)) {
-              deleteSelection();
-            }
-          }}
+          onKeyDown={handleCanvasDeleteKey}
           multiSelectionKeyCode={["Shift", "Meta", "Control"]}
           selectionOnDrag
           panOnDrag={[1, 2]}
@@ -7933,7 +8162,7 @@ function App() {
           />
         ) : null}
         {contextMenu ? (
-          <div className="contextMenu" style={{ left: contextMenu.clientX, top: contextMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+          <div ref={contextMenuPosition.ref} className="contextMenu" style={contextMenuPosition.style} onClick={(event) => event.stopPropagation()}>
             {contextMenu.nodeId ? (
               <>
                 {contextRouteNode && shouldShowNodeRunButton(contextRouteNode.type) ? (
@@ -8033,6 +8262,51 @@ function App() {
                   </div>
                 </div>
               </div>
+              <section className="canvasButtonParamSection" aria-label="Dialog parameters">
+                <span>Dialog parameters</span>
+                {canvasButtonDraft.params.length ? (
+                  <div className="canvasButtonParamGroups">
+                    {((nodes.find((node) => node.id === canvasButtonDraft.nodeId)?.data.routeNode as RouteDoc["nodes"][number] | undefined)?.subroute?.nodes ?? []).map((internalNode) => {
+                      const params = canvasButtonDraft.params.filter((param) => param.binding?.nodeId === internalNode.id);
+                      if (!params.length) return null;
+                      const selectedCount = params.filter((param) => param.selected).length;
+                      return (
+                        <details className="canvasButtonParamGroup" key={internalNode.id} open={selectedCount > 0 ? true : undefined}>
+                          <summary>
+                            <strong>{internalNode.title ?? internalNode.id}</strong>
+                            <small>selected {selectedCount} of {params.length}</small>
+                          </summary>
+                          <div className="canvasButtonParamList">
+                            {params.map((param) => (
+                              <label className="canvasButtonParamRow" key={param.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={param.selected}
+                                  onChange={(event) => setCanvasButtonDraft((draft) => draft ? {
+                                    ...draft,
+                                    params: draft.params.map((candidate) => candidate.id === param.id ? { ...candidate, selected: event.target.checked } : candidate)
+                                  } : draft)}
+                                />
+                                <span>{param.displayLabel}</span>
+                                <small>{typeof param.default === "object" && param.default !== null ? JSON.stringify(param.default) : String(param.default ?? "")}</small>
+                              </label>
+                            ))}
+                          </div>
+                        </details>
+                      );
+                    })}
+                  </div>
+                ) : <small>No internal node parameters are available.</small>}
+              </section>
+              <section className="canvasButtonPreviewSection" aria-label="Dialog preview">
+                <label>
+                  <span>Preview</span>
+                  <select value={canvasButtonDraft.selectedPreviewId} onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, selectedPreviewId: event.target.value } : draft)}>
+                    <option value="">None</option>
+                    {canvasButtonDraft.previewCandidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label} — {candidate.kind}</option>)}
+                  </select>
+                </label>
+              </section>
               <section className="canvasButtonIconSection" aria-label="Button icon">
                 <span>Icon</span>
                 <div className="canvasButtonIconPicker">
@@ -8097,7 +8371,7 @@ function App() {
           </div>
         ) : null}
         {libraryItemMenu ? (
-          <div className="contextMenu" style={{ left: libraryItemMenu.clientX, top: libraryItemMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+          <div ref={libraryItemMenuPosition.ref} className="contextMenu" style={libraryItemMenuPosition.style} onClick={(event) => event.stopPropagation()}>
             {(() => {
               const item = nodeCatalog.find((candidate) => candidate.type === libraryItemMenu.type);
               const isHidden = hiddenNodeTypes.has(libraryItemMenu.type);
@@ -8131,7 +8405,7 @@ function App() {
           </div>
         ) : null}
         {librarySectionMenu ? (
-          <div className="contextMenu" style={{ left: librarySectionMenu.clientX, top: librarySectionMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+          <div ref={librarySectionMenuPosition.ref} className="contextMenu" style={librarySectionMenuPosition.style} onClick={(event) => event.stopPropagation()}>
             {(() => {
               const hiddenInSection = librarySectionMenu.sectionTypes.filter((type) => hiddenNodeTypes.has(type));
               const allHidden = librarySectionMenu.sectionTypes.length > 0 && hiddenInSection.length === librarySectionMenu.sectionTypes.length;
@@ -8157,9 +8431,9 @@ function App() {
         ) : null}
         {promptAssetMenu && supportsLocalFilesystem ? (
           <div
-            ref={promptAssetMenuRef}
+            ref={(element) => { promptAssetMenuRef.current = element; promptAssetMenuPosition.ref.current = element; }}
             className="contextMenu"
-            style={{ left: promptAssetMenu.clientX, top: promptAssetMenu.clientY }}
+            style={promptAssetMenuPosition.style}
             tabIndex={-1}
             onClick={(event) => event.stopPropagation()}
           >
@@ -8181,7 +8455,7 @@ function App() {
           </div>
         ) : null}
         {promptLibraryMenu ? (
-          <div className="contextMenu promptLibraryContextMenu" style={{ left: promptLibraryMenu.clientX, top: promptLibraryMenu.clientY }} onClick={(event) => event.stopPropagation()}>
+          <div ref={promptLibraryMenuPosition.ref} className="contextMenu promptLibraryContextMenu" style={promptLibraryMenuPosition.style} onClick={(event) => event.stopPropagation()}>
             <strong>Prompt actions</strong>
             <span className="contextMenuHint">{promptLibraryMenu.prompt.category}/{promptLibraryMenu.prompt.id}</span>
             <button onClick={() => { movePromptLibraryPrompt(promptLibraryMenu.prompt); setPromptLibraryMenu(null); }}>Move to Category...</button>
@@ -8195,8 +8469,9 @@ function App() {
         ) : null}
         {connectionNodeMenu ? (
           <div
+            ref={connectionNodeMenuPosition.ref}
             className="connectionNodeMenu nowheel"
-            style={{ left: connectionNodeMenu.clientX, top: connectionNodeMenu.clientY }}
+            style={connectionNodeMenuPosition.style}
             onClick={(event) => event.stopPropagation()}
           >
             <div className="connectionNodeMenuHeader">
@@ -8266,6 +8541,31 @@ function App() {
             <em>User: {currentUserLabel}</em>
             {apiError ? <p>{apiError}</p> : null}
           </div> : null}
+          {canShowAppModeSwitch ? (
+            <div className="providerCard">
+              <div className="providerHeader">
+                <h4>App Mode</h4>
+                <span>{capabilities.mode === "cloud" ? "Cloud" : "Local"}</span>
+              </div>
+              <label className="settingsField">
+                <span>Mode</span>
+                <select
+                  value={capabilities.mode === "cloud" ? "cloud" : "local"}
+                  disabled={appModeSaving || !apiConnected}
+                  onChange={(event) => void saveAppMode(event.target.value === "cloud" ? "cloud" : "local")}
+                >
+                  <option value="local">Local</option>
+                  <option value="cloud">Cloud</option>
+                </select>
+                <small className="settingsHint">Controls APP_MODE. Cloud enables account, credits, and cloud storage gates; Local enables local files and local settings.</small>
+              </label>
+              <div className="providerStatus">
+                <span>Current mode: {capabilities.mode}</span>
+                <span>Credits: {capabilities.supportsCredits ? "enabled" : "disabled"}</span>
+                <span>Local filesystem: {capabilities.supportsLocalFilesystem ? "available" : "hidden"}</span>
+              </div>
+            </div>
+          ) : null}
           {isCloudMode ? (
             <div className="providerCard cloudPlaceholderCard">
               <div className="providerHeader">
@@ -8274,11 +8574,12 @@ function App() {
               </div>
               <div className="settingsActions">
                 {currentUser ? <button onClick={() => void login()}><KeyRound size={16} /> Refresh User</button> : null}
-                {!currentUser ? <button onClick={() => startProviderLogin("google")}><KeyRound size={16} /> Войти через Google</button> : null}
-                {!currentUser ? <button onClick={() => startProviderLogin("yandex")}><KeyRound size={16} /> Войти через Яндекс</button> : null}
+                {!currentUser ? <button onClick={() => startProviderLogin("google")} disabled={!cloudAuthReady} title={cloudAuthReady ? "Sign in with Google" : "Set DATABASE_URL before using cloud login"}><KeyRound size={16} /> Войти через Google</button> : null}
+                {!currentUser ? <button onClick={() => startProviderLogin("yandex")} disabled={!cloudAuthReady} title={cloudAuthReady ? "Sign in with Yandex" : "Set DATABASE_URL before using cloud login"}><KeyRound size={16} /> Войти через Яндекс</button> : null}
                 {currentUser ? <button onClick={() => void logout()}><Lock size={16} /> Logout</button> : null}
                 {capabilities.supportsCredits ? <button onClick={() => { setCreditHistoryOpen((value) => !value); void loadCreditTransactions(25); }}><Clock3 size={16} /> Credit history</button> : null}
               </div>
+              {isCloudMode && !capabilities.cloudStorageConfigured ? <p className="nodeWarning">Cloud mode is enabled without DATABASE_URL. Login will use a local development session; set DATABASE_URL and restart for production cloud storage.</p> : null}
               <div className="providerStatus">
                 <span>{currentUser ? `User: ${currentUserLabel}` : "Sign in to save routes and keep generated results."}</span>
                 <span>Balance: {creditBalance ? `${formatCredits(creditBalance.balance)} credits` : "unknown"}</span>
@@ -8342,6 +8643,18 @@ function App() {
           {capabilities.supportsUserApiKeys ? (
           <>
           <h3>AI Providers</h3>
+          <div className="providerCard" id="rutronix-settings-section">
+            <div className="providerHeader"><h4>RuTronix</h4><span>Text models with token billing in RUB</span></div>
+            <div className={`settingsStatus ${rutronixConfigured ? "configured" : ""}`}><KeyRound size={14} /> RuTronix: {rutronixConfigured ? `key configured (${rutronixMaskedKey || "********"}${rutronixKeyFingerprint ? ` · ${rutronixKeyFingerprint}` : ""})` : "not configured"}</div>
+            <div className="settingsLinks">
+              <a className="settingsLink" href={providerLinks.rutronix?.apiKeysUrl ?? "https://rutronix.ai/signup"} target="_blank" rel="noreferrer">Get API Key</a>
+              <a className="settingsLink" href={providerLinks.rutronix?.docsUrl ?? "https://rutronix.ai/docs"} target="_blank" rel="noreferrer">Docs</a>
+              <a className="settingsLink" href={providerLinks.rutronix?.modelsUrl ?? "https://rutronix.ai/docs#deepseek"} target="_blank" rel="noreferrer">Browse Models</a>
+              <a className="settingsLink" href={providerLinks.rutronix?.pricingUrl ?? "https://rutronix.ai/pricing"} target="_blank" rel="noreferrer">Pricing</a>
+            </div>
+            <label className="settingsField"><span>RUTRONIX_API_KEY</span><input id="rutronix-api-key-input" type="password" value={rutronixToken} placeholder={rutronixConfigured ? "***************" : "Paste key"} onChange={(event) => setRutronixToken(event.target.value)} autoComplete="off" /></label>
+            <div className="settingsActions"><button onClick={() => void saveRutronixToken()}><Save size={16} /> Save Key</button></div>
+          </div>
           <div className="providerCard">
             <div className="providerHeader">
               <h4>Polza.ai</h4>
@@ -8349,7 +8662,7 @@ function App() {
             </div>
             <div className={`settingsStatus ${polzaConfigured ? "configured" : ""}`}>
               <KeyRound size={14} />
-              Polza.ai: {polzaConfigured ? `key configured (${polzaMaskedKey || "********"})` : "not configured"}
+              Polza.ai: {polzaConfigured ? `key configured (${polzaMaskedKey || "********"}${polzaKeyFingerprint ? ` · ${polzaKeyFingerprint}` : ""})` : "not configured"}
             </div>
             <p className="providerSupportNote">
               Want to make Snark happy?<br />
@@ -8729,10 +9042,29 @@ function App() {
 
       {imageViewer ? (
         <div className="imageViewerOverlay" role="dialog" aria-modal="true" aria-label="Image preview" onClick={() => setImageViewer(null)}>
-          <div className="imageViewerWindow" onClick={(event) => event.stopPropagation()}>
+          <div className={`imageViewerWindow ${imageViewer.mode === "correction" ? "correction" : ""}`.trim()} onClick={(event) => event.stopPropagation()}>
             <div className="imageViewerHeader">
               <span title={imageViewer.title}>{truncateText(imageViewer.title, 96)}</span>
               <div className="imageViewerActions">
+                {imageViewer.mode === "correction" ? (
+                  <button
+                    className="imageViewerButton"
+                    type="button"
+                    title="Image preview"
+                    onClick={() => setImageViewer({ ...imageViewer, mode: "preview" })}
+                  >
+                    <Eye size={15} />
+                  </button>
+                ) : (
+                  <button
+                    className="imageViewerButton"
+                    type="button"
+                    title="Basic image correction"
+                    onClick={() => setImageViewer({ ...imageViewer, mode: "correction" })}
+                  >
+                    <SlidersHorizontal size={15} />
+                  </button>
+                )}
                 <button
                   className="imageViewerButton"
                   type="button"
@@ -8746,7 +9078,7 @@ function App() {
                 </button>
               </div>
             </div>
-            <img className="imageViewerImage" src={imageViewer.src} alt={imageViewer.title} />
+            {imageViewer.mode === "correction" ? <ImageCorrectionPanel image={imageViewer} /> : <img className="imageViewerImage" src={imageViewer.src} alt={imageViewer.title} />}
           </div>
         </div>
       ) : null}
@@ -9005,12 +9337,64 @@ function costLabel(value: unknown): string | null {
   const record = cost && typeof cost === "object" ? (cost as Record<string, unknown>) : null;
   const metrics = output.metrics && typeof output.metrics === "object" ? (output.metrics as Record<string, unknown>) : null;
   const seconds = Number(record?.seconds ?? metrics?.predict_time ?? metrics?.total_time);
-  const estimatedUsdFromCost = Number(record?.estimatedUsd ?? record?.amountUsd);
+  const estimatedUsdFromCost = numberValue(record?.estimatedUsd ?? record?.amountUsd);
+  const providerAmount = numberValue(record?.amount ?? record?.cost ?? output.actualCost);
+  const providerCurrency = stringValue(record?.currency ?? output.actualCostCurrency);
+  if (Number.isFinite(providerAmount) && providerCurrency && providerCurrency.toUpperCase() !== "USD") return null;
   const estimatedUsd = Number.isFinite(estimatedUsdFromCost) ? estimatedUsdFromCost : Number.isFinite(seconds) ? seconds * 0.0014 : NaN;
   if (!Number.isFinite(estimatedUsd)) return null;
   const parts = [`Estimated provider cost: $${estimatedUsd.toFixed(4)}`];
   if (Number.isFinite(seconds)) parts.push(`${seconds.toFixed(2)}s`);
   return parts.join(" В· ");
+}
+
+function nodeResultProviderCostLabel(result: NodeRunResult): string | null {
+  if (result.status === "failed") return null;
+  const outputRecord = result.output && typeof result.output === "object" ? result.output as Record<string, unknown> : {};
+  const actualAmount = numberValue(outputRecord.actualCost ?? result.actualProviderCostAmount);
+  const actualCurrency = stringValue(outputRecord.actualCostCurrency ?? result.actualProviderCostCurrency);
+  if (Number.isFinite(actualAmount) && actualCurrency) {
+    return actualCurrency.toUpperCase() === "USD" ? `Provider reported cost: $${actualAmount.toFixed(4)}` : null;
+  }
+  const amount = numberValue(result.costEstimate?.estimatedProviderCostAmount ?? providerCostAmountFromMicrousd(result.costEstimate?.pricingBreakdown?.providerCostMicrousd ?? result.costEstimate?.baseCostMicrousd));
+  if (!Number.isFinite(amount)) return null;
+  return `Estimated provider cost: $${amount.toFixed(4)}`;
+}
+
+function externalProviderBalanceHint(error: string | undefined): string | null {
+  if (!error) return null;
+  if (/Polza\.ai account has insufficient funds|External Polza\.ai API rejected|Polza\.ai rejected the request with billing\/access status 402/i.test(error)) {
+    const fingerprint = /API key fingerprint:\s*([a-f0-9]{8,16})/i.exec(error)?.[1];
+    const providerResponse = providerResponseFromError(error);
+    const details = [
+      fingerprint ? `key ${fingerprint}` : "key fingerprint missing; restart server for key diagnostics",
+      providerResponse ? `Polza: ${providerResponse}` : ""
+    ].filter(Boolean).join(" · ");
+    return `External Polza.ai rejected the request; Boojum credits were not charged.${details ? ` ${details}` : ""}`;
+  }
+  if (/prepayment credits are depleted|AI Studio|429/i.test(error) && /Gemini|prepayment credits|AI Studio/i.test(error)) return "Provider balance issue: add credits in Google AI Studio";
+  if (/insufficient credits|insufficient funds|billing|quota/i.test(error) && /OpenRouter/i.test(error)) return "Provider balance issue: add credits in OpenRouter";
+  return null;
+}
+
+function providerResponseFromError(error: string): string {
+  const match = /Provider response:\s*(.*?)(?:\s+This is not the Boojum credit balance|\. No credits were charged\.?$|$)/i.exec(error);
+  return match?.[1] ? truncateText(match[1].trim(), 120) : "";
+}
+
+function providerCostAmountFromMicrousd(value: unknown): number {
+  const microusd = numberValue(value);
+  return Number.isFinite(microusd) ? microusd / 1_000_000 : NaN;
+}
+
+function numberValue(value: unknown): number {
+  if (value === null || value === undefined || value === "") return NaN;
+  const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return Number.isFinite(number) ? number : NaN;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function runCostLabel(value: unknown): string | null {
@@ -9037,7 +9421,7 @@ async function importLocalAsset(file: File, kind: AssetKind): Promise<string> {
     body: JSON.stringify({ filename: file.name, dataBase64, kind })
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error ?? "Local import failed.");
+  if (!response.ok) throw new Error(response.status === 413 ? localJsonUploadTooLargeMessage(file, kind) : result.error ?? "Local import failed.");
   if (!result.path) throw new Error("Local import did not return a path.");
   return result.path;
 }
@@ -9069,15 +9453,45 @@ function extensionForMimeType(mimeType: string): string {
 }
 
 function fileToBase64(file: File): Promise<string> {
+  assertLocalJsonUploadSize(file);
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const text = String(reader.result ?? "");
       resolve(text.includes(",") ? text.split(",")[1] : text);
     };
-    reader.onerror = () => reject(reader.error ?? new Error("Could not read file."));
+    reader.onerror = () => reject(file.size > localJsonUploadLimitBytes ? new Error(localJsonUploadTooLargeMessage(file)) : reader.error ?? new Error("Could not read file."));
     reader.readAsDataURL(file);
   });
+}
+
+function assertLocalJsonUploadSize(file: File) {
+  if (file.size > localJsonUploadLimitBytes) throw new Error(localJsonUploadTooLargeMessage(file));
+}
+
+function assertLocalJsonUploadBase64Length(dataBase64: string) {
+  const estimatedBytes = Math.floor(dataBase64.length * 3 / 4);
+  if (estimatedBytes > localJsonUploadLimitBytes) throw new Error(localJsonUploadTooLargeMessage(undefined, "image"));
+}
+
+function localJsonUploadTooLargeMessage(file?: File, kind: AssetKind = "image"): string {
+  const label = kind === "video" ? "Video file" : kind === "file" ? "File" : "Image file";
+  const noun = kind === "video" ? "video file" : kind === "file" ? "file" : "image file";
+  const fileSize = file ? ` (${formatBytes(file.size)})` : "";
+  return `${label}${fileSize} is too large to insert through local JSON upload. Use a ${noun} under ${formatBytes(localJsonUploadLimitBytes)} or import it from a local library folder.`;
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }
 
 async function imageUrlToPngBase64(src: string): Promise<string> {

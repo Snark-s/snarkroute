@@ -1,6 +1,40 @@
 import { describe, expect, it } from "vitest";
 
 describe("Image Generation route validation", () => {
+  it("runs in cloud mode without DATABASE_URL using local bookkeeping", async () => {
+    process.env.SNARKROUTE_NO_LISTEN = "1";
+    const previousAppMode = process.env.APP_MODE;
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    process.env.APP_MODE = "cloud";
+    delete process.env.DATABASE_URL;
+    const { buildServer } = await import("../src/index");
+    const app = buildServer();
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/routes/run",
+        payload: {
+          routeVersion: "0.1",
+          route: { id: "cloud-no-db-local-run", title: "Cloud No DB Local Run", author: {}, tags: ["demo-safe"] },
+          nodes: [{ id: "text", type: "input.text", params: { value: "hello" } }],
+          edges: []
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.body).not.toContain("DATABASE_URL is required");
+      expect(response.json().status).toBe("succeeded");
+    } finally {
+      await app.close();
+      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = previousDatabaseUrl;
+      if (previousAppMode === undefined) delete process.env.APP_MODE;
+      else process.env.APP_MODE = previousAppMode;
+      delete process.env.SNARKROUTE_NO_LISTEN;
+    }
+  });
+
   it("returns a clear error when OpenRouter is selected but not configured", async () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
     const previousAppMode = process.env.APP_MODE;

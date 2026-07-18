@@ -115,6 +115,7 @@ export function imageGenerationModelOptions(openRouterModels: OpenRouterModel[],
     slug: "image.nano-banana",
     label: "Nano Banana",
     provider: "Gemini",
+    executionProvider: "gemini",
     capabilities: ["image-generation"],
     aspectRatios: GEMINI_IMAGE_ASPECT_RATIOS,
     imageSizes: GEMINI_IMAGE_SIZES,
@@ -128,6 +129,7 @@ export function imageGenerationModelOptions(openRouterModels: OpenRouterModel[],
       slug: entry.id,
       label: entry.name ?? entry.id,
       provider: providerFromSlug(entry.id),
+      executionProvider: "openrouter",
       capabilities: ["image-generation"],
       aspectRatios: imageAspectRatiosForSlug(entry.id),
       imageSizes: imageSizesForSlug(entry.id),
@@ -143,6 +145,7 @@ export function imageGenerationModelOptions(openRouterModels: OpenRouterModel[],
       slug: selectedModelId,
       label: selectedCatalogModel?.name ?? selectedModelId,
       provider: selectedModelId.includes("/") ? providerFromSlug(selectedModelId) : "unknown",
+      executionProvider: selectedModelId.includes("/") ? "openrouter" : undefined,
       capabilities: [],
       aspectRatios: imageAspectRatiosForSlug(selectedModelId),
       imageSizes: imageSizesForSlug(selectedModelId),
@@ -180,6 +183,7 @@ export function imageModelOptionsFromNodeOptions(options: ModelOptionForNodeV1[]
     slug: entry.providerModelId,
     label: entry.displayName,
     provider: providerLabelForModelOption(entry),
+    executionProvider: entry.executionProvider,
     capabilities: entry.capabilities,
     iconPath: entry.iconPath,
     parameters: entry.parameters,
@@ -200,6 +204,7 @@ export function imageModelOptionsFromNodeOptions(options: ModelOptionForNodeV1[]
       slug: selectedModelId,
       label: selectedModelId,
       provider: selectedModelId.includes("/") ? providerFromSlug(selectedModelId) : "unknown",
+      executionProvider: selectedModelId.includes("/") ? "openrouter" : undefined,
       capabilities: [],
       aspectRatios: imageAspectRatiosForSlug(selectedModelId),
       imageSizes: imageSizesForSlug(selectedModelId),
@@ -268,6 +273,7 @@ export function modelOptionForNodeLabel(option: ModelOptionForNodeV1): string {
 export function providerLabelForModelOption(option: ModelOptionForNodeV1): string {
   if (option.provider === "openrouter") return providerFromSlug(option.providerModelId);
   if (option.provider === "polza") return "Polza";
+  if (option.provider === "rutronix") return "RuTronix";
   return option.provider;
 }
 
@@ -421,6 +427,9 @@ export function openRouterCostLabel(model: OpenRouterModel | undefined): string 
 }
 
 export function imageModelCostLabel(model: ImageModelOption | undefined): string {
-  return model?.provider ? `Provider: ${model.provider}` : "";
+  if (!model) return "";
+  if (model.executionProvider === "openrouter") return `Route: OpenRouter · Owner: ${model.provider}`;
+  if (model.executionProvider === "gemini") return `Route: Direct API · Provider: ${model.provider}`;
+  return model.provider ? `Provider: ${model.provider}` : "";
 }
 

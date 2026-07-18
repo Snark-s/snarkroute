@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { builtInNodeManifests, getInstalledNodesDirectory, loadInstalledNodeManifests, nodeManifestToCatalogEntry, type SnarkNodeManifest } from "@snarkroute/nodes";
 import { providerNodeManifests } from "../providers/provider-node-manifests";
+import { loadCanvasActionManifests } from "../canvas-actions/service";
 
 export async function registerNodeCatalogRoutes(app: FastifyInstance) {
 app.get("/api/nodes", async () => {
@@ -20,11 +21,18 @@ app.get("/api/nodes/canvas-actions", async () => {
   const manifests = [
     ...builtInNodeManifests,
     ...providerNodeManifests(),
-    ...await loadInstalledNodeManifests()
+    ...await loadInstalledNodeManifests(),
+    ...await loadCanvasActionManifests()
   ];
+  const seen = new Set<string>();
   return {
     actions: manifests
       .filter(isCanvasActionManifest)
+      .filter((manifest) => {
+        if (seen.has(manifest.id)) return false;
+        seen.add(manifest.id);
+        return true;
+      })
       .map((manifest) => ({
         id: manifest.id,
         title: manifest.canvasAction?.title?.trim() || manifest.title,
@@ -32,6 +40,8 @@ app.get("/api/nodes/canvas-actions", async () => {
         inputType: manifest.inputs[0].type,
         outputs: manifest.outputs.map((output) => ({ id: output.id, type: output.type, label: output.label ?? output.id })),
         params: manifest.params ?? [],
+        dialog: manifest.canvasAction?.dialog,
+        poseBindings: manifest.canvasAction?.poseBindings,
         icon: manifest.canvasAction?.icon ?? (manifest.icon ? { kind: "preset", name: manifest.icon } : undefined),
         node: nodeManifestToCatalogEntry(manifest)
       }))

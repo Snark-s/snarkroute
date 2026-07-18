@@ -42,6 +42,15 @@
     "docsUrl": "https://replicate.com/docs/topics/security/api-tokens",
     "apiReferenceUrl": "https://replicate.com/docs/reference/http"
   },
+  "rutronix": {
+    "title": "RuTronix",
+    "websiteUrl": "https://rutronix.ai/home",
+    "apiKeysUrl": "https://rutronix.ai/signup",
+    "modelsUrl": "https://rutronix.ai/docs#deepseek",
+    "docsUrl": "https://rutronix.ai/docs",
+    "apiReferenceUrl": "https://rutronix.ai/docs#chat-completions",
+    "pricingUrl": "https://rutronix.ai/pricing"
+  },
   "seedance": {
     "title": "Seedance",
     "byteplusProductUrl": "https://www.byteplus.com/product/modelark",

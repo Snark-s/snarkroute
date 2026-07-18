@@ -215,11 +215,23 @@ export const previewImageRunner: NodeRunner = ({ params, inputs }) => {
   };
 };
 
-export const previewPanorama360Runner: NodeRunner = ({ params, inputs }) => {
-  const image = normalizePreviewImage(params.image ?? firstInputValue(inputs));
-  return {
-    output: { image, panorama: { projection: "equirectangular" } }
-  };
+export const previewPanorama360Runner: NodeRunner = async ({ node, params, inputs, context }) => {
+  const sourceValue = params.image ?? firstInputValue(inputs);
+  const panorama = normalizePreviewImage(sourceValue);
+  const source = await readLocalPngImage(sourceValue, "preview.panorama360");
+  const fov = clampedNumberParam(params.fov, 55, 1, 120, "fov");
+  const yaw = numberParam(params.yaw, 0);
+  const pitch = clampedNumberParam(params.pitch, 0, -89, 89, "pitch");
+  const width = Math.max(1, source.height);
+  const height = Math.max(1, Math.round(width * 9 / 16));
+  const frame = projectEquirectangularToPerspective(source, { width, height, fovDegrees: fov, yawDegrees: yaw, pitchDegrees: pitch });
+  const bytes = encodeRgbaPng(width, height, frame.data);
+  const assetsDirectory = join(context.outputDirectory, "assets");
+  await mkdir(assetsDirectory, { recursive: true });
+  const filename = `${sanitizeFilename(node.id)}-view-${Date.now()}.png`;
+  const localPath = join(assetsDirectory, filename);
+  await writeFile(localPath, bytes);
+  return { output: { image: { localPath, path: localPath, filename, mimeType: "image/png", width, height }, panorama, view: { yaw, pitch, fov } } };
 };
 
 export const chooseCameraPointRunner: NodeRunner = ({ params, inputs }) => {
@@ -817,6 +829,11 @@ function builtInParams(type: string) {
     ];
   }
   if (type === "input.file" || type === "input.image" || type === "input.video") return [{ id: "path", type: "file", label: "Path", default: "" }];
+  if (type === "preview.panorama360") return [
+    { id: "yaw", type: "number", label: "Yaw", default: 0, description: "Horizontal view direction in degrees." },
+    { id: "pitch", type: "number", label: "Pitch", default: 0, description: "Vertical view direction in degrees." },
+    { id: "fov", type: "number", label: "FOV", default: 55, description: "Perspective field of view in degrees." }
+  ];
   if (type === "transform.imageResize") {
     return [
       { id: "width", type: "number", label: "Width", default: 1024, description: "Target width in pixels." },
@@ -1973,6 +1990,32 @@ function projectEquirectangularToFisheye(source: RgbaImage, options: { outputSiz
   return { width: outputSize, height: outputSize, data: output };
 }
 
+function projectEquirectangularToPerspective(source: RgbaImage, options: { width: number; height: number; fovDegrees: number; yawDegrees: number; pitchDegrees: number }): RgbaImage {
+  const data = new Uint8Array(options.width * options.height * 4);
+  const yaw = options.yawDegrees * Math.PI / 180;
+  const pitch = options.pitchDegrees * Math.PI / 180;
+  const tanV = Math.tan(options.fovDegrees * Math.PI / 360);
+  const tanH = tanV * options.width / options.height;
+  for (let y = 0; y < options.height; y += 1) for (let x = 0; x < options.width; x += 1) {
+    const ny = (1 - ((y + 0.5) / options.height) * 2) * tanV;
+    const nx = (((x + 0.5) / options.width) * 2 - 1) * tanH;
+    const length = Math.hypot(nx, ny, 1);
+    const cameraX = nx / length;
+    const cameraY = ny / length;
+    const cameraZ = 1 / length;
+    const pitchedY = cameraY * Math.cos(pitch) - cameraZ * Math.sin(pitch);
+    const pitchedZ = cameraY * Math.sin(pitch) + cameraZ * Math.cos(pitch);
+    const worldX = cameraX * Math.cos(yaw) + pitchedZ * Math.sin(yaw);
+    const worldZ = -cameraX * Math.sin(yaw) + pitchedZ * Math.cos(yaw);
+    const sx = positiveModulo(Math.floor((Math.atan2(worldX, worldZ) / (Math.PI * 2) + 0.5) * source.width), source.width);
+    const sy = clamp(Math.floor((0.5 - Math.asin(clamp(pitchedY, -1, 1)) / Math.PI) * source.height), 0, source.height - 1);
+    const sourceIndex = (sy * source.width + sx) * 4;
+    const targetIndex = (y * options.width + x) * 4;
+    data.set(source.data.subarray(sourceIndex, sourceIndex + 4), targetIndex);
+  }
+  return { width: options.width, height: options.height, data };
+}
+
 function decodePngToRgba(buffer: Buffer): RgbaImage {
   assertPng(buffer);
   let width = 0;
@@ -2002,8 +2045,8 @@ function decodePngToRgba(buffer: Buffer): RgbaImage {
     offset = dataEnd + 4;
   }
   if (!width || !height || bitDepth !== 8) throw new Error("Only 8-bit PNG images are supported.");
-  const channels = colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 0 ? 1 : 0;
-  if (!channels) throw new Error("Only grayscale, RGB, and RGBA PNG images are supported.");
+  const channels = colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 4 ? 2 : colorType === 0 ? 1 : 0;
+  if (!channels) throw new Error("Only grayscale, grayscale-alpha, RGB, and RGBA PNG images are supported.");
   const raw = inflateSync(Buffer.concat(idatChunks));
   const stride = width * channels;
   const unfiltered = new Uint8Array(width * height * channels);
@@ -2028,11 +2071,11 @@ function decodePngToRgba(buffer: Buffer): RgbaImage {
   for (let pixel = 0; pixel < width * height; pixel += 1) {
     const sourceIndex = pixel * channels;
     const targetIndex = pixel * 4;
-    if (channels === 1) {
+    if (channels === 1 || channels === 2) {
       rgba[targetIndex] = unfiltered[sourceIndex];
       rgba[targetIndex + 1] = unfiltered[sourceIndex];
       rgba[targetIndex + 2] = unfiltered[sourceIndex];
-      rgba[targetIndex + 3] = 255;
+      rgba[targetIndex + 3] = channels === 2 ? unfiltered[sourceIndex + 1] : 255;
     } else {
       rgba[targetIndex] = unfiltered[sourceIndex];
       rgba[targetIndex + 1] = unfiltered[sourceIndex + 1];

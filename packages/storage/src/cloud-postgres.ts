@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { CREDIT_UNIT, getRubPerUsd } from "@snarkroute/protocol";
 
 type PgPool = {
   query: <T = Record<string, unknown>>(sql: string, values?: unknown[]) => Promise<{ rows: T[] }>;
@@ -84,6 +85,19 @@ export type CloudAdminOverview = {
   recentErrors: unknown[];
   artifactStats: unknown;
   guestDemoUsage: unknown;
+};
+
+export type CloudProviderPricingActualStats = {
+  provider: string | null;
+  operation: string | null;
+  model: string | null;
+  pricingSnapshotId?: string | null;
+  samples: number;
+  avgActualCredits: number | null;
+  lastActualCredits: number | null;
+  avgProviderCostMicrousd: number | null;
+  lastProviderCostMicrousd: number | null;
+  lastCreatedAt: string | null;
 };
 
 export type CreditTransactionType = "grant" | "reserve" | "capture" | "release" | "refund" | "adjustment" | "demo_grant" | "expired" | "purchase_placeholder";
@@ -195,6 +209,9 @@ export type SaveProviderUsageEventInput = {
   finalCredits?: number | null;
   pricingSource?: string | null;
   pricingConfidence?: string | null;
+  pricingSnapshotId?: string | null;
+  canonicalModelId?: string | null;
+  providerNativeModelId?: string | null;
   costMinor?: number | null;
   currency?: string | null;
   providerRequestId?: string | null;
@@ -519,7 +536,7 @@ export class CloudPostgresStorageAdapter {
       returning global_markup_percent, global_markup_credits, min_charge_credits, rounding_mode, updated_at, updated_by
       `,
       [
-        integerCredits(input.globalMarkupPercent),
+        nonNegativeNumber(input.globalMarkupPercent),
         integerCredits(input.globalMarkupCredits),
         integerCredits(input.minChargeCredits),
         input.updatedBy ?? null
@@ -607,7 +624,7 @@ export class CloudPostgresStorageAdapter {
         nullIfBlank(input.operation),
         nullIfBlank(input.model),
         nullIfBlank(input.nodeType),
-        integerCredits(input.markupPercent),
+        nonNegativeNumber(input.markupPercent),
         integerCredits(input.markupCredits),
         input.enabled,
         nullIfBlank(input.reason),
@@ -743,17 +760,32 @@ export class CloudPostgresStorageAdapter {
       const reserved = Math.abs(Number(reserve.amount_minor));
       const alreadyReleased = await this.releasedReservationAmount(client, input.reservationId);
       if (alreadyReleased >= reserved) return { charged: 0, refunded: 0 };
-      const charged = Math.max(0, Math.min(reserved, actualAmount));
-      const refunded = Math.max(0, reserved - alreadyReleased - charged);
-      if (charged > 0) {
+      const chargedFromReservation = Math.max(0, Math.min(reserved - alreadyReleased, actualAmount));
+      const additionalCharge = Math.max(0, actualAmount - reserved);
+      if (additionalCharge > 0) {
+        const account = await client.query<{ balance_minor: string | number }>(
+          "select balance_minor from credit_accounts where id = $1 for update",
+          [reserve.account_id]
+        );
+        const balance = Number(account.rows[0]?.balance_minor ?? 0);
+        if (balance < additionalCharge) {
+          throw new Error(`Insufficient credits to capture provider actual cost: need additional ${additionalCharge}, balance ${balance}.`);
+        }
+      }
+      const charged = chargedFromReservation + additionalCharge;
+      const refunded = Math.max(0, reserved - alreadyReleased - chargedFromReservation);
+      if (actualAmount > 0) {
         await this.insertCreditTransaction(client, {
           accountId: reserve.account_id,
-          amount: 0,
+          amount: -additionalCharge,
           transactionType: "capture",
           runId: reserve.run_id,
           reservationId: input.reservationId,
-          metadata: { actualAmount: charged, reserved, maxChargeCredits: reserved }
+          metadata: { actualAmount, reserved, chargedFromReservation, additionalCharge }
         });
+        if (additionalCharge > 0) {
+          await client.query("update credit_accounts set balance_minor = balance_minor - $2, updated_at = now() where id = $1", [reserve.account_id, additionalCharge]);
+        }
       }
       if (refunded > 0) {
         await this.insertCreditTransaction(client, {
@@ -1120,9 +1152,10 @@ export class CloudPostgresStorageAdapter {
         run_id, node_run_id, user_id, node_id, node_type, provider, model_id, operation, status,
         usage, estimated_credits, actual_credits, usage_source, provider_cost_estimate_amount,
         provider_cost_actual_amount, provider_cost_microusd, base_credits, markup_credits, final_credits,
-        pricing_source, pricing_confidence, cost_minor, currency, provider_request_id, metadata
+        pricing_source, pricing_confidence, pricing_snapshot_id, canonical_model_id, provider_native_model_id,
+        cost_minor, currency, provider_request_id, metadata
       )
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25::jsonb)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28::jsonb)
       returning id
       `,
       [
@@ -1147,6 +1180,9 @@ export class CloudPostgresStorageAdapter {
         input.finalCredits ?? null,
         input.pricingSource ?? null,
         input.pricingConfidence ?? null,
+        input.pricingSnapshotId ?? null,
+        input.canonicalModelId ?? null,
+        input.providerNativeModelId ?? null,
         input.costMinor ?? null,
         input.currency ?? null,
         input.providerRequestId ?? null,
@@ -1154,6 +1190,123 @@ export class CloudPostgresStorageAdapter {
       ]
     );
     return result.rows[0];
+  }
+
+  async listProviderPricingActualStats(limit = 500): Promise<CloudProviderPricingActualStats[]> {
+    await this.ensureSchema();
+    const result = await this.pool.query<{
+      provider: string | null;
+      operation: string | null;
+      model: string | null;
+      pricing_snapshot_id: string | null;
+      samples: string | number;
+      avg_actual_credits: string | number | null;
+      last_actual_credits: string | number | null;
+      avg_provider_cost_microusd: string | number | null;
+      last_provider_cost_microusd: string | number | null;
+      last_created_at: string | null;
+    }>(
+      `
+      with normalized as (
+        select
+          provider,
+          case
+            when operation in ('image.generate', 'text.generate', 'video.generate', 'image.upscale') then operation
+            when operation ilike '%upscale%' then 'image.upscale'
+            when operation ilike '%video%' then 'video.generate'
+            when operation ilike '%text%' or operation ilike '%llm%' then 'text.generate'
+            when operation ilike '%image%' or operation = 'gemini.nano-banana-2' then 'image.generate'
+            else operation
+          end as operation,
+          model_id as model,
+          pricing_snapshot_id,
+          actual_credits,
+          provider_cost_actual_amount,
+          currency,
+          created_at,
+          row_number() over (
+            partition by provider,
+              case
+                when operation in ('image.generate', 'text.generate', 'video.generate', 'image.upscale') then operation
+                when operation ilike '%upscale%' then 'image.upscale'
+                when operation ilike '%video%' then 'video.generate'
+                when operation ilike '%text%' or operation ilike '%llm%' then 'text.generate'
+                when operation ilike '%image%' or operation = 'gemini.nano-banana-2' then 'image.generate'
+                else operation
+              end,
+              coalesce(model_id, ''),
+              coalesce(pricing_snapshot_id, '')
+            order by created_at desc
+          ) as rn
+        from provider_usage_events
+        where status in ('succeeded', 'completed')
+          and (actual_credits is not null or provider_cost_actual_amount is not null)
+      )
+      select
+        provider,
+        operation,
+        model,
+        pricing_snapshot_id,
+        count(*) as samples,
+        avg(case
+          when upper(currency) = 'USD' and provider_cost_actual_amount is not null then ceil(provider_cost_actual_amount * $3)
+          when upper(currency) = 'RUB' and provider_cost_actual_amount is not null and $2 is not null then ceil((provider_cost_actual_amount / $2) * $3)
+          else nullif(actual_credits, 0)
+        end) as avg_actual_credits,
+        max(case when rn = 1 then
+          case
+            when upper(currency) = 'USD' and provider_cost_actual_amount is not null then ceil(provider_cost_actual_amount * $3)
+            when upper(currency) = 'RUB' and provider_cost_actual_amount is not null and $2 is not null then ceil((provider_cost_actual_amount / $2) * $3)
+            else actual_credits
+          end
+        end) as last_actual_credits,
+        avg(case
+          when upper(currency) = 'USD' and provider_cost_actual_amount is not null then provider_cost_actual_amount * 1000000
+          when upper(currency) = 'RUB' and provider_cost_actual_amount is not null and $2 is not null then (provider_cost_actual_amount / $2) * 1000000
+        end) as avg_provider_cost_microusd,
+        max(case when rn = 1 then
+          case
+            when upper(currency) = 'USD' then provider_cost_actual_amount * 1000000
+            when upper(currency) = 'RUB' and $2 is not null then (provider_cost_actual_amount / $2) * 1000000
+          end
+        end) as last_provider_cost_microusd,
+        max(case when rn = 1 then created_at::text end) as last_created_at
+      from normalized
+      group by provider, operation, model, pricing_snapshot_id
+      order by samples desc, provider, operation, model, pricing_snapshot_id
+      limit $1
+      `,
+      [Math.max(1, Math.min(2000, Math.floor(limit))), getRubPerUsd(), CREDIT_UNIT.creditsPerUsd]
+    );
+    return result.rows.map((row) => ({
+      provider: row.provider,
+      operation: row.operation,
+      model: row.model,
+      pricingSnapshotId: row.pricing_snapshot_id,
+      samples: Number(row.samples),
+      avgActualCredits: nullableNumber(row.avg_actual_credits),
+      lastActualCredits: nullableNumber(row.last_actual_credits),
+      avgProviderCostMicrousd: nullableNumber(row.avg_provider_cost_microusd),
+      lastProviderCostMicrousd: nullableNumber(row.last_provider_cost_microusd),
+      lastCreatedAt: row.last_created_at
+    }));
+  }
+
+  async withAdvisoryLock<T>(lockName: string, run: () => Promise<T>): Promise<T> {
+    await this.ensureSchema();
+    if (!this.pool.connect) throw new Error("Database advisory locks require a connect-capable Postgres pool.");
+    const client = await this.pool.connect();
+    try {
+      const lock = await client.query<{ locked: boolean }>("select pg_try_advisory_lock(hashtext($1)) as locked", [lockName]);
+      if (!lock.rows[0]?.locked) throw new Error(`Advisory lock "${lockName}" is already held.`);
+      try {
+        return await run();
+      } finally {
+        await client.query("select pg_advisory_unlock(hashtext($1))", [lockName]).catch(() => undefined);
+      }
+    } finally {
+      client.release();
+    }
   }
 
   async finishRun(input: { runId: string; status: string; outputs?: unknown; error?: unknown }): Promise<void> {
@@ -1317,6 +1470,17 @@ function createPgPool(databaseUrl: string): PgPool {
 function integerCredits(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.ceil(value));
+}
+
+function nonNegativeNumber(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, value);
+}
+
+function nullableNumber(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function integerCreditsSigned(value: number): number {

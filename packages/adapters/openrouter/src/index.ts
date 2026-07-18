@@ -574,7 +574,7 @@ export function openRouterPricingCatalogFromModels(models: OpenRouterModelInfo[]
     catalog.models[model.id] = {
       currency: typeof model.pricing.currency === "string" ? model.pricing.currency : "USD",
       pricing: { ...model.pricing },
-      raw: { id: model.id, name: model.name }
+      raw: { id: model.id, name: model.name, kind: model.kind, architecture: model.architecture }
     };
   }
   return catalog;

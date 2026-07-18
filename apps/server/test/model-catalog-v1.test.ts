@@ -164,7 +164,7 @@ describe("server Model Catalog V1 assembly", () => {
     const model = catalog.find((entry) => entry.providerModelId === "kwaivgi/kling-video-o1");
     expect(model?.inputTypes).toEqual(["text", "image"]);
     expect(model?.outputTypes).toEqual(["video"]);
-    expect(model?.metadata?.maxImageInputs).toBe(1);
+    expect(model?.metadata?.maxImageInputs).toBe(7);
   });
 
   it("normalizes OpenRouter models independently from routes", () => {
@@ -262,6 +262,26 @@ describe("server Model Catalog V1 assembly", () => {
     });
   });
 
+  it("does not require pricing metadata for OpenRouter image selector options", () => {
+    const catalog = assembleModelCatalogV1({
+      openRouterModels: [
+        { id: "openai/gpt-image-1", architecture: { output_modalities: ["image"] }, pricing: { prompt: "0.001" } },
+        { id: "google/gemini-3-pro-image-preview", architecture: { modality: "text+image->image" } },
+        { id: "bytedance/seedream-5-lite", kind: "image" },
+        { id: "openai/gpt-5.2", architecture: { output_modalities: ["text"] } }
+      ]
+    });
+
+    const optionIds = modelOptionsForNodeV1("ai.image.generate", catalog).map((entry) => entry.storedModelId);
+
+    expect(optionIds).toEqual([
+      "bytedance/seedream-5-lite",
+      "google/gemini-3-pro-image-preview",
+      "openai/gpt-image-1"
+    ]);
+    expect(optionIds).not.toContain("openai/gpt-5.2");
+  });
+
   it("keeps OpenRouter image options when image output is declared through modality", () => {
     const catalog = assembleModelCatalogV1({
       openRouterModels: [
@@ -305,6 +325,7 @@ describe("server Model Catalog V1 assembly", () => {
   it("does not change Polza image node filtering while adding OpenRouter image options", () => {
     const catalog = assembleModelCatalogV1({
       polzaModels: [
+        { id: "openai/gpt-image-1.5", type: "image", architecture: { output_modalities: ["image"] } },
         { id: "qwen/image-2", type: "image", architecture: { output_modalities: ["image"] } },
         { id: "topaz/image-upscale", type: "image", architecture: { output_modalities: ["image"] } }
       ],
@@ -316,7 +337,8 @@ describe("server Model Catalog V1 assembly", () => {
 
     const options = modelOptionsForNodeV1("polza.image.generate", catalog);
 
-    expect(options.map((entry) => entry.storedModelId)).toEqual(["qwen/image-2"]);
+    expect(options.map((entry) => entry.storedModelId)).toEqual(expect.arrayContaining(["openai/gpt-image-1.5", "openai/gpt-5.4-image-2", "qwen/image-2"]));
+    expect(options.map((entry) => entry.storedModelId)).not.toContain("topaz/image-upscale");
   });
 
   it("keeps video upscalers out of normal Polza video generation options", () => {
@@ -343,12 +365,28 @@ describe("server Model Catalog V1 assembly", () => {
     });
 
     const options = modelOptionsForNodeV1("ai.image.generate", catalog);
+    const nanoBanana = options.find((entry) => entry.storedModelId === "image.nano-banana");
 
-    expect(options[0]).toMatchObject({
+    expect(nanoBanana).toMatchObject({
       provider: "gemini",
       providerModelId: "image.nano-banana",
       storedModelId: "image.nano-banana",
       availability: { source: "fallback" }
     });
+  });
+
+  it("keeps RuTronix text models selectable even when provider pricing is missing", () => {
+    const catalog = assembleModelCatalogV1({
+      rutronixModels: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }]
+    });
+    const option = modelOptionsForNodeV1("ai.text", catalog).find((entry) => entry.provider === "rutronix");
+    expect(option).toMatchObject({
+      id: "rutronix:deepseek-v4-flash",
+      providerModelId: "deepseek-v4-flash",
+      storedModelId: "rutronix:deepseek-v4-flash",
+      executionProvider: "rutronix",
+      availability: { status: "available" }
+    });
+    expect(option?.pricing?.status ?? "missing").toBe("missing");
   });
 });

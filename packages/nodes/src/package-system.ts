@@ -20,6 +20,12 @@ export interface NodePortManifest {
 
 export interface NodeParamManifest extends NodePortManifest {
   default?: unknown;
+  options?: Array<{ value: unknown; label?: string }>;
+  min?: number;
+  max?: number;
+  step?: number;
+  binding?: { nodeId: string; paramId: string };
+  poseManaged?: boolean;
 }
 
 export interface NodeCapabilityManifest {
@@ -38,6 +44,15 @@ export interface CanvasActionManifest {
   title?: string;
   description?: string;
   icon?: CanvasActionIconManifest;
+  poseBindings?: Partial<Record<"yaw" | "pitch" | "roll" | "fov" | "positionX" | "positionY" | "positionZ" | "cameraPose", string>>;
+  dialog?: {
+    enabled: boolean;
+    params: string[];
+    preview?: Array<{
+      kind: "image" | "video" | "audio" | "panorama360" | "splat";
+      source: "input" | { output: string } | { pause: string };
+    }>;
+  };
 }
 
 export interface NodePermissions {
@@ -229,7 +244,7 @@ export function validateNodeManifest(input: unknown, options: { basePath?: strin
   validatePorts(record.outputs, "outputs", issues);
   if (record.params !== undefined) validatePorts(record.params, "params", issues);
   if (record.capabilities !== undefined) validateCapabilities(record.capabilities, issues);
-  if (record.canvasAction !== undefined) validateCanvasAction(record.canvasAction, record.inputs, record.outputs, issues);
+  if (record.canvasAction !== undefined) validateCanvasAction(record.canvasAction, record.inputs, record.outputs, record.params, record.generatedWith, issues);
 
   return issues.length === 0 ? { ok: true, manifest: normalizeNodeManifest(record), issues: [] } : { ok: false, issues };
 }
@@ -505,51 +520,104 @@ function isCompoundTemplateManifest(manifest: SnarkNodeManifest): boolean {
 }
 
 function createCompoundTemplateNodeRunner(manifest: SnarkNodeManifest, executor: RouteExecutor): NodeRunner {
-  return async ({ node, inputs, context }) => {
-    const generated = manifest.generatedWith as {
-      compound?: { title?: string; inputs?: Array<{ id: string; nodeId: string; port?: string; targets?: Array<{ nodeId: string; port?: string }> }>; outputs?: Array<{ id: string; nodeId: string; port?: string }> };
-      subroute?: OpenRoute;
-    };
-    if (!generated.subroute) throw new Error(`Generated node "${manifest.id}" has no subroute template.`);
-    const syntheticNodes: RouteNode[] = [];
-    const syntheticEdges: RouteEdge[] = [];
-    const initialNodeOutputs: Record<string, unknown> = {};
-
-    for (const port of generated.compound?.inputs ?? []) {
-      const syntheticId = `${node.id}__input__${port.id}`;
-      syntheticNodes.push({ id: syntheticId, type: "compound.input" });
-      const targets = port.targets && port.targets.length > 0 ? port.targets : [{ nodeId: port.nodeId, port: port.port }];
-      for (const target of targets) {
-        syntheticEdges.push({ from: syntheticId, to: target.nodeId, fromPort: "value", toPort: target.port ?? port.id });
-      }
-      initialNodeOutputs[syntheticId] = { value: inputs[port.id] };
-    }
-
-    const subroute: OpenRoute = {
-      ...generated.subroute,
-      route: {
-        ...generated.subroute.route,
-        id: `${context.route.route.id}.${node.id}`,
-        title: generated.compound?.title ?? node.title ?? manifest.title
-      },
-      nodes: [...syntheticNodes, ...generated.subroute.nodes],
-      edges: [...syntheticEdges, ...generated.subroute.edges]
-    };
-    const result = await executor.executeRoute(subroute, {
+  return async ({ node, params, inputs, context }) => {
+    const execution = buildCompoundTemplateExecution(manifest, {
+      nodeId: node.id,
+      routeId: `${context.route.route.id}.${node.id}`,
+      title: node.title,
+      params,
+      inputs,
+      log: (message) => context.log(message, node.id)
+    });
+    const result = await executor.executeRoute(execution.route, {
       runId: `${context.runId}_${node.id}`,
       outputDirectory: join(context.outputDirectory, node.id),
-      initialNodeOutputs
+      initialNodeOutputs: execution.initialNodeOutputs
     });
     if (result.status !== "succeeded") {
       const failed = Object.values(result.nodeResults).find((entry) => entry.status === "failed");
       throw new Error(`Generated node "${manifest.id}" failed inside "${failed?.nodeId ?? "subroute"}": ${failed?.error ?? "subroute failed"}`);
     }
     return {
-      output: Object.fromEntries((generated.compound?.outputs ?? []).map((port) => [port.id, readOutputPort(result.nodeResults[port.nodeId]?.output, port.port ?? port.id)])),
+      output: compoundTemplateOutput(execution, result.nodeResults),
       logs: [`Generated subroute node completed with ${Object.keys(result.nodeResults).length} internal node(s).`],
       provenance: { nodePackage: manifest.id, version: manifest.version, origin: manifest.origin, generatedWith: "compound.subroute" }
     };
   };
+}
+
+export function buildCompoundTemplateExecution(manifest: SnarkNodeManifest, input: {
+  nodeId: string;
+  routeId: string;
+  title?: string;
+  params?: Record<string, unknown>;
+  inputs?: Record<string, unknown>;
+  log?: (message: string) => void;
+  initialNodeOutputs?: Record<string, unknown>;
+}): CompoundTemplateExecution {
+  const generated = manifest.generatedWith as {
+    compound?: { title?: string; inputs?: Array<{ id: string; nodeId: string; port?: string; targets?: Array<{ nodeId: string; port?: string }> }>; outputs?: Array<{ id: string; nodeId: string; port?: string }> };
+    subroute?: OpenRoute;
+  };
+  if (!generated.subroute) throw new Error(`Generated node "${manifest.id}" has no subroute template.`);
+  const syntheticNodes: RouteNode[] = [];
+  const syntheticEdges: RouteEdge[] = [];
+  const initialNodeOutputs: Record<string, unknown> = { ...(input.initialNodeOutputs ?? {}) };
+  for (const port of generated.compound?.inputs ?? []) {
+    const syntheticId = `${input.nodeId}__input__${port.id}`;
+    syntheticNodes.push({ id: syntheticId, type: "compound.input" });
+    const targets = port.targets && port.targets.length > 0 ? port.targets : [{ nodeId: port.nodeId, port: port.port }];
+    for (const target of targets) syntheticEdges.push({ from: syntheticId, to: target.nodeId, fromPort: "value", toPort: target.port ?? port.id });
+    if (!Object.prototype.hasOwnProperty.call(initialNodeOutputs, syntheticId)) initialNodeOutputs[syntheticId] = { value: input.inputs?.[port.id] };
+  }
+  const boundParams = new Map<string, Record<string, unknown>>();
+  for (const [paramId, value] of Object.entries(input.params ?? {})) {
+    const param = manifest.params?.find((candidate) => candidate.id === paramId);
+    if (!param?.binding) {
+      input.log?.(`Warning: ignored unbound parameter "${paramId}".`);
+      continue;
+    }
+    validateBoundParamValue(param, value);
+    boundParams.set(param.binding.nodeId, { ...(boundParams.get(param.binding.nodeId) ?? {}), [param.binding.paramId]: value });
+  }
+  const internalNodes = generated.subroute.nodes.map((internalNode) => ({
+    ...internalNode,
+    ...(boundParams.has(internalNode.id) ? { params: { ...(internalNode.params ?? {}), ...boundParams.get(internalNode.id) } } : {})
+  }));
+  return {
+    route: {
+      ...generated.subroute,
+      route: { ...generated.subroute.route, id: input.routeId, title: generated.compound?.title ?? input.title ?? manifest.title },
+      nodes: [...syntheticNodes, ...internalNodes],
+      edges: [...syntheticEdges, ...generated.subroute.edges]
+    },
+    initialNodeOutputs,
+    outputs: generated.compound?.outputs ?? []
+  };
+}
+
+export function compoundTemplateOutput(execution: CompoundTemplateExecution, nodeResults: Record<string, { output?: unknown } | undefined>): Record<string, unknown> {
+  return Object.fromEntries(execution.outputs.map((port) => [port.id, readOutputPort(nodeResults[port.nodeId]?.output, port.port ?? port.id)]));
+}
+
+export interface CompoundTemplateExecution {
+  route: OpenRoute;
+  initialNodeOutputs: Record<string, unknown>;
+  outputs: Array<{ id: string; nodeId: string; port?: string }>;
+}
+
+function validateBoundParamValue(param: NodeParamManifest, value: unknown): void {
+  const valid = param.type === "number"
+    ? typeof value === "number" && Number.isFinite(value)
+    : param.type === "boolean"
+      ? typeof value === "boolean"
+      : param.type === "text" || param.type === "string"
+        ? typeof value === "string"
+        : true;
+  if (!valid) throw new Error(`Parameter "${param.id}" must be ${param.type}.`);
+  if (param.options && !param.options.some((option) => Object.is(option.value, value))) {
+    throw new Error(`Parameter "${param.id}" must be one of its declared options.`);
+  }
 }
 
 export function createDeclarativeHttpNodeRunner(manifest: SnarkNodeManifest): NodeRunner {
@@ -719,6 +787,7 @@ function validatePorts(value: unknown, path: string, issues: ValidationIssue[]):
     requiredString(record.id, `${path}.${index}.id`, issues);
     requiredString(record.type, `${path}.${index}.type`, issues);
     if (record.required !== undefined && typeof record.required !== "boolean") issues.push({ path: `${path}.${index}.required`, message: "required must be boolean." });
+    if (path === "params" && record.poseManaged !== undefined && typeof record.poseManaged !== "boolean") issues.push({ path: `${path}.${index}.poseManaged`, message: "poseManaged must be boolean." });
   });
 }
 
@@ -742,7 +811,7 @@ function validateCapabilities(value: unknown, issues: ValidationIssue[]): void {
   });
 }
 
-function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown, issues: ValidationIssue[]): void {
+function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown, params: unknown, generatedWith: unknown, issues: ValidationIssue[]): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     issues.push({ path: "canvasAction", message: "canvasAction must be an object." });
     return;
@@ -752,6 +821,18 @@ function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown,
   if (record.title !== undefined && typeof record.title !== "string") issues.push({ path: "canvasAction.title", message: "title must be string." });
   if (record.description !== undefined && typeof record.description !== "string") issues.push({ path: "canvasAction.description", message: "description must be string." });
   if (record.icon !== undefined) validateCanvasActionIcon(record.icon, issues);
+  if (record.dialog !== undefined) validateCanvasActionDialog(record.dialog, params, outputs, generatedWith, issues);
+  if (record.poseBindings !== undefined) {
+    const paramIds = new Set((Array.isArray(params) ? params : []).map((param: Record<string, unknown>) => param.id).filter((id): id is string => typeof id === "string"));
+    if (!record.poseBindings || typeof record.poseBindings !== "object" || Array.isArray(record.poseBindings)) {
+      issues.push({ path: "canvasAction.poseBindings", message: "poseBindings must be an object." });
+    } else {
+      const allowed = new Set(["yaw", "pitch", "roll", "fov", "positionX", "positionY", "positionZ", "cameraPose"]);
+      for (const [key, paramId] of Object.entries(record.poseBindings as Record<string, unknown>)) {
+        if (!allowed.has(key) || typeof paramId !== "string" || !paramIds.has(paramId)) issues.push({ path: `canvasAction.poseBindings.${key}`, message: `Unknown pose parameter "${String(paramId)}".` });
+      }
+    }
+  }
   if (record.enabled !== true) return;
 
   const inputPorts = Array.isArray(inputs) ? inputs as Array<Record<string, unknown>> : [];
@@ -767,6 +848,54 @@ function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown,
       issues.push({ path: `outputs.${index}.type`, message: 'Canvas action output type must be "image", "video", "audio", or "text".' });
     }
   });
+}
+
+function validateCanvasActionDialog(value: unknown, params: unknown, outputs: unknown, generatedWith: unknown, issues: ValidationIssue[]): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    issues.push({ path: "canvasAction.dialog", message: "dialog must be an object." });
+    return;
+  }
+  const dialog = value as Record<string, unknown>;
+  if (typeof dialog.enabled !== "boolean") issues.push({ path: "canvasAction.dialog.enabled", message: "enabled must be boolean." });
+  const paramIds = new Set((Array.isArray(params) ? params : []).map((param: Record<string, unknown>) => param.id).filter((id): id is string => typeof id === "string"));
+  if (!Array.isArray(dialog.params) || !dialog.params.every((id) => typeof id === "string")) {
+    issues.push({ path: "canvasAction.dialog.params", message: "params must be an array of parameter ids." });
+  } else {
+    dialog.params.forEach((id, index) => {
+      if (!paramIds.has(id)) issues.push({ path: `canvasAction.dialog.params.${index}`, message: `Unknown parameter "${id}".` });
+    });
+  }
+  const outputIds = new Set((Array.isArray(outputs) ? outputs : []).map((output: Record<string, unknown>) => output.id).filter((id): id is string => typeof id === "string"));
+  const generated = generatedWith && typeof generatedWith === "object" && !Array.isArray(generatedWith) ? generatedWith as Record<string, unknown> : {};
+  const subroute = generated.subroute && typeof generated.subroute === "object" && !Array.isArray(generated.subroute) ? generated.subroute as Record<string, unknown> : {};
+  const nodeIds = new Set((Array.isArray(subroute.nodes) ? subroute.nodes : []).map((node: Record<string, unknown>) => node.id).filter((id): id is string => typeof id === "string"));
+  if (dialog.preview !== undefined && !Array.isArray(dialog.preview)) {
+    issues.push({ path: "canvasAction.dialog.preview", message: "preview must be an array." });
+  } else if (Array.isArray(dialog.preview)) {
+    dialog.preview.forEach((entry, index) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        issues.push({ path: `canvasAction.dialog.preview.${index}`, message: "Preview must be an object." });
+        return;
+      }
+      const preview = entry as Record<string, unknown>;
+      if (!["image", "video", "audio", "panorama360", "splat"].includes(String(preview.kind))) issues.push({ path: `canvasAction.dialog.preview.${index}.kind`, message: "Unsupported preview kind." });
+      if (preview.source === "input") return;
+      if (!preview.source || typeof preview.source !== "object" || Array.isArray(preview.source)) {
+        issues.push({ path: `canvasAction.dialog.preview.${index}.source`, message: 'source must be "input", an output reference, or a pause-node reference.' });
+        return;
+      }
+      const source = preview.source as Record<string, unknown>;
+      if (typeof source.pause === "string") {
+        if (!nodeIds.has(source.pause)) issues.push({ path: `canvasAction.dialog.preview.${index}.source.pause`, message: `Unknown pause node "${source.pause}".` });
+        return;
+      }
+      if (typeof source.output !== "string") {
+        issues.push({ path: `canvasAction.dialog.preview.${index}.source`, message: 'source must be "input", an output reference, or a pause-node reference.' });
+        return;
+      }
+      if (!outputIds.has(source.output)) issues.push({ path: `canvasAction.dialog.preview.${index}.source.output`, message: `Unknown output "${source.output}".` });
+    });
+  }
 }
 
 function validateCanvasActionIcon(value: unknown, issues: ValidationIssue[]): void {

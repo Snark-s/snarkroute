@@ -197,6 +197,59 @@ create table if not exists pricing_catalog (
   unique (provider, model_id, capability)
 );
 
+create table if not exists canonical_models (
+  id text primary key,
+  vendor text not null,
+  display_name text not null,
+  family text,
+  capabilities text[] not null default '{}',
+  input_types text[] not null default '{}',
+  output_types text[] not null default '{}',
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists provider_model_offerings (
+  id text primary key,
+  canonical_model_id text references canonical_models(id) on delete set null,
+  provider text not null,
+  provider_model_id text not null,
+  provider_native_model_id text,
+  operation text not null,
+  available boolean not null default true,
+  availability_source text not null default 'manual',
+  capabilities text[] not null default '{}',
+  parameter_schema jsonb not null default '{}'::jsonb,
+  last_seen_at timestamptz,
+  updated_at timestamptz not null default now(),
+  unique (provider, provider_model_id, operation)
+);
+
+create table if not exists provider_model_pricing (
+  id text primary key,
+  offering_id text references provider_model_offerings(id) on delete set null,
+  provider text not null,
+  canonical_model_id text references canonical_models(id) on delete set null,
+  provider_model_id text,
+  operation text not null,
+  price_unit text not null default 'request',
+  currency text not null default 'USD',
+  provider_cost_microusd bigint not null,
+  base_credits bigint not null,
+  pricing_source text not null,
+  pricing_confidence text not null,
+  price_params jsonb not null default '{}'::jsonb,
+  effective_from timestamptz not null default now(),
+  fetched_at timestamptz,
+  stale_after timestamptz,
+  notes text,
+  raw_provider_pricing jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists provider_model_pricing_lookup_idx on provider_model_pricing(provider, operation, (coalesce(provider_model_id, '')));
+
 create table if not exists billing_pricing_config (
   id text primary key default 'default',
   global_markup_percent integer not null default 0,
@@ -267,6 +320,9 @@ alter table provider_usage_events add column if not exists markup_credits bigint
 alter table provider_usage_events add column if not exists final_credits bigint;
 alter table provider_usage_events add column if not exists pricing_source text;
 alter table provider_usage_events add column if not exists pricing_confidence text;
+alter table provider_usage_events add column if not exists pricing_snapshot_id text;
+alter table provider_usage_events add column if not exists canonical_model_id text;
+alter table provider_usage_events add column if not exists provider_native_model_id text;
 alter table provider_usage_events add column if not exists metadata jsonb not null default '{}'::jsonb;
 
 create table if not exists audit_events (

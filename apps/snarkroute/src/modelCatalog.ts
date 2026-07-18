@@ -91,6 +91,7 @@ export interface ProviderSettings {
   replicate?: { configured?: boolean };
   gemini?: { configured?: boolean };
   polza?: { configured?: boolean };
+  rutronix?: { configured?: boolean };
   openai?: { configured?: boolean };
   seedance?: { configured?: boolean };
   openrouter?: { configured?: boolean };
@@ -219,6 +220,7 @@ export function mergeModelsForDisplay(models: ModelOption[]): DisplayModelOption
 export function providerDisplayName(providerId: string): string {
   const names: Record<string, string> = {
     polza: "polza.ai",
+    rutronix: "RuTronix",
     openrouter: "OpenRouter",
     gemini: "Gemini",
     replicate: "Replicate",
@@ -300,12 +302,13 @@ export function normalizeAvailableModelOptions(value: unknown): ModelOption[] {
     const accepts = entry.inputTypes.flatMap(contentKind);
     const generationParameters = normalizeServerParameterDefinitions(entry.parameters);
     const metadata = entry.metadata ?? {};
+    const storedModelId = entry.provider === "rutronix" ? entry.id : entry.providerModelId;
     return [{
-      id: entry.providerModelId,
+      id: storedModelId,
       title: entry.displayName,
       providerId: entry.provider,
       providerModelId: entry.providerModelId,
-      storedModelId: entry.providerModelId,
+      storedModelId,
       iconPath: resolvedCatalogIconPath(entry.iconPath, entry.iconKey, entry.originVendor, entry.providerModelId, entry.provider),
       iconKey: entry.iconKey,
       originVendor: entry.originVendor,
@@ -478,6 +481,7 @@ function catalogIconFilename(key: string): string | undefined {
     openai: "gpt.png",
     openrouter: "openrouter.svg",
     polza: "polza.svg",
+    rutronix: "unknown.svg",
     qwen: "qwen.png",
     replicate: "replicate.svg",
     seedance: "seedream-4-5.png",

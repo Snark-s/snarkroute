@@ -3,20 +3,25 @@ import { spawn } from "node:child_process";
 import {
   appendImageToNodeStack,
   appendAudioToNodeStack,
+  appendTextNodeConversationMessage,
   appendTextToNodeStack,
   appendVideoToNodeStack,
   createAudioStackReadStream,
+  createCollectionItemReadStream,
   canvasNodeFolderPath,
   createImageStackReadStream,
+  createTextNodeConversationImageReadStream,
   createTextStackPreviewReadStream,
   createVideoStackReadStream,
   createLocalLibraryAssetReadStream,
   duplicateCanvasNode,
   duplicateCanvasNodeAsRepresentation,
   createEmptyCanvasNode,
+  duplicateCollectionItemAsNode,
   createLibrary,
   deleteCanvasEdge,
   deleteCanvasNode,
+  deleteCollectionNodeItem,
   deleteImageNodeStackItem,
   deleteAudioNodeStackItem,
   deleteLocalLibraryAsset,
@@ -29,6 +34,7 @@ import {
   generateAudioNodeStackItem,
   generateImageNodeStackItem,
   generateTextNodeStackItem,
+  runTextNodeConversationTurn,
   generateVideoNodeStackItem,
   addLibraryProject,
   createProjectCoverReadStream,
@@ -50,15 +56,18 @@ import {
   readAudioNode,
   readLibraryNode,
   runCanvasNodeAction,
+  CanvasActionContinuationGoneError,
   scanLocalLibrary,
   removeLibraryProject,
   readVideoNode,
   setAudioNodeActiveStackItem,
   setImageNodeActiveStackItem,
+  setStackNodeSelectedStackItems,
   setTextNodeActiveStackItem,
   setVideoNodeActiveStackItem,
   setLibraryProjectCover,
   syncRepresentationEdge,
+  trashOrphanCanvasNodeFolders,
   updateLibraryNodeViewMode,
   updateImageNodePrompt,
   updateAudioNodePrompt,
@@ -340,11 +349,13 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Body: { type?: "image" | "video" | "audio" | "text"; x?: number; y?: number; width?: number; height?: number; connectFromNodeId?: string } }>("/api/libraries/current/nodes", async (request, reply) => {
+  app.post<{ Body: { type?: "image" | "video" | "audio" | "text" | "collection"; variant?: "note"; x?: number; y?: number; width?: number; height?: number; connectFromNodeId?: string } }>("/api/libraries/current/nodes", async (request, reply) => {
     try {
-      if (request.body?.type !== "image" && request.body?.type !== "video" && request.body?.type !== "audio" && request.body?.type !== "text") return reply.code(400).send({ error: "type must be image, video, audio, or text." });
+      if (request.body?.type !== "image" && request.body?.type !== "video" && request.body?.type !== "audio" && request.body?.type !== "text" && request.body?.type !== "collection") return reply.code(400).send({ error: "type must be image, video, audio, text, or collection." });
+      if (request.body.variant !== undefined && (request.body.type !== "text" || request.body.variant !== "note")) return reply.code(400).send({ error: "variant note is only supported for text nodes." });
       return await createEmptyCanvasNode({
         type: request.body.type,
+        variant: request.body.variant,
         x: Number(request.body.x ?? 0),
         y: Number(request.body.y ?? 0),
         width: request.body.width,
@@ -376,11 +387,15 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string; actionId: string }; Body: { params?: Record<string, unknown>; x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/nodes/:nodeId/canvas-actions/:actionId/run", async (request, reply) => {
+  app.post<{ Params: { nodeId: string; actionId: string }; Body: { targetNodeId?: string; params?: Record<string, unknown>; phase?: "prepare" | "complete"; reuse?: boolean; continuationId?: string; x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/nodes/:nodeId/canvas-actions/:actionId/run", async (request, reply) => {
     try {
       return await runCanvasNodeAction({
         nodeId: request.params.nodeId,
         actionId: request.params.actionId,
+        targetNodeId: request.body?.targetNodeId,
+        phase: request.body?.phase,
+        reuse: request.body?.reuse === true,
+        continuationId: request.body?.continuationId,
         params: request.body?.params && typeof request.body.params === "object" && !Array.isArray(request.body.params) ? request.body.params : undefined,
         x: request.body?.x,
         y: request.body?.y,
@@ -388,6 +403,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
         height: request.body?.height
       });
     } catch (error) {
+      if (error instanceof CanvasActionContinuationGoneError || (error && typeof error === "object" && (error as { statusCode?: unknown }).statusCode === 410)) return reply.code(410).send({ error: errorMessage(error) });
       return reply.code(400).send({ error: errorMessage(error) });
     }
   });
@@ -478,6 +494,46 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
   });
+
+  app.post<{ Params: { nodeId: string; itemId: string }; Body: { x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/collection-nodes/:nodeId/items/:itemId/duplicate-node", async (request, reply) => {
+    try {
+      return await duplicateCollectionItemAsNode({
+        nodeId: request.params.nodeId,
+        itemId: request.params.itemId,
+        x: Number(request.body?.x ?? 0),
+        y: Number(request.body?.y ?? 0),
+        width: request.body?.width,
+        height: request.body?.height
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.delete<{ Params: { nodeId: string; itemId: string } }>("/api/libraries/current/collection-nodes/:nodeId/items/:itemId", async (request, reply) => {
+    try {
+      return await deleteCollectionNodeItem(request.params.nodeId, request.params.itemId);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  async function updateSelectedStackItems(request: { params: { nodeId: string }; body?: { selectedStackItemIds?: string[] } }, reply: { code: (statusCode: number) => { send: (payload: { error: string }) => unknown } }) {
+    try {
+      const selectedStackItemIds = request.body?.selectedStackItemIds;
+      if (!Array.isArray(selectedStackItemIds) || !selectedStackItemIds.every((id) => typeof id === "string")) {
+        return reply.code(400).send({ error: "selectedStackItemIds must be an array of strings." });
+      }
+      return await setStackNodeSelectedStackItems(request.params.nodeId, selectedStackItemIds);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  }
+
+  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemIds?: string[] } }>("/api/libraries/current/image-nodes/:nodeId/stack/selected", updateSelectedStackItems);
+  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemIds?: string[] } }>("/api/libraries/current/video-nodes/:nodeId/stack/selected", updateSelectedStackItems);
+  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemIds?: string[] } }>("/api/libraries/current/audio-nodes/:nodeId/stack/selected", updateSelectedStackItems);
+  app.put<{ Params: { nodeId: string }; Body: { selectedStackItemIds?: string[] } }>("/api/libraries/current/text-nodes/:nodeId/stack/selected", updateSelectedStackItems);
 
   app.post<{ Params: { nodeId: string; stackItemId: string }; Body: { x?: number; y?: number; width?: number; height?: number } }>("/api/libraries/current/image-nodes/:nodeId/stack/:stackItemId/duplicate-node", async (request, reply) => {
     try {
@@ -665,11 +721,13 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.put<{ Params: { nodeId: string }; Body: { text?: string; color?: string; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean } }>("/api/libraries/current/text-nodes/:nodeId", async (request, reply) => {
+  app.put<{ Params: { nodeId: string }; Body: { text?: string; color?: string; inputMode?: "text" | "dialogue"; modelId?: string; executionProvider?: string; fallbackAllowed?: boolean } }>("/api/libraries/current/text-nodes/:nodeId", async (request, reply) => {
     try {
+      if (request.body?.inputMode !== undefined && request.body.inputMode !== "text" && request.body.inputMode !== "dialogue") return reply.code(400).send({ error: "inputMode must be text or dialogue." });
       return await updateTextNode(request.params.nodeId, {
         text: request.body?.text,
         color: request.body?.color,
+        inputMode: request.body?.inputMode,
         modelId: request.body?.modelId,
         executionProvider: request.body?.executionProvider,
         fallbackAllowed: request.body?.fallbackAllowed
@@ -741,6 +799,49 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
   app.delete<{ Params: { nodeId: string } }>("/api/libraries/current/nodes/:nodeId", async (request, reply) => {
     try {
       return await deleteCanvasNode(request.params.nodeId);
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string }; Body: { role?: "user" | "system"; content?: string; attachments?: Array<{ nodeId?: string; file?: string; alt?: string }> } }>("/api/libraries/current/text-nodes/:nodeId/conversation/message", async (request, reply) => {
+    try {
+      if (request.body?.role !== "user" && request.body?.role !== "system") return reply.code(400).send({ error: "role must be user or system." });
+      return await appendTextNodeConversationMessage({
+        nodeId: request.params.nodeId,
+        role: request.body.role,
+        content: request.body.content,
+        attachments: request.body.attachments
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; attachments?: Array<{ nodeId?: string; file?: string; alt?: string }> } }>("/api/libraries/current/text-nodes/:nodeId/conversation/turn", async (request, reply) => {
+    try {
+      if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
+      return await runTextNodeConversationTurn({
+        nodeId: request.params.nodeId,
+        modelId: request.body.modelId,
+        prompt: request.body.prompt,
+        providerId: request.body.providerId,
+        executionProvider: request.body.executionProvider,
+        fallbackAllowed: request.body.fallbackAllowed,
+        availableExecutionProviders: request.body.availableExecutionProviders,
+        inputNodeIds: request.body.inputNodeIds,
+        maxImageInputs: request.body.maxImageInputs,
+        imageReferenceSyntax: request.body.imageReferenceSyntax,
+        attachments: request.body.attachments
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/libraries/current/nodes/trash-orphans", async (_request, reply) => {
+    try {
+      return await trashOrphanCanvasNodeFolders();
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -824,6 +925,27 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
       const preview = await createTextStackPreviewReadStream(request.params.nodeId, request.params.stackItemId);
       reply.header("Content-Type", preview.mimeType);
       return reply.send(preview.stream);
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get<{ Params: { nodeId: string; itemId: string } }>("/api/libraries/current/collection-nodes/:nodeId/items/:itemId/content", async (request, reply) => {
+    try {
+      const item = await createCollectionItemReadStream(request.params.nodeId, request.params.itemId);
+      reply.header("Content-Type", item.mimeType);
+      return reply.send(item.stream);
+    } catch (error) {
+      return reply.code(404).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.get<{ Params: { nodeId: string }; Querystring: { file?: string } }>("/api/libraries/current/text-nodes/:nodeId/conversation/image", async (request, reply) => {
+    try {
+      if (!request.query.file) return reply.code(400).send({ error: "file is required." });
+      const image = await createTextNodeConversationImageReadStream(request.params.nodeId, request.query.file);
+      reply.type(image.mimeType);
+      return reply.send(image.stream);
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });
     }

@@ -11,7 +11,11 @@ export type {
   ModelParameterValueV1,
   ModelPricingInfoV1,
   ModelProviderIdV1,
-  ModelRoleV1
+  ModelRoleV1,
+  CanonicalModelV1,
+  ProviderModelOfferingV1,
+  ProviderModelPricingV1,
+  ProviderPricingCatalogEntryV1
 } from "./v1/index.js";
 
 export type {
@@ -24,3 +28,14 @@ export {
   createModelIconResolver,
   modelLogoRegistry
 } from "./model-icons.js";
+
+export {
+  listSeedCanonicalModelsV1,
+  listSeedProviderOfferingsV1,
+  listSeedProviderPricingCatalogV1,
+  listSeedProviderPricingV1,
+  modelMaxImageInputsV1,
+  polzaVideoMaxImageInputsV1,
+  withDefaultModelInputLimitsV1,
+  providerPricingToCatalogEntryV1
+} from "./v1/index.js";

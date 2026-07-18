@@ -1,7 +1,8 @@
 import {
   listCuratedModelMetadataV1,
   mergeProviderModelsWithCuratedMetadata,
-  normalizeProviderModelToV1Input
+  normalizeProviderModelToV1Input,
+  withDefaultModelInputLimitsV1
 } from "@snarkroute/model-catalog/dist/v1/index.js";
 
 import type {
@@ -34,6 +35,7 @@ export type RawProviderModelV1 = Record<string, unknown> & {
 };
 
 export type AssembleModelCatalogV1Input = {
+  rutronixModels?: RawProviderModelV1[];
   polzaModels?: RawProviderModelV1[];
   openRouterModels?: RawProviderModelV1[];
   fallbackModels?: ProviderModelInfoV1[];
@@ -48,11 +50,12 @@ const textOnlyProviderModelIds = new Set([
 ]);
 
 export function assembleModelCatalogV1(input: AssembleModelCatalogV1Input): ModelCatalogEntryV1[] {
-  return assembleProviderModelsV1([
+  return assembleProviderModelsV1(dedupeProviderModelsV1([
+    ...normalizeRuTronixModelsForCatalogV1(input.rutronixModels ?? []),
     ...normalizePolzaModelsForCatalogV1(input.polzaModels ?? []),
     ...normalizeOpenRouterModelsForCatalogV1(input.openRouterModels ?? []),
     ...(input.fallbackModels ?? [])
-  ], input.curatedMetadata ?? listCuratedModelMetadataV1());
+  ]), input.curatedMetadata ?? listCuratedModelMetadataV1());
 }
 
 export function assembleProviderModelsV1(
@@ -68,12 +71,81 @@ export function normalizePolzaModelsForCatalogV1(models: RawProviderModelV1[]): 
   return models.flatMap((model) => normalizeRawProviderModel("polza", model));
 }
 
+export function normalizeRuTronixModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
+  return models.flatMap((model) => normalizeRawProviderModel("rutronix", { ...model, type: model.type ?? "chat", inputTypes: model.inputTypes ?? ["text"], outputTypes: model.outputTypes ?? ["text"], capabilities: model.capabilities ?? ["text.generate"] }));
+}
+
 export function normalizeOpenRouterModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
   return models.flatMap((model) => normalizeRawProviderModel("openrouter", model));
 }
 
+function dedupeProviderModelsV1(providerModels: ProviderModelInfoV1[]): ProviderModelInfoV1[] {
+  const seen = new Set<string>();
+  return providerModels.filter((model) => {
+    const key = `${model.provider}:${model.providerModelId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
   return [
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "openai/gpt-5.1",
+      displayName: "OpenAI: GPT-5.1",
+      inputTypes: ["text", "image"],
+      outputTypes: ["text"],
+      capabilities: ["text.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-text-catalog", providerEndpoint: "chat.completions" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "openai/gpt-image-1",
+      displayName: "OpenAI: GPT Image 1",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.edit", "image.reference"],
+      roles: ["generator", "editor"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-image-generation-catalog", providerEndpoint: "chat.completions" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "google/gemini-3-pro-image-preview",
+      displayName: "Google: Gemini 3 Pro Image Preview",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.reference"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-image-generation-catalog", providerEndpoint: "chat.completions" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "bytedance/seedream-5-lite",
+      displayName: "ByteDance: Seedream 5 Lite",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.reference"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-image-generation-catalog", providerEndpoint: "chat.completions" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "black-forest-labs/flux-kontext-pro",
+      displayName: "Black Forest Labs: FLUX Kontext Pro",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.edit", "image.reference"],
+      roles: ["generator", "editor"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "openrouter-image-generation-catalog", providerEndpoint: "chat.completions" }
+    }),
     normalizeProviderModelToV1Input({
       provider: "gemini",
       providerModelId: "image.nano-banana",
@@ -84,6 +156,39 @@ export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
       roles: ["generator"],
       availability: { status: "available", source: "fallback" },
       metadata: { fallback: "studio-direct-image-alias" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "polza",
+      providerModelId: "openai/gpt-4o",
+      displayName: "OpenAI GPT-4o",
+      inputTypes: ["text", "image"],
+      outputTypes: ["text"],
+      capabilities: ["text.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "polza-default-text-model", providerEndpoint: "chat" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "polza",
+      providerModelId: "openai/gpt-5.4-image-2",
+      displayName: "OpenAI GPT-5.4 Image 2",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.edit", "image.reference"],
+      roles: ["generator", "editor"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "polza-default-image-model", providerEndpoint: "media" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "polza",
+      providerModelId: "wan/2.6",
+      displayName: "WAN 2.6",
+      inputTypes: ["text", "image", "video"],
+      outputTypes: ["video"],
+      capabilities: ["video.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback" },
+      metadata: { fallback: "polza-default-video-model", providerEndpoint: "media" }
     }),
     normalizeProviderModelToV1Input({
       provider: "polza",
@@ -168,7 +273,9 @@ export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEnt
 export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalogEntryV1): boolean {
   if (entry.availability.status !== "available") return false;
   if (nodeType === "polza.image.generate") {
-    return entry.provider === "polza" && hasOutputType(entry, "image") && !entry.roles.includes("upscaler");
+    return entry.provider === "polza"
+      && hasOutputType(entry, "image")
+      && !entry.roles.includes("upscaler");
   }
   if (nodeType === "polza.text") {
     return entry.provider === "polza" && hasOutputType(entry, "text");
@@ -183,7 +290,7 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
       && !isUpscaleOnlyModel(entry, "image");
   }
   if (nodeType === "ai.text") {
-    return entry.provider === "openrouter" && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
+    return (entry.provider === "openrouter" || entry.provider === "rutronix") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
   }
   if (nodeType === "ai.audio.generate") {
     return hasOutputType(entry, "audio") && !entry.roles.includes("upscaler");
@@ -195,7 +302,7 @@ export function toModelOptionForNodeV1(nodeType: string, entry: ModelCatalogEntr
   return {
     ...entry,
     nodeType,
-    storedModelId: entry.providerModelId,
+    storedModelId: entry.provider === "rutronix" ? `rutronix:${entry.providerModelId}` : entry.providerModelId,
     executionProvider: entry.provider,
     compatibilityReason: compatibilityReasonForNode(nodeType)
   };
@@ -230,22 +337,21 @@ function preserveLiveProviderIo(entry: ModelCatalogEntryV1, providerModel: Provi
 
 function enrichUiCatalogMetadata(entry: ModelCatalogEntryV1): ModelCatalogEntryV1 {
   const defaults = defaultUiCatalogMetadata(entry);
-  if (!defaults) return entry;
-  return {
+  const enriched = defaults ? {
     ...entry,
     parameters: entry.parameters.length ? entry.parameters : defaults.parameters,
     metadata: {
       ...(entry.metadata ?? {}),
       ...defaults.metadata
     }
-  };
+  } : entry;
+  return withDefaultModelInputLimitsV1(enriched);
 }
 
 function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: ModelParameterDefinitionV1[]; metadata?: Record<string, unknown> } | undefined {
   if (entry.provider === "polza" && hasOutputType(entry, "video") && !entry.roles.includes("upscaler")) {
     return {
-      parameters: [videoResolutions, videoDurations, videoMultiShots],
-      metadata: { maxImageInputs: polzaVideoMaxImageInputs(entry.providerModelId) }
+      parameters: [videoResolutions, videoDurations, videoMultiShots]
     };
   }
   if (entry.provider === "polza" && hasOutputType(entry, "image") && !entry.roles.includes("upscaler")) {
@@ -275,11 +381,6 @@ function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: Mod
     };
   }
   return undefined;
-}
-
-function polzaVideoMaxImageInputs(modelId: string): number {
-  if (modelId === "wan/2.6") return 1;
-  return 14;
 }
 
 const aspectRatios = parameter("aspectRatio", "Aspect ratio", ["1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"], "1:1");
@@ -375,14 +476,15 @@ function isUpscaleOnlyModel(entry: ModelCatalogEntryV1, mediaType: "image" | "vi
 
 function compatibilityReasonForNode(nodeType: string): string {
   if (nodeType.startsWith("polza.")) return "available through Polza with provider-native model id";
-  if (nodeType.startsWith("ai.")) return "available through OpenRouter with provider-native model id";
+  if (nodeType.startsWith("ai.")) return "available through the selected provider with provider-native model id";
   return "available through provider catalog";
 }
 
 function providerSortOrder(provider: ModelProviderIdV1): number {
   if (provider === "polza") return 0;
-  if (provider === "openrouter") return 1;
-  return 2;
+  if (provider === "rutronix") return 1;
+  if (provider === "openrouter") return 2;
+  return 3;
 }
 
 function normalizeInputTypes(values: string[]): ModelInputTypeV1[] {

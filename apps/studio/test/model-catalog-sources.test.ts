@@ -27,4 +27,22 @@ describe("Studio model catalog sources", () => {
     expect(source).not.toContain("POLZA_IMAGE_MODEL_OPTIONS");
     expect(source).not.toContain("POLZA_VIDEO_MODEL_OPTIONS");
   });
+
+  it("shows the RuTronix missing-key action and Settings links", () => {
+    const main = studioSource("main.tsx");
+    const card = studioSource("features/canvas-node/RouteNodeCardContainer.tsx");
+    expect(card).toContain("Requires RuTronix API key");
+    expect(card).toContain("Configure RuTronix");
+    expect(card).toContain("RUTRONIX_API_KEY: onConfigureRutronix");
+    expect(main).toContain('id="rutronix-api-key-input"');
+    expect(main).toContain('providerLinks.rutronix?.apiKeysUrl');
+  });
+
+  it("offers a RuTronix preset backed by ai.text catalog options without adding a node type", () => {
+    const main = studioSource("main.tsx");
+    expect(main).toContain('modelOptionsForNodes["ai.text"]');
+    expect(main).toContain('executionProvider === "rutronix"');
+    expect(main).toContain('RuTronix catalog preset');
+    expect(main).not.toContain('type: "rutronix.');
+  });
 });

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
+import { documentedRuTronixModels } from "@snarkroute/rutronix";
 import type { ModelOutputTypeV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { openRouterCatalogCachePath } from "../server-paths";
 import { isPolzaEnabled } from "../services/env";
@@ -14,6 +15,7 @@ interface ModelCatalogQuery {
 }
 
 type PolzaCatalogModelType = "chat" | "image" | "video" | "audio" | "embedding";
+const defaultCatalogRequestTimeoutMs = 5_000;
 
 export async function registerModelRoutes(app: FastifyInstance) {
 app.addHook("onRequest", async (request, reply) => {
@@ -96,6 +98,7 @@ async function loadLiveModelCatalogV1(nodeType?: string) {
   return assembleModelCatalogV1({
     openRouterModels,
     polzaModels,
+    rutronixModels: nodeType === undefined || nodeType === "ai.text" ? documentedRuTronixModels() : [],
     fallbackModels: fallbackProviderModelsForCatalogV1()
   });
 }
@@ -109,8 +112,30 @@ async function loadOpenRouterModelsForCatalogV1(): Promise<RawProviderModelV1[]>
 
 async function loadPolzaModelsForCatalogV1(types: PolzaCatalogModelType[]): Promise<RawProviderModelV1[]> {
   const client = createPolzaClient();
-  const groups = await Promise.all(types.map((type) => client.getModels(type).catch(() => [])));
+  const timeoutMs = modelCatalogRequestTimeoutMs();
+  const groups = await Promise.all(types.map((type) => withTimeout(client.getModels(type), timeoutMs).catch(() => [])));
   return dedupeById(groups.flat()) as RawProviderModelV1[];
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Model catalog request timed out after ${timeoutMs}ms.`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function modelCatalogRequestTimeoutMs(): number {
+  const configured = Number(process.env.MODEL_CATALOG_REQUEST_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.min(configured, 30_000)
+    : defaultCatalogRequestTimeoutMs;
 }
 
 function polzaTypesForCatalogV1(nodeType?: string): PolzaCatalogModelType[] {

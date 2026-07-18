@@ -6,6 +6,7 @@ export type ModelProviderIdV1 =
   | "openrouter"
   | "polza"
   | "replicate"
+  | "rutronix"
   | "seedance"
   | "unknown"
   | (string & {});

@@ -2,8 +2,10 @@ import type { FastifyInstance } from "fastify";
 import { parseRoute } from "@snarkroute/protocol";
 import { getAuthAdapter } from "../auth/adapters";
 import { getBillingAdapter } from "../billing/adapters";
+import { listLocalDevCreditTransactions } from "../billing/local-dev-credit-store";
 import { errorMessage } from "../services/errors";
 import { getCloudStorage } from "../services/cloud-storage";
+import { isCloudStorageConfigured } from "../services/env";
 
 type PublicCreditTransactionInput = {
   id: string;
@@ -29,6 +31,10 @@ export async function registerBillingRoutes(app: FastifyInstance) {
   app.get<{ Querystring: { limit?: string } }>("/api/billing/transactions", async (request, reply) => {
     try {
       const user = await getAuthAdapter().requireUser(request);
+      if (!isCloudStorageConfigured()) {
+        const transactions = listLocalDevCreditTransactions({ userId: user.id, limit: Number(request.query.limit ?? 100) });
+        return { transactions: transactions.map(publicCreditTransaction) };
+      }
       const transactions = await getCloudStorage().listCreditTransactions({ userId: user.id, limit: Number(request.query.limit ?? 100) });
       return { transactions: transactions.map(publicCreditTransaction) };
     } catch (error) {
@@ -73,7 +79,13 @@ export async function registerBillingRoutes(app: FastifyInstance) {
           finalCredits: entry.finalCredits ?? entry.estimatedCredits,
           maxChargeCredits: entry.maxChargeCredits ?? entry.estimatedCredits,
           pricingSource: entry.pricingSource ?? "fallback_estimate",
-          pricingConfidence: entry.pricingConfidence ?? "low"
+          pricingConfidence: entry.pricingConfidence ?? "low",
+          pricingSnapshotId: entry.pricingSnapshotId ?? entry.pricingBreakdown?.pricingSnapshotId ?? null,
+          canonicalModelId: entry.canonicalModelId ?? entry.pricingBreakdown?.canonicalModelId ?? null,
+          providerNativeModelId: entry.providerNativeModelId ?? entry.pricingBreakdown?.providerNativeModelId ?? null,
+          fetchedAt: entry.fetchedAt ?? entry.pricingBreakdown?.fetchedAt ?? null,
+          staleAfter: entry.staleAfter ?? entry.pricingBreakdown?.staleAfter ?? null,
+          fallback: entry.fallback ?? entry.pricingBreakdown?.fallback ?? false
         }))
       };
     } catch (error) {

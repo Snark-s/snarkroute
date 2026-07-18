@@ -5,6 +5,7 @@ import { registerAdminRoutes } from "./routes/admin";
 import { registerAssetRoutes } from "./routes/assets";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerBillingRoutes } from "./routes/billing";
+import { registerCanvasActionSessionRoutes } from "./routes/canvas-action-sessions";
 import { registerDevRoutes } from "./routes/dev";
 import { registerExecutionRoutes, registerRunResultRoutes } from "./routes/execution";
 import { registerLedgerRoutes } from "./routes/ledger";
@@ -20,6 +21,7 @@ import { registerRouteDocumentRoutes } from "./routes/route-documents";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerSystemRoutes } from "./routes/system";
 import { registerWorldLabsMarbleRoutes } from "./routes/worldlabs-marble";
+import { startModelPricingRefreshScheduler } from "./billing/model-pricing-refresh-scheduler";
 import { assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
 export function buildServer() {
@@ -39,6 +41,7 @@ export function buildServer() {
   void registerProviderRoutes(app);
   void registerNodeCatalogRoutes(app);
   void registerNodePackageRoutes(app);
+  void registerCanvasActionSessionRoutes(app);
   void registerRouteDocumentRoutes(app);
   void registerLocalStableDiffusionRoutes(app);
   void registerWorldLabsMarbleRoutes(app);
@@ -49,5 +52,6 @@ export function buildServer() {
   void registerExecutionRoutes(app);
   void registerRunResultRoutes(app);
   void registerLedgerRoutes(app);
+  startModelPricingRefreshScheduler();
   return app;
 }

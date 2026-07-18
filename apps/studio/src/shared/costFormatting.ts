@@ -5,6 +5,18 @@ export function formatCredits(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.?0+$/, "");
 }
 
+export function costEstimateIsUncertain(costEstimate: CostEstimate): boolean {
+  const breakdown = costEstimate.pricingBreakdown;
+  const confidence = breakdown?.pricingConfidence ?? costEstimate.pricingConfidence;
+  return Boolean(breakdown?.fallback ?? costEstimate.fallback)
+    || confidence === "low"
+    || /fallback|estimate/i.test(String(breakdown?.source ?? costEstimate.pricingSource ?? ""));
+}
+
+export function formatEstimatedCreditsLabel(costEstimate: CostEstimate, value = costEstimate.finalCredits ?? costEstimate.estimatedCredits): string {
+  return `${costEstimateIsUncertain(costEstimate) ? "≈" : ""}${formatCredits(value)}`;
+}
+
 export function formatSignedCredits(value: number): string {
   return `${value > 0 ? "+" : ""}${formatCredits(value)} credits`;
 }
@@ -63,13 +75,19 @@ export function creditPriceExplanation(costEstimate: CostEstimate): string {
   const breakdown = costEstimate.pricingBreakdown;
   if (breakdown) {
     return [
+      breakdown.canonicalModelId ? `Canonical model: ${breakdown.canonicalModelId}` : null,
+      breakdown.providerNativeModelId ? `Provider-native model: ${breakdown.providerNativeModelId}` : null,
       `Base API cost: ${formatCredits(breakdown.baseCredits ?? 0)} credits`,
       `Global markup: +${formatCredits(breakdown.globalMarkupPercent ?? 0)}% +${formatCredits(breakdown.globalMarkupCredits ?? 0)} credits`,
       `Node markup: +${formatCredits(breakdown.nodeMarkupPercent ?? 0)}% +${formatCredits(breakdown.nodeMarkupCredits ?? 0)} credits`,
       `Final: ${formatCredits(breakdown.finalCredits ?? costEstimate.estimatedCredits)} credits`,
       `Source: ${breakdown.pricingSource ?? costEstimate.pricingSource ?? "pricing catalog"}`,
-      `Confidence: ${breakdown.pricingConfidence ?? costEstimate.pricingConfidence ?? "unknown"}`
-    ].join("\n");
+      `Confidence: ${breakdown.pricingConfidence ?? costEstimate.pricingConfidence ?? "unknown"}`,
+      breakdown.fetchedAt ? `Last updated: ${formatDateTime(breakdown.fetchedAt)}` : null,
+      breakdown.staleAfter ? `Stale after: ${formatDateTime(breakdown.staleAfter)}` : null,
+      breakdown.fallback ? "Fallback used: yes" : "Fallback used: no",
+      breakdown.fallback ? "Warning: price may be inaccurate" : null
+    ].filter((line): line is string => Boolean(line)).join("\n");
   }
   return [
     `provider=${provider}`,

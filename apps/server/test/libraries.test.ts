@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { extractImageProvenance } from "../src/libraries/image-metadata";
-import { parsePromptPngFile, readPngTextChunk, writePngTextChunk } from "@snarkroute/nodes";
+import { createExecutor } from "@snarkroute/executor";
+import { parsePromptPngFile, readPngTextChunk, registerBuiltInNodeRunners, writePngTextChunk } from "@snarkroute/nodes";
 
 const { executeRouteMock } = vi.hoisted(() => ({ executeRouteMock: vi.fn() }));
 
@@ -14,6 +15,7 @@ vi.mock("../src/execution/service", () => ({
 const previousNoListen = process.env.SNARKROUTE_NO_LISTEN;
 const previousLibraryPath = process.env.SNARKROUTE_LIBRARY_PATH;
 const previousOpenRouterApiKey = process.env.OPENROUTER_API_KEY;
+const previousCanvasActionsPath = process.env.SNARKROUTE_CANVAS_ACTIONS_PATH;
 
 describe("SnarkRoute libraries", () => {
   let libraryPath: string;
@@ -22,6 +24,7 @@ describe("SnarkRoute libraries", () => {
     process.env.SNARKROUTE_NO_LISTEN = "1";
     libraryPath = await mkdtemp(join(tmpdir(), "sr-library-"));
     process.env.SNARKROUTE_LIBRARY_PATH = libraryPath;
+    process.env.SNARKROUTE_CANVAS_ACTIONS_PATH = join(libraryPath, ".test-canvas-actions");
     executeRouteMock.mockReset();
   });
 
@@ -29,6 +32,7 @@ describe("SnarkRoute libraries", () => {
     restoreEnv("SNARKROUTE_NO_LISTEN", previousNoListen);
     restoreEnv("SNARKROUTE_LIBRARY_PATH", previousLibraryPath);
     restoreEnv("OPENROUTER_API_KEY", previousOpenRouterApiKey);
+    restoreEnv("SNARKROUTE_CANVAS_ACTIONS_PATH", previousCanvasActionsPath);
   });
 
   it("creates a portable library manifest and empty canvas", async () => {
@@ -125,6 +129,27 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("creates a sticky note as a portable text node variant", async () => {
+    const app = await testServer();
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", variant: "note", x: 500, y: 300, width: 280, height: 220 }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().nodes[0]).toMatchObject({
+        canvas: { type: "text", x: 360, y: 190, width: 280, height: 220 },
+        manifest: { type: "text", variant: "note", title: "Note", text: "", color: "amber" }
+      });
+      const storedManifest = JSON.parse(await readFile(join(libraryPath, "nodes", "Note.node", "snark.node.json"), "utf8"));
+      expect(storedManifest).toMatchObject({ type: "text", variant: "note", title: "Note", color: "amber" });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("imports an image into a title-matched node folder with stack[0] copied into content", async () => {
     const app = await testServer();
     try {
@@ -164,6 +189,208 @@ describe("SnarkRoute libraries", () => {
       const refreshed = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes[0];
       expect(refreshed.manifest.stack[1]).toMatchObject({ file: "content/manual-reference.png", mimeType: "image/png" });
       expect(refreshed.manifest.activeStackIndex).toBe(0);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("persists multiple selected images in an image node stack", async () => {
+    const app = await testServer();
+    try {
+      const imported = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-image",
+        payload: {
+          filename: "Selections.png",
+          dataBase64: onePixelPngBase64,
+          dropX: 500,
+          dropY: 300,
+          width: 320,
+          height: 240
+        }
+      })).json();
+      const nodeId = imported.nodes[0].manifest.id;
+      const appended = (await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${nodeId}/stack`,
+        payload: { filename: "second.png", dataBase64: onePixelPngBase64 }
+      })).json();
+      const selectedStackItemIds = appended.nodes[0].manifest.stack.map((item: { id: string }) => item.id);
+
+      const selectedResponse = await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/image-nodes/${nodeId}/stack/selected`,
+        payload: { selectedStackItemIds }
+      });
+
+      expect(selectedResponse.statusCode).toBe(200);
+      expect(selectedResponse.json().nodes[0].manifest.selectedStackItemIds).toEqual(selectedStackItemIds);
+      const refreshed = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json();
+      expect(refreshed.nodes[0].manifest.selectedStackItemIds).toEqual(selectedStackItemIds);
+
+      const deletedResponse = await app.inject({
+        method: "DELETE",
+        url: `/api/libraries/current/image-nodes/${nodeId}/stack/${selectedStackItemIds[0]}`
+      });
+      expect(deletedResponse.statusCode).toBe(200);
+      expect(deletedResponse.json().nodes[0].manifest.selectedStackItemIds).toEqual([selectedStackItemIds[1]]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("collects connected mixed assets and materializes collection items as typed nodes", async () => {
+    const app = await testServer();
+    try {
+      const imageSnapshot = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-image",
+        payload: { filename: "First.png", dataBase64: onePixelPngBase64, dropX: 200, dropY: 200, width: 320, height: 240 }
+      })).json();
+      const imageNode = imageSnapshot.nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "image");
+      const imageWithTwoItems = (await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${imageNode.manifest.id}/stack`,
+        payload: { filename: "Second.png", dataBase64: onePixelPngBase64 }
+      })).json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === imageNode.manifest.id);
+      const selectedImageIds = imageWithTwoItems.manifest.stack.map((item: { id: string }) => item.id);
+      const selectedImageId = selectedImageIds[1];
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/image-nodes/${imageNode.manifest.id}/stack/selected`,
+        payload: { selectedStackItemIds: selectedImageIds }
+      });
+
+      const textSnapshot = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-text",
+        payload: { filename: "Notes.txt", text: "Collection text", dropX: 200, dropY: 500, width: 320, height: 180 }
+      })).json();
+      const textNode = textSnapshot.nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "text");
+      const visualTextPng = writePngTextChunk(Buffer.from(onePixelPngBase64, "base64"), "snarkroute:prompt", JSON.stringify({
+        schema: "snarkroute.prompt-image.v0",
+        id: "visual-text",
+        title: "Visual text",
+        category: "text-stack",
+        prompt: "Text extracted from an image-backed text item"
+      }));
+      await writeFile(join(libraryPath, textNode.canvas.nodePath, "content", "visual-text.png"), visualTextPng);
+      const refreshedTextNode = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes
+        .find((node: { manifest: { id: string } }) => node.manifest.id === textNode.manifest.id);
+      const visualTextItem = refreshedTextNode.stack.find((item: { title: string }) => item.title === "Visual text");
+      const importedTextItem = refreshedTextNode.stack.find((item: { text: string }) => item.text === "Collection text");
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/text-nodes/${textNode.manifest.id}/stack/active`,
+        payload: { selectedStackItemId: visualTextItem.id }
+      });
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/text-nodes/${textNode.manifest.id}/stack/selected`,
+        payload: { selectedStackItemIds: [importedTextItem.id] }
+      });
+      const videoSnapshot = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-video",
+        payload: { filename: "Clip.mp4", dataBase64: sampleVideoBase64, dropX: 200, dropY: 750, width: 320, height: 240 }
+      })).json();
+      const videoNode = videoSnapshot.nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "video");
+      const videoWithTwoItems = (await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/video-nodes/${videoNode.manifest.id}/stack`,
+        payload: { filename: "Second.mp4", dataBase64: sampleVideoBase64 }
+      })).json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === videoNode.manifest.id);
+      const selectedVideoId = videoWithTwoItems.manifest.stack[1].id;
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/video-nodes/${videoNode.manifest.id}/stack/selected`,
+        payload: { selectedStackItemIds: [selectedVideoId] }
+      });
+
+      const collectionSnapshot = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "collection", x: 700, y: 450, width: 360, height: 280, connectFromNodeId: imageNode.manifest.id }
+      })).json();
+      const collectionNode = collectionSnapshot.nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "collection");
+      const canvas = collectionSnapshot.canvas;
+      canvas.edges.push(
+        { id: "edge_text_collection", fromNodeId: textNode.manifest.id, toNodeId: collectionNode.manifest.id },
+        { id: "edge_video_collection", fromNodeId: videoNode.manifest.id, toNodeId: collectionNode.manifest.id }
+      );
+      await app.inject({ method: "PUT", url: "/api/libraries/current/canvas", payload: canvas });
+
+      const collected = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes
+        .find((node: { manifest: { id: string } }) => node.manifest.id === collectionNode.manifest.id);
+      expect(collected.items.map((item: { type: string }) => item.type)).toEqual(["image", "image", "text", "video"]);
+      const collectedImages = collected.items.filter((item: { type: string }) => item.type === "image");
+      expect(new Set(collectedImages.map((item: { file: string }) => item.file)).size).toBe(2);
+      const collectedImage = collectedImages.find((item: { stackItemId: string }) => item.stackItemId === selectedImageId);
+      expect(collectedImage.stackItemId).toBe(selectedImageId);
+      expect((await app.inject({ method: "GET", url: collectedImage.previewUrl })).statusCode).toBe(200);
+      expect(collected.items.find((item: { type: string }) => item.type === "text").text).toBe("Collection text");
+      expect(collected.items.find((item: { type: string }) => item.type === "text").file).toMatch(/\.prompt\.md$/);
+      expect(collected.items.find((item: { type: string }) => item.type === "text").previewUrl).toBeUndefined();
+      expect(collected.items.find((item: { type: string }) => item.type === "video").stackItemId).toBe(selectedVideoId);
+      expect(collected.manifest.items).toHaveLength(4);
+      const collectionContentPath = join(libraryPath, collectionNode.canvas.nodePath, "content");
+      const collectedFiles = await readdir(collectionContentPath);
+      expect(collectedFiles.filter((file) => file.endsWith(".png"))).toHaveLength(2);
+      expect(collectedFiles.some((file) => file.endsWith(".mp4"))).toBe(true);
+      const collectedMarkdown = collectedFiles.find((file) => file.endsWith(".prompt.md"));
+      expect(collectedMarkdown).toBeTruthy();
+      await expect(readFile(join(collectionContentPath, collectedMarkdown!), "utf8")).resolves.toContain("kind: text/prompt");
+
+      await writeFile(join(collectionContentPath, "manual.png"), Buffer.from(onePixelPngBase64, "base64"));
+      const withManual = (await app.inject({ method: "GET", url: "/api/libraries/current" })).json().nodes
+        .find((node: { manifest: { id: string } }) => node.manifest.id === collectionNode.manifest.id);
+      const manualItem = withManual.items.find((item: { title: string }) => item.title === "manual");
+      expect(manualItem).toMatchObject({ type: "image", manual: true, sourceNodeId: "" });
+      const deleteManualResponse = await app.inject({
+        method: "DELETE",
+        url: `/api/libraries/current/collection-nodes/${collectionNode.manifest.id}/items/${encodeURIComponent(manualItem.id)}`
+      });
+      expect(deleteManualResponse.statusCode).toBe(200);
+      expect((await readdir(collectionContentPath)).includes("manual.png")).toBe(false);
+
+      const extractedImageResponse = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/collection-nodes/${collectionNode.manifest.id}/items/${encodeURIComponent(collectedImage.id)}/duplicate-node`,
+        payload: { x: 900, y: 300, width: 320, height: 240 }
+      });
+      expect(extractedImageResponse.statusCode).toBe(200);
+      const extractedImageBody = extractedImageResponse.json();
+      const extractedImage = extractedImageBody.nodes.find((node: { manifest: { id: string; type: string } }) => node.manifest.type === "image" && node.manifest.id !== imageNode.manifest.id);
+      const extractedImageEdge = extractedImageBody.canvas.edges.find((edge: { fromNodeId: string; toNodeId: string }) => edge.fromNodeId === collectionNode.manifest.id && edge.toNodeId === extractedImage.manifest.id);
+      expect(extractedImageEdge).toBeTruthy();
+      expect(extractedImageEdge.kind).toBe("collectionItem");
+
+      const deleteLinkedResponse = await app.inject({
+        method: "DELETE",
+        url: `/api/libraries/current/collection-nodes/${collectionNode.manifest.id}/items/${encodeURIComponent(collectedImage.id)}`
+      });
+      expect(deleteLinkedResponse.statusCode).toBe(200);
+      expect(deleteLinkedResponse.json().canvas.edges).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ fromNodeId: imageNode.manifest.id, toNodeId: collectionNode.manifest.id })
+      ]));
+      const withoutImage = deleteLinkedResponse.json().nodes
+        .find((node: { manifest: { id: string } }) => node.manifest.id === collectionNode.manifest.id);
+      expect(withoutImage.items.some((item: { type: string }) => item.type === "image")).toBe(false);
+      expect((await readdir(collectionContentPath)).some((file) => file.endsWith(".png"))).toBe(false);
+
+      const textItem = withoutImage.items.find((item: { type: string }) => item.type === "text");
+      const extracted = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/collection-nodes/${collectionNode.manifest.id}/items/${encodeURIComponent(textItem.id)}/duplicate-node`,
+        payload: { x: 1000, y: 500, width: 320, height: 180 }
+      });
+      expect(extracted.statusCode).toBe(200);
+      const extractedText = extracted.json().nodes.find((node: { manifest: { id: string; type: string } }) => node.manifest.type === "text" && node.manifest.id !== textNode.manifest.id);
+      expect(extractedText.outputText).toBe("Collection text");
+      expect(extractedText.activeStackItem.file).toMatch(/\.prompt\.md$/);
+      expect(extracted.json().canvas.edges).toEqual(expect.arrayContaining([
+        expect.objectContaining({ fromNodeId: collectionNode.manifest.id, toNodeId: extractedText.manifest.id, kind: "collectionItem" })
+      ]));
     } finally {
       await app.close();
     }
@@ -384,8 +611,60 @@ describe("SnarkRoute libraries", () => {
       const params = executeRouteMock.mock.calls[0][0].nodes[0].params;
       expect(params.prompt).toBe("Use @image 1 as the opening frame");
       expect(params.images).toHaveLength(1);
-      expect(params.images[0].path).toContain(secondSource.manifest.stack[0].file.replace("/", "\\"));
+      expect(secondSource.manifest.stack[0].file).toBe("content/000-import.png");
+      expect(params.images[0].path.replaceAll("\\", "/")).toContain(secondSource.manifest.stack[0].file);
     } finally {
+      await app.close();
+    }
+  });
+
+  it("sends OpenRouter video frame images in the documented content-part shape", async () => {
+    const app = await testServer();
+    try {
+      process.env.OPENROUTER_API_KEY = "sk-openrouter-test";
+      const source = await importNode(app, "Source.png");
+      const targetResponse = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-video",
+        payload: { filename: "Target.mp4", dataBase64: sampleVideoBase64, dropX: 600, dropY: 300, width: 320, height: 240 }
+      });
+      const target = targetResponse.json().nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "video");
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_openrouter_video_image", fromNodeId: source.manifest.id, toNodeId: target.manifest.id }] }
+      });
+      const fetchMock = vi.fn(async (url: string | URL | Request) => {
+        const value = String(url);
+        if (value.endsWith("/videos")) return new Response(JSON.stringify({ id: "job-123", status: "pending" }), { status: 202, headers: { "content-type": "application/json" } });
+        if (value.endsWith("/videos/job-123")) return new Response(JSON.stringify({ status: "completed", unsigned_urls: ["https://cdn.openrouter.ai/result.mp4"] }), { status: 200, headers: { "content-type": "application/json" } });
+        return new Response(Buffer.from(sampleVideoBase64, "base64"), { status: 200, headers: { "content-type": "video/mp4" } });
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/video-nodes/${target.manifest.id}/generate`,
+        payload: {
+          modelId: "google/veo-3.1",
+          providerId: "openrouter",
+          prompt: `Animate [[image:${source.manifest.id}]]`,
+          parameters: { resolution: "720p", duration: "8" }
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const requestBody = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+      expect(requestBody.frame_images).toEqual([
+        {
+          frame_type: "first_frame",
+          type: "image_url",
+          image_url: { url: expect.stringMatching(/^data:image\/png;base64,/) }
+        }
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
       await app.close();
     }
   });
@@ -672,7 +951,8 @@ describe("SnarkRoute libraries", () => {
       expect(params.prompt).not.toContain("must not appear");
       expect(params.images).toHaveLength(1);
       expect(params).toMatchObject({ aspectRatio: "1:1", imageSize: "2K", imageResolution: "2K", quality: "standard", outputFormat: "webp" });
-      expect(params.images[0].path).toContain(secondImage.manifest.stack[0].file.replace("/", "\\"));
+      expect(secondImage.manifest.stack[0].file).toBe("content/000-import.png");
+      expect(params.images[0].path.replaceAll("\\", "/")).toContain(secondImage.manifest.stack[0].file);
     } finally {
       await app.close();
     }
@@ -772,6 +1052,193 @@ describe("SnarkRoute libraries", () => {
       expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
         nodes: [expect.objectContaining({ type: "ai.text", params: expect.objectContaining({ prompt: "Draft instruction reference 1", images: [expect.objectContaining({ mimeType: "image/png" })] }) })]
       }));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("persists text node dialogue mode and normalizes legacy nodes as text mode", async () => {
+    const app = await testServer();
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      expect(node.manifest.inputMode).toBe("text");
+
+      const switched = await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}`,
+        payload: { inputMode: "dialogue" }
+      });
+      const dialogueNode = switched.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(dialogueNode.manifest.inputMode).toBe("dialogue");
+      expect(JSON.parse(await readFile(join(libraryPath, node.canvas.nodePath, "snark.node.json"), "utf8")).inputMode).toBe("dialogue");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("runs a text-node dialogue turn without mutating the text stack", async () => {
+    const app = await testServer();
+    try {
+      const sourceImage = await importNode(app, "Dialogue turn.png");
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_dialogue_turn_image", fromNodeId: sourceImage.manifest.id, toNodeId: node.manifest.id }] }
+      });
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: { generate: { status: "succeeded", output: { text: "Assistant answer" } } }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/conversation/turn`,
+        payload: { modelId: "text.default", prompt: "Hello", executionProvider: "auto", attachments: [{ nodeId: sourceImage.manifest.id }], maxImageInputs: 1 }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const updated = response.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(updated.stack).toHaveLength(0);
+      expect(updated.outputText).toBe(node.manifest.text);
+      expect(updated.conversation.messages).toMatchObject([
+        { role: "user", content: [{ type: "text", text: "Hello" }, { type: "image" }] },
+        { role: "assistant", content: [{ type: "text", text: "Assistant answer" }], model: { modelId: "text.default", providerId: "auto" } }
+      ]);
+      expect(JSON.parse(await readFile(join(libraryPath, node.canvas.nodePath, "conversation.json"), "utf8")).messages).toHaveLength(2);
+      expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
+        nodes: [expect.objectContaining({ type: "ai.text", params: expect.objectContaining({ prompt: "USER:\nHello\n@image 1", images: [expect.objectContaining({ mimeType: "image/png" })] }) })]
+      }));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("resolves text input chips before saving dialogue turns and messages", async () => {
+    const app = await testServer();
+    try {
+      const sourceCreated = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const sourceNode = sourceCreated.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/text-nodes/${sourceNode.manifest.id}`,
+        payload: { text: "Resolved upstream text" }
+      });
+      const targetCreated = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 500, y: 100, width: 320, height: 180 }
+      });
+      const targetNode = targetCreated.json().nodes.find((entry: { manifest: { type: string; id: string } }) => entry.manifest.type === "text" && entry.manifest.id !== sourceNode.manifest.id);
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_text_dialogue", fromNodeId: sourceNode.manifest.id, toNodeId: targetNode.manifest.id }] }
+      });
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: { generate: { status: "succeeded", output: { text: "Assistant answer" } } }
+      });
+
+      const turn = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${targetNode.manifest.id}/conversation/turn`,
+        payload: {
+          modelId: "text.default",
+          prompt: `Use [[text:${sourceNode.manifest.id}]]`,
+          executionProvider: "auto",
+          inputNodeIds: [sourceNode.manifest.id]
+        }
+      });
+      expect(turn.statusCode).toBe(200);
+      let updated = turn.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === targetNode.manifest.id);
+      expect(updated.conversation.messages[0].content[0].text).toBe("Use Resolved upstream text");
+      expect(updated.conversation.messages[0].content[0].text).not.toContain("[[text:");
+      expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
+        nodes: [expect.objectContaining({ type: "ai.text", params: expect.objectContaining({ prompt: "USER:\nUse Resolved upstream text" }) })]
+      }));
+
+      const message = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${targetNode.manifest.id}/conversation/message`,
+        payload: { role: "user", content: `Note [[text:${sourceNode.manifest.id}]]` }
+      });
+      expect(message.statusCode).toBe(200);
+      updated = message.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === targetNode.manifest.id);
+      expect(updated.conversation.messages.at(-1).content[0].text).toBe("Note Resolved upstream text");
+      expect(updated.conversation.messages.at(-1).content[0].text).not.toContain("[[text:");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("copies dialogue image attachments into node content with relative paths", async () => {
+    const app = await testServer();
+    try {
+      const image = await importNode(app, "Dialogue source.png");
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      const canvas = (await app.inject({ method: "GET", url: "/api/libraries/current/canvas" })).json();
+      await app.inject({
+        method: "PUT",
+        url: "/api/libraries/current/canvas",
+        payload: { ...canvas, edges: [{ id: "edge_dialogue_image", fromNodeId: image.manifest.id, toNodeId: node.manifest.id }] }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/conversation/message`,
+        payload: { role: "user", content: "Look", attachments: [{ nodeId: image.manifest.id, alt: "source" }] }
+      });
+
+      expect(response.statusCode).toBe(200);
+      const updated = response.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      const imagePart = updated.conversation.messages[0].content.find((part: { type: string }) => part.type === "image");
+      expect(imagePart.file).toMatch(/^content\/att_/);
+      expect(imagePart.file).not.toContain(libraryPath);
+      await expect(readFile(join(libraryPath, node.canvas.nodePath, imagePart.file))).resolves.toBeInstanceOf(Buffer);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("uses the existing text stack endpoint for dialogue excerpts", async () => {
+    const app = await testServer();
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/stack`,
+        payload: { text: "Selected dialogue excerpt" }
+      });
+      const updated = response.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id);
+      expect(updated.activeStackItem.text).toBe("Selected dialogue excerpt");
+      expect(updated.outputText).toBe("Selected dialogue excerpt");
     } finally {
       await app.close();
     }
@@ -936,6 +1403,37 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("renames collection nodes together with their folder path", async () => {
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Reference.png");
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "collection", x: 700, y: 450, width: 360, height: 280, connectFromNodeId: source.manifest.id }
+      });
+      expect(created.statusCode).toBe(200);
+      const collection = created.json().nodes.find((node: { manifest: { type: string } }) => node.manifest.type === "collection");
+      expect(collection.manifest.title).toBe("Collection");
+      expect(collection.canvas.nodePath).toBe("nodes/Collection.node");
+
+      const response = await app.inject({
+        method: "PUT",
+        url: `/api/libraries/current/nodes/${collection.manifest.id}/title`,
+        payload: { title: "Итог" }
+      });
+      expect(response.statusCode).toBe(200);
+      const renamed = response.json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === collection.manifest.id);
+      expect(renamed.manifest.title).toBe("Итог");
+      expect(renamed.canvas.nodePath).toBe("nodes/Итог.node");
+      await expect(readFile(join(libraryPath, "nodes", "Collection.node", "snark.node.json"), "utf8")).rejects.toThrow();
+      await expect(readFile(join(libraryPath, "nodes", "Итог.node", "snark.node.json"), "utf8")).resolves.toContain("\"title\": \"Итог\"");
+      await expect(readdir(join(libraryPath, "nodes", "Итог.node", "content"))).resolves.toHaveLength(1);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("downloads a generated remote image into the node stack and does not send its current image as input", async () => {
     const app = await testServer();
     try {
@@ -974,6 +1472,174 @@ describe("SnarkRoute libraries", () => {
       await app.close();
     }
   });
+
+  it("runs a pose canvas action provider exactly once across prepare and complete", async () => {
+    await writeCanvasActionManifest(libraryPath, poseCanvasActionManifest());
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Panorama.png");
+      const target = await importNode(app, "Panorama target.png");
+      let providerRuns = 0;
+      let providerOutput: unknown;
+      executeRouteMock.mockImplementation(async (route: { nodes: Array<{ id: string }>; edges: Array<{ from: string; to: string; fromPort?: string; toPort?: string }> }, options?: { initialNodeOutputs?: Record<string, unknown> }) => {
+        const seeded = options?.initialNodeOutputs ?? {};
+        const nodeResults: Record<string, { status: "succeeded"; output: unknown }> = {};
+        for (const node of route.nodes) {
+          if (Object.prototype.hasOwnProperty.call(seeded, node.id)) nodeResults[node.id] = { status: "succeeded", output: seeded[node.id] };
+          else if (node.id === "provider") {
+            providerRuns += 1;
+            const inputId = route.edges.find((edge) => edge.to === "provider")?.from ?? "";
+            providerOutput = { image: (nodeResults[inputId]?.output as { value?: unknown })?.value };
+            nodeResults.provider = { status: "succeeded", output: providerOutput };
+          } else if (node.id === "pause") nodeResults.pause = { status: "succeeded", output: providerOutput };
+          else if (node.id === "downstream") nodeResults.downstream = { status: "succeeded", output: providerOutput };
+        }
+        return { status: "succeeded", nodeResults };
+      });
+
+      const prepared = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "prepare" } });
+      expect(prepared.statusCode).toBe(200);
+      expect(executeRouteMock.mock.calls[0][0].nodes.map((node: { id: string }) => node.id)).toEqual(["action__input__image", "provider"]);
+      expect(providerRuns).toBe(1);
+
+      const completed = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`,
+        payload: { phase: "complete", continuationId: prepared.json().continuationId, targetNodeId: target.manifest.id, params: { "pause.yawDegrees": 30, "pause.pitchDegrees": -10, "pause.fovDegrees": 70 } }
+      });
+      expect(completed.statusCode, completed.body).toBe(200);
+      expect(executeRouteMock.mock.calls[1][1].initialNodeOutputs).toHaveProperty("provider");
+      expect(providerRuns).toBe(1);
+
+      const edgePrepared = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`,
+        payload: { phase: "prepare", reuse: true }
+      });
+      expect(edgePrepared.statusCode, edgePrepared.body).toBe(200);
+      const edgeCompleted = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`,
+        payload: { phase: "complete", continuationId: edgePrepared.json().continuationId, targetNodeId: target.manifest.id, params: { "pause.yawDegrees": 30, "pause.pitchDegrees": -10, "pause.fovDegrees": 70 } }
+      });
+      expect(edgeCompleted.statusCode, edgeCompleted.body).toBe(200);
+      expect(providerRuns).toBe(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("completes a panorama pause action with pose and ordinary parameters", async () => {
+    await writeCanvasActionManifest(libraryPath, panoramaCanvasActionManifest());
+    const executor = createExecutor();
+    registerBuiltInNodeRunners(executor);
+    let providerRuns = 0;
+    let renderedView: unknown;
+    let downstreamStrength: unknown;
+    let lastRunResult: unknown;
+    executor.registerNodeRunner("test.counting-provider", ({ inputs }) => {
+      providerRuns += 1;
+      return { output: { image: inputs.image } };
+    });
+    executor.registerNodeRunner("test.downstream", ({ params, inputs }) => {
+      renderedView = inputs.image;
+      downstreamStrength = params.strength;
+      return { output: { image: inputs.image } };
+    });
+    executeRouteMock.mockImplementation(async (route, options) => {
+      lastRunResult = await executor.executeRoute(route, options);
+      return lastRunResult;
+    });
+
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Panorama cycle.png");
+      const prepared = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.panorama-cycle/run`, payload: { phase: "prepare" } });
+      expect(prepared.statusCode).toBe(200);
+
+      const completed = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.panorama-cycle/run`,
+        payload: { phase: "complete", continuationId: prepared.json().continuationId, params: { "viewer.yaw": 30, "viewer.pitch": -10, "viewer.fov": 70, "downstream.strength": 0.65 } }
+      });
+
+      expect(completed.statusCode, completed.body).toBe(200);
+      expect(completed.json().nodes.length).toBeGreaterThan(1);
+      expect(providerRuns).toBe(1);
+      expect(renderedView).toMatchObject({ width: 1, height: 1 });
+      expect(downstreamStrength).toBe(0.65);
+      expect((lastRunResult as { nodeResults?: { viewer?: { output?: { view?: unknown } } } }).nodeResults?.viewer?.output?.view).toEqual({ yaw: 30, pitch: -10, fov: 70 });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("uses preview source.pause without pose bindings", async () => {
+    const manifest = poseCanvasActionManifest();
+    manifest.params = [];
+    manifest.canvasAction = { enabled: true, dialog: { enabled: true, params: [], preview: [{ kind: "panorama360", source: { pause: "pause" } }] } };
+    await writeCanvasActionManifest(libraryPath, manifest);
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Pause panorama.png");
+      executeRouteMock.mockResolvedValue({ status: "succeeded", nodeResults: { action__input__image: { status: "succeeded", output: {} }, provider: { status: "succeeded", output: { image: "https://example.test/panorama.jpg" } } } });
+      const prepared = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "prepare" } });
+      expect(prepared.statusCode).toBe(200);
+      expect(executeRouteMock.mock.calls[0][0].nodes.map((node: { id: string }) => node.id)).toEqual(["action__input__image", "provider"]);
+      expect(prepared.json().previews).toEqual([{ kind: "panorama360", src: "https://example.test/panorama.jpg" }]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns 410 for an expired canvas action continuation", async () => {
+    await writeCanvasActionManifest(libraryPath, poseCanvasActionManifest());
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Expired panorama.png");
+      executeRouteMock.mockResolvedValue({ status: "succeeded", nodeResults: { action__input__image: { status: "succeeded", output: {} }, provider: { status: "succeeded", output: { image: "https://example.test/panorama.jpg" } } } });
+      const prepared = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "prepare" } });
+      vi.setSystemTime(Date.now() + 16 * 60 * 1000);
+      const completed = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "complete", continuationId: prepared.json().continuationId } });
+      expect(completed.statusCode).toBe(410);
+      expect(completed.json().error).toMatch(/expired/i);
+    } finally {
+      vi.useRealTimers();
+      await app.close();
+    }
+  });
+
+  it("returns the failed node detail while completing a canvas action", async () => {
+    await writeCanvasActionManifest(libraryPath, poseCanvasActionManifest());
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Failed panorama.png");
+      executeRouteMock
+        .mockResolvedValueOnce({ status: "succeeded", nodeResults: { action__input__image: { status: "succeeded", output: {} }, provider: { status: "succeeded", output: { image: "https://example.test/panorama.jpg" } } } })
+        .mockResolvedValueOnce({ status: "failed", nodeResults: { downstream: { status: "failed", error: "Upscaler timed out after 30 seconds." } }, logs: [] });
+      const prepared = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "prepare" } });
+      const completed = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.pose/run`, payload: { phase: "complete", continuationId: prepared.json().continuationId } });
+      expect(completed.statusCode).toBe(400);
+      expect(completed.json().error).toContain("Upscaler timed out after 30 seconds.");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("keeps canvas actions without a phase on the legacy immediate-run route", async () => {
+    await writeCanvasActionManifest(libraryPath, { ...poseCanvasActionManifest(), id: "test.legacy", canvasAction: { enabled: true } });
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Legacy action.png");
+      executeRouteMock.mockResolvedValue({ status: "succeeded", nodeResults: { action: { status: "succeeded", output: { image: { localPath: join(libraryPath, source.canvas.nodePath, source.manifest.stack[0].file) } } } } });
+      const response = await app.inject({ method: "POST", url: `/api/libraries/current/nodes/${source.manifest.id}/canvas-actions/test.legacy/run`, payload: { targetNodeId: source.manifest.id } });
+      expect(response.statusCode).toBe(200);
+      expect(executeRouteMock.mock.calls[0][0].nodes.map((node: { id: string }) => node.id)).toEqual(["source", "action"]);
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 async function testServer() {
@@ -997,3 +1663,46 @@ async function importNode(app: Awaited<ReturnType<typeof testServer>>, filename:
 
 const onePixelPngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 const sampleVideoBase64 = "AAECAwQ=";
+
+async function writeCanvasActionManifest(libraryPath: string, manifest: Record<string, unknown>) {
+  const directory = join(libraryPath, ".test-canvas-actions", String(manifest.id));
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest));
+}
+
+function poseCanvasActionManifest() {
+  return {
+    kind: "snarkroute.node", schemaVersion: "0.1", id: "test.pose", title: "Pose action", version: "0.1.0", author: { name: "Test" }, license: "UNLICENSED", origin: "generated",
+    permissions: { network: false, readFiles: false, writeOutputs: false, shell: false, env: [] }, executor: { type: "declarative" },
+    inputs: [{ id: "image", type: "image" }], outputs: [{ id: "image", type: "image" }],
+    params: [
+      { id: "pause.yawDegrees", type: "number", binding: { nodeId: "pause", paramId: "yawDegrees" } },
+      { id: "pause.pitchDegrees", type: "number", binding: { nodeId: "pause", paramId: "pitchDegrees" } },
+      { id: "pause.fovDegrees", type: "number", binding: { nodeId: "pause", paramId: "fovDegrees" } }
+    ],
+    canvasAction: { enabled: true, poseBindings: { yaw: "pause.yawDegrees", pitch: "pause.pitchDegrees", fov: "pause.fovDegrees" }, dialog: { enabled: true, params: ["pause.yawDegrees", "pause.pitchDegrees", "pause.fovDegrees"], preview: [{ kind: "panorama360", source: { output: "image" } }] } },
+    generatedWith: {
+      kind: "compound.subroute", compound: { inputs: [{ id: "image", nodeId: "provider", port: "image" }], outputs: [{ id: "image", nodeId: "downstream", port: "image" }] },
+      subroute: { routeVersion: "0.1", route: { id: "pose", title: "Pose", author: { name: "Test" } }, nodes: [{ id: "provider", type: "test.provider" }, { id: "pause", type: "transform.panorama360ToFisheye" }, { id: "downstream", type: "test.downstream" }], edges: [{ from: "provider", to: "pause", fromPort: "image", toPort: "image" }, { from: "pause", to: "downstream", fromPort: "image", toPort: "image" }] }
+    }
+  };
+}
+
+function panoramaCanvasActionManifest() {
+  return {
+    kind: "snarkroute.node", schemaVersion: "0.1", id: "test.panorama-cycle", title: "Panorama cycle", version: "0.1.0", author: { name: "Test" }, license: "UNLICENSED", origin: "generated",
+    permissions: { network: false, readFiles: true, writeOutputs: true, shell: false, env: [] }, executor: { type: "declarative" },
+    inputs: [{ id: "image", type: "image" }], outputs: [{ id: "image", type: "image" }],
+    params: [
+      { id: "viewer.yaw", type: "number", binding: { nodeId: "viewer", paramId: "yaw" } },
+      { id: "viewer.pitch", type: "number", binding: { nodeId: "viewer", paramId: "pitch" } },
+      { id: "viewer.fov", type: "number", binding: { nodeId: "viewer", paramId: "fov" } },
+      { id: "downstream.strength", type: "number", binding: { nodeId: "downstream", paramId: "strength" } }
+    ],
+    canvasAction: { enabled: true, poseBindings: { yaw: "viewer.yaw", pitch: "viewer.pitch", fov: "viewer.fov" }, dialog: { enabled: true, params: ["viewer.yaw", "viewer.pitch", "viewer.fov", "downstream.strength"], preview: [{ kind: "panorama360", source: { pause: "viewer" } }] } },
+    generatedWith: {
+      kind: "compound.subroute", compound: { inputs: [{ id: "image", nodeId: "provider", port: "image" }], outputs: [{ id: "image", nodeId: "downstream", port: "image" }] },
+      subroute: { routeVersion: "0.1", route: { id: "panorama-cycle", title: "Panorama cycle", author: { name: "Test" } }, nodes: [{ id: "provider", type: "test.counting-provider" }, { id: "viewer", type: "preview.panorama360" }, { id: "downstream", type: "test.downstream" }], edges: [{ from: "provider", to: "viewer", fromPort: "image", toPort: "image" }, { from: "viewer", to: "downstream", fromPort: "image", toPort: "image" }] }
+    }
+  };
+}

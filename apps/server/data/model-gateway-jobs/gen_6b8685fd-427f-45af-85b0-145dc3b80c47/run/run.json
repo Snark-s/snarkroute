@@ -1,0 +1,384 @@
+{
+  "runId": "gen_6b8685fd-427f-45af-85b0-145dc3b80c47",
+  "status": "succeeded",
+  "startedAt": "2026-07-17T12:54:36.619Z",
+  "completedAt": "2026-07-17T12:55:47.589Z",
+  "nodeResults": {
+    "generate": {
+      "nodeId": "generate",
+      "type": "polza.video.generate",
+      "status": "succeeded",
+      "output": {
+        "video": {
+          "localPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\model-gateway-jobs\\gen_6b8685fd-427f-45af-85b0-145dc3b80c47\\run\\assets\\generate-1784292947582.mp4",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\model-gateway-jobs\\gen_6b8685fd-427f-45af-85b0-145dc3b80c47\\run\\assets\\generate-1784292947582.mp4",
+          "filename": "generate-1784292947582.mp4",
+          "mimeType": "video/mp4",
+          "sizeBytes": 2730489,
+          "sourceNodeId": "generate",
+          "model": "wan/2.5",
+          "originalUrl": "https://s3.polza.ai/f/216543/2026/07/t_9e2dcc56a7ad88b5.mp4"
+        },
+        "output": {
+          "id": "gen_2189380029286977537",
+          "object": "media.generation",
+          "status": "completed",
+          "created": 1784292943,
+          "model": "wan/2.5",
+          "data": {
+            "url": "https://s3.polza.ai/f/216543/2026/07/t_9e2dcc56a7ad88b5.mp4"
+          },
+          "usage": {
+            "output_units": 1,
+            "cost_rub": 45,
+            "cost": 45
+          }
+        },
+        "request": {
+          "model": "wan/2.5",
+          "input": {
+            "prompt": "Робот встает со стула",
+            "resolution": "720p",
+            "duration": "5",
+            "multi_shots": "false",
+            "images": [
+              {
+                "type": "base64",
+                "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAeAAAAHgCAYAAAB91L6VAAAHZElEQVR4nO3VMQHAIBDAwFIj718luCADdwqyZc3M/gCAq/46AABeZMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgIABA0DAgAEgYMAAEDBgAAgYMAAEDBgAAgYMAAEDBoCAAQNAwIABIGDAABAwYAAIGDAABAwYAAIGDAABAwaAgAEDQMCAASBgwAAQMGAACBgwAAQMGAACBgwAAQMGgMABiTgFHIWSbTUAAAAASUVORK5CYII="
+              }
+            ]
+          },
+          "async": true
+        },
+        "provider": "polza",
+        "model": "wan/2.5",
+        "providerModel": "wan/2.5",
+        "estimatedCost": null,
+        "estimatedCostCurrency": null,
+        "estimatedCostConfidence": "unknown",
+        "actualUsage": {
+          "output_units": 1,
+          "cost_rub": 45,
+          "cost": 45
+        },
+        "actualCost": null,
+        "actualCostCurrency": "unknown",
+        "pricingSource": "polza_catalog",
+        "pricingQuote": {
+          "provider": "polza",
+          "providerModel": "wan/2.5",
+          "capability": "video.generate",
+          "estimatedCost": null,
+          "currency": null,
+          "pricingSource": "polza_catalog",
+          "confidence": "unknown",
+          "unit": "unknown",
+          "warnings": [
+            "No pricing metadata is available for this model."
+          ]
+        },
+        "inputImageCount": 1,
+        "localPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\model-gateway-jobs\\gen_6b8685fd-427f-45af-85b0-145dc3b80c47\\run\\assets\\generate-1784292947582.mp4",
+        "originalUrl": "https://s3.polza.ai/f/216543/2026/07/t_9e2dcc56a7ad88b5.mp4",
+        "status": "succeeded"
+      },
+      "logs": [
+        "Generated Polza video with wan/2.5: Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\model-gateway-jobs\\gen_6b8685fd-427f-45af-85b0-145dc3b80c47\\run\\assets\\generate-1784292947582.mp4",
+        "Polza provider returned cost without an authoritative currency; using route estimate for credit capture."
+      ],
+      "provenance": {
+        "provider": "polza",
+        "model": "wan/2.5"
+      },
+      "costEstimate": {
+        "nodeId": "generate",
+        "nodeType": "polza.video.generate",
+        "estimatedCredits": 8,
+        "estimatedProviderCostAmount": null,
+        "providerCostCurrency": null,
+        "usageUnits": {
+          "requestCount": 1,
+          "videoSeconds": 5
+        },
+        "provider": "polza",
+        "model": "wan/2.5",
+        "operation": "video.generate",
+        "free": false,
+        "baseCostMicrousd": 80000,
+        "baseCredits": 8,
+        "globalMarkupPercent": 0,
+        "globalMarkupCredits": 0,
+        "nodeMarkupPercent": 0,
+        "nodeMarkupCredits": 0,
+        "markupCredits": 0,
+        "finalCredits": 8,
+        "maxChargeCredits": 8,
+        "pricingSource": "fallback_estimate",
+        "pricingConfidence": "low",
+        "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+        "fallback": true,
+        "pricingBreakdown": {
+          "nodeId": "generate",
+          "nodeType": "polza.video.generate",
+          "provider": "polza",
+          "operation": "video.generate",
+          "model": "wan/2.5",
+          "free": false,
+          "providerCostMicrousd": 80000,
+          "baseCostMicrousd": 80000,
+          "baseCredits": 8,
+          "globalMarkupPercent": 0,
+          "globalMarkupCredits": 0,
+          "nodeMarkupPercent": 0,
+          "nodeMarkupCredits": 0,
+          "markupCredits": 0,
+          "finalCredits": 8,
+          "maxChargeCredits": 8,
+          "pricingSource": "fallback_estimate",
+          "pricingConfidence": "low",
+          "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+          "fallback": true,
+          "source": "fallback_estimate",
+          "notes": "Fallback estimate; replace with provider pricing catalog or actual billing metadata."
+        },
+        "usageSource": "estimated"
+      },
+      "actualUsage": {
+        "requestCount": 1
+      },
+      "actualCredits": 8,
+      "actualProviderCostAmount": null,
+      "actualProviderCostCurrency": "unknown",
+      "usageSource": "catalog_estimate",
+      "providerUsage": [
+        {
+          "provider": "polza",
+          "model": "wan/2.5",
+          "providerModel": "wan/2.5",
+          "nodeId": "generate",
+          "nodeType": "polza.video.generate",
+          "status": "succeeded",
+          "metrics": {
+            "output_units": 1,
+            "cost_rub": 45,
+            "cost": 45
+          },
+          "estimatedCost": null,
+          "actualCost": null,
+          "actualCostCurrency": "unknown",
+          "pricingHint": "polza_catalog",
+          "pricingSource": "polza_catalog",
+          "pricingQuote": {
+            "provider": "polza",
+            "providerModel": "wan/2.5",
+            "capability": "video.generate",
+            "estimatedCost": null,
+            "currency": null,
+            "pricingSource": "polza_catalog",
+            "confidence": "unknown",
+            "unit": "unknown",
+            "warnings": [
+              "No pricing metadata is available for this model."
+            ]
+          }
+        }
+      ],
+      "startedAt": "2026-07-17T12:54:36.619Z",
+      "completedAt": "2026-07-17T12:55:47.589Z"
+    }
+  },
+  "logs": [
+    {
+      "timestamp": "2026-07-17T12:54:36.619Z",
+      "message": "Starting generate",
+      "nodeId": "generate"
+    },
+    {
+      "timestamp": "2026-07-17T12:55:47.589Z",
+      "message": "Generated Polza video with wan/2.5: Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\model-gateway-jobs\\gen_6b8685fd-427f-45af-85b0-145dc3b80c47\\run\\assets\\generate-1784292947582.mp4",
+      "nodeId": "generate"
+    },
+    {
+      "timestamp": "2026-07-17T12:55:47.589Z",
+      "message": "Polza provider returned cost without an authoritative currency; using route estimate for credit capture.",
+      "nodeId": "generate"
+    },
+    {
+      "timestamp": "2026-07-17T12:55:47.589Z",
+      "message": "Completed generate",
+      "nodeId": "generate"
+    }
+  ],
+  "provenance": {
+    "routeId": "after-effects-gen_6b8685fd-427f-45af-85b0-145dc3b80c47",
+    "routeVersion": "0.1",
+    "tool": "snarkroute",
+    "sourceProvenance": {}
+  },
+  "economics": {
+    "mode": "disabled",
+    "paymentExecuted": false,
+    "routeId": "after-effects-gen_6b8685fd-427f-45af-85b0-145dc3b80c47",
+    "routeTitle": "After Effects Video Generation",
+    "routeAuthor": {
+      "name": "SnarkRoute After Effects"
+    },
+    "providersUsed": [
+      {
+        "provider": "polza",
+        "model": "wan/2.5",
+        "providerModel": "wan/2.5",
+        "nodeId": "generate",
+        "nodeType": "polza.video.generate",
+        "status": "succeeded",
+        "metrics": {
+          "output_units": 1,
+          "cost_rub": 45,
+          "cost": 45
+        },
+        "estimatedCost": null,
+        "actualCost": null,
+        "actualCostCurrency": "unknown",
+        "pricingHint": "polza_catalog",
+        "pricingSource": "polza_catalog",
+        "pricingQuote": {
+          "provider": "polza",
+          "providerModel": "wan/2.5",
+          "capability": "video.generate",
+          "estimatedCost": null,
+          "currency": null,
+          "pricingSource": "polza_catalog",
+          "confidence": "unknown",
+          "unit": "unknown",
+          "warnings": [
+            "No pricing metadata is available for this model."
+          ]
+        }
+      }
+    ],
+    "costSummary": {
+      "estimatedProviderCost": null,
+      "actualProviderCost": null,
+      "notes": "No payment executed. Provider actual cost may be unknown."
+    },
+    "warnings": []
+  },
+  "costSummary": {
+    "estimates": [
+      {
+        "nodeId": "generate",
+        "nodeType": "polza.video.generate",
+        "estimatedCredits": 8,
+        "estimatedProviderCostAmount": null,
+        "providerCostCurrency": null,
+        "usageUnits": {
+          "requestCount": 1,
+          "videoSeconds": 5
+        },
+        "provider": "polza",
+        "model": "wan/2.5",
+        "operation": "video.generate",
+        "free": false,
+        "baseCostMicrousd": 80000,
+        "baseCredits": 8,
+        "globalMarkupPercent": 0,
+        "globalMarkupCredits": 0,
+        "nodeMarkupPercent": 0,
+        "nodeMarkupCredits": 0,
+        "markupCredits": 0,
+        "finalCredits": 8,
+        "maxChargeCredits": 8,
+        "pricingSource": "fallback_estimate",
+        "pricingConfidence": "low",
+        "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+        "fallback": true,
+        "pricingBreakdown": {
+          "nodeId": "generate",
+          "nodeType": "polza.video.generate",
+          "provider": "polza",
+          "operation": "video.generate",
+          "model": "wan/2.5",
+          "free": false,
+          "providerCostMicrousd": 80000,
+          "baseCostMicrousd": 80000,
+          "baseCredits": 8,
+          "globalMarkupPercent": 0,
+          "globalMarkupCredits": 0,
+          "nodeMarkupPercent": 0,
+          "nodeMarkupCredits": 0,
+          "markupCredits": 0,
+          "finalCredits": 8,
+          "maxChargeCredits": 8,
+          "pricingSource": "fallback_estimate",
+          "pricingConfidence": "low",
+          "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+          "fallback": true,
+          "source": "fallback_estimate",
+          "notes": "Fallback estimate; replace with provider pricing catalog or actual billing metadata."
+        },
+        "usageSource": "estimated"
+      }
+    ],
+    "actuals": [
+      {
+        "nodeId": "generate",
+        "nodeType": "polza.video.generate",
+        "estimatedCredits": 8,
+        "estimatedProviderCostAmount": null,
+        "providerCostCurrency": null,
+        "usageUnits": {
+          "requestCount": 1
+        },
+        "provider": "polza",
+        "model": "wan/2.5",
+        "operation": "video.generate",
+        "free": false,
+        "baseCostMicrousd": 80000,
+        "baseCredits": 8,
+        "globalMarkupPercent": 0,
+        "globalMarkupCredits": 0,
+        "nodeMarkupPercent": 0,
+        "nodeMarkupCredits": 0,
+        "markupCredits": 0,
+        "finalCredits": 8,
+        "maxChargeCredits": 8,
+        "pricingSource": "fallback_estimate",
+        "pricingConfidence": "low",
+        "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+        "fallback": true,
+        "pricingBreakdown": {
+          "nodeId": "generate",
+          "nodeType": "polza.video.generate",
+          "provider": "polza",
+          "operation": "video.generate",
+          "model": "wan/2.5",
+          "free": false,
+          "providerCostMicrousd": 80000,
+          "baseCostMicrousd": 80000,
+          "baseCredits": 8,
+          "globalMarkupPercent": 0,
+          "globalMarkupCredits": 0,
+          "nodeMarkupPercent": 0,
+          "nodeMarkupCredits": 0,
+          "markupCredits": 0,
+          "finalCredits": 8,
+          "maxChargeCredits": 8,
+          "pricingSource": "fallback_estimate",
+          "pricingConfidence": "low",
+          "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+          "fallback": true,
+          "source": "fallback_estimate",
+          "notes": "Fallback estimate; replace with provider pricing catalog or actual billing metadata."
+        },
+        "usageSource": "catalog_estimate",
+        "actualCredits": 8,
+        "actualProviderCostAmount": null,
+        "actualProviderCostCurrency": "unknown"
+      }
+    ],
+    "totalEstimatedCredits": 8,
+    "totalActualCredits": 8,
+    "refundedCredits": 0
+  },
+  "outputDirectory": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\model-gateway-jobs\\gen_6b8685fd-427f-45af-85b0-145dc3b80c47\\run"
+}

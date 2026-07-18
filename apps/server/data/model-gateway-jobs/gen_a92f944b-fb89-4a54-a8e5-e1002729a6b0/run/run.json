@@ -1,0 +1,226 @@
+{
+  "runId": "gen_a92f944b-fb89-4a54-a8e5-e1002729a6b0",
+  "status": "failed",
+  "startedAt": "2026-07-17T12:52:10.493Z",
+  "completedAt": "2026-07-17T12:52:44.639Z",
+  "nodeResults": {
+    "generate": {
+      "nodeId": "generate",
+      "type": "polza.video.generate",
+      "status": "failed",
+      "error": "Polza.ai is unreachable at https://polza.ai/api. Check internet access, proxy/VPN/firewall settings, DNS, or POLZA_BASE_URL. Details: UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error (attempted address: polza.ai:443, timeout: 10000ms): fetch failed. No credits were charged.",
+      "logs": [
+        "Polza.ai is unreachable at https://polza.ai/api. Check internet access, proxy/VPN/firewall settings, DNS, or POLZA_BASE_URL. Details: UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error (attempted address: polza.ai:443, timeout: 10000ms): fetch failed. No credits were charged."
+      ],
+      "costEstimate": {
+        "nodeId": "generate",
+        "nodeType": "polza.video.generate",
+        "estimatedCredits": 8,
+        "estimatedProviderCostAmount": null,
+        "providerCostCurrency": null,
+        "usageUnits": {
+          "requestCount": 1,
+          "videoSeconds": 5
+        },
+        "provider": "polza",
+        "model": "wan/2.5",
+        "operation": "video.generate",
+        "free": false,
+        "baseCostMicrousd": 80000,
+        "baseCredits": 8,
+        "globalMarkupPercent": 0,
+        "globalMarkupCredits": 0,
+        "nodeMarkupPercent": 0,
+        "nodeMarkupCredits": 0,
+        "markupCredits": 0,
+        "finalCredits": 8,
+        "maxChargeCredits": 8,
+        "pricingSource": "fallback_estimate",
+        "pricingConfidence": "low",
+        "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+        "fallback": true,
+        "pricingBreakdown": {
+          "nodeId": "generate",
+          "nodeType": "polza.video.generate",
+          "provider": "polza",
+          "operation": "video.generate",
+          "model": "wan/2.5",
+          "free": false,
+          "providerCostMicrousd": 80000,
+          "baseCostMicrousd": 80000,
+          "baseCredits": 8,
+          "globalMarkupPercent": 0,
+          "globalMarkupCredits": 0,
+          "nodeMarkupPercent": 0,
+          "nodeMarkupCredits": 0,
+          "markupCredits": 0,
+          "finalCredits": 8,
+          "maxChargeCredits": 8,
+          "pricingSource": "fallback_estimate",
+          "pricingConfidence": "low",
+          "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+          "fallback": true,
+          "source": "fallback_estimate",
+          "notes": "Fallback estimate; replace with provider pricing catalog or actual billing metadata."
+        },
+        "usageSource": "estimated"
+      },
+      "actualUsage": {
+        "requestCount": 0
+      },
+      "actualCredits": 0,
+      "actualProviderCostAmount": 0,
+      "actualProviderCostCurrency": null,
+      "usageSource": "provider",
+      "startedAt": "2026-07-17T12:52:10.495Z",
+      "completedAt": "2026-07-17T12:52:44.639Z"
+    }
+  },
+  "logs": [
+    {
+      "timestamp": "2026-07-17T12:52:10.495Z",
+      "message": "Starting generate",
+      "nodeId": "generate"
+    }
+  ],
+  "provenance": {
+    "routeId": "after-effects-gen_a92f944b-fb89-4a54-a8e5-e1002729a6b0",
+    "routeVersion": "0.1",
+    "tool": "snarkroute",
+    "sourceProvenance": {}
+  },
+  "economics": {
+    "mode": "disabled",
+    "paymentExecuted": false,
+    "routeId": "after-effects-gen_a92f944b-fb89-4a54-a8e5-e1002729a6b0",
+    "routeTitle": "After Effects Video Generation",
+    "routeAuthor": {
+      "name": "SnarkRoute After Effects"
+    },
+    "providersUsed": [],
+    "costSummary": {
+      "estimatedProviderCost": null,
+      "actualProviderCost": null,
+      "notes": "No payment executed. Provider actual cost may be unknown."
+    },
+    "warnings": []
+  },
+  "costSummary": {
+    "estimates": [
+      {
+        "nodeId": "generate",
+        "nodeType": "polza.video.generate",
+        "estimatedCredits": 8,
+        "estimatedProviderCostAmount": null,
+        "providerCostCurrency": null,
+        "usageUnits": {
+          "requestCount": 1,
+          "videoSeconds": 5
+        },
+        "provider": "polza",
+        "model": "wan/2.5",
+        "operation": "video.generate",
+        "free": false,
+        "baseCostMicrousd": 80000,
+        "baseCredits": 8,
+        "globalMarkupPercent": 0,
+        "globalMarkupCredits": 0,
+        "nodeMarkupPercent": 0,
+        "nodeMarkupCredits": 0,
+        "markupCredits": 0,
+        "finalCredits": 8,
+        "maxChargeCredits": 8,
+        "pricingSource": "fallback_estimate",
+        "pricingConfidence": "low",
+        "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+        "fallback": true,
+        "pricingBreakdown": {
+          "nodeId": "generate",
+          "nodeType": "polza.video.generate",
+          "provider": "polza",
+          "operation": "video.generate",
+          "model": "wan/2.5",
+          "free": false,
+          "providerCostMicrousd": 80000,
+          "baseCostMicrousd": 80000,
+          "baseCredits": 8,
+          "globalMarkupPercent": 0,
+          "globalMarkupCredits": 0,
+          "nodeMarkupPercent": 0,
+          "nodeMarkupCredits": 0,
+          "markupCredits": 0,
+          "finalCredits": 8,
+          "maxChargeCredits": 8,
+          "pricingSource": "fallback_estimate",
+          "pricingConfidence": "low",
+          "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+          "fallback": true,
+          "source": "fallback_estimate",
+          "notes": "Fallback estimate; replace with provider pricing catalog or actual billing metadata."
+        },
+        "usageSource": "estimated"
+      }
+    ],
+    "actuals": [
+      {
+        "nodeId": "generate",
+        "nodeType": "polza.video.generate",
+        "estimatedCredits": 8,
+        "estimatedProviderCostAmount": null,
+        "providerCostCurrency": null,
+        "usageUnits": {
+          "requestCount": 0
+        },
+        "provider": "polza",
+        "model": "wan/2.5",
+        "operation": "video.generate",
+        "free": false,
+        "baseCostMicrousd": 80000,
+        "baseCredits": 8,
+        "globalMarkupPercent": 0,
+        "globalMarkupCredits": 0,
+        "nodeMarkupPercent": 0,
+        "nodeMarkupCredits": 0,
+        "markupCredits": 0,
+        "finalCredits": 8,
+        "maxChargeCredits": 8,
+        "pricingSource": "fallback_estimate",
+        "pricingConfidence": "low",
+        "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+        "fallback": true,
+        "pricingBreakdown": {
+          "nodeId": "generate",
+          "nodeType": "polza.video.generate",
+          "provider": "polza",
+          "operation": "video.generate",
+          "model": "wan/2.5",
+          "free": false,
+          "providerCostMicrousd": 80000,
+          "baseCostMicrousd": 80000,
+          "baseCredits": 8,
+          "globalMarkupPercent": 0,
+          "globalMarkupCredits": 0,
+          "nodeMarkupPercent": 0,
+          "nodeMarkupCredits": 0,
+          "markupCredits": 0,
+          "finalCredits": 8,
+          "maxChargeCredits": 8,
+          "pricingSource": "fallback_estimate",
+          "pricingConfidence": "low",
+          "pricingSnapshotId": "fallback:polza:video.generate:wan/2.5",
+          "fallback": true,
+          "source": "fallback_estimate",
+          "notes": "Fallback estimate; replace with provider pricing catalog or actual billing metadata."
+        },
+        "usageSource": "provider",
+        "actualCredits": 0,
+        "actualProviderCostAmount": 0,
+        "actualProviderCostCurrency": null
+      }
+    ],
+    "totalEstimatedCredits": 8,
+    "totalActualCredits": 0,
+    "refundedCredits": 8
+  },
+  "outputDirectory": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\model-gateway-jobs\\gen_a92f944b-fb89-4a54-a8e5-e1002729a6b0\\run"
+}

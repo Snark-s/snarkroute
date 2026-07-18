@@ -189,6 +189,79 @@ dd {
   margin-bottom: 18px;
 }
 
+.buttonSetupPanel {
+  display: grid;
+  gap: 9px;
+  margin-bottom: 16px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.buttonSetupPanel header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.buttonSetupPanel strong {
+  font-size: 12px;
+}
+
+.buttonSetupPanel span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.buttonSetupActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.buttonSetupActions button {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  color: var(--text);
+  background: rgba(4, 10, 12, 0.45);
+  cursor: pointer;
+}
+
+.buttonSetupActions button:hover {
+  border-color: var(--accent);
+}
+
+.brandeshmygButtonIcon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  object-fit: cover;
+  object-position: center;
+}
+
+.buttonSetupActions button:disabled {
+  cursor: wait;
+  opacity: 0.78;
+}
+
+.buttonSetupActions input {
+  display: none;
+}
+
+.buttonSetupMessage {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .modelsPanel {
   display: grid;
   gap: 16px;
@@ -617,6 +690,38 @@ dd {
   cursor: grabbing;
 }
 
+.dialogueFeed,
+.dialogueFeed .dialogueMessageBody {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.dialogueFeed {
+  position: relative;
+  max-height: min(420px, 52vh);
+  overflow-y: auto;
+  scrollbar-color: color-mix(in srgb, var(--accent) 55%, var(--line)) transparent;
+  scrollbar-width: thin;
+}
+
+.dialogueFeed::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dialogueFeed::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background-clip: padding-box;
+}
+
+.dialogueSelectionStack {
+  position: absolute !important;
+  z-index: 2;
+  transform: translateY(-50%);
+  box-shadow: 0 6px 18px var(--shadow);
+}
+
 .canvasBackground-plain {
   background-image: none;
 }
@@ -750,6 +855,214 @@ dd {
   pointer-events: none;
 }
 
+.collectionDock {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.collectionDock.isOpen {
+  height: 140px;
+  padding-top: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 38%, var(--line));
+  background: var(--panel);
+  box-shadow: 0 12px 34px var(--shadow);
+}
+
+.collectionDock.isCollapsed {
+  top: 0;
+  height: 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 44%, var(--line));
+  background: var(--panel);
+  box-shadow: 0 4px 14px var(--shadow);
+}
+
+.collectionDockCells {
+  height: 100%;
+  display: grid;
+  overflow: visible;
+  justify-content: start;
+  gap: 8px;
+}
+
+.collectionDock.isOpen .collectionDockCells,
+.collectionDock.isCollapsed .collectionDockCells {
+  padding-left: 64px;
+}
+
+.collectionDock.isOpen .collectionDockCells {
+  height: calc(100% - 8px);
+}
+
+.collectionDockCell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: auto;
+}
+
+.collectionDock.isOpen .collectionDockCell {
+  height: 100%;
+  max-height: 100%;
+  padding: 28px 8px 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 84%, transparent);
+  border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--panel) 93%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.collectionDock.isOpen .collectionDockCell.isSelected {
+  border-color: #a78bfa;
+  box-shadow: inset 0 0 0 1px #a78bfa;
+}
+
+.collectionDockCell > header {
+  position: absolute;
+  top: 5px;
+  left: 14px;
+  right: 7px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.collectionDockCell > header input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  font-weight: 700;
+}
+
+.collectionDockCell > header span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.collectionDockGrid {
+  min-height: 0;
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  grid-auto-rows: 50px;
+  gap: 4px;
+  overflow: auto;
+}
+
+.collectionDockGrid > p {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.collectionDockItem {
+  min-width: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 34px 14px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  font-size: 8px;
+}
+
+.collectionDockItem img,
+.collectionDockItem video {
+  width: 100%;
+  height: 34px;
+  object-fit: cover;
+}
+
+.collectionDockItem span {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 0 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collectionDock .collectionDockInput {
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+}
+
+.collectionDock.isCollapsed .collectionDockInput {
+  top: 0;
+  clip-path: inset(50% 0 0 0);
+}
+
+.collectionDockMarker {
+  position: absolute;
+  left: 50%;
+  top: 7px;
+  color: #a78bfa;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100% - 54px);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: transparent;
+  white-space: nowrap;
+}
+
+.collectionDockMarker strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
+.collectionDockMarker small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.collectionDockToggle {
+  position: absolute;
+  top: auto;
+  bottom: 10px;
+  left: 17px;
+  right: auto;
+  z-index: 3;
+  width: 28px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 6px;
+  pointer-events: auto;
+  transform: none;
+}
+
+.collectionDock.isCollapsed .collectionDockToggle {
+  left: 15px;
+  top: 0;
+  bottom: auto;
+  width: 32px;
+  height: 14px;
+  border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
+  border-radius: 0 0 5px 5px;
+  background: color-mix(in srgb, var(--panel) 96%, var(--accent) 4%);
+  box-shadow: none;
+}
+
+.collectionDockEmpty {
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  margin-right: 8px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 50%, var(--line));
+  border-radius: 0 0 16px 16px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  pointer-events: none;
+}
+
 .canvasEdges {
   position: absolute;
   left: 0;
@@ -772,6 +1085,25 @@ dd {
 .canvasEdges path.isSelected {
   stroke: color-mix(in srgb, var(--edge-color, var(--accent)) 72%, #fff);
   stroke-width: 4;
+}
+
+.canvasEdges path.isCollectionReference {
+  stroke: color-mix(in srgb, #a78bfa 48%, transparent);
+  stroke-width: 1.25;
+  stroke-dasharray: 5 7;
+  cursor: default;
+  pointer-events: none;
+}
+
+.canvasEdges path.isCollectionInput {
+  stroke: color-mix(in srgb, var(--edge-color, var(--accent)) 82%, #fff 18%);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 1 7;
+}
+
+.canvas.isDraggingCollection .canvasWorld {
+  z-index: 8;
 }
 
 .selectionRect {
@@ -816,6 +1148,7 @@ dd {
 }
 
 .edgeSyncButton {
+  position: relative;
   width: 28px;
   height: 28px;
   display: grid;
@@ -832,6 +1165,25 @@ dd {
 .edgeSyncButton:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.edgeSyncButton:disabled {
+  cursor: wait;
+  opacity: 0.95;
+}
+
+.edgeSyncButton:has(.buttonBusyGears) {
+  border-color: color-mix(in srgb, var(--accent) 82%, #ffffff);
+  background: color-mix(in srgb, var(--canvas) 78%, #000000);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--canvas) 78%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.edgeMissingActionButton {
+  border-color: color-mix(in srgb, #facc15 54%, var(--line));
+  color: #fde68a;
+  font-size: 15px;
+  font-weight: 850;
 }
 
 .edgeNoteBadge {
@@ -862,6 +1214,44 @@ dd {
   pointer-events: auto;
 }
 
+.edgeActionToolbar {
+  justify-self: end;
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 12px 30px var(--shadow);
+}
+
+.edgeActionToolbar button {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 7px;
+  background: color-mix(in srgb, #050806 78%, var(--panel));
+  color: color-mix(in srgb, var(--text) 92%, #ffffff);
+  cursor: pointer;
+}
+
+.edgeActionToolbar button:hover {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  background: color-mix(in srgb, #0b120e 76%, var(--panel-soft));
+  color: #ffffff;
+}
+
+.edgeActionToolbar button:disabled {
+  cursor: wait;
+  opacity: 0.95;
+}
+
 .edgeNoteEditor textarea {
   width: 100%;
   min-height: 84px;
@@ -875,27 +1265,6 @@ dd {
   box-shadow: 0 18px 48px var(--shadow);
   font: 18px/1.35 inherit;
   cursor: text;
-}
-
-.edgeBreakButton {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  justify-self: end;
-  padding: 0;
-  border: 1px solid color-mix(in srgb, #f87171 56%, var(--line));
-  border-radius: 10px;
-  background: color-mix(in srgb, #2b0f12 86%, var(--panel));
-  color: color-mix(in srgb, #fecaca 88%, var(--text));
-  box-shadow: 0 12px 30px var(--shadow);
-  cursor: pointer;
-}
-
-.edgeBreakButton:hover {
-  border-color: #f87171;
-  background: color-mix(in srgb, #3f1216 88%, var(--panel));
-  color: #ffffff;
 }
 
 .imageNode {
@@ -944,6 +1313,12 @@ dd {
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   box-shadow: 0 12px 28px var(--shadow);
   color: var(--muted);
+}
+
+.imageNode.isCollapsed.isSelected .collapsedNodeStrip,
+.textNode.isCollapsed.isSelected .collapsedNodeStrip {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent), 0 12px 28px var(--shadow);
 }
 
 .collapsedAudioStrip {
@@ -1129,9 +1504,9 @@ dd {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
+  gap: 7px;
   min-width: 128px;
-  padding: 10px 16px;
+  padding: 8px 12px;
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
   border-radius: 999px;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
@@ -1222,6 +1597,275 @@ dd {
   line-height: 1.35;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.noteNode,
+.noteNode.isActive {
+  grid-template-rows: 24px var(--image-height);
+}
+
+.nodeTitle.noteNodeTitle {
+  width: 100%;
+  justify-content: space-between;
+  padding: 1px 9px 1px 12px;
+  border-radius: 10px 10px 0 0;
+  background: #efd363;
+  color: #000;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.nodeTitle.noteNodeTitle span,
+.nodeTitle.noteNodeTitle input {
+  color: #000;
+  font-weight: 750;
+}
+
+.noteNodePaper {
+  width: 100%;
+  height: 100%;
+  padding: 16px;
+  overflow: hidden;
+  border: 1px solid #c9a83a;
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  background: #f6df72;
+  box-shadow: 0 16px 34px rgba(66, 48, 0, 0.28);
+  color: #3f3100;
+}
+
+.noteNode.isSelected .noteNodePaper {
+  outline: 3px solid color-mix(in srgb, #f4c430 72%, white);
+  outline-offset: 3px;
+}
+
+.noteNodePaper textarea,
+.noteNodeText {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  color: #3f3100;
+  font: 500 17px/1.45 Inter, ui-sans-serif, system-ui, sans-serif;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.noteNodePaper textarea {
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+
+.noteNodeText a {
+  color: #5d4300;
+  font-weight: 750;
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.noteNodePlaceholder {
+  color: rgba(63, 49, 0, 0.56);
+  font-style: italic;
+}
+
+.collapsedNoteNode {
+  border-radius: 10px;
+  background: #f6df72;
+  box-shadow: 0 12px 28px rgba(66, 48, 0, 0.28);
+}
+
+.collapsedNoteStrip {
+  height: 100%;
+  padding: 0 8px;
+  border: 1px solid #c9a83a;
+  border-radius: 10px;
+  background: #f6df72;
+  color: #4b3900;
+}
+
+.collapsedNoteStrip .collapsedNodeTitle,
+.collapsedNoteStrip .collapsedNodeCount,
+.collapsedNoteStrip .collapsedNodeThumb {
+  color: #000;
+}
+
+.collapsedNoteStrip .collapsedNodeThumb {
+  border: 1px solid #6b5200;
+  background: #fff3ad;
+}
+
+.collapsedNoteStrip .collapsedNodeThumb svg {
+  stroke: #000;
+}
+
+.collectionNode {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  padding: 10px;
+  border: 1px solid #fff;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel) 97%, transparent);
+  box-shadow: 0 16px 42px var(--shadow);
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+:root[data-theme="day"] .collectionNode {
+  border-color: #000;
+}
+
+.collectionNode.isSelected {
+  box-shadow: 0 0 0 2px #a78bfa, 0 16px 42px var(--shadow);
+}
+
+.collectionNode .nodeHandle,
+.collectionNode .nodeHandleLine {
+  top: 50%;
+}
+
+.collectionNodeHeader {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -31px;
+  height: 25px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.collectionNodeHeader input {
+  min-width: 0;
+  flex: 1;
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  font: inherit;
+  font-weight: 700;
+}
+
+.collectionNodeHeader .nodeCollapseButton {
+  position: static;
+  flex: 0 0 auto;
+}
+
+.collectionNodeHeader strong {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collectionNodeHeader span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.collectionGrid {
+  height: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  gap: 7px;
+  overflow: auto;
+  padding: 2px;
+}
+
+.collectionNode.isCollapsed {
+  padding: 6px 10px;
+}
+
+.collectionCollapsedBody {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.collectionItem {
+  min-width: 0;
+  height: 98px;
+  display: grid;
+  grid-template-rows: 56px auto auto;
+  gap: 2px;
+  overflow: hidden;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel-soft);
+  text-align: left;
+  touch-action: none;
+}
+
+.collectionItem.isManual {
+  border-style: dashed;
+  border-color: #a78bfa;
+}
+
+.collectionPreviewDialog img,
+.collectionPreviewDialog video {
+  display: block;
+  max-width: min(80vw, 1200px);
+  max-height: 80vh;
+  object-fit: contain;
+}
+
+.collectionPreviewDialog pre {
+  max-width: min(80vw, 1000px);
+  max-height: 80vh;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.collectionItemPreview {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 82%, #a78bfa 18%);
+}
+
+.collectionItemPreview img,
+.collectionItemPreview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.collectionItem strong,
+.collectionItem small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collectionItem strong {
+  font-size: 10px;
+}
+
+.collectionItem small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.collectionEmpty {
+  grid-column: 1 / -1;
+  margin: 18px 8px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
 }
 
 .libraryNode {
@@ -1366,8 +2010,19 @@ dd {
   box-shadow: 0 12px 26px var(--shadow);
 }
 
-.textStackBoard button {
+.textStackBoardItem {
+  position: relative;
   min-width: 0;
+}
+
+.textStackBoardItem.isMarked {
+  box-shadow: 0 0 0 2px color-mix(in srgb, #63d69b 80%, transparent);
+  border-radius: 8px;
+}
+
+.textStackBoardItem > button:first-child {
+  min-width: 0;
+  width: 100%;
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 2px 7px;
@@ -1379,9 +2034,32 @@ dd {
   text-align: left;
 }
 
-.textStackBoard button.isActive {
+.textStackBoardItem > button:first-child.isActive {
   border-color: var(--accent);
   outline: 1px solid var(--accent);
+}
+
+.textStackBoard .stackSelectionToggle {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 55%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: #113222;
+  box-shadow: 0 2px 7px var(--shadow);
+}
+
+.textStackBoard .stackSelectionToggle[aria-pressed="true"] {
+  border-color: #63d69b;
+  background: #63d69b;
 }
 
 .textStackBoard img {
@@ -1516,6 +2194,11 @@ dd {
   box-shadow: 0 5px 16px color-mix(in srgb, #000 38%, transparent);
 }
 
+.nodeToolbar button {
+  width: 28px;
+  height: 28px;
+}
+
 .nodeToolbar button:hover,
 .promptPanel button:hover {
   border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
@@ -1528,12 +2211,21 @@ dd {
   opacity: 0.95;
 }
 
+.nodeToolbar button:has(.buttonBusyGears),
+.edgeActionToolbar button:has(.buttonBusyGears) {
+  border-color: color-mix(in srgb, var(--accent) 82%, #ffffff);
+  background: color-mix(in srgb, var(--canvas) 78%, #000000);
+  color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--canvas) 78%, transparent), 0 0 18px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
 .nodeActionPanel {
   position: absolute;
   left: 18px;
+  right: 18px;
   bottom: 0;
   z-index: 7;
-  width: min(720px, calc(100% - 220px));
+  width: auto;
   min-width: 280px;
   display: grid;
   justify-items: start;
@@ -1598,7 +2290,7 @@ dd {
 
 .nodeActionTargets {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(210px, 1fr));
   gap: 8px;
   margin-top: 2px;
 }
@@ -1664,11 +2356,35 @@ dd {
 }
 
 .nodeActionToken img,
-.nodeToolbar button img {
+.nodeToolbar button img,
+.edgeSyncButton img {
   width: 17px;
   height: 17px;
   display: block;
   object-fit: contain;
+}
+
+.nodeActionToken img,
+.nodeActionToken svg {
+  pointer-events: none;
+  user-select: none;
+}
+
+.nodeActionDragGhost {
+  position: fixed;
+  z-index: 140;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 72%, #ffffff);
+  border-radius: 7px;
+  background: color-mix(in srgb, #050806 86%, var(--panel));
+  color: #ffffff;
+  box-shadow: 0 12px 28px var(--shadow), 0 0 18px color-mix(in srgb, var(--accent) 30%, transparent);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
 }
 
 .nodeActionContextMenu {
@@ -1706,14 +2422,106 @@ dd {
 }
 
 .canvasActionParamsDialog {
-  width: min(560px, calc(100vw - 44px));
+  width: min(680px, calc(100vw - 44px));
+  max-height: min(88vh, 820px);
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
-  padding: 14px;
+  padding: 18px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: color-mix(in srgb, var(--panel) 96%, #000);
   box-shadow: 0 22px 64px var(--shadow);
+}
+
+.canvasActionPanoramaViewer,
+.canvasActionSplatViewer {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  background: #090d14;
+}
+
+.canvasActionSplatViewer {
+  max-height: 50vh;
+  overflow: hidden;
+}
+
+.canvasActionPanoramaViewer canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 50vh;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  border-radius: 12px 12px 0 0;
+}
+
+.canvasActionSplatMount,
+.canvasActionSplatCanvas {
+  display: block;
+  width: 100%;
+  height: min(320px, 50vh);
+}
+
+.canvasActionParamsContent {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 2px 4px 4px;
+}
+
+.canvasActionParamsDialog footer {
+  padding-top: 4px;
+}
+
+.canvasActionParamsDialog footer button {
+  min-width: 88px;
+}
+
+.canvasActionErrorBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, #ff5f6d 68%, var(--line));
+  border-radius: 9px;
+  background: color-mix(in srgb, #6c1720 48%, var(--panel));
+  color: #ffd5d8;
+  font-size: 12px;
+}
+
+.canvasActionPanoramaViewer .canvasActionSettingsField {
+  padding: 10px 12px 12px;
+  background: #090d14;
+}
+
+.canvasActionPanoramaViewer input[type="range"] {
+  min-height: 20px;
+  padding: 0;
+  accent-color: var(--accent);
+  background: transparent;
+}
+
+.canvasActionPanoramaViewer input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #36d7bb, #597cff);
+}
+
+.canvasActionPanoramaViewer input[type="range"]::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #36d7bb, #597cff);
+}
+
+.canvasActionPoseReadout {
+  padding: 8px 12px 0;
+  color: #b9c8dc;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .canvasActionParamsDialog header,
@@ -1734,7 +2542,8 @@ dd {
   font-size: 12px;
 }
 
-.canvasActionSettingsField input {
+.canvasActionSettingsField input,
+.canvasActionSettingsField select {
   min-height: 36px;
   padding: 8px 10px;
   border: 1px solid var(--line);
@@ -2011,17 +2820,51 @@ dd {
   box-shadow: 0 14px 36px var(--shadow);
 }
 
-.stackBoard button {
+.stackBoardItem {
+  position: relative;
   width: 52px;
   height: 52px;
+  border-radius: 8px;
+}
+
+.stackItemButton {
+  width: 100%;
+  height: 100%;
   overflow: hidden;
   padding: 0;
   border-radius: 8px;
   touch-action: none;
 }
 
-.stackBoard button.isActive {
+.stackBoardItem.isActive {
   outline: 2px solid var(--accent);
+}
+
+.stackBoardItem.isMarked {
+  box-shadow: 0 0 0 2px color-mix(in srgb, #63d69b 80%, transparent);
+}
+
+.stackBoard .stackSelectionToggle {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
+  min-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text) 55%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  color: #113222;
+  box-shadow: 0 2px 7px var(--shadow);
+}
+
+.stackBoard .stackSelectionToggle[aria-pressed="true"] {
+  border-color: #63d69b;
+  background: #63d69b;
 }
 
 .stackBoard img,
@@ -2116,6 +2959,11 @@ dd {
 
 .textAddStackButton:hover:not(:disabled) {
   border-color: var(--accent);
+}
+
+.dialogueDraftStackButton {
+  right: 10px;
+  left: auto;
 }
 
 .promptHeader,
@@ -2483,6 +3331,114 @@ dd {
   text-align: center;
   color: var(--muted);
   font-size: 13px;
+}
+
+.correctionDialog {
+  max-height: min(92vh, 860px);
+  overflow: auto;
+  padding: 22px;
+  width: min(96vw, 1240px);
+}
+
+.imageCorrectionBody {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 310px;
+  align-items: stretch;
+}
+
+.imageCorrectionPreview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-height: min(72vh, 620px);
+  background: #000;
+}
+
+.imageCorrectionPreview canvas {
+  max-width: 100%;
+  max-height: min(72vh, 720px);
+  display: block;
+}
+
+.hiddenCorrectionCanvas {
+  display: none;
+}
+
+.imageCorrectionControls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 0;
+}
+
+.histogramPanel,
+.curvePanel {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel) 82%, #000);
+}
+
+.histogramPanel svg,
+.curvePanel svg {
+  display: block;
+  width: 100%;
+  height: 96px;
+}
+
+.correctionControlGrid {
+  display: grid;
+  gap: 9px;
+}
+
+.correctionSlider {
+  display: grid;
+  gap: 5px;
+}
+
+.correctionSlider span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.correctionSlider strong {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.correctionSlider input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.imageCorrectionError {
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 42%, transparent);
+  border-radius: 8px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.imageCorrectionControls button {
+  width: 100%;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .imageCorrectionBody {
+    grid-template-columns: 1fr;
+  }
+
+  .imageCorrectionPreview {
+    min-height: 260px;
+  }
 }
 
 .previewClose {
@@ -3037,7 +3993,6 @@ dd {
   border-radius: 10px;
   background: var(--panel);
   box-shadow: 0 16px 42px var(--shadow);
-  transform: translate(8px, 8px);
 }
 
 .stackItemMenu,
@@ -3112,6 +4067,12 @@ dd {
   border-radius: 10px;
   background: var(--panel);
   box-shadow: 0 16px 42px var(--shadow);
+}
+
+.nodeCreateMenu[data-menu-flipped-x] .nodeCreateSubmenuPanel,
+.selectionMenu[data-menu-flipped-x] .nodeCreateSubmenuPanel {
+  left: auto;
+  right: calc(100% - 1px);
 }
 
 .nodeCreateSubmenu:hover .nodeCreateSubmenuPanel,
