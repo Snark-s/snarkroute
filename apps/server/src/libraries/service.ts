@@ -60,6 +60,8 @@ import type {
   NestedLibrary,
   NodeView,
   RunCanvasNodeActionInput,
+  RunCanvasActionSessionInput,
+  CanvasActionSessionResult,
   RunTextNodeConversationTurnInput,
   SnarkCanvasDocument,
   SnarkCanvasNode,
@@ -2442,6 +2444,65 @@ export async function deleteCanvasNode(nodeId: string): Promise<LibrarySnapshot>
   return readLibrarySnapshot(libraryPath);
 }
 
+export async function runCanvasActionSession(input: RunCanvasActionSessionInput): Promise<CanvasActionSessionResult> {
+  const action = await findCanvasActionManifest(input.actionId);
+  if (!action) throw new Error(`Canvas action "${input.actionId}" was not found.`);
+  if (action.inputs[0].type !== input.input.type) throw new Error(`Canvas action expects ${action.inputs[0].type}, but the session input is ${input.input.type}.`);
+  const sourceKey = `session:${input.sessionId}`;
+  const value = await canvasActionSessionInputValue(input);
+
+  if (input.phase === "prepare") {
+    const execution = canvasActionCompoundExecution(action, sourceKey, value, input.params);
+    const pauseNodeId = canvasActionPauseNodeId(action);
+    const upstream = upstreamNodeIds(execution.route, pauseNodeId);
+    const prepareRoute: OpenRoute = {
+      ...execution.route,
+      nodes: execution.route.nodes.filter((node) => upstream.has(node.id)),
+      edges: execution.route.edges.filter((edge) => upstream.has(edge.from) && upstream.has(edge.to))
+    };
+    const initialNodeOutputs = Object.fromEntries(Object.entries(execution.initialNodeOutputs).filter(([nodeId]) => upstream.has(nodeId)));
+    const runResult = await executeSnarkRouteWithUsageStats(prepareRoute, { initialNodeOutputs });
+    if (runResult.status !== "succeeded") throw canvasActionRunFailure(action, "preparing", runResult);
+    const nodeOutputs = { ...initialNodeOutputs, ...Object.fromEntries(Object.entries(runResult.nodeResults).filter(([, result]) => result.status === "succeeded").map(([nodeId, result]) => [nodeId, result.output])) };
+    const continuationId = randomBytes(18).toString("base64url");
+    canvasActionContinuations.set(continuationId, { createdAt: Date.now(), actionId: action.id, sourceNodeId: sourceKey, nodeOutputs });
+    return { status: "paused", continuationId, previews: canvasActionPreparedPreviews(action, execution, pauseNodeId, nodeOutputs), results: [] };
+  }
+
+  let output: Record<string, unknown>;
+  if (input.phase === "complete") {
+    cleanupCanvasActionContinuations();
+    const continuation = input.continuationId ? canvasActionContinuations.get(input.continuationId) : undefined;
+    if (!continuation || continuation.actionId !== action.id || continuation.sourceNodeId !== sourceKey) {
+      throw new CanvasActionContinuationGoneError("This interactive action expired. Start the preview again.");
+    }
+    const execution = canvasActionCompoundExecution(action, sourceKey, value, input.params, continuation.nodeOutputs);
+    const runResult = await executeSnarkRouteWithUsageStats(execution.route, { initialNodeOutputs: execution.initialNodeOutputs });
+    if (runResult.status !== "succeeded") throw canvasActionRunFailure(action, "completing", runResult);
+    canvasActionContinuations.delete(input.continuationId!);
+    output = compoundTemplateOutput(execution, runResult.nodeResults);
+  } else {
+    const runResult = await executeSnarkRouteWithUsageStats({
+      routeVersion: "0.1",
+      route: { id: `brandeshmyg-${action.id}-${createHash("sha256").update(input.sessionId).digest("hex").slice(0, 12)}`, title: action.canvasAction?.title?.trim() || action.title, author: { name: "Brandeshmyg" } },
+      nodes: [{ id: "source", type: "utility.null" }, { id: "action", type: action.id, params: input.params ?? {} }],
+      edges: [{ from: "source", to: "action", fromPort: "value", toPort: action.inputs[0].id }]
+    }, { initialNodeOutputs: { source: { value } } });
+    const actionResult = runResult.nodeResults.action;
+    if (runResult.status !== "succeeded" || actionResult?.status !== "succeeded") throw new Error(actionResult?.error || `Canvas action "${action.title}" failed.`);
+    output = actionResult.output && typeof actionResult.output === "object" ? actionResult.output as Record<string, unknown> : {};
+  }
+  return { status: "completed", results: normalizeCanvasActionResults(action, output) };
+}
+
+export async function disposeCanvasActionSession(sessionId: string): Promise<void> {
+  const sourceKey = `session:${sessionId}`;
+  for (const [continuationId, continuation] of canvasActionContinuations) {
+    if (continuation.sourceNodeId === sourceKey) canvasActionContinuations.delete(continuationId);
+  }
+  await rm(canvasActionSessionDirectory(sessionId), { recursive: true, force: true });
+}
+
 function canvasActionCompoundExecution(action: SnarkNodeManifest, sourceNodeId: string, sourceValue: unknown, params?: Record<string, unknown>, initialNodeOutputs?: Record<string, unknown>): CompoundTemplateExecution {
   return buildCompoundTemplateExecution(action, {
     nodeId: "action",
@@ -4034,6 +4095,65 @@ function resolveInputTokens(
     const referenceSyntax = type === "image" ? imageReferenceSyntax?.trim() || defaultReferenceSyntax : defaultReferenceSyntax;
     return position >= 0 ? referenceSyntax.replaceAll("{index}", String(position + 1)) : "";
   });
+}
+
+async function canvasActionSessionInputValue(input: RunCanvasActionSessionInput): Promise<unknown> {
+  if (input.input.type === "text") return input.input.text ?? "";
+  if (!input.input.dataBase64) {
+    const existing = join(canvasActionSessionDirectory(input.sessionId), sanitizeFilename(input.input.filename ?? `input.${input.input.type}`));
+    if (!(await stat(existing).catch(() => null))) throw new Error("The input file must be selected again.");
+    return canvasActionSessionFileValue(input, existing);
+  }
+  const directory = canvasActionSessionDirectory(input.sessionId);
+  await mkdir(directory, { recursive: true });
+  const filename = sanitizeFilename(input.input.filename ?? `input.${input.input.type}`) || `input.${input.input.type}`;
+  const path = join(directory, filename);
+  const base64 = input.input.dataBase64.replace(/^data:[^;]+;base64,/i, "");
+  await writeFile(path, Buffer.from(base64, "base64"));
+  return canvasActionSessionFileValue(input, path);
+}
+
+function canvasActionSessionDirectory(sessionId: string): string {
+  return join(canvasActionCacheDirectory, "sessions", createHash("sha256").update(sessionId).digest("hex"));
+}
+
+function canvasActionSessionFileValue(input: RunCanvasActionSessionInput, path: string): Record<string, unknown> {
+  return {
+    type: input.input.type,
+    path,
+    localPath: path,
+    ref: `session://${input.sessionId}/input`,
+    filename: input.input.filename ?? basename(path),
+    mimeType: input.input.mimeType
+  };
+}
+
+export function normalizeCanvasActionResults(action: SnarkNodeManifest, output: Record<string, unknown>): CanvasActionSessionResult["results"] {
+  return action.outputs.flatMap((port) => {
+    const raw = output[port.id];
+    const values = Array.isArray(raw) ? raw : raw === undefined || raw === null ? [] : [raw];
+    return values.map((value, index) => {
+      const label = port.label ?? port.id;
+      const id = `${port.id}:${index}`;
+      if (port.type === "text") return { id, outputId: port.id, type: "text" as const, label, text: textFromActionOutput(value), value };
+      const asset = assetFromActionOutput(value);
+      const path = asset.localPath ?? asset.path;
+      return {
+        id,
+        outputId: port.id,
+        type: port.type as "image" | "video" | "audio",
+        label,
+        value,
+        filename: asset.filename,
+        ...(path ? { url: canvasActionResultUrl(path, port.type as "image" | "video" | "audio") } : {})
+      };
+    });
+  });
+}
+
+function canvasActionResultUrl(path: string, type: "image" | "video" | "audio" | "text"): string {
+  if (/^(?:https?:|data:|blob:|\/api\/)/i.test(path)) return path;
+  return `/api/assets/preview?kind=${type}&path=${encodeURIComponent(path)}`;
 }
 
 function resolveTextInputTokens(text: string, inputs: ConnectedCanvasInput[]): string {

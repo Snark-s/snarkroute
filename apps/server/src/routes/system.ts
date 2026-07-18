@@ -38,6 +38,14 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     if (!open) startBoojumStudio(studioPort);
     return { ok: true, url, started: !open };
   });
+
+  app.post<{ Body: { brandeshmygPort?: number | string } }>("/api/system/open-brandeshmyg", async (request) => {
+    const brandeshmygPort = stringPort(request.body?.brandeshmygPort) ?? process.env.BRANDESHMYG_PORT ?? "5175";
+    const url = `http://127.0.0.1:${brandeshmygPort}`;
+    const open = await isPortListening(Number(brandeshmygPort));
+    if (!open) startBrandeshmyg(brandeshmygPort);
+    return { ok: true, url, started: !open };
+  });
 }
 
 function startBoojumStudio(studioPort: string) {
@@ -47,6 +55,22 @@ function startBoojumStudio(studioPort: string) {
     env: {
       ...process.env,
       STUDIO_PORT: studioPort,
+      VITE_API_BASE_URL: process.env.VITE_API_BASE_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? 4317}`
+    },
+    shell: process.platform === "win32",
+    stdio: "ignore",
+    windowsHide: true
+  });
+  child.unref();
+}
+
+function startBrandeshmyg(brandeshmygPort: string) {
+  const child = spawn("corepack", ["pnpm", "--filter", "@snarkroute/brandeshmyg", "dev"], {
+    cwd: repoRoot,
+    detached: true,
+    env: {
+      ...process.env,
+      BRANDESHMYG_PORT: brandeshmygPort,
       VITE_API_BASE_URL: process.env.VITE_API_BASE_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? 4317}`
     },
     shell: process.platform === "win32",

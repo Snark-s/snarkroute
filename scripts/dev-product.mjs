@@ -25,6 +25,10 @@ if (product === "snarkroute") {
     env.DATABASE_URL ??= "postgresql://snarkroute:snarkroute@127.0.0.1:5432/snarkroute";
     env.DEV_USER_ID ??= "00000000-0000-4000-8000-000000000001";
   }
+} else if (product === "brandeshmyg") {
+  const port = Number(env.BRANDESHMYG_PORT ?? 5175);
+  appUrl = `http://127.0.0.1:${port}`;
+  args.push("--stream", "--filter", "@snarkroute/server", "--filter", "@snarkroute/brandeshmyg", "run", "dev");
 } else {
   console.error(`Unknown product: ${product}`);
   process.exit(1);

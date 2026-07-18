@@ -5,6 +5,7 @@ import { registerAdminRoutes } from "./routes/admin";
 import { registerAssetRoutes } from "./routes/assets";
 import { registerAuthRoutes } from "./routes/auth";
 import { registerBillingRoutes } from "./routes/billing";
+import { registerCanvasActionSessionRoutes } from "./routes/canvas-action-sessions";
 import { registerDevRoutes } from "./routes/dev";
 import { registerExecutionRoutes, registerRunResultRoutes } from "./routes/execution";
 import { registerLedgerRoutes } from "./routes/ledger";
@@ -40,6 +41,7 @@ export function buildServer() {
   void registerProviderRoutes(app);
   void registerNodeCatalogRoutes(app);
   void registerNodePackageRoutes(app);
+  void registerCanvasActionSessionRoutes(app);
   void registerRouteDocumentRoutes(app);
   void registerLocalStableDiffusionRoutes(app);
   void registerWorldLabsMarbleRoutes(app);

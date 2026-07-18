@@ -646,6 +646,7 @@ declare global {
 }
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
+const brandeshmygBase = import.meta.env.VITE_BRANDESHMYG_URL || "http://127.0.0.1:5175";
 const localJsonUploadLimitBytes = 180 * 1024 * 1024;
 const boojumRouteLabUrl = import.meta.env.VITE_BOOJUM_URL || "http://127.0.0.1:5173";
 const themeStorageKey = "snarkroute.theme";
@@ -2960,6 +2961,19 @@ function App() {
     }
   }
 
+  async function openBrandeshmyg() {
+    try {
+      const result = await apiPost<{ ok: boolean; url?: string; started?: boolean }>("/api/system/open-brandeshmyg", { brandeshmygPort: new URL(brandeshmygBase).port || "5175" });
+      const opened = window.open(result.url ?? brandeshmygBase, "brandeshmyg-tools");
+      opened?.focus();
+      setStatus(result.started ? "Starting Brandeshmyg..." : "Opening Brandeshmyg");
+    } catch (error) {
+      const opened = window.open(brandeshmygBase, "brandeshmyg-tools");
+      opened?.focus();
+      setStatus(error instanceof Error ? error.message : "Opening Brandeshmyg");
+    }
+  }
+
   function openCanvasActionSettings(actionId: NodeToolbarActionId) {
     const canvasActionId = canvasActionIdFromToolbarId(actionId);
     const action = availableNodeToolbarActions.find((candidate) => candidate.id === actionId)?.canvasAction;
@@ -3020,7 +3034,7 @@ function App() {
       void prepareNodeCanvasAction(nodeId, action, point);
       return;
     }
-    if (action && dialogParamIds.length > 0) {
+    if (action && canvasActionNeedsDialog(action)) {
       const saved = canvasActionParamValues[actionId] ?? {};
       const defaults = Object.fromEntries((action.params ?? []).filter((param) => dialogParamIds.includes(param.id)).map((param) => [param.id, saved[param.id] ?? param.default ?? defaultCanvasActionParamValue(param.type)]));
       setCanvasActionRunDialog({ nodeId, action, point, params: defaults });
@@ -3527,6 +3541,13 @@ function App() {
               <button type="button" onClick={() => void exportCanvasActionPackage(nodeActionContextMenu.actionId)}>
                 <Download size={14} /> Export
               </button>
+              <button type="button" onClick={() => {
+                const actionId = canvasActionIdFromToolbarId(nodeActionContextMenu.actionId);
+                if (actionId) window.open(`${brandeshmygBase}/?action=${encodeURIComponent(actionId)}`, "_blank", "noopener,noreferrer");
+                setNodeActionContextMenu(null);
+              }}>
+                <ExternalLink size={14} /> Open in Brandeshmyg
+              </button>
             </>
           ) : null}
           <button type="button" onClick={() => void deleteNodeToolbarAction(nodeActionContextMenu.actionId, nodeActionContextMenu.type)}>
@@ -3869,6 +3890,10 @@ function App() {
               <button type="button" onClick={() => void openBoojumRouteLab()} title="Open BoojumRoute Lab">
                 <ExternalLink size={14} />
                 Boojum
+              </button>
+              <button type="button" onClick={() => void openBrandeshmyg()} title="Open Brandeshmyg tools">
+                <ExternalLink size={14} />
+                Brandeshmyg
               </button>
               <button type="button" onClick={() => void exportCanvasSettingsArchive()} title="Export settings archive">
                 <FileDown size={14} />

@@ -490,6 +490,37 @@ export interface CanvasActionPrepareResult {
   previews: Array<{ kind: "panorama360" | "splat"; src: string }>;
 }
 
+export interface RunCanvasActionSessionInput {
+  sessionId: string;
+  actionId: string;
+  input: {
+    type: "image" | "video" | "audio" | "text";
+    text?: string;
+    filename?: string;
+    mimeType?: string;
+    dataBase64?: string;
+  };
+  params?: Record<string, unknown>;
+  phase?: "prepare" | "complete";
+  continuationId?: string;
+}
+
+export interface CanvasActionSessionResult {
+  status: "paused" | "completed";
+  continuationId?: string;
+  previews?: Array<{ kind: "panorama360" | "splat"; src: string }>;
+  results: Array<{
+    id: string;
+    outputId: string;
+    type: "image" | "video" | "audio" | "text";
+    label: string;
+    value?: unknown;
+    text?: string;
+    url?: string;
+    filename?: string;
+  }>;
+}
+
 export interface DuplicateCanvasNodeInput {
   nodeId: string;
   x: number;
