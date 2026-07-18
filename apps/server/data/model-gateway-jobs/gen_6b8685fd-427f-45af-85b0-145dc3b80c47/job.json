@@ -1,0 +1,35 @@
+{
+  "id": "gen_6b8685fd-427f-45af-85b0-145dc3b80c47",
+  "status": "completed",
+  "request": {
+    "capability": "video.generate",
+    "nodeType": "polza.video.generate",
+    "modelId": "wan/2.5",
+    "providerModelId": "wan/2.5",
+    "provider": "polza",
+    "prompt": "Робот встает со стула",
+    "parameters": {
+      "resolution": "720p",
+      "duration": "5",
+      "multi_shots": "false"
+    },
+    "inputs": [
+      {
+        "kind": "image",
+        "assetId": "asset_70a2d0a5-13a6-4b57-9258-a1736149b787",
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_70a2d0a5-13a6-4b57-9258-a1736149b787-frame-1784292876275-707794189.png"
+      }
+    ]
+  },
+  "createdAt": "2026-07-17T12:54:36.594Z",
+  "updatedAt": "2026-07-17T12:55:47.593Z",
+  "result": {
+    "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\model-gateway-jobs\\gen_6b8685fd-427f-45af-85b0-145dc3b80c47\\run\\assets\\generate-1784292947582.mp4",
+    "filename": "generate-1784292947582.mp4",
+    "mimeType": "video/mp4",
+    "provider": "polza",
+    "modelId": "wan/2.5",
+    "estimatedCost": null,
+    "actualCost": null
+  }
+}

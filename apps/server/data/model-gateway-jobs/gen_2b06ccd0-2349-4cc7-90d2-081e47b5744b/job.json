@@ -1,0 +1,27 @@
+{
+  "id": "gen_2b06ccd0-2349-4cc7-90d2-081e47b5744b",
+  "status": "failed",
+  "request": {
+    "capability": "video.generate",
+    "nodeType": "polza.video.generate",
+    "modelId": "wan/2.5",
+    "providerModelId": "wan/2.5",
+    "provider": "polza",
+    "prompt": "Робот встает со стула",
+    "parameters": {
+      "resolution": "720p",
+      "duration": "5",
+      "multi_shots": "false"
+    },
+    "inputs": [
+      {
+        "kind": "image",
+        "assetId": "asset_27e4a5a0-fe8a-46cf-8e10-b3b952511d21",
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_27e4a5a0-fe8a-46cf-8e10-b3b952511d21-frame-1784292781849-723419189.png"
+      }
+    ]
+  },
+  "createdAt": "2026-07-17T12:53:02.169Z",
+  "updatedAt": "2026-07-17T12:53:49.006Z",
+  "error": "Polza.ai is unreachable at https://polza.ai/api. Check internet access, proxy/VPN/firewall settings, DNS, or POLZA_BASE_URL. Details: ECONNRESET: Client network socket disconnected before secure TLS connection was established: fetch failed. No credits were charged."
+}

@@ -1,7 +1,11 @@
 {
   "version": 1,
-  "currentProjectPath": "Y:\\Процесс\\Амбрелла\\e01\\e01 Rout",
+  "currentProjectPath": "Y:\\Процесс\\epiQRus",
   "projects": [
+    {
+      "path": "Y:\\Процесс\\epiQRus",
+      "addedAt": "2026-07-16T17:02:42.600Z"
+    },
     {
       "path": "Y:\\Процесс\\Город будущего",
       "addedAt": "2026-07-08T14:11:32.084Z"

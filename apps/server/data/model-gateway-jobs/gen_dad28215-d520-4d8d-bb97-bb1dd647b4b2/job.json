@@ -1,0 +1,25 @@
+{
+  "id": "gen_dad28215-d520-4d8d-bb97-bb1dd647b4b2",
+  "status": "failed",
+  "request": {
+    "capability": "video.generate",
+    "nodeType": "polza.video.generate",
+    "modelId": "wan/2.6",
+    "provider": "polza",
+    "prompt": "робот встает с кресла",
+    "parameters": {
+      "resolution": "720p",
+      "duration": "5",
+      "multi_shots": "false"
+    },
+    "inputs": [
+      {
+        "kind": "image",
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1784229539664-frame-1784229539605.png"
+      }
+    ]
+  },
+  "createdAt": "2026-07-16T19:18:59.670Z",
+  "updatedAt": "2026-07-16T19:20:12.560Z",
+  "error": "Polza.ai is unreachable at https://polza.ai/api. Check internet access, proxy/VPN/firewall settings, DNS, or POLZA_BASE_URL. Details: UND_ERR_CONNECT_TIMEOUT: Connect Timeout Error (attempted address: polza.ai:443, timeout: 10000ms): fetch failed. No credits were charged."
+}

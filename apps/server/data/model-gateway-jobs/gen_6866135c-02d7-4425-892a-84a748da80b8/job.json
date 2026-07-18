@@ -1,0 +1,27 @@
+{
+  "id": "gen_6866135c-02d7-4425-892a-84a748da80b8",
+  "status": "failed",
+  "request": {
+    "capability": "video.generate",
+    "nodeType": "polza.video.generate",
+    "modelId": "kling/v2.6",
+    "providerModelId": "kling/v2.6",
+    "provider": "polza",
+    "prompt": "Робот встает и делает шаг. Хромакей.",
+    "parameters": {
+      "resolution": "720p",
+      "duration": "5",
+      "multi_shots": "false"
+    },
+    "inputs": [
+      {
+        "kind": "image",
+        "assetId": "asset_81afff3b-659b-4e03-86bd-8cc5e23ee72e",
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_81afff3b-659b-4e03-86bd-8cc5e23ee72e-frame-1784297243633-633758544.png"
+      }
+    ]
+  },
+  "createdAt": "2026-07-17T14:07:23.975Z",
+  "updatedAt": "2026-07-17T14:07:24.208Z",
+  "error": "Polza.ai request failed (400).  Provider response: Модель kling/v2.6 требует указать aspect_ratio. Допустимые значения: 1:1, 16:9, 9:16. No credits were charged."
+}

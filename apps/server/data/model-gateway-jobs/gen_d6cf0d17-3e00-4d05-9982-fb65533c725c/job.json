@@ -1,0 +1,33 @@
+{
+  "id": "gen_d6cf0d17-3e00-4d05-9982-fb65533c725c",
+  "status": "completed",
+  "request": {
+    "capability": "video.generate",
+    "nodeType": "polza.video.generate",
+    "modelId": "wan/2.6",
+    "provider": "polza",
+    "prompt": "робот встает с кресла",
+    "parameters": {
+      "resolution": "720p",
+      "duration": "5",
+      "multi_shots": "false"
+    },
+    "inputs": [
+      {
+        "kind": "image",
+        "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1784229629674-frame-1784229629636.png"
+      }
+    ]
+  },
+  "createdAt": "2026-07-16T19:20:29.679Z",
+  "updatedAt": "2026-07-16T19:21:18.828Z",
+  "result": {
+    "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\model-gateway-jobs\\gen_d6cf0d17-3e00-4d05-9982-fb65533c725c\\run\\assets\\generate-1784229678822.mp4",
+    "filename": "generate-1784229678822.mp4",
+    "mimeType": "video/mp4",
+    "provider": "polza",
+    "modelId": "wan/2.6",
+    "estimatedCost": null,
+    "actualCost": null
+  }
+}
