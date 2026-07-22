@@ -403,11 +403,13 @@ export function createPolzaVideoNodeRunner(options: PolzaClientOptions = {}): No
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     if (!prompt.trim()) throw new Error("Polza Video requires a prompt.");
     const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
+    const audios = collectInputImages(params.audios ?? inputs.audios);
+    const videos = collectInputImages(params.videos ?? inputs.videos);
     const gateway = options.modelGateway ?? createPolzaModelGateway(options, model, "video.generate");
     const gatewayResult = await gateway.invoke({
       capability: "video.generate",
       modelRef: `model://polza/${model}`,
-      input: { prompt, images },
+      input: { prompt, images, audios, videos },
       parameters: params,
       metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type }
     });
@@ -515,7 +517,9 @@ export function createPolzaProviderAdapter(options: PolzaClientOptions = {}): Pr
       }
       if (request.capability === "video.generate") {
         const imageInputs = await Promise.all(images.map((image) => prepareMediaImageInput(image, options.fetchImpl)));
-        const requestBody = buildMediaVideoRequestBody(request.model.id, prompt, request.parameters ?? {}, imageInputs);
+        const audioInputs = await Promise.all(collectInputImages(request.input.audios ?? request.input.audio).map((audio) => prepareMediaFileInput(audio, "audio")));
+        const videoInputs = await Promise.all(collectInputImages(request.input.videos ?? request.input.video).map((video) => prepareMediaFileInput(video, "video")));
+        const requestBody = buildMediaVideoRequestBody(request.model.id, prompt, request.parameters ?? {}, imageInputs, audioInputs, videoInputs);
         const response = await waitForPolzaMediaResult(await client.media(requestBody), client, options, "video");
         const video = firstGeneratedVideo(response);
         if (!video) throw new Error(`Polza video model "${request.model.id}" did not return a video.`);
@@ -661,8 +665,24 @@ export function buildMediaImageRequestBody(model: string, prompt: string, params
   };
 }
 
-export function buildMediaVideoRequestBody(model: string, prompt: string, params: Record<string, unknown>, imageInputs: Array<{ type: "url" | "base64"; data: string }> = []): Record<string, unknown> {
+type PreparedMediaInput = { type: "url" | "base64"; data: string; role?: string; index?: number };
+
+export function buildMediaVideoRequestBody(model: string, prompt: string, params: Record<string, unknown>, imageInputs: PreparedMediaInput[] = [], audioInputs: PreparedMediaInput[] = [], videoInputs: PreparedMediaInput[] = []): Record<string, unknown> {
+  if (model === "kling/v3") {
+    const sound = params.sound ?? params.generate_audio ?? params.audio;
+    const input: Record<string, unknown> = {
+      prompt: kling3FramePrompt(prompt),
+      aspect_ratio: stringParam(params.aspect_ratio ?? params.aspectRatio) ?? "1:1",
+      duration: String(numberParam(params.duration) ?? stringParam(params.duration) ?? "5"),
+      mode: supportedPolzaVideoMode(params.mode, ["std", "pro", "4K"], "std"),
+      sound: sound !== undefined && booleanParam(sound) ? "true" : "false"
+    };
+    if (imageInputs.length > 0) input.images = imageInputs;
+    applyRoleSpecificMediaInputs(input, imageInputs);
+    return { model, input, async: true, user: stringParam(params.user) };
+  }
   const input: Record<string, unknown> = {
+    ...providerPrimitiveParameters(params),
     prompt,
     resolution: stringParam(params.resolution) ?? "720p",
     duration: String(numberParam(params.duration) ?? stringParam(params.duration) ?? "5"),
@@ -672,7 +692,36 @@ export function buildMediaVideoRequestBody(model: string, prompt: string, params
     input.generate_audio = booleanParam(params.generate_audio ?? params.audio ?? params.sound);
   }
   if (imageInputs.length > 0) input.images = imageInputs;
+  applyRoleSpecificMediaInputs(input, imageInputs);
+  if (audioInputs.length > 0) input.audios = audioInputs;
+  if (videoInputs.length > 0) input.videos = videoInputs;
   return { model, input, async: true, user: stringParam(params.user) };
+}
+
+function applyRoleSpecificMediaInputs(input: Record<string, unknown>, images: PreparedMediaInput[]) {
+  const lastFrame = images.find((item) => item.role === "lastFrame");
+  if (lastFrame) input.tail_image_url = { type: lastFrame.type, data: lastFrame.data };
+}
+
+function providerPrimitiveParameters(params: Record<string, unknown>) {
+  const internal = new Set(["model", "prompt", "image", "images", "audio", "audios", "video", "videos", "pricing", "apiKey", "token", "secret", "password", "user"]);
+  const result: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(params)) if (!internal.has(key) && (typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value))) result[key] = value;
+  if (params.aspectRatio !== undefined && result.aspect_ratio === undefined) result.aspect_ratio = String(params.aspectRatio);
+  return result;
+}
+
+function supportedPolzaVideoMode(value: unknown, allowed: string[], fallback: string): string {
+  const mode = stringParam(value);
+  return mode && allowed.includes(mode) ? mode : fallback;
+}
+
+function kling3FramePrompt(prompt: string): string {
+  return prompt
+    .replace(/@image(?:\s+|[_-])\d+/gi, "")
+    .replace(/\s+([,.!?;:])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 function isPolzaGpt54Image2(model: string): boolean {
@@ -833,9 +882,27 @@ function collectInputImages(value: unknown): unknown[] {
   return [value];
 }
 
-async function prepareMediaImageInput(value: unknown, fetchImpl: typeof fetch = fetch): Promise<{ type: "url" | "base64"; data: string }> {
+async function prepareMediaImageInput(value: unknown, fetchImpl: typeof fetch = fetch): Promise<PreparedMediaInput> {
   const data = await prepareImageUrl(value, fetchImpl);
-  return { type: /^https?:\/\//i.test(data) ? "url" : "base64", data };
+  const descriptor = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  return { type: /^https?:\/\//i.test(data) ? "url" : "base64", data, role: typeof descriptor?.role === "string" ? descriptor.role : undefined, index: typeof descriptor?.index === "number" ? descriptor.index : undefined };
+}
+
+async function prepareMediaFileInput(value: unknown, kind: "audio" | "video"): Promise<PreparedMediaInput> {
+  const descriptor = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+  const raw = value && typeof value === "object" ? (value as Record<string, unknown>).localPath ?? (value as Record<string, unknown>).path ?? (value as Record<string, unknown>).url : value;
+  if (typeof raw !== "string" || !raw.trim()) throw new Error(`Polza ${kind} input requires a local path or URL.`);
+  if (/^https?:\/\//i.test(raw)) return { type: "url", data: raw, role: typeof descriptor?.role === "string" ? descriptor.role : undefined, index: typeof descriptor?.index === "number" ? descriptor.index : undefined };
+  if (raw.startsWith("data:")) return { type: "base64", data: raw, role: typeof descriptor?.role === "string" ? descriptor.role : undefined, index: typeof descriptor?.index === "number" ? descriptor.index : undefined };
+  const bytes = await readFile(raw);
+  if (bytes.length > LOCAL_FILE_DATA_URI_LIMIT_BYTES) throw new Error(`Polza local ${kind} input is too large (${bytes.length} bytes). Limit is ${LOCAL_FILE_DATA_URI_LIMIT_BYTES} bytes.`);
+  return { type: "base64", data: `data:${mediaMimeTypeFromPath(raw, kind)};base64,${bytes.toString("base64")}`, role: typeof descriptor?.role === "string" ? descriptor.role : undefined, index: typeof descriptor?.index === "number" ? descriptor.index : undefined };
+}
+
+function mediaMimeTypeFromPath(path: string, kind: "audio" | "video") {
+  const extension = extname(path).toLowerCase();
+  const types: Record<string, string> = { ".wav": "audio/wav", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".aac": "audio/aac", ".flac": "audio/flac", ".mp4": "video/mp4", ".mov": "video/quicktime", ".m4v": "video/x-m4v", ".avi": "video/x-msvideo", ".webm": "video/webm" };
+  return types[extension] ?? `${kind}/octet-stream`;
 }
 
 async function prepareImageUrl(value: unknown, fetchImpl: typeof fetch = fetch): Promise<string> {

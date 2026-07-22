@@ -54,6 +54,9 @@ importers:
 
   apps/after-effects-panel:
     dependencies:
+      '@snarkroute/model-catalog':
+        specifier: workspace:*
+        version: link:../../packages/model-catalog
       react:
         specifier: ^18.2.0
         version: 18.3.1

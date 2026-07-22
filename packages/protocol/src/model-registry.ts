@@ -17,12 +17,24 @@ export const ModelCapabilitySchema = z.enum([
 export const CostClassSchema = z.enum(["free", "cheap", "medium", "expensive", "dangerous", "unknown"]);
 export const PrivacyClassSchema = z.enum(["local", "trusted_external", "external", "unknown"]);
 export const ModelMediaKindSchema = z.enum(["text", "image", "video", "audio", "file", "json"]);
+export const ModelIOInputSlotSchema = z.object({
+  id: z.string().min(1),
+  role: z.string().min(1),
+  label: z.string().optional(),
+  minItems: z.number().int().nonnegative().optional(),
+  maxItems: z.number().int().nonnegative().optional(),
+  required: z.boolean().optional(),
+  ordered: z.boolean().optional()
+}).catchall(z.unknown());
 export const ModelIOItemSchema = z
   .object({
     kind: ModelMediaKindSchema,
     minItems: z.number().int().nonnegative().optional(),
     maxItems: z.number().int().nonnegative().optional(),
-    required: z.boolean().optional()
+    required: z.boolean().optional(),
+    roles: z.array(z.string()).optional(),
+    slots: z.array(ModelIOInputSlotSchema).optional(),
+    ordered: z.boolean().optional()
   })
   .catchall(z.unknown());
 export const ModelIOContractSchema = z
@@ -69,6 +81,7 @@ export type ModelCapability = z.infer<typeof ModelCapabilitySchema>;
 export type CostClass = z.infer<typeof CostClassSchema>;
 export type PrivacyClass = z.infer<typeof PrivacyClassSchema>;
 export type ModelMediaKind = z.infer<typeof ModelMediaKindSchema>;
+export type ModelIOInputSlot = z.infer<typeof ModelIOInputSlotSchema>;
 export type ModelIOItem = z.infer<typeof ModelIOItemSchema>;
 export type ModelIOContract = z.infer<typeof ModelIOContractSchema>;
 export type ModelProfile = z.infer<typeof ModelProfileSchema>;

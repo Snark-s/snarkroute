@@ -161,7 +161,9 @@ export function generationRouteFromJob(job: GenerationJob): OpenRoute {
         ...(job.request.parameters ?? {}),
         model: job.request.providerModelId,
         ...(job.request.prompt ? { prompt: job.request.prompt } : {}),
-        images: (job.request.inputs ?? []).filter((input) => input.kind === "image").map((input) => ({ assetId: input.assetId, path: input.path, localPath: input.path }))
+        images: normalizedRouteInputs(job.request.inputs, "image"),
+        audios: normalizedRouteInputs(job.request.inputs, "audio"),
+        videos: normalizedRouteInputs(job.request.inputs, "video")
       }
     }],
     edges: []
@@ -181,6 +183,11 @@ function validateRequest(request: GenerationJobRequest): void {
   if (!request.providerModelId?.trim()) throw new Error("providerModelId is required.");
   for (const input of request.inputs ?? []) if (!input.assetId?.trim() || !input.path?.trim()) throw new Error("Each input must include an asset id and local path.");
 }
+
+function normalizedRouteInputs(inputs: GenerationJobRequest["inputs"], kind: GenerationMediaKind) {
+  return (inputs ?? []).filter((input) => input.kind === kind).sort((left, right) => roleOrder(left.role) - roleOrder(right.role) || (left.index ?? 0) - (right.index ?? 0)).map((input) => ({ assetId: input.assetId, path: input.path, localPath: input.path, role: input.role, index: input.index ?? 0 }));
+}
+function roleOrder(role?: string) { return role === "firstFrame" ? 0 : role === "lastFrame" ? 1 : 2; }
 
 function sanitizeRequest(request: GenerationJobRequest): GenerationJobRequest {
   const parameters = Object.fromEntries(Object.entries(request.parameters ?? {}).filter(([key]) => !/api[_-]?key|token|secret|password/i.test(key)));

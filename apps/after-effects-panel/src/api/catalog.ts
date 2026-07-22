@@ -1,4 +1,5 @@
 import type { GenerationModel, GenerationOperation, MediaKind } from "../types";
+import { panelCanRepresentModel } from "../inputs/contracts";
 
 export const operationLabels: Record<GenerationOperation, string> = {
   "text-to-image": "Text to image",
@@ -8,7 +9,9 @@ export const operationLabels: Record<GenerationOperation, string> = {
   outpainting: "Outpainting",
   "image-upscale": "Image upscale",
   "text-to-video": "Text to video",
-  "image-to-video": "Image to video"
+  "image-to-video": "Image to video",
+  "video-to-video": "Video to video",
+  "audio-conditioned-video": "Audio-conditioned video"
 };
 
 export function operationsForModels(models: GenerationModel[]): GenerationOperation[] {
@@ -20,7 +23,7 @@ export function filterModelsForOperation(models: GenerationModel[], operation: G
 }
 
 export function modelSupportsOperation(model: GenerationModel, operation: GenerationOperation): boolean {
-  if (!isExecutable(model)) return false;
+  if (!isExecutableByRunner(model) || !panelCanRepresentModel(model)) return false;
   const output = outputMediaTypeForOperation(operation);
   if (!model.outputTypes.includes(output)) return false;
   const hasImageInput = model.inputTypes.includes("image") || Boolean(imageContract(model)) || (model.maximumImageInputs ?? model.requiredImageInputs ?? 0) > 0 || model.runnableWithSuppliedInputs === true;
@@ -35,7 +38,9 @@ export function modelSupportsOperation(model: GenerationModel, operation: Genera
   if (operation === "inpainting") return model.capabilities.includes("image.edit") && hasImageInput && hasInputRole(model, "mask");
   if (operation === "outpainting") return model.capabilities.includes("image.edit") && hasImageInput && hasInputRole(model, "outpaint");
   if (operation === "text-to-video") return model.capabilities.includes("video.generate") && prompt && !requiresImage;
-  return operation === "image-to-video" && model.capabilities.includes("video.generate") && hasImageInput;
+  if (operation === "image-to-video") return model.capabilities.includes("video.generate") && hasImageInput;
+  if (operation === "video-to-video") return model.capabilities.includes("video.generate") && hasMediaInput(model, "video");
+  return operation === "audio-conditioned-video" && model.capabilities.includes("video.generate") && hasMediaInput(model, "audio");
 }
 
 export function modelSupportsPrompt(model: GenerationModel): boolean {
@@ -62,5 +67,13 @@ export function filterExecutableVideoModels(models: GenerationModel[], operation
 export function countModelFamilies(models: GenerationModel[]): number { return new Set(models.map((model) => model.originVendor || model.providerModelId.split("/", 1)[0] || model.provider)).size; }
 
 function imageContract(model: GenerationModel) { return model.inputContract?.inputs?.find((item) => item.kind === "image"); }
+function hasMediaInput(model: GenerationModel, kind: MediaKind) { const input = model.inputContract?.inputs?.find((item) => item.kind === kind); return Boolean(input && (input.maxItems ?? 1) > 0); }
 function hasInputRole(model: GenerationModel, role: string) { return [...(model.inputRoles ?? []), ...(imageContract(model)?.roles ?? [])].some((value) => value.toLowerCase().includes(role)); }
-function isExecutable(model: GenerationModel) { return Boolean(model.nodeType) && model.availability.status === "available" && model.availability.configured !== false; }
+export function isExecutableByRunner(model: GenerationModel) { return Boolean(model.nodeType) && model.availability.status === "available" && model.availability.configured !== false; }
+export function frontendExclusionReason(model: GenerationModel, operation: GenerationOperation): string | null {
+  if (!isExecutableByRunner(model)) return "not executable by runner";
+  if (!panelCanRepresentModel(model)) return "required media cannot be materialized";
+  if (!model.outputTypes.includes(outputMediaTypeForOperation(operation))) return "wrong output media";
+  if (!modelSupportsOperation(model, operation)) return "contract does not match operation";
+  return null;
+}

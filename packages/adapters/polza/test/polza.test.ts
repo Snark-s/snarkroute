@@ -69,6 +69,36 @@ describe("Polza adapter", () => {
     });
   });
 
+  it("keeps schema parameters and all role-aware image, audio, and video inputs", () => {
+    const body = buildMediaVideoRequestBody("kling/v2.6", "move", { aspect_ratio: "16:9", duration: "5", camera_control: "pan" }, [
+      { type: "url", data: "https://cdn/first.png", role: "firstFrame", index: 0 },
+      { type: "url", data: "https://cdn/last.png", role: "lastFrame", index: 0 }
+    ], [{ type: "url", data: "https://cdn/audio.wav", role: "audio", index: 0 }], [{ type: "url", data: "https://cdn/motion.mp4", role: "sourceVideo", index: 0 }]) as { input: Record<string, unknown> };
+    expect(body.input).toMatchObject({ aspect_ratio: "16:9", camera_control: "pan", images: expect.arrayContaining([expect.objectContaining({ role: "firstFrame" }), expect.objectContaining({ role: "lastFrame" })]), tail_image_url: { type: "url", data: "https://cdn/last.png" }, audios: [expect.objectContaining({ role: "audio" })], videos: [expect.objectContaining({ role: "sourceVideo" })] });
+  });
+
+  it("builds Kling 3 payload with its required mode and sound fields", () => {
+    expect(buildMediaVideoRequestBody("kling/v3", "orbit @image 1 and transform into @image 2.", { resolution: "720p", duration: "5" }, [
+      { type: "url", data: "https://cdn.polza.ai/start.png" },
+      { type: "url", data: "https://cdn.polza.ai/end.png" }
+    ])).toEqual({
+      model: "kling/v3",
+      input: {
+        prompt: "orbit and transform into.",
+        aspect_ratio: "1:1",
+        duration: "5",
+        images: [
+          { type: "url", data: "https://cdn.polza.ai/start.png" },
+          { type: "url", data: "https://cdn.polza.ai/end.png" }
+        ],
+        mode: "std",
+        sound: "false"
+      },
+      async: true,
+      user: undefined
+    });
+  });
+
   it("catalog pricing returns a Polza image quote", () => {
     expect(estimatePolzaPricingQuote({
       provider: "polza",

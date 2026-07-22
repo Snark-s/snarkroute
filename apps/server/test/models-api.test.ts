@@ -166,6 +166,8 @@ describe("model catalog API", () => {
       expect(body.models.some((model: { outputTypes: string[] }) => model.outputTypes.includes("image"))).toBe(true);
       expect(body.models.some((model: { outputTypes: string[] }) => model.outputTypes.includes("video"))).toBe(true);
       expect(body.models.every((model: { nodeType: string; availability: { status: string } }) => model.nodeType && model.availability.status === "available")).toBe(true);
+      expect(body.models.every((model: { inputContract?: object }) => model.inputContract)).toBe(true);
+      expect(body.models.filter((model: { outputTypes: string[] }) => model.outputTypes.includes("video")).some((model: { inputContract: { inputs?: Array<{ kind: string }> } }) => model.inputContract.inputs?.some((input) => input.kind === "image"))).toBe(true);
     } finally { await app.close(); }
   });
 

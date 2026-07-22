@@ -38,7 +38,8 @@ app.addHook("onRequest", async (request, reply) => {
     const nodeTypes = providerNodeManifests()
       .filter((manifest) => manifest.enabled !== false && manifest.executor?.type === "builtin" && manifest.outputs.some((output) => output.type === "image" || output.type === "video"))
       .map((manifest) => manifest.id);
-    const groups = await Promise.all(nodeTypes.map(async (nodeType) => modelOptionsForNodeV1(nodeType, await loadLiveModelCatalogV1(nodeType))));
+    const catalog = await loadLiveModelCatalogV1();
+    const groups = nodeTypes.map((nodeType) => modelOptionsForNodeV1(nodeType, catalog));
     const models = groups.flat();
     return reply.send({ ok: true, nodeTypes, modelCount: models.length, models });
   }

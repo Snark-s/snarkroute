@@ -45,9 +45,9 @@ export class SnarkRouteGatewayClient {
       return result;
     }
   }
-  async models(): Promise<{ models: GenerationModel[]; modelCount: number; familyCount: number; diagnosticsUrl: string }> { const body = await this.request<{ models?: GenerationModel[]; modelCount?: number }>("/api/models/executable-generation"); const models = (body.models ?? []).map(withInferredContract); return { models, modelCount: body.modelCount ?? models.length, familyCount: new Set(models.map((model) => model.originVendor || model.provider)).size, diagnosticsUrl: "/api/models/executable-generation" }; }
+  async models(): Promise<{ models: GenerationModel[]; modelCount: number; familyCount: number; diagnosticsUrl: string }> { const body = await this.request<{ models?: GenerationModel[]; modelCount?: number }>("/api/models/executable-generation?materialize=image,audio,video&multipleImages=1"); const models = body.models ?? []; return { models, modelCount: body.modelCount ?? models.length, familyCount: new Set(models.map((model) => model.originVendor || model.provider)).size, diagnosticsUrl: "/api/models/executable-generation?materialize=image,audio,video&multipleImages=1" }; }
   async quote(model: GenerationModel, params: Record<string, unknown>) { return this.request<{ selected?: { estimatedCost?: number | null; currency?: string | null }; warnings?: string[] }>("/api/model-gateway/quote", { method: "POST", body: JSON.stringify({ nodeType: model.nodeType, params: { ...params, model: model.storedModelId } }) }); }
-  async importAsset(filename: string, dataBase64: string) { return this.request<ImportedAsset>("/api/assets/import", { method: "POST", body: JSON.stringify({ filename, dataBase64, kind: "image" }) }); }
+  async importAsset(filename: string, dataBase64: string, kind: "image" | "audio" | "video" = "image") { return this.request<ImportedAsset>("/api/assets/import", { method: "POST", body: JSON.stringify({ filename, dataBase64, kind }) }); }
   async createJob(input: { model: GenerationModel; operation?: GenerationOperation; prompt: string; parameters: Record<string, unknown>; assets?: Array<ImportedAsset & { input: Omit<GenerationInput, "assetId" | "localPath"> }>; asset?: ImportedAsset }) {
     const request = providerNeutralJobRequest(input);
     console.info("[SnarkRoute] provider-neutral generation request", redactSecrets({
@@ -70,14 +70,6 @@ export function providerNeutralJobRequest(input: { model: GenerationModel; opera
   const operation = input.operation ?? "image-to-video";
   const assets = input.assets ?? (input.asset ? [{ ...input.asset, input: { kind: "image" as const, role: "source", index: 0, sourceType: "current-composition-frame" as const } }] : []);
   return { capability: capabilityForOperation(operation), outputMediaType: outputMediaTypeForOperation(operation), nodeType: input.model.nodeType, modelId: input.model.storedModelId, providerModelId: input.model.providerModelId, provider: input.model.provider, ...(input.prompt.trim() ? { prompt: input.prompt.trim() } : {}), parameters: input.parameters, inputs: assets.map((asset) => ({ kind: asset.input.kind, role: asset.input.role, index: asset.input.index, assetId: asset.id, path: asset.path })) };
-}
-
-function withInferredContract(model: GenerationModel): GenerationModel {
-  if (model.inputContract) return model;
-  const maxImages = Number(model.metadata?.maxImageInputs);
-  const inputs = model.inputTypes.map((kind) => ({ kind, minItems: 0, maxItems: kind === "image" ? (Number.isFinite(maxImages) && maxImages > 0 ? maxImages : 1) : 1, required: false }));
-  const outputs = model.outputTypes.filter((kind) => ["image", "video", "audio"].includes(kind)).map((kind) => ({ kind, minItems: 1, maxItems: 1, required: true }));
-  return { ...model, inputContract: { inputs, outputs }, requiredImageInputs: 0, maximumImageInputs: inputs.find((item) => item.kind === "image")?.maxItems, optionalImageInputs: model.inputTypes.includes("image") ? 1 : 0, inputRoles: [] };
 }
 
 function redactSecrets(value: unknown): unknown {

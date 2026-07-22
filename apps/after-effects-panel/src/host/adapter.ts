@@ -8,6 +8,9 @@ export interface AfterEffectsHostAdapter {
   validateInputFile(path: string): Promise<ValidatedInputFile>;
   createGenerationPlaceholder(spec: { jobId: string; name: string; duration: number; compositionId: number; sourceTime: number; width: number; height: number; frameRate: number; pixelAspect: number; mediaKind?: MediaKind }): Promise<HostItemReference>;
   selectExternalImage(): Promise<string | null>;
+  selectExternalFile(kind: MediaKind): Promise<string | null>;
+  renderCompositionAudio(spec: { startTime: number; duration: number }): Promise<RenderedAsset>;
+  renderSelectedAudioLayer(spec: { startTime: number; duration: number }): Promise<RenderedAsset>;
   importResultFootage(resultPath: string, itemName: string, mediaKind?: MediaKind): Promise<ImportedFootageDiagnostic>;
   replacePlaceholderSource(reference: HostItemReference, importedItemId: number, completedLayerName: string): Promise<LayerReplacementDiagnostic>;
   writeGenerationMetadata(reference: HostItemReference, metadata: GenerationMetadata): Promise<void>;
@@ -27,6 +30,9 @@ export class CepAfterEffectsHostAdapter implements AfterEffectsHostAdapter {
   validateInputFile(path: string) { return this.call<ValidatedInputFile>("validateInputFile", path); }
   createGenerationPlaceholder(spec: { jobId: string; name: string; duration: number; compositionId: number; sourceTime: number; width: number; height: number; frameRate: number; pixelAspect: number; mediaKind?: MediaKind }) { return this.call<HostItemReference>("createGenerationPlaceholder", spec); }
   selectExternalImage() { return this.call<string | null>("selectExternalImage"); }
+  selectExternalFile(kind: MediaKind) { return this.call<string | null>("selectExternalFile", kind); }
+  renderCompositionAudio(spec: { startTime: number; duration: number }) { return this.call<RenderedAsset>("renderCompositionAudio", spec); }
+  renderSelectedAudioLayer(spec: { startTime: number; duration: number }) { return this.call<RenderedAsset>("renderSelectedAudioLayer", spec); }
   importResultFootage(resultPath: string, itemName: string, mediaKind?: MediaKind) { return this.call<ImportedFootageDiagnostic>("importResultFootage", resultPath, itemName, mediaKind); }
   replacePlaceholderSource(reference: HostItemReference, importedItemId: number, completedLayerName: string) { return this.call<LayerReplacementDiagnostic>("replacePlaceholderSource", reference, importedItemId, completedLayerName); }
   writeGenerationMetadata(reference: HostItemReference, metadata: GenerationMetadata) { return this.call<void>("writeGenerationMetadata", reference, metadata); }
@@ -41,5 +47,5 @@ export class CepAfterEffectsHostAdapter implements AfterEffectsHostAdapter {
   private call<T>(method: string, ...args: unknown[]): Promise<T> { return new Promise((resolve, reject) => { const cep = window.__adobe_cep__; if (!cep) return reject(new Error("Adobe CEP host is unavailable.")); const script = `SnarkRouteAE.${method}.apply(SnarkRouteAE, ${JSON.stringify(args)})`; cep.evalScript(script, (raw) => { try { const result = JSON.parse(raw) as { ok: boolean; value?: T; error?: string }; result.ok ? resolve(result.value as T) : reject(new Error(result.error ?? "After Effects host error.")); } catch { reject(new Error(raw || "Invalid response from After Effects.")); } }); }); }
 }
 
-export function readFileBase64(path: string): string { const result = window.cep?.fs.readFile(path, "Base64"); if (!result || result.err) throw new Error(`Could not read rendered frame (${result?.err ?? "CEP unavailable"}).`); return result.data; }
+export function readFileBase64(path: string): string { const result = window.cep?.fs.readFile(path, "Base64"); if (!result || result.err) throw new Error(`Could not read input file (${result?.err ?? "CEP unavailable"}).`); return result.data; }
 export function writeBinaryBase64(path: string, bytes: ArrayBuffer): void { const binary = Array.from(new Uint8Array(bytes), (byte) => String.fromCharCode(byte)).join(""); const base64 = btoa(binary); const result = window.cep?.fs.writeFile(path, base64, "Base64"); if (!result || result.err) throw new Error(`Could not write generated media (${result?.err ?? "CEP unavailable"}).`); }

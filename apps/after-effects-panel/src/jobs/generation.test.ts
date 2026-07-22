@@ -6,6 +6,22 @@ const source: CompositionSnapshot = { id: 17, name: "Hero comp", time: 2.5, widt
 const model: VideoModel = { id: "polza:wan/2.6", provider: "polza", providerModelId: "wan/2.6", displayName: "Wan 2.6", inputTypes: ["image"], outputTypes: ["video"], capabilities: ["video.generate"], roles: [], availability: { status: "available" }, parameters: [], nodeType: "polza.video.generate", storedModelId: "wan/2.6" };
 
 describe("generation input preparation", () => {
+  it("uploads every filled slot and preserves kind, role, and index in the job request", async () => {
+    const multiModel: VideoModel = { ...model, inputTypes: ["image", "audio", "video"], inputContract: { inputs: [{ kind: "image", minItems: 2, maxItems: 3 }, { kind: "audio", minItems: 1, maxItems: 1 }, { kind: "video", minItems: 1, maxItems: 1 }] } };
+    const createJob = vi.fn(async (_request: { assets?: unknown[] }) => ({ id: "job_multi", status: "queued" as const, createdAt: "now", updatedAt: "now" }));
+    const slots = [
+      { slotId: "frames", kind: "image" as const, role: "reference", label: "References", minItems: 2, maxItems: 3, required: true, ordered: true, items: [external("image", "C:\\one.png"), external("image", "C:\\two.png")] },
+      { slotId: "audio", kind: "audio" as const, role: "audio", label: "Audio", minItems: 1, maxItems: 1, required: true, ordered: true, items: [external("audio", "C:\\sound.wav")] },
+      { slotId: "video", kind: "video" as const, role: "sourceVideo", label: "Video", minItems: 1, maxItems: 1, required: true, ordered: true, items: [external("video", "C:\\motion.mp4")] }
+    ];
+    await prepareGeneration({ serverUrl: "local", model: multiModel, prompt: "move", parameters: {}, inputSlots: slots }, { host: { getActiveComposition: async () => null, renderCurrentFrame: vi.fn(), validateInputFile: async (path) => ({ path, sizeBytes: 10, fileError: "" }), createGenerationPlaceholder: vi.fn() }, client: { importAsset: async (name, _data, kind) => ({ id: `asset_${kind}_${name}`, path: `C:\\server\\${name}` }), createJob }, readFileBase64: () => "ZGF0YQ==" });
+    expect(createJob.mock.calls[0]![0].assets).toEqual([
+      expect.objectContaining({ id: "asset_image_one.png", input: expect.objectContaining({ kind: "image", role: "reference", index: 0 }) }),
+      expect.objectContaining({ id: "asset_image_two.png", input: expect.objectContaining({ kind: "image", role: "reference", index: 1 }) }),
+      expect.objectContaining({ id: "asset_audio_sound.wav", input: expect.objectContaining({ kind: "audio", role: "audio", index: 0 }) }),
+      expect.objectContaining({ id: "asset_video_motion.mp4", input: expect.objectContaining({ kind: "video", role: "sourceVideo", index: 0 }) })
+    ]);
+  });
   it("orders render, validation, upload, job creation, then placeholder", async () => {
     const calls: string[] = [];
     const phases: string[] = [];
@@ -79,6 +95,7 @@ describe("generation input preparation", () => {
 });
 
 function rendered(path: string, size = 128) { return { ok: true, stage: "exporting_current_frame" as const, exportMethod: "saveFrameToPng" as const, path, filename: path.split("\\").pop() ?? "input.png", exists: true, size, waitedMs: 300, attempts: 3, fileError: "", fallbackAttempted: false }; }
+function external(kind: "image" | "audio" | "video", path: string) { return { sourceType: "external-file" as const, kind, path, filename: path.split("\\").pop(), validationState: "ready" as const }; }
 
 describe("image generation preparation", () => {
   const imageModel: VideoModel = { ...model, id: "image", providerModelId: "gpt-image", displayName: "Image", inputTypes: ["text", "image"], outputTypes: ["image"], capabilities: ["image.generate"], roles: ["generator", "editor"], nodeType: "polza.image.generate", storedModelId: "gpt-image" };

@@ -1,7 +1,8 @@
 import { maximumImageInputs, outputMediaTypeForOperation, requiredImageInputs } from "../api/catalog";
+import { inputValidationErrors } from "../inputs/contracts";
 import type { SnarkRouteGatewayClient } from "../api/client";
 import type { AfterEffectsHostAdapter } from "../host/adapter";
-import type { CompositionSnapshot, FrameExportDiagnostic, GenerationInput, GenerationModel, GenerationOperation, PersistedJob } from "../types";
+import type { AeInputSource, CompositionSnapshot, FrameExportDiagnostic, GenerationInput, GenerationModel, GenerationOperation, InputSlotState, MediaKind, PersistedJob } from "../types";
 
 type PreparationDependencies = {
   host: Pick<AfterEffectsHostAdapter, "getActiveComposition" | "renderCurrentFrame" | "validateInputFile" | "createGenerationPlaceholder">;
@@ -14,32 +15,38 @@ type PreparationDependencies = {
   onExportDiagnostic?(diagnostic: FrameExportDiagnostic): void;
 };
 
-export type PrepareGenerationInput = { serverUrl: string; model: GenerationModel; operation?: GenerationOperation; prompt: string; parameters: Record<string, unknown>; imageSource?: "current-composition-frame" | "external-file"; externalImagePath?: string };
+export type PrepareGenerationInput = { serverUrl: string; model: GenerationModel; operation?: GenerationOperation; prompt: string; parameters: Record<string, unknown>; inputSlots?: InputSlotState[]; imageSource?: "current-composition-frame" | "external-file"; externalImagePath?: string };
 
 export async function prepareGeneration(input: PrepareGenerationInput, dependencies: PreparationDependencies): Promise<PersistedJob> {
   const now = dependencies.now ?? (() => new Date().toISOString());
   const operation = input.operation ?? "image-to-video";
   const source = await dependencies.host.getActiveComposition();
-  const needsImage = operation.startsWith("image-to-") || ["image-editing", "inpainting", "outpainting", "image-upscale"].includes(operation);
-  if (needsImage && input.imageSource !== "external-file" && !source) throw new Error("An active composition is required for Current composition frame.");
+  const slots = input.inputSlots ?? legacyInputSlots(input);
+  const inputErrors = inputValidationErrors(input.model, slots);
+  if (inputErrors.length) throw new Error(inputErrors.join(" "));
 
   const preparedInputs: GenerationInput[] = [];
   const assets: Array<{ id: string; path: string; input: Omit<GenerationInput, "assetId" | "localPath"> }> = [];
   let frame: FrameExportDiagnostic | undefined;
-  if (needsImage) {
-    const materialized = input.imageSource === "external-file"
-      ? { path: input.externalImagePath ?? "", filename: fileName(input.externalImagePath ?? ""), sourceType: "external-file" as const }
-      : await materializeCurrentFrame(source!, dependencies);
-    frame = "diagnostic" in materialized ? materialized.diagnostic : undefined;
-    dependencies.onPhase?.("validating_input");
-    const validated = await dependencies.host.validateInputFile(materialized.path);
-    assertValidInputFile(validated.path, validated.sizeBytes, validated.fileError);
-    dependencies.onPhase?.("uploading_asset");
-    const asset = await dependencies.client.importAsset(materialized.filename, dependencies.readFileBase64(validated.path));
-    if (!asset.id || !asset.path) throw new Error("Uploaded input asset did not include an id and path.");
-    const binding: GenerationInput = { kind: "image", role: "source", index: 0, sourceType: materialized.sourceType, compositionId: source?.id, compositionTime: source?.time, localPath: validated.path, assetId: asset.id };
-    preparedInputs.push(binding);
-    assets.push({ ...asset, input: { kind: binding.kind, role: binding.role, index: binding.index, sourceType: binding.sourceType, compositionId: binding.compositionId, compositionTime: binding.compositionTime } });
+  for (const slot of slots) {
+    for (let index = 0; index < slot.items.length; index += 1) {
+      const selected = slot.items[index];
+      if (!selected) continue;
+      const materialized = selected.sourceType === "current-composition-frame"
+        ? await materializeCurrentFrame(source ?? requiredComposition(), dependencies)
+        : { path: selected.path ?? "", filename: selected.filename ?? fileName(selected.path ?? ""), sourceType: selected.sourceType, selected };
+      if ("diagnostic" in materialized && !frame) frame = materialized.diagnostic;
+      dependencies.onPhase?.("validating_input");
+      const validated = await dependencies.host.validateInputFile(materialized.path);
+      assertValidInputFile(validated.path, validated.sizeBytes, validated.fileError);
+      dependencies.onPhase?.("uploading_asset");
+      const asset = await dependencies.client.importAsset(materialized.filename, dependencies.readFileBase64(validated.path), slot.kind);
+      if (!asset.id || !asset.path) throw new Error("Uploaded input asset did not include an id and path.");
+      const descriptor = "selected" in materialized ? materialized.selected : selected;
+      const binding: GenerationInput = { kind: slot.kind, role: slot.role, index, sourceType: materialized.sourceType, compositionId: descriptor.compositionId ?? source?.id, compositionName: descriptor.compositionName ?? source?.name, compositionTime: descriptor.compositionTime ?? source?.time, localPath: validated.path, mimeType: descriptor.mimeType ?? mimeType(validated.path, slot.kind), fileSize: validated.sizeBytes, assetId: asset.id };
+      preparedInputs.push(binding);
+      assets.push({ ...asset, input: { kind: binding.kind, role: binding.role, index: binding.index, sourceType: binding.sourceType, compositionId: binding.compositionId, compositionName: binding.compositionName, compositionTime: binding.compositionTime, mimeType: binding.mimeType, fileSize: binding.fileSize } });
+    }
   }
 
   dependencies.onPhase?.("creating_job");
@@ -67,6 +74,15 @@ export async function prepareGeneration(input: PrepareGenerationInput, dependenc
   return pending;
 }
 
+function legacyInputSlots(input: PrepareGenerationInput): InputSlotState[] {
+  const needsImage = (input.operation ?? "image-to-video").startsWith("image-to-") || ["image-editing", "inpainting", "outpainting", "image-upscale"].includes(input.operation ?? "");
+  if (!needsImage) return [];
+  const item: AeInputSource = input.imageSource === "external-file"
+    ? { sourceType: "external-file", kind: "image", path: input.externalImagePath, filename: fileName(input.externalImagePath ?? ""), validationState: "ready" }
+    : { sourceType: "current-composition-frame", kind: "image", validationState: "ready" };
+  return [{ slotId: "legacy-image", kind: "image", role: "sourceImage", label: "Source image", minItems: 1, maxItems: 1, required: true, ordered: true, items: [item] }];
+}
+
 async function materializeCurrentFrame(source: CompositionSnapshot, dependencies: PreparationDependencies) {
   dependencies.onPhase?.("exporting_current_frame");
   dependencies.onExportDiagnostic?.({ stage: "exporting_current_frame", exportMethod: "saveFrameToPng", path: "waiting for After Effects…", exists: false, size: 0, waitedMs: 0, attempts: 0, fileError: "", fallbackAttempted: false });
@@ -80,3 +96,9 @@ export function inputDiagnostic(source: CompositionSnapshot, path: string, sizeB
 function assertValidInputFile(path: string, sizeBytes: number, fileError: string): void { const absolute = /^[A-Za-z]:[\\/]/.test(path) || /^\\\\/.test(path) || /^\//.test(path); if (!absolute || sizeBytes <= 0 || fileError) throw currentFrameExportError(path, fileError || (!absolute ? "Input path is not absolute." : "File is empty.")); }
 function currentFrameExportError(path: string, fileError: string): Error { return new Error(`Current frame export failed\nPath: ${path || "unknown"}\nFile.error: ${fileError || "unknown"}`); }
 function fileName(path: string) { return path.split(/[\\/]/).pop() || "input.png"; }
+function requiredComposition(): never { throw new Error("An active composition is required for Current composition frame."); }
+function mimeType(path: string, kind: MediaKind) {
+  const extension = path.split(".").pop()?.toLowerCase();
+  const types: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", wav: "audio/wav", mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac", mp4: "video/mp4", mov: "video/quicktime", m4v: "video/x-m4v", avi: "video/x-msvideo", webm: "video/webm" };
+  return types[extension ?? ""] ?? `${kind}/octet-stream`;
+}
