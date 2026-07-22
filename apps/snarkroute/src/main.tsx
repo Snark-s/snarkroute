@@ -1104,13 +1104,21 @@ function App() {
   async function refreshLibrary() {
     try {
       setLoading(true);
-      const [snapshot, projectList] = await Promise.all([
+      const [snapshotResult, projectListResult] = await Promise.allSettled([
         apiGet<LibrarySnapshot>("/api/libraries/current"),
         apiGet<ProjectListResponse>("/api/libraries/projects")
       ]);
-      applyLibrarySnapshot(snapshot);
-      setProjects(projectList.projects);
-      setStatus(snapshot.canvas ? "Canvas ready" : "Library has no canvas");
+
+      if (snapshotResult.status === "fulfilled") {
+        applyLibrarySnapshot(snapshotResult.value);
+      }
+      if (projectListResult.status === "fulfilled") {
+        setProjects(projectListResult.value.projects);
+      }
+
+      if (snapshotResult.status === "rejected") throw snapshotResult.reason;
+      if (projectListResult.status === "rejected") throw projectListResult.reason;
+      setStatus(snapshotResult.value.canvas ? "Canvas ready" : "Library has no canvas");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not open local library.");
     } finally {
