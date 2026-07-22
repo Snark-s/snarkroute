@@ -156,6 +156,19 @@ describe("model catalog API", () => {
     }
   });
 
+  it("returns one executable generation catalog for CEP consumers", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/executable-generation" });
+      const body = response.json();
+      expect(response.statusCode).toBe(200);
+      expect(body.nodeTypes).toEqual(expect.arrayContaining(["ai.image.generate", "polza.image.generate", "polza.video.generate"]));
+      expect(body.models.some((model: { outputTypes: string[] }) => model.outputTypes.includes("image"))).toBe(true);
+      expect(body.models.some((model: { outputTypes: string[] }) => model.outputTypes.includes("video"))).toBe(true);
+      expect(body.models.every((model: { nodeType: string; availability: { status: string } }) => model.nodeType && model.availability.status === "available")).toBe(true);
+    } finally { await app.close(); }
+  });
+
   it("keeps image and video output models out of text node selectors", async () => {
     const app = buildServer();
     try {

@@ -21,6 +21,9 @@ import { registerRouteDocumentRoutes } from "./routes/route-documents";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerSystemRoutes } from "./routes/system";
 import { registerWorldLabsMarbleRoutes } from "./routes/worldlabs-marble";
+import { registerAfterEffectsRoutes } from "./routes/after-effects";
+import { registerMcpRoutes } from "./mcp/server";
+import { registerModelGatewayJobRoutes } from "./routes/model-gateway-jobs";
 import { startModelPricingRefreshScheduler } from "./billing/model-pricing-refresh-scheduler";
 import { assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
@@ -29,6 +32,8 @@ export function buildServer() {
   assertProductionSafety();
   const app = Fastify({ logger: true, bodyLimit: 250 * 1024 * 1024 });
   app.register(cors, { origin: true, credentials: true });
+  void registerAfterEffectsRoutes(app);
+  void registerMcpRoutes(app);
   void ensureDevUsers();
   void refreshPromptLibraryCache();
   void registerAdminRoutes(app);
@@ -39,6 +44,7 @@ export function buildServer() {
   void registerSystemRoutes(app);
   void registerModelRoutes(app);
   void registerProviderRoutes(app);
+  void registerModelGatewayJobRoutes(app);
   void registerNodeCatalogRoutes(app);
   void registerNodePackageRoutes(app);
   void registerCanvasActionSessionRoutes(app);

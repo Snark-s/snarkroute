@@ -5,6 +5,7 @@ import { documentedRuTronixModels } from "@snarkroute/rutronix";
 import type { ModelOutputTypeV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { openRouterCatalogCachePath } from "../server-paths";
 import { isPolzaEnabled } from "../services/env";
+import { providerNodeManifests } from "../providers/provider-node-manifests";
 import { assembleModelCatalogV1, fallbackProviderModelsForCatalogV1, modelOptionsForNodeV1, type RawProviderModelV1 } from "../services/model-catalog-v1";
 
 interface ModelCatalogQuery {
@@ -31,6 +32,15 @@ app.addHook("onRequest", async (request, reply) => {
       capability: normalizeQueryValue(url.searchParams.get("capability"))
     });
     return reply.send({ ok: true, modelCount: models.length, models });
+  }
+
+  if (url.pathname === "/api/models/executable-generation") {
+    const nodeTypes = providerNodeManifests()
+      .filter((manifest) => manifest.enabled !== false && manifest.executor?.type === "builtin" && manifest.outputs.some((output) => output.type === "image" || output.type === "video"))
+      .map((manifest) => manifest.id);
+    const groups = await Promise.all(nodeTypes.map(async (nodeType) => modelOptionsForNodeV1(nodeType, await loadLiveModelCatalogV1(nodeType))));
+    const models = groups.flat();
+    return reply.send({ ok: true, nodeTypes, modelCount: models.length, models });
   }
 
   const nodeType = nodeTypeFromForNodePath(url.pathname);
