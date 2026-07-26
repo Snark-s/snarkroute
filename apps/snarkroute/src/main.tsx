@@ -95,6 +95,7 @@ interface NestedLibrary {
 interface CanvasDocument {
   nodes: CanvasNode[];
   edges?: CanvasEdge[];
+  pinnedNodeIds?: string[];
 }
 
 interface CanvasNode {
@@ -112,6 +113,7 @@ interface CanvasEdge {
   fromNodeId: string;
   toNodeId: string;
   kind?: "representation" | "crop" | "imageCorrection" | "canvasAction" | "collectionItem";
+  fromPinned?: boolean;
   actionId?: string;
   correction?: CorrectionSettings;
   note?: string;

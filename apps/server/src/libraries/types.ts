@@ -68,6 +68,7 @@ export interface SnarkCanvasDocument {
   version: "0.1";
   nodes: SnarkCanvasNode[];
   edges?: SnarkCanvasEdge[];
+  pinnedNodeIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -87,6 +88,7 @@ export interface SnarkCanvasEdge {
   fromNodeId: string;
   toNodeId: string;
   kind?: "representation" | "crop" | "imageCorrection" | "canvasAction" | "collectionItem";
+  fromPinned?: boolean;
   actionId?: string;
   correction?: ImageCorrectionSettings;
   note?: string;
