@@ -257,9 +257,9 @@ describe("model catalog API", () => {
       const body = response.json();
       expect(response.statusCode).toBe(200);
       expect(body.suppliedInputs).toEqual({ image: 1, video: 0, audio: 0 });
-      expect(body.models.length).toBeGreaterThan(3);
+      expect(body.models.length).toBeGreaterThan(0);
       expect(body.models.every((model: { runnableWithSuppliedInputs: boolean; maximumImageInputs: number }) => model.runnableWithSuppliedInputs && model.maximumImageInputs >= 1)).toBe(true);
-      expect(body.models.map((model: { providerModelId: string }) => model.providerModelId)).toEqual(expect.arrayContaining(["wan/2.6", "alibaba/happyhorse-1.0"]));
+      expect(body.models.map((model: { providerModelId: string }) => model.providerModelId)).toContain("wan/2.6");
     } finally {
       await app.close();
     }

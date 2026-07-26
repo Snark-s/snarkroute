@@ -45,14 +45,10 @@ export {
   withDefaultModelInputLimitsV1,
   modelIOContractV1,
   modelImageInputContractV1,
-  modelInputCompatibilityReasonsV1,
-  modelRunnableWithSuppliedInputsV1,
   mergeModelParameterDefinitionsV1,
   modelParameterValidationReasonsV1,
   normalizeModelParameterValuesV1,
   parameterSemanticIdV1,
-  providerParameterDefinitionsV1,
-  providerParameterIOContractV1,
   providerPricingToCatalogEntryV1
 } from "./v1/index.js";
 

@@ -48,9 +48,23 @@ export {
   withDefaultModelInputLimitsV1
 } from "./input-limits.js";
 
-export type { ModelInputSlotV1, SuppliedModelInputsV1 } from "./input-contracts.js";
-export { modelInputCompatibilityReasonsV1, modelInputSlotsV1, modelRunnableWithSuppliedInputsV1, panelCanRepresentContractV1, providerParameterIOContractV1 } from "./input-contracts.js";
+export type { ModelImageInputContractV1, ModelInputSlotV1, SuppliedModelInputsV1 } from "./input-contracts.js";
+export {
+  modelIOContractV1,
+  modelImageInputContractV1,
+  modelInputCompatibilityReasonsV1,
+  modelInputSlotsV1,
+  modelRunnableWithSuppliedInputsV1,
+  panelCanRepresentContractV1,
+  providerParameterIOContractV1
+} from "./input-contracts.js";
 export { providerParameterDefinitionsV1 } from "./parameter-contracts.js";
+export {
+  mergeModelParameterDefinitionsV1,
+  modelParameterValidationReasonsV1,
+  normalizeModelParameterValuesV1,
+  parameterSemanticIdV1
+} from "./parameters.js";
 
 export type {
   CanonicalModelV1,

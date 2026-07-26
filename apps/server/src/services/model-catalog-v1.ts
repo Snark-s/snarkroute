@@ -1,6 +1,8 @@
 import {
   listCuratedModelMetadataV1,
   mergeProviderModelsWithCuratedMetadata,
+  modelImageInputContractV1,
+  modelInputCompatibilityReasonsV1,
   normalizeProviderModelToV1Input,
   modelInputSlotsV1,
   modelRunnableWithSuppliedInputsV1,
@@ -375,7 +377,7 @@ function enrichUiCatalogMetadata(entry: ModelCatalogEntryV1): ModelCatalogEntryV
   const defaults = defaultUiCatalogMetadata(entry);
   const providerMetadata = entry.metadata?.provider && typeof entry.metadata.provider === "object" ? entry.metadata.provider as Record<string, unknown> : undefined;
   const liveParameters = Array.isArray(providerMetadata?.providerParameterDefinitions) ? providerMetadata.providerParameterDefinitions as ModelParameterDefinitionV1[] : [];
-  const baseParameters = entry.parameters.length ? entry.parameters : defaults?.parameters ?? [];
+  const baseParameters = liveParameters.length ? [] : entry.parameters.length ? entry.parameters : defaults?.parameters ?? [];
   const enriched = defaults || liveParameters.length ? {
     ...entry,
     parameters: mergeParameterDefinitions(baseParameters, liveParameters),
@@ -459,12 +461,6 @@ export function modelCompatibilityDebugForNodeV1(nodeType: string, catalog: Mode
     suppliedInputs,
     excluded: catalog.filter((entry) => !optionIds.has(entry.id)).map((entry) => ({ ...summary(entry), reasons: compatibilityReasonsForNodeV1(nodeType, entry, suppliedInputs) }))
   };
-}
-
-function providerParameters(model: RawProviderModelV1): Record<string, unknown> | undefined {
-  const topProvider = model.top_provider && typeof model.top_provider === "object" ? model.top_provider : undefined;
-  const parameters = topProvider?.parameters;
-  return parameters && typeof parameters === "object" && !Array.isArray(parameters) ? parameters as Record<string, unknown> : undefined;
 }
 
 function mergeIOContracts(primary: ModelCatalogEntryV1["ioContract"], defaults: ModelCatalogEntryV1["ioContract"]): ModelCatalogEntryV1["ioContract"] {

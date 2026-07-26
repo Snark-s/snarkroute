@@ -38,7 +38,7 @@ describe("polzaModelInfoToModelInfo", () => {
     expect(model.supportsImages).toBe(true);
     expect(model.ioContract?.inputs).toEqual([
       { kind: "text", minItems: 0, maxItems: 1 },
-      { kind: "image", minItems: 0, maxItems: 1 }
+      expect.objectContaining({ kind: "image", minItems: 0, maxItems: 1 })
     ]);
   });
 

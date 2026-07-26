@@ -398,10 +398,11 @@ describe("server Model Catalog V1 assembly", () => {
     });
 
     expect(catalog[0]?.parameters).toEqual([
-      expect.objectContaining({ id: "aspect_ratio", type: "select", required: true, options: [{ value: "1:1" }, { value: "16:9" }, { value: "9:16" }] }),
+      expect.objectContaining({ id: "aspect_ratio", type: "select", required: true }),
       expect.objectContaining({ id: "duration", required: true, default: "5" }),
       expect.objectContaining({ id: "sound", required: true, default: "false" })
     ]);
+    expect(catalog[0]?.parameters[0]?.options?.map((option) => option.value)).toEqual(["1:1", "16:9", "9:16"]);
     expect(catalog[0]?.parameters.map((field) => field.id)).not.toContain("resolution");
   });
 

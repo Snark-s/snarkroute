@@ -6,7 +6,7 @@ import type { ModelOutputTypeV1, SuppliedModelInputsV1 } from "@snarkroute/model
 import { openRouterCatalogCachePath } from "../server-paths";
 import { isPolzaEnabled } from "../services/env";
 import { providerNodeManifests } from "../providers/provider-node-manifests";
-import { assembleModelCatalogV1, fallbackProviderModelsForCatalogV1, modelOptionsForNodeV1, type RawProviderModelV1 } from "../services/model-catalog-v1";
+import { assembleModelCatalogV1, fallbackProviderModelsForCatalogV1, modelCompatibilityDebugForNodeV1, modelFamily, modelOptionsForNodeV1, type RawProviderModelV1 } from "../services/model-catalog-v1";
 
 interface ModelCatalogQuery {
   provider?: string;
@@ -42,6 +42,12 @@ app.addHook("onRequest", async (request, reply) => {
     const groups = nodeTypes.map((nodeType) => modelOptionsForNodeV1(nodeType, catalog));
     const models = groups.flat();
     return reply.send({ ok: true, nodeTypes, modelCount: models.length, models });
+  }
+
+  const debugNodeType = nodeTypeFromForNodeDebugPath(url.pathname);
+  if (debugNodeType) {
+    const debug = modelCompatibilityDebugForNodeV1(debugNodeType, await loadLiveModelCatalogV1(), suppliedInputsFromSearchParams(url.searchParams));
+    return reply.send({ ok: true, ...debug });
   }
 
   const nodeType = nodeTypeFromForNodePath(url.pathname);

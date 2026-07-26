@@ -2,6 +2,51 @@ import type { ModelIOContract, ModelIOInputSlot, ModelIOItem, ModelMediaKind } f
 
 export type SuppliedModelInputsV1 = Partial<Record<"image" | "video" | "audio", number>>;
 export type ModelInputSlotV1 = ModelIOInputSlot & { kind: ModelMediaKind };
+type ModelInputContractSource = {
+  ioContract?: ModelIOContract;
+  inputContract?: ModelIOContract;
+  inputTypes?: string[];
+  outputTypes?: string[];
+  metadata?: Record<string, unknown>;
+};
+export type ModelImageInputContractV1 = {
+  requiredImageInputs: number;
+  maximumImageInputs: number;
+  optionalImageInputs: number;
+  inputRoles: string[];
+};
+
+export function modelIOContractV1(model: ModelInputContractSource): ModelIOContract | undefined {
+  const explicitContract = model.inputContract ?? model.ioContract;
+  if (explicitContract) return explicitContract;
+  const inputs = (model.inputTypes ?? []).filter(isMediaKind).map((kind): ModelIOItem => ({
+    kind,
+    minItems: 0,
+    maxItems: legacyMaximum(model, kind)
+  }));
+  const outputs = (model.outputTypes ?? []).filter(isMediaKind).map((kind): ModelIOItem => ({
+    kind,
+    minItems: 1,
+    maxItems: 1,
+    required: true
+  }));
+  return inputs.length || outputs.length ? { inputs, outputs } : undefined;
+}
+
+export function modelImageInputContractV1(model: ModelInputContractSource): ModelImageInputContractV1 {
+  const image = modelIOContractV1(model)?.inputs?.find((item) => item.kind === "image");
+  const requiredImageInputs = image?.minItems ?? (image?.required ? 1 : 0);
+  const maximumImageInputs = image?.maxItems ?? (image ? Number.MAX_SAFE_INTEGER : 0);
+  return {
+    requiredImageInputs,
+    maximumImageInputs,
+    optionalImageInputs: Math.max(0, maximumImageInputs - requiredImageInputs),
+    inputRoles: unique([
+      ...(image?.roles ?? []).map(String),
+      ...(image?.slots ?? []).map((slot) => String(slot.role))
+    ])
+  };
+}
 
 export function providerParameterIOContractV1(parameters: Record<string, unknown> | undefined, inputTypes: string[] = [], outputTypes: string[] = []): ModelIOContract {
   const fields = Object.entries(parameters ?? {}).flatMap(([id, value]) => {
@@ -12,7 +57,7 @@ export function providerParameterIOContractV1(parameters: Record<string, unknown
     const maxItems = nonnegativeInteger(schema.max) ?? 1;
     return [{ id, kind, schema, minItems, maxItems }];
   });
-  const inputs = (["image", "video", "audio"] as const).flatMap((kind): ModelIOItem[] => {
+  const mediaInputs = (["image", "video", "audio"] as const).flatMap((kind): ModelIOItem[] => {
     const matching = fields.filter((field) => field.kind === kind);
     if (!matching.length) return inputTypes.includes(kind) ? [{ kind, minItems: 0, maxItems: 1, required: false, roles: [defaultRole(kind)], slots: [{ id: kind, role: defaultRole(kind), label: defaultLabel(kind), minItems: 0, maxItems: 1, required: false, ordered: true }] }] : [];
     const hasLastFrame = matching.some((field) => field.id.toLowerCase().includes("tail") || field.id.toLowerCase().includes("last"));
@@ -21,33 +66,40 @@ export function providerParameterIOContractV1(parameters: Record<string, unknown
     const maxItems = matching.reduce((sum, field) => sum + field.maxItems, 0);
     return [{ kind, minItems, maxItems, required: minItems > 0, roles: unique(slots.map((slot) => slot.role)), slots, ordered: true }];
   });
+  const inputs: ModelIOItem[] = inputTypes.includes("text")
+    ? [{ kind: "text", minItems: 0, maxItems: 1 }, ...mediaInputs]
+    : mediaInputs;
   const outputs = outputTypes.filter(isMediaKind).map((kind): ModelIOItem => ({ kind, minItems: 1, maxItems: 1, required: true }));
   return { inputs, outputs };
 }
 
-export function modelInputSlotsV1(model: { ioContract?: ModelIOContract; inputContract?: ModelIOContract }): ModelInputSlotV1[] {
-  const contract = model.inputContract ?? model.ioContract;
+export function modelInputSlotsV1(model: ModelInputContractSource): ModelInputSlotV1[] {
+  const contract = modelIOContractV1(model);
   return (contract?.inputs ?? []).flatMap((item) => item.slots?.length
     ? item.slots.map((slot) => ({ ...slot, kind: item.kind }))
     : [{ kind: item.kind, id: item.kind, role: item.roles?.[0] ?? defaultRole(item.kind), label: defaultLabel(item.kind), minItems: item.minItems ?? (item.required ? 1 : 0), maxItems: item.maxItems ?? 1, required: item.required ?? (item.minItems ?? 0) > 0, ordered: item.ordered ?? true }]);
 }
 
-export function panelCanRepresentContractV1(model: { ioContract?: ModelIOContract; inputContract?: ModelIOContract }, supportedKinds: string[]): boolean {
+export function panelCanRepresentContractV1(model: ModelInputContractSource, supportedKinds: string[]): boolean {
   const supported = new Set(supportedKinds);
-  return ((model.inputContract ?? model.ioContract)?.inputs ?? []).every((item) => (item.minItems ?? (item.required ? 1 : 0)) === 0 || supported.has(item.kind));
+  return (modelIOContractV1(model)?.inputs ?? []).every((item) => (item.minItems ?? (item.required ? 1 : 0)) === 0 || supported.has(item.kind));
 }
 
-export function modelInputCompatibilityReasonsV1(model: { ioContract?: ModelIOContract; inputContract?: ModelIOContract }, supplied: SuppliedModelInputsV1): string[] {
-  return ((model.inputContract ?? model.ioContract)?.inputs ?? []).flatMap((item) => {
+export function modelInputCompatibilityReasonsV1(model: ModelInputContractSource, supplied: SuppliedModelInputsV1): string[] {
+  const inputs = modelIOContractV1(model)?.inputs ?? [];
+  const unsupported = (Object.entries(supplied) as Array<[keyof SuppliedModelInputsV1, number | undefined]>).flatMap(([kind, count]) =>
+    (count ?? 0) > 0 && !inputs.some((item) => item.kind === kind) ? [`unsupported ${kind} input`] : []
+  );
+  return [...unsupported, ...inputs.flatMap((item) => {
     if (!(item.kind === "image" || item.kind === "video" || item.kind === "audio")) return [];
     const count = supplied[item.kind] ?? 0;
     const min = item.minItems ?? (item.required ? 1 : 0);
     const max = item.maxItems ?? Number.POSITIVE_INFINITY;
     return count < min ? [`${item.kind} requires at least ${min}, got ${count}`] : count > max ? [`${item.kind} accepts at most ${max}, got ${count}`] : [];
-  });
+  })];
 }
 
-export function modelRunnableWithSuppliedInputsV1(model: { ioContract?: ModelIOContract; inputContract?: ModelIOContract }, supplied: SuppliedModelInputsV1): boolean {
+export function modelRunnableWithSuppliedInputsV1(model: ModelInputContractSource, supplied: SuppliedModelInputsV1): boolean {
   return modelInputCompatibilityReasonsV1(model, supplied).length === 0;
 }
 
@@ -83,4 +135,9 @@ function defaultRole(kind: string) { return kind === "image" ? "sourceImage" : k
 function defaultLabel(kind: string) { return kind === "image" ? "Source image" : kind === "video" ? "Source video" : kind === "audio" ? "Audio" : kind; }
 function nonnegativeInteger(value: unknown) { const number = Number(value); return Number.isFinite(number) && number >= 0 ? Math.floor(number) : undefined; }
 function isMediaKind(value: string): value is ModelMediaKind { return ["text", "image", "video", "audio", "file", "json"].includes(value); }
+function legacyMaximum(model: ModelInputContractSource, kind: string) {
+  if (kind !== "image") return 1;
+  return positiveInteger(model.metadata?.maxImageInputs) ?? positiveInteger(model.metadata?.maxImages) ?? 1;
+}
+function positiveInteger(value: unknown) { const number = Number(value); return Number.isFinite(number) && number > 0 ? Math.floor(number) : undefined; }
 function unique<T>(values: T[]) { return [...new Set(values)]; }

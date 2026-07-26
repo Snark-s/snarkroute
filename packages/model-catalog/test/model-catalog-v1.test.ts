@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelInputSlotsV1, modelMaxImageInputsV1, modelRunnableWithSuppliedInputsV1, panelCanRepresentContractV1, providerParameterDefinitionsV1, providerParameterIOContractV1 } from "../src/index.js";
+import { modelInputCompatibilityReasonsV1, modelInputSlotsV1, modelMaxImageInputsV1, modelRunnableWithSuppliedInputsV1, panelCanRepresentContractV1, providerParameterDefinitionsV1, providerParameterIOContractV1 } from "../src/index.js";
 import type { ModelCatalogEntryV1, ModelOptionForNodeV1, ModelPricingInfoV1, ModelRoleV1 } from "../src/index.js";
 
 const baseEntry: ModelCatalogEntryV1 = {
