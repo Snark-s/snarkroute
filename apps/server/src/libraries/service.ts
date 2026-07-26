@@ -2438,6 +2438,9 @@ export async function deleteCanvasNode(nodeId: string): Promise<LibrarySnapshot>
   const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
   canvas.nodes = canvas.nodes.filter((node) => node.id !== nodeId);
   canvas.edges = (canvas.edges ?? []).filter((edge) => edge.fromNodeId !== nodeId && edge.toNodeId !== nodeId);
+  if (canvas.pinnedNodeIds?.length) {
+    canvas.pinnedNodeIds = canvas.pinnedNodeIds.filter((id) => id !== nodeId);
+  }
   await moveCanvasNodeFolderToTrash(libraryPath, nodePath);
   await writeCanvas(libraryPath, canvas);
   await replaceDeletedRepresentativeImage(libraryPath, nodeId);
@@ -2639,6 +2642,9 @@ export async function trashOrphanCanvasNodeFolders(): Promise<{ snapshot: Librar
 
   canvas.nodes = retainedCanvasNodes;
   canvas.edges = (canvas.edges ?? []).filter((edge) => retainedNodeIds.has(edge.fromNodeId) && retainedNodeIds.has(edge.toNodeId));
+  if (canvas.pinnedNodeIds?.length) {
+    canvas.pinnedNodeIds = canvas.pinnedNodeIds.filter((id) => retainedNodeIds.has(id));
+  }
   await writeCanvas(libraryPath, canvas);
 
   return { snapshot: await readLibrarySnapshot(libraryPath), movedCount: movedNodePaths.length, movedNodePaths, failedCount: failedNodePaths.length, failedNodePaths };
