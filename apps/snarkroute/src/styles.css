@@ -917,6 +917,67 @@ dd {
   box-shadow: inset 0 0 0 1px #a78bfa;
 }
 
+.pinnedDockCell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: auto;
+}
+
+.collectionDock.isOpen .pinnedDockCell {
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  padding: 28px 8px 8px;
+  border: 1px solid color-mix(in srgb, var(--node-color) 30%, var(--line));
+  border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--panel) 93%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.collectionDock.isOpen .pinnedDockCell.isSelected {
+  border-color: var(--node-color);
+  box-shadow: inset 0 0 0 1px var(--node-color);
+}
+
+.pinnedDockCell > header {
+  position: absolute;
+  top: 5px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--node-color);
+}
+
+.pinnedDockCell > header strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinnedDockPreview {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--node-color);
+  background: var(--panel-soft);
+}
+
+.pinnedDockPreview img,
+.pinnedDockPreview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .collectionDockCell > header {
   position: absolute;
   top: 5px;
@@ -992,6 +1053,21 @@ dd {
 .collectionDock.isCollapsed .collectionDockInput {
   top: 0;
   clip-path: inset(50% 0 0 0);
+}
+
+.collectionDock .pinnedDockOutput {
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+}
+
+.collectionDock.isCollapsed .pinnedDockOutput {
+  top: 0;
+  clip-path: inset(50% 0 0 0);
+}
+
+.pinnedDockMarker {
+  color: var(--node-color);
 }
 
 .collectionDockMarker {

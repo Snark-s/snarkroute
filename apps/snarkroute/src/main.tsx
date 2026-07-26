@@ -1425,13 +1425,13 @@ function App() {
     });
   }
 
-  function handleOutputPointerDown(event: React.PointerEvent<HTMLElement>, node: NodeView) {
+  function handleOutputPointerDown(event: React.PointerEvent<HTMLElement>, node: NodeView, pointOverride?: { x: number; y: number }) {
     if (event.button !== 0) return;
     event.stopPropagation();
     setNodeCreateMenu(null);
     setSelectedEdgeId(null);
     interactionMovedRef.current = false;
-    const start = nodeOutputPoint(node.canvas);
+    const start = pointOverride ?? nodeOutputPoint(node.canvas);
     setDragState({
       kind: "connection",
       pointerId: event.pointerId,
@@ -3161,6 +3161,13 @@ function App() {
     const screenPoint = { x: 64 + slotStart + (slotWidths[index] ?? 180) / 2, y: collectionDockOpen ? 154 : 21 };
     return { x: (screenPoint.x - viewport.x) / viewportScale, y: (screenPoint.y - viewport.y) / viewportScale };
   };
+  const pinnedDockPoint = (nodeId: string) => {
+    const index = Math.max(0, pinnedNodes.findIndex((node) => node.canvas.id === nodeId));
+    const collectionWidth = collectionNodes.reduce((sum, node) => sum + Math.max(180, node.canvas.width / 2) + 8, 0);
+    const slotStart = collectionWidth + index * (180 + 8);
+    const screenPoint = { x: 64 + slotStart + 90, y: collectionDockOpen ? 154 : 21 };
+    return { x: (screenPoint.x - viewport.x) / viewportScale, y: (screenPoint.y - viewport.y) / viewportScale };
+  };
 
   return (
     <main className={`livingCanvasShell${libraryOpen ? "" : " libraryCollapsed"}${inspectorOpen ? " inspectorOpen" : ""}`}>
@@ -3473,6 +3480,7 @@ function App() {
         </div>
         <CollectionDock
           nodes={collectionNodes}
+          pinnedNodes={pinnedNodes}
           open={collectionDockOpen}
           selectedNodeIds={selectedNodeIds}
           onToggle={() => setCollectionDockOpen(!collectionDockOpen)}
@@ -3506,6 +3514,7 @@ function App() {
             });
           }}
           onInputPointerDown={(event, node) => handleInputPointerDown(event, node, collectionDockPoint(node.canvas.id))}
+          onOutputPointerDown={(event, node) => handleOutputPointerDown(event, node, pinnedDockPoint(node.canvas.id))}
           onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
         />
         {nodeCreateMenu && (
@@ -4654,6 +4663,7 @@ function providerModelCounts(models: ModelOption[], providerId: string): string[
 
 function CollectionDock({
   nodes,
+  pinnedNodes,
   open,
   selectedNodeIds,
   onToggle,
@@ -4663,9 +4673,11 @@ function CollectionDock({
   onItemContextMenu,
   onItemPointerDown,
   onInputPointerDown,
+  onOutputPointerDown,
   onRenameNode
 }: {
   nodes: CollectionNodeView[];
+  pinnedNodes: NodeView[];
   open: boolean;
   selectedNodeIds: string[];
   onToggle: () => void;
@@ -4675,8 +4687,13 @@ function CollectionDock({
   onItemContextMenu: (event: React.MouseEvent<HTMLElement>, node: CollectionNodeView, itemId: string) => void;
   onItemPointerDown: (event: React.PointerEvent<HTMLButtonElement>, node: CollectionNodeView, itemId: string) => void;
   onInputPointerDown: (event: React.PointerEvent<HTMLElement>, node: CollectionNodeView) => void;
+  onOutputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
   onRenameNode: (nodeId: string, title: string) => void;
 }) {
+  const gridColumns = [
+    ...nodes.map((node) => `${Math.max(180, node.canvas.width / 2)}px`),
+    ...pinnedNodes.map(() => "180px")
+  ];
   return (
     <aside className={`collectionDock${open ? " isOpen" : " isCollapsed"}`} onPointerDown={(event) => event.stopPropagation()}>
       <button
@@ -4690,11 +4707,11 @@ function CollectionDock({
       </button>
       <div
         className="collectionDockCells"
-        style={{ gridTemplateColumns: nodes.length
-          ? nodes.map((node) => `${Math.max(180, node.canvas.width / 2)}px`).join(" ")
+        style={{ gridTemplateColumns: gridColumns.length
+          ? gridColumns.join(" ")
           : "minmax(180px, 1fr)" }}
       >
-        {open && nodes.length === 0 ? <div className="collectionDockEmpty">Drag collection nodes here</div> : null}
+        {open && gridColumns.length === 0 ? <div className="collectionDockEmpty">Drag collection nodes here or pin a node</div> : null}
         {nodes.map((node) => (
           <article
             key={node.canvas.id}
@@ -4740,8 +4757,75 @@ function CollectionDock({
             ) : <span className="collectionDockMarker" title={node.manifest.title}><Package size={12} /><strong>{node.manifest.title}</strong><small>{node.items.length}</small></span>}
           </article>
         ))}
+        {pinnedNodes.map((node) => (
+          <PinnedNodeDockCell
+            key={node.canvas.id}
+            node={node}
+            isCollapsed={!open}
+            isSelected={selectedNodeIds.includes(node.canvas.id)}
+            onSelect={onSelect}
+            onNodeContextMenu={onNodeContextMenu}
+            onOutputPointerDown={onOutputPointerDown}
+          />
+        ))}
       </div>
     </aside>
+  );
+}
+
+function PinnedNodeDockCell({
+  node,
+  isCollapsed,
+  isSelected,
+  onSelect,
+  onNodeContextMenu,
+  onOutputPointerDown
+}: {
+  node: NodeView;
+  isCollapsed: boolean;
+  isSelected: boolean;
+  onSelect: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onNodeContextMenu: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onOutputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
+}) {
+  const type = node.manifest.type;
+  const preview = !isCollapsed && node.previewUrl && (type === "image" || type === "video")
+    ? type === "video"
+      ? <video src={`${apiBase}${node.previewUrl}`} muted preload="metadata" />
+      : <img src={`${apiBase}${node.previewUrl}`} alt="" />
+    : type === "audio"
+      ? <Music size={24} />
+      : type === "text"
+        ? <FileText size={24} />
+        : type === "video"
+          ? <Video size={24} />
+          : <ImageIcon size={24} />;
+
+  return (
+    <article
+      className={`pinnedDockCell is-${type}${isSelected ? " isSelected" : ""}`}
+      style={{ "--node-color": nodeTypeWireColor(node) } as React.CSSProperties}
+      onClick={(event) => onSelect(event, node)}
+      onContextMenu={(event) => onNodeContextMenu(event, node)}
+    >
+      <div
+        className="pinnedDockOutput nodeHandle nodeHandleOutput"
+        title={`Connect ${node.manifest.title} output`}
+        data-node-output-id={node.canvas.id}
+        onPointerDown={(event) => onOutputPointerDown(event, node)}
+      />
+      {isCollapsed ? (
+        <span className="collectionDockMarker pinnedDockMarker" title={node.manifest.title}>
+          <Pin size={12} />
+          <strong>{node.manifest.title}</strong>
+        </span>
+      ) : (
+        <>
+          <header><Pin size={14} /><strong>{node.manifest.title}</strong></header>
+          <div className="pinnedDockPreview">{preview}</div>
+        </>
+      )}
+    </article>
   );
 }
 
