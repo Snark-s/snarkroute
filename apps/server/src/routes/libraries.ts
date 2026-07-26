@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { spawn } from "node:child_process";
 import {
   appendImageToNodeStack,
@@ -83,6 +83,15 @@ import {
   type SnarkCanvasDocument
 } from "../libraries/service";
 import { errorMessage } from "../services/errors";
+
+function sendGenerationError(reply: FastifyReply, error: unknown) {
+  const details = error && typeof error === "object" ? error as { errorCode?: unknown; providerId?: unknown } : {};
+  return reply.code(400).send({
+    error: errorMessage(error),
+    errorCode: typeof details.errorCode === "string" ? details.errorCode : undefined,
+    providerId: typeof details.providerId === "string" ? details.providerId : undefined
+  });
+}
 
 export async function registerLibraryRoutes(app: FastifyInstance) {
   app.get("/api/libraries/projects", async (_request, reply) => {
@@ -608,7 +617,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
         parameters: request.body.parameters
       });
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return sendGenerationError(reply, error);
     }
   });
 
@@ -629,7 +638,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
         parameters: request.body.parameters
       });
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return sendGenerationError(reply, error);
     }
   });
 
@@ -650,7 +659,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
         parameters: request.body.parameters
       });
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return sendGenerationError(reply, error);
     }
   });
 
@@ -795,7 +804,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
         imageReferenceSyntax: request.body.imageReferenceSyntax
       });
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return sendGenerationError(reply, error);
     }
   });
 
@@ -838,7 +847,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
         attachments: request.body.attachments
       });
     } catch (error) {
-      return reply.code(400).send({ error: errorMessage(error) });
+      return sendGenerationError(reply, error);
     }
   });
 

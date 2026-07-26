@@ -36,6 +36,12 @@ import {
   type ProviderSettings
 } from "./modelCatalog";
 import { modelLogoForCatalogOption, unknownModelLogoSrc, type ModelLogo } from "./modelLogos";
+import { activeProviderFunds, clearProviderFundsOnSuccess, DEFAULT_PROVIDER_FUNDS_TTL_MS, markProviderFundsError, providerFundsWarning, resolveProviderRoute, type ProviderFunds } from "./providerFunds";
+
+const providerFundsTtlMs = (() => {
+  const hours = Number(import.meta.env.VITE_PROVIDER_FUNDS_TTL_HOURS ?? 6);
+  return Number.isFinite(hours) && hours > 0 ? hours * 60 * 60 * 1000 : DEFAULT_PROVIDER_FUNDS_TTL_MS;
+})();
 
 type ThemeName = "day" | "night";
 type BackgroundName = "plain" | "dots" | "grid" | "gears";
@@ -448,7 +454,12 @@ type CanvasActionRunDialog = {
 };
 
 class ApiResponseError extends Error {
-  constructor(message: string, readonly status: number) {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly errorCode?: string,
+    readonly providerId?: string
+  ) {
     super(message);
     this.name = "ApiResponseError";
   }
@@ -775,6 +786,7 @@ function App() {
   const [localProviders, setLocalProviders] = useStoredJsonSetting<LocalProviderConnection[]>("snarkroute.localProviders", []);
   const [modelSearchNodeId, setModelSearchNodeId] = useState<string | null>(null);
   const [modelSelections, setModelSelections] = useStoredJsonSetting<Record<string, string | ModelRouteSelection>>("snarkroute.nodeModels", {});
+  const [providerFunds, setProviderFunds] = useStoredJsonSetting<ProviderFunds>("snarkroute.providerFunds", {});
   const [generationFeedback, setGenerationFeedback] = useState<Record<string, GenerationFeedback>>({});
   const [canvasActionRunning, setCanvasActionRunning] = useState<Record<string, string>>({});
   const [videoFrameCaptureBusyKey, setVideoFrameCaptureBusyKey] = useState<string | null>(null);
@@ -839,6 +851,11 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const active = activeProviderFunds(providerFunds, Date.now(), providerFundsTtlMs);
+    if (Object.keys(active).length !== Object.keys(providerFunds).length) setProviderFunds(active);
+  }, [providerFunds]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const updateCanvasSize = () => {
@@ -876,8 +893,14 @@ function App() {
     .map((folder) => ({ ...folder, nodeIds: folder.nodeIds.filter((nodeId) => nodeById.has(nodeId)) }))
     .filter((folder) => folder.nodeIds.length > 0);
   const hiddenFolderNodeIdSet = hiddenCanvasNodeIds(canvasFolders);
-  const availableCatalogModels = useMemo(() => availableModels, [availableModels]);
-  const pickerCatalogModels = useMemo(() => mergeProviderAndUserDefinedPickerModels(availableCatalogModels, customModels), [availableCatalogModels, customModels]);
+  const availableCatalogModels = useMemo(() => availableModels.map((model) => ({
+    ...model,
+    fundsWarning: providerFundsWarning(providerFunds, model.providerId, Date.now(), providerFundsTtlMs)
+  })), [availableModels, providerFunds]);
+  const pickerCatalogModels = useMemo(() => mergeProviderAndUserDefinedPickerModels(availableCatalogModels, customModels.map((model) => ({
+    ...model,
+    fundsWarning: providerFundsWarning(providerFunds, model.providerId, Date.now(), providerFundsTtlMs)
+  }))), [availableCatalogModels, customModels, providerFunds]);
   const collapsedNodeIdSet = useMemo(() => new Set(collapsedNodeIds), [collapsedNodeIds]);
   const viewportScale = viewport.scale ?? 1;
 
@@ -2102,9 +2125,11 @@ function App() {
         imageReferenceSyntax
       });
       applyLibrarySnapshot(snapshot);
+      setProviderFunds(clearProviderFundsOnSuccess(providerFunds, successfulProviderId(selection, availableExecutionProviders)));
       setStatus("Generated text added to stack");
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message: "Added to stack" } }));
     } catch (error) {
+      setProviderFunds(markProviderFundsError(providerFunds, apiErrorDetails(error)));
       const message = error instanceof Error ? error.message : "Could not generate text.";
       setStatus(message);
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message, error: true } }));
@@ -2453,12 +2478,14 @@ function App() {
         parameters
       });
       applyLibrarySnapshot(snapshot);
+      setProviderFunds(clearProviderFundsOnSuccess(providerFunds, successfulProviderId(selection, availableExecutionProviders)));
       if (type === "image") void refreshProjects();
       setSelectedNodeId(nodeId);
       setSelectedNodeIds([nodeId]);
       setStatus("Generation added to stack");
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message: "Added to stack" } }));
     } catch (error) {
+      setProviderFunds(markProviderFundsError(providerFunds, apiErrorDetails(error)));
       const message = error instanceof Error ? error.message : "Could not run generation.";
       setStatus(message);
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message, error: true } }));
@@ -2880,14 +2907,30 @@ function App() {
         attachments: inputNodeIds?.map((inputNodeId) => ({ nodeId: inputNodeId }))
       });
       applyLibrarySnapshot(snapshot);
+      setProviderFunds(clearProviderFundsOnSuccess(providerFunds, successfulProviderId(selection, availableExecutionProviders)));
       setStatus("Dialogue updated");
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message: "Answered" } }));
       return true;
     } catch (error) {
+      setProviderFunds(markProviderFundsError(providerFunds, apiErrorDetails(error)));
       const message = error instanceof Error ? error.message : "Could not send dialogue turn.";
       setStatus(message);
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: false, message, error: true } }));
       return false;
+    }
+  }
+
+  async function addTextDialogueMessage(nodeId: string, content: string, inputNodeIds?: string[]) {
+    try {
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/conversation/message`, {
+        role: "user",
+        content,
+        attachments: inputNodeIds?.map((inputNodeId) => ({ nodeId: inputNodeId }))
+      });
+      applyLibrarySnapshot(snapshot);
+      setStatus("Dialogue note added");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not add dialogue note.");
     }
   }
 
@@ -3609,6 +3652,7 @@ function App() {
               }}
               onStackItemMissingChange={markStackItemMissing}
               models={nodeModels}
+              providerFunds={providerFunds}
               modelSelection={normalizedModelRouteSelection("modelId" in node.manifest && node.manifest.modelId ? {
                 modelId: node.manifest.modelId,
                 executionProvider: node.manifest.executionProvider ?? "auto",
@@ -3643,6 +3687,7 @@ function App() {
               }}
               onRunTextGeneration={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => void runTextGeneration(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
               onRunTextDialogueTurn={(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax) => runTextDialogueTurn(nodeId, selection, providers, prompt, inputNodeIds, maxImageInputs, imageReferenceSyntax)}
+              onAddTextDialogueMessage={(nodeId, content, inputNodeIds) => void addTextDialogueMessage(nodeId, content, inputNodeIds)}
               onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
               toolbarActions={effectiveNodeToolbarConfig[node.manifest.type as EditableNodeType]}
               availableToolbarActions={availableNodeToolbarActions}
@@ -6012,6 +6057,7 @@ function ImageNode({
   onStackItemContextMenu,
   onStackItemMissingChange,
   models,
+  providerFunds,
   modelSelection,
   generationFeedback,
   modelSearchOpen,
@@ -6028,6 +6074,7 @@ function ImageNode({
   onSelectTextStackItem,
   onRunTextGeneration,
   onRunTextDialogueTurn,
+  onAddTextDialogueMessage,
   onRenameNode,
   toolbarActions,
   availableToolbarActions,
@@ -6064,6 +6111,7 @@ function ImageNode({
   onStackItemContextMenu: (event: React.MouseEvent<HTMLElement>, nodeId: string, stackItemId: string) => void;
   onStackItemMissingChange: (nodeId: string, stackItemId: string, missing: boolean) => void;
   models: ModelOption[];
+  providerFunds: ProviderFunds;
   modelSelection: ModelRouteSelection;
   generationFeedback?: GenerationFeedback;
   modelSearchOpen: boolean;
@@ -6080,6 +6128,7 @@ function ImageNode({
   onSelectTextStackItem: (nodeId: string, stackItemId: string | null) => void;
   onRunTextGeneration: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => void;
   onRunTextDialogueTurn: (nodeId: string, selection: ModelRouteSelection, availableExecutionProviders: string[], prompt: string, inputNodeIds?: string[], maxImageInputs?: number, imageReferenceSyntax?: string) => Promise<boolean>;
+  onAddTextDialogueMessage: (nodeId: string, content: string, inputNodeIds?: string[]) => void;
   onRenameNode: (nodeId: string, title: string) => void;
   toolbarActions: NodeToolbarActionId[];
   availableToolbarActions: NodeToolbarAction[];
@@ -6114,7 +6163,7 @@ function ImageNode({
     entry.routes.some((route) => route.id === modelSelection.modelId && (modelSelection.executionProvider === "auto" || route.providerId === modelSelection.executionProvider))
   ) ?? displayModels.find((entry) => entry.model.id === modelSelection.modelId);
   const selectedRoutes = selectedDisplayModel?.routes ?? [];
-  const selectedModel: ModelOption = selectedRoutes.find((model) => model.providerId === modelSelection.executionProvider) ?? selectedRoutes[0] ?? compatibleModels[0] ?? {
+  const selectedModel: ModelOption = resolveProviderRoute(selectedRoutes, modelSelection.executionProvider, providerFunds, Date.now(), providerFundsTtlMs) ?? compatibleModels[0] ?? {
     id: "",
     title: "Select model",
     providerId: "none",
@@ -6135,6 +6184,7 @@ function ImageNode({
     || routes.some((route) => route.title.toLowerCase().includes(normalizedModelQuery) || route.id.toLowerCase().includes(normalizedModelQuery))
   );
   const selectedModelLogo = modelLogoForOption(selectedModel);
+  const orderedExecutionProviders = [selectedModel.providerId, ...selectedRoutes.map((route) => route.providerId).filter((providerId) => providerId !== selectedModel.providerId)];
   const selectedModelKey = `${selectedModel.id}:${effectiveSelection.executionProvider}`;
   const parameterDefinitions = normalizeGenerationParameterDefinitions(selectedModel.generationParameters ?? []);
   const basicParameterDefinitions = parameterDefinitions.filter((definition) => !definition.advanced);
@@ -6574,7 +6624,8 @@ function ImageNode({
             onOpenModels={onOpenModels}
             onSelectModel={onSelectModel}
             onChangeRouteSettings={onChangeRouteSettings}
-            onRunTurn={(promptValue) => onRunTextDialogueTurn(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), promptValue, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax)}
+            onRunTurn={(promptValue) => onRunTextDialogueTurn(node.manifest.id, effectiveSelection, orderedExecutionProviders, promptValue, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax)}
+            onAddNote={(promptValue) => onAddTextDialogueMessage(node.manifest.id, promptValue, activeInputNodes.map((input) => input.id))}
             onAddTextToStack={(text) => onAddTextToStack(node.manifest.id, text)}
           />
         ) : (
@@ -6643,7 +6694,7 @@ function ImageNode({
                       {visibleModels.map(({ model, providers }) => (
                         <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
                           <ModelLogoImage logo={modelLogoForOption(model)} />
-                          <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
+                          <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>{model.fundsWarning ? <small className="fundsWarning">{model.fundsWarning}</small> : null}</span>
                         </button>
                       ))}
                       {visibleModels.length === 0 ? (
@@ -6678,6 +6729,7 @@ function ImageNode({
                   </div>
                 ) : null}
               </div>
+              {selectedModel.fundsWarning ? <span className="fundsWarning" title={selectedModel.fundsWarning}>{selectedModel.fundsWarning}</span> : null}
               {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"} title={generationFeedback.message}>{generationFeedback.message}</span> : null}
               <button
                 type="button"
@@ -6685,7 +6737,7 @@ function ImageNode({
                 disabled={!draftText.trim() || !selectedModel.id || generationFeedback?.busy}
                 onClick={() => {
                   setRouteSettingsOpen(false);
-                  onRunTextGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), draftText, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax);
+                  onRunTextGeneration(node.manifest.id, effectiveSelection, orderedExecutionProviders, draftText, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax);
                 }}
               >
                 {generationFeedback?.busy ? <BusyGears /> : <ArrowUp size={16} />}
@@ -6897,6 +6949,7 @@ function ImageNode({
                         <span>
                           <strong>{model.title}</strong>
                           <small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>
+                          {model.fundsWarning ? <small className="fundsWarning">{model.fundsWarning}</small> : null}
                         </span>
                       </button>
                     ))}
@@ -6997,6 +7050,7 @@ function ImageNode({
                 </div>
               )}
             </div>
+            {selectedModel.fundsWarning ? <span className="fundsWarning" title={selectedModel.fundsWarning}>{selectedModel.fundsWarning}</span> : null}
             {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"} title={generationFeedback.message}>{generationFeedback.message}</span> : null}
             <button
               type="button"
@@ -7005,7 +7059,7 @@ function ImageNode({
               onClick={() => {
                 setRouteSettingsOpen(false);
                 setParametersOpen(false);
-                onRunGeneration(node.manifest.id, effectiveSelection, selectedRoutes.map((route) => route.providerId), prompt, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters);
+                onRunGeneration(node.manifest.id, effectiveSelection, orderedExecutionProviders, prompt, activeInputNodes.map((input) => input.id), maxImageInputs, selectedModel.imageReferenceSyntax, generationParameters);
               }}
             >
               {generationFeedback?.busy ? <BusyGears /> : <ArrowUp size={16} />}
@@ -7180,6 +7234,7 @@ function DialogueEditor({
   onSelectModel,
   onChangeRouteSettings,
   onRunTurn,
+  onAddNote,
   onAddTextToStack
 }: {
   node: TextNodeView;
@@ -7205,6 +7260,7 @@ function DialogueEditor({
   onSelectModel: (nodeId: string, selection: ModelRouteSelection) => void;
   onChangeRouteSettings: (nodeId: string, selection: ModelRouteSelection) => void;
   onRunTurn: (prompt: string) => Promise<boolean>;
+  onAddNote: (prompt: string) => void;
   onAddTextToStack: (text: string) => void;
 }) {
   const [draft, setDraft] = useState(() => readTextDialogueDraft(sessionStorage, node.manifest.id));
@@ -7261,6 +7317,13 @@ function DialogueEditor({
     const value = draft;
     setDraft("");
     onAddTextToStack(value);
+  }
+
+  function addNote() {
+    if (!draft.trim()) return;
+    const value = draft;
+    setDraft("");
+    onAddNote(value);
   }
 
   return (
@@ -7335,6 +7398,7 @@ function DialogueEditor({
           onBlur={() => undefined}
         />
         <button type="button" className="textAddStackButton dialogueDraftStackButton" aria-label="Add dialogue text to stack" title="Add all text to stack" disabled={!draft.trim()} onClick={addDraftToStack}><Save size={16} /></button>
+        <button type="button" className="textAddStackButton dialogueDraftNoteButton" aria-label="Add note" title="Add note without running the model" disabled={!draft.trim()} onClick={addNote}><FileText size={16} /></button>
       </div>
       <div className="promptMeta">
         <div className="modelPicker">
@@ -7348,7 +7412,7 @@ function DialogueEditor({
                 {visibleModels.map(({ model, providers }) => (
                   <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
                     <ModelLogoImage logo={modelLogoForOption(model)} />
-                    <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
+                    <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>{model.fundsWarning ? <small className="fundsWarning">{model.fundsWarning}</small> : null}</span>
                   </button>
                 ))}
                 {visibleModels.length === 0 ? <div className="modelMenuEmpty"><span>Нет подключённых текстовых моделей</span><button type="button" onClick={onOpenModels}>Открыть панель моделей</button></div> : null}
@@ -7379,6 +7443,7 @@ function DialogueEditor({
           ) : null}
         </div>
         {activeInputNodes.length ? <span className="dialogueAttachCount">{activeInputNodes.length}</span> : null}
+        {selectedModel.fundsWarning ? <span className="fundsWarning" title={selectedModel.fundsWarning}>{selectedModel.fundsWarning}</span> : null}
         {generationFeedback ? <span className={generationFeedback.error ? "generationStatus isError" : "generationStatus"} title={generationFeedback.message}>{generationFeedback.message}</span> : null}
         <button type="button" aria-label="Send" disabled={!draft.trim() || !selectedModel.id || generationFeedback?.busy} onClick={() => void sendTurn()}>
           {generationFeedback?.busy ? <BusyGears /> : <Send size={16} />}
@@ -8523,8 +8588,36 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
   });
-  if (!response.ok) throw new ApiResponseError(await apiErrorMessage(response), response.status);
+  if (!response.ok) throw await apiResponseError(response);
   return response.json() as Promise<T>;
+}
+
+async function apiResponseError(response: Response): Promise<ApiResponseError> {
+  let parsed: unknown;
+  try {
+    parsed = await response.json();
+  } catch {
+    return new ApiResponseError(response.statusText || `HTTP ${response.status}`, response.status);
+  }
+  const record = parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+  const message = ["error", "message", "detail", "msg"]
+    .map((key) => record[key])
+    .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+    ?? (typeof parsed === "string" ? parsed : JSON.stringify(record).slice(0, 700));
+  return new ApiResponseError(
+    message.trim() || response.statusText || `HTTP ${response.status}`,
+    response.status,
+    typeof record.errorCode === "string" ? record.errorCode : undefined,
+    typeof record.providerId === "string" ? record.providerId : undefined
+  );
+}
+
+function apiErrorDetails(error: unknown): { errorCode?: string; providerId?: string } {
+  return error instanceof ApiResponseError ? { errorCode: error.errorCode, providerId: error.providerId } : {};
+}
+
+function successfulProviderId(selection: ModelRouteSelection, availableExecutionProviders: string[]): string | undefined {
+  return selection.executionProvider === "auto" ? availableExecutionProviders[0] : selection.executionProvider;
 }
 
 function dockedCollectionEdgePath(start: { x: number; y: number }, end: { x: number; y: number }) {

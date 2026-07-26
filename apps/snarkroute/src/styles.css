@@ -3197,6 +3197,11 @@ dd {
   left: auto;
 }
 
+.dialogueDraftNoteButton {
+  right: 46px;
+  left: auto;
+}
+
 .promptHeader,
 .inputChips,
 .promptMeta {
@@ -4141,6 +4146,17 @@ dd {
 
 .modelMenuList button:hover {
   background: var(--panel-soft);
+}
+
+.fundsWarning {
+  color: #a86600 !important;
+  background: color-mix(in srgb, #f3a712 15%, transparent);
+  border: 1px solid color-mix(in srgb, #f3a712 40%, transparent);
+  border-radius: 999px;
+  padding: 2px 6px;
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .routeSettings {

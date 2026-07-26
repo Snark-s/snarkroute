@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
-import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
+import { providerHttpError, type NodeRunner, type ProviderUsageEvent } from "@snarkroute/executor";
 import {
   createModelResolver,
   resolutionMetadata,
@@ -154,7 +154,7 @@ export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
     }
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      throw new Error(openRouterHttpError(response.status, body));
+      throw providerHttpError(response.status, "openrouter", openRouterHttpError(response.status, body));
     }
     return response.json();
   }

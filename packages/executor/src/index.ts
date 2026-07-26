@@ -133,6 +133,8 @@ export interface NodeResult {
   status: RunStatus;
   output?: unknown;
   error?: string;
+  errorCode?: RunErrorCode;
+  providerId?: string;
   logs: string[];
   metrics?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
@@ -156,6 +158,8 @@ export interface RunLogEntry {
 export interface RunResult {
   runId: string;
   status: RunStatus;
+  errorCode?: RunErrorCode;
+  providerId?: string;
   startedAt: string;
   completedAt: string;
   nodeResults: Record<string, NodeResult>;
@@ -164,6 +168,22 @@ export interface RunResult {
   economics: RunEconomicsSummary;
   costSummary: RunCostSummary;
   outputDirectory: string;
+}
+
+export const PROVIDER_INSUFFICIENT_FUNDS_ERROR_CODE = "provider_insufficient_funds" as const;
+export type RunErrorCode = typeof PROVIDER_INSUFFICIENT_FUNDS_ERROR_CODE;
+
+export class ProviderRunError extends Error {
+  constructor(message: string, readonly errorCode: RunErrorCode, readonly providerId: string) {
+    super(message);
+    this.name = "ProviderRunError";
+  }
+}
+
+export function providerHttpError(status: number, providerId: string, message: string, insufficientFundsStatuses: readonly number[] = [402]): Error {
+  return insufficientFundsStatuses.includes(status)
+    ? new ProviderRunError(message, PROVIDER_INSUFFICIENT_FUNDS_ERROR_CODE, providerId)
+    : new Error(message);
 }
 
 export interface ExecuteOptions {
@@ -458,6 +478,7 @@ export function createExecutor(): RouteExecutor {
             log(`Completed ${node.id}`, node.id);
           } catch (error) {
             const rawMessage = redactSecrets(error instanceof Error ? error.message : String(error));
+            const errorDetails = structuredRunError(error);
             const estimate = nodeResults[node.id]?.costEstimate;
             const message = isPaidProviderEstimate(estimate, []) ? noChargeProviderMessage(rawMessage) : rawMessage;
             if (error instanceof CompoundExecutionError) {
@@ -479,6 +500,8 @@ export function createExecutor(): RouteExecutor {
               type: node.type,
               status: "failed",
               error: message,
+              errorCode: errorDetails.errorCode,
+              providerId: errorDetails.providerId,
               logs: [message],
               costEstimate: nodeResults[node.id]?.costEstimate,
               actualUsage: { requestCount: 0 },
@@ -730,9 +753,12 @@ function completeRun(
   const completedAt = new Date().toISOString();
   const economics = buildRunEconomics(route, providersUsed, activeProfile);
   const costSummary = finalizeRunCostSummary(estimateSummary, nodeResults);
+  const failedNode = Object.values(nodeResults).find((result) => result.errorCode);
   return {
     runId,
     status,
+    errorCode: failedNode?.errorCode,
+    providerId: failedNode?.providerId,
     startedAt,
     completedAt,
     nodeResults,
@@ -746,6 +772,15 @@ function completeRun(
     economics,
     costSummary,
     outputDirectory
+  };
+}
+
+function structuredRunError(error: unknown): { errorCode?: RunErrorCode; providerId?: string } {
+  if (!error || typeof error !== "object") return {};
+  const candidate = error as { errorCode?: unknown; providerId?: unknown };
+  return {
+    errorCode: candidate.errorCode === PROVIDER_INSUFFICIENT_FUNDS_ERROR_CODE ? candidate.errorCode : undefined,
+    providerId: typeof candidate.providerId === "string" && candidate.providerId.trim() ? candidate.providerId : undefined
   };
 }
 

@@ -38,6 +38,7 @@ export interface ModelOption {
   capabilities: string[];
   paramsSchema?: ModelParameterDefinition[];
   isAvailable: boolean;
+  fundsWarning?: string;
   statusReason?: string;
   source?: string;
   acceptsImageInput?: boolean;

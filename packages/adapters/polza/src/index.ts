@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, extname, join } from "node:path";
 import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, getRubPerUsd, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
-import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
+import { providerHttpError, type NodeRunner, type ProviderUsageEvent } from "@snarkroute/executor";
 import { providerParameterIOContractV1 } from "@snarkroute/model-catalog";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
@@ -137,7 +137,7 @@ export function createPolzaClient(options: PolzaClientOptions = {}) {
         await delay(retryDelayMs * attempt);
         continue;
       }
-      throw new Error(polzaHttpError(response.status, body, path, apiKey));
+      throw providerHttpError(response.status, "polza", polzaHttpError(response.status, body, path, apiKey));
     }
     throw new Error(polzaNetworkError(lastNetworkError, baseUrl));
   }
