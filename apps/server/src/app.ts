@@ -13,6 +13,7 @@ import { registerLibraryRoutes } from "./routes/libraries";
 import { registerLocalStableDiffusionRoutes } from "./routes/local-stable-diffusion";
 import { registerModelIconRoutes } from "./routes/model-icons";
 import { registerModelRoutes } from "./routes/models";
+import { registerModelGatewayJobRoutes } from "./routes/model-gateway-jobs";
 import { registerNodeCatalogRoutes } from "./routes/nodes";
 import { registerNodePackageRoutes } from "./routes/node-packages";
 import { registerPromptLibraryRoutes, refreshPromptLibraryCache } from "./routes/prompt-library";
@@ -25,7 +26,7 @@ import { registerAfterEffectsRoutes } from "./routes/after-effects";
 import { registerMcpRoutes } from "./mcp/server";
 import { registerModelGatewayJobRoutes } from "./routes/model-gateway-jobs";
 import { startModelPricingRefreshScheduler } from "./billing/model-pricing-refresh-scheduler";
-import { assertProductionSafety } from "./services/env";
+import { appMode, assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
 export function buildServer() {
   loadRootEnv();
@@ -43,6 +44,7 @@ export function buildServer() {
   void registerSettingsRoutes(app);
   void registerSystemRoutes(app);
   void registerModelRoutes(app);
+  void registerModelGatewayJobRoutes(app);
   void registerProviderRoutes(app);
   void registerModelGatewayJobRoutes(app);
   void registerNodeCatalogRoutes(app);
@@ -60,4 +62,18 @@ export function buildServer() {
   void registerLedgerRoutes(app);
   startModelPricingRefreshScheduler();
   return app;
+}
+
+function localCorsOrigin(origin: string | undefined, callback: (error: Error | null, allowed: boolean) => void): void {
+  if (!origin) return callback(null, true);
+  if (appMode() === "local" && (origin === "null" || origin.startsWith("file://"))) return callback(null, true);
+  try {
+    const parsed = new URL(origin);
+    const hostname = parsed.hostname.toLowerCase();
+    const configuredOrigins = [process.env.APP_WEB_URL, process.env.PUBLIC_APP_URL]
+      .flatMap((value) => { try { return value?.trim() ? [new URL(value).origin] : []; } catch { return []; } });
+    callback(null, hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith(".localhost") || configuredOrigins.includes(parsed.origin));
+  } catch {
+    callback(null, false);
+  }
 }

@@ -250,6 +250,40 @@ describe("model catalog API", () => {
     }
   });
 
+  it("filters video models through the shared supplied-input contract", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/for-node/polza.video.generate?image=1&video=0&audio=0" });
+      const body = response.json();
+      expect(response.statusCode).toBe(200);
+      expect(body.suppliedInputs).toEqual({ image: 1, video: 0, audio: 0 });
+      expect(body.models.length).toBeGreaterThan(3);
+      expect(body.models.every((model: { runnableWithSuppliedInputs: boolean; maximumImageInputs: number }) => model.runnableWithSuppliedInputs && model.maximumImageInputs >= 1)).toBe(true);
+      expect(body.models.map((model: { providerModelId: string }) => model.providerModelId)).toEqual(expect.arrayContaining(["wan/2.6", "alibaba/happyhorse-1.0"]));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("exposes safe model filtering diagnostics for the generic Polza video runner", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/for-node/polza.video.generate/debug?image=1&video=0&audio=0" });
+      const body = response.json();
+      expect(response.statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.nodeType).toBe("polza.video.generate");
+      expect(body.counts).toMatchObject({ allModels: expect.any(Number), polzaVideo: expect.any(Number), polzaImageToVideo: expect.any(Number), final: expect.any(Number) });
+      expect(body.included).toEqual(expect.any(Array));
+      expect(body.excluded).toEqual(expect.any(Array));
+      expect(body.included[0]).toMatchObject({ inputContract: expect.any(Object), suppliedImageInputs: 1, runnableWithSuppliedInputs: true, executableByRunner: true });
+      if (body.included[0]) expect(body.included[0]).not.toHaveProperty("metadata");
+      if (body.excluded[0]) expect(body.excluded[0]).not.toHaveProperty("metadata");
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns iconPath and parameters array for every legacy-compatible model", async () => {
     const app = buildServer();
     try {

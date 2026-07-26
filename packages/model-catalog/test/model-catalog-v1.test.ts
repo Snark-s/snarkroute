@@ -65,6 +65,22 @@ describe("Model Catalog V1 types", () => {
     })).toBe(1);
   });
 
+  it.each([
+    [{ min: 1, max: 1 }, true],
+    [{ min: 1, max: 2 }, true],
+    [{ min: 0, max: 4 }, true],
+    [{ min: 2, max: 2 }, false]
+  ])("evaluates one supplied image against the shared min/max contract: %o", (images, expected) => {
+    const ioContract = providerParameterIOContractV1({ images }, [], ["video"]);
+    expect(modelRunnableWithSuppliedInputsV1({ ioContract }, { image: 1, video: 0, audio: 0 })).toBe(expected);
+  });
+
+  it("rejects text-to-video-only contracts when an image is supplied", () => {
+    const ioContract = providerParameterIOContractV1({ prompt: { required: true } }, ["text"], ["video"]);
+    expect(modelRunnableWithSuppliedInputsV1({ ioContract }, { image: 1 })).toBe(false);
+    expect(modelInputCompatibilityReasonsV1({ ioContract }, { image: 1 })).toContain("unsupported image input");
+  });
+
   it("supports required pricing statuses", () => {
     const statuses: Array<ModelPricingInfoV1["status"]> = ["fresh", "stale", "missing", "unknown"];
     expect(statuses).toEqual(["fresh", "stale", "missing", "unknown"]);

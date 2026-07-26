@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
 import { documentedRuTronixModels } from "@snarkroute/rutronix";
-import type { ModelOutputTypeV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
+import type { ModelOutputTypeV1, SuppliedModelInputsV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { openRouterCatalogCachePath } from "../server-paths";
 import { isPolzaEnabled } from "../services/env";
 import { providerNodeManifests } from "../providers/provider-node-manifests";
@@ -48,8 +48,10 @@ app.addHook("onRequest", async (request, reply) => {
   if (nodeType) {
     // Node-compatible endpoint: executor-safe selectable models for a specific nodeType.
     // Provider-native selectors must use storedModelId, not the unified catalog id.
-    const models = modelOptionsForNodeV1(nodeType, await loadLiveModelCatalogV1(nodeType));
-    return reply.send({ ok: true, nodeType, modelCount: models.length, models });
+    const suppliedInputs = suppliedInputsFromSearchParams(url.searchParams);
+    const models = modelOptionsForNodeV1(nodeType, await loadLiveModelCatalogV1(nodeType), suppliedInputs);
+    const query = suppliedInputs ? `?image=${suppliedInputs.image ?? 0}&video=${suppliedInputs.video ?? 0}&audio=${suppliedInputs.audio ?? 0}` : "";
+    return reply.send({ ok: true, nodeType, suppliedInputs, modelCount: models.length, familyCount: new Set(models.map((model) => modelFamily(model.providerModelId))).size, diagnosticsUrl: `/api/models/for-node/${encodeURIComponent(nodeType)}/debug${query}`, models });
   }
 
   if (url.pathname !== "/api/models") return;
@@ -181,6 +183,26 @@ function nodeTypeFromForNodePath(pathname: string): string | undefined {
   const encoded = pathname.slice(prefix.length);
   if (!encoded || encoded.includes("/")) return undefined;
   return decodeURIComponent(encoded);
+}
+
+function nodeTypeFromForNodeDebugPath(pathname: string): string | undefined {
+  const suffix = "/debug";
+  if (!pathname.endsWith(suffix)) return undefined;
+  return nodeTypeFromForNodePath(pathname.slice(0, -suffix.length));
+}
+
+function suppliedInputsFromSearchParams(searchParams: URLSearchParams): SuppliedModelInputsV1 | undefined {
+  if (!["image", "video", "audio"].some((kind) => searchParams.has(kind))) return undefined;
+  return {
+    image: inputCount(searchParams.get("image")),
+    video: inputCount(searchParams.get("video")),
+    audio: inputCount(searchParams.get("audio"))
+  };
+}
+
+function inputCount(value: string | null): number {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : 0;
 }
 
 function dedupeById<T extends { id?: string }>(models: T[]): T[] {

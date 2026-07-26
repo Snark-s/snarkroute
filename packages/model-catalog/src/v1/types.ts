@@ -166,3 +166,4 @@ export type ModelOptionForNodeV1 = ModelCatalogEntryV1 & {
   inputRoles?: string[];
   runnableWithSuppliedInputs?: boolean;
 };
+import type { ModelIOContract } from "@snarkroute/protocol";

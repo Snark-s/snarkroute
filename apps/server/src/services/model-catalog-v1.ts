@@ -21,6 +21,8 @@ import type {
   ModelOptionForNodeV1,
   ModelParameterDefinitionV1
 } from "@snarkroute/model-catalog/dist/v1/index.js";
+import type { SuppliedModelInputsV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
+import type { ModelIOItem } from "@snarkroute/protocol";
 
 export type RawProviderModelV1 = Record<string, unknown> & {
   id?: string;
@@ -36,6 +38,7 @@ export type RawProviderModelV1 = Record<string, unknown> & {
     output_modalities?: unknown;
     modality?: unknown;
   };
+  top_provider?: Record<string, unknown>;
 };
 
 export type AssembleModelCatalogV1Input = {
@@ -54,7 +57,7 @@ const textOnlyProviderModelIds = new Set([
 ]);
 
 export function assembleModelCatalogV1(input: AssembleModelCatalogV1Input): ModelCatalogEntryV1[] {
-  return assembleProviderModelsV1(dedupeProviderModelsV1([
+  return assembleProviderModelsV1(mergeProviderModelDefaultsV1([
     ...normalizeRuTronixModelsForCatalogV1(input.rutronixModels ?? []),
     ...normalizePolzaModelsForCatalogV1(input.polzaModels ?? []),
     ...normalizeOpenRouterModelsForCatalogV1(input.openRouterModels ?? []),
@@ -83,14 +86,26 @@ export function normalizeOpenRouterModelsForCatalogV1(models: RawProviderModelV1
   return models.flatMap((model) => normalizeRawProviderModel("openrouter", model));
 }
 
-function dedupeProviderModelsV1(providerModels: ProviderModelInfoV1[]): ProviderModelInfoV1[] {
-  const seen = new Set<string>();
-  return providerModels.filter((model) => {
+function mergeProviderModelDefaultsV1(providerModels: ProviderModelInfoV1[]): ProviderModelInfoV1[] {
+  const merged = new Map<string, ProviderModelInfoV1>();
+  for (const model of providerModels) {
     const key = `${model.provider}:${model.providerModelId}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+    const current = merged.get(key);
+    if (!current) {
+      merged.set(key, model);
+      continue;
+    }
+    merged.set(key, {
+      ...current,
+      inputTypes: current.inputTypes.length ? current.inputTypes : model.inputTypes,
+      outputTypes: current.outputTypes.length ? current.outputTypes : model.outputTypes,
+      capabilities: current.capabilities.length ? current.capabilities : model.capabilities,
+      roles: current.roles.length ? current.roles : model.roles,
+      metadata: { ...(model.metadata ?? {}), ...(current.metadata ?? {}) },
+      ioContract: mergeIOContracts(current.ioContract, model.ioContract ?? providerParameterIOContractV1(undefined, model.inputTypes, model.outputTypes))
+    });
+  }
+  return [...merged.values()];
 }
 
 export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
@@ -263,10 +278,15 @@ export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
   ];
 }
 
-export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEntryV1[]): ModelOptionForNodeV1[] {
+export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEntryV1[], suppliedInputs?: SuppliedModelInputsV1): ModelOptionForNodeV1[] {
   return catalog
-    .filter((entry) => isModelCompatibleWithNodeV1(nodeType, entry))
-    .map((entry) => toModelOptionForNodeV1(nodeType, entry))
+    .filter((entry) => isModelCompatibleWithNodeV1(nodeType, entry) && (!suppliedInputs || modelRunnableWithSuppliedInputsV1(entry, suppliedInputs)))
+    .map((entry) => ({
+      ...toModelOptionForNodeV1(nodeType, entry),
+      inputContract: entry.ioContract,
+      ...modelImageInputContractV1(entry),
+      runnableWithSuppliedInputs: suppliedInputs ? modelRunnableWithSuppliedInputsV1(entry, suppliedInputs) : undefined
+    }))
     .sort((left, right) =>
       providerSortOrder(left.provider) - providerSortOrder(right.provider)
       || left.displayName.localeCompare(right.displayName)
@@ -285,7 +305,7 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
     return entry.provider === "polza" && hasOutputType(entry, "text");
   }
   if (nodeType === "polza.video.generate") {
-    return entry.provider === "polza" && hasOutputType(entry, "video") && !isUpscaleOnlyModel(entry, "video");
+    return compatibilityReasonsForNodeV1(nodeType, entry).length === 0;
   }
   if (nodeType === "ai.image.generate") {
     return (entry.provider === "openrouter" || entry.provider === "gemini")
@@ -378,6 +398,84 @@ function mergeParameterDefinitions(base: ModelParameterDefinitionV1[], preferred
 
 function canonicalParameterId(id: string): string {
   return id.replace(/[_-]/g, "").toLowerCase();
+}
+
+function liveProviderParameters(entry: ModelCatalogEntryV1): Record<string, unknown> | undefined {
+  const provider = entry.metadata?.provider;
+  if (!provider || typeof provider !== "object" || Array.isArray(provider)) return undefined;
+  const parameters = (provider as Record<string, unknown>).providerParameters;
+  return parameters && typeof parameters === "object" && !Array.isArray(parameters) ? parameters as Record<string, unknown> : undefined;
+}
+
+export function compatibilityReasonsForNodeV1(nodeType: string, entry: ModelCatalogEntryV1, suppliedInputs?: SuppliedModelInputsV1): string[] {
+  if (nodeType !== "polza.video.generate") return isModelCompatibleWithNodeV1(nodeType, entry) ? [] : ["nodeCompatibility"];
+  const reasons: string[] = [];
+  if (entry.provider !== "polza") reasons.push("wrong provider", "unsupported adapter mapping");
+  if (!entry.providerModelId.trim()) reasons.push("missing providerModelId");
+  if (entry.availability.status !== "available") reasons.push("availability");
+  if (!entry.capabilities.includes("video.generate")) reasons.push("wrong capability");
+  if (!entry.outputTypes.includes("video")) reasons.push("media input/output");
+  if (!entry.roles.includes("generator") || entry.roles.includes("upscaler")) reasons.push("role");
+  if (entry.parameters.length === 0) reasons.push("missing params schema");
+  if (suppliedInputs) reasons.push(...modelInputCompatibilityReasonsV1(entry, suppliedInputs));
+  return unique(reasons);
+}
+
+export function modelCompatibilityDebugForNodeV1(nodeType: string, catalog: ModelCatalogEntryV1[], suppliedInputs?: SuppliedModelInputsV1) {
+  const polzaVideo = catalog.filter((entry) => entry.provider === "polza" && entry.outputTypes.includes("video"));
+  const polzaImageToVideo = polzaVideo.filter((entry) => modelImageInputContractV1(entry).maximumImageInputs >= 1);
+  const liveAvailablePolzaImageToVideo = polzaImageToVideo.filter((entry) => entry.availability.status === "available");
+  const options = modelOptionsForNodeV1(nodeType, catalog, suppliedInputs);
+  const optionIds = new Set(options.map((entry) => entry.id));
+  const summary = (entry: ModelCatalogEntryV1) => ({
+    modelId: entry.id,
+    providerModelId: entry.providerModelId,
+    displayName: entry.displayName,
+    family: modelFamily(entry.providerModelId),
+    inputTypes: entry.inputTypes,
+    outputTypes: entry.outputTypes,
+    capabilities: entry.capabilities,
+    roles: entry.roles,
+    availability: entry.availability.status,
+    parameters: entry.parameters.map((parameter) => parameter.id),
+    inputContract: entry.ioContract,
+    ...modelImageInputContractV1(entry),
+    suppliedImageInputs: suppliedInputs?.image,
+    runnableWithSuppliedInputs: suppliedInputs ? modelRunnableWithSuppliedInputsV1(entry, suppliedInputs) : undefined,
+    executableByRunner: compatibilityReasonsForNodeV1(nodeType, entry).length === 0
+  });
+  return {
+    nodeType,
+    counts: {
+      allModels: catalog.length,
+      polzaVideo: polzaVideo.length,
+      polzaImageToVideo: polzaImageToVideo.length,
+      liveAvailablePolzaImageToVideo: liveAvailablePolzaImageToVideo.length,
+      nodeCompatible: options.length,
+      final: options.length
+    },
+    familyCount: new Set(options.map((entry) => modelFamily(entry.providerModelId))).size,
+    included: options.map(summary),
+    suppliedInputs,
+    excluded: catalog.filter((entry) => !optionIds.has(entry.id)).map((entry) => ({ ...summary(entry), reasons: compatibilityReasonsForNodeV1(nodeType, entry, suppliedInputs) }))
+  };
+}
+
+function providerParameters(model: RawProviderModelV1): Record<string, unknown> | undefined {
+  const topProvider = model.top_provider && typeof model.top_provider === "object" ? model.top_provider : undefined;
+  const parameters = topProvider?.parameters;
+  return parameters && typeof parameters === "object" && !Array.isArray(parameters) ? parameters as Record<string, unknown> : undefined;
+}
+
+function mergeIOContracts(primary: ModelCatalogEntryV1["ioContract"], defaults: ModelCatalogEntryV1["ioContract"]): ModelCatalogEntryV1["ioContract"] {
+  if (!primary) return defaults;
+  if (!defaults) return primary;
+  const mergeItems = (left: ModelIOItem[] = [], right: ModelIOItem[] = []) => [...left, ...right.filter((item) => !left.some((candidate) => candidate.kind === item.kind))];
+  return { ...defaults, ...primary, inputs: mergeItems(primary.inputs, defaults.inputs), outputs: mergeItems(primary.outputs, defaults.outputs) };
+}
+
+export function modelFamily(providerModelId: string): string {
+  return providerModelId.includes("/") ? providerModelId.split("/", 1)[0] : providerModelId.split(/[-_.]/, 1)[0] || "unknown";
 }
 
 function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: ModelParameterDefinitionV1[]; metadata?: Record<string, unknown> } | undefined {

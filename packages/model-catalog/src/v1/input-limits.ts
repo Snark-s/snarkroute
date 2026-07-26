@@ -1,4 +1,6 @@
 import type { ModelCatalogEntryV1, ModelCapabilityV1, ModelOutputTypeV1, ModelProviderIdV1 } from "./types.js";
+import type { ModelIOContract } from "@snarkroute/protocol";
+import { modelIOContractV1 } from "./input-contracts.js";
 
 type ModelImageInputLimitSource = {
   provider?: ModelProviderIdV1 | string;
@@ -9,9 +11,12 @@ type ModelImageInputLimitSource = {
   capabilities?: ModelCapabilityV1[] | string[];
   outputTypes?: ModelOutputTypeV1[] | string[];
   metadata?: Record<string, unknown>;
+  ioContract?: ModelIOContract;
 };
 
 export function modelMaxImageInputsV1(model: ModelImageInputLimitSource): number | undefined {
+  const contractLimit = modelIOContractV1(model)?.inputs?.find((item) => item.kind === "image")?.maxItems;
+  if (contractLimit !== undefined) return contractLimit;
   const explicitLimit = positiveInteger(model.metadata?.maxImageInputs) ?? positiveInteger(model.metadata?.maxImages);
   if (explicitLimit !== undefined) return explicitLimit;
   if (isPolzaVideoGenerationModel(model)) {

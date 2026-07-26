@@ -1,4 +1,4 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createExecutor } from "@snarkroute/executor";
@@ -468,8 +468,46 @@ describe("Polza adapter", () => {
     });
   });
 
+  it.each(["wan/2.6", "alibaba/happyhorse-1.1"])("passes the selected providerModelId through the generic video runner: %s", async (model) => {
+    const video = {
+      localPath: join(tmpdir(), `${model.replace("/", "-")}.mp4`),
+      path: join(tmpdir(), `${model.replace("/", "-")}.mp4`),
+      filename: `${model.replace("/", "-")}.mp4`,
+      mimeType: "video/mp4",
+      sizeBytes: 5,
+      sourceNodeId: "video",
+      model
+    };
+    const modelGateway = {
+      invoke: vi.fn(async () => ({
+        modelId: model,
+        providerId: "polza",
+        capability: "video.generate",
+        output: { video, output: {}, request: { model }, model },
+        raw: {}
+      }))
+    };
+    const runner = createPolzaVideoNodeRunner({ modelGateway });
+
+    const result = await runner({
+      node: { id: "video", type: "polza.video.generate", params: {} },
+      params: { model, prompt: "move slowly", images: [{ assetId: "asset_frame", path: "C:\\Temp\\input.png" }] },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory: tmpdir(), nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(modelGateway.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capability: "video.generate",
+      modelRef: `model://polza/${model}`,
+      input: expect.objectContaining({ images: [expect.objectContaining({ assetId: "asset_frame" })] })
+    }));
+    expect(result.output).toMatchObject({ provider: "polza", model, video });
+  });
+
   it("generates a video through Polza media and writes the returned asset", async () => {
     const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-video-"));
+    const inputFramePath = join(outputDirectory, "actual-input.png");
+    await writeFile(inputFramePath, Buffer.from("png"));
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ data: { url: "https://cdn.polza.ai/out.mp4" }, status: "completed" }))
       .mockResolvedValueOnce(new Response(Buffer.from("video"), { status: 200, headers: { "content-type": "video/mp4" } }));
@@ -477,7 +515,7 @@ describe("Polza adapter", () => {
 
     const result = await runner({
       node: { id: "video", type: "polza.video.generate", params: {} },
-      params: { model: "wan/2.6", prompt: "move slowly", resolution: "1080p", duration: "10" },
+      params: { model: "wan/2.6", prompt: "move slowly", resolution: "1080p", duration: "10", images: [{ assetId: "asset_frame", path: inputFramePath, localPath: inputFramePath }] },
       inputs: {},
       context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
     });
@@ -488,7 +526,33 @@ describe("Polza adapter", () => {
     expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://polza.ai/api/v1/media", expect.objectContaining({
       body: expect.stringContaining("\"duration\":\"10\"")
     }));
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://polza.ai/api/v1/media", expect.objectContaining({
+      body: expect.stringContaining("data:image/png;base64,cG5n")
+    }));
     expect(result.output).toMatchObject({ provider: "polza", video: { mimeType: "video/mp4", sizeBytes: 5 } });
+  });
+
+  it("maps schema-derived required video params to the Polza native input", () => {
+    expect(buildMediaVideoRequestBody("kling/v2.6", "move", {
+      aspect_ratio: "16:9",
+      duration: "10",
+      sound: "false",
+      negative_prompt: "blur"
+    })).toMatchObject({
+      model: "kling/v2.6",
+      input: {
+        aspect_ratio: "16:9",
+        duration: "10",
+        sound: "false",
+        negative_prompt: "blur"
+      }
+    });
+  });
+
+  it("maps the common camel-case aspect ratio alias without losing other params", () => {
+    expect(buildMediaVideoRequestBody("vendor/video", "move", { aspectRatio: "9:16", seed: 42 })).toMatchObject({
+      input: { aspect_ratio: "9:16", seed: 42 }
+    });
   });
 
   it("polls a video generation when Polza returns its pending job token as text", async () => {

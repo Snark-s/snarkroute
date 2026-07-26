@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { basename, dirname, extname, join } from "node:path";
 import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, getRubPerUsd, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
+import { providerParameterIOContractV1 } from "@snarkroute/model-catalog";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
 export const POLZA_TEXT_DEFAULT_MODEL = "openai/gpt-4o";
@@ -75,10 +76,7 @@ export function polzaModelInfoToModelInfo(model: PolzaModelInfo): ModelInfo {
     supportsImages: inputTypes.includes("image"),
     supportsVideo: inputTypes.includes("video") || outputTypes.includes("video"),
     supportsJson: Boolean(model.supported_parameters?.includes("response_format")),
-    ioContract: {
-      inputs: inputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: kind === "image" ? polzaImageInputLimit(model.id) : 1 })),
-      outputs: outputTypes.map((kind) => ({ kind: kind as "text" | "image" | "video" | "audio" | "file" | "json", minItems: 0, maxItems: 1 }))
-    },
+    ioContract: providerParameterIOContractV1(providerParameters(model.top_provider), inputTypes, outputTypes),
     pricingHint: pricingHint(model.pricing),
     metadata: compactRecord(metadata)
   };
@@ -89,9 +87,9 @@ function polzaInputTypes(type: string): string[] {
   return ["text"];
 }
 
-function polzaImageInputLimit(modelId: string): number | undefined {
-  if (modelId === "wan/2.6") return 1;
-  return undefined;
+function providerParameters(topProvider: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const parameters = topProvider?.parameters;
+  return parameters && typeof parameters === "object" && !Array.isArray(parameters) ? parameters as Record<string, unknown> : undefined;
 }
 
 export function isExecutablePolzaImageModel(model: Pick<PolzaModelInfo, "id" | "type" | "architecture">): boolean {
@@ -691,12 +689,14 @@ export function buildMediaVideoRequestBody(model: string, prompt: string, params
   const input: Record<string, unknown> = {
     ...providerPrimitiveParameters(params),
     prompt,
+    ...providerNativeVideoParameters(params),
     resolution: stringParam(params.resolution) ?? "720p",
     duration: String(numberParam(params.duration) ?? stringParam(params.duration) ?? "5"),
     multi_shots: params.multi_shots === true || stringParam(params.multi_shots) === "true" ? "true" : "false"
   };
-  if (params.generate_audio !== undefined || params.audio !== undefined || params.sound !== undefined || supportsVideoAudioModel(model)) {
-    input.generate_audio = booleanParam(params.generate_audio ?? params.audio ?? params.sound);
+  if (params.aspect_ratio === undefined && params.aspectRatio !== undefined) input.aspect_ratio = params.aspectRatio;
+  if (params.generate_audio !== undefined || params.audio !== undefined || supportsVideoAudioModel(model)) {
+    input.generate_audio = booleanParam(params.generate_audio ?? params.audio);
   }
   if (imageInputs.length > 0) input.images = imageInputs;
   applyRoleSpecificMediaInputs(input, imageInputs);
@@ -1049,6 +1049,15 @@ function polzaUsageEvent(nodeId: string, nodeType: string, model: string, status
     pricingSource: pricingQuote.pricingSource,
     pricingQuote
   };
+}
+
+function providerNativeVideoParameters(params: Record<string, unknown>): Record<string, string | number | boolean> {
+  const internal = new Set(["model", "prompt", "images", "user", "pricing", "executionProvider", "fallbackAllowed", "availableExecutionProviders", "aspectRatio", "audio"]);
+  return Object.fromEntries(Object.entries(params).filter(([key, value]) =>
+    !internal.has(key)
+    && /^[a-zA-Z][a-zA-Z0-9_]*$/.test(key)
+    && (typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+  )) as Record<string, string | number | boolean>;
 }
 
 function firstInputText(value: unknown): string | undefined {

@@ -41,4 +41,16 @@ describe("polzaModelInfoToModelInfo", () => {
       { kind: "image", minItems: 0, maxItems: 1 }
     ]);
   });
+
+  it("uses the shared provider parameter contract for dynamic video inputs", () => {
+    const model = polzaModelInfoToModelInfo({
+      id: "bytedance/seedance-2",
+      type: "video",
+      top_provider: { parameters: { images: { min: 0, max: 5, description: "Reference images" }, videos: { min: 0, max: 1 } } }
+    });
+    expect(model.ioContract?.inputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "image", minItems: 0, maxItems: 5 }),
+      expect.objectContaining({ kind: "video", minItems: 0, maxItems: 1 })
+    ]));
+  });
 });
