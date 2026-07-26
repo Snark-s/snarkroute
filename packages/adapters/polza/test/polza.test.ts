@@ -69,6 +69,26 @@ describe("Polza adapter", () => {
     });
   });
 
+  it("accepts snake-case image parameters from the provider catalog", () => {
+    expect(buildMediaImageRequestBody("google/gemini-3.1-flash-image-preview", "Убери сосну справа", {
+      aspect_ratio: "16:9",
+      imageResolution: "2K",
+      quality: "high",
+      output_format: "png",
+      n: 1
+    })).toMatchObject({
+      model: "google/gemini-3.1-flash-image-preview",
+      input: {
+        prompt: "Убери сосну справа",
+        aspect_ratio: "16:9",
+        image_resolution: "2K",
+        quality: "high",
+        output_format: "png",
+        max_images: 1
+      }
+    });
+  });
+
   it("keeps schema parameters and all role-aware image, audio, and video inputs", () => {
     const body = buildMediaVideoRequestBody("kling/v2.6", "move", { aspect_ratio: "16:9", duration: "5", camera_control: "pan" }, [
       { type: "url", data: "https://cdn/first.png", role: "firstFrame", index: 0 },

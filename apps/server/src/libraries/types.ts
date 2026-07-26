@@ -68,6 +68,7 @@ export interface SnarkCanvasDocument {
   version: "0.1";
   nodes: SnarkCanvasNode[];
   edges?: SnarkCanvasEdge[];
+  pinnedNodeIds?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -86,7 +87,8 @@ export interface SnarkCanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop" | "imageCorrection" | "canvasAction" | "collectionItem";
+  kind?: "representation" | "crop" | "imageCorrection" | "videoFrame" | "canvasAction" | "collectionItem";
+  fromPinned?: boolean;
   actionId?: string;
   correction?: ImageCorrectionSettings;
   note?: string;
@@ -369,6 +371,7 @@ export interface ImportImageInput {
   width?: number;
   height?: number;
   connectFromNodeId?: string;
+  connectionKind?: "videoFrame";
   crop?: CropMetadata;
 }
 
@@ -400,6 +403,7 @@ export interface AppendImageStackInput {
   filename: string;
   dataBase64?: string;
   sourcePath?: string;
+  skipDuplicate?: boolean;
   crop?: CropMetadata;
 }
 

@@ -621,40 +621,47 @@ export function buildChatRequestBody(model: string, messages: PolzaChatMessage[]
 
 export function buildImageRequestBody(model: string, prompt: string, params: Record<string, unknown>): Record<string, unknown> {
   const requestedSize = stringParam(params.size);
+  const aspectRatio = stringParam(params.aspectRatio ?? params.aspect_ratio);
+  const imageSize = stringParam(params.imageSize ?? params.image_size);
   const body: Record<string, unknown> = {
     model,
     prompt,
     n: numberParam(params.n) ?? 1,
-    size: requestedSize && requestedSize !== "auto" ? requestedSize : sizeFromAspectRatio(params.aspectRatio) ?? "1024x1024",
-    quality: stringParam(params.quality) ?? stringParam(params.imageSize) ?? "auto",
+    size: requestedSize && requestedSize !== "auto" ? requestedSize : sizeFromAspectRatio(aspectRatio) ?? "1024x1024",
+    quality: stringParam(params.quality) ?? imageSize ?? "auto",
     response_format: stringParam(params.responseFormat) ?? "b64_json"
   };
   for (const [paramKey, bodyKey] of [
     ["style", "style"],
-    ["outputFormat", "output_format"],
     ["background", "background"],
     ["outputCompression", "output_compression"],
     ["user", "user"]
   ] as const) {
     if (params[paramKey] !== undefined) body[bodyKey] = params[paramKey];
   }
+  const outputFormat = stringParam(params.outputFormat ?? params.output_format);
+  if (outputFormat) body.output_format = outputFormat;
   return body;
 }
 
 export function buildMediaImageRequestBody(model: string, prompt: string, params: Record<string, unknown>, imageInputs: Array<{ type: "url" | "base64"; data: string }> = []): Record<string, unknown> {
   const input: Record<string, unknown> = { prompt };
+  const aspectRatio = stringParam(params.aspectRatio ?? params.aspect_ratio);
+  const imageResolution = stringParam(params.imageResolution ?? params.image_resolution);
+  const imageSize = stringParam(params.imageSize ?? params.image_size);
+  const outputFormat = stringParam(params.outputFormat ?? params.output_format);
   if (imageInputs.length > 0) input.images = imageInputs;
   if (isPolzaGpt54Image2(model)) {
-    input.aspect_ratio = stringParam(params.aspectRatio) ?? "auto";
+    input.aspect_ratio = aspectRatio ?? "auto";
     input.n = numberParam(params.n) ?? 1;
   } else if (isPolzaGptImage15(model)) {
-    input.aspect_ratio = supportedPolzaAspectRatio(params.aspectRatio, ["1:1", "2:3", "3:2"], "1:1");
+    input.aspect_ratio = supportedPolzaAspectRatio(aspectRatio, ["1:1", "2:3", "3:2"], "1:1");
     input.quality = stringParam(params.quality) ?? "medium";
   } else if (!isPolzaOpenAiImageWithoutAspectRatio(model)) {
-    input.aspect_ratio = stringParam(params.aspectRatio) ?? "1:1";
-    input.image_resolution = stringParam(params.imageResolution) ?? stringParam(params.imageSize) ?? "2K";
+    input.aspect_ratio = aspectRatio ?? "1:1";
+    input.image_resolution = imageResolution ?? imageSize ?? "2K";
     input.quality = stringParam(params.quality) ?? "high";
-    input.output_format = stringParam(params.outputFormat) ?? "png";
+    input.output_format = outputFormat ?? "png";
     input.max_images = numberParam(params.n) ?? 1;
   }
   return {

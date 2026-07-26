@@ -266,7 +266,7 @@ export function normalizeNodeModelOptions(value: unknown, nodeType: string): Mod
     const produces = entry.outputTypes.flatMap(contentKind);
     if (produces.length === 0) return [];
     const accepts = entry.inputTypes.flatMap(contentKind);
-    const generationParameters = normalizeServerParameterDefinitions(entry.parameters);
+    const generationParameters = normalizeGenerationParameterDefinitions(entry.parameters);
     return [{
       id: entry.storedModelId,
       title: entry.displayName,
@@ -300,7 +300,7 @@ export function normalizeAvailableModelOptions(value: unknown): ModelOption[] {
     const produces = entry.outputTypes.flatMap(contentKind);
     if (produces.length === 0) return [];
     const accepts = entry.inputTypes.flatMap(contentKind);
-    const generationParameters = normalizeServerParameterDefinitions(entry.parameters);
+    const generationParameters = normalizeGenerationParameterDefinitions(entry.parameters);
     const metadata = entry.metadata ?? {};
     const storedModelId = entry.provider === "rutronix" ? entry.id : entry.providerModelId;
     return [{
@@ -365,8 +365,8 @@ function isServerModelCatalogEntry(value: unknown): value is ServerModelCatalogE
     && Array.isArray(record.parameters);
 }
 
-function normalizeServerParameterDefinitions(parameters: ModelParameterDefinition[]): ModelParameterDefinition[] {
-  return parameters.flatMap((definition) => {
+export function normalizeGenerationParameterDefinitions(parameters: ModelParameterDefinition[]): ModelParameterDefinition[] {
+  const normalized = parameters.flatMap((definition) => {
     const id = stringParameter(definition.id);
     if (!id) return [];
     const type: ModelParameterDefinition["type"] = definition.type === "number" || definition.type === "text" || definition.type === "boolean" ? definition.type : "select";
@@ -390,6 +390,16 @@ function normalizeServerParameterDefinitions(parameters: ModelParameterDefinitio
       } : undefined
     }];
   });
+  const byId = new Map<string, ModelParameterDefinition>();
+  for (const definition of normalized) {
+    const key = canonicalParameterId(definition.id);
+    byId.set(key, { ...(byId.get(key) ?? {}), ...definition });
+  }
+  return [...byId.values()];
+}
+
+function canonicalParameterId(id: string): string {
+  return id.replace(/[_-]/g, "").toLowerCase();
 }
 
 function isEnabledWhen(value: unknown): value is { parameterId: string; equals: GenerationParameterValue[] } {

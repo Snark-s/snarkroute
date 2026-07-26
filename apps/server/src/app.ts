@@ -32,7 +32,7 @@ export function buildServer() {
   assertProductionSafety();
   const app = Fastify({ logger: true, bodyLimit: 250 * 1024 * 1024 });
   app.register(cors, { origin: true, credentials: true });
-  void registerAfterEffectsRoutes(app);
+  registerAfterEffectsRoutes(app);
   void registerMcpRoutes(app);
   void ensureDevUsers();
   void refreshPromptLibraryCache();

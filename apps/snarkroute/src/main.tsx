@@ -5,8 +5,10 @@ import JSZip from "jszip";
 import { Panorama360Viewer, SplatViewer, type CameraPose } from "@snarkroute/media-viewers";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { canvasActionNeedsDialog } from "./canvasActionDialog";
+import { createCanvasFolder, folderAwareEdgeVisible, hiddenCanvasNodeIds, placeNodesInFolder, type CanvasFolder } from "./canvasFolders";
 import { useClampedMenuPosition } from "@snarkroute/media-viewers";
 import { readTextDialogueDraft, writeTextDialogueDraft } from "./dialogueDraft";
+import { edgePath, pinnedNodeEdgePath, setConnectionPinnedSource, togglePinnedNodeState } from "./pinnedNodes";
 import { createRoot } from "react-dom/client";
 import {
   generationParameterSummary,
@@ -21,6 +23,7 @@ import {
   modelsCompatibleWithNodeInputs,
   modelsForContentKind,
   modelsForPickerContentKind,
+  normalizeGenerationParameterDefinitions,
   pickerContentKind,
   providerDisplayName,
   type ContentKind,
@@ -95,6 +98,7 @@ interface NestedLibrary {
 interface CanvasDocument {
   nodes: CanvasNode[];
   edges?: CanvasEdge[];
+  pinnedNodeIds?: string[];
 }
 
 interface CanvasNode {
@@ -111,7 +115,8 @@ interface CanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop" | "imageCorrection" | "canvasAction" | "collectionItem";
+  kind?: "representation" | "crop" | "imageCorrection" | "videoFrame" | "canvasAction" | "collectionItem";
+  fromPinned?: boolean;
   actionId?: string;
   correction?: CorrectionSettings;
   note?: string;
@@ -343,7 +348,7 @@ interface CollectionNodeView {
 type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView | CollectionNodeView;
 type EditableNodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView;
 type EditableNodeType = EditableNodeView["manifest"]["type"];
-type BuiltInNodeToolbarActionId = "download" | "crop" | "adjust" | "expand" | "upload" | "stack" | "collapse" | "collectSelected" | "keepSelected" | "delete";
+type BuiltInNodeToolbarActionId = "download" | "crop" | "adjust" | "expand" | "captureFrame" | "upload" | "stack" | "collapse" | "collectSelected" | "keepSelected" | "delete";
 type NodeToolbarActionId = string;
 type NodeToolbarConfig = Record<EditableNodeType, NodeToolbarActionId[]>;
 
@@ -491,6 +496,16 @@ type DragState =
       groupStartPositions?: { id: string; x: number; y: number }[];
     }
   | {
+      kind: "folder";
+      pointerId: number;
+      folderId: string;
+      startClientX: number;
+      startClientY: number;
+      startX: number;
+      startY: number;
+      nodeStartPositions: { id: string; x: number; y: number }[];
+    }
+  | {
       kind: "connection";
       pointerId: number;
       direction: "fromOutput" | "fromInput";
@@ -500,6 +515,7 @@ type DragState =
       startY: number;
       currentX: number;
       currentY: number;
+      fromPinned?: boolean;
     }
   | {
       kind: "stackItem";
@@ -540,6 +556,7 @@ interface NodeCreateMenu {
   worldX: number;
   worldY: number;
   fromNodeId?: string;
+  fromPinned?: boolean;
 }
 
 interface InputNodeChip {
@@ -683,6 +700,7 @@ const builtInNodeToolbarActions: Array<{ id: BuiltInNodeToolbarActionId; label: 
   { id: "crop", label: "Crop" },
   { id: "adjust", label: "Adjust" },
   { id: "expand", label: "Expand" },
+  { id: "captureFrame", label: "Create frame" },
   { id: "upload", label: "Upload" },
   { id: "stack", label: "Stack" },
   { id: "collapse", label: "Collapse" },
@@ -692,7 +710,7 @@ const builtInNodeToolbarActions: Array<{ id: BuiltInNodeToolbarActionId; label: 
 ];
 const defaultNodeToolbarConfig: NodeToolbarConfig = {
   image: ["download", "crop", "expand"],
-  video: ["download", "expand"],
+  video: ["download", "expand", "captureFrame"],
   audio: ["download"],
   text: ["stack", "collapse"]
 };
@@ -710,6 +728,7 @@ function App() {
   const [miniMapCollapsed, setMiniMapCollapsed] = useStoredJsonSetting<boolean>("snarkroute.miniMapCollapsed", false);
   const [collectionDockOpen, setCollectionDockOpen] = useStoredJsonSetting<boolean>("snarkroute.collectionDockOpen", true);
   const [dockedCollectionIds, setDockedCollectionIds] = useStoredJsonSetting<string[]>("snarkroute.dockedCollectionIds", []);
+  const [canvasFoldersByLibrary, setCanvasFoldersByLibrary] = useStoredJsonSetting<Record<string, CanvasFolder[]>>("snarkroute.canvasFolders.v1", {});
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -758,6 +777,7 @@ function App() {
   const [modelSelections, setModelSelections] = useStoredJsonSetting<Record<string, string | ModelRouteSelection>>("snarkroute.nodeModels", {});
   const [generationFeedback, setGenerationFeedback] = useState<Record<string, GenerationFeedback>>({});
   const [canvasActionRunning, setCanvasActionRunning] = useState<Record<string, string>>({});
+  const [videoFrameCaptureBusyKey, setVideoFrameCaptureBusyKey] = useState<string | null>(null);
   const [edgeNoteDraft, setEdgeNoteDraft] = useState("");
   const generationRunning = Object.values(generationFeedback).some((feedback) => feedback.busy) || Object.keys(canvasActionRunning).length > 0;
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -765,6 +785,11 @@ function App() {
   const undoStackRef = useRef<CanvasDocument[]>([]);
   const libraryMutationSeqRef = useRef(0);
   const canvasButtonSetupInputRef = useRef<HTMLInputElement | null>(null);
+  const videoElementsRef = useRef(new Map<string, HTMLVideoElement>());
+  const registerVideoElement = React.useCallback((nodeId: string, element: HTMLVideoElement | null) => {
+    if (element) videoElementsRef.current.set(nodeId, element);
+    else videoElementsRef.current.delete(nodeId);
+  }, []);
   const [canvasSize, setCanvasSize] = useState<CanvasSize>({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -846,6 +871,11 @@ function App() {
   const nodes = useMemo(() => library?.nodes ?? [], [library]);
   const edges = library?.canvas?.edges ?? [];
   const nodeById = useMemo(() => new Map(nodes.map((node) => [node.canvas.id, node])), [nodes]);
+  const canvasFolderLibraryKey = library?.path ?? library?.manifest.id ?? "";
+  const canvasFolders = (canvasFoldersByLibrary[canvasFolderLibraryKey] ?? [])
+    .map((folder) => ({ ...folder, nodeIds: folder.nodeIds.filter((nodeId) => nodeById.has(nodeId)) }))
+    .filter((folder) => folder.nodeIds.length > 0);
+  const hiddenFolderNodeIdSet = hiddenCanvasNodeIds(canvasFolders);
   const availableCatalogModels = useMemo(() => availableModels, [availableModels]);
   const pickerCatalogModels = useMemo(() => mergeProviderAndUserDefinedPickerModels(availableCatalogModels, customModels), [availableCatalogModels, customModels]);
   const collapsedNodeIdSet = useMemo(() => new Set(collapsedNodeIds), [collapsedNodeIds]);
@@ -860,6 +890,11 @@ function App() {
     if (mutationSeq !== undefined && mutationSeq < libraryMutationSeqRef.current) return false;
     setLibrary(snapshot);
     return true;
+  }
+
+  function updateCanvasFolders(next: CanvasFolder[]) {
+    if (!canvasFolderLibraryKey) return;
+    setCanvasFoldersByLibrary({ ...canvasFoldersByLibrary, [canvasFolderLibraryKey]: next });
   }
 
   useEffect(() => {
@@ -900,6 +935,22 @@ function App() {
           y: activeDrag.startPanY + event.clientY - activeDrag.startClientY,
           scale: activeDrag.startScale
         });
+        return;
+      }
+      if (activeDrag.kind === "folder") {
+        interactionMovedRef.current = true;
+        const dx = (event.clientX - activeDrag.startClientX) / viewportScale;
+        const dy = (event.clientY - activeDrag.startClientY) / viewportScale;
+        updateNodePositions(activeDrag.nodeStartPositions.map((node) => ({
+          id: node.id,
+          x: Math.round(node.x + dx),
+          y: Math.round(node.y + dy)
+        })));
+        updateCanvasFolders(canvasFolders.map((folder) => folder.id === activeDrag.folderId ? {
+          ...folder,
+          x: Math.round(activeDrag.startX + dx),
+          y: Math.round(activeDrag.startY + dy)
+        } : folder));
         return;
       }
 
@@ -958,10 +1009,11 @@ function App() {
         const output = target instanceof HTMLElement ? target.closest<HTMLElement>("[data-node-output-id]") : null;
         const toNodeId = input?.dataset.nodeInputId;
         const fromNodeId = output?.dataset.nodeOutputId;
+        const fromPinned = output?.dataset.pinnedOutput === "true" || activeDrag.fromPinned === true;
         if (activeDrag.direction === "fromOutput" && toNodeId && toNodeId !== activeDrag.fromNodeId) {
-          void addCanvasEdge(activeDrag.fromNodeId, toNodeId);
+          void addCanvasEdge(activeDrag.fromNodeId, toNodeId, { fromPinned });
         } else if (activeDrag.direction === "fromInput" && fromNodeId && fromNodeId !== activeDrag.toNodeId) {
-          void addCanvasEdge(fromNodeId, activeDrag.toNodeId ?? activeDrag.fromNodeId);
+          void addCanvasEdge(fromNodeId, activeDrag.toNodeId ?? activeDrag.fromNodeId, { fromPinned });
         } else {
           const point = screenToWorld(event.clientX, event.clientY);
           if (activeDrag.direction === "fromOutput") {
@@ -970,7 +1022,8 @@ function App() {
               y: event.clientY,
               worldX: point.x,
               worldY: point.y,
-              fromNodeId: activeDrag.fromNodeId
+              fromNodeId: activeDrag.fromNodeId,
+              fromPinned: activeDrag.fromPinned
             });
           }
         }
@@ -980,6 +1033,15 @@ function App() {
         if (interactionMovedRef.current && isPointInsideCanvas(event.clientX, event.clientY)) {
           void duplicateStackItemNode(activeDrag.nodeId, activeDrag.stackItemId, point);
         }
+      }
+      if (activeDrag.kind === "folder") {
+        const dx = (event.clientX - activeDrag.startClientX) / viewportScale;
+        const dy = (event.clientY - activeDrag.startClientY) / viewportScale;
+        void persistNodePositions(activeDrag.nodeStartPositions.map((node) => ({
+          id: node.id,
+          x: Math.round(node.x + dx),
+          y: Math.round(node.y + dy)
+        })));
       }
       if (activeDrag.kind === "collectionItem") {
         const point = screenToWorld(event.clientX, event.clientY);
@@ -1011,7 +1073,7 @@ function App() {
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerCancel);
     };
-  }, [dragState, library, viewport, viewportScale, nodes, nodeById, collectionDockOpen, dockedCollectionIds]);
+  }, [dragState, library, viewport, viewportScale, nodes, nodeById, collectionDockOpen, dockedCollectionIds, canvasFolders, canvasFoldersByLibrary]);
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -1422,13 +1484,60 @@ function App() {
     });
   }
 
-  function handleOutputPointerDown(event: React.PointerEvent<HTMLElement>, node: NodeView) {
+  function createFolderFromSelection() {
+    const selectedNodes = selectedNodeIds
+      .map((nodeId) => nodeById.get(nodeId)?.canvas)
+      .filter((node): node is CanvasNode => Boolean(node));
+    if (selectedNodes.length < 2) {
+      setStatus("Select at least two nodes to create a folder.");
+      return;
+    }
+    const title = window.prompt("Folder name", "Folder")?.trim();
+    if (!title) return;
+    const folder = createCanvasFolder(`folder_${Date.now().toString(36)}`, title, selectedNodes);
+    updateCanvasFolders(placeNodesInFolder(canvasFolders, folder));
+    setSelectionMenu(null);
+    setStatus(`Created folder “${title}” with ${selectedNodes.length} nodes`);
+  }
+
+  function handleFolderPointerDown(event: React.PointerEvent<HTMLElement>, folder: CanvasFolder) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    interactionMovedRef.current = false;
+    setSelectedEdgeId(null);
+    setSelectionMenu(null);
+    setDragState({
+      kind: "folder",
+      pointerId: event.pointerId,
+      folderId: folder.id,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: folder.x,
+      startY: folder.y,
+      nodeStartPositions: folder.nodeIds.flatMap((nodeId) => {
+        const node = nodeById.get(nodeId)?.canvas;
+        return node ? [{ id: node.id, x: node.x, y: node.y }] : [];
+      })
+    });
+  }
+
+  function updateCanvasFolder(folderId: string, patch: Partial<Pick<CanvasFolder, "title" | "collapsed">>) {
+    updateCanvasFolders(canvasFolders.map((folder) => folder.id === folderId ? { ...folder, ...patch } : folder));
+  }
+
+  function removeCanvasFolder(folderId: string) {
+    updateCanvasFolders(canvasFolders.filter((folder) => folder.id !== folderId));
+    setStatus("Folder removed; its nodes remain on the canvas.");
+  }
+
+  function handleOutputPointerDown(event: React.PointerEvent<HTMLElement>, node: NodeView, pointOverride?: { x: number; y: number }) {
     if (event.button !== 0) return;
     event.stopPropagation();
     setNodeCreateMenu(null);
     setSelectedEdgeId(null);
     interactionMovedRef.current = false;
-    const start = nodeOutputPoint(node.canvas);
+    const start = pointOverride ?? nodeOutputPoint(node.canvas);
     setDragState({
       kind: "connection",
       pointerId: event.pointerId,
@@ -1437,7 +1546,8 @@ function App() {
       startX: start.x,
       startY: start.y,
       currentX: start.x,
-      currentY: start.y
+      currentY: start.y,
+      fromPinned: Boolean(pointOverride)
     });
   }
 
@@ -1555,13 +1665,22 @@ function App() {
     }
   }
 
-  async function addCanvasEdge(fromNodeId: string, toNodeId: string) {
+  async function addCanvasEdge(fromNodeId: string, toNodeId: string, options?: { fromPinned?: boolean }) {
     if (!library?.canvas) return;
-    const exists = (library.canvas.edges ?? []).some((edge) => edge.fromNodeId === fromNodeId && edge.toNodeId === toNodeId);
-    if (exists) return;
+    const existing = (library.canvas.edges ?? []).find((edge) => edge.fromNodeId === fromNodeId && edge.toNodeId === toNodeId);
+    if (existing && Boolean(existing.fromPinned) === Boolean(options?.fromPinned)) return;
     pushUndoSnapshot();
-    const edge: CanvasEdge = { id: `edge_${Date.now().toString(36)}`, fromNodeId, toNodeId };
-    const canvas = { ...library.canvas, edges: [...(library.canvas.edges ?? []), edge] };
+    const edges = existing
+      ? (library.canvas.edges ?? []).map((edge) => edge.id === existing.id
+        ? { ...edge, fromPinned: options?.fromPinned || undefined }
+        : edge)
+      : [...(library.canvas.edges ?? []), {
+          id: `edge_${Date.now().toString(36)}`,
+          fromNodeId,
+          toNodeId,
+          fromPinned: options?.fromPinned || undefined
+        } as CanvasEdge];
+    const canvas = { ...library.canvas, edges };
     setLibrary((current) => current ? { ...current, canvas } : current);
     try {
       await apiPut<CanvasDocument>("/api/libraries/current/canvas", canvas);
@@ -1569,6 +1688,30 @@ function App() {
       setStatus("Connection saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save connection.");
+    }
+  }
+
+  async function toggleNodePinned(nodeId: string) {
+    if (!library?.canvas) return;
+    const next = togglePinnedNodeState(
+      library.canvas.pinnedNodeIds ?? [],
+      library.canvas.edges ?? [],
+      nodeId,
+      nodeById.get(nodeId)?.manifest.type
+    );
+    if (next.blocked) {
+      setStatus("Collections are pinned by dragging them into the dock.");
+      return;
+    }
+    pushUndoSnapshot();
+    const canvas = { ...library.canvas, pinnedNodeIds: next.pinnedNodeIds, edges: next.edges };
+    setLibrary((current) => current ? { ...current, canvas } : current);
+    try {
+      await apiPut<CanvasDocument>("/api/libraries/current/canvas", canvas);
+      applyLibrarySnapshot(await apiGet<LibrarySnapshot>("/api/libraries/current"));
+      setStatus(next.pinnedNodeIds.includes(nodeId) ? "Node pinned to top bar" : "Node unpinned from top bar");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not update pinned node.");
     }
   }
 
@@ -1603,6 +1746,7 @@ function App() {
 
   async function createConnectedNode(type: "image" | "video" | "audio" | "text" | "collection", variant?: "note") {
     if (!nodeCreateMenu) return;
+    const createMenu = nodeCreateMenu;
     const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
     const mutationSeq = beginLibraryMutation();
     setNodeCreateMenu(null);
@@ -1611,14 +1755,23 @@ function App() {
       const snapshot = await apiPost<LibrarySnapshot>("/api/libraries/current/nodes", {
         type,
         variant,
-        x: nodeCreateMenu.worldX,
-        y: nodeCreateMenu.worldY,
+        x: createMenu.worldX,
+        y: createMenu.worldY,
         width: variant === "note" ? 280 : imageNodeWidth,
         height: variant === "note" ? 220 : type === "text" ? 180 : type === "collection" ? 280 : imageNodeHeight,
-        connectFromNodeId: variant === "note" ? undefined : nodeCreateMenu.fromNodeId
+        connectFromNodeId: variant === "note" ? undefined : createMenu.fromNodeId
       });
-      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
       const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
+      const finalSnapshot = createMenu.fromPinned && createMenu.fromNodeId && createdNodeId && snapshot.canvas
+        ? {
+            ...snapshot,
+            canvas: await apiPut<CanvasDocument>("/api/libraries/current/canvas", {
+              ...snapshot.canvas,
+              edges: setConnectionPinnedSource(snapshot.canvas.edges ?? [], createMenu.fromNodeId, createdNodeId)
+            })
+          }
+        : snapshot;
+      if (!applyLibrarySnapshot(finalSnapshot, mutationSeq)) return;
       setSelectedNodeId(createdNodeId);
       setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
       setStatus(`${variant === "note" ? "Note" : type === "image" ? "Image" : type === "video" ? "Video" : type === "audio" ? "Audio" : type === "collection" ? "Collection" : "Text"} node created`);
@@ -1629,6 +1782,8 @@ function App() {
 
   async function createConnectedRepresentation(type: NodeRepresentationType) {
     if (!nodeCreateMenu?.fromNodeId) return;
+    const createMenu = nodeCreateMenu;
+    const fromNodeId = nodeCreateMenu.fromNodeId;
     const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
     const mutationSeq = beginLibraryMutation();
     setNodeCreateMenu(null);
@@ -1636,16 +1791,25 @@ function App() {
       pushUndoSnapshot();
       const width = imageNodeWidth;
       const height = type === "text" ? 180 : imageNodeHeight;
-      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(nodeCreateMenu.fromNodeId)}/duplicate-as`, {
+      const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/nodes/${encodeURIComponent(fromNodeId)}/duplicate-as`, {
         type,
-        x: Math.round(nodeCreateMenu.worldX - width / 2),
-        y: Math.round(nodeCreateMenu.worldY - height / 2),
+        x: Math.round(createMenu.worldX - width / 2),
+        y: Math.round(createMenu.worldY - height / 2),
         width,
         height,
-        connectFromNodeId: nodeCreateMenu.fromNodeId
+        connectFromNodeId: fromNodeId
       });
       const createdNodeId = snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
-      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      const finalSnapshot = createMenu.fromPinned && createdNodeId && snapshot.canvas
+        ? {
+            ...snapshot,
+            canvas: await apiPut<CanvasDocument>("/api/libraries/current/canvas", {
+              ...snapshot.canvas,
+              edges: setConnectionPinnedSource(snapshot.canvas.edges ?? [], fromNodeId, createdNodeId)
+            })
+          }
+        : snapshot;
+      if (!applyLibrarySnapshot(finalSnapshot, mutationSeq)) return;
       setSelectedNodeId(createdNodeId);
       setSelectedNodeIds(createdNodeId ? [createdNodeId] : []);
       setStatus(`${representationLabel(type)} representation created`);
@@ -1671,6 +1835,56 @@ function App() {
       setStatus("Text color saved");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not save text color.");
+    }
+  }
+
+  async function captureVideoFrame(sourceNodeId: string, targetNodeId?: string, busyKey = sourceNodeId) {
+    const sourceNode = nodes.find((candidate) => candidate.canvas.id === sourceNodeId && candidate.manifest.type === "video") as VideoNodeView | undefined;
+    const video = videoElementsRef.current.get(sourceNodeId);
+    if (!sourceNode || !video) {
+      setStatus("Video preview is not ready.");
+      return;
+    }
+    setVideoFrameCaptureBusyKey(busyKey);
+    setStatus("Capturing current video frame...");
+    try {
+      const frame = await captureVideoElementFrame(video);
+      const filename = `${safeDownloadName(sourceNode.manifest.title || "video")} frame ${formatVideoFrameTimestamp(frame.currentTime)}.png`;
+      pushUndoSnapshot();
+      const mutationSeq = beginLibraryMutation();
+      const previousStackLength = targetNodeId
+        ? (nodes.find((candidate) => candidate.canvas.id === targetNodeId && candidate.manifest.type === "image") as ImageNodeView | undefined)?.manifest.stack.length
+        : undefined;
+      const snapshot = targetNodeId
+        ? await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(targetNodeId)}/stack`, {
+            filename,
+            dataBase64: frame.dataBase64,
+            skipDuplicate: true
+          })
+        : await apiPost<LibrarySnapshot>("/api/libraries/current/import-image", {
+            filename,
+            dataBase64: frame.dataBase64,
+            dropX: sourceNode.canvas.x + sourceNode.canvas.width + imageNodeWidth / 2 + 80,
+            dropY: sourceNode.canvas.y + imageNodeHeight / 2,
+            width: imageNodeWidth,
+            height: imageNodeHeight,
+            connectFromNodeId: sourceNodeId,
+            connectionKind: "videoFrame"
+          });
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      const capturedNode = targetNodeId
+        ? snapshot.nodes.find((candidate) => candidate.canvas.id === targetNodeId && candidate.manifest.type === "image") as ImageNodeView | undefined
+        : snapshot.nodes.find((candidate) => candidate.manifest.type === "image" && candidate.canvas.id !== sourceNodeId && !nodes.some((existing) => existing.canvas.id === candidate.canvas.id)) as ImageNodeView | undefined;
+      if (capturedNode) {
+        setSelectedNodeId(capturedNode.canvas.id);
+        setSelectedNodeIds([capturedNode.canvas.id]);
+      }
+      const duplicate = targetNodeId !== undefined && capturedNode?.manifest.stack.length === previousStackLength;
+      setStatus(duplicate ? "Current frame is already in the image stack" : targetNodeId ? "Current frame added to image stack" : "Image node created from current frame");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not capture current video frame.");
+    } finally {
+      setVideoFrameCaptureBusyKey((current) => current === busyKey ? null : current);
     }
   }
 
@@ -3123,11 +3337,37 @@ function App() {
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
   const selectedEdgeNotePosition = selectedEdge ? edgeMidpoint(selectedEdge, new Map(nodes.map((node) => [node.canvas.id, node.canvas]))) : null;
   const collectionNodes = nodes.filter((node): node is CollectionNodeView => node.manifest.type === "collection" && dockedCollectionIds.includes(node.canvas.id));
+  const pinnedNodeIds = library?.canvas?.pinnedNodeIds ?? [];
+  const pinnedNodes = pinnedNodeIds
+    .map((id) => nodeById.get(id))
+    .filter((node): node is NodeView => Boolean(node) && node!.manifest.type !== "collection");
+  const hiddenCanvasNodeIdSet = hiddenFolderNodeIdSet;
+  const pinnedNodeIdSet = new Set(pinnedNodeIds);
+  const dockedCollectionIdSet = new Set(dockedCollectionIds);
+  const visibleCanvasEdges = edges.filter((edge) => folderAwareEdgeVisible(
+    edge,
+    hiddenCanvasNodeIdSet,
+    pinnedNodeIdSet,
+    dockedCollectionIdSet
+  ));
   const collectionDockPoint = (nodeId: string) => {
     const index = Math.max(0, collectionNodes.findIndex((node) => node.canvas.id === nodeId));
     const slotWidths = collectionNodes.map((node) => Math.max(180, node.canvas.width / 2));
     const slotStart = slotWidths.slice(0, index).reduce((sum, width) => sum + width, 0) + index * 8;
     const screenPoint = { x: 64 + slotStart + (slotWidths[index] ?? 180) / 2, y: collectionDockOpen ? 154 : 21 };
+    return { x: (screenPoint.x - viewport.x) / viewportScale, y: (screenPoint.y - viewport.y) / viewportScale };
+  };
+  const pinnedDockPoint = (nodeId: string) => {
+    const handle = [...(canvasRef.current?.querySelectorAll<HTMLElement>("[data-pinned-output='true']") ?? [])]
+      .find((element) => element.dataset.nodeOutputId === nodeId);
+    if (handle) {
+      const bounds = handle.getBoundingClientRect();
+      return screenToWorld(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+    }
+    const index = Math.max(0, pinnedNodes.findIndex((node) => node.canvas.id === nodeId));
+    const collectionWidth = collectionNodes.reduce((sum, node) => sum + Math.max(180, node.canvas.width / 2) + 8, 0);
+    const slotStart = collectionWidth + index * (180 + 8);
+    const screenPoint = { x: 64 + slotStart + 90, y: collectionDockOpen ? 154 : 21 };
     return { x: (screenPoint.x - viewport.x) / viewportScale, y: (screenPoint.y - viewport.y) / viewportScale };
   };
 
@@ -3202,16 +3442,29 @@ function App() {
         onDrop={(event) => void handleDrop(event)}
       >
         <div className="canvasWorld" style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewportScale})` }}>
+          {canvasFolders.map((folder) => (
+            <CanvasFolderFrame
+              key={folder.id}
+              folder={folder}
+              onPointerDown={handleFolderPointerDown}
+              onRename={(title) => updateCanvasFolder(folder.id, { title })}
+              onToggleCollapsed={() => updateCanvasFolder(folder.id, { collapsed: !folder.collapsed })}
+              onRemove={() => removeCanvasFolder(folder.id)}
+            />
+          ))}
           <CanvasEdges
             nodes={nodes}
-            edges={edges}
+            edges={visibleCanvasEdges}
             collectionInputPoint={(nodeId) => dockedCollectionIds.includes(nodeId) ? collectionDockPoint(nodeId) : null}
+            pinnedOutputPoint={(nodeId) => (library?.canvas?.pinnedNodeIds ?? []).includes(nodeId) ? pinnedDockPoint(nodeId) : null}
             isDockedCollection={(nodeId) => dockedCollectionIds.includes(nodeId)}
             preview={connectionPreview}
             selectedEdgeId={selectedEdgeId}
             actions={availableNodeToolbarActions}
             runningEdgeActionKey={Object.keys(canvasActionRunning).find((key) => key.startsWith("edge:")) ?? null}
+            runningVideoFrameEdgeId={videoFrameCaptureBusyKey?.startsWith("edge_") ? videoFrameCaptureBusyKey : null}
             onSyncRepresentation={(edgeId) => void syncRepresentationEdge(edgeId)}
+            onCaptureVideoFrame={(edge) => void captureVideoFrame(edge.fromNodeId, edge.toNodeId, edge.id)}
             onOpenCrop={(nodeId, cropNodeId) => void openCropEditor(nodeId, cropNodeId)}
             onOpenCorrection={(edge) => openImageCorrection(edge.fromNodeId, edge.toNodeId, edge.correction)}
             onRunCanvasActionEdge={(edge) => void rerunCanvasActionEdge(edge)}
@@ -3221,7 +3474,10 @@ function App() {
               setSelectedNodeIds([]);
             }}
           />
-          {nodes.filter((node) => node.manifest.type !== "collection" || !dockedCollectionIds.includes(node.canvas.id)).map((node) => {
+          {nodes.filter((node) =>
+            !hiddenCanvasNodeIdSet.has(node.canvas.id)
+            && (node.manifest.type !== "collection" || !dockedCollectionIds.includes(node.canvas.id))
+          ).map((node) => {
             if (node.manifest.type === "collection") {
               return (
                 <CollectionCardNode
@@ -3307,6 +3563,9 @@ function App() {
               onOpenCorrection={(nodeId) => openImageCorrection(nodeId)}
               onOpenCrop={openCropEditor}
               onUploadStackImage={(nodeId) => void uploadImageToNodeStack(nodeId)}
+              onCaptureVideoFrame={(nodeId) => void captureVideoFrame(nodeId)}
+              videoFrameCaptureBusy={videoFrameCaptureBusyKey === node.canvas.id}
+              onVideoElement={registerVideoElement}
               onToggleCollapsed={toggleNodeCollapsed}
               onDeleteNode={(nodeId) => void deleteSelectedNodes([nodeId])}
               openStack={openStackNodeId === node.canvas.id}
@@ -3442,6 +3701,7 @@ function App() {
         </div>
         <CollectionDock
           nodes={collectionNodes}
+          pinnedNodes={pinnedNodes}
           open={collectionDockOpen}
           selectedNodeIds={selectedNodeIds}
           onToggle={() => setCollectionDockOpen(!collectionDockOpen)}
@@ -3475,6 +3735,14 @@ function App() {
             });
           }}
           onInputPointerDown={(event, node) => handleInputPointerDown(event, node, collectionDockPoint(node.canvas.id))}
+          onOutputPointerDown={(event, node) => {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            handleOutputPointerDown(
+              event,
+              node,
+              screenToWorld(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)
+            );
+          }}
           onRenameNode={(nodeId, title) => void renameNode(nodeId, title)}
         />
         {nodeCreateMenu && (
@@ -3485,6 +3753,16 @@ function App() {
             <button type="button" onClick={() => void createConnectedNode("text")}>Create text node</button>
             {!nodeCreateMenu.fromNodeId ? <button type="button" onClick={() => void createConnectedNode("text", "note")}>Create note</button> : null}
             <button type="button" onClick={() => void createConnectedNode("collection")}>Create collection node</button>
+            {!nodeCreateMenu.fromNodeId ? (
+              <button
+                type="button"
+                disabled={selectedNodeIds.length < 2}
+                title={selectedNodeIds.length < 2 ? "Select at least two nodes first" : "Group selected nodes in a folder"}
+                onClick={createFolderFromSelection}
+              >
+                Group selected in folder
+              </button>
+            ) : null}
             {(() => {
               const sourceNode = nodeCreateMenu.fromNodeId ? nodes.find((node) => node.canvas.id === nodeCreateMenu.fromNodeId) : null;
               if (!sourceNode || sourceNode.manifest.type === "text") return null;
@@ -3522,7 +3800,8 @@ function App() {
         </button>
         {!miniMapCollapsed ? (
           <CanvasMiniMap
-            nodes={nodes}
+            nodes={nodes.filter((node) => !hiddenCanvasNodeIdSet.has(node.canvas.id))}
+            folders={canvasFolders}
             selectedNodeIds={selectedNodeIds}
             viewport={viewport}
             canvasSize={canvasSize}
@@ -3839,7 +4118,18 @@ function App() {
       )}
       {selectionMenu && selectedNodeIds.length > 0 && (
         <div ref={selectionMenuPosition.ref} className="selectionMenu" data-menu-flipped-x={selectionMenuPosition.flippedX || undefined} style={selectionMenuPosition.style}>
+          {nodes.find((node) => node.canvas.id === selectionMenu.nodeId)?.manifest.type !== "collection" ? (
+            <button type="button" onClick={() => {
+              setSelectionMenu(null);
+              void toggleNodePinned(selectionMenu.nodeId);
+            }}>
+              {(library?.canvas?.pinnedNodeIds ?? []).includes(selectionMenu.nodeId) ? "Unpin from top bar" : "Pin to top bar"}
+            </button>
+          ) : null}
           <button type="button" onClick={() => void duplicateNode(selectionMenu.nodeId)}>Duplicate node</button>
+          {selectedNodeIds.length > 1 ? (
+            <button type="button" onClick={createFolderFromSelection}>Group in folder</button>
+          ) : null}
           {(() => {
             const sourceNode = nodes.find((node) => node.canvas.id === selectionMenu.nodeId);
             if (!sourceNode || sourceNode.manifest.type === "text") return null;
@@ -4285,6 +4575,7 @@ function NodeToolbarActionIcon({ action }: { action: NodeToolbarAction }) {
   if (actionId === "crop") return <Crop size={16} />;
   if (actionId === "adjust") return <SlidersHorizontal size={16} />;
   if (actionId === "expand") return <Expand size={16} />;
+  if (actionId === "captureFrame") return <Camera size={16} />;
   if (actionId === "upload") return <ImagePlus size={16} />;
   if (actionId === "stack") return <Layers3 size={16} />;
   if (actionId === "collectSelected") return <Package size={16} />;
@@ -4306,6 +4597,7 @@ function nodeToolbarActionSupported(actionId: NodeToolbarActionId, type: Editabl
   if (actionId === "crop") return type === "image";
   if (actionId === "adjust") return type === "image";
   if (actionId === "expand") return type === "image" || type === "video";
+  if (actionId === "captureFrame") return type === "video";
   return true;
 }
 
@@ -4613,8 +4905,66 @@ function providerModelCounts(models: ModelOption[], providerId: string): string[
   );
 }
 
+function CanvasFolderFrame({
+  folder,
+  onPointerDown,
+  onRename,
+  onToggleCollapsed,
+  onRemove
+}: {
+  folder: CanvasFolder;
+  onPointerDown: (event: React.PointerEvent<HTMLElement>, folder: CanvasFolder) => void;
+  onRename: (title: string) => void;
+  onToggleCollapsed: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <section
+      className={`canvasFolder${folder.collapsed ? " isCollapsed" : ""}`}
+      style={{
+        transform: `translate(${folder.x}px, ${folder.y}px)`,
+        width: folder.collapsed ? collapsedNodeWidth : folder.width,
+        height: folder.collapsed ? collapsedNodeHeight : folder.height
+      }}
+    >
+      <header className="canvasFolderHeader" onPointerDown={(event) => onPointerDown(event, folder)}>
+        <Folder size={15} />
+        <input
+          value={folder.title}
+          aria-label="Folder name"
+          onPointerDown={(event) => event.stopPropagation()}
+          onChange={(event) => onRename(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+        />
+        <span>{folder.nodeIds.length}</span>
+        <button
+          type="button"
+          title={folder.collapsed ? "Expand folder" : "Collapse folder"}
+          aria-label={folder.collapsed ? "Expand folder" : "Collapse folder"}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={onToggleCollapsed}
+        >
+          {folder.collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+        </button>
+        <button
+          type="button"
+          title="Remove folder and keep nodes"
+          aria-label="Remove folder and keep nodes"
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={onRemove}
+        >
+          <X size={14} />
+        </button>
+      </header>
+    </section>
+  );
+}
+
 function CollectionDock({
   nodes,
+  pinnedNodes,
   open,
   selectedNodeIds,
   onToggle,
@@ -4624,9 +4974,11 @@ function CollectionDock({
   onItemContextMenu,
   onItemPointerDown,
   onInputPointerDown,
+  onOutputPointerDown,
   onRenameNode
 }: {
   nodes: CollectionNodeView[];
+  pinnedNodes: NodeView[];
   open: boolean;
   selectedNodeIds: string[];
   onToggle: () => void;
@@ -4636,8 +4988,13 @@ function CollectionDock({
   onItemContextMenu: (event: React.MouseEvent<HTMLElement>, node: CollectionNodeView, itemId: string) => void;
   onItemPointerDown: (event: React.PointerEvent<HTMLButtonElement>, node: CollectionNodeView, itemId: string) => void;
   onInputPointerDown: (event: React.PointerEvent<HTMLElement>, node: CollectionNodeView) => void;
+  onOutputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
   onRenameNode: (nodeId: string, title: string) => void;
 }) {
+  const gridColumns = [
+    ...nodes.map((node) => `${Math.max(180, node.canvas.width / 2)}px`),
+    ...pinnedNodes.map(() => "180px")
+  ];
   return (
     <aside className={`collectionDock${open ? " isOpen" : " isCollapsed"}`} onPointerDown={(event) => event.stopPropagation()}>
       <button
@@ -4651,11 +5008,11 @@ function CollectionDock({
       </button>
       <div
         className="collectionDockCells"
-        style={{ gridTemplateColumns: nodes.length
-          ? nodes.map((node) => `${Math.max(180, node.canvas.width / 2)}px`).join(" ")
+        style={{ gridTemplateColumns: gridColumns.length
+          ? gridColumns.join(" ")
           : "minmax(180px, 1fr)" }}
       >
-        {open && nodes.length === 0 ? <div className="collectionDockEmpty">Drag collection nodes here</div> : null}
+        {open && gridColumns.length === 0 ? <div className="collectionDockEmpty">Drag collection nodes here or pin a node</div> : null}
         {nodes.map((node) => (
           <article
             key={node.canvas.id}
@@ -4701,8 +5058,83 @@ function CollectionDock({
             ) : <span className="collectionDockMarker" title={node.manifest.title}><Package size={12} /><strong>{node.manifest.title}</strong><small>{node.items.length}</small></span>}
           </article>
         ))}
+        {pinnedNodes.map((node) => (
+          <PinnedNodeDockCell
+            key={node.canvas.id}
+            node={node}
+            isCollapsed={!open}
+            isSelected={selectedNodeIds.includes(node.canvas.id)}
+            onSelect={onSelect}
+            onNodeContextMenu={onNodeContextMenu}
+            onOutputPointerDown={onOutputPointerDown}
+          />
+        ))}
       </div>
     </aside>
+  );
+}
+
+function PinnedNodeDockCell({
+  node,
+  isCollapsed,
+  isSelected,
+  onSelect,
+  onNodeContextMenu,
+  onOutputPointerDown
+}: {
+  node: NodeView;
+  isCollapsed: boolean;
+  isSelected: boolean;
+  onSelect: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onNodeContextMenu: (event: React.MouseEvent<HTMLElement>, node: NodeView) => void;
+  onOutputPointerDown: (event: React.PointerEvent<HTMLElement>, node: NodeView) => void;
+}) {
+  const type = node.manifest.type;
+  let preview: React.ReactNode;
+  if (!isCollapsed && node.previewUrl && (type === "image" || type === "video")) {
+    preview = type === "video"
+      ? <video src={`${apiBase}${node.previewUrl}`} muted preload="metadata" />
+      : <img src={`${apiBase}${node.previewUrl}`} alt="" />;
+  } else if (type === "text") {
+    preview = (
+      <div className="pinnedDockText" data-canvas-wheel-scroll>
+        {textNodeDisplayText(node as TextNodeView) || "No text selected"}
+      </div>
+    );
+  } else if (type === "audio") {
+    preview = <Music size={24} />;
+  } else if (type === "video") {
+    preview = <Video size={24} />;
+  } else {
+    preview = <ImageIcon size={24} />;
+  }
+
+  return (
+    <article
+      className={`pinnedDockCell is-${type}${isSelected ? " isSelected" : ""}`}
+      style={{ "--node-color": nodeTypeWireColor(node) } as React.CSSProperties}
+      onClick={(event) => onSelect(event, node)}
+      onContextMenu={(event) => onNodeContextMenu(event, node)}
+    >
+      <div
+        className="pinnedDockOutput nodeHandle nodeHandleOutput"
+        title={`Connect ${node.manifest.title} output`}
+        data-node-output-id={node.canvas.id}
+        data-pinned-output="true"
+        onPointerDown={(event) => onOutputPointerDown(event, node)}
+      />
+      {isCollapsed ? (
+        <span className="collectionDockMarker pinnedDockMarker" title={node.manifest.title}>
+          <Pin size={12} />
+          <strong>{node.manifest.title}</strong>
+        </span>
+      ) : (
+        <>
+          <header><Pin size={14} /><strong>{node.manifest.title}</strong></header>
+          <div className="pinnedDockPreview">{preview}</div>
+        </>
+      )}
+    </article>
   );
 }
 
@@ -4982,12 +5414,14 @@ function libraryAssetUrl(nodeId: string, assetId: string): string {
 
 function CanvasMiniMap({
   nodes,
+  folders,
   selectedNodeIds,
   viewport,
   canvasSize,
   onCenter
 }: {
   nodes: NodeView[];
+  folders: CanvasFolder[];
   selectedNodeIds: string[];
   viewport: CanvasViewport;
   canvasSize: CanvasSize;
@@ -5003,7 +5437,13 @@ function CanvasMiniMap({
     width: canvasSize.width / viewportScale,
     height: canvasSize.height / viewportScale
   };
-  const bounds = canvasMiniMapBounds(nodes, visibleRect);
+  const folderRects = folders.map((folder) => ({
+    x: folder.x,
+    y: folder.y,
+    width: folder.collapsed ? collapsedNodeWidth : folder.width,
+    height: folder.collapsed ? collapsedNodeHeight : folder.height
+  }));
+  const bounds = canvasMiniMapBounds(nodes, visibleRect, folderRects);
   const mapWidth = 180;
   const mapHeight = 128;
   const padding = 10;
@@ -5095,6 +5535,20 @@ function CanvasMiniMap({
             />
           );
         })}
+        {folders.map((folder, index) => {
+          const folderRect = project(folderRects[index]);
+          return (
+            <rect
+              key={folder.id}
+              className={`canvasMiniMapFolder${folder.collapsed ? " isCollapsed" : ""}`}
+              x={folderRect.x}
+              y={folderRect.y}
+              width={folderRect.width}
+              height={folderRect.height}
+              rx="2"
+            />
+          );
+        })}
         <rect
           className="canvasMiniMapViewport"
           x={viewportRect.x}
@@ -5116,12 +5570,15 @@ function CanvasEdges({
   nodes,
   edges,
   collectionInputPoint,
+  pinnedOutputPoint,
   isDockedCollection,
   preview,
   selectedEdgeId,
   actions,
   runningEdgeActionKey,
+  runningVideoFrameEdgeId,
   onSyncRepresentation,
+  onCaptureVideoFrame,
   onOpenCrop,
   onOpenCorrection,
   onRunCanvasActionEdge,
@@ -5130,12 +5587,15 @@ function CanvasEdges({
   nodes: NodeView[];
   edges: CanvasEdge[];
   collectionInputPoint: (nodeId: string) => { x: number; y: number } | null;
+  pinnedOutputPoint: (nodeId: string) => { x: number; y: number } | null;
   isDockedCollection: (nodeId: string) => boolean;
   preview: Extract<DragState, { kind: "connection" }> | null;
   selectedEdgeId: string | null;
   actions: NodeToolbarAction[];
   runningEdgeActionKey: string | null;
+  runningVideoFrameEdgeId: string | null;
   onSyncRepresentation: (edgeId: string) => void;
+  onCaptureVideoFrame: (edge: CanvasEdge) => void;
   onOpenCrop: (nodeId: string, cropNodeId?: string) => void;
   onOpenCorrection: (edge: CanvasEdge) => void;
   onRunCanvasActionEdge: (edge: CanvasEdge) => void;
@@ -5153,7 +5613,8 @@ function CanvasEdges({
         const targetNode = viewById.get(edge.toNodeId);
         if (!from || !to) return null;
         if (sourceNode?.manifest.type === "collection" && isDockedCollection(edge.fromNodeId)) return null;
-        const start = nodeOutputPoint(from);
+        const pinnedStart = edge.fromPinned ? pinnedOutputPoint(edge.fromNodeId) : null;
+        const start = pinnedStart ?? nodeOutputPoint(from);
         const dockedCollectionPoint = targetNode?.manifest.type === "collection" ? collectionInputPoint(edge.toNodeId) : null;
         const end = dockedCollectionPoint ?? nodeInputPoint(to);
         const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
@@ -5165,8 +5626,14 @@ function CanvasEdges({
         return (
           <React.Fragment key={edge.id}>
             <path
-              className={`${selectedEdgeId === edge.id ? "isSelected" : ""}${edge.kind === "collectionItem" ? " isCollectionReference" : ""}${isCollectionInput ? " isCollectionInput" : ""}`}
-              d={dockedCollectionPoint ? dockedCollectionEdgePath(start, end) : edge.kind === "collectionItem" ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edgePath(start, end)}
+              className={`${selectedEdgeId === edge.id ? "isSelected" : ""}${edge.kind === "collectionItem" ? " isCollectionReference" : ""}${isCollectionInput ? " isCollectionInput" : ""}${pinnedStart ? " isPinnedSource" : ""}`}
+              d={pinnedStart
+                ? pinnedNodeEdgePath(start, end)
+                : dockedCollectionPoint
+                  ? dockedCollectionEdgePath(start, end)
+                  : edge.kind === "collectionItem"
+                    ? `M ${start.x} ${start.y} L ${end.x} ${end.y}`
+                    : edgePath(start, end)}
               style={{ "--edge-color": nodeTypeWireColor(sourceNode) } as React.CSSProperties}
               onClick={edge.kind === "collectionItem" ? undefined : (event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
             />
@@ -5182,6 +5649,23 @@ function CanvasEdges({
                   }}
                 >
                   <RefreshCw size={13} />
+                </button>
+              </foreignObject>
+            ) : null}
+            {edge.kind === "videoFrame" ? (
+              <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
+                <button
+                  className="edgeSyncButton"
+                  type="button"
+                  title="Save current video frame to image stack"
+                  aria-label="Save current video frame to image stack"
+                  disabled={runningVideoFrameEdgeId === edge.id}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCaptureVideoFrame(edge);
+                  }}
+                >
+                  {runningVideoFrameEdgeId === edge.id ? <BusyGears /> : <Camera size={13} />}
                 </button>
               </foreignObject>
             ) : null}
@@ -5266,7 +5750,16 @@ function CanvasEdges({
           </React.Fragment>
         );
       })}
-      {preview && <path className="edgePreview" d={edgePath({ x: preview.startX, y: preview.startY }, { x: preview.currentX, y: preview.currentY })} style={{ "--edge-color": nodeTypeWireColor(previewSourceNode) } as React.CSSProperties} />}
+      {preview && (
+        <path
+          className={`edgePreview${preview.fromPinned ? " isPinnedSource" : ""}`}
+          d={(preview.fromPinned ? pinnedNodeEdgePath : edgePath)(
+            { x: preview.startX, y: preview.startY },
+            { x: preview.currentX, y: preview.currentY }
+          )}
+          style={{ "--edge-color": nodeTypeWireColor(previewSourceNode) } as React.CSSProperties}
+        />
+      )}
     </svg>
   );
 }
@@ -5506,6 +5999,9 @@ function ImageNode({
   onOpenCorrection,
   onOpenCrop,
   onUploadStackImage,
+  onCaptureVideoFrame,
+  videoFrameCaptureBusy,
+  onVideoElement,
   onToggleCollapsed,
   onDeleteNode,
   openStack,
@@ -5555,6 +6051,9 @@ function ImageNode({
   onOpenCorrection: (nodeId: string) => void;
   onOpenCrop: (nodeId: string) => void;
   onUploadStackImage: (nodeId: string) => void;
+  onCaptureVideoFrame: (nodeId: string) => void;
+  videoFrameCaptureBusy: boolean;
+  onVideoElement: (nodeId: string, element: HTMLVideoElement | null) => void;
   onToggleCollapsed: (nodeId: string) => void;
   onDeleteNode: (nodeId: string) => void;
   openStack: boolean;
@@ -5637,7 +6136,7 @@ function ImageNode({
   );
   const selectedModelLogo = modelLogoForOption(selectedModel);
   const selectedModelKey = `${selectedModel.id}:${effectiveSelection.executionProvider}`;
-  const parameterDefinitions = selectedModel.generationParameters ?? [];
+  const parameterDefinitions = normalizeGenerationParameterDefinitions(selectedModel.generationParameters ?? []);
   const basicParameterDefinitions = parameterDefinitions.filter((definition) => !definition.advanced);
   const advancedParameterDefinitions = parameterDefinitions.filter((definition) => definition.advanced);
   const imageInputs = orderedInputNodes.filter((input) => input.type === "image");
@@ -5696,7 +6195,10 @@ function ImageNode({
     });
   }
 
-  const visibleToolbarActions = toolbarActions
+  const configuredToolbarActions = node.manifest.type === "video" && !toolbarActions.includes("captureFrame")
+    ? [...toolbarActions, "captureFrame"]
+    : toolbarActions;
+  const visibleToolbarActions = configuredToolbarActions
     .filter((actionId, index, list) => list.indexOf(actionId) === index)
     .filter((actionId) => nodeToolbarActionSupported(actionId, node.manifest.type, availableToolbarActions));
 
@@ -5750,6 +6252,14 @@ function ImageNode({
         <button key={actionId} type="button" aria-label="Stack" title="Stack" onClick={() => onToggleStack(node.manifest.id)}>
           <Layers3 size={15} />
           <span className="nodeToolbarBadge">{stackCount || 0}</span>
+        </button>
+      );
+    }
+    if (actionId === "captureFrame") {
+      if (!previewUrl || node.manifest.type !== "video") return null;
+      return (
+        <button key={actionId} type="button" aria-label="Create frame" title="Create frame" disabled={videoFrameCaptureBusy} onClick={() => onCaptureVideoFrame(node.manifest.id)}>
+          {videoFrameCaptureBusy ? <BusyGears /> : <Camera size={16} />}
         </button>
       );
     }
@@ -6238,7 +6748,7 @@ function ImageNode({
       <div className="nodeHandle nodeHandleInput" title="Input" data-node-input-id={node.canvas.id} onPointerDown={(event) => onInputPointerDown(event, node)} />
       <div className="nodeHandle nodeHandleOutput" title="Output" data-node-output-id={node.canvas.id} onPointerDown={(event) => onOutputPointerDown(event, node)} />
       <div className="imagePreview" onContextMenu={(event) => onContentContextMenu(event, node, mediaKind)}>
-        {previewUrl ? isVideoNode ? <video src={previewUrl} controls preload="metadata" onPointerDown={(event) => event.stopPropagation()} /> : isAudioNode ? <div className={`audioPreview${mediaNode.activeStackItem?.coverUrl ? " hasCover" : ""}`} style={audioCoverStyle(mediaNode.activeStackItem)}><Music size={42} /><audio src={previewUrl} controls preload="metadata" onPointerDown={(event) => event.stopPropagation()} /></div> : <img src={previewUrl} alt={node.manifest.title} draggable={false} /> : (
+        {previewUrl ? isVideoNode ? <VideoNodePlayer src={previewUrl} nodeId={node.manifest.id} onVideoElement={onVideoElement} /> : isAudioNode ? <div className={`audioPreview${mediaNode.activeStackItem?.coverUrl ? " hasCover" : ""}`} style={audioCoverStyle(mediaNode.activeStackItem)}><Music size={42} /><audio src={previewUrl} controls preload="metadata" onPointerDown={(event) => event.stopPropagation()} /></div> : <img src={previewUrl} alt={node.manifest.title} draggable={false} /> : (
           <div className="emptyNodePreview">
             {isVideoNode ? <Video size={32} /> : isAudioNode ? <Music size={32} /> : <ImageIcon size={32} />}
           </div>
@@ -6514,6 +7024,136 @@ function ImageNode({
       )}
     </article>
   );
+}
+
+function VideoNodePlayer({
+  src,
+  nodeId,
+  onVideoElement
+}: {
+  src: string;
+  nodeId: string;
+  onVideoElement: (nodeId: string, element: HTMLVideoElement | null) => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const pendingSeekTimeRef = useRef<number | null>(null);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [playing, setPlaying] = useState(false);
+
+  const updateVideoElement = React.useCallback((element: HTMLVideoElement | null) => {
+    videoRef.current = element;
+    onVideoElement(nodeId, element);
+  }, [nodeId, onVideoElement]);
+
+  function seek(value: number) {
+    const video = videoRef.current;
+    if (!video) return;
+    const nextTime = clamp(value, 0, Number.isFinite(video.duration) ? video.duration : value);
+    pendingSeekTimeRef.current = nextTime;
+    setCurrentTime(nextTime);
+    video.currentTime = nextTime;
+  }
+
+  return (
+    <div className="videoNodePlayer" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+      <video
+        ref={updateVideoElement}
+        src={src}
+        crossOrigin="anonymous"
+        preload="auto"
+        onLoadedMetadata={(event) => {
+          const video = event.currentTarget;
+          pendingSeekTimeRef.current = null;
+          setDuration(Number.isFinite(video.duration) ? video.duration : 0);
+          setCurrentTime(video.currentTime);
+        }}
+        onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+        onTimeUpdate={(event) => {
+          if (pendingSeekTimeRef.current === null && !event.currentTarget.seeking) setCurrentTime(event.currentTarget.currentTime);
+        }}
+        onSeeked={(event) => {
+          pendingSeekTimeRef.current = null;
+          setCurrentTime(event.currentTarget.currentTime);
+        }}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => setPlaying(false)}
+      />
+      <div className="videoNodeTimeline">
+        <button
+          type="button"
+          aria-label={playing ? "Pause video" : "Play video"}
+          title={playing ? "Pause" : "Play"}
+          onClick={() => {
+            const video = videoRef.current;
+            if (!video) return;
+            if (video.paused) void video.play();
+            else video.pause();
+          }}
+        >
+          {playing ? <Pause size={14} /> : <Play size={14} />}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={duration || 0}
+          step={0.001}
+          value={Math.min(currentTime, duration || 0)}
+          disabled={!duration}
+          aria-label="Video position"
+          onChange={(event) => seek(Number(event.currentTarget.value))}
+        />
+        <span>{formatVideoTime(currentTime)} / {formatVideoTime(duration)}</span>
+      </div>
+    </div>
+  );
+}
+
+async function captureVideoElementFrame(video: HTMLVideoElement): Promise<{ dataBase64: string; currentTime: number }> {
+  if (video.seeking) await waitForVideoSeek(video);
+  if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !video.videoWidth || !video.videoHeight) {
+    throw new Error("Wait until the current video frame is loaded.");
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas frame capture is unavailable.");
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return {
+    dataBase64: canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, ""),
+    currentTime: video.currentTime
+  };
+}
+
+function waitForVideoSeek(video: HTMLVideoElement): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => finish(new Error("Timed out while loading the selected video frame.")), 5000);
+    const onSeeked = () => finish();
+    const onError = () => finish(new Error("Could not load the selected video frame."));
+    function finish(error?: Error) {
+      window.clearTimeout(timeout);
+      video.removeEventListener("seeked", onSeeked);
+      video.removeEventListener("error", onError);
+      if (error) reject(error);
+      else resolve();
+    }
+    video.addEventListener("seeked", onSeeked);
+    video.addEventListener("error", onError);
+    if (!video.seeking) finish();
+  });
+}
+
+function formatVideoTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "0:00.000";
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds - minutes * 60;
+  return `${minutes}:${remainder.toFixed(3).padStart(6, "0")}`;
+}
+
+function formatVideoFrameTimestamp(seconds: number): string {
+  return `${Math.max(0, Math.round(seconds * 1000))}ms`;
 }
 
 function DialogueEditor({
@@ -7775,8 +8415,12 @@ function canvasMiniMapNodeRect(node: CanvasNode) {
   };
 }
 
-function canvasMiniMapBounds(nodes: NodeView[], visibleRect: { x: number; y: number; width: number; height: number }) {
-  const rects = [visibleRect, ...nodes.map((node) => canvasMiniMapNodeRect(node.canvas))];
+function canvasMiniMapBounds(
+  nodes: NodeView[],
+  visibleRect: { x: number; y: number; width: number; height: number },
+  folderRects: Array<{ x: number; y: number; width: number; height: number }> = []
+) {
+  const rects = [visibleRect, ...nodes.map((node) => canvasMiniMapNodeRect(node.canvas)), ...folderRects];
   const minX = Math.min(...rects.map((rect) => rect.x));
   const minY = Math.min(...rects.map((rect) => rect.y));
   const maxX = Math.max(...rects.map((rect) => rect.x + rect.width));
@@ -7837,11 +8481,6 @@ function withImageCorrectionEdge(canvas: CanvasDocument, sourceNodeId: string, t
       ? edges.map((edge) => edge.fromNodeId === sourceNodeId && edge.toNodeId === targetNodeId ? { ...edge, kind: "imageCorrection", correction: settings } : edge)
       : [...edges, { id: `edge_${Date.now().toString(36)}`, fromNodeId: sourceNodeId, toNodeId: targetNodeId, kind: "imageCorrection", correction: settings }]
   };
-}
-
-function edgePath(start: { x: number; y: number }, end: { x: number; y: number }) {
-  const distance = Math.max(80, Math.abs(end.x - start.x) * 0.45);
-  return `M ${start.x} ${start.y} C ${start.x + distance} ${start.y}, ${end.x - distance} ${end.y}, ${end.x} ${end.y}`;
 }
 
 function normalizedRect(x1: number, y1: number, x2: number, y2: number) {

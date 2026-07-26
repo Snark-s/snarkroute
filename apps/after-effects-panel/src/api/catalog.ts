@@ -44,7 +44,14 @@ export function modelSupportsOperation(model: GenerationModel, operation: Genera
 }
 
 export function modelSupportsPrompt(model: GenerationModel): boolean {
-  return model.inputTypes.includes("text") || model.parameters.some((field) => field.id.toLowerCase() === "prompt");
+  return model.inputTypes.includes("text")
+    || model.parameters.some((field) => field.id.toLowerCase() === "prompt")
+    || model.capabilities.some((capability) => ["image.generate", "image.edit", "image.reference", "video.generate"].includes(capability));
+}
+
+export function modelRequiresPrompt(model: GenerationModel): boolean {
+  return model.parameters.some((field) => field.id.toLowerCase() === "prompt" && field.required)
+    || ["polza.image.generate", "polza.video.generate"].includes(model.nodeType ?? "");
 }
 
 export function requiredImageInputs(model: GenerationModel): number {

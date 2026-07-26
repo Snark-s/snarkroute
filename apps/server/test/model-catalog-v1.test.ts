@@ -80,6 +80,27 @@ describe("server Model Catalog V1 assembly", () => {
     expect(catalog.find((entry) => entry.providerModelId === "image.nano-banana")?.parameters.map((parameter) => parameter.id)).toEqual(["aspectRatio", "imageSize"]);
   });
 
+  it("merges provider snake_case parameters with curated camelCase parameters", () => {
+    const catalog = assembleModelCatalogV1({
+      polzaModels: [{
+        id: "openai/gpt-5.4-image-2",
+        type: "image",
+        top_provider: {
+          parameters: {
+            aspect_ratio: { required: true, enum: ["1:1", "16:9"], default: "1:1" },
+            images: { min: 0, max: 4 }
+          }
+        }
+      }]
+    });
+
+    const model = catalog.find((entry) => entry.providerModelId === "openai/gpt-5.4-image-2");
+    expect(model?.parameters.filter((parameter) => parameter.id.replace(/_/g, "").toLowerCase() === "aspectratio")).toHaveLength(1);
+    expect(model?.parameters[0]).toMatchObject({ id: "aspect_ratio", default: "1:1", required: true });
+    expect(model?.parameters.some((parameter) => parameter.id === "images")).toBe(false);
+    expect(model?.ioContract?.inputs.find((input) => input.kind === "image")?.maxItems).toBe(4);
+  });
+
   it("uses custom-mode Suno music parameters from the catalog overlay", () => {
     const catalog = assembleModelCatalogV1({ fallbackModels: fallbackProviderModelsForCatalogV1() });
     const suno = catalog.find((entry) => entry.providerModelId === "suno/generate");

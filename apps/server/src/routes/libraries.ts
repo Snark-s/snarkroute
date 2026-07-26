@@ -237,10 +237,11 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Body: { filename?: string; dataBase64?: string; dropX?: number; dropY?: number; width?: number; height?: number; connectFromNodeId?: string; crop?: { sourceNodeId: string; rect: { x: number; y: number; width: number; height: number }; aspectRatio?: number | null } } }>("/api/libraries/current/import-image", async (request, reply) => {
+  app.post<{ Body: { filename?: string; dataBase64?: string; dropX?: number; dropY?: number; width?: number; height?: number; connectFromNodeId?: string; connectionKind?: "videoFrame"; crop?: { sourceNodeId: string; rect: { x: number; y: number; width: number; height: number }; aspectRatio?: number | null } } }>("/api/libraries/current/import-image", async (request, reply) => {
     try {
       if (!request.body?.filename) return reply.code(400).send({ error: "filename is required." });
       if (!request.body.dataBase64) return reply.code(400).send({ error: "dataBase64 is required." });
+      if (request.body.connectionKind !== undefined && request.body.connectionKind !== "videoFrame") return reply.code(400).send({ error: "connectionKind must be videoFrame." });
       return await importImageAsNode({
         filename: request.body.filename,
         dataBase64: request.body.dataBase64,
@@ -249,6 +250,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
         width: request.body.width,
         height: request.body.height,
         connectFromNodeId: request.body.connectFromNodeId,
+        connectionKind: request.body.connectionKind,
         crop: request.body.crop
       });
     } catch (error) {
@@ -452,7 +454,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string }; Body: { filename?: string; dataBase64?: string; crop?: { sourceNodeId: string; rect: { x: number; y: number; width: number; height: number }; aspectRatio?: number | null } } }>("/api/libraries/current/image-nodes/:nodeId/stack", async (request, reply) => {
+  app.post<{ Params: { nodeId: string }; Body: { filename?: string; dataBase64?: string; skipDuplicate?: boolean; crop?: { sourceNodeId: string; rect: { x: number; y: number; width: number; height: number }; aspectRatio?: number | null } } }>("/api/libraries/current/image-nodes/:nodeId/stack", async (request, reply) => {
     try {
       if (!request.body?.filename) return reply.code(400).send({ error: "filename is required." });
       if (!request.body.dataBase64) return reply.code(400).send({ error: "dataBase64 is required." });
@@ -460,6 +462,7 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
         nodeId: request.params.nodeId,
         filename: request.body.filename,
         dataBase64: request.body.dataBase64,
+        skipDuplicate: request.body.skipDuplicate,
         crop: request.body.crop
       });
     } catch (error) {
@@ -902,8 +905,16 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
 
   app.get<{ Params: { nodeId: string; stackItemId: string } }>("/api/libraries/current/video-nodes/:nodeId/stack/:stackItemId", async (request, reply) => {
     try {
-      const video = await createVideoStackReadStream(request.params.nodeId, request.params.stackItemId);
+      const video = await createVideoStackReadStream(request.params.nodeId, request.params.stackItemId, request.headers.range);
       reply.header("Content-Type", video.mimeType);
+      reply.header("Accept-Ranges", "bytes");
+      if (video.range) {
+        reply.code(206);
+        reply.header("Content-Range", `bytes ${video.range.start}-${video.range.end}/${video.size}`);
+        reply.header("Content-Length", video.range.end - video.range.start + 1);
+      } else {
+        reply.header("Content-Length", video.size);
+      }
       return reply.send(video.stream);
     } catch (error) {
       return reply.code(404).send({ error: errorMessage(error) });

@@ -368,9 +368,16 @@ function enrichUiCatalogMetadata(entry: ModelCatalogEntryV1): ModelCatalogEntryV
 }
 
 function mergeParameterDefinitions(base: ModelParameterDefinitionV1[], preferred: ModelParameterDefinitionV1[]) {
-  const byId = new Map(base.map((field) => [field.id, field]));
-  for (const field of preferred) byId.set(field.id, { ...(byId.get(field.id) ?? {}), ...field });
+  const byId = new Map(base.map((field) => [canonicalParameterId(field.id), field]));
+  for (const field of preferred) {
+    const key = canonicalParameterId(field.id);
+    byId.set(key, { ...(byId.get(key) ?? {}), ...field });
+  }
   return [...byId.values()];
+}
+
+function canonicalParameterId(id: string): string {
+  return id.replace(/[_-]/g, "").toLowerCase();
 }
 
 function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: ModelParameterDefinitionV1[]; metadata?: Record<string, unknown> } | undefined {

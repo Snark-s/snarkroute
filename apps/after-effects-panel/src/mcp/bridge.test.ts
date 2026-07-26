@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { buildEvalScript, evalJson } from "./bridge";
+import { buildAeBridgeWebSocketUrl, buildEvalScript, evalJson } from "./bridge";
 
 afterEach(() => { delete (globalThis as { window?: unknown }).window; });
 
 describe("CEP MCP bridge serialization", () => {
+  it("builds the exact local WebSocket bridge URL", () => {
+    expect(buildAeBridgeWebSocketUrl("http://127.0.0.1:4317")).toBe("ws://127.0.0.1:4317/api/ae-bridge");
+  });
   it("passes large multiline unicode JSX as JSON data rather than raw concatenation", () => {
     const message = { requestId: "r1", code: "var путь = \\\"C:\\\\тест\\\\x\\\";\nreturn { текст: путь };", undoGroup: "MCP: тест" };
     const script = buildEvalScript(message);

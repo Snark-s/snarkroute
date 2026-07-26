@@ -450,7 +450,7 @@ export async function importImageAsNode(input: ImportImageInput): Promise<Librar
       id: `edge_${shortId()}`,
       fromNodeId: input.connectFromNodeId,
       toNodeId: id,
-      kind: input.crop ? "crop" : undefined
+      kind: input.crop ? "crop" : input.connectionKind
     }];
   }
   await writeCanvas(libraryPath, canvas);
@@ -930,19 +930,22 @@ export async function appendImageToNodeStack(input: AppendImageStackInput): Prom
   const { manifest, nodePath } = await readImageNode(input.nodeId);
   const extension = normalizedImageExtension(input.filename);
   const mimeType = mimeTypeFromExtension(extension);
+  const incomingBuffer = input.dataBase64
+    ? Buffer.from(input.dataBase64, "base64")
+    : input.sourcePath
+      ? await readFile(input.sourcePath)
+      : null;
+  if (!incomingBuffer) throw new Error("dataBase64 or sourcePath is required.");
+  if (input.skipDuplicate && await imageStackContainsBuffer(nodePath, manifest.stack, incomingBuffer)) {
+    return readLibrarySnapshot(libraryPath);
+  }
   const contentPath = join(nodePath, "content");
   const stackIndex = manifest.stack.length;
   const imageRelativePath = nextStackFilename(manifest.stack, "import", extension);
   const imagePath = resolvePortablePath(nodePath, imageRelativePath);
   await mkdir(contentPath, { recursive: true });
 
-  if (input.dataBase64) {
-    await writeFile(imagePath, Buffer.from(input.dataBase64, "base64"));
-  } else if (input.sourcePath) {
-    await copyFile(input.sourcePath, imagePath);
-  } else {
-    throw new Error("dataBase64 or sourcePath is required.");
-  }
+  await writeFile(imagePath, incomingBuffer);
 
   const imageBuffer = await readFile(imagePath);
   const dimensions = readImageDimensions(imageBuffer, extension);
@@ -1050,6 +1053,20 @@ export async function setImageNodeActiveStackItem(nodeId: string, stackIndex: nu
   });
   await setLibraryRepresentativeImage(libraryPath, nodeId, manifest.stack[stackIndex].id);
   return readLibrarySnapshot(libraryPath);
+}
+
+async function imageStackContainsBuffer(nodePath: string, stack: ImageStackItem[], candidate: Buffer): Promise<boolean> {
+  const candidateHash = createHash("sha256").update(candidate).digest("hex");
+  for (const item of stack) {
+    if (!item.file) continue;
+    try {
+      const existing = await readFile(resolvePortablePath(nodePath, item.file));
+      if (existing.length === candidate.length && createHash("sha256").update(existing).digest("hex") === candidateHash) return true;
+    } catch {
+      // Missing stack files are handled elsewhere; they do not block a new capture.
+    }
+  }
+  return false;
 }
 
 export async function setStackNodeSelectedStackItems(nodeId: string, selectedStackItemIds: string[]): Promise<LibrarySnapshot> {
@@ -1540,8 +1557,8 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
   if (!["auto", "polza", "openrouter", "gemini"].includes(input.executionProvider)) {
     throw new Error(`Execution provider "${input.executionProvider}" is not available for image generation.`);
   }
-  const autoOnlyPolza = input.executionProvider === "auto" && input.availableExecutionProviders?.length === 1 && input.availableExecutionProviders[0] === "polza";
-  const nodeType = input.executionProvider === "polza" || autoOnlyPolza ? "polza.image.generate" : "ai.image.generate";
+  const autoCanUsePolza = input.executionProvider === "auto" && input.availableExecutionProviders?.includes("polza");
+  const nodeType = input.executionProvider === "polza" || autoCanUsePolza ? "polza.image.generate" : "ai.image.generate";
   const route = {
     routeVersion: "0.1",
     route: {
@@ -2438,6 +2455,9 @@ export async function deleteCanvasNode(nodeId: string): Promise<LibrarySnapshot>
   const nodePath = resolvePortablePath(libraryPath, canvasNode.nodePath);
   canvas.nodes = canvas.nodes.filter((node) => node.id !== nodeId);
   canvas.edges = (canvas.edges ?? []).filter((edge) => edge.fromNodeId !== nodeId && edge.toNodeId !== nodeId);
+  if (canvas.pinnedNodeIds?.length) {
+    canvas.pinnedNodeIds = canvas.pinnedNodeIds.filter((id) => id !== nodeId);
+  }
   await moveCanvasNodeFolderToTrash(libraryPath, nodePath);
   await writeCanvas(libraryPath, canvas);
   await replaceDeletedRepresentativeImage(libraryPath, nodeId);
@@ -2639,6 +2659,9 @@ export async function trashOrphanCanvasNodeFolders(): Promise<{ snapshot: Librar
 
   canvas.nodes = retainedCanvasNodes;
   canvas.edges = (canvas.edges ?? []).filter((edge) => retainedNodeIds.has(edge.fromNodeId) && retainedNodeIds.has(edge.toNodeId));
+  if (canvas.pinnedNodeIds?.length) {
+    canvas.pinnedNodeIds = canvas.pinnedNodeIds.filter((id) => retainedNodeIds.has(id));
+  }
   await writeCanvas(libraryPath, canvas);
 
   return { snapshot: await readLibrarySnapshot(libraryPath), movedCount: movedNodePaths.length, movedNodePaths, failedCount: failedNodePaths.length, failedNodePaths };
@@ -2744,11 +2767,39 @@ export async function createImageStackReadStream(nodeId: string, stackItemId: st
   return { stream: createReadStream(imagePath), mimeType: item.mimeType };
 }
 
-export async function createVideoStackReadStream(nodeId: string, stackItemId: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
+export async function createVideoStackReadStream(nodeId: string, stackItemId: string, rangeHeader?: string): Promise<{
+  stream: ReturnType<typeof createReadStream>;
+  mimeType: string;
+  size: number;
+  range?: { start: number; end: number };
+}> {
   const { manifest, nodePath } = await readVideoNode(nodeId);
   const item = manifest.stack.find((entry) => entry.id === stackItemId);
   if (!item?.file) throw new Error(`Stack item "${stackItemId}" was not found.`);
-  return { stream: createReadStream(resolvePortablePath(nodePath, item.file)), mimeType: item.mimeType };
+  const videoPath = resolvePortablePath(nodePath, item.file);
+  const { size } = await stat(videoPath);
+  const range = parseMediaByteRange(rangeHeader, size);
+  return {
+    stream: createReadStream(videoPath, range ? { start: range.start, end: range.end } : undefined),
+    mimeType: item.mimeType,
+    size,
+    range
+  };
+}
+
+function parseMediaByteRange(header: string | undefined, size: number): { start: number; end: number } | undefined {
+  if (!header || size <= 0) return undefined;
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim());
+  if (!match || (!match[1] && !match[2])) return undefined;
+  if (!match[1]) {
+    const suffixLength = Number(match[2]);
+    if (!Number.isSafeInteger(suffixLength) || suffixLength <= 0) return undefined;
+    return { start: Math.max(0, size - suffixLength), end: size - 1 };
+  }
+  const start = Number(match[1]);
+  const requestedEnd = match[2] ? Number(match[2]) : size - 1;
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(requestedEnd) || start < 0 || start >= size || requestedEnd < start) return undefined;
+  return { start, end: Math.min(requestedEnd, size - 1) };
 }
 
 export async function createAudioStackReadStream(nodeId: string, stackItemId: string): Promise<{ stream: ReturnType<typeof createReadStream>; mimeType: string }> {
@@ -3220,11 +3271,15 @@ async function syncCollectionNode(
       const saved = await createTextPromptAsset(textStagingPath, { title: item.title, prompt: item.text, category: "text-stack" });
       await copyFile(saved.promptPath, destination);
     } else if (item.sourcePath) {
-      await copyFile(item.sourcePath, destination);
+      if (!await collectionMediaCopyIsCurrent(item.sourcePath, destination)) {
+        await copyFile(item.sourcePath, destination);
+      }
     } else if (item.externalUrl) {
-      const response = await fetchWithTimeout(item.externalUrl, 15000);
-      if (!response.ok) throw new Error(`Could not copy collection item "${item.title}" (${response.status}).`);
-      await writeFile(destination, Buffer.from(await response.arrayBuffer()));
+      if (!await pathExists(destination)) {
+        const response = await fetchWithTimeout(item.externalUrl, 15000);
+        if (!response.ok) throw new Error(`Could not copy collection item "${item.title}" (${response.status}).`);
+        await writeFile(destination, Buffer.from(await response.arrayBuffer()));
+      }
     } else {
       continue;
     }
@@ -3274,6 +3329,15 @@ async function syncCollectionNode(
       previewUrl: item.type === "text" ? undefined : `/api/libraries/current/collection-nodes/${encodeURIComponent(manifest.id)}/items/${encodeURIComponent(item.id)}/content`
     }))
   };
+}
+
+async function collectionMediaCopyIsCurrent(source: string, destination: string): Promise<boolean> {
+  try {
+    const [sourceStat, destinationStat] = await Promise.all([stat(source), stat(destination)]);
+    return sourceStat.isFile() && destinationStat.isFile() && sourceStat.size === destinationStat.size;
+  } catch {
+    return false;
+  }
 }
 
 function collectionManualItemType(filename: string): CollectionNodeStoredItem["type"] | null {

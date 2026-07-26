@@ -33,4 +33,25 @@ describe("available model normalization", () => {
 
     expect(models[0]).toMatchObject({ id: "openai/gpt-5.4", storedModelId: "openai/gpt-5.4", providerId: "openrouter" });
   });
+
+  it("deduplicates camelCase and snake_case generation parameters", () => {
+    const models = normalizeAvailableModelOptions({ models: [{
+      ...baseModel,
+      id: "polza:openai/gpt-5.4-image-2",
+      provider: "polza",
+      providerModelId: "openai/gpt-5.4-image-2",
+      outputTypes: ["image"],
+      capabilities: ["image.generate"],
+      parameters: [
+        { id: "aspectRatio", label: "Aspect ratio", type: "select", options: [{ value: "16:9" }] },
+        { id: "n", label: "Images", type: "number", default: 1 },
+        { id: "aspect_ratio", label: "Aspect Ratio", type: "select", default: "auto", options: [{ value: "auto" }, { value: "16:9" }] }
+      ]
+    }] });
+
+    expect(models[0].generationParameters).toEqual([
+      expect.objectContaining({ id: "aspect_ratio", label: "Aspect Ratio", default: "auto" }),
+      expect.objectContaining({ id: "n", label: "Images", default: 1 })
+    ]);
+  });
 });
