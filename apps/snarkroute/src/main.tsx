@@ -7,7 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { canvasActionNeedsDialog } from "./canvasActionDialog";
 import { useClampedMenuPosition } from "@snarkroute/media-viewers";
 import { readTextDialogueDraft, writeTextDialogueDraft } from "./dialogueDraft";
-import { togglePinnedNodeState } from "./pinnedNodes";
+import { edgePath, pinnedNodeEdgePath, togglePinnedNodeState } from "./pinnedNodes";
 import { createRoot } from "react-dom/client";
 import {
   generationParameterSummary,
@@ -503,6 +503,7 @@ type DragState =
       startY: number;
       currentX: number;
       currentY: number;
+      fromPinned?: boolean;
     }
   | {
       kind: "stackItem";
@@ -961,10 +962,11 @@ function App() {
         const output = target instanceof HTMLElement ? target.closest<HTMLElement>("[data-node-output-id]") : null;
         const toNodeId = input?.dataset.nodeInputId;
         const fromNodeId = output?.dataset.nodeOutputId;
+        const fromPinned = output?.dataset.pinnedOutput === "true" || activeDrag.fromPinned === true;
         if (activeDrag.direction === "fromOutput" && toNodeId && toNodeId !== activeDrag.fromNodeId) {
-          void addCanvasEdge(activeDrag.fromNodeId, toNodeId);
+          void addCanvasEdge(activeDrag.fromNodeId, toNodeId, { fromPinned });
         } else if (activeDrag.direction === "fromInput" && fromNodeId && fromNodeId !== activeDrag.toNodeId) {
-          void addCanvasEdge(fromNodeId, activeDrag.toNodeId ?? activeDrag.fromNodeId);
+          void addCanvasEdge(fromNodeId, activeDrag.toNodeId ?? activeDrag.fromNodeId, { fromPinned });
         } else {
           const point = screenToWorld(event.clientX, event.clientY);
           if (activeDrag.direction === "fromOutput") {
@@ -1440,7 +1442,8 @@ function App() {
       startX: start.x,
       startY: start.y,
       currentX: start.x,
-      currentY: start.y
+      currentY: start.y,
+      fromPinned: Boolean(pointOverride)
     });
   }
 
@@ -1558,13 +1561,22 @@ function App() {
     }
   }
 
-  async function addCanvasEdge(fromNodeId: string, toNodeId: string) {
+  async function addCanvasEdge(fromNodeId: string, toNodeId: string, options?: { fromPinned?: boolean }) {
     if (!library?.canvas) return;
-    const exists = (library.canvas.edges ?? []).some((edge) => edge.fromNodeId === fromNodeId && edge.toNodeId === toNodeId);
-    if (exists) return;
+    const existing = (library.canvas.edges ?? []).find((edge) => edge.fromNodeId === fromNodeId && edge.toNodeId === toNodeId);
+    if (existing && Boolean(existing.fromPinned) === Boolean(options?.fromPinned)) return;
     pushUndoSnapshot();
-    const edge: CanvasEdge = { id: `edge_${Date.now().toString(36)}`, fromNodeId, toNodeId };
-    const canvas = { ...library.canvas, edges: [...(library.canvas.edges ?? []), edge] };
+    const edges = existing
+      ? (library.canvas.edges ?? []).map((edge) => edge.id === existing.id
+        ? { ...edge, fromPinned: options?.fromPinned || undefined }
+        : edge)
+      : [...(library.canvas.edges ?? []), {
+          id: `edge_${Date.now().toString(36)}`,
+          fromNodeId,
+          toNodeId,
+          fromPinned: options?.fromPinned || undefined
+        } as CanvasEdge];
+    const canvas = { ...library.canvas, edges };
     setLibrary((current) => current ? { ...current, canvas } : current);
     try {
       await apiPut<CanvasDocument>("/api/libraries/current/canvas", canvas);
@@ -3244,6 +3256,7 @@ function App() {
             nodes={nodes}
             edges={edges}
             collectionInputPoint={(nodeId) => dockedCollectionIds.includes(nodeId) ? collectionDockPoint(nodeId) : null}
+            pinnedOutputPoint={(nodeId) => (library?.canvas?.pinnedNodeIds ?? []).includes(nodeId) ? pinnedDockPoint(nodeId) : null}
             isDockedCollection={(nodeId) => dockedCollectionIds.includes(nodeId)}
             preview={connectionPreview}
             selectedEdgeId={selectedEdgeId}
@@ -4812,6 +4825,7 @@ function PinnedNodeDockCell({
         className="pinnedDockOutput nodeHandle nodeHandleOutput"
         title={`Connect ${node.manifest.title} output`}
         data-node-output-id={node.canvas.id}
+        data-pinned-output="true"
         onPointerDown={(event) => onOutputPointerDown(event, node)}
       />
       {isCollapsed ? (
@@ -5239,6 +5253,7 @@ function CanvasEdges({
   nodes,
   edges,
   collectionInputPoint,
+  pinnedOutputPoint,
   isDockedCollection,
   preview,
   selectedEdgeId,
@@ -5253,6 +5268,7 @@ function CanvasEdges({
   nodes: NodeView[];
   edges: CanvasEdge[];
   collectionInputPoint: (nodeId: string) => { x: number; y: number } | null;
+  pinnedOutputPoint: (nodeId: string) => { x: number; y: number } | null;
   isDockedCollection: (nodeId: string) => boolean;
   preview: Extract<DragState, { kind: "connection" }> | null;
   selectedEdgeId: string | null;
@@ -5276,7 +5292,8 @@ function CanvasEdges({
         const targetNode = viewById.get(edge.toNodeId);
         if (!from || !to) return null;
         if (sourceNode?.manifest.type === "collection" && isDockedCollection(edge.fromNodeId)) return null;
-        const start = nodeOutputPoint(from);
+        const pinnedStart = edge.fromPinned ? pinnedOutputPoint(edge.fromNodeId) : null;
+        const start = pinnedStart ?? nodeOutputPoint(from);
         const dockedCollectionPoint = targetNode?.manifest.type === "collection" ? collectionInputPoint(edge.toNodeId) : null;
         const end = dockedCollectionPoint ?? nodeInputPoint(to);
         const midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
@@ -5288,8 +5305,14 @@ function CanvasEdges({
         return (
           <React.Fragment key={edge.id}>
             <path
-              className={`${selectedEdgeId === edge.id ? "isSelected" : ""}${edge.kind === "collectionItem" ? " isCollectionReference" : ""}${isCollectionInput ? " isCollectionInput" : ""}`}
-              d={dockedCollectionPoint ? dockedCollectionEdgePath(start, end) : edge.kind === "collectionItem" ? `M ${start.x} ${start.y} L ${end.x} ${end.y}` : edgePath(start, end)}
+              className={`${selectedEdgeId === edge.id ? "isSelected" : ""}${edge.kind === "collectionItem" ? " isCollectionReference" : ""}${isCollectionInput ? " isCollectionInput" : ""}${pinnedStart ? " isPinnedSource" : ""}`}
+              d={pinnedStart
+                ? pinnedNodeEdgePath(start, end)
+                : dockedCollectionPoint
+                  ? dockedCollectionEdgePath(start, end)
+                  : edge.kind === "collectionItem"
+                    ? `M ${start.x} ${start.y} L ${end.x} ${end.y}`
+                    : edgePath(start, end)}
               style={{ "--edge-color": nodeTypeWireColor(sourceNode) } as React.CSSProperties}
               onClick={edge.kind === "collectionItem" ? undefined : (event) => { event.stopPropagation(); onSelectEdge(edge.id); }}
             />
@@ -7960,11 +7983,6 @@ function withImageCorrectionEdge(canvas: CanvasDocument, sourceNodeId: string, t
       ? edges.map((edge) => edge.fromNodeId === sourceNodeId && edge.toNodeId === targetNodeId ? { ...edge, kind: "imageCorrection", correction: settings } : edge)
       : [...edges, { id: `edge_${Date.now().toString(36)}`, fromNodeId: sourceNodeId, toNodeId: targetNodeId, kind: "imageCorrection", correction: settings }]
   };
-}
-
-function edgePath(start: { x: number; y: number }, end: { x: number; y: number }) {
-  const distance = Math.max(80, Math.abs(end.x - start.x) * 0.45);
-  return `M ${start.x} ${start.y} C ${start.x + distance} ${start.y}, ${end.x - distance} ${end.y}, ${end.x} ${end.y}`;
 }
 
 function normalizedRect(x1: number, y1: number, x2: number, y2: number) {
