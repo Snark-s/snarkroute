@@ -8,6 +8,7 @@ import type {
   ModelRoleV1,
   ProviderModelInfoV1
 } from "./types.js";
+import type { ModelIOContract } from "@snarkroute/protocol";
 
 export type ProviderModelToV1Input = {
   provider: ModelProviderIdV1;
@@ -19,6 +20,7 @@ export type ProviderModelToV1Input = {
   roles?: ModelRoleV1[];
   availability?: Partial<ModelAvailabilityV1>;
   metadata?: Record<string, unknown>;
+  ioContract?: ModelIOContract;
 };
 
 export function normalizeProviderModelToV1Input(input: ProviderModelToV1Input): ProviderModelInfoV1 {
@@ -35,7 +37,8 @@ export function normalizeProviderModelToV1Input(input: ProviderModelToV1Input): 
     capabilities: input.capabilities ?? [],
     roles: input.roles ?? [],
     availability: normalizeProviderAvailability(input.availability),
-    metadata: input.metadata
+    metadata: input.metadata,
+    ioContract: input.ioContract
   };
 }
 

@@ -48,6 +48,10 @@ export {
   withDefaultModelInputLimitsV1
 } from "./input-limits.js";
 
+export type { ModelInputSlotV1, SuppliedModelInputsV1 } from "./input-contracts.js";
+export { modelInputCompatibilityReasonsV1, modelInputSlotsV1, modelRunnableWithSuppliedInputsV1, panelCanRepresentContractV1, providerParameterIOContractV1 } from "./input-contracts.js";
+export { providerParameterDefinitionsV1 } from "./parameter-contracts.js";
+
 export type {
   CanonicalModelV1,
   ProviderModelOfferingV1,

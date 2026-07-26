@@ -834,6 +834,18 @@ dd {
   stroke: var(--text);
 }
 
+.canvasMiniMapFolder {
+  fill: color-mix(in srgb, #a78bfa 8%, transparent);
+  stroke: color-mix(in srgb, #a78bfa 72%, var(--line));
+  stroke-width: 1.25;
+  stroke-dasharray: 3 2;
+}
+
+.canvasMiniMapFolder.isCollapsed {
+  fill: color-mix(in srgb, #a78bfa 68%, var(--panel));
+  stroke-dasharray: none;
+}
+
 .canvasMiniMapViewport {
   cursor: grab;
   fill: color-mix(in srgb, var(--accent) 14%, transparent);
@@ -853,6 +865,72 @@ dd {
   min-height: 100%;
   transform-origin: 0 0;
   pointer-events: none;
+}
+
+.canvasFolder {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, #a78bfa 68%, var(--line));
+  border-radius: 20px;
+  background: color-mix(in srgb, #a78bfa 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #a78bfa 12%, transparent);
+  pointer-events: none;
+}
+
+.canvasFolder.isCollapsed {
+  border-style: solid;
+  background: color-mix(in srgb, var(--panel) 92%, #a78bfa 8%);
+  box-shadow: 0 12px 30px var(--shadow);
+}
+
+.canvasFolderHeader {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 7px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: color-mix(in srgb, var(--text) 86%, #a78bfa);
+  cursor: move;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.canvasFolderHeader input {
+  min-width: 0;
+  flex: 1;
+  height: 25px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  font-weight: 700;
+}
+
+.canvasFolderHeader input:focus {
+  border-color: color-mix(in srgb, #a78bfa 70%, var(--line));
+  outline: none;
+  background: var(--panel);
+}
+
+.canvasFolderHeader span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.canvasFolderHeader button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 6px;
 }
 
 .collectionDock {
@@ -915,6 +993,79 @@ dd {
 .collectionDock.isOpen .collectionDockCell.isSelected {
   border-color: #a78bfa;
   box-shadow: inset 0 0 0 1px #a78bfa;
+}
+
+.pinnedDockCell {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: auto;
+}
+
+.collectionDock.isOpen .pinnedDockCell {
+  height: 100%;
+  max-height: 100%;
+  overflow: visible;
+  padding: 28px 8px 8px;
+  border: 1px solid color-mix(in srgb, var(--node-color) 30%, var(--line));
+  border-radius: 0 0 16px 16px;
+  background: color-mix(in srgb, var(--panel) 93%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--line) 72%, transparent);
+}
+
+.collectionDock.isOpen .pinnedDockCell.isSelected {
+  border-color: var(--node-color);
+  box-shadow: inset 0 0 0 1px var(--node-color);
+}
+
+.pinnedDockCell > header {
+  position: absolute;
+  top: 5px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--node-color);
+}
+
+.pinnedDockCell > header strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinnedDockPreview {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--node-color);
+  background: var(--panel-soft);
+}
+
+.pinnedDockPreview img,
+.pinnedDockPreview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pinnedDockText {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  padding: 8px;
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .collectionDockCell > header {
@@ -992,6 +1143,29 @@ dd {
 .collectionDock.isCollapsed .collectionDockInput {
   top: 0;
   clip-path: inset(50% 0 0 0);
+}
+
+.collectionDock .pinnedDockOutput {
+  left: 50%;
+  top: 100%;
+  border-color: #d8c98a;
+  background: color-mix(in srgb, var(--canvas) 88%, #d8c98a 12%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #d8c98a 52%, transparent), 0 0 10px color-mix(in srgb, #d8c98a 22%, transparent);
+  transform: translateX(-50%);
+}
+
+.collectionDock .pinnedDockOutput::before,
+.collectionDock .pinnedDockOutput::after {
+  background: #d8c98a;
+}
+
+.collectionDock.isCollapsed .pinnedDockOutput {
+  top: 0;
+  clip-path: inset(50% 0 0 0);
+}
+
+.pinnedDockMarker {
+  color: var(--node-color);
 }
 
 .collectionDockMarker {
@@ -1100,6 +1274,13 @@ dd {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-dasharray: 1 7;
+}
+
+.canvasEdges path.isPinnedSource {
+  stroke: color-mix(in srgb, var(--edge-color, var(--accent)) 82%, #fff 18%);
+  stroke-width: 2;
+  stroke-linecap: butt;
+  stroke-dasharray: 14 5 3 5;
 }
 
 .canvas.isDraggingCollection .canvasWorld {
@@ -2675,6 +2856,56 @@ dd {
   object-fit: contain;
 }
 
+.videoNodePlayer {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 36px;
+  background: #050706;
+}
+
+.imagePreview .videoNodePlayer video {
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.videoNodeTimeline {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 9px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, #050806 88%, var(--panel));
+}
+
+.videoNodeTimeline button {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+}
+
+.videoNodeTimeline input[type="range"] {
+  min-width: 0;
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.videoNodeTimeline span {
+  color: var(--muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .audioPreview {
   position: relative;
   width: 100%;
@@ -3632,15 +3863,16 @@ dd {
   left: 74px;
   z-index: 7;
   display: block;
-  max-height: 68px;
+  max-height: 132px;
   padding: 7px 9px;
   border: 1px solid color-mix(in srgb, #e99b9b 55%, transparent);
   border-radius: 8px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
   background: color-mix(in srgb, var(--panel) 94%, #2a0909);
   color: #e99b9b;
   line-height: 1.3;
-  text-overflow: ellipsis;
   white-space: normal;
   box-shadow: 0 12px 30px var(--shadow);
 }

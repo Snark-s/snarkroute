@@ -35,7 +35,15 @@ export {
   listSeedProviderPricingCatalogV1,
   listSeedProviderPricingV1,
   modelMaxImageInputsV1,
+  modelInputCompatibilityReasonsV1,
+  modelInputSlotsV1,
+  modelRunnableWithSuppliedInputsV1,
+  panelCanRepresentContractV1,
+  providerParameterIOContractV1,
+  providerParameterDefinitionsV1,
   polzaVideoMaxImageInputsV1,
   withDefaultModelInputLimitsV1,
   providerPricingToCatalogEntryV1
 } from "./v1/index.js";
+
+export type { ModelInputSlotV1, SuppliedModelInputsV1 } from "./v1/index.js";

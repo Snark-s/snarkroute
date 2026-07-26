@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { createReadStream } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { access } from "node:fs/promises";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -62,7 +63,7 @@ app.post<{ Body: { filename?: string; dataBase64?: string; kind?: LocalAssetKind
     const path = join(assetsDirectory, `${Date.now()}-${filename}`);
     await writeFile(path, Buffer.from(dataBase64, "base64"));
     const metadata = await getLocalAssetMetadata(path, kind);
-    return { path, metadata };
+    return { id: `asset_${randomUUID()}`, path, metadata };
   } catch (error) {
     return reply.code(400).send({ error: errorMessage(error) });
   }

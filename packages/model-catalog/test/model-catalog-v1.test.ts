@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelMaxImageInputsV1 } from "../src/index.js";
+import { modelInputSlotsV1, modelMaxImageInputsV1, modelRunnableWithSuppliedInputsV1, panelCanRepresentContractV1, providerParameterDefinitionsV1, providerParameterIOContractV1 } from "../src/index.js";
 import type { ModelCatalogEntryV1, ModelOptionForNodeV1, ModelPricingInfoV1, ModelRoleV1 } from "../src/index.js";
 
 const baseEntry: ModelCatalogEntryV1 = {
@@ -68,5 +68,29 @@ describe("Model Catalog V1 types", () => {
   it("supports required pricing statuses", () => {
     const statuses: Array<ModelPricingInfoV1["status"]> = ["fresh", "stale", "missing", "unknown"];
     expect(statuses).toEqual(["fresh", "stale", "missing", "unknown"]);
+  });
+
+  it("creates named first/last slots and reference collections from provider contracts", () => {
+    const firstLast = providerParameterIOContractV1({ images: { min: 0, max: 1 }, tail_image_url: { description: "End frame" } }, [], ["video"]);
+    expect(modelInputSlotsV1({ ioContract: firstLast }).map(({ kind, role, maxItems }) => ({ kind, role, maxItems }))).toEqual([
+      { kind: "image", role: "firstFrame", maxItems: 1 },
+      { kind: "image", role: "lastFrame", maxItems: 1 }
+    ]);
+    const references = providerParameterIOContractV1({ images: { min: 1, max: 4, description: "Reference images" } }, [], ["video"]);
+    expect(modelInputSlotsV1({ ioContract: references })[0]).toMatchObject({ kind: "image", role: "reference", minItems: 1, maxItems: 4, ordered: true });
+  });
+
+  it("separates representable contracts from current input compatibility", () => {
+    const ioContract = providerParameterIOContractV1({ images: { min: 1, max: 2 }, videos: { min: 1, max: 1 } }, [], ["video"]);
+    expect(panelCanRepresentContractV1({ ioContract }, ["image"])).toBe(false);
+    expect(panelCanRepresentContractV1({ ioContract }, ["image", "video"])).toBe(true);
+    expect(modelRunnableWithSuppliedInputsV1({ ioContract }, { image: 1, video: 0 })).toBe(false);
+    expect(modelRunnableWithSuppliedInputsV1({ ioContract }, { image: 2, video: 1 })).toBe(true);
+  });
+
+  it("normalizes provider-required enums without hardcoding a model", () => {
+    expect(providerParameterDefinitionsV1({ aspect_ratio: { required: true, enum: ["1:1", "16:9", "9:16"] }, images: { min: 1, max: 2 } })).toEqual([
+      expect.objectContaining({ id: "aspect_ratio", type: "select", required: true, options: [{ value: "1:1", label: "1:1" }, { value: "16:9", label: "16:9" }, { value: "9:16", label: "9:16" }] })
+    ]);
   });
 });

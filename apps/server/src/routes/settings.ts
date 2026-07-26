@@ -6,7 +6,9 @@ import { errorMessage } from "../services/errors";
 import { openRouterSettingsStatus } from "../providers/openrouter";
 import { normalizeSeedanceBackend, seedanceSettingsStatus, SEEDANCE_BACKENDS } from "../providers/seedance";
 export async function registerSettingsRoutes(app: FastifyInstance) {
-app.get("/api/health", async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), openrouterEnabled: isOpenRouterEnabled(), polzaEnabled: isPolzaEnabled(), elevenlabsEnabled: isElevenLabsEnabled(), seedanceEnabled: isSeedanceEnabled(), worldLabsEnabled: isWorldLabsEnabled() }));
+const health = async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), openrouterEnabled: isOpenRouterEnabled(), polzaEnabled: isPolzaEnabled(), elevenlabsEnabled: isElevenLabsEnabled(), seedanceEnabled: isSeedanceEnabled(), worldLabsEnabled: isWorldLabsEnabled() });
+app.get("/api/health", health);
+app.get("/health", health);
 
 app.get("/api/capabilities", async () => appCapabilities());
 

@@ -32,7 +32,8 @@ export function mergeProviderModelWithCuratedMetadata(
     pricing: curated?.pricing,
     catalogStatus: curated ? "known" : "unknown",
     aliases: curated?.aliases,
-    metadata: mergeMetadata(providerModel.metadata, curated?.metadata)
+    metadata: mergeMetadata(providerModel.metadata, curated?.metadata),
+    ioContract: curated?.ioContract ?? providerModel.ioContract
   };
 }
 

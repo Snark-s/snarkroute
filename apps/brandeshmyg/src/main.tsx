@@ -1,7 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { CanvasActionHost, createToolTab, persistToolTab, updateToolTab, type CanvasNodeAction, type PersistedToolTabState, type ToolTabState } from "@snarkroute/canvas-action-host";
-import { ChevronLeft, ChevronRight, FilePlus2, Plus, Search, X } from "lucide-react";
+import {
+  Aperture, Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Bookmark, Bot, Box, Brain, Brush,
+  Calendar, Camera, Check, ChevronLeft, ChevronRight, ChevronsDown, ChevronsUp, Clapperboard, Clipboard,
+  Clock3, Cog, Compass, Copy, Cpu, Crop, Database, Download, Eraser, Expand, Eye, EyeOff, FileAudio,
+  FileImage, FileJson, FilePlus2, FileText, FileVideo, Film, Filter, Flag, FlipHorizontal, FlipVertical,
+  Folder, FolderOpen, FolderPlus, Github, Globe, Grid3X3, Headphones, Heart, ImageIcon, Layers3, Link,
+  List, Mail, Map as MapIcon, MapPin, Maximize2, MessageSquare, Mic, Minimize2, Minus, Move, Music,
+  Navigation, Network, Package, Palette, Pause, PenTool, Pin, Play, Plus, Radio, RefreshCw, Repeat,
+  RotateCcw, RotateCw, Route, Save, Scissors, Search, Send, Settings, Share2, Shuffle, SlidersHorizontal,
+  Sparkles, Square, Star, Table, Type, Upload, Video, Volume2, Wand2, Wrench, X, Zap, ZoomIn, ZoomOut
+} from "lucide-react";
 import { disposeSession, installPackage, loadActions, previewPackage, runSession } from "./api";
 import "./styles.css";
 
@@ -95,8 +105,48 @@ function App() {
 
 function ActionIcon({ action }: { action: CanvasNodeAction }) {
   if (action.icon?.kind === "custom" && action.icon.dataUrl) return <img className="actionIcon" src={action.icon.dataUrl} alt="" />;
-  return <span className="actionIcon preset">{action.title.slice(0, 1).toUpperCase()}</span>;
+  if (action.icon?.kind === "custom" && action.icon.svg) return <img className="actionIcon" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(action.icon.svg)}`} alt="" />;
+  const presetName = action.icon?.kind === "preset" ? action.icon.name : "wrench";
+  const iconKey = canvasActionIconAliases[presetName] ?? presetName.split("-").map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join("");
+  const Icon = lucideIconRegistry[iconKey] ?? Wrench;
+  return <span className="actionIcon preset"><Icon size={20} strokeWidth={2.2} /></span>;
 }
+
+const canvasActionIconAliases: Record<string, string> = {
+  audio: "Music",
+  image: "ImageIcon",
+  magic: "Wand2",
+  layers: "Layers3",
+  maximize: "Maximize2",
+  minimize: "Minimize2",
+  settings: "Settings",
+  sliders: "SlidersHorizontal",
+  close: "X",
+  volume: "Volume2",
+  pen: "PenTool",
+  grid: "Grid3X3",
+  "rotate-left": "RotateCcw",
+  "rotate-right": "RotateCw",
+  stop: "Square",
+  refresh: "RefreshCw",
+  share: "Share2",
+  message: "MessageSquare",
+  clock: "Clock3",
+  map: "Map",
+  github: "Github"
+};
+
+const lucideIconRegistry = {
+  Aperture, Archive, ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bell, Bookmark, Bot, Box, Brain, Brush,
+  Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clipboard, Clock3, Cog, Compass, Copy,
+  Cpu, Crop, Database, Download, Eraser, Expand, Eye, EyeOff, FileAudio, FileImage, FileJson, FileText,
+  FileVideo, Film, Filter, Flag, FlipHorizontal, FlipVertical, Folder, FolderOpen, FolderPlus, Github, Globe,
+  Grid3X3, Headphones, Heart, ImageIcon, Layers3, Link, List, Mail, Map: MapIcon, MapPin, Maximize2,
+  MessageSquare, Mic, Minimize2, Minus, Move, Music, Navigation, Network, Package, Palette, Pause, PenTool,
+  Pin, Play, Plus, Radio, RefreshCw, Repeat, RotateCcw, RotateCw, Route, Save, Scissors, Search, Send,
+  Settings, Share2, Shuffle, SlidersHorizontal, Sparkles, Square, Star, Table, Type, Upload, Video, Volume2,
+  Wand2, Wrench, X, Zap, ZoomIn, ZoomOut
+} as Record<string, React.ComponentType<{ size?: number; strokeWidth?: number }>>;
 
 function PackagePreview({ preview }: { preview: Record<string, unknown> }) {
   const manifest = preview.manifest && typeof preview.manifest === "object" ? preview.manifest as Record<string, unknown> : {};

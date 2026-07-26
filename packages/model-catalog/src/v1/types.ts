@@ -1,3 +1,5 @@
+import type { ModelIOContract } from "@snarkroute/protocol";
+
 export type ModelProviderIdV1 =
   | "anthropic"
   | "gemini"
@@ -114,6 +116,7 @@ export type ModelCatalogEntryV1 = {
   catalogStatus: "known" | "unknown";
   aliases?: string[];
   metadata?: Record<string, unknown>;
+  ioContract?: ModelIOContract;
 };
 
 export type ProviderModelInfoV1 = {
@@ -128,6 +131,7 @@ export type ProviderModelInfoV1 = {
   roles: ModelRoleV1[];
   availability: ModelAvailabilityV1;
   metadata?: Record<string, unknown>;
+  ioContract?: ModelIOContract;
 };
 
 export type CuratedModelMetadataV1 = {
@@ -147,6 +151,7 @@ export type CuratedModelMetadataV1 = {
   parameters?: ModelParameterDefinitionV1[];
   pricing?: ModelPricingInfoV1;
   metadata?: Record<string, unknown>;
+  ioContract?: ModelIOContract;
 };
 
 export type ModelOptionForNodeV1 = ModelCatalogEntryV1 & {
@@ -154,4 +159,10 @@ export type ModelOptionForNodeV1 = ModelCatalogEntryV1 & {
   storedModelId: string;
   executionProvider: ModelProviderIdV1;
   compatibilityReason?: string;
+  inputContract?: ModelIOContract;
+  requiredImageInputs?: number;
+  maximumImageInputs?: number;
+  optionalImageInputs?: number;
+  inputRoles?: string[];
+  runnableWithSuppliedInputs?: boolean;
 };

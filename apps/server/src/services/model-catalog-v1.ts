@@ -2,6 +2,10 @@ import {
   listCuratedModelMetadataV1,
   mergeProviderModelsWithCuratedMetadata,
   normalizeProviderModelToV1Input,
+  modelInputSlotsV1,
+  modelRunnableWithSuppliedInputsV1,
+  providerParameterDefinitionsV1,
+  providerParameterIOContractV1,
   withDefaultModelInputLimitsV1
 } from "@snarkroute/model-catalog/dist/v1/index.js";
 
@@ -299,12 +303,19 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
 }
 
 export function toModelOptionForNodeV1(nodeType: string, entry: ModelCatalogEntryV1): ModelOptionForNodeV1 {
+  const image = entry.ioContract?.inputs?.find((item) => item.kind === "image");
   return {
     ...entry,
     nodeType,
     storedModelId: entry.provider === "rutronix" ? `rutronix:${entry.providerModelId}` : entry.providerModelId,
     executionProvider: entry.provider,
-    compatibilityReason: compatibilityReasonForNode(nodeType)
+    compatibilityReason: compatibilityReasonForNode(nodeType),
+    inputContract: entry.ioContract,
+    requiredImageInputs: image?.minItems ?? (image?.required ? 1 : 0),
+    maximumImageInputs: image?.maxItems,
+    optionalImageInputs: image ? Math.max(0, (image.maxItems ?? 1) - (image.minItems ?? (image.required ? 1 : 0))) : 0,
+    inputRoles: modelInputSlotsV1(entry).filter((slot) => slot.kind === "image").map((slot) => slot.role),
+    runnableWithSuppliedInputs: modelRunnableWithSuppliedInputsV1(entry, {})
   };
 }
 
@@ -313,16 +324,20 @@ function normalizeRawProviderModel(provider: ModelProviderIdV1, model: RawProvid
   if (!providerModelId) return [];
   const outputTypes = outputTypesForModel(model);
   const capabilities = capabilitiesForModel(model, outputTypes);
+  const providerParams = providerParameters(model);
+  const ioContract = providerParameterIOContractV1(providerParams, inputTypesForModel(model), outputTypes);
+  const contractInputTypes = (ioContract.inputs ?? []).map((item) => item.kind) as ModelInputTypeV1[];
   return [normalizeProviderModelToV1Input({
     provider,
     providerModelId,
     displayName: stringValue(model.title) ?? stringValue(model.name) ?? providerModelId,
-    inputTypes: inputTypesForModel(model),
+    inputTypes: unique([...inputTypesForModel(model), ...contractInputTypes]),
     outputTypes,
     capabilities,
     roles: rolesForCapabilities(capabilities),
     availability: { status: "available", source: "live" },
-    metadata: { providerRaw: model }
+    metadata: { providerRaw: model, providerParameterDefinitions: providerParameterDefinitionsV1(providerParams) },
+    ioContract
   })];
 }
 
@@ -331,21 +346,38 @@ function preserveLiveProviderIo(entry: ModelCatalogEntryV1, providerModel: Provi
   return {
     ...entry,
     inputTypes: providerModel.inputTypes.length ? providerModel.inputTypes : entry.inputTypes,
-    outputTypes: providerModel.outputTypes.length ? providerModel.outputTypes : entry.outputTypes
+    outputTypes: providerModel.outputTypes.length ? providerModel.outputTypes : entry.outputTypes,
+    ioContract: providerModel.ioContract ?? entry.ioContract
   };
 }
 
 function enrichUiCatalogMetadata(entry: ModelCatalogEntryV1): ModelCatalogEntryV1 {
   const defaults = defaultUiCatalogMetadata(entry);
-  const enriched = defaults ? {
+  const providerMetadata = entry.metadata?.provider && typeof entry.metadata.provider === "object" ? entry.metadata.provider as Record<string, unknown> : undefined;
+  const liveParameters = Array.isArray(providerMetadata?.providerParameterDefinitions) ? providerMetadata.providerParameterDefinitions as ModelParameterDefinitionV1[] : [];
+  const baseParameters = entry.parameters.length ? entry.parameters : defaults?.parameters ?? [];
+  const enriched = defaults || liveParameters.length ? {
     ...entry,
-    parameters: entry.parameters.length ? entry.parameters : defaults.parameters,
+    parameters: mergeParameterDefinitions(baseParameters, liveParameters),
     metadata: {
       ...(entry.metadata ?? {}),
-      ...defaults.metadata
+      ...(defaults?.metadata ?? {})
     }
   } : entry;
-  return withDefaultModelInputLimitsV1(enriched);
+  return withDefaultModelInputLimitsV1({ ...enriched, ioContract: enriched.ioContract ?? providerParameterIOContractV1(undefined, enriched.inputTypes, enriched.outputTypes) });
+}
+
+function mergeParameterDefinitions(base: ModelParameterDefinitionV1[], preferred: ModelParameterDefinitionV1[]) {
+  const byId = new Map(base.map((field) => [canonicalParameterId(field.id), field]));
+  for (const field of preferred) {
+    const key = canonicalParameterId(field.id);
+    byId.set(key, { ...(byId.get(key) ?? {}), ...field });
+  }
+  return [...byId.values()];
+}
+
+function canonicalParameterId(id: string): string {
+  return id.replace(/[_-]/g, "").toLowerCase();
 }
 
 function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: ModelParameterDefinitionV1[]; metadata?: Record<string, unknown> } | undefined {
@@ -503,6 +535,12 @@ function stringArray(value: unknown): string[] {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function providerParameters(model: RawProviderModelV1): Record<string, unknown> | undefined {
+  const topProvider = model.top_provider && typeof model.top_provider === "object" && !Array.isArray(model.top_provider) ? model.top_provider as Record<string, unknown> : undefined;
+  const parameters = topProvider?.parameters;
+  return parameters && typeof parameters === "object" && !Array.isArray(parameters) ? parameters as Record<string, unknown> : undefined;
 }
 
 function modalityOutputModalities(modality: string): string[] {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -194,6 +194,61 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("creates video-frame links and skips duplicate captured frames in the image stack", async () => {
+    const app = await testServer();
+    try {
+      const source = await importNode(app, "Source.png");
+      const firstFrameBase64 = writePngTextChunk(
+        Buffer.from(onePixelPngBase64, "base64"),
+        "snarkroute:test-frame",
+        "frame-one"
+      ).toString("base64");
+      const importedFrame = (await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/import-image",
+        payload: {
+          filename: "Source frame 1000ms.png",
+          dataBase64: firstFrameBase64,
+          dropX: 900,
+          dropY: 300,
+          width: 320,
+          height: 240,
+          connectFromNodeId: source.manifest.id,
+          connectionKind: "videoFrame"
+        }
+      })).json();
+      const target = importedFrame.nodes.find((node: { manifest: { id: string } }) => node.manifest.id !== source.manifest.id);
+      expect(importedFrame.canvas.edges).toContainEqual(expect.objectContaining({
+        fromNodeId: source.manifest.id,
+        toNodeId: target.manifest.id,
+        kind: "videoFrame"
+      }));
+
+      const duplicate = (await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${target.manifest.id}/stack`,
+        payload: { filename: "duplicate.png", dataBase64: firstFrameBase64, skipDuplicate: true }
+      })).json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === target.manifest.id);
+      expect(duplicate.manifest.stack).toHaveLength(1);
+
+      const distinct = (await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${target.manifest.id}/stack`,
+        payload: { filename: "distinct.png", dataBase64: onePixelPngBase64, skipDuplicate: true }
+      })).json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === target.manifest.id);
+      expect(distinct.manifest.stack).toHaveLength(2);
+
+      const repeatedDistinct = (await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${target.manifest.id}/stack`,
+        payload: { filename: "distinct-again.png", dataBase64: onePixelPngBase64, skipDuplicate: true }
+      })).json().nodes.find((node: { manifest: { id: string } }) => node.manifest.id === target.manifest.id);
+      expect(repeatedDistinct.manifest.stack).toHaveLength(2);
+    } finally {
+      await app.close();
+    }
+  }, 15_000);
+
   it("persists multiple selected images in an image node stack", async () => {
     const app = await testServer();
     try {
@@ -337,6 +392,12 @@ describe("SnarkRoute libraries", () => {
       const collectedFiles = await readdir(collectionContentPath);
       expect(collectedFiles.filter((file) => file.endsWith(".png"))).toHaveLength(2);
       expect(collectedFiles.some((file) => file.endsWith(".mp4"))).toBe(true);
+      const collectedVideoFile = collectedFiles.find((file) => file.endsWith(".mp4"))!;
+      const collectedVideoPath = join(collectionContentPath, collectedVideoFile);
+      const preservedTimestamp = new Date("2001-01-01T00:00:00.000Z");
+      await utimes(collectedVideoPath, preservedTimestamp, preservedTimestamp);
+      expect((await app.inject({ method: "GET", url: "/api/libraries/current" })).statusCode).toBe(200);
+      expect((await stat(collectedVideoPath)).mtimeMs).toBeLessThan(Date.UTC(2002, 0, 1));
       const collectedMarkdown = collectedFiles.find((file) => file.endsWith(".prompt.md"));
       expect(collectedMarkdown).toBeTruthy();
       await expect(readFile(join(collectionContentPath, collectedMarkdown!), "utf8")).resolves.toContain("kind: text/prompt");
@@ -394,7 +455,7 @@ describe("SnarkRoute libraries", () => {
     } finally {
       await app.close();
     }
-  });
+  }, 15_000);
 
   it("adds an explicit local folder as a library projection and detects embedded PNG prompts", async () => {
     const sourcePath = await mkdtemp(join(tmpdir(), "sr-local-source-"));
@@ -508,6 +569,17 @@ describe("SnarkRoute libraries", () => {
       });
       expect(previewResponse.statusCode).toBe(200);
       expect(previewResponse.headers["content-type"]).toContain("video/webm");
+      expect(previewResponse.headers["accept-ranges"]).toBe("bytes");
+
+      const rangeResponse = await app.inject({
+        method: "GET",
+        url: `/api/libraries/current/video-nodes/${node.manifest.id}/stack/${updated.manifest.stack[1].id}`,
+        headers: { range: "bytes=1-3" }
+      });
+      expect(rangeResponse.statusCode).toBe(206);
+      expect(rangeResponse.headers["content-range"]).toBe(`bytes 1-3/${Buffer.from(sampleVideoBase64, "base64").length}`);
+      expect(rangeResponse.headers["content-length"]).toBe("3");
+      expect(rangeResponse.rawPayload).toEqual(Buffer.from(sampleVideoBase64, "base64").subarray(1, 4));
 
       const duplicateResponse = await app.inject({
         method: "POST",
@@ -874,6 +946,45 @@ describe("SnarkRoute libraries", () => {
       }));
       const route = executeRouteMock.mock.calls[0][0];
       expect(route.nodes[0].params.images).toHaveLength(2);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("prefers the Polza credit route for automatic image generation when it is available", async () => {
+    const app = await testServer();
+    try {
+      const target = await importNode(app, "Auto route target.png");
+      const generatedPath = join(libraryPath, target.canvas.nodePath, target.manifest.stack[0].file);
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: {
+          generate: {
+            status: "succeeded",
+            output: { image: { localPath: generatedPath, path: generatedPath, filename: "result.png", mimeType: "image/png", width: 1, height: 1 } }
+          }
+        }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/image-nodes/${target.manifest.id}/generate`,
+        payload: {
+          modelId: "openai/gpt-5.4-image-2",
+          executionProvider: "auto",
+          fallbackAllowed: true,
+          availableExecutionProviders: ["openrouter", "polza"],
+          prompt: "Use the credit-backed route"
+        }
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
+        nodes: [expect.objectContaining({
+          type: "polza.image.generate",
+          params: expect.objectContaining({ model: "openai/gpt-5.4-image-2", executionProvider: "auto" })
+        })]
+      }));
     } finally {
       await app.close();
     }
