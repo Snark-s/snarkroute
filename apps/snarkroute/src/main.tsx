@@ -7,6 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { canvasActionNeedsDialog } from "./canvasActionDialog";
 import { useClampedMenuPosition } from "@snarkroute/media-viewers";
 import { readTextDialogueDraft, writeTextDialogueDraft } from "./dialogueDraft";
+import { togglePinnedNodeState } from "./pinnedNodes";
 import { createRoot } from "react-dom/client";
 import {
   generationParameterSummary,
@@ -1574,6 +1575,30 @@ function App() {
     }
   }
 
+  async function toggleNodePinned(nodeId: string) {
+    if (!library?.canvas) return;
+    const next = togglePinnedNodeState(
+      library.canvas.pinnedNodeIds ?? [],
+      library.canvas.edges ?? [],
+      nodeId,
+      nodeById.get(nodeId)?.manifest.type
+    );
+    if (next.blocked) {
+      setStatus("Collections are pinned by dragging them into the dock.");
+      return;
+    }
+    pushUndoSnapshot();
+    const canvas = { ...library.canvas, pinnedNodeIds: next.pinnedNodeIds, edges: next.edges };
+    setLibrary((current) => current ? { ...current, canvas } : current);
+    try {
+      await apiPut<CanvasDocument>("/api/libraries/current/canvas", canvas);
+      applyLibrarySnapshot(await apiGet<LibrarySnapshot>("/api/libraries/current"));
+      setStatus(next.pinnedNodeIds.includes(nodeId) ? "Node pinned to top bar" : "Node unpinned from top bar");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not update pinned node.");
+    }
+  }
+
   async function syncRepresentationEdge(edgeId: string) {
     try {
       const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/edges/${encodeURIComponent(edgeId)}/sync-representation`, {});
@@ -3125,6 +3150,10 @@ function App() {
   const selectedEdge = edges.find((edge) => edge.id === selectedEdgeId);
   const selectedEdgeNotePosition = selectedEdge ? edgeMidpoint(selectedEdge, new Map(nodes.map((node) => [node.canvas.id, node.canvas]))) : null;
   const collectionNodes = nodes.filter((node): node is CollectionNodeView => node.manifest.type === "collection" && dockedCollectionIds.includes(node.canvas.id));
+  const pinnedNodeIds = library?.canvas?.pinnedNodeIds ?? [];
+  const pinnedNodes = pinnedNodeIds
+    .map((id) => nodeById.get(id))
+    .filter((node): node is NodeView => Boolean(node) && node!.manifest.type !== "collection");
   const collectionDockPoint = (nodeId: string) => {
     const index = Math.max(0, collectionNodes.findIndex((node) => node.canvas.id === nodeId));
     const slotWidths = collectionNodes.map((node) => Math.max(180, node.canvas.width / 2));
@@ -3841,6 +3870,14 @@ function App() {
       )}
       {selectionMenu && selectedNodeIds.length > 0 && (
         <div ref={selectionMenuPosition.ref} className="selectionMenu" data-menu-flipped-x={selectionMenuPosition.flippedX || undefined} style={selectionMenuPosition.style}>
+          {nodes.find((node) => node.canvas.id === selectionMenu.nodeId)?.manifest.type !== "collection" ? (
+            <button type="button" onClick={() => {
+              setSelectionMenu(null);
+              void toggleNodePinned(selectionMenu.nodeId);
+            }}>
+              {(library?.canvas?.pinnedNodeIds ?? []).includes(selectionMenu.nodeId) ? "Unpin from top bar" : "Pin to top bar"}
+            </button>
+          ) : null}
           <button type="button" onClick={() => void duplicateNode(selectionMenu.nodeId)}>Duplicate node</button>
           {(() => {
             const sourceNode = nodes.find((node) => node.canvas.id === selectionMenu.nodeId);
