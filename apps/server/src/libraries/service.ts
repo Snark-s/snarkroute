@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import { copyFile, cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
-import type { ExecuteOptions, RunResult } from "@snarkroute/executor";
+import { ProviderRunError, type ExecuteOptions, type RunResult } from "@snarkroute/executor";
 import type { OpenRoute } from "@snarkroute/protocol";
 import { builtInNodeManifests, loadInstalledNodeManifests, loadPromptLibrary, parsePromptPngFile, writePngTextChunk, type PromptLibraryPrompt, type SnarkNodeManifest } from "@snarkroute/nodes";
 import { librariesDirectory } from "../server-paths";
@@ -1127,7 +1127,7 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
   });
   const generationResult = runResult.nodeResults.generate;
   if (runResult.status === "failed" || generationResult?.status === "failed") {
-    throw new Error(generationResult?.error || "Image generation failed.");
+    throw generationFailureError(runResult, generationResult?.error || "Image generation failed.");
   }
   const generatedImage = imageAssetFromGenerationOutput(generationResult?.output);
   const generatedPath = generatedImage.localPath ?? generatedImage.path;
@@ -1213,7 +1213,7 @@ export async function generateVideoNodeStackItem(input: GenerateVideoNodeInput):
   });
   const generationResult = runResult.nodeResults.generate;
   if (runResult.status === "failed" || generationResult?.status === "failed") {
-    throw new Error(generationResult?.error || "Video generation failed.");
+    throw generationFailureError(runResult, generationResult?.error || "Video generation failed.");
   }
   const generatedVideo = videoAssetFromGenerationOutput(generationResult?.output);
   const generatedPath = generatedVideo.localPath ?? generatedVideo.path;
@@ -1264,7 +1264,7 @@ export async function generateAudioNodeStackItem(input: GenerateAudioNodeInput):
   });
   const generationResult = runResult.nodeResults.generate;
   if (runResult.status === "failed" || generationResult?.status === "failed") {
-    throw new Error(generationResult?.error || "Audio generation failed.");
+    throw generationFailureError(runResult, generationResult?.error || "Audio generation failed.");
   }
   const generatedAudio = audioAssetFromGenerationOutput(generationResult?.output);
   const generatedPath = generatedAudio.localPath ?? generatedAudio.path;
@@ -1405,7 +1405,7 @@ async function executeTextNodeModel(input: GenerateTextNodeInput, prompt: string
   });
   const generationResult = runResult.nodeResults.generate;
   if (runResult.status === "failed" || generationResult?.status === "failed") {
-    throw new Error(generationResult?.error || "Text generation failed.");
+    throw generationFailureError(runResult, generationResult?.error || "Text generation failed.");
   }
   const output = generationResult?.output;
   const text = output && typeof output === "object" && typeof (output as Record<string, unknown>).text === "string"
@@ -1483,6 +1483,13 @@ async function runTextModelForStackItem(input: { nodeId: string; modelId: string
 
 function generationRunFailed(runResult: { status?: string; nodeResults?: Record<string, { status?: string } | undefined> }): boolean {
   return runResult.status === "failed" || runResult.nodeResults?.generate?.status === "failed";
+}
+
+function generationFailureError(runResult: object, message: string): Error {
+  const details = runResult as { errorCode?: RunResult["errorCode"]; providerId?: string };
+  return details.errorCode && details.providerId
+    ? new ProviderRunError(message, details.errorCode, details.providerId)
+    : new Error(message);
 }
 
 async function executeSnarkRouteWithUsageStats(route: OpenRoute, options?: ExecuteOptions): Promise<RunResult> {

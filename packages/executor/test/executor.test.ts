@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { OpenRoute } from "@snarkroute/protocol";
-import { createExecutor, detectCycles, estimateRouteCost, resolveTemplates, topologicalSort } from "../src/index";
+import { createExecutor, detectCycles, estimateRouteCost, ProviderRunError, resolveTemplates, topologicalSort } from "../src/index";
 
 function route(overrides: Partial<OpenRoute> = {}): OpenRoute {
   return {
@@ -150,6 +150,27 @@ describe("executor", () => {
     expect(result.costSummary.totalEstimatedCredits).toBe(4);
     expect(result.costSummary.totalActualCredits).toBe(0);
     expect(result.costSummary.refundedCredits).toBe(4);
+  });
+
+  it("propagates structured provider insufficient-funds errors to node and run results", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("polza.image.generate", () => {
+      throw new ProviderRunError("Polza account has insufficient funds.", "provider_insufficient_funds", "polza");
+    });
+    const result = await executor.executeRoute(
+      route({ nodes: [{ id: "polza", type: "polza.image.generate", title: "Polza Image" }] }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+
+    expect(result).toMatchObject({
+      status: "failed",
+      errorCode: "provider_insufficient_funds",
+      providerId: "polza"
+    });
+    expect(result.nodeResults.polza).toMatchObject({
+      errorCode: "provider_insufficient_funds",
+      providerId: "polza"
+    });
   });
 
   it("treats provider error usage without an artifact as non-billable", async () => {

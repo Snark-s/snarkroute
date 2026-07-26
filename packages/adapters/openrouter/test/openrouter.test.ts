@@ -107,6 +107,14 @@ describe("OpenRouter adapter", () => {
     await expect(createOpenRouterClient({ apiKey: "sk-bad", fetchImpl }).testConnection()).rejects.toThrow("OpenRouter API key seems invalid.");
   });
 
+  it("emits the shared structured insufficient-funds error on 402", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ error: { message: "Insufficient credits" } }), { status: 402 })) as unknown as typeof fetch;
+    await expect(createOpenRouterClient({ apiKey: "sk-test", fetchImpl }).testConnection()).rejects.toMatchObject({
+      errorCode: "provider_insufficient_funds",
+      providerId: "openrouter"
+    });
+  });
+
   it("refreshes and saves the model catalog cache", async () => {
     const dir = await mkdtemp(join(tmpdir(), "snarkroute-openrouter-"));
     try {
