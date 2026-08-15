@@ -24,11 +24,43 @@ describe("After Effects host placeholder", () => {
   });
 
   it("creates a separate job-linked text overlay after the provider job exists", () => {
-    expect(source).toContain("createGenerationOverlay(target, spec, duration)");
-    expect(source).toContain("target.layers.addText(");
-    expect(source).toContain('textLayer.name = "SnarkRoute · Generating"');
+    expect(source).toContain("createGenerationOverlay(target, spec, duration, layer)");
+    expect(source).toContain('target.layers.addText("Generating…")');
+    expect(source).toContain('textLayer.property("Source Text")');
+    expect(source).toContain("sourceRectAtTime(target.time, false)");
+    expect(source).toContain('textLayer.name = "SnarkRoute · Generating text"');
+    expect(source).toContain('background.name = "SnarkRoute · Generating background"');
     expect(source).toContain('jobComment(spec.jobId, spec.modelId, "overlay")');
     expect(source).toContain("ADBE Vector Fill Opacity");
+  });
+
+  it.each([[1920, 1080], [1080, 1920], [3840, 2160], [1024, 1024]])("keeps overlay geometry readable and inside safe margins for %ix%i", (width, height) => {
+    const run = runPreviewPlaceholderReplacement(width, height);
+    const diagnostics = run.reference.overlayDiagnostics;
+    expect(diagnostics.fontSize).toBeCloseTo(Math.max(24, Math.min(72, height * 0.045)));
+    expect(diagnostics.sourceRect.width).toBeGreaterThan(0);
+    expect(diagnostics.sourceRect.height).toBeGreaterThan(0);
+    expect(diagnostics.position[0]).toBeGreaterThanOrEqual(width * 0.04);
+    expect(diagnostics.position[0] + diagnostics.sourceRect.width).toBeLessThanOrEqual(width * 0.96);
+    expect(diagnostics.position[1] - diagnostics.sourceRect.height).toBeGreaterThanOrEqual(height * 0.04);
+    expect(diagnostics.position[1]).toBeLessThanOrEqual(height * 0.96);
+    expect(diagnostics.scale).toEqual([100, 100]);
+    expect(diagnostics.opacity).toBe(100);
+    expect(diagnostics.textLayerIndex).toBeLessThan(diagnostics.backgroundLayerIndex);
+    expect(diagnostics.backgroundLayerIndex).toBeLessThan(diagnostics.placeholderLayerIndex);
+    expect(run.overlayLayerNames).toEqual(["SnarkRoute · Generating text", "SnarkRoute · Generating background", "Generating · Kling 2.6"]);
+    expect(run.overlayComments).toEqual([expect.stringContaining("job:job_preview"), expect.stringContaining("job:job_preview")]);
+    expect(run.overlayStates).toEqual([
+      { enabled: true, shy: false, guideLayer: false, parent: null, trackMatteType: "NONE" },
+      { enabled: true, shy: false, guideLayer: false, parent: null, trackMatteType: "NONE" }
+    ]);
+    expect(run.remainingLayerNames).toEqual(["Generated"]);
+  });
+
+  it("treats empty sourceRectAtTime bounds as a non-fatal overlay warning", () => {
+    const run = runPreviewPlaceholderReplacement(1920, 1080, true);
+    expect(run.reference).toMatchObject({ overlayCreated: false, overlayError: expect.stringContaining("empty bounds") });
+    expect(run.overlayLayerNames).toEqual(["Generating · Kling 2.6"]);
   });
 
   it("creates a job-linked preview layer and removes only its SnarkRoute temp source after replacement", () => {
@@ -145,7 +177,7 @@ function runRenderCurrentFrame(sizes: number[]) {
   return { value: response.value, removed, placeholderCreatedDuringExport };
 }
 
-function runPreviewPlaceholderReplacement() {
+function runPreviewPlaceholderReplacement(width = 1920, height = 1080, emptyBounds = false) {
   const removedPaths: string[] = [];
   class FileSource { constructor(public file: MockFile) {} }
   class SolidSource {}
@@ -164,25 +196,35 @@ function runPreviewPlaceholderReplacement() {
   class ImportOptions { importAs: unknown; constructor(public file: MockFile) {} canImportAs() { return true; } }
   let nextId = 90;
   const layers: Array<Record<string, any>> = [];
-  const layer = {
-    index: 1, name: "", comment: "", source: null as FootageItem | null, startTime: 0, inPoint: 0, outPoint: 0,
+  const propertyState = (initial: any) => ({ value: initial, setValue(value: any) { this.value = value; } });
+  const layer: Record<string, any> = {
+    name: "", comment: "", source: null as FootageItem | null, startTime: 0, inPoint: 0, outPoint: 0,
     replaceSource(item: FootageItem) { const old = this.source; this.source = item; if (old) old.usedIn = []; }
   };
-  function overlayLayer(text = "") {
-    const overlay: Record<string, any> = { index: layers.length + 1, name: text, comment: "", startTime: 0, inPoint: 0, outPoint: 0 };
+  Object.defineProperty(layer, "index", { get: () => layers.indexOf(layer) + 1 });
+  function overlayLayer(kind: "shape" | "text", text = "") {
+    const transformProperties: Record<string, any> = { "ADBE Anchor Point": propertyState([0, 0]), "ADBE Position": propertyState([0, 0]), "ADBE Scale": propertyState([100, 100]), "ADBE Opacity": propertyState(100) };
+    const textDocument = { text, fontSize: 0, applyFill: false, fillColor: [0, 0, 0], applyStroke: true, justification: "" };
+    const sourceText = { value: textDocument, setValue(value: any) { this.value = value; } };
+    const overlay: Record<string, any> = { name: text, comment: "", startTime: 0, inPoint: 0, outPoint: 0, enabled: false, shy: true, guideLayer: true, parent: {}, trackMatteType: "ALPHA" };
+    Object.defineProperty(overlay, "index", { get: () => layers.indexOf(overlay) + 1 });
     overlay.remove = () => { const index = layers.indexOf(overlay); if (index >= 0) layers.splice(index, 1); };
+    overlay.moveBefore = (other: Record<string, any>) => { const ownIndex = layers.indexOf(overlay); if (ownIndex >= 0) layers.splice(ownIndex, 1); layers.splice(Math.max(0, layers.indexOf(other)), 0, overlay); };
+    overlay.sourceRectAtTime = () => emptyBounds ? { left: 0, top: 0, width: 0, height: 0 } : { left: 3, top: -textDocument.fontSize * 0.82, width: textDocument.text.length * textDocument.fontSize * 0.56, height: textDocument.fontSize };
     overlay.property = (name: string) => {
-      if (name === "ADBE Root Vectors Group") return { addProperty() { return { property() { return { setValue() {} }; } }; } };
-      if (name === "ADBE Text Properties") return { property() { return { value: {}, setValue() {} }; } };
-      return { property() { return { setValue() {}, setValueAtTime() {} }; } };
+      if (name === "Source Text") return sourceText;
+      if (name === "ADBE Root Vectors Group") return { addProperty() { return { property() { return propertyState(null); } }; } };
+      if (name === "ADBE Transform Group") return { property(propertyName: string) { return transformProperties[propertyName]; } };
+      throw new Error(`Unexpected ${kind} property: ${name}`);
     };
-    layers.push(overlay);
+    layers.unshift(overlay);
     return overlay;
   }
   class CompItem {
-    id = 17; name = "Comp"; time = 2.5; width = 1920; height = 1080; frameRate = 25; duration = 30; pixelAspect = 1;
+    id = 17; name = "Comp"; time = 2.5; width: number; height: number; frameRate = 25; duration = 30; pixelAspect = 1;
+    constructor() { this.width = width; this.height = height; }
     get numLayers() { return layers.length; }
-    layers = { add: (item: FootageItem) => { layer.source = item; item.usedIn = [layer]; layers.push(layer); return layer; }, addSolid: () => { throw new Error("solid fallback should not be used"); }, addShape: () => overlayLayer(), addText: (text: string) => overlayLayer(text) };
+    layers = { add: (item: FootageItem) => { layer.source = item; item.usedIn = [layer]; layers.unshift(layer); return layer; }, addSolid: () => { throw new Error("solid fallback should not be used"); }, addShape: () => overlayLayer("shape"), addText: (text: string) => overlayLayer("text", text) };
     layer(index: number) { return layers[index - 1] ?? null; }
   }
   class MockFolder { static temp = { fsName: "C:\\Temp" }; static userData = { fsName: "C:\\User" }; constructor(public fsName: string) {} }
@@ -195,13 +237,16 @@ function runPreviewPlaceholderReplacement() {
     items: { addFolder(name: string) { const item = new FolderItem(name); items.push(item); return item; } },
     importFile(options: ImportOptions) { const item = new FootageItem(nextId++, options.file.name, new FileSource(options.file)); items.push(item); return item; }
   };
-  const context: Record<string, unknown> = { JSON, Math, Number, String, Boolean, Error, File: MockFile, FileSource, SolidSource, FootageItem, CompItem, ImportOptions, ImportAsType: { FOOTAGE: "footage" }, Folder: MockFolder, FolderItem, app: { project, beginUndoGroup() {}, endUndoGroup() {} } };
+  const context: Record<string, unknown> = { JSON, Math, Number, String, Boolean, Error, File: MockFile, FileSource, SolidSource, FootageItem, CompItem, ImportOptions, ImportAsType: { FOOTAGE: "footage" }, ParagraphJustification: { LEFT_JUSTIFY: "LEFT" }, TrackMatteType: { NO_TRACK_MATTE: "NONE" }, Folder: MockFolder, FolderItem, app: { project, beginUndoGroup() {}, endUndoGroup() {} } };
   runInNewContext(source, context);
   const api = context.SnarkRouteAE as { createGenerationPlaceholder(spec: object): string; replacePlaceholderSource(reference: object, itemId: number, name: string): string };
-  const reference = JSON.parse(api.createGenerationPlaceholder({ jobId: "job_preview", modelId: "kling/2.6", displayName: "Kling 2.6", name: "Generating · Kling 2.6", duration: 5, compositionId: 17, sourceTime: 2.5, width: 1920, height: 1080, frameRate: 25, pixelAspect: 1, previewPath: "C:\\Temp\\SnarkRoute AE\\frame.png", previewKind: "image", previewTemporary: true })).value;
+  const reference = JSON.parse(api.createGenerationPlaceholder({ jobId: "job_preview", modelId: "kling/2.6", displayName: "Kling 2.6", name: "Generating · Kling 2.6", duration: 5, compositionId: 17, sourceTime: 2.5, width, height, frameRate: 25, pixelAspect: 1, previewPath: "C:\\Temp\\SnarkRoute AE\\frame.png", previewKind: "image", previewTemporary: true })).value;
+  const overlayLayerNames = layers.map((value) => value.name);
+  const overlayComments = layers.filter((value) => value !== layer).map((value) => value.comment);
+  const overlayStates = layers.filter((value) => value !== layer).map((value) => ({ enabled: value.enabled, shy: value.shy, guideLayer: value.guideLayer, parent: value.parent, trackMatteType: value.trackMatteType }));
   const result = new FootageItem(120, "result.mp4", new FileSource(new MockFile("C:\\result.mp4"))); items.push(result);
   const replaced = JSON.parse(api.replacePlaceholderSource(reference, 120, "Generated")).value;
-  return { reference, replaced, layer, removedPaths, remainingLayerNames: layers.map((value) => value.name) };
+  return { reference, replaced, layer, removedPaths, overlayLayerNames, overlayComments, overlayStates, remainingLayerNames: layers.map((value) => value.name) };
 }
 
 function runResultImport(hasOtherSolidUse: boolean) {
