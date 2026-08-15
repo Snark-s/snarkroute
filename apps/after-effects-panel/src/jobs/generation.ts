@@ -65,8 +65,10 @@ export async function prepareGeneration(input: PrepareGenerationInput, dependenc
   if (!source) return pending;
   try {
     const duration = outputMediaType === "image" ? Math.max(1 / source.frameRate, source.duration - source.time) : Number(input.parameters.duration ?? 5);
-    const placeholder = await dependencies.host.createGenerationPlaceholder({ jobId: created.id, name: `Generating · ${input.model.displayName}`, duration, compositionId: source.id, sourceTime: source.time, width: source.width, height: source.height, frameRate: source.frameRate, pixelAspect: source.pixelAspect, mediaKind: outputMediaType });
-    pending = { ...pending, placeholder, placeholderCreatedAt: now() };
+    const previewInput = preparedInputs.find((value) => value.kind === "image") ?? preparedInputs.find((value) => value.kind === "video");
+    const placeholder = await dependencies.host.createGenerationPlaceholder({ jobId: created.id, modelId: input.model.storedModelId, displayName: input.model.displayName, name: `Generating · ${input.model.displayName}`, duration, compositionId: source.id, sourceTime: source.time, width: source.width, height: source.height, frameRate: source.frameRate, pixelAspect: source.pixelAspect, mediaKind: outputMediaType, previewPath: previewInput?.localPath, previewKind: previewInput?.kind, previewTemporary: previewInput?.sourceType === "current-composition-frame" || previewInput?.sourceType === "captured-composition-frame" });
+    const visualWarnings = [placeholder.previewError ? `First-frame placeholder import failed; a Solid fallback was used: ${placeholder.previewError}` : "", placeholder.overlayError ? `Generation overlay could not be created: ${placeholder.overlayError}` : ""].filter(Boolean);
+    pending = { ...pending, placeholder, placeholderCreatedAt: now(), warning: visualWarnings.length ? visualWarnings.join(" ") : pending.warning };
   } catch (error) {
     pending = { ...pending, warning: `Provider job ${created.id} was created, but the After Effects placeholder could not be created: ${error instanceof Error ? error.message : String(error)}` };
   }

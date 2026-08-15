@@ -6,7 +6,7 @@ export interface AfterEffectsHostAdapter {
   getActiveComposition(): Promise<CompositionSnapshot | null>;
   renderCurrentFrame(snapshot: CompositionSnapshot): Promise<RenderedAsset>;
   validateInputFile(path: string): Promise<ValidatedInputFile>;
-  createGenerationPlaceholder(spec: { jobId: string; name: string; duration: number; compositionId: number; sourceTime: number; width: number; height: number; frameRate: number; pixelAspect: number; mediaKind?: MediaKind }): Promise<HostItemReference>;
+  createGenerationPlaceholder(spec: { jobId: string; modelId: string; displayName: string; name: string; duration: number; compositionId: number; sourceTime: number; width: number; height: number; frameRate: number; pixelAspect: number; mediaKind?: MediaKind; previewPath?: string; previewKind?: MediaKind; previewTemporary?: boolean }): Promise<HostItemReference>;
   selectExternalImage(): Promise<string | null>;
   selectExternalFile(kind: MediaKind): Promise<string | null>;
   renderCompositionAudio(spec: { startTime: number; duration: number }): Promise<RenderedAsset>;
@@ -28,7 +28,7 @@ export class CepAfterEffectsHostAdapter implements AfterEffectsHostAdapter {
   getActiveComposition() { return this.call<CompositionSnapshot | null>("getActiveComposition"); }
   renderCurrentFrame(snapshot: CompositionSnapshot) { return this.call<RenderedAsset>("renderCurrentFrame", snapshot); }
   validateInputFile(path: string) { return this.call<ValidatedInputFile>("validateInputFile", path); }
-  createGenerationPlaceholder(spec: { jobId: string; name: string; duration: number; compositionId: number; sourceTime: number; width: number; height: number; frameRate: number; pixelAspect: number; mediaKind?: MediaKind }) { return this.call<HostItemReference>("createGenerationPlaceholder", spec); }
+  createGenerationPlaceholder(spec: { jobId: string; modelId: string; displayName: string; name: string; duration: number; compositionId: number; sourceTime: number; width: number; height: number; frameRate: number; pixelAspect: number; mediaKind?: MediaKind; previewPath?: string; previewKind?: MediaKind; previewTemporary?: boolean }) { return this.call<HostItemReference>("createGenerationPlaceholder", spec); }
   selectExternalImage() { return this.call<string | null>("selectExternalImage"); }
   selectExternalFile(kind: MediaKind) { return this.call<string | null>("selectExternalFile", kind); }
   renderCompositionAudio(spec: { startTime: number; duration: number }) { return this.call<RenderedAsset>("renderCompositionAudio", spec); }
