@@ -23,36 +23,38 @@ describe("After Effects host placeholder", () => {
     expect(source).not.toContain("keyValue(");
   });
 
-  it("creates a separate job-linked text overlay after the provider job exists", () => {
+  it("creates exactly one static job-linked text overlay after the provider job exists", () => {
     expect(source).toContain("createGenerationOverlay(target, spec, duration, layer)");
     expect(source).toContain('target.layers.addText("Generating…")');
     expect(source).toContain('textLayer.property("Source Text")');
     expect(source).toContain("sourceRectAtTime(target.time, false)");
     expect(source).toContain('textLayer.name = "SnarkRoute · Generating text"');
-    expect(source).toContain('background.name = "SnarkRoute · Generating background"');
     expect(source).toContain('jobComment(spec.jobId, spec.modelId, "overlay")');
-    expect(source).toContain("ADBE Vector Fill Opacity");
+    expect(source).not.toContain("target.layers.addShape");
+    expect(source).not.toContain("overlay-background");
+    expect(source).not.toContain("Generating background");
   });
 
   it.each([[1920, 1080], [1080, 1920], [3840, 2160], [1024, 1024]])("keeps overlay geometry readable and inside safe margins for %ix%i", (width, height) => {
     const run = runPreviewPlaceholderReplacement(width, height);
     const diagnostics = run.reference.overlayDiagnostics;
-    expect(diagnostics.fontSize).toBeCloseTo(Math.max(24, Math.min(72, height * 0.045)));
+    expect(diagnostics.fontSize).toBeCloseTo(Math.max(36, Math.min(110, height * 0.06)));
     expect(diagnostics.sourceRect.width).toBeGreaterThan(0);
     expect(diagnostics.sourceRect.height).toBeGreaterThan(0);
-    expect(diagnostics.position[0]).toBeGreaterThanOrEqual(width * 0.04);
-    expect(diagnostics.position[0] + diagnostics.sourceRect.width).toBeLessThanOrEqual(width * 0.96);
+    expect(diagnostics.position[0] - diagnostics.sourceRect.width / 2).toBeGreaterThanOrEqual(width * 0.04);
+    expect(diagnostics.position[0] + diagnostics.sourceRect.width / 2).toBeLessThanOrEqual(width * 0.96);
     expect(diagnostics.position[1] - diagnostics.sourceRect.height).toBeGreaterThanOrEqual(height * 0.04);
     expect(diagnostics.position[1]).toBeLessThanOrEqual(height * 0.96);
     expect(diagnostics.scale).toEqual([100, 100]);
     expect(diagnostics.opacity).toBe(100);
-    expect(diagnostics.textLayerIndex).toBeLessThan(diagnostics.backgroundLayerIndex);
-    expect(diagnostics.backgroundLayerIndex).toBeLessThan(diagnostics.placeholderLayerIndex);
-    expect(run.overlayLayerNames).toEqual(["SnarkRoute · Generating text", "SnarkRoute · Generating background", "Generating · Kling 2.6"]);
-    expect(run.overlayComments).toEqual([expect.stringContaining("job:job_preview"), expect.stringContaining("job:job_preview")]);
+    expect(diagnostics.opacityKeyframes).toBe(0);
+    expect(diagnostics.opacityExpression).toBe("");
+    expect(diagnostics.textLayerIndex).toBeLessThan(diagnostics.placeholderLayerIndex);
+    expect(run.overlayLayerNames).toEqual(["SnarkRoute · Generating text", "Generating · Kling 2.6"]);
+    expect(run.overlayKinds).toEqual(["text"]);
+    expect(run.overlayComments).toEqual([expect.stringContaining("job:job_preview")]);
     expect(run.overlayStates).toEqual([
-      { enabled: true, shy: false, guideLayer: false, parent: null, trackMatteType: "NONE" },
-      { enabled: true, shy: false, guideLayer: false, parent: null, trackMatteType: "NONE" }
+      { enabled: true, shy: false, guideLayer: false, parent: null, trackMatteType: "NONE", opacity: 100, opacityKeyframes: 0, opacityExpression: "", opacityExpressionEnabled: false }
     ]);
     expect(run.remainingLayerNames).toEqual(["Generated"]);
   });
@@ -69,7 +71,7 @@ describe("After Effects host placeholder", () => {
     expect(run.layer.comment).toContain("job:job_preview");
     expect(run.layer.inPoint).toBe(2.5);
     expect(run.reference).toMatchObject({ overlayCreated: true });
-    expect(run.replaced).toMatchObject({ ok: true, sourceReplaced: true, temporaryPreviewRemoved: true, temporaryPreviewFileRemoved: true, overlayLayersRemoved: 2 });
+    expect(run.replaced).toMatchObject({ ok: true, sourceReplaced: true, temporaryPreviewRemoved: true, temporaryPreviewFileRemoved: true, overlayLayersRemoved: 1 });
     expect(run.remainingLayerNames).toEqual(["Generated"]);
     expect(run.removedPaths).toEqual(["C:\\Temp\\SnarkRoute AE\\frame.png"]);
   });
@@ -196,17 +198,17 @@ function runPreviewPlaceholderReplacement(width = 1920, height = 1080, emptyBoun
   class ImportOptions { importAs: unknown; constructor(public file: MockFile) {} canImportAs() { return true; } }
   let nextId = 90;
   const layers: Array<Record<string, any>> = [];
-  const propertyState = (initial: any) => ({ value: initial, setValue(value: any) { this.value = value; } });
+  const propertyState = (initial: any, numKeys = 0, expression = "") => ({ value: initial, numKeys, expression, expressionEnabled: Boolean(expression), canSetExpression: true, removeKey() { this.numKeys--; }, setValue(value: any) { this.value = value; } });
   const layer: Record<string, any> = {
     name: "", comment: "", source: null as FootageItem | null, startTime: 0, inPoint: 0, outPoint: 0,
     replaceSource(item: FootageItem) { const old = this.source; this.source = item; if (old) old.usedIn = []; }
   };
   Object.defineProperty(layer, "index", { get: () => layers.indexOf(layer) + 1 });
   function overlayLayer(kind: "shape" | "text", text = "") {
-    const transformProperties: Record<string, any> = { "ADBE Anchor Point": propertyState([0, 0]), "ADBE Position": propertyState([0, 0]), "ADBE Scale": propertyState([100, 100]), "ADBE Opacity": propertyState(100) };
+    const transformProperties: Record<string, any> = { "ADBE Anchor Point": propertyState([0, 0]), "ADBE Position": propertyState([0, 0]), "ADBE Scale": propertyState([100, 100]), "ADBE Opacity": propertyState(0, 2, "time * 10") };
     const textDocument = { text, fontSize: 0, applyFill: false, fillColor: [0, 0, 0], applyStroke: true, justification: "" };
     const sourceText = { value: textDocument, setValue(value: any) { this.value = value; } };
-    const overlay: Record<string, any> = { name: text, comment: "", startTime: 0, inPoint: 0, outPoint: 0, enabled: false, shy: true, guideLayer: true, parent: {}, trackMatteType: "ALPHA" };
+    const overlay: Record<string, any> = { kind, name: text, comment: "", startTime: 0, inPoint: 0, outPoint: 0, enabled: false, shy: true, guideLayer: true, parent: {}, trackMatteType: "ALPHA", opacityProperty: transformProperties["ADBE Opacity"] };
     Object.defineProperty(overlay, "index", { get: () => layers.indexOf(overlay) + 1 });
     overlay.remove = () => { const index = layers.indexOf(overlay); if (index >= 0) layers.splice(index, 1); };
     overlay.moveBefore = (other: Record<string, any>) => { const ownIndex = layers.indexOf(overlay); if (ownIndex >= 0) layers.splice(ownIndex, 1); layers.splice(Math.max(0, layers.indexOf(other)), 0, overlay); };
@@ -237,16 +239,18 @@ function runPreviewPlaceholderReplacement(width = 1920, height = 1080, emptyBoun
     items: { addFolder(name: string) { const item = new FolderItem(name); items.push(item); return item; } },
     importFile(options: ImportOptions) { const item = new FootageItem(nextId++, options.file.name, new FileSource(options.file)); items.push(item); return item; }
   };
-  const context: Record<string, unknown> = { JSON, Math, Number, String, Boolean, Error, File: MockFile, FileSource, SolidSource, FootageItem, CompItem, ImportOptions, ImportAsType: { FOOTAGE: "footage" }, ParagraphJustification: { LEFT_JUSTIFY: "LEFT" }, TrackMatteType: { NO_TRACK_MATTE: "NONE" }, Folder: MockFolder, FolderItem, app: { project, beginUndoGroup() {}, endUndoGroup() {} } };
+  const context: Record<string, unknown> = { JSON, Math, Number, String, Boolean, Error, File: MockFile, FileSource, SolidSource, FootageItem, CompItem, ImportOptions, ImportAsType: { FOOTAGE: "footage" }, ParagraphJustification: { LEFT_JUSTIFY: "LEFT", CENTER_JUSTIFY: "CENTER" }, TrackMatteType: { NO_TRACK_MATTE: "NONE" }, Folder: MockFolder, FolderItem, app: { project, beginUndoGroup() {}, endUndoGroup() {} } };
   runInNewContext(source, context);
   const api = context.SnarkRouteAE as { createGenerationPlaceholder(spec: object): string; replacePlaceholderSource(reference: object, itemId: number, name: string): string };
   const reference = JSON.parse(api.createGenerationPlaceholder({ jobId: "job_preview", modelId: "kling/2.6", displayName: "Kling 2.6", name: "Generating · Kling 2.6", duration: 5, compositionId: 17, sourceTime: 2.5, width, height, frameRate: 25, pixelAspect: 1, previewPath: "C:\\Temp\\SnarkRoute AE\\frame.png", previewKind: "image", previewTemporary: true })).value;
   const overlayLayerNames = layers.map((value) => value.name);
-  const overlayComments = layers.filter((value) => value !== layer).map((value) => value.comment);
-  const overlayStates = layers.filter((value) => value !== layer).map((value) => ({ enabled: value.enabled, shy: value.shy, guideLayer: value.guideLayer, parent: value.parent, trackMatteType: value.trackMatteType }));
+  const overlays = layers.filter((value) => value !== layer);
+  const overlayKinds = overlays.map((value) => value.kind);
+  const overlayComments = overlays.map((value) => value.comment);
+  const overlayStates = overlays.map((value) => ({ enabled: value.enabled, shy: value.shy, guideLayer: value.guideLayer, parent: value.parent, trackMatteType: value.trackMatteType, opacity: value.opacityProperty.value, opacityKeyframes: value.opacityProperty.numKeys, opacityExpression: value.opacityProperty.expression, opacityExpressionEnabled: value.opacityProperty.expressionEnabled }));
   const result = new FootageItem(120, "result.mp4", new FileSource(new MockFile("C:\\result.mp4"))); items.push(result);
   const replaced = JSON.parse(api.replacePlaceholderSource(reference, 120, "Generated")).value;
-  return { reference, replaced, layer, removedPaths, overlayLayerNames, overlayComments, overlayStates, remainingLayerNames: layers.map((value) => value.name) };
+  return { reference, replaced, layer, removedPaths, overlayLayerNames, overlayKinds, overlayComments, overlayStates, remainingLayerNames: layers.map((value) => value.name) };
 }
 
 function runResultImport(hasOtherSolidUse: boolean) {
