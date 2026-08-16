@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { aeBridgeService, type AeBridgeService } from "../ae-bridge/service";
 import { sameSecret } from "../routes/after-effects";
 import { registerAeTools } from "./tools";
 
@@ -40,9 +41,9 @@ async function handleExisting(request: FastifyRequest, reply: FastifyReply): Pro
   await transport.handleRequest(request.raw, reply.raw);
 }
 
-export function createAeMcpServer(): McpServer {
+export function createAeMcpServer(bridge: AeBridgeService = aeBridgeService): McpServer {
   const server = new McpServer({ name: "snarkroute-after-effects", version: "0.1.0" }, { capabilities: { logging: {} }, instructions });
-  registerAeTools(server);
+  registerAeTools(server, bridge);
   return server;
 }
 function authorize(request: FastifyRequest, reply: FastifyReply): boolean {

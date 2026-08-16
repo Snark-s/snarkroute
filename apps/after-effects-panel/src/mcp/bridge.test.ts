@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildAeBridgeWebSocketUrl, buildEvalScript, evalJson } from "./bridge";
 
@@ -6,6 +8,11 @@ afterEach(() => { delete (globalThis as { window?: unknown }).window; });
 describe("CEP MCP bridge serialization", () => {
   it("builds the exact local WebSocket bridge URL", () => {
     expect(buildAeBridgeWebSocketUrl("http://127.0.0.1:4317")).toBe("ws://127.0.0.1:4317/api/ae-bridge");
+  });
+  it("does not put a permanent bridge credential in storage or source", () => {
+    const bridgeSource = readFileSync(fileURLToPath(new URL("./bridge.ts", import.meta.url)), "utf8");
+    const panelSource = readFileSync(fileURLToPath(new URL("../panel/App.tsx", import.meta.url)), "utf8");
+    expect(`${bridgeSource}\n${panelSource}`).not.toContain("snarkroute.after-effects.bridge-token");
   });
   it("passes large multiline unicode JSX as JSON data rather than raw concatenation", () => {
     const message = { requestId: "r1", code: "var путь = \\\"C:\\\\тест\\\\x\\\";\nreturn { текст: путь };", undoGroup: "MCP: тест" };
