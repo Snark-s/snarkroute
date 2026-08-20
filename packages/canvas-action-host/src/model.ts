@@ -20,6 +20,7 @@ export interface CanvasNodeAction {
   title: string;
   description: string;
   inputType: CanvasActionPortType;
+  inputs: Array<{ id: string; type: CanvasActionPortType; label: string; required?: boolean }>;
   outputs: Array<{ id: string; type: CanvasActionPortType; label: string }>;
   params?: CanvasActionParam[];
   dialog?: {
@@ -55,7 +56,7 @@ export interface ToolTabState {
   id: string;
   actionId: string;
   title: string;
-  input: ToolInputState;
+  inputs: Record<string, ToolInputState>;
   params: Record<string, unknown>;
   status: "idle" | "running" | "paused" | "completed" | "error";
   continuationId?: string;
@@ -64,8 +65,10 @@ export interface ToolTabState {
   error?: string;
 }
 
-export interface PersistedToolTabState extends Omit<ToolTabState, "input" | "results"> {
-  input: Exclude<ToolInputState, { kind: "file" }> | { kind: "empty"; expectedType: CanvasActionPortType; needsReselection: true; filename?: string };
+type PersistedToolInputState = Exclude<ToolInputState, { kind: "file" }> | { kind: "empty"; expectedType: CanvasActionPortType; needsReselection: true; filename?: string };
+
+export interface PersistedToolTabState extends Omit<ToolTabState, "inputs" | "results"> {
+  inputs: Record<string, PersistedToolInputState>;
   results: ToolResult[];
 }
 
@@ -98,11 +101,17 @@ export function canvasActionBoundParams(action: CanvasNodeAction, values: Record
 }
 
 export function createToolTab(action: CanvasNodeAction, id: string, saved: Record<string, unknown> = {}): ToolTabState {
+  const inputs = action.inputs?.length
+    ? action.inputs
+    : [{ id: "input", type: action.inputType, label: "Input" }];
   return {
     id,
     actionId: action.id,
     title: action.title,
-    input: action.inputType === "text" ? { kind: "text", type: "text", text: "" } : { kind: "empty", expectedType: action.inputType },
+    inputs: Object.fromEntries(inputs.map((input) => [
+      input.id,
+      input.type === "text" ? { kind: "text", type: "text", text: "" } : { kind: "empty", expectedType: input.type }
+    ])),
     params: initialCanvasActionParams(action, saved),
     status: "idle",
     results: []
@@ -110,10 +119,13 @@ export function createToolTab(action: CanvasNodeAction, id: string, saved: Recor
 }
 
 export function persistToolTab(tab: ToolTabState): PersistedToolTabState {
-  const input: PersistedToolTabState["input"] = tab.input.kind === "file"
-    ? { kind: "empty", expectedType: tab.input.type, needsReselection: true, filename: tab.input.file.name }
-    : tab.input;
-  return { ...tab, input, continuationId: undefined, preparedPreviews: undefined, status: tab.status === "running" || tab.status === "paused" ? "idle" : tab.status };
+  const inputs: Record<string, PersistedToolInputState> = {};
+  for (const [id, input] of Object.entries(tab.inputs)) {
+    inputs[id] = input.kind === "file"
+      ? { kind: "empty", expectedType: input.type, needsReselection: true, filename: input.file.name }
+      : input;
+  }
+  return { ...tab, inputs, continuationId: undefined, preparedPreviews: undefined, status: tab.status === "running" || tab.status === "paused" ? "idle" : tab.status };
 }
 
 export function updateToolTab(tabs: ToolTabState[], tabId: string, update: Partial<ToolTabState>): ToolTabState[] {

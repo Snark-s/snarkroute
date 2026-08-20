@@ -1,0 +1,88 @@
+services:
+  worker:
+    build: .
+    restart: unless-stopped
+    environment:
+      H3_WORKER_SERVICE_TOKEN: ${H3_WORKER_SERVICE_TOKEN:?set a long random token}
+      H3_BACKEND: ${H3_BACKEND:-mock}
+      H3_ENABLED_VARIANTS: ${H3_ENABLED_VARIANTS:-fl2va}
+      SGLANG_FL2VA_URL: ${SGLANG_FL2VA_URL:-http://h3-fl2va:30010}
+      SGLANG_REF2VA_URL: ${SGLANG_REF2VA_URL:-http://h3-ref2va:30011}
+      H3_SGLANG_PRECISION_PROFILE: ${H3_SGLANG_PRECISION_PROFILE:-bf16_offload}
+      H3_RESULT_DIR: /data/results
+      H3_TEMP_DIR: /data/tmp
+      H3_MODEL_DIR: /models
+    volumes:
+      - h3-results:/data/results
+      - ${H3_MODEL_DIR:-./models}:/models:ro
+    ports:
+      - "127.0.0.1:${H3_WORKER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2).read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+  h3-fl2va:
+    profiles: ["gpu", "gpu-bf16"]
+    build:
+      context: .
+      dockerfile: Dockerfile.sglang
+    command: ["--model-path", "/models/MiniMax-H3", "--model-variant", "fl2va", "--num-gpus", "2", "--tp-size", "2", "--ulysses-degree", "1", "--performance-mode", "memory", "--layerwise-offload-components", "dit,text_encoder,vae", "--dit-offload-prefetch-size", "1", "--dit-layerwise-resident-layers", "20", "--enable-torch-compile", "false", "--host", "0.0.0.0", "--port", "30010"]
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      H3_SGLANG_PRECISION_PROFILE: bf16_offload
+    volumes:
+      - ${H3_MODEL_DIR:-./models}:/models:ro
+      - h3-results:/data/results:ro
+      - ${H3_MEDIA_DIR:-./examples/fixtures}:/data/media:ro
+    shm_size: "64gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
+  h3-fl2va-int8:
+    profiles: ["gpu-int8"]
+    build:
+      context: .
+      dockerfile: Dockerfile.sglang
+    command: ["--model-path", "/models/MiniMax-H3", "--model-variant", "fl2va", "--num-gpus", "1", "--tp-size", "1", "--ulysses-degree", "1", "--attention-backend", "fa", "--performance-mode", "memory", "--layerwise-offload-components", "dit,text_encoder", "--dit-offload-prefetch-size", "1", "--dit-layerwise-resident-layers", "0", "--enable-torch-compile", "false", "--host", "0.0.0.0", "--port", "30010"]
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+      H3_SGLANG_PRECISION_PROFILE: kitchen_int8
+    volumes:
+      - ${H3_MODEL_DIR:-./models}:/models:ro
+      - h3-results:/data/results:ro
+      - ${H3_MEDIA_DIR:-./examples/fixtures}:/data/media:ro
+    shm_size: "64gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+  h3-ref2va:
+    profiles: ["ref2va"]
+    build:
+      context: .
+      dockerfile: Dockerfile.sglang
+    command: ["--model-path", "/models/MiniMax-H3", "--model-variant", "ref2va", "--num-gpus", "2", "--tp-size", "2", "--ulysses-degree", "1", "--performance-mode", "memory", "--layerwise-offload-components", "dit,text_encoder,vae", "--dit-offload-prefetch-size", "1", "--dit-layerwise-resident-layers", "20", "--enable-torch-compile", "false", "--host", "0.0.0.0", "--port", "30011"]
+    environment:
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - ${H3_MODEL_DIR:-./models}:/models:ro
+      - h3-results:/data/results:ro
+      - ${H3_MEDIA_DIR:-./examples/fixtures}:/data/media:ro
+    shm_size: "64gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2
+              capabilities: [gpu]
+volumes:
+  h3-results:

@@ -6,6 +6,11 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(fileURLToPath(new URL("../../jsx/host.jsx", import.meta.url)), "utf8");
 
 describe("After Effects host placeholder", () => {
+  it("implements selected-layer capture with reversible solo state", () => {
+    expect(source).toContain("renderSelectedLayerCurrentFrame");
+    expect(source).toContain("states[restore].layer.solo = states[restore].solo");
+  });
+
   it("imports the submitted source image for the placeholder and keeps a solid fallback", () => {
     expect(source).toContain("importPlaceholderPreview(");
     expect(source).toContain("layers.add(preview)");
@@ -25,7 +30,7 @@ describe("After Effects host placeholder", () => {
 
   it("creates exactly one static job-linked text overlay after the provider job exists", () => {
     expect(source).toContain("createGenerationOverlay(target, spec, duration, layer)");
-    expect(source).toContain('target.layers.addText("Generating…")');
+    expect(source).toContain('target.layers.addText("Generating...")');
     expect(source).toContain('textLayer.property("Source Text")');
     expect(source).toContain("sourceRectAtTime(target.time, false)");
     expect(source).toContain('textLayer.name = "SnarkRoute · Generating text"');
@@ -39,6 +44,7 @@ describe("After Effects host placeholder", () => {
     const run = runPreviewPlaceholderReplacement(width, height);
     const diagnostics = run.reference.overlayDiagnostics;
     expect(diagnostics.fontSize).toBeCloseTo(Math.max(36, Math.min(110, height * 0.06)));
+    expect(diagnostics.font).toBe("ArialMT");
     expect(diagnostics.sourceRect.width).toBeGreaterThan(0);
     expect(diagnostics.sourceRect.height).toBeGreaterThan(0);
     expect(diagnostics.position[0] - diagnostics.sourceRect.width / 2).toBeGreaterThanOrEqual(width * 0.04);
@@ -46,6 +52,11 @@ describe("After Effects host placeholder", () => {
     expect(diagnostics.position[1] - diagnostics.sourceRect.height).toBeGreaterThanOrEqual(height * 0.04);
     expect(diagnostics.position[1]).toBeLessThanOrEqual(height * 0.96);
     expect(diagnostics.scale).toEqual([100, 100]);
+    expect(diagnostics.horizontalScale).toBe(100);
+    expect(diagnostics.verticalScale).toBe(100);
+    expect(diagnostics.baselineShift).toBe(0);
+    expect(diagnostics.tracking).toBe(0);
+    expect(diagnostics.autoLeading).toBe(true);
     expect(diagnostics.opacity).toBe(100);
     expect(diagnostics.opacityKeyframes).toBe(0);
     expect(diagnostics.opacityExpression).toBe("");
@@ -118,15 +129,29 @@ describe("After Effects host placeholder", () => {
 });
 
 describe("After Effects current frame export", () => {
+  it("routes every PNG capture through the full-resolution guard", () => {
+    expect(source.match(/saveFullResolutionFrame\(/g)).toHaveLength(4);
+    expect(source.match(/\.saveFrameToPng\(/g)).toHaveLength(1);
+  });
+
   it("waits for a zero-byte file to become readable and stable twice", () => {
     const rendered = runRenderCurrentFrame([0, 24, 24]);
     expect(rendered.value).toMatchObject({ ok: true, size: 24, attempts: 3, waitedMs: 300, exportMethod: "saveFrameToPng", fallbackAttempted: false });
     expect(rendered.placeholderCreatedDuringExport).toBe(false);
+    expect(rendered.resolutionDuringSave).toEqual([1, 1]);
+    expect(rendered.resolutionAfterSave).toEqual([4, 4]);
   });
 
   it("resets stability when the file size changes", () => {
     const rendered = runRenderCurrentFrame([5, 8, 8]);
     expect(rendered.value).toMatchObject({ ok: true, size: 8, attempts: 3, waitedMs: 300 });
+  });
+
+  it("restores the composition resolution when full-resolution export throws", () => {
+    const rendered = runRenderCurrentFrame([0], true);
+    expect(rendered.value).toMatchObject({ ok: false, fileError: "save failed" });
+    expect(rendered.resolutionDuringSave).toEqual([1, 1]);
+    expect(rendered.resolutionAfterSave).toEqual([4, 4]);
   });
 
   it("times out, reports diagnostics, and removes a zero-byte temporary file", () => {
@@ -137,16 +162,18 @@ describe("After Effects current frame export", () => {
   });
 });
 
-function runRenderCurrentFrame(sizes: number[]) {
+function runRenderCurrentFrame(sizes: number[], throwDuringSave = false) {
   let clock = 0;
   let sleepCount = 0;
   let saved = false;
   let removed = false;
   let placeholderCreatedDuringExport = false;
+  let resolutionDuringSave: number[] = [];
   class CompItem {
     id = 17; name = "Hero comp"; time = 2.5; width = 1920; height = 1080; frameRate = 25; duration = 30; pixelAspect = 1;
+    resolutionFactor = [4, 4];
     layers = { addSolid: () => { placeholderCreatedDuringExport = true; } };
-    saveFrameToPng() { saved = true; }
+    saveFrameToPng() { resolutionDuringSave = [...this.resolutionFactor]; if (throwDuringSave) throw new Error("save failed"); saved = true; }
   }
   class MockFile {
     fsName: string; name: string; error = ""; encoding = ""; opened = false;
@@ -176,7 +203,7 @@ function runRenderCurrentFrame(sizes: number[]) {
   runInNewContext(source, context);
   const host = context.SnarkRouteAE as { renderCurrentFrame(snapshot: object): string };
   const response = JSON.parse(host.renderCurrentFrame({ id: 17, time: 2.5 })) as { value: { ok: boolean; size: number; attempts: number; waitedMs: number; exportMethod: string; fallbackAttempted: boolean; removedZeroByteFile: boolean; fileError: string } };
-  return { value: response.value, removed, placeholderCreatedDuringExport };
+  return { value: response.value, removed, placeholderCreatedDuringExport, resolutionDuringSave, resolutionAfterSave: [...active.resolutionFactor] };
 }
 
 function runPreviewPlaceholderReplacement(width = 1920, height = 1080, emptyBounds = false) {
@@ -206,7 +233,7 @@ function runPreviewPlaceholderReplacement(width = 1920, height = 1080, emptyBoun
   Object.defineProperty(layer, "index", { get: () => layers.indexOf(layer) + 1 });
   function overlayLayer(kind: "shape" | "text", text = "") {
     const transformProperties: Record<string, any> = { "ADBE Anchor Point": propertyState([0, 0]), "ADBE Position": propertyState([0, 0]), "ADBE Scale": propertyState([100, 100]), "ADBE Opacity": propertyState(0, 2, "time * 10") };
-    const textDocument = { text, fontSize: 0, applyFill: false, fillColor: [0, 0, 0], applyStroke: true, justification: "" };
+    const textDocument = { text, font: "Wingdings-Regular", fontSize: 0, applyFill: false, fillColor: [0, 0, 0], applyStroke: true, justification: "", horizontalScale: 2, verticalScale: 3, baselineShift: 999, tracking: 800, autoLeading: false };
     const sourceText = { value: textDocument, setValue(value: any) { this.value = value; } };
     const overlay: Record<string, any> = { kind, name: text, comment: "", startTime: 0, inPoint: 0, outPoint: 0, enabled: false, shy: true, guideLayer: true, parent: {}, trackMatteType: "ALPHA", opacityProperty: transformProperties["ADBE Opacity"] };
     Object.defineProperty(overlay, "index", { get: () => layers.indexOf(overlay) + 1 });

@@ -164,14 +164,19 @@ app.post<{ Body: { worldsApiKey?: string } }>("/api/settings/worldlabs-token", a
   }
 });
 
-app.post<{ Body: { openRouterApiKey?: string; defaultModel?: string; budgetWarningUsd?: number | string | null } }>("/api/settings/openrouter", async (request, reply) => {
+app.post<{ Body: { openRouterApiKey?: string; openRouterProxyUrl?: string; defaultModel?: string; budgetWarningUsd?: number | string | null } }>("/api/settings/openrouter", async (request, reply) => {
   const token = request.body?.openRouterApiKey?.trim();
+  const proxyUrl = stringValue(request.body?.openRouterProxyUrl);
   const defaultModel = stringValue(request.body?.defaultModel);
   const budgetWarningUsd = request.body?.budgetWarningUsd;
   try {
     if (token) {
       await writeEnvValue("OPENROUTER_API_KEY", token);
       process.env.OPENROUTER_API_KEY = token;
+    }
+    if (proxyUrl !== undefined) {
+      await writeEnvValue("OPENROUTER_PROXY_URL", proxyUrl);
+      process.env.OPENROUTER_PROXY_URL = proxyUrl;
     }
     if (defaultModel !== undefined) {
       await writeEnvValue("OPENROUTER_DEFAULT_MODEL", defaultModel);
@@ -181,7 +186,7 @@ app.post<{ Body: { openRouterApiKey?: string; defaultModel?: string; budgetWarni
       await writeEnvValue("OPENROUTER_BUDGET_WARNING_USD", String(budgetWarningUsd));
       process.env.OPENROUTER_BUDGET_WARNING_USD = String(budgetWarningUsd);
     }
-    if (!token && defaultModel === undefined && budgetWarningUsd === undefined) return reply.code(400).send({ error: "OpenRouter settings payload is empty." });
+    if (!token && proxyUrl === undefined && defaultModel === undefined && budgetWarningUsd === undefined) return reply.code(400).send({ error: "OpenRouter settings payload is empty." });
     return { ok: true, openrouter: await openRouterSettingsStatus() };
   } catch (error) {
     return reply.code(500).send({ error: errorMessage(error) });

@@ -10,6 +10,7 @@ export async function openRouterSettingsStatus() {
   return {
     configured: isOpenRouterEnabled(),
     maskedApiKey: isOpenRouterEnabled() ? maskSecret(process.env.OPENROUTER_API_KEY) : "",
+    proxyConfigured: Boolean(process.env.OPENROUTER_PROXY_URL?.trim() || process.env.HTTPS_PROXY?.trim() || process.env.HTTP_PROXY?.trim()),
     defaultModel,
     budgetWarningUsd: numberEnv("OPENROUTER_BUDGET_WARNING_USD"),
     catalog: {

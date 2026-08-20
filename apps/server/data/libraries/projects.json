@@ -1,7 +1,15 @@
 {
   "version": 1,
-  "currentProjectPath": "Y:\\Процесс\\epiQRus",
+  "currentProjectPath": "Y:\\Процесс\\Город будущего",
   "projects": [
+    {
+      "path": "Y:\\Работа\\Симе",
+      "addedAt": "2026-08-16T10:53:21.787Z"
+    },
+    {
+      "path": "Y:\\Работа\\ГВ - спецвыпуск",
+      "addedAt": "2026-07-22T13:58:34.017Z"
+    },
     {
       "path": "Y:\\Процесс\\epiQRus",
       "addedAt": "2026-07-16T17:02:42.600Z"

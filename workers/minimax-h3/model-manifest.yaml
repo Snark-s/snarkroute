@@ -1,0 +1,172 @@
+schema_version: 1
+verified_at: "2026-08-20"
+policy:
+  production_runtime: "ComfyUI runtime and custom nodes are prohibited; standalone CUDA kernel libraries are reviewed independently"
+  model_volume: /models
+  user_data_volume: /data/results
+frameworks:
+  sglang:
+    version: "source-after-0.5.17"
+    commit: "3f26febaff04bac4cfefd60bdc9097bc26a96cb8"
+    kitchen_int8_feature_commit: "63d783bbe0955237ec41f9ddabf7235ddf04673c"
+    torch: "2.13.0"
+    diffusers: "0.37.0"
+    cuda_base: "nvidia/cuda:13.0.1-cudnn-devel-ubuntu24.04"
+    status: official_source_supported_gpu_not_validated_in_this_project
+  comfy_kitchen:
+    version: "0.2.31"
+    package: "comfy-kitchen"
+    wheel: "comfy_kitchen-0.2.31-cp312-abi3-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl"
+    wheel_sha256: "d7c2522e6a6cde7a7303e30d739c05989cf4b0a246684e496a129b950055d35f"
+    wheel_bytes: 58541121
+    required_dependencies: []
+    installed_extras: []
+    scope: cuda_sglang_image_only
+    contains_comfyui_or_custom_nodes: false
+  diffusers:
+    version: unresolved
+    commit: "f53d552036a0d1bd5570782a39cd40cfabf112bc"
+    status: merged_modular_pipeline_not_gpu_validated_here
+model:
+  repository: MiniMaxAI/MiniMax-H3
+  revision: "42ed227ee7df40d41602854ae760620d6eb651fe"
+  license: minimax-h3-community-license-agreement
+  license_url: https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/42ed227ee7df40d41602854ae760620d6eb651fe/LICENSE
+  gated: false
+  manual_license_acceptance_required: true
+components:
+  - id: h3-base-fl2va
+    repository: MiniMaxAI/MiniMax-H3
+    revision: "42ed227ee7df40d41602854ae760620d6eb651fe"
+    allow_patterns: ["model_index.json", "FL2VA/*"]
+    filename: unresolved
+    variant: FL2VA
+    purpose: "H3-Base text and first/last-frame to synchronized audio-video"
+    expected_bytes: 144051185561
+    checksum: unresolved_multi_file_snapshot
+    minimum_requirements: "First deployment: 1xRTX 4090 24GB, kitchen_int8, 192GiB practical minimum/256GiB recommended host RAM, 250GB disk; project GPU validation pending"
+    path: MiniMax-H3
+    license: minimax-h3-community-license-agreement
+    manual_license_acceptance_required: true
+    download: true
+  - id: h3-base-ref2va
+    repository: MiniMaxAI/MiniMax-H3
+    revision: "42ed227ee7df40d41602854ae760620d6eb651fe"
+    allow_patterns: ["model_index.json", "Ref2VA/*"]
+    filename: unresolved
+    variant: Ref2VA
+    purpose: "H3-Base multimodal reference to synchronized audio-video"
+    expected_bytes: 144051185549
+    checksum: unresolved_multi_file_snapshot
+    minimum_requirements: "No local GPU validation; start only after FL2VA acceptance"
+    path: MiniMax-H3
+    license: minimax-h3-community-license-agreement
+    manual_license_acceptance_required: true
+    download: true
+  - id: h3-text-encoder
+    repository: MiniMaxAI/MiniMax-H3
+    revision: "42ed227ee7df40d41602854ae760620d6eb651fe"
+    allow_patterns: ["FL2VA/text_encoder/*", "Ref2VA/text_encoder/*"]
+    filename: "model-*.safetensors and tokenizer/processor files"
+    variant: shared_per_partition
+    purpose: "H3 encoder (Qwen3-VL family layout shipped inside each partition)"
+    expected_bytes_per_partition: 66726510529
+    checksum: available_per_file_from_huggingface_lfs_api
+    minimum_requirements: "Fold/offload according to SGLang topology"
+    path: MiniMax-H3/<VARIANT>/text_encoder
+    license: minimax-h3-community-license-agreement
+    manual_license_acceptance_required: true
+    download: false
+  - id: h3-visual-vae
+    repository: MiniMaxAI/MiniMax-H3
+    revision: "42ed227ee7df40d41602854ae760620d6eb651fe"
+    allow_patterns: ["FL2VA/video_vae/*", "Ref2VA/video_vae/*"]
+    filename: "source/model.safetensors plus implementation files"
+    variant: shared_per_partition
+    purpose: "Visual VAE encode/decode"
+    expected_bytes_per_partition: 10415694629
+    checksum: available_per_file_from_huggingface_lfs_api
+    minimum_requirements: "Keep VAE out of single-4090 layerwise offload according to SGLang guidance"
+    path: MiniMax-H3/<VARIANT>/video_vae
+    license: minimax-h3-community-license-agreement
+    manual_license_acceptance_required: true
+    download: false
+  - id: h3-audio-vae
+    repository: MiniMaxAI/MiniMax-H3
+    revision: "42ed227ee7df40d41602854ae760620d6eb651fe"
+    allow_patterns: ["FL2VA/audio_vae/*", "Ref2VA/audio_vae/*"]
+    filename: model.safetensors
+    variant: shared_per_partition
+    purpose: "32kHz stereo audio latent encode/decode"
+    expected_bytes_per_partition: 605461455
+    checksum_sha256_model_safetensors: "37dddc2f3e6d5d5139d823d5ea283bbf304dadcb885b1ccda818aa13dade5ea2"
+    minimum_requirements: "FP32 decode path"
+    path: MiniMax-H3/<VARIANT>/audio_vae
+    license: minimax-h3-community-license-agreement
+    manual_license_acceptance_required: true
+    download: false
+  - id: h3-clip-proj
+    repository: MiniMaxAI/MiniMax-H3
+    revision: "42ed227ee7df40d41602854ae760620d6eb651fe"
+    allow_patterns: []
+    filename: unresolved
+    variant: unresolved
+    purpose: "Requested ClipProj component"
+    expected_bytes: unresolved
+    checksum: unresolved
+    minimum_requirements: unresolved
+    path: unresolved
+    license: minimax-h3-community-license-agreement
+    manual_license_acceptance_required: true
+    status: "No standalone ClipProj artifact appears in the official pinned repository"
+    download: false
+  - id: h3-turbo-lora-8-eval
+    repository: larryvrh/MiniMax-H3-Turbo-Lora
+    revision: unresolved
+    allow_patterns: ["minimax_h3_turbo_v4_step600_ema.safetensors"]
+    filename: minimax_h3_turbo_v4_step600_ema.safetensors
+    variant: FL2VA
+    purpose: "Optional 8-denoiser-evaluation preview adapter documented by SGLang"
+    expected_bytes: unresolved
+    checksum: unresolved
+    minimum_requirements: "num_inference_steps=9, lora_scale=1.0"
+    path: lora/minimax-h3-turbo-8
+    license: unresolved
+    manual_license_acceptance_required: true
+    status: "Repository metadata was not anonymously accessible during verification; disabled"
+    download: false
+  - id: h3-turbo-lora-4-eval
+    repository: lightx2v/Minimax-h3-Turbo
+    revision: unresolved
+    allow_patterns: ["minimax_h3_fl2v_turbo_4step_v0.1.safetensors"]
+    filename: minimax_h3_fl2v_turbo_4step_v0.1.safetensors
+    variant: FL2VA
+    purpose: "Optional aggressive 4-denoiser-evaluation preview adapter documented by SGLang"
+    expected_bytes: unresolved
+    checksum: unresolved
+    minimum_requirements: "num_inference_steps=5, lora_scale=1.0, lora_alpha=8"
+    path: lora/minimax-h3-turbo-4
+    license: unresolved
+    manual_license_acceptance_required: true
+    status: "Repository metadata was not anonymously accessible during verification; disabled"
+    download: false
+quantization:
+  selected_first_deployment: kitchen_int8
+  selected_hardware: "1x RTX 4090 24GB"
+  single_rtx_4090_5090:
+    status: official_recipe_and_benchmark_project_gpu_validation_pending
+    reason: "Official SGLang documents kitchen_int8 on one RTX 4090; comfy-kitchen 0.2.31 has no mandatory Python dependencies and contains no ComfyUI runtime or custom nodes"
+  profiles:
+    kitchen_int8:
+      gpu: "1x RTX 4090 24GB"
+      peak_vram: "about 18GB in official benchmark"
+      host_ram: "192GiB practical project estimate; 256GiB recommended"
+      disk: "200GB practical minimum; 250GB recommended"
+      status: gpu_unverified_in_this_project
+    bf16_offload:
+      gpu: "1x RTX 4090 24GB"
+      peak_vram: "about 18GB in official benchmark"
+      host_ram: "192GiB practical project estimate; 256GiB recommended"
+      disk: "200GB practical minimum; 250GB recommended"
+      status: gpu_unverified_in_this_project
+  forbidden: ["ComfyUI runtime", "ComfyUI custom nodes", "unverified external prequantized checkpoint"]

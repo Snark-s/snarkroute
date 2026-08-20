@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, dirname, extname, join } from "node:path";
 import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, getRubPerUsd, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
-import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
+import { ProviderOutcomeUnknownError, type NodeRunner, type ProviderUsageEvent } from "@snarkroute/executor";
 
 export const POLZA_BASE_URL = "https://polza.ai/api";
 export const POLZA_TEXT_DEFAULT_MODEL = "openai/gpt-4o";
@@ -107,19 +107,21 @@ export function isExecutablePolzaImageModel(model: Pick<PolzaModelInfo, "id" | "
 
 type PolzaChatContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 type PolzaChatMessage = { role: string; content: string | PolzaChatContentPart[] };
+type PolzaRequestContext = { billable?: boolean; externalId?: string };
 
 export function createPolzaClient(options: PolzaClientOptions = {}) {
   const fetcher = options.fetchImpl ?? fetch;
   const baseUrl = trimTrailingSlash(options.baseUrl ?? process.env.POLZA_BASE_URL ?? POLZA_BASE_URL);
   const retryDelayMs = options.retryDelayMs ?? 750;
 
-  async function request(path: string, init: RequestInit): Promise<unknown> {
+  async function request(path: string, init: RequestInit, context: PolzaRequestContext = {}): Promise<unknown> {
     const apiKey = options.apiKey ?? process.env.POLZA_AI_API_KEY;
     if (!apiKey?.trim()) throw new Error(POLZA_MISSING_KEY_MESSAGE);
     const headers = new Headers(init.headers);
     headers.set("Content-Type", "application/json");
     headers.set("Authorization", `Bearer ${apiKey.trim()}`);
-    const maxAttempts = retryableMethod(init.method) ? 3 : 1;
+    const maxAttempts = 3;
+    const canRetryTransportFailure = retryableTransportMethod(init.method);
     let lastNetworkError: unknown = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       let response: Response;
@@ -127,13 +129,24 @@ export function createPolzaClient(options: PolzaClientOptions = {}) {
         response = await fetcher(`${baseUrl}${path}`, { ...init, headers });
       } catch (error) {
         lastNetworkError = error;
-        if (attempt < maxAttempts) {
+        if (canRetryTransportFailure && attempt < maxAttempts) {
           await delay(retryDelayMs * attempt);
           continue;
         }
-        throw new Error(polzaNetworkError(error, baseUrl));
+        throw polzaTransportError(error, baseUrl, path, context);
       }
-      if (response.ok) return response.json();
+      if (response.ok) {
+        try {
+          return await response.json();
+        } catch (error) {
+          lastNetworkError = error;
+          if (canRetryTransportFailure && attempt < maxAttempts) {
+            await delay(retryDelayMs * attempt);
+            continue;
+          }
+          throw polzaTransportError(error, baseUrl, path, context);
+        }
+      }
       const body = await response.text().catch(() => "");
       if (attempt < maxAttempts && retryableStatus(response.status)) {
         await delay(retryDelayMs * attempt);
@@ -146,16 +159,16 @@ export function createPolzaClient(options: PolzaClientOptions = {}) {
 
   return {
     async chatCompletions(body: Record<string, unknown>): Promise<unknown> {
-      return request("/v1/chat/completions", { method: "POST", body: JSON.stringify(body) });
+      return request("/v1/chat/completions", { method: "POST", body: JSON.stringify(body) }, { billable: true });
     },
     async imageGenerations(body: Record<string, unknown>): Promise<unknown> {
-      return request("/v2/images/generations", { method: "POST", body: JSON.stringify(body) });
+      return request("/v2/images/generations", { method: "POST", body: JSON.stringify(body) }, { billable: true });
     },
     async media(body: Record<string, unknown>): Promise<unknown> {
-      return request("/v1/media", { method: "POST", body: JSON.stringify(body) });
+      return request("/v1/media", { method: "POST", body: JSON.stringify(body) }, { billable: true });
     },
     async mediaStatus(id: string): Promise<unknown> {
-      return request(`/v1/media/${encodeURIComponent(id)}`, { method: "GET" });
+      return request(`/v1/media/${encodeURIComponent(id)}`, { method: "GET" }, { billable: true, externalId: id });
     },
     async getModels(type?: PolzaModelType): Promise<PolzaModelInfo[]> {
       const query = type ? `?type=${encodeURIComponent(type)}` : "";
@@ -401,7 +414,7 @@ export function createPolzaVideoNodeRunner(options: PolzaClientOptions = {}): No
   return async ({ node, params, inputs, context }) => {
     const model = stringParam(params.model) ?? POLZA_VIDEO_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
-    if (!prompt.trim()) throw new Error("Polza Video requires a prompt.");
+    if (!prompt.trim() && !isKling3MotionControlModel(model)) throw new Error("Polza Video requires a prompt.");
     const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
     const audios = collectInputImages(params.audios ?? inputs.audios);
     const videos = collectInputImages(params.videos ?? inputs.videos);
@@ -675,6 +688,22 @@ export function buildMediaImageRequestBody(model: string, prompt: string, params
 type PreparedMediaInput = { type: "url" | "base64"; data: string; role?: string; index?: number };
 
 export function buildMediaVideoRequestBody(model: string, prompt: string, params: Record<string, unknown>, imageInputs: PreparedMediaInput[] = [], audioInputs: PreparedMediaInput[] = [], videoInputs: PreparedMediaInput[] = []): Record<string, unknown> {
+  if (isKling3MotionControlModel(model)) {
+    if (imageInputs.length !== 1) {
+      throw new Error("Kling 3 Motion Control requires exactly one character image.");
+    }
+    if (videoInputs.length !== 1) {
+      throw new Error("Kling 3 Motion Control requires exactly one motion-reference video. Connect a non-empty Video node (3–30 seconds); output duration follows that video.");
+    }
+    const input: Record<string, unknown> = {
+      prompt: prompt.trim() || undefined,
+      images: imageInputs,
+      videos: videoInputs,
+      mode: supportedPolzaVideoMode(params.mode, ["720p", "1080p"], "720p"),
+      character_orientation: supportedPolzaVideoMode(params.character_orientation, ["image", "video"], "image")
+    };
+    return { model, input: filterDefined(input), async: true, user: stringParam(params.user) };
+  }
   if (model === "kling/v3") {
     const sound = params.sound ?? params.generate_audio ?? params.audio;
     const input: Record<string, unknown> = {
@@ -688,6 +717,7 @@ export function buildMediaVideoRequestBody(model: string, prompt: string, params
     applyRoleSpecificMediaInputs(input, imageInputs);
     return { model, input, async: true, user: stringParam(params.user) };
   }
+  const isKling26 = model.trim().toLowerCase() === "kling/v2.6";
   const input: Record<string, unknown> = {
     ...providerPrimitiveParameters(params),
     prompt,
@@ -695,7 +725,11 @@ export function buildMediaVideoRequestBody(model: string, prompt: string, params
     duration: String(numberParam(params.duration) ?? stringParam(params.duration) ?? "5"),
     multi_shots: params.multi_shots === true || stringParam(params.multi_shots) === "true" ? "true" : "false"
   };
-  if (params.generate_audio !== undefined || params.audio !== undefined || params.sound !== undefined || supportsVideoAudioModel(model)) {
+  if (isKling26) {
+    const sound = params.sound ?? params.generate_audio ?? params.audio;
+    input.aspect_ratio = supportedPolzaAspectRatio(params.aspect_ratio ?? params.aspectRatio, ["1:1", "16:9", "9:16"], "16:9");
+    input.sound = sound !== undefined && booleanParam(sound) ? "true" : "false";
+  } else if (params.generate_audio !== undefined || params.audio !== undefined || params.sound !== undefined || supportsVideoAudioModel(model)) {
     input.generate_audio = booleanParam(params.generate_audio ?? params.audio ?? params.sound);
   }
   if (imageInputs.length > 0) input.images = imageInputs;
@@ -721,6 +755,10 @@ function providerPrimitiveParameters(params: Record<string, unknown>) {
 function supportedPolzaVideoMode(value: unknown, allowed: string[], fallback: string): string {
   const mode = stringParam(value);
   return mode && allowed.includes(mode) ? mode : fallback;
+}
+
+function isKling3MotionControlModel(model: string): boolean {
+  return model.trim().toLowerCase() === "kling/v3-motion-control";
 }
 
 function kling3FramePrompt(prompt: string): string {
@@ -1244,12 +1282,24 @@ function polzaNetworkError(error: unknown, baseUrl: string): string {
   return `Polza.ai is unreachable at ${baseUrl}. Check internet access, proxy/VPN/firewall settings, DNS, or POLZA_BASE_URL. Details: ${networkErrorDetail(error)}`;
 }
 
-function retryableMethod(method: string | undefined): boolean {
-  return ["GET", "POST"].includes((method ?? "GET").toUpperCase());
+function retryableTransportMethod(method: string | undefined): boolean {
+  return ["GET", "HEAD"].includes((method ?? "GET").toUpperCase());
 }
 
 function retryableStatus(status: number): boolean {
   return status === 502 || status === 503 || status === 504;
+}
+
+function polzaTransportError(error: unknown, baseUrl: string, path: string, context: PolzaRequestContext): Error {
+  if (!context.billable) return new Error(polzaNetworkError(error, baseUrl));
+  const operation = context.externalId ? ` for operation ${context.externalId}` : "";
+  const missingResult = context.externalId
+    ? "SnarkRoute could not confirm or download the result."
+    : "SnarkRoute did not receive an operation id or result; the request may have been accepted by Polza.ai.";
+  return new ProviderOutcomeUnknownError(
+    `Polza.ai response${operation} was interrupted. ${missingResult} Endpoint: ${path}. Details: ${networkErrorDetail(error)}`,
+    { provider: "polza", externalId: context.externalId }
+  );
 }
 
 function delay(ms: number): Promise<void> {

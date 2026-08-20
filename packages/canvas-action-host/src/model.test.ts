@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { canvasActionBoundParams, canvasActionNeedsDialog, createToolTab, initialCanvasActionParams, updateToolTab, visibleCanvasActionParams, type CanvasNodeAction } from "./model.js";
 
 const action: CanvasNodeAction = {
-  id: "enhance", title: "Enhance", description: "", inputType: "image", outputs: [{ id: "image", type: "image", label: "Image" }],
+  id: "enhance", title: "Enhance", description: "", inputType: "image",
+  inputs: [{ id: "image", type: "image", label: "Image" }, { id: "prompt", type: "text", label: "Prompt" }],
+  outputs: [{ id: "image", type: "image", label: "Image" }],
   params: [
     { id: "upscale.scale", type: "number", default: 2, binding: { nodeId: "upscale", paramId: "scale" } },
     { id: "hidden.seed", type: "number", default: 7, binding: { nodeId: "hidden", paramId: "seed" } }
@@ -27,5 +29,13 @@ describe("canvas action host model", () => {
     const tabs = updateToolTab([first, second], "one", { params: { "upscale.scale": 8 } });
     expect(tabs[0].params).toEqual({ "upscale.scale": 8 });
     expect(tabs[1].params).toEqual({ "upscale.scale": 2 });
+  });
+
+  it("creates independent input state for every Brandeshmyg action port", () => {
+    const tab = createToolTab(action, "multi");
+    expect(tab.inputs).toEqual({
+      image: { kind: "empty", expectedType: "image" },
+      prompt: { kind: "text", type: "text", text: "" }
+    });
   });
 });

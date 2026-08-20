@@ -252,6 +252,24 @@ export function generationParameterSummary(definitions: ModelParameterDefinition
   return compactValues.join(" / ") || "Parameters";
 }
 
+export function modelDurationGuidance(
+  model: Pick<ModelOption, "id" | "providerModelId">,
+  values: ImageGenerationParameters
+): string | undefined {
+  const modelId = (model.providerModelId ?? model.id).trim().toLowerCase();
+  if (modelId !== "kling/v3-motion-control") return undefined;
+  const videoOrientation = String(values.character_orientation ?? "image").toLowerCase() === "video";
+  return `Duration follows the reference video: 3–${videoOrientation ? 30 : 10} s for ${videoOrientation ? "Video" : "Image"} orientation.`;
+}
+
+export function modelAspectRatioLockedToInput(
+  model: Pick<ModelOption, "id" | "providerId" | "providerModelId">,
+  hasImageInput: boolean
+): boolean {
+  if (!hasImageInput || model.providerId.toLowerCase() !== "polza") return false;
+  return (model.providerModelId ?? model.id).trim().toLowerCase() === "kling/v3";
+}
+
 export function modelParameterEnabled(definition: ModelParameterDefinition, values: ImageGenerationParameters): boolean {
   if (!definition.enabledWhen) return true;
   const current = values[definition.enabledWhen.parameterId];

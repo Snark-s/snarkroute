@@ -497,16 +497,20 @@ export interface CanvasActionPrepareResult {
 export interface RunCanvasActionSessionInput {
   sessionId: string;
   actionId: string;
-  input: {
+  input?: CanvasActionSessionInputValue;
+  inputs?: Record<string, CanvasActionSessionInputValue>;
+  params?: Record<string, unknown>;
+  phase?: "prepare" | "complete";
+  continuationId?: string;
+  surface?: "livingCanvas" | "brandeshmyg" | "portable";
+}
+
+export interface CanvasActionSessionInputValue {
     type: "image" | "video" | "audio" | "text";
     text?: string;
     filename?: string;
     mimeType?: string;
     dataBase64?: string;
-  };
-  params?: Record<string, unknown>;
-  phase?: "prepare" | "complete";
-  continuationId?: string;
 }
 
 export interface CanvasActionSessionResult {

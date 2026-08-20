@@ -5,7 +5,7 @@ import JSZip from "jszip";
 import { Panorama360Viewer, SplatViewer, type CameraPose } from "@snarkroute/media-viewers";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { canvasActionNeedsDialog } from "./canvasActionDialog";
-import { createCanvasFolder, folderAwareEdgeVisible, hiddenCanvasNodeIds, placeNodesInFolder, type CanvasFolder } from "./canvasFolders";
+import { collapseCanvasFolder, createCanvasFolder, expandCanvasFolder, folderAwareEdgeVisible, hiddenCanvasNodeIds, placeNodesInFolder, type CanvasFolder } from "./canvasFolders";
 import { useClampedMenuPosition } from "@snarkroute/media-viewers";
 import { readTextDialogueDraft, writeTextDialogueDraft } from "./dialogueDraft";
 import { edgePath, pinnedNodeEdgePath, setConnectionPinnedSource, togglePinnedNodeState } from "./pinnedNodes";
@@ -15,6 +15,8 @@ import {
   loadModelCatalog,
   mergeModelsForDisplay,
   mergeProviderAndUserDefinedPickerModels,
+  modelAspectRatioLockedToInput,
+  modelDurationGuidance,
   modelMatchesCatalogGroup,
   modelGenerationParameters,
   modelImageInputLimit,
@@ -504,6 +506,8 @@ type DragState =
       startX: number;
       startY: number;
       nodeStartPositions: { id: string; x: number; y: number }[];
+      collapsed: boolean;
+      nodeOffsets?: CanvasFolder["nodeOffsets"];
     }
   | {
       kind: "connection";
@@ -807,7 +811,7 @@ function App() {
 
   async function refreshCanvasNodeActions() {
     try {
-      const response = await apiGet<CanvasNodeActionsResponse>("/api/nodes/canvas-actions");
+      const response = await apiGet<CanvasNodeActionsResponse>("/api/nodes/canvas-actions?surface=livingCanvas");
       setCanvasNodeActions(response.actions.filter((action) => nodeRepresentationOptions.some((option) => option.type === action.inputType)));
     } catch {
       setCanvasNodeActions([]);
@@ -941,15 +945,18 @@ function App() {
         interactionMovedRef.current = true;
         const dx = (event.clientX - activeDrag.startClientX) / viewportScale;
         const dy = (event.clientY - activeDrag.startClientY) / viewportScale;
-        updateNodePositions(activeDrag.nodeStartPositions.map((node) => ({
-          id: node.id,
-          x: Math.round(node.x + dx),
-          y: Math.round(node.y + dy)
-        })));
+        if (!activeDrag.collapsed) {
+          updateNodePositions(activeDrag.nodeStartPositions.map((node) => ({
+            id: node.id,
+            x: Math.round(node.x + dx),
+            y: Math.round(node.y + dy)
+          })));
+        }
         updateCanvasFolders(canvasFolders.map((folder) => folder.id === activeDrag.folderId ? {
           ...folder,
           x: Math.round(activeDrag.startX + dx),
-          y: Math.round(activeDrag.startY + dy)
+          y: Math.round(activeDrag.startY + dy),
+          nodeOffsets: activeDrag.nodeOffsets
         } : folder));
         return;
       }
@@ -1035,13 +1042,15 @@ function App() {
         }
       }
       if (activeDrag.kind === "folder") {
-        const dx = (event.clientX - activeDrag.startClientX) / viewportScale;
-        const dy = (event.clientY - activeDrag.startClientY) / viewportScale;
-        void persistNodePositions(activeDrag.nodeStartPositions.map((node) => ({
-          id: node.id,
-          x: Math.round(node.x + dx),
-          y: Math.round(node.y + dy)
-        })));
+        if (!activeDrag.collapsed) {
+          const dx = (event.clientX - activeDrag.startClientX) / viewportScale;
+          const dy = (event.clientY - activeDrag.startClientY) / viewportScale;
+          void persistNodePositions(activeDrag.nodeStartPositions.map((node) => ({
+            id: node.id,
+            x: Math.round(node.x + dx),
+            y: Math.round(node.y + dy)
+          })));
+        }
       }
       if (activeDrag.kind === "collectionItem") {
         const point = screenToWorld(event.clientX, event.clientY);
@@ -1507,6 +1516,13 @@ function App() {
     interactionMovedRef.current = false;
     setSelectedEdgeId(null);
     setSelectionMenu(null);
+    const memberNodes = folder.nodeIds.flatMap((nodeId) => {
+      const node = nodeById.get(nodeId)?.canvas;
+      return node ? [node] : [];
+    });
+    const collapsedFolder = folder.collapsed && !folder.nodeOffsets
+      ? collapseCanvasFolder(folder, memberNodes)
+      : folder;
     setDragState({
       kind: "folder",
       pointerId: event.pointerId,
@@ -1515,18 +1531,38 @@ function App() {
       startClientY: event.clientY,
       startX: folder.x,
       startY: folder.y,
-      nodeStartPositions: folder.nodeIds.flatMap((nodeId) => {
-        const node = nodeById.get(nodeId)?.canvas;
-        return node ? [{ id: node.id, x: node.x, y: node.y }] : [];
-      })
+      nodeStartPositions: memberNodes.map((node) => ({ id: node.id, x: node.x, y: node.y })),
+      collapsed: folder.collapsed,
+      nodeOffsets: collapsedFolder.nodeOffsets
     });
   }
 
-  function updateCanvasFolder(folderId: string, patch: Partial<Pick<CanvasFolder, "title" | "collapsed">>) {
+  function updateCanvasFolder(folderId: string, patch: Pick<CanvasFolder, "title">) {
     updateCanvasFolders(canvasFolders.map((folder) => folder.id === folderId ? { ...folder, ...patch } : folder));
   }
 
+  function toggleCanvasFolder(folder: CanvasFolder) {
+    if (!folder.collapsed) {
+      const memberNodes = folder.nodeIds.flatMap((nodeId) => {
+        const node = nodeById.get(nodeId)?.canvas;
+        return node ? [node] : [];
+      });
+      const collapsedFolder = collapseCanvasFolder(folder, memberNodes);
+      updateCanvasFolders(canvasFolders.map((entry) => entry.id === folder.id ? collapsedFolder : entry));
+      return;
+    }
+
+    const expanded = expandCanvasFolder(folder);
+    updateCanvasFolders(canvasFolders.map((entry) => entry.id === folder.id ? expanded.folder : entry));
+    if (expanded.nodePositions.length > 0) void persistNodePositions(expanded.nodePositions);
+  }
+
   function removeCanvasFolder(folderId: string) {
+    const folder = canvasFolders.find((entry) => entry.id === folderId);
+    if (folder?.collapsed) {
+      const expanded = expandCanvasFolder(folder);
+      if (expanded.nodePositions.length > 0) void persistNodePositions(expanded.nodePositions);
+    }
     updateCanvasFolders(canvasFolders.filter((folder) => folder.id !== folderId));
     setStatus("Folder removed; its nodes remain on the canvas.");
   }
@@ -3448,7 +3484,7 @@ function App() {
               folder={folder}
               onPointerDown={handleFolderPointerDown}
               onRename={(title) => updateCanvasFolder(folder.id, { title })}
-              onToggleCollapsed={() => updateCanvasFolder(folder.id, { collapsed: !folder.collapsed })}
+              onToggleCollapsed={() => toggleCanvasFolder(folder)}
               onRemove={() => removeCanvasFolder(folder.id)}
             />
           ))}
@@ -4185,14 +4221,16 @@ function App() {
               <span>{canvasNodeActions.length} actions</span>
             </header>
             <div className="buttonSetupActions">
-              <button type="button" onClick={() => void openBoojumRouteLab()} title="Open BoojumRoute Lab">
-                <ExternalLink size={14} />
-                Boojum
-              </button>
-              <button type="button" onClick={() => void openBrandeshmyg()} title="Open Brandeshmyg tools">
-                <img className="brandeshmygButtonIcon" src="/brandeshmyg-icon.png" alt="" />
-                Brandeshmyg
-              </button>
+              <div className="appLaunchActions">
+                <button type="button" onClick={() => void openBoojumRouteLab()} title="Open BoojumRoute Lab">
+                  <img className="appButtonIcon" src="/boojumroute-icon.png" alt="" />
+                  Boojum
+                </button>
+                <button type="button" onClick={() => void openBrandeshmyg()} title="Open Brandeshmyg tools">
+                  <img className="appButtonIcon" src="/brandeshmyg-icon.png" alt="" />
+                  Brandeshmyg
+                </button>
+              </div>
               <button type="button" onClick={() => void exportCanvasSettingsArchive()} title="Export settings archive">
                 <FileDown size={14} />
                 Export
@@ -6143,8 +6181,10 @@ function ImageNode({
   const inputAspectRatio = node.manifest.type === "text" ? undefined : aspectRatioFromInputs(orderedInputNodes) ?? "16:9";
   const [generationParameters, setGenerationParameters] = useState<ImageGenerationParameters>(() => defaultGenerationParametersForNode(selectedModel, parameterDefinitions, inputAspectRatio));
   const parameterSummary = generationParameterSummary(parameterDefinitions, generationParameters);
+  const durationGuidance = modelDurationGuidance(selectedModel, generationParameters);
   const maxImageInputs = modelImageInputLimit(selectedModel);
   const activeInputNodes = orderedInputNodes.filter((input) => !inputChipInactive(input, imageInputs, maxImageInputs));
+  const aspectRatioLockedToInput = modelAspectRatioLockedToInput(selectedModel, activeInputNodes.some((input) => input.type === "image"));
   useEffect(() => {
     setOrderedInputNodes((current) => {
       const byId = new Map(inputNodes.map((input) => [input.id, input]));
@@ -6961,8 +7001,11 @@ function ImageNode({
               {parametersOpen && parameterDefinitions.length > 0 && (
                 <div className="generationParametersMenu" onPointerDown={(event) => event.stopPropagation()}>
                   <strong>{selectedModel.title}</strong>
+                  {durationGuidance ? <p className="generationParametersHint"><Clock3 size={14} />{durationGuidance}</p> : null}
+                  {aspectRatioLockedToInput ? <p className="generationParametersHint"><ImageIcon size={14} />Aspect ratio follows the connected start frame for Kling 3.0.</p> : null}
                   {basicParameterDefinitions.map((definition) => {
-                    const enabled = modelParameterEnabled(definition, generationParameters);
+                    const enabled = modelParameterEnabled(definition, generationParameters)
+                      && !(aspectRatioLockedToInput && isAspectRatioParameter(definition.id));
                     return (
                       <label key={definition.id} className={`${definition.type === "text" ? "isWide" : ""}${enabled ? "" : " isDisabled"}`.trim()}>
                         {definition.label}
@@ -6979,7 +7022,8 @@ function ImageNode({
                     <details className="generationParametersAdvanced">
                       <summary>Advanced</summary>
                       {advancedParameterDefinitions.map((definition) => {
-                        const enabled = modelParameterEnabled(definition, generationParameters);
+                        const enabled = modelParameterEnabled(definition, generationParameters)
+                          && !(aspectRatioLockedToInput && isAspectRatioParameter(definition.id));
                         return (
                           <label key={definition.id} className={`${definition.type === "text" ? "isWide" : ""}${enabled ? "" : " isDisabled"}`.trim()}>
                             {definition.label}

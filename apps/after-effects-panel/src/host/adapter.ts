@@ -5,6 +5,8 @@ declare global { interface Window { __adobe_cep__?: { evalScript(script: string,
 export interface AfterEffectsHostAdapter {
   getActiveComposition(): Promise<CompositionSnapshot | null>;
   renderCurrentFrame(snapshot: CompositionSnapshot): Promise<RenderedAsset>;
+  renderSelectedLayerCurrentFrame(spec: { compositionId: number; time: number }): Promise<RenderedAsset>;
+  renderFrameAtTime(spec: { compositionId: number; time: number }): Promise<RenderedAsset>;
   validateInputFile(path: string): Promise<ValidatedInputFile>;
   createGenerationPlaceholder(spec: { jobId: string; modelId: string; displayName: string; name: string; duration: number; compositionId: number; sourceTime: number; width: number; height: number; frameRate: number; pixelAspect: number; mediaKind?: MediaKind; previewPath?: string; previewKind?: MediaKind; previewTemporary?: boolean }): Promise<HostItemReference>;
   selectExternalImage(): Promise<string | null>;
@@ -27,6 +29,8 @@ export interface AfterEffectsHostAdapter {
 export class CepAfterEffectsHostAdapter implements AfterEffectsHostAdapter {
   getActiveComposition() { return this.call<CompositionSnapshot | null>("getActiveComposition"); }
   renderCurrentFrame(snapshot: CompositionSnapshot) { return this.call<RenderedAsset>("renderCurrentFrame", snapshot); }
+  renderSelectedLayerCurrentFrame(spec: { compositionId: number; time: number }) { return this.call<RenderedAsset>("renderSelectedLayerCurrentFrame", spec); }
+  renderFrameAtTime(spec: { compositionId: number; time: number }) { return this.call<RenderedAsset>("renderFrameAtTime", spec); }
   validateInputFile(path: string) { return this.call<ValidatedInputFile>("validateInputFile", path); }
   createGenerationPlaceholder(spec: { jobId: string; modelId: string; displayName: string; name: string; duration: number; compositionId: number; sourceTime: number; width: number; height: number; frameRate: number; pixelAspect: number; mediaKind?: MediaKind; previewPath?: string; previewKind?: MediaKind; previewTemporary?: boolean }) { return this.call<HostItemReference>("createGenerationPlaceholder", spec); }
   selectExternalImage() { return this.call<string | null>("selectExternalImage"); }

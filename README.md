@@ -9,6 +9,9 @@ inspectable route documents instead of locking them inside one platform.
 
 - [YouTube](https://www.youtube.com/@SnarkRoute)
 - [Telegram](https://t.me/snarkroutelab)
+- [Portable tools and collapsed nodes](docs/portable-tools.md)
+- [Adobe host adapters](docs/adobe-host-adapters.md)
+- [MiniMax H3 worker and 2K regeneration](docs/minimax-h3.md)
 
 ## What Is It?
 

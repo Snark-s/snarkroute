@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
 import { documentedRuTronixModels } from "@snarkroute/rutronix";
+import { createLocalUpscaleWorkerClient } from "@snarkroute/local-upscale";
 import type { ModelOutputTypeV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { openRouterCatalogCachePath } from "../server-paths";
 import { isPolzaEnabled } from "../services/env";
@@ -41,6 +42,7 @@ app.addHook("onRequest", async (request, reply) => {
     const catalog = await loadLiveModelCatalogV1();
     const groups = nodeTypes.map((nodeType) => modelOptionsForNodeV1(nodeType, catalog));
     const models = groups.flat();
+    reply.header("Cache-Control", "no-store");
     return reply.send({ ok: true, nodeTypes, modelCount: models.length, models });
   }
 
@@ -106,12 +108,43 @@ async function loadLiveModelCatalogV1(nodeType?: string) {
   const polzaModels = isPolzaEnabled() && polzaTypes.length > 0
     ? await loadPolzaModelsForCatalogV1(polzaTypes).catch(() => [])
     : [];
+  const localUpscaleModels = nodeType === undefined || nodeType === "local_upscale"
+    ? await loadLocalUpscaleModelsForCatalogV1().catch(() => [])
+    : [];
   return assembleModelCatalogV1({
     openRouterModels,
     polzaModels,
+    localUpscaleModels,
     rutronixModels: nodeType === undefined || nodeType === "ai.text" ? documentedRuTronixModels() : [],
     fallbackModels: fallbackProviderModelsForCatalogV1()
   });
+}
+
+async function loadLocalUpscaleModelsForCatalogV1(): Promise<RawProviderModelV1[]> {
+  const client = createLocalUpscaleWorkerClient();
+  if (!client.configured) return [];
+  const capabilities = await withTimeout(client.capabilities(), modelCatalogRequestTimeoutMs());
+  return capabilities.models.map((model) => ({
+    id: model.id,
+    name: model.display_name,
+    type: "image",
+    inputTypes: ["image"],
+    outputTypes: ["image"],
+    capabilities: ["image.upscale"],
+    availability: model.weights_installed
+      ? { status: "available", source: "live", configured: true }
+      : { status: "unavailable", source: "live", configured: true, reason: "Model weights are not installed in the local worker." },
+    top_provider: {
+      parameters: {
+        image: { type: "string", required: true, min: 1, max: 1, description: "Source image" },
+        scale: { type: "integer", default: model.scale_factor, enum: [model.scale_factor], required: true },
+        tile_size: { type: "integer", default: model.recommended_tile_size, min: 64, max: 2048, step: 16 },
+        tile_overlap: { type: "integer", default: 32, min: 0, max: 256, step: 1 },
+        device: { type: "string", default: "auto", enum: ["auto", "cuda", "cpu"] }
+      }
+    },
+    metadata: model
+  }));
 }
 
 async function loadOpenRouterModelsForCatalogV1(): Promise<RawProviderModelV1[]> {

@@ -97,20 +97,28 @@ describe("built-in nodes", () => {
   it("validates canvas action node manifests", () => {
     const valid = validateNodeManifest({
       ...examplePluginManifest(),
-      canvasAction: { enabled: true, title: "Polish", icon: { kind: "preset", name: "wrench" } },
+      canvasAction: { enabled: true, surface: "livingCanvas", title: "Polish", icon: { kind: "preset", name: "wrench" } },
       inputs: [{ id: "image", type: "image", required: true }],
       outputs: [{ id: "image", type: "image", label: "Image" }]
     });
     expect(valid.ok).toBe(true);
 
-    const invalid = validateNodeManifest({
+    const multiInput = validateNodeManifest({
       ...examplePluginManifest(),
-      canvasAction: { enabled: true },
+      canvasAction: { enabled: true, surface: "brandeshmyg" },
       inputs: [{ id: "image", type: "image" }, { id: "mask", type: "image" }],
       outputs: [{ id: "image", type: "image" }]
     });
-    expect(invalid.ok).toBe(false);
-    expect(invalid.issues.some((issue) => issue.path === "canvasAction")).toBe(true);
+    expect(multiInput.ok).toBe(true);
+
+    const invalidButton = validateNodeManifest({
+      ...examplePluginManifest(),
+      canvasAction: { enabled: true, surface: "livingCanvas" },
+      inputs: [{ id: "image", type: "image" }, { id: "prompt", type: "text" }],
+      outputs: [{ id: "image", type: "image" }]
+    });
+    expect(invalidButton.ok).toBe(false);
+    expect(invalidButton.issues.some((issue) => issue.path === "canvasAction.surface")).toBe(true);
   });
 
   it("validates canvas action dialog references", () => {

@@ -10,6 +10,7 @@ import {
   type DialogueWorkbenchState
 } from "@snarkroute/protocol";
 export * from "./package-system";
+export * from "./portable-tool";
 import type { SnarkNodeManifest } from "./package-system";
 
 export interface NodeDefinition {
@@ -1647,7 +1648,7 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export type LocalAssetKind = "file" | "image" | "video";
+export type LocalAssetKind = "file" | "image" | "video" | "audio";
 
 export interface LocalAssetMetadata {
   path: string;
@@ -1676,6 +1677,9 @@ export async function getLocalAssetMetadata(path: string, kind: LocalAssetKind):
   }
   if (kind === "video" && !mimeType.startsWith("video/")) {
     throw new Error(`input.video expected a video file, got ${mimeType}: ${resolvedPath}`);
+  }
+  if (kind === "audio" && !mimeType.startsWith("audio/")) {
+    throw new Error(`input.audio expected an audio file, got ${mimeType}: ${resolvedPath}`);
   }
 
   const metadata: LocalAssetMetadata = {
@@ -2239,7 +2243,13 @@ function getMimeType(path: string): string {
     ".mov": "video/quicktime",
     ".webm": "video/webm",
     ".mkv": "video/x-matroska",
-    ".avi": "video/x-msvideo"
+    ".avi": "video/x-msvideo",
+    ".wav": "audio/wav",
+    ".mp3": "audio/mpeg",
+    ".aac": "audio/aac",
+    ".m4a": "audio/mp4",
+    ".flac": "audio/flac",
+    ".ogg": "audio/ogg"
   };
   return mimeTypes[ext] ?? "application/octet-stream";
 }

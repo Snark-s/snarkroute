@@ -12,11 +12,12 @@ import {
   RotateCcw, RotateCw, Route, Save, Scissors, Search, Send, Settings, Share2, Shuffle, SlidersHorizontal,
   Sparkles, Square, Star, Table, Type, Upload, Video, Volume2, Wand2, Wrench, X, Zap, ZoomIn, ZoomOut
 } from "lucide-react";
-import { disposeSession, installPackage, loadActions, previewPackage, runSession } from "./api";
+import { disposeSession, installPackage, loadActions, previewPackage, resolveToolTabMediaUrls, runSession } from "./api";
 import "./styles.css";
 
 const tabsKey = "brandeshmyg.tabs.v1";
 const activeKey = "brandeshmyg.activeTab.v1";
+const busyFaviconFrames = Array.from({ length: 8 }, (_, index) => busyFavicon(index * 45));
 
 function App() {
   const [actions, setActions] = useState<CanvasNodeAction[]>([]);
@@ -35,6 +36,34 @@ function App() {
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { localStorage.setItem(tabsKey, JSON.stringify(tabs.map(persistToolTab))); }, [tabs]);
   useEffect(() => { if (activeId) localStorage.setItem(activeKey, activeId); }, [activeId]);
+  const running = tabs.some((tab) => tab.status === "running");
+  useEffect(() => {
+    const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (!icon) return;
+    const initialHref = icon.getAttribute("href") ?? "/brandeshmyg-icon.png";
+    const initialType = icon.getAttribute("type");
+    const initialTitle = document.title;
+    if (!running) {
+      icon.href = initialHref;
+      if (initialType) icon.type = initialType;
+      return;
+    }
+
+    let frame = 0;
+    document.title = `⚙ ${initialTitle}`;
+    icon.type = "image/svg+xml";
+    icon.href = busyFaviconFrames[frame];
+    const timer = window.setInterval(() => {
+      frame = (frame + 1) % busyFaviconFrames.length;
+      icon.href = busyFaviconFrames[frame];
+    }, 120);
+    return () => {
+      window.clearInterval(timer);
+      icon.href = initialHref;
+      if (initialType) icon.type = initialType;
+      document.title = initialTitle;
+    };
+  }, [running]);
   useEffect(() => {
     const requested = new URLSearchParams(location.search).get("action");
     if (requested && actions.some((action) => action.id === requested) && !tabs.some((tab) => tab.actionId === requested)) openAction(requested);
@@ -65,7 +94,7 @@ function App() {
     setTabs((current) => updateToolTab(current, tab.id, { status: "running", error: undefined }));
     try {
       const interactive = Boolean(action.dialog?.preview?.some((preview) => typeof preview.source === "object" && "pause" in preview.source));
-      const response = await runSession({ sessionId: tab.id, actionId: action.id, toolInput: tab.input, params: tab.params, phase: tab.continuationId ? "complete" : interactive ? "prepare" : undefined, continuationId: tab.continuationId });
+      const response = await runSession({ sessionId: tab.id, actionId: action.id, toolInputs: tab.inputs, params: tab.params, phase: tab.continuationId ? "complete" : interactive ? "prepare" : undefined, continuationId: tab.continuationId });
       setTabs((current) => updateToolTab(current, tab.id, response.status === "paused"
         ? { status: "paused", continuationId: response.continuationId, preparedPreviews: response.previews }
         : { status: "completed", continuationId: undefined, preparedPreviews: undefined, results: response.results }));
@@ -155,8 +184,18 @@ function PackagePreview({ preview }: { preview: Record<string, unknown> }) {
 }
 
 function restoreTabs(): ToolTabState[] {
-  try { return JSON.parse(localStorage.getItem(tabsKey) ?? "[]") as PersistedToolTabState[]; }
+  try {
+    const restored = JSON.parse(localStorage.getItem(tabsKey) ?? "[]") as Array<PersistedToolTabState & { input?: ToolTabState["inputs"][string] }>;
+    return restored.map(({ input, ...tab }) => resolveToolTabMediaUrls({
+      ...tab,
+      inputs: tab.inputs ?? (input ? { input } : {})
+    }));
+  }
   catch { return []; }
+}
+
+function busyFavicon(angle: number): string {
+  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#111813"/><g transform="rotate(${angle} 13 13)" fill="#8fd7b5" stroke="#d8ffe9" stroke-width="1"><path d="M13 4.5 15 6l2.4-.5 1.4 2.1-.9 2.3 1.6 2v2.2l-2.3.8-.7 2.4-2.3.7-1.7-1.8-2.4.5-1.4-2.1.9-2.3-1.6-2V10l2.3-.8.7-2.4Z"/><circle cx="13" cy="12" r="3.1" fill="#111813"/></g><g transform="rotate(${-angle} 22 22)" fill="#f3bf45" stroke="#ffe785" stroke-width=".85"><path d="M22 15.3 23.5 17l2.1-.1.7 2-1.5 1.5.4 2.1-1.9.9-1.6-1.4-2.1.5-.9-1.9 1.3-1.7-.5-2.1 1.9-.9Z"/><circle cx="22" cy="19.3" r="2" fill="#111813"/></g></svg>`)}`;
 }
 
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);

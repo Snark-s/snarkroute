@@ -1,0 +1,198 @@
+{
+  "kind": "snarkroute.node",
+  "schemaVersion": "0.1",
+  "id": "kling.3.0.-.2i",
+  "title": "Kling 3.0 - 2i",
+  "version": "0.1.0",
+  "author": {
+    "name": "SnarkRoute Studio"
+  },
+  "license": "UNLICENSED",
+  "origin": "generated",
+  "source": "snarkroute-studio",
+  "category": "Compound",
+  "description": "Generated from compound route \"Kling 3.0 - 2i\".",
+  "permissions": {
+    "network": false,
+    "networkHosts": [],
+    "readFiles": false,
+    "writeOutputs": false,
+    "shell": false,
+    "env": []
+  },
+  "executor": {
+    "type": "declarative"
+  },
+  "inputs": [
+    {
+      "id": "image",
+      "type": "image",
+      "label": "image"
+    },
+    {
+      "id": "image_2",
+      "type": "image",
+      "label": "image"
+    },
+    {
+      "id": "prompt",
+      "type": "text",
+      "label": "prompt"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "video",
+      "type": "video",
+      "label": "video"
+    }
+  ],
+  "params": [
+    {
+      "id": "polza_video_generate_12.prompt",
+      "type": "text",
+      "label": "Prompt",
+      "default": "Create a polished short video.",
+      "binding": {
+        "nodeId": "polza_video_generate_12",
+        "paramId": "prompt"
+      }
+    },
+    {
+      "id": "polza_video_generate_12.resolution",
+      "type": "text",
+      "label": "Resolution",
+      "default": "720p",
+      "binding": {
+        "nodeId": "polza_video_generate_12",
+        "paramId": "resolution"
+      }
+    },
+    {
+      "id": "polza_video_generate_12.duration",
+      "type": "text",
+      "label": "Duration",
+      "default": "5",
+      "binding": {
+        "nodeId": "polza_video_generate_12",
+        "paramId": "duration"
+      }
+    },
+    {
+      "id": "polza_video_generate_12.multi_shots",
+      "type": "boolean",
+      "label": "Multi Shots",
+      "default": false,
+      "binding": {
+        "nodeId": "polza_video_generate_12",
+        "paramId": "multi_shots"
+      }
+    }
+  ],
+  "canvasAction": {
+    "enabled": true,
+    "title": "Kling 3.0 - 2i",
+    "description": "Run \"Kling 3.0 - 2i\" from the Living Canvas node toolbar.",
+    "icon": {
+      "kind": "preset",
+      "name": "video"
+    },
+    "dialog": {
+      "enabled": true,
+      "params": [
+        "polza_video_generate_12.prompt",
+        "polza_video_generate_12.resolution",
+        "polza_video_generate_12.duration",
+        "polza_video_generate_12.multi_shots"
+      ]
+    }
+  },
+  "generatedWith": {
+    "tool": "snarkroute-studio",
+    "kind": "compound.subroute",
+    "compound": {
+      "title": "Kling 3.0 - 2i",
+      "inputs": [
+        {
+          "id": "image",
+          "label": "image",
+          "kind": "image",
+          "nodeId": "polza_video_generate_12",
+          "port": "images"
+        },
+        {
+          "id": "image_2",
+          "label": "image",
+          "kind": "image",
+          "nodeId": "polza_video_generate_12",
+          "port": "images"
+        },
+        {
+          "id": "prompt",
+          "label": "prompt",
+          "kind": "text",
+          "nodeId": "polza_video_generate_12",
+          "port": "prompt"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "video",
+          "label": "video",
+          "kind": "video",
+          "nodeId": "polza_video_generate_12",
+          "port": "video"
+        }
+      ]
+    },
+    "subroute": {
+      "routeVersion": "0.1",
+      "route": {
+        "id": "m31-http-json-test.compound_16",
+        "title": "Kling 3.0 - 2i",
+        "description": "HTTP Request -> Debug Log -> Text Output.",
+        "author": {
+          "name": "SnarkRoute"
+        },
+        "tags": [
+          "milestone-3.1",
+          "http",
+          "json"
+        ]
+      },
+      "economics": {
+        "enabled": false,
+        "mode": "disabled"
+      },
+      "nodes": [
+        {
+          "id": "polza_video_generate_12",
+          "type": "polza.video.generate",
+          "title": "Polza Video",
+          "params": {
+            "model": "kling/v3",
+            "prompt": "Create a polished short video.",
+            "resolution": "720p",
+            "duration": "5",
+            "multi_shots": false,
+            "executionProvider": "polza"
+          },
+          "ui": {
+            "x": 2517.0473084499063,
+            "y": 329.92501086775667
+          }
+        }
+      ],
+      "edges": [],
+      "provenance": {
+        "tool": "snarkroute-studio",
+        "updatedAt": "2026-07-30T09:14:54.399Z"
+      }
+    }
+  },
+  "installConfirmation": {
+    "confirmedAt": "2026-07-30T09:44:39.159Z",
+    "warnings": []
+  },
+  "enabled": true
+}

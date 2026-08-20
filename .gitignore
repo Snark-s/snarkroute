@@ -17,6 +17,7 @@ apps/server/data/runs/
 apps/server/data/assets/
 apps/server/data/billing/
 apps/server/data/secrets/
+apps/server/data/model-gateway-jobs/
 **/data/ledger/
 **/data/billing/
 **/data/secrets/
@@ -26,6 +27,13 @@ data/settings/secrets.json
 **/data/runs/
 **/data/assets/
 *.log
+**/__pycache__/
+*.py[cod]
+**/.pytest_cache/
+**/.pytest-global/
+workers/local-upscale/.venv/
+workers/local-upscale/models/
+workers/local-upscale/data/
 _tmp_*
 .env
 .env.local

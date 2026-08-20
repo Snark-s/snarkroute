@@ -1,0 +1,56 @@
+# SnarkRoute MiniMax H3 worker
+
+Versioned, authenticated, backend-neutral worker for MiniMax H3. It has no ComfyUI runtime, custom nodes, or ComfyUI container. The CUDA/SGLang image alone pins the independent `comfy-kitchen==0.2.31` kernel extension for the optional `kitchen_int8` capability; the API image does not install it.
+
+The stable facade owns validation, asynchronous jobs, idempotency, cancellation, metadata and result storage. `mock` validates the API only; `sglang` delegates to the official `/v1/videos` contract; `diffusers` is an isolated future boundary and currently reports unavailable.
+
+## Local no-GPU verification
+
+```bash
+uv sync --extra test --python 3.12
+uv run ruff format --check app scripts tests
+uv run ruff check app scripts tests
+uv run pytest
+```
+
+Start the mock worker (use a real random token outside tests):
+
+```bash
+export H3_WORKER_SERVICE_TOKEN="$(openssl rand -hex 32)"
+export H3_BACKEND=mock
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8080
+python scripts/smoke_test.py --url http://127.0.0.1:8080
+```
+
+Or build/run the API image without weights:
+
+```bash
+docker build -t snarkroute-h3-worker:0.2.0 .
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e H3_WORKER_SERVICE_TOKEN="$H3_WORKER_SERVICE_TOKEN" \
+  -e H3_BACKEND=mock snarkroute-h3-worker:0.2.0
+```
+
+`GET /health` is unauthenticated and proves only process liveness. `/ready` and every `/v1/*` endpoint require the bearer token. A mock result begins with `SNARKROUTE-H3-MOCK` and is never a real MP4 inference result.
+
+## Models
+
+Dry-run first; this does not need a token or download weights:
+
+```bash
+uv run python scripts/download_models.py --component h3-base-fl2va --model-dir /models --dry-run
+```
+
+After reviewing the pinned MiniMax community license, pass acceptance explicitly and provide `HF_TOKEN` through the environment/secret manager:
+
+```bash
+export HF_TOKEN="..."
+uv run python scripts/download_models.py --component h3-base-fl2va --model-dir /models --accept-license
+uv run python scripts/verify_models.py --component h3-base-fl2va --model-dir /models --checksums
+```
+
+The FL2VA partition is about 144.05 GB (134.16 GiB). Keep at least 250 GB for one partition, caches, image layers, temporary output, and a rollback margin. Both original partitions together are about 288.10 GB; the repository also contains a separate ~210.37 GB Diffusers-format root, so never download the entire repository accidentally.
+
+The recommended first GPU test is 1×RTX 4090 24 GB, 192 GiB RAM minimum (256 GiB preferred), and 250 GB disk with compose profile `gpu-int8`. Startup runs a real CUDA kernel self-test and never silently falls back to BF16. End-to-end H3 INT8 remains unverified until the smoke test and benchmark complete on the rented GPU. Use `gpu`/`gpu-bf16` for the official 2×RTX 5090 lossless profile.
+
+See [the main H3 document](../../docs/minimax-h3.md), the [RunPod runbook](../../docs/runbooks/minimax-h3-runpod.md), and the [Vast.ai runbook](../../docs/runbooks/minimax-h3-vast.md).

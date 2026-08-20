@@ -3,7 +3,7 @@
   "schemaVersion": "0.1",
   "id": "custom.seedance-2.video",
   "title": "Seedance 2 Video",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "SnarkRoute maintainers"
   },
@@ -125,7 +125,7 @@
       "id": "model",
       "type": "text",
       "label": "Model",
-      "default": "seedance-2.0"
+      "default": "dreamina-seedance-2-0-260128"
     },
     {
       "id": "duration",
@@ -235,12 +235,11 @@
         "advanced": true,
         "control": "select",
         "options": [
+          "dreamina-seedance-2-0-260128",
+          "dreamina-seedance-2-0-fast-260128",
+          "dreamina-seedance-2-0-mini-260615",
           "seedance-2.0",
-          "seedance-2.0-fast",
-          "seedance-2.0-text-to-video",
-          "seedance-2.0-fast-text-to-video",
-          "seedance-2.0-image-to-video",
-          "seedance-2.0-fast-image-to-video"
+          "seedance-2.0-fast"
         ]
       },
       "duration": {

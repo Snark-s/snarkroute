@@ -81,6 +81,9 @@ import {
   canvasButtonManifestFromDraft as buildCanvasButtonManifestFromDraft,
   canvasButtonParamCandidates,
   canvasButtonPreviewCandidates,
+  canvasActionInputKind,
+  compoundBrandeshmygActionEligible,
+  compoundCanvasButtonEligible,
   defaultCanvasButtonPreviewId,
   nodeManifestFromCompoundNode,
   type CanvasButtonDraft
@@ -7535,23 +7538,6 @@ function App() {
     return title.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, ".").replace(/^[._-]+|[._-]+$/g, "") || "custom.compound";
   }
 
-  function compoundCanvasActionEligible(compoundNode: RouteDoc["nodes"][number]): boolean {
-    const inputs = compoundNode.compound?.inputs ?? [];
-    const outputs = compoundNode.compound?.outputs ?? [];
-    return inputs.length === 1
-      && canvasActionPortKind(String(inputs[0].kind ?? "json"))
-      && outputs.length > 0
-      && outputs.every((output) => canvasActionPortKind(String(output.kind ?? "json")));
-  }
-
-  function canvasActionPortKind(kind: string): boolean {
-    return kind === "image" || kind === "video" || kind === "audio" || kind === "text";
-  }
-
-  function canvasActionInputKind(compoundNode: RouteDoc["nodes"][number]): string {
-    return String(compoundNode.compound?.inputs?.[0]?.kind ?? "json");
-  }
-
   async function saveCompoundNodeAsPackage(nodeId: string) {
     setContextMenu(null);
     const flowNode = nodes.find((node) => node.id === nodeId);
@@ -7578,7 +7564,7 @@ function App() {
     }
   }
 
-  function openCompoundNodeCanvasButtonPanel(nodeId: string) {
+  function openCompoundNodeCanvasButtonPanel(nodeId: string, surface: "livingCanvas" | "brandeshmyg") {
     setContextMenu(null);
     setCanvasButtonError("");
     setCanvasButtonIconPickerOpen(false);
@@ -7586,7 +7572,11 @@ function App() {
     setCanvasButtonPanelDrag(null);
     const flowNode = nodes.find((node) => node.id === nodeId);
     const compoundNode = flowNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
-    if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode)) return;
+    if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute) return;
+    const eligible = surface === "livingCanvas"
+      ? compoundCanvasButtonEligible(compoundNode)
+      : compoundBrandeshmygActionEligible(compoundNode);
+    if (!eligible) return;
     const inputKind = canvasActionInputKind(compoundNode);
     const title = compoundNode.compound?.title ?? compoundNode.title ?? "Canvas Action";
     const params = canvasButtonParamCandidates(compoundNode, nodeCatalog.flatMap((item) => item.manifest ? [item.manifest] : []), library);
@@ -7594,9 +7584,11 @@ function App() {
     setCanvasButtonDraft({
       nodeId,
       title,
-      packageId: makeNodePackageId(title),
+      packageId: makeNodePackageId(`${title}.${surface === "brandeshmyg" ? "brandeshmyg" : "button"}`),
       iconName: defaultCanvasActionIconName(inputKind),
+      surface,
       inputKind,
+      inputs: (compoundNode.compound?.inputs ?? []).map((input) => ({ id: input.id, kind: String(input.kind ?? "json"), label: input.label })),
       outputs: (compoundNode.compound?.outputs ?? []).map((output) => ({ id: output.id, kind: String(output.kind ?? "json"), label: output.label })),
       params,
       previewCandidates,
@@ -7609,7 +7601,11 @@ function App() {
     const compoundNode = flowNode?.data.routeNode as RouteDoc["nodes"][number] | undefined;
     const title = draft.title.trim();
     const id = draft.packageId.trim();
-    if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute || !compoundCanvasActionEligible(compoundNode) || !title || !id) return null;
+    if (!compoundNode || compoundNode.type !== "compound.subroute" || !compoundNode.subroute) return null;
+    const eligible = draft.surface === "brandeshmyg"
+      ? compoundBrandeshmygActionEligible(compoundNode)
+      : compoundCanvasButtonEligible(compoundNode);
+    if (!eligible || !title || !id) return null;
     return buildCanvasButtonManifestFromDraft(draft, compoundNode);
   }
 
@@ -7663,7 +7659,7 @@ function App() {
     if (!canvasButtonDraft) return;
     const manifest = canvasButtonManifestFromDraft(canvasButtonDraft);
     if (!manifest) {
-      setCanvasButtonError("Fill in title and package id before creating the button.");
+      setCanvasButtonError(`Fill in title and package id before creating the ${canvasButtonDraft.surface === "brandeshmyg" ? "action" : "button"}.`);
       return;
     }
     setCanvasButtonSaving(true);
@@ -7678,11 +7674,13 @@ function App() {
       if (!response.ok || !result.ok) throw new Error(result.error ?? formatApiIssues(result));
       await loadNodeCatalog();
       setCanvasButtonDraft(null);
-      setLogs((current) => [`Created Living Canvas ${canvasButtonDraft.inputKind} button ${manifest.id}.`, ...current]);
+      const target = canvasButtonDraft.surface === "brandeshmyg" ? "Brandeshmyg action" : `Living Canvas ${canvasButtonDraft.inputKind} button`;
+      setLogs((current) => [`Created ${target} ${manifest.id}.`, ...current]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setCanvasButtonError(message);
-      setLogs((current) => [`Create Living Canvas button failed: ${message}`, ...current]);
+      const target = canvasButtonDraft.surface === "brandeshmyg" ? "Brandeshmyg action" : "Living Canvas button";
+      setLogs((current) => [`Create ${target} failed: ${message}`, ...current]);
     } finally {
       setCanvasButtonSaving(false);
     }
@@ -8189,8 +8187,11 @@ function App() {
                     <button onClick={() => { openSubroute(contextMenu.nodeId!); setContextMenu(null); }}>Open Internal Tool Route</button>
                     <button onClick={() => { uncollapseCompoundNode(contextMenu.nodeId!); setContextMenu(null); }}>Uncollapse</button>
                     <button onClick={() => void saveCompoundNodeAsPackage(contextMenu.nodeId!)}>Save as Block Package</button>
-                    {compoundCanvasActionEligible(contextRouteNode) ? (
-                      <button onClick={() => openCompoundNodeCanvasButtonPanel(contextMenu.nodeId!)}>Create Living Canvas Button</button>
+                    {compoundCanvasButtonEligible(contextRouteNode) ? (
+                      <button onClick={() => openCompoundNodeCanvasButtonPanel(contextMenu.nodeId!, "livingCanvas")}>Create Living Canvas Button</button>
+                    ) : null}
+                    {compoundBrandeshmygActionEligible(contextRouteNode) ? (
+                      <button onClick={() => openCompoundNodeCanvasButtonPanel(contextMenu.nodeId!, "brandeshmyg")}>Create Brandeshmyg Action</button>
                     ) : null}
                   </>
                 ) : null}
@@ -8209,7 +8210,7 @@ function App() {
           </div>
         ) : null}
         {canvasButtonDraft ? (
-          <div className="canvasButtonOverlay" role="dialog" aria-modal="true" aria-label="Create Living Canvas Button" onMouseDown={() => setCanvasButtonDraft(null)}>
+          <div className="canvasButtonOverlay" role="dialog" aria-modal="true" aria-label={canvasButtonDraft.surface === "brandeshmyg" ? "Create Brandeshmyg Action" : "Create Living Canvas Button"} onMouseDown={() => setCanvasButtonDraft(null)}>
             <form
               className="canvasButtonPanel"
               style={canvasButtonPanelPosition ? { left: canvasButtonPanelPosition.x, top: canvasButtonPanelPosition.y } : undefined}
@@ -8221,8 +8222,10 @@ function App() {
             >
               <header className="canvasButtonHeader" onPointerDown={beginCanvasButtonPanelDrag}>
                 <div>
-                  <h2>Create Living Canvas Button</h2>
-                  <p>One input becomes the button type; outputs become new canvas nodes.</p>
+                  <h2>{canvasButtonDraft.surface === "brandeshmyg" ? "Create Brandeshmyg Action" : "Create Living Canvas Button"}</h2>
+                  <p>{canvasButtonDraft.surface === "brandeshmyg"
+                    ? "Every declared input appears in Brandeshmyg; outputs become new canvas nodes."
+                    : "The active canvas source is sent to the action's single input; outputs become new canvas nodes."}</p>
                 </div>
                 <button type="button" className="iconButton" title="Close" onPointerDown={(event) => event.stopPropagation()} onClick={() => setCanvasButtonDraft(null)}>
                   <X size={16} />
@@ -8230,7 +8233,7 @@ function App() {
               </header>
               <div className="canvasButtonFields">
                 <label>
-                  <span>Button title</span>
+                  <span>{canvasButtonDraft.surface === "brandeshmyg" ? "Action title" : "Button title"}</span>
                   <input
                     value={canvasButtonDraft.title}
                     onChange={(event) => setCanvasButtonDraft((draft) => draft ? { ...draft, title: event.target.value } : draft)}
@@ -8248,8 +8251,14 @@ function App() {
               </div>
               <div className="canvasButtonTypes">
                 <div>
-                  <span>Input</span>
-                  <strong className={`canvasButtonTypePill type-${canvasButtonDraft.inputKind}`}>{canvasButtonDraft.inputKind}</strong>
+                  <span>{canvasButtonDraft.surface === "brandeshmyg" ? "Inputs" : "Input type"}</span>
+                  <div className="canvasButtonOutputList">
+                    {(canvasButtonDraft.inputs ?? [{ id: "input", kind: canvasButtonDraft.inputKind }]).map((input) => (
+                      <strong className={`canvasButtonTypePill type-${input.kind}`} key={`${input.id}-${input.kind}`} title={input.label ?? input.id}>
+                        {input.label ?? input.id}: {input.kind}
+                      </strong>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <span>Outputs</span>
@@ -8364,7 +8373,7 @@ function App() {
                 </button>
                 <button type="submit" className="primary" disabled={canvasButtonSaving || !canvasButtonDraft.title.trim() || !canvasButtonDraft.packageId.trim()}>
                   {canvasButtonSaving ? <RefreshCw size={15} className="spinIcon" /> : <Plus size={15} />}
-                  Create Button
+                   {canvasButtonDraft.surface === "brandeshmyg" ? "Create Action" : "Create Button"}
                 </button>
               </footer>
             </form>

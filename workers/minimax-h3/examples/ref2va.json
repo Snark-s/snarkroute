@@ -1,0 +1,13 @@
+{
+  "operation": "video.generate.h3",
+  "task": "ref2va",
+  "prompt": "Use <Picture 1> for character identity and <Video 1> for motion rhythm.",
+  "conditions": [
+    {"type": "image", "uri": "file:///data/results/inputs/REPLACE_CHARACTER/input.png", "role": "reference"},
+    {"type": "video", "uri": "file:///data/results/inputs/REPLACE_MOTION/input.mp4", "role": "reference", "start_time_seconds": 0}
+  ],
+  "target": {"short_edge": 768, "aspect_ratio": "16:9", "duration_seconds": 5},
+  "seed": 2101,
+  "num_inference_steps": 30,
+  "quality_mode": "final"
+}

@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
+import { fetch as undiciFetch, ProxyAgent } from "undici";
 import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 import {
@@ -29,15 +30,54 @@ export {
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 export const OPENROUTER_MISSING_KEY_MESSAGE = "OpenRouter API key is missing.";
 const LOCAL_FILE_DATA_URI_LIMIT_BYTES = 10 * 1024 * 1024;
+const openRouterProxyAgents = new Map<string, ProxyAgent>();
 
 export interface OpenRouterClientOptions {
   apiKey?: string;
   baseUrl?: string;
   fetchImpl?: typeof fetch;
+  proxyUrl?: string;
   referer?: string;
   title?: string;
   retryDelayMs?: number;
+  videoPollIntervalMs?: number;
+  videoTimeoutMs?: number;
   modelGateway?: Pick<ModelGateway, "invoke">;
+}
+
+type OpenRouterProxyEnv = Partial<Record<"OPENROUTER_PROXY_URL" | "HTTPS_PROXY" | "https_proxy" | "HTTP_PROXY" | "http_proxy", string>>;
+
+export function resolveOpenRouterProxyUrl(input: { explicitProxyUrl?: string; env?: OpenRouterProxyEnv } = {}): string | null {
+  const env = input.env ?? process.env;
+  const value = [
+    input.explicitProxyUrl,
+    env.OPENROUTER_PROXY_URL,
+    env.HTTPS_PROXY,
+    env.https_proxy,
+    env.HTTP_PROXY,
+    env.http_proxy
+  ].find((candidate) => candidate?.trim())?.trim();
+  if (!value) return null;
+  return /^[a-z][a-z0-9+.-]*:\/\//iu.test(value) ? value : `http://${value}`;
+}
+
+function openRouterProxyAgent(proxyUrl: string): ProxyAgent {
+  const cached = openRouterProxyAgents.get(proxyUrl);
+  if (cached) return cached;
+  const agent = new ProxyAgent(proxyUrl);
+  openRouterProxyAgents.set(proxyUrl, agent);
+  return agent;
+}
+
+function openRouterFetch(options: OpenRouterClientOptions): typeof fetch {
+  if (options.fetchImpl) return options.fetchImpl;
+  const proxyUrl = resolveOpenRouterProxyUrl({ explicitProxyUrl: options.proxyUrl });
+  const proxyAgent = proxyUrl ? openRouterProxyAgent(proxyUrl) : null;
+  if (!proxyAgent) return fetch;
+  return ((input: RequestInfo | URL, init?: RequestInit) => undiciFetch(
+    input as Parameters<typeof undiciFetch>[0],
+    { ...init, dispatcher: proxyAgent } as Parameters<typeof undiciFetch>[1]
+  ) as unknown as Promise<Response>) as typeof fetch;
 }
 
 export interface OpenRouterChatMessage {
@@ -62,6 +102,9 @@ export interface OpenRouterModelInfo {
   supported_aspect_ratios?: string[];
   supported_resolutions?: string[];
   supported_frame_image_modes?: string[];
+  generate_audio?: boolean;
+  seed?: boolean;
+  allowed_passthrough_parameters?: string[];
   context_length?: number;
   pricing?: Record<string, unknown>;
   supported_parameters?: string[];
@@ -97,6 +140,9 @@ export function openRouterModelInfoToModelInfo(model: OpenRouterModelInfo): Mode
     supportedDurations: model.supported_durations,
     supportedResolutions: model.supported_resolutions,
     supportedFrameImageModes: model.supported_frame_image_modes,
+    generateAudio: model.generate_audio,
+    seedSupported: model.seed,
+    allowedPassthroughParameters: model.allowed_passthrough_parameters,
     topProvider: model.top_provider,
     generationParameters: generationParameterDefinitions({
       aspectRatios: model.supported_aspect_ratios,
@@ -130,7 +176,7 @@ export function openRouterModelInfoToModelInfo(model: OpenRouterModelInfo): Mode
 }
 
 export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
-  const fetcher = options.fetchImpl ?? fetch;
+  const fetcher = openRouterFetch(options);
   const baseUrl = trimTrailingSlash(options.baseUrl ?? process.env.OPENROUTER_BASE_URL ?? OPENROUTER_BASE_URL);
   const retryDelayMs = options.retryDelayMs ?? 500;
 
@@ -171,6 +217,14 @@ export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
 
     async getVideoModels(keyRequired = false): Promise<OpenRouterModelInfo[]> {
       return parseOpenRouterModelCatalog(await request("/videos/models", { method: "GET" }, keyRequired), "video");
+    },
+
+    async createVideo(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+      return objectRecord(await request("/videos", { method: "POST", body: JSON.stringify(body) }));
+    },
+
+    async getVideo(id: string): Promise<Record<string, unknown>> {
+      return objectRecord(await request(`/videos/${encodeURIComponent(id)}`, { method: "GET" }));
     },
 
     async chatCompletions(body: Record<string, unknown>): Promise<unknown> {
@@ -330,12 +384,61 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
   };
 }
 
+export function createOpenRouterVideoNodeRunner(options: OpenRouterClientOptions = {}): NodeRunner {
+  return async ({ node, params, inputs, context }) => {
+    const model = stringParam(params.model);
+    if (!model) throw new Error("OpenRouter video generation requires a model.");
+    const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
+    if (!prompt.trim()) throw new Error("Video Generation requires a prompt.");
+    const images = collectInputImages(params.image ?? params.images ?? inputs.images ?? firstInputImage(inputs));
+    const gateway = options.modelGateway ?? createOpenRouterModelGateway(options, model, "video.generate");
+    const gatewayResult = await gateway.invoke({
+      capability: "video.generate",
+      modelRef: `model://openrouter/${model}`,
+      input: { prompt, images },
+      parameters: params,
+      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type }
+    });
+    const videoAsset = openRouterVideoAssetFromGateway(gatewayResult);
+    if (!videoAsset) throw new Error(`OpenRouter model "${model}" did not return a video.`);
+    const response = gatewayResult.output.output;
+    const pricingQuote = quoteFromGatewayOutput(gatewayResult.output) ?? estimateOpenRouterPricingQuote({
+      logicalModel: model,
+      provider: "openrouter",
+      providerModel: model,
+      capability: "video.generate",
+      params,
+      inputMetadata: {}
+    });
+    return {
+      output: {
+        video: videoAsset,
+        output: response,
+        provider: "openrouter",
+        model,
+        providerModel: model,
+        estimatedCost: pricingQuote.estimatedCost,
+        estimatedCostCurrency: pricingQuote.currency,
+        estimatedCostConfidence: pricingQuote.confidence,
+        pricingSource: pricingQuote.estimatedCost === null ? "unknown" : "openrouter_catalog",
+        pricingQuote,
+        inputImageCount: images.length,
+        localPath: videoAsset.localPath,
+        status: "succeeded"
+      },
+      logs: [`Generated video with OpenRouter ${model} at ${videoAsset.localPath}`],
+      provenance: { provider: "openrouter", model },
+      providerUsage: openRouterUsageEvent(node.id, node.type, model, "succeeded", undefined, pricingQuote, model)
+    };
+  };
+}
+
 export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions = {}): ProviderAdapter {
   const client = createOpenRouterClient(options);
   return {
     id: "openrouter",
     title: "OpenRouter",
-    capabilities: ["text.generate", "image.generate"],
+    capabilities: ["text.generate", "image.generate", "video.generate"],
     pricingResolver: {
       estimate: estimateOpenRouterPricingQuote
     },
@@ -414,6 +517,48 @@ export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions
           warnings: stringArrayFromUnknown(request.metadata?.warnings)
         };
       }
+      if (request.capability === "video.generate") {
+        const created = await client.createVideo(buildOpenRouterVideoRequestBody(request.model.id, prompt, request.parameters ?? {}, imageUrls));
+        const jobId = stringParam(created.id) ?? stringParam(created.generation_id);
+        if (!jobId) throw new Error("OpenRouter video generation did not return a job id.");
+        const completed = await pollOpenRouterVideo(client, jobId, options);
+        const videoUrl = firstOpenRouterVideoUrl(completed);
+        if (!videoUrl) throw new Error("OpenRouter video generation completed without a downloadable video URL.");
+        let video;
+        try {
+          video = await writeOpenRouterVideo(videoUrl, {
+            outputDirectory: stringParam(request.metadata?.outputDirectory) ?? process.cwd(),
+            sourceNodeId: stringParam(request.metadata?.sourceNodeId) ?? "openrouter-video",
+            model: request.model.id,
+            fetchImpl: openRouterFetch(options),
+            apiKey: openRouterApiKey(options),
+            jobId,
+            baseUrl: trimTrailingSlash(options.baseUrl ?? process.env.OPENROUTER_BASE_URL ?? OPENROUTER_BASE_URL)
+          });
+        } catch (error) {
+          throw new Error(`${error instanceof Error ? error.message : String(error)} OpenRouter job: ${jobId}.`);
+        }
+        return {
+          modelId: request.model.id,
+          providerId: "openrouter",
+          capability: request.capability,
+          output: {
+            video,
+            output: completed,
+            model: request.model.id,
+            pricingQuote: estimateOpenRouterPricingQuote({
+              logicalModel: stringParam(request.metadata?.logicalModel),
+              provider: "openrouter",
+              providerModel: request.model.id,
+              capability: request.capability,
+              params: request.parameters ?? {},
+              inputMetadata: request.metadata
+            })
+          },
+          raw: completed,
+          warnings: stringArrayFromUnknown(request.metadata?.warnings)
+        };
+      }
       throw new Error(`OpenRouter adapter does not support capability "${request.capability}".`);
     }
   };
@@ -423,7 +568,7 @@ export function estimateOpenRouterPricingQuote(input: ModelPricingInput): Pricin
   return estimateCatalogPricingQuote(input, input.params.pricing, "openrouter_catalog");
 }
 
-function createOpenRouterModelGateway(options: OpenRouterClientOptions, model: string, capability: "text.generate" | "image.generate"): ModelGateway {
+function createOpenRouterModelGateway(options: OpenRouterClientOptions, model: string, capability: "text.generate" | "image.generate" | "video.generate"): ModelGateway {
   return new ModelGateway({
     models: [{
       id: model,
@@ -481,6 +626,109 @@ export function buildImageRequestBody(model: string, prompt: string, params: Rec
   if (params.imageSize !== undefined) imageConfig.image_size = params.imageSize;
   if (Object.keys(imageConfig).length > 0) body.image_config = imageConfig;
   return body;
+}
+
+export function buildOpenRouterVideoRequestBody(model: string, prompt: string, params: Record<string, unknown>, imageUrls: string[] = []): Record<string, unknown> {
+  const body: Record<string, unknown> = { model, prompt };
+  const aspectRatio = params.aspectRatio ?? params.aspect_ratio;
+  if (aspectRatio !== undefined) body.aspect_ratio = aspectRatio;
+  if (params.resolution !== undefined) body.resolution = params.resolution;
+  if (params.size !== undefined) body.size = params.size;
+  if (params.duration !== undefined) body.duration = optionalNumber(params.duration) ?? params.duration;
+  if (params.generate_audio !== undefined) body.generate_audio = params.generate_audio;
+  if (params.seed !== undefined) body.seed = optionalNumber(params.seed) ?? params.seed;
+  for (const key of ["negative_prompt", "cfg_scale", "prompt_optimizer", "fast_pretreatment", "watermark", "prompt_extend", "enable_prompt_expansion", "shot_type", "quality", "style"]) {
+    if (params[key] !== undefined && params[key] !== "") body[key] = params[key];
+  }
+  if (imageUrls.length) {
+    body.frame_images = imageUrls.slice(0, 2).map((url, index) => ({
+      frame_type: index === 0 ? "first_frame" : "last_frame",
+      type: "image_url",
+      image_url: { url }
+    }));
+  }
+  return body;
+}
+
+async function pollOpenRouterVideo(
+  client: { getVideo(id: string): Promise<Record<string, unknown>> },
+  jobId: string,
+  options: OpenRouterClientOptions
+): Promise<Record<string, unknown>> {
+  const intervalMs = options.videoPollIntervalMs ?? 3000;
+  const deadline = Date.now() + (options.videoTimeoutMs ?? 10 * 60 * 1000);
+  while (Date.now() <= deadline) {
+    if (intervalMs > 0) await delay(intervalMs);
+    const status = await client.getVideo(jobId);
+    const state = stringParam(status.status)?.toLowerCase();
+    if (state === "completed" || state === "succeeded") return status;
+    if (state === "failed" || state === "cancelled" || state === "canceled") {
+      const error = typeof status.error === "string" ? status.error : stringParam(objectRecord(status.error).message);
+      throw new Error(error ?? `OpenRouter video generation ${state}.`);
+    }
+  }
+  throw new Error("OpenRouter video generation timed out.");
+}
+
+function firstOpenRouterVideoUrl(response: Record<string, unknown>): string | undefined {
+  for (const value of [response.unsigned_urls, response.urls]) {
+    if (!Array.isArray(value)) continue;
+    const url = value.find((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
+    if (url) return url;
+  }
+  return stringParam(response.video_url) ?? stringParam(response.url);
+}
+
+async function writeOpenRouterVideo(
+  url: string,
+  options: { outputDirectory: string; sourceNodeId: string; model: string; fetchImpl: typeof fetch; apiKey?: string; jobId: string; baseUrl: string }
+) {
+  let response = await options.fetchImpl(url, { headers: openRouterDownloadHeaders(url, options.apiKey) });
+  if (response.status === 401 && options.apiKey) {
+    const contentUrl = `${options.baseUrl}/videos/${encodeURIComponent(options.jobId)}/content?index=0`;
+    if (contentUrl !== url) response = await options.fetchImpl(contentUrl, { headers: { Authorization: `Bearer ${options.apiKey}` } });
+  }
+  if (!response.ok) throw new Error(`Could not download OpenRouter video output (${response.status}).`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const mimeType = response.headers.get("content-type")?.split(";")[0] ?? "video/mp4";
+  const assetsDirectory = join(options.outputDirectory, "assets");
+  await mkdir(assetsDirectory, { recursive: true });
+  const filename = `${sanitizeFilename(options.sourceNodeId)}-${Date.now()}${videoExtension(url, mimeType)}`;
+  const localPath = join(assetsDirectory, filename);
+  await writeFile(localPath, bytes);
+  return {
+    localPath,
+    path: localPath,
+    filename,
+    mimeType,
+    sizeBytes: bytes.length,
+    sourceNodeId: options.sourceNodeId,
+    model: options.model
+  };
+}
+
+function openRouterDownloadHeaders(url: string, apiKey: string | undefined): HeadersInit | undefined {
+  if (!apiKey) return undefined;
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === "openrouter.ai" && parsed.pathname.startsWith("/api/")) return { Authorization: `Bearer ${apiKey}` };
+  } catch {}
+  return undefined;
+}
+
+function openRouterApiKey(options: OpenRouterClientOptions): string | undefined {
+  const value = options.apiKey ?? process.env.OPENROUTER_API_KEY;
+  return value?.trim() || undefined;
+}
+
+function videoExtension(url: string, mimeType: string): string {
+  if (mimeType === "video/webm") return ".webm";
+  if (mimeType === "video/quicktime") return ".mov";
+  try {
+    const extension = extname(new URL(url).pathname).toLowerCase();
+    if ([".mp4", ".webm", ".mov"].includes(extension)) return extension;
+  } catch {}
+  return ".mp4";
 }
 
 function isOpenAiImageModel(model: string): boolean {
@@ -580,6 +828,11 @@ export function openRouterPricingCatalogFromModels(models: OpenRouterModelInfo[]
   return catalog;
 }
 
+function openRouterVideoAssetFromGateway(result: ModelInvokeResult): { localPath?: string; path?: string; filename?: string; mimeType?: string; sourceNodeId?: string; model?: string } | undefined {
+  const video = result.output.video;
+  return video && typeof video === "object" ? video : undefined;
+}
+
 export async function readOpenRouterModelCatalogCache(cachePath = join(process.cwd(), "data", "cache", "openrouter-models.json")): Promise<OpenRouterCatalogCache | null> {
   try {
     const parsed = JSON.parse(await readFile(cachePath, "utf8")) as unknown;
@@ -659,7 +912,10 @@ function parseOpenRouterModel(input: unknown, kind?: OpenRouterModelInfo["kind"]
     supported_durations: stringArrayFromKeys([record, architecture, topProvider], ["supported_durations", "durations", "duration"]),
     supported_aspect_ratios: stringArrayFromKeys([record, architecture, topProvider], ["supported_aspect_ratios", "aspect_ratios", "aspect_ratio"]),
     supported_resolutions: stringArrayFromKeys([record, architecture, topProvider], ["supported_resolutions", "resolutions", "resolution"]),
-    supported_frame_image_modes: stringArrayFromKeys([record, architecture, topProvider], ["supported_frame_image_modes", "frame_image_modes", "frame_image_mode"]),
+    supported_frame_image_modes: stringArrayFromKeys([record, architecture, topProvider], ["supported_frame_images", "supported_frame_image_modes", "frame_image_modes", "frame_image_mode"]),
+    generate_audio: record.generate_audio === true ? true : record.generate_audio === false ? false : undefined,
+    seed: record.seed === true ? true : record.seed === false ? false : undefined,
+    allowed_passthrough_parameters: stringArray(record.allowed_passthrough_parameters),
     context_length: optionalNumber(record.context_length),
     pricing: record.pricing && typeof record.pricing === "object" ? record.pricing as Record<string, unknown> : undefined,
     supported_parameters: stringArray(record.supported_parameters),
@@ -1041,6 +1297,10 @@ function optionalString(value: unknown): string | undefined {
 
 function stringParam(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function stringArray(value: unknown): string[] | undefined {

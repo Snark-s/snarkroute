@@ -58,7 +58,9 @@ The default local endpoint is `http://127.0.0.1:4317`. The panel stores a custom
 5. Enter a prompt, review schema-derived parameters and optionally refresh the quote.
 6. Press **Generate**.
 
-For current-frame operations the host script exports a temporary PNG with `CompItem.saveFrameToPng`. A placeholder is created only after the provider job exists. Image placeholders are still layers whose out-point runs to the end of the active composition; this is the most natural AE editing behavior and avoids applying a generated-video duration to a still. The result replaces the layer source through `layer.replaceSource(importedItem, false)`, preserving transforms, masks, effects, parenting, markers, blend mode, and timing. Text-to-image without a composition imports directly into the Project panel.
+For current-frame operations the host script exports a temporary PNG with `CompItem.saveFrameToPng`. A placeholder is created only after the provider job exists, imports that PNG as its visible source, and stores the job id in its comment and marker. Image placeholders run to the end of the active composition. The result replaces the layer source through `layer.replaceSource(importedItem, false)`, preserving transforms, masks, effects, parenting, markers, blend mode, and timing. Text-to-image without a composition imports directly into the Project panel. Legacy gray-solid placeholders remain replaceable for old jobs/projects.
+
+The **Published tools** section is schema-driven. It discovers validated collapsed-node tools with `GET /api/tools?host=after_effects`, renders their parameters, captures current/first/last composition frames or accepts files, creates a portable tool job, exposes status/cancel/result selection, and imports additional variants without replacing earlier variants. MiniMax H3 tools expose a separate **Regenerate in 2K** action after a 768p result is selected.
 
 ## Output and metadata
 
@@ -80,16 +82,20 @@ Added as a thin local orchestration layer:
 - `POST /api/model-gateway/jobs`
 - `GET /api/model-gateway/jobs/:id`
 - `GET /api/model-gateway/jobs/:id/result`
+- `GET /api/tools?host=after_effects`
+- `POST /api/tools/:id/jobs` and `GET /api/tool-jobs/:id`
+- portable job cancel/result-selection endpoints
+- H3 regeneration availability/create/poll/cancel endpoints
 
 Job metadata is persisted under `apps/server/data/model-gateway-jobs` when the server runs from that workspace. No secrets are serialized. Cloud mode does not expose local job creation.
 
 ## Known MVP limitations
 
-- Active sources are current composition frame and external image file. Selected-layer frame, footage-item, composition-region, matte-layer and AE-mask sources remain inactive follow-up architecture.
+- Schema-derived sources implemented today are current, first and last composition frames and external image/video/audio files. True selected-layer/footage extraction and work-area/fragment rendering remain follow-up work; an unsupported source is disabled rather than silently substituted for published tools that declare it.
 - Inpainting/outpainting/edit/upscale are shown only when the live catalog exposes the corresponding capability, input contract and executable runner. The current general image catalog primarily exposes text-to-image and image-to-image; no model-name heuristics are used.
 - PNG, JPEG, WebP and TIFF imports are attempted through AE. Original unsupported provider files are preserved, but no new conversion dependency was added; automatic PNG conversion requires an existing conversion layer.
 - Batch outputs are downloaded and imported together. The first replaces the placeholder; the rest remain in the Project panel and can be added together without duplicating existing source layers.
-- Provider cancellation is not exposed by the current gateway, so no Cancel button is shown.
+- Cancel marks the local job cancelled and prevents a late provider result from replacing the placeholder. Already-running provider compute stops only when that provider/worker exposes and receives a cancellation primitive; this is not guaranteed for every adapter.
 - A server restart cannot resume a provider operation whose polling state lives inside the adapter; persisted queued/running jobs are marked failed with a restart explanation. The output remains on disk if it was already written.
 - Placeholder references use composition id, layer index, and footage item id. Reordering/removing the placeholder during generation can prevent automatic metadata attachment; the downloaded result and manifest are still retained.
 - CEP itself and ExtendScript integration require manual verification in a real After Effects installation; automated tests cover the client, filtering, parameter mapping, job state, manifest, and server job orchestration.

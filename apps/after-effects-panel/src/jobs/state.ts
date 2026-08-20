@@ -1,5 +1,5 @@
 import type { PersistedJob } from "../types";
-export type JobPhase = "idle" | "exporting_current_frame" | "validating_input" | "uploading_asset" | "creating_job" | "provider_queued" | "provider_running" | "downloading_results" | "results_downloaded" | "importing_images" | "importing_video" | "replacing_placeholder" | "organizing_project_items" | "writing_manifest" | "writing_ae_metadata" | "completed" | "completed_with_warning" | "failed";
+export type JobPhase = "idle" | "exporting_current_frame" | "validating_input" | "uploading_asset" | "creating_job" | "provider_queued" | "provider_running" | "downloading_results" | "results_downloaded" | "importing_images" | "importing_video" | "replacing_placeholder" | "organizing_project_items" | "writing_manifest" | "writing_ae_metadata" | "completed" | "completed_with_warning" | "failed" | "cancelled";
 export type JobState = { phase: JobPhase; message?: string; jobId?: string };
 export type JobAction = { type: "phase"; phase: JobPhase; message?: string; jobId?: string } | { type: "reset" };
 export function jobReducer(_state: JobState, action: JobAction): JobState { return action.type === "reset" ? { phase: "idle" } : { phase: action.phase, message: action.message, jobId: action.jobId }; }

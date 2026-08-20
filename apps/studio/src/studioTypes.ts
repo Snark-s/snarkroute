@@ -514,6 +514,7 @@ export type NodeManifest = {
   params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown; options?: Array<{ value: unknown; label?: string }>; min?: number; max?: number; step?: number; binding?: { nodeId: string; paramId: string }; poseManaged?: boolean }>;
   canvasAction?: {
     enabled: boolean;
+    surface?: "livingCanvas" | "brandeshmyg";
     title?: string;
     description?: string;
     icon?: { kind: "preset"; name: string } | { kind: "custom"; svg?: string; dataUrl?: string };
@@ -524,6 +525,7 @@ export type NodeManifest = {
       preview?: Array<{ kind: "image" | "video" | "audio" | "panorama360" | "splat"; source: "input" | { output: string } | { pause: string } }>;
     };
   };
+  tool?: unknown;
   generatedWith?: unknown;
   ui?: {
     params?: Record<string, {

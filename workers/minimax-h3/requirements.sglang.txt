@@ -1,0 +1,3 @@
+# CUDA/SGLang image only. Audited CPython 3.12 ABI3 Linux x86_64 wheel.
+comfy-kitchen==0.2.31 \
+    --hash=sha256:d7c2522e6a6cde7a7303e30d739c05989cf4b0a246684e496a129b950055d35f

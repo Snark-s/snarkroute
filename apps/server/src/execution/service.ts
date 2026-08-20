@@ -1,8 +1,10 @@
 import { createExecutor } from "@snarkroute/executor";
 import { createGeminiLlmNodeRunner, createNanoBanana2NodeRunner } from "@snarkroute/gemini";
+import { createH3NodeRunner } from "@snarkroute/h3";
+import { createLocalUpscaleNodeRunner } from "@snarkroute/local-upscale";
 import { registerBuiltInNodeRunners, registerInstalledNodeRunners } from "@snarkroute/nodes";
 import { createClarityUpscalerNodeRunner, createReplicateNodeRunner } from "@snarkroute/replicate";
-import { createModelResolver } from "@snarkroute/openrouter";
+import { createModelResolver, createOpenRouterVideoNodeRunner } from "@snarkroute/openrouter";
 import { createPolzaImageNodeRunner, createPolzaTextNodeRunner, createPolzaVideoNodeRunner } from "@snarkroute/polza";
 import { createRemoteImageNodeRunner, createRemoteTextNodeRunner, loadModelRouteMappings } from "./model-gateway-runners";
 import { getCanvasActionsDirectory } from "../canvas-actions/service";
@@ -21,10 +23,13 @@ export async function createRouteExecutor() {
   executor.registerNodeRunner("replicate.clarity-upscaler", createClarityUpscalerNodeRunner());
   executor.registerNodeRunner("gemini.llm", createGeminiLlmNodeRunner());
   executor.registerNodeRunner("gemini.nano-banana-2", createNanoBanana2NodeRunner());
+  executor.registerNodeRunner("minimax.h3.generate", createH3NodeRunner());
+  executor.registerNodeRunner("local_upscale", createLocalUpscaleNodeRunner());
   executor.registerNodeRunner("polza.text", createPolzaTextNodeRunner());
   executor.registerNodeRunner("polza.image.generate", createPolzaImageNodeRunner());
   executor.registerNodeRunner("polza.video.generate", createPolzaVideoNodeRunner());
   executor.registerNodeRunner("ai.text", createRemoteTextNodeRunner(modelResolver));
   executor.registerNodeRunner("ai.image.generate", createRemoteImageNodeRunner(modelResolver));
+  executor.registerNodeRunner("ai.video.generate", createOpenRouterVideoNodeRunner());
   return executor;
 }
