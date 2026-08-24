@@ -9,11 +9,11 @@ describe("ModelGatewayJobService", () => {
   it("runs a provider-neutral request through the injected route executor and persists completion", async () => {
     const log = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const directory = await mkdtemp(join(tmpdir(), "snarkroute-job-")); directories.push(directory);
-    const service = new ModelGatewayJobService(directory, async (_job, outputDirectory) => ({ runId: "r", status: "succeeded", startedAt: "a", completedAt: "b", logs: [], provenance: {}, economics: {} as never, costSummary: {} as never, outputDirectory, nodeResults: { generate: { nodeId: "generate", type: "polza.video.generate", status: "succeeded", output: { video: { path: join(outputDirectory, "video.mp4"), filename: "video.mp4", mimeType: "video/mp4" }, provider: "polza", model: "wan/2.6", estimatedCost: 1, actualCost: null }, logs: [], startedAt: "a", completedAt: "b" } } }));
+    const service = new ModelGatewayJobService(directory, async (_job, outputDirectory) => ({ runId: "r", status: "succeeded", startedAt: "a", completedAt: "b", logs: [], provenance: {}, economics: {} as never, costSummary: {} as never, outputDirectory, nodeResults: { generate: { nodeId: "generate", type: "polza.video.generate", status: "succeeded", output: { video: { path: join(outputDirectory, "video.mp4"), filename: "video.mp4", mimeType: "video/mp4", resultUrl: "https://provider.example/result.mp4" }, provider: "polza", model: "wan/2.6", estimatedCost: 1, actualCost: null }, logs: [], startedAt: "a", completedAt: "b" } } }));
     const created = await service.create({ capability: "video.generate", nodeType: "polza.video.generate", modelId: "stored-wan", providerModelId: "wan/2.6", provider: "polza", prompt: "move", parameters: { duration: 5, nested: { apiKey: "must-not-be-logged" } } });
     let current = await service.get(created.id);
     for (let i = 0; i < 20 && current?.status !== "completed"; i++) { await new Promise((resolve) => setTimeout(resolve, 5)); current = await service.get(created.id); }
-    expect(current).toMatchObject({ status: "completed", result: { modelId: "wan/2.6", provider: "polza" } });
+    expect(current).toMatchObject({ status: "completed", result: { modelId: "wan/2.6", provider: "polza" }, outputs: [{ resultUrl: "https://provider.example/result.mp4" }] });
     expect(JSON.stringify(log.mock.calls)).not.toContain("must-not-be-logged");
     expect(JSON.stringify(log.mock.calls)).toContain("[redacted]");
     log.mockRestore();
@@ -25,6 +25,11 @@ describe("ModelGatewayJobService", () => {
     const created = await service.create({ capability: "video.generate", nodeType: "ai.video.generate", modelId: "kwaivgi/kling-v3.0-pro", providerModelId: "kwaivgi/kling-v3.0-pro", provider: "openrouter", prompt: "move" });
     let current = await service.get(created.id); for (let i = 0; i < 20 && current?.status !== "completed"; i++) { await new Promise((resolve) => setTimeout(resolve, 5)); current = await service.get(created.id); }
     expect(current).toMatchObject({ status: "completed", result: { modelId: "kwaivgi/kling-v3.0-pro", provider: "openrouter" } });
+  });
+
+  it("preserves the selected KIE provider route separately from canonical identity", () => {
+    const job = { id: "gen_kie", status: "queued", createdAt: "now", updatedAt: "now", request: { capability: "video.generate", nodeType: "ai.video.generate", modelId: "kling-3.0-pro", providerModelId: "kling-3.0/video", provider: "kie", prompt: "move" } } as GenerationJob;
+    expect(generationRouteFromJob(job).nodes[0]).toMatchObject({ type: "ai.video.generate", params: { model: "kling-3.0/video", providerModelId: "kling-3.0/video", provider: "kie", executionProvider: "kie" } });
   });
 
   it("maps the uploaded image asset to the selected Polza model image input", () => {
@@ -64,6 +69,18 @@ describe("ModelGatewayJobService", () => {
     const created = await service.create({ capability: "image.upscale", nodeType: "local_upscale", outputMediaType: "image", modelId: "local_upscale/4x-test", providerModelId: "4x-test", provider: "local_upscale", inputs: [{ kind: "image", assetId: "asset_1", path: "C:\\input.png" }] });
     let current = await service.get(created.id); for (let i = 0; i < 20 && current?.status !== "completed"; i++) { await new Promise((resolve) => setTimeout(resolve, 5)); current = await service.get(created.id); }
     expect(current).toMatchObject({ status: "completed", progress: 1, result: { provider: "local_upscale", actualCost: 0 }, costs: { providerCost: 0, baseCost: 0 } });
+  });
+
+  it("persists a provider task id as soon as provider polling starts", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "snarkroute-provider-task-job-")); directories.push(directory);
+    const service = new ModelGatewayJobService(directory, async (_job, outputDirectory, control) => {
+      await control.onProgress(0.05, "provider_job:task_kie_123");
+      return successfulRun(outputDirectory);
+    });
+    const created = await service.create({ capability: "video.generate", nodeType: "ai.video.generate", modelId: "wan-2.6", providerModelId: "wan/2-6-text-to-video", provider: "kie" });
+    let current = await service.get(created.id);
+    for (let i = 0; i < 20 && current?.status !== "completed"; i++) { await new Promise((resolve) => setTimeout(resolve, 5)); current = await service.get(created.id); }
+    expect(current).toMatchObject({ status: "completed", providerJobId: "task_kie_123" });
   });
 
   it("maps external image assets and parameters into an image-to-image runner", () => {

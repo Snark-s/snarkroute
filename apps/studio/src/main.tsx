@@ -42,7 +42,7 @@ import {
   type ModelProfile,
   type OpenRoute
 } from "@snarkroute/protocol";
-import { modelMaxImageInputsV1 } from "@snarkroute/model-catalog";
+import { modelInputSlotsV1, modelMaxImageInputsV1, modelRunnableWithSuppliedInputsV1 } from "@snarkroute/model-catalog";
 import { Panorama360Viewer as SharedPanorama360Viewer, SplatViewer, renderPanoramaFrame, type SplatViewerRuntime as SplatRuntime } from "@snarkroute/media-viewers";
 import { Aperture, ArrowDown, ArrowUp, BookOpen, Braces, Bug, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock3, Copy, Cpu, Crop, Download, Eraser, Expand, Eye, FileJson, FileText, Film, FolderOpen, Github, Globe, ImageIcon, KeyRound, Lock, MessageSquareText, Music, PanelLeftClose, PanelRightClose, Pin, Play, Plus, Power, RefreshCw, Save, Search, Sparkles, Trash2, Type, Upload, Video, Wand2, Wrench, X } from "lucide-react";
 import { Archive, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clipboard, Cog, Compass, Database, EyeOff, FileAudio, FileImage, FileVideo, Filter, Flag, FlipHorizontal, FlipVertical, Folder, FolderPlus, Grid3X3, Headphones, Heart, Layers3, Link, List, Mail, Map as MapIcon, MapPin, Maximize2, MessageSquare, Mic, Minimize2, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Radio, Repeat, RotateCcw, RotateCw, Route, Scissors, Send, Settings, Share2, Shuffle, SlidersHorizontal, Square, Star, Table, Volume2, Zap, ZoomIn, ZoomOut } from "lucide-react";
@@ -321,6 +321,17 @@ const library = [
     }
   },
   {
+    type: "ai.video.generate",
+    label: "Video Generation",
+    params: {
+      model: "google/veo-3.1-fast",
+      prompt: "Create a polished short video.",
+      aspectRatio: "16:9",
+      resolution: "720p",
+      duration: "5"
+    }
+  },
+  {
     type: "gemini.nano-banana-2",
     label: "Nano Banana 2",
     params: {
@@ -440,6 +451,7 @@ const librarySections = [
   { id: "inputs-assets", title: "Inputs & Assets", types: ["input.text", "library.prompt", "input.image", "input.video", "input.file", "compound.input", "compound.output"] },
   { id: "text-prompting", title: "Text & Prompting", types: ["dialogue.workbench", "text.promptCompose", "transform.template", "ai.text", "gemini.llm"] },
   { id: "image-generation", title: "Image Generation", types: ["ai.image.generate", "gemini.nano-banana-2", "local.stableDiffusion.textToImage", "ai.image.sd15.qr_monster_hidden_control"] },
+  { id: "video-generation", title: "Video Generation", types: ["ai.video.generate"] },
   { id: "image-tools", title: "Image Tools & Preview", types: ["replicate.clarity-upscaler", "preview.image", "preview.panorama360", "transform.chooseCameraPoint", "transform.panorama360ToFisheye"] },
   { id: "api-integration", title: "API & Integration", types: ["http.request"] },
   { id: "outputs", title: "Outputs", types: ["output.text", "output.file"] },
@@ -2966,11 +2978,38 @@ function selectedModelOptionForRouteNode(
 ): ModelOptionForNodeV1 | undefined {
   const selectedModelId = String(routeNode.params?.model ?? "");
   if (!selectedModelId) return undefined;
-  return (modelOptionsForNodes[routeNode.type] ?? []).find((model) =>
+  const model = (modelOptionsForNodes[routeNode.type] ?? []).find((model) =>
     model.storedModelId === selectedModelId ||
     model.providerModelId === selectedModelId ||
-    model.id === selectedModelId
+    model.id === selectedModelId ||
+    model.providerRoutes?.some((route) => route.storedModelId === selectedModelId || route.providerModelId === selectedModelId)
   );
+  if (!model?.providerRoutes?.length) return model;
+  const provider = String(routeNode.params?.executionProvider ?? routeNode.params?.provider ?? "");
+  const providerModelId = String(routeNode.params?.providerModelId ?? "");
+  const route = model.providerRoutes.find((candidate) => candidate.provider === provider && (!providerModelId || candidate.providerModelId === providerModelId)) ?? model.providerRoutes[0];
+  if (!route) return model;
+  const image = route.ioContract?.inputs?.find((item) => item.kind === "image");
+  const requiredImageInputs = image?.minItems ?? (image?.required ? 1 : 0);
+  return {
+    ...model,
+    provider: route.provider,
+    providerModelId: route.providerModelId,
+    executionProvider: route.provider,
+    inputTypes: route.inputTypes,
+    outputTypes: route.outputTypes,
+    capabilities: route.capabilities,
+    parameters: route.parameters,
+    pricing: route.pricing,
+    ioContract: route.ioContract,
+    inputContract: route.ioContract,
+    requiredImageInputs,
+    maximumImageInputs: image?.maxItems,
+    optionalImageInputs: image ? Math.max(0, (image.maxItems ?? 1) - requiredImageInputs) : 0,
+    inputRoles: modelInputSlotsV1({ ioContract: route.ioContract }).filter((slot) => slot.kind === "image").map((slot) => slot.role),
+    runnableWithSuppliedInputs: modelRunnableWithSuppliedInputsV1({ ioContract: route.ioContract }, {}),
+    metadata: { ...(model.metadata ?? {}), ...(route.metadata ?? {}), providerConstraints: route.constraints }
+  };
 }
 
 function modelAcceptsPortKind(model: ModelOptionForNodeV1, kind: PortKind): boolean {
@@ -3032,7 +3071,7 @@ function manifestInputPortSpec(port: NodeManifest["inputs"][number]): PortSpec {
 }
 
 function isModelQuoteableNodeType(type: string): boolean {
-  return ["ai.text", "ai.image.generate", "gemini.nano-banana-2", "polza.text", "polza.image.generate", "polza.video.generate"].includes(type);
+  return ["ai.text", "ai.image.generate", "ai.video.generate", "gemini.nano-banana-2", "polza.text", "polza.image.generate", "polza.video.generate"].includes(type);
 }
 
 function unknownQuotePreview(node: RouteDoc["nodes"][number]): ModelQuotePreview {
@@ -3403,6 +3442,39 @@ function rutronixTextCatalogPreset(item: NodeCatalogItem, options: ModelOptionFo
   };
 }
 
+function kieCatalogPreset(item: NodeCatalogItem, options: ModelOptionForNodeV1[]): NodeCatalogItem | null {
+  const titleByType: Record<string, string> = {
+    "ai.text": "KIE.ai Text",
+    "ai.image.generate": "KIE.ai Image",
+    "ai.video.generate": "KIE.ai Video"
+  };
+  const title = titleByType[item.type];
+  if (!title) return null;
+  const model = options.find((entry) =>
+    entry.providerRoutes?.some((route) => route.provider === "kie" && route.availability?.status === "available" && route.availability.configured !== false)
+    || entry.executionProvider === "kie" && entry.availability?.status === "available" && entry.availability.configured !== false
+  );
+  if (!model) return null;
+  const route = model.providerRoutes?.find((candidate) => candidate.provider === "kie") ?? {
+    provider: model.provider,
+    providerModelId: model.providerModelId,
+    storedModelId: model.storedModelId
+  };
+  return {
+    ...item,
+    title,
+    params: {
+      ...(item.params ?? {}),
+      model: route.storedModelId,
+      canonicalModelId: model.canonicalModelId ?? model.id,
+      providerModelId: route.providerModelId,
+      provider: "kie",
+      executionProvider: "kie",
+      providerMode: "auto"
+    }
+  };
+}
+
 type NodeCatalogSection = { id: string; title: string; types: string[]; items: NodeCatalogItem[] };
 
 function groupNodeCatalog(items: NodeCatalogItem[], layout: NodeLibraryLayout): NodeCatalogSection[] {
@@ -3466,12 +3538,20 @@ function catalogItemMatchesSearch(item: NodeCatalogItem, query: string): boolean
     manifest?.author.name,
     manifest?.origin,
     manifest?.source,
+    ...providerSearchAliasesForNodeType(item.type),
     ...(manifest?.tags ?? []),
     ...(manifest?.inputs ?? []).flatMap((port) => [port.id, port.type, port.label]),
     ...(manifest?.outputs ?? []).flatMap((port) => [port.id, port.type, port.label]),
     ...(manifest?.params ?? []).flatMap((param) => [param.id, param.type, param.label])
   ];
   return searchable.some((value) => String(value ?? "").toLowerCase().includes(query));
+}
+
+function providerSearchAliasesForNodeType(type: string): string[] {
+  if (type === "ai.text") return ["KIE.ai", "OpenRouter", "RuTronix"];
+  if (type === "ai.image.generate") return ["KIE.ai", "OpenRouter", "polza.ai", "Gemini"];
+  if (type === "ai.video.generate") return ["KIE.ai", "OpenRouter", "polza.ai"];
+  return [];
 }
 
 function connectionNodeEntryMatchesSearch(entry: ConnectionNodeEntry, query: string): boolean {
@@ -4166,6 +4246,9 @@ function App() {
   const [polzaConfigured, setPolzaConfigured] = useState(false);
   const [polzaMaskedKey, setPolzaMaskedKey] = useState("");
   const [polzaKeyFingerprint, setPolzaKeyFingerprint] = useState("");
+  const [kieToken, setKieToken] = useState("");
+  const [kieConfigured, setKieConfigured] = useState(false);
+  const [kieMaskedKey, setKieMaskedKey] = useState("");
   const [rutronixToken, setRutronixToken] = useState("");
   const [rutronixConfigured, setRutronixConfigured] = useState(false);
   const [rutronixMaskedKey, setRutronixMaskedKey] = useState("");
@@ -4789,6 +4872,8 @@ function App() {
       setPolzaConfigured(Boolean(result.polza?.configured));
       setPolzaMaskedKey(String(result.polza?.maskedApiKey ?? ""));
       setPolzaKeyFingerprint(String(result.polza?.apiKeyFingerprint ?? ""));
+      setKieConfigured(Boolean(result.kie?.configured));
+      setKieMaskedKey(String(result.kie?.maskedApiKey ?? ""));
       setRutronixConfigured(Boolean(result.rutronix?.configured));
       setRutronixMaskedKey(String(result.rutronix?.maskedApiKey ?? ""));
       setRutronixKeyFingerprint(String(result.rutronix?.apiKeyFingerprint ?? ""));
@@ -4813,6 +4898,8 @@ function App() {
       setSeedanceBaseUrl("");
       setPolzaConfigured(false);
       setPolzaMaskedKey("");
+      setKieConfigured(false);
+      setKieMaskedKey("");
       setRutronixConfigured(false);
       setRutronixMaskedKey("");
       setRutronixKeyFingerprint("");
@@ -4933,7 +5020,7 @@ function App() {
   }
 
   async function loadModelOptionsForNodes() {
-    const nodeTypes = ["polza.image.generate", "polza.text", "polza.video.generate", "ai.image.generate", "ai.text"];
+    const nodeTypes = ["polza.image.generate", "polza.text", "polza.video.generate", "ai.image.generate", "ai.video.generate", "ai.text", "local_upscale", "local_video_upscale"];
     try {
       const entries = await Promise.all(nodeTypes.map(async (nodeType) => [nodeType, await fetchModelsForNode(nodeType)] as const));
       setModelOptionsForNodes(Object.fromEntries(entries));
@@ -5410,6 +5497,48 @@ function App() {
       setSettingsMessage(`Polza.ai key saved locally${result.polza?.apiKeyFingerprint ? ` (fingerprint ${result.polza.apiKeyFingerprint})` : ""}.`);
       setLogs((current) => [`Polza.ai key saved locally${result.polza?.apiKeyFingerprint ? ` (fingerprint ${result.polza.apiKeyFingerprint})` : ""}.`, ...current]);
       await loadPolzaModels();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    }
+  }
+
+  async function saveKieToken() {
+    const token = kieToken.trim();
+    if (!token) { setSettingsMessage("KIE_API_KEY cannot be empty."); return; }
+    try {
+      const response = await fetch(`${apiBase}/api/settings/kie-token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kieApiKey: token })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to save KIE.ai key.");
+      setKieConfigured(Boolean(result.kie?.configured));
+      setKieMaskedKey(String(result.kie?.maskedApiKey ?? ""));
+      setKieToken("");
+      setSettingsMessage("KIE.ai key saved locally.");
+      setLogs((current) => ["KIE.ai key saved locally.", ...current]);
+      await loadModelOptionsForNodes();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsMessage(message);
+      setLogs((current) => [`Settings error: ${message}`, ...current]);
+    }
+  }
+
+  async function removeKieToken() {
+    try {
+      const response = await fetch(`${apiBase}/api/settings/kie-token`, { method: "DELETE" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? "Failed to remove KIE.ai key.");
+      setKieConfigured(false);
+      setKieMaskedKey("");
+      setKieToken("");
+      setSettingsMessage("KIE.ai key removed from local settings.");
+      setLogs((current) => ["KIE.ai key removed from local settings.", ...current]);
+      await loadModelOptionsForNodes();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       setSettingsMessage(message);
@@ -6406,6 +6535,7 @@ function App() {
   function renderLibraryItem(item: NodeCatalogItem, section: NodeCatalogSection) {
     const isHidden = hiddenNodeTypes.has(item.type);
     const rutronixPreset = rutronixTextCatalogPreset(item, modelOptionsForNodes["ai.text"] ?? []);
+    const kiePreset = kieCatalogPreset(item, modelOptionsForNodes[item.type] ?? []);
     return (
       <React.Fragment key={item.type}>
         <div
@@ -6432,6 +6562,16 @@ function App() {
               <strong>RuTronix</strong>
               <span>ai.text · RuTronix catalog preset</span>
               <small>{rutronixPreset.params?.model as string}</small>
+            </button>
+          </div>
+        ) : null}
+        {kiePreset ? (
+          <div className="libraryItem">
+            <button className="libraryItemMain" onClick={() => addNodeFromCatalogItem(kiePreset)}>
+              <span className={`libraryNodeIcon ${nodeIconClass(item.type)}`}>{nodeIcon(item.type)}</span>
+              <strong>{kiePreset.title}</strong>
+              <span>{item.type} · KIE.ai catalog preset</span>
+              <small>{kiePreset.params?.model as string}</small>
             </button>
           </div>
         ) : null}
@@ -8664,6 +8804,18 @@ function App() {
             <label className="settingsField"><span>RUTRONIX_API_KEY</span><input id="rutronix-api-key-input" type="password" value={rutronixToken} placeholder={rutronixConfigured ? "***************" : "Paste key"} onChange={(event) => setRutronixToken(event.target.value)} autoComplete="off" /></label>
             <div className="settingsActions"><button onClick={() => void saveRutronixToken()}><Save size={16} /> Save Key</button></div>
           </div>
+          <div className="providerCard" id="kie-settings-section">
+            <div className="providerHeader"><h4>KIE.ai</h4><span>Image and video models through the shared Model Gateway</span></div>
+            <div className={`settingsStatus ${kieConfigured ? "configured" : ""}`}><KeyRound size={14} /> KIE.ai: {kieConfigured ? `key configured (${kieMaskedKey || "********"})` : "not configured"}</div>
+            <div className="settingsLinks">
+              <a className="settingsLink" href="https://kie.ai/api-key" target="_blank" rel="noreferrer">Get API Key</a>
+              <a className="settingsLink" href="https://docs.kie.ai/" target="_blank" rel="noreferrer">Docs</a>
+              <a className="settingsLink" href="https://kie.ai/market" target="_blank" rel="noreferrer">Browse Models</a>
+            </div>
+            <label className="settingsField"><span>KIE_API_KEY</span><input id="kie-api-key-input" type="password" value={kieToken} placeholder={kieConfigured ? "***************" : "Paste key"} onChange={(event) => setKieToken(event.target.value)} autoComplete="off" /></label>
+            <div className="settingsActions"><button onClick={() => void saveKieToken()}><Save size={16} /> Save Key</button>{kieConfigured ? <button onClick={() => void removeKieToken()}><Trash2 size={16} /> Remove Key</button> : null}</div>
+            <small className="settingsHint">The key is stored in the local server environment and never included in route files or logs.</small>
+          </div>
           <div className="providerCard">
             <div className="providerHeader">
               <h4>Polza.ai</h4>
@@ -9499,6 +9651,7 @@ function formatBytes(bytes: number): string {
     value /= 1024;
     unitIndex += 1;
   }
+
   const digits = value >= 10 || unitIndex === 0 ? 0 : 1;
   return `${value.toFixed(digits)} ${units[unitIndex]}`;
 }

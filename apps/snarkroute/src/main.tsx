@@ -17,10 +17,12 @@ import {
   mergeProviderAndUserDefinedPickerModels,
   modelAspectRatioLockedToInput,
   modelDurationGuidance,
+  modelDisplayId,
   modelMatchesCatalogGroup,
   modelGenerationParameters,
   modelImageInputLimit,
   modelParameterEnabled,
+  modelRouteSelectionForProvider,
   modelSelectionId,
   modelsCompatibleWithNodeInputs,
   modelsForContentKind,
@@ -627,7 +629,7 @@ interface GenerationFeedback {
   error?: boolean;
 }
 
-type ProviderId = "polza" | "rutronix" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
+type ProviderId = "polza" | "kie" | "rutronix" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
 type NodeRepresentationType = "image" | "video" | "audio" | "text";
 
 interface ProviderDefinition {
@@ -652,6 +654,7 @@ interface LocalProviderConnection {
 
 const providerDefinitions: ProviderDefinition[] = [
   { id: "polza", title: "Polza", capabilityText: "Image generation catalog", settingsEndpoint: "/api/settings/polza-token", keyField: "polzaAiApiKey", refreshModels: true },
+  { id: "kie", title: "KIE.ai", capabilityText: "Image, video, and text models", settingsEndpoint: "/api/settings/kie-token", keyField: "kieApiKey", testEndpoint: "/api/providers/kie/test" },
   { id: "rutronix", title: "RuTronix", capabilityText: "Text models with RUB token billing", settingsEndpoint: "/api/settings/rutronix-token", keyField: "rutronixApiKey", refreshModels: true },
   { id: "openrouter", title: "OpenRouter", capabilityText: "Text and multimodal routed models", settingsEndpoint: "/api/settings/openrouter", keyField: "openRouterApiKey", testEndpoint: "/api/providers/openrouter/test", refreshModels: true },
   { id: "gemini", title: "Gemini", capabilityText: "Image generation / multimodal", settingsEndpoint: "/api/settings/gemini-token", keyField: "geminiApiKey" },
@@ -6150,7 +6153,7 @@ function ImageNode({
   const displayModels = mergeModelsForDisplay(compatibleModels);
   const selectedDisplayModel = displayModels.find((entry) =>
     entry.routes.some((route) => route.id === modelSelection.modelId && (modelSelection.executionProvider === "auto" || route.providerId === modelSelection.executionProvider))
-  ) ?? displayModels.find((entry) => entry.model.id === modelSelection.modelId);
+  ) ?? displayModels.find((entry) => modelDisplayId(entry.model) === modelSelection.modelId);
   const selectedRoutes = selectedDisplayModel?.routes ?? [];
   const selectedModel: ModelOption = selectedRoutes.find((model) => model.providerId === modelSelection.executionProvider) ?? selectedRoutes[0] ?? compatibleModels[0] ?? {
     id: "",
@@ -6163,12 +6166,15 @@ function ImageNode({
     isAvailable: false
   };
   const effectiveSelection: ModelRouteSelection = selectedModel.id && selectedModel.id !== modelSelection.modelId
-    ? { modelId: selectedModel.id, executionProvider: "auto", fallbackAllowed: true }
+    ? selectedDisplayModel
+      ? { ...modelSelection, modelId: selectedModel.id }
+      : { modelId: selectedModel.id, executionProvider: "auto", fallbackAllowed: true }
     : modelSelection;
   const normalizedModelQuery = modelQuery.toLowerCase();
   const visibleModels = displayModels.filter(({ model, providers, routes }) =>
     model.title.toLowerCase().includes(normalizedModelQuery)
     || model.id.toLowerCase().includes(normalizedModelQuery)
+    || modelDisplayId(model).toLowerCase().includes(normalizedModelQuery)
     || providers.some((provider) => provider.toLowerCase().includes(normalizedModelQuery) || providerDisplayName(provider).toLowerCase().includes(normalizedModelQuery))
     || routes.some((route) => route.title.toLowerCase().includes(normalizedModelQuery) || route.id.toLowerCase().includes(normalizedModelQuery))
   );
@@ -6681,9 +6687,9 @@ function ImageNode({
                     <input value={modelQuery} placeholder="Search model" onChange={(event) => setModelQuery(event.currentTarget.value)} />
                     <div className="modelMenuList" data-canvas-wheel-scroll>
                       {visibleModels.map(({ model, providers }) => (
-                        <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
+                        <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: model.providerId, fallbackAllowed: true })}>
                           <ModelLogoImage logo={modelLogoForOption(model)} />
-                          <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
+                          <span><strong>{model.title}</strong><small>{modelDisplayId(model)}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
                         </button>
                       ))}
                       {visibleModels.length === 0 ? (
@@ -6703,10 +6709,10 @@ function ImageNode({
                 {routeSettingsOpen ? (
                   <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
                     <strong>{selectedModel.title}</strong>
-                    <small className="routeModelId">{selectedModel.id}</small>
+                    <small className="routeModelId">{modelDisplayId(selectedModel)}</small>
                     <label>
                       Run via
-                      <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, executionProvider: event.currentTarget.value })}>
+                      <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, modelRouteSelectionForProvider(effectiveSelection, selectedRoutes, event.currentTarget.value))}>
                         <option value="auto">Auto</option>
                         {selectedRoutes.map((route) => <option key={route.providerId} value={route.providerId}>{executionRouteDisplayName(route.providerId)}</option>)}
                       </select>
@@ -6932,11 +6938,11 @@ function ImageNode({
                   />
                   <div className="modelMenuList" data-canvas-wheel-scroll>
                     {visibleModels.map(({ model, providers }) => (
-                      <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
+                      <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: model.providerId, fallbackAllowed: true })}>
                 <ModelLogoImage logo={modelLogoForOption(model)} />
                         <span>
                           <strong>{model.title}</strong>
-                          <small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>
+                          <small>{modelDisplayId(model)}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>
                         </span>
                       </button>
                     ))}
@@ -6963,12 +6969,12 @@ function ImageNode({
               {routeSettingsOpen && (
                 <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
                   <strong>{selectedModel.title}</strong>
-                  <small className="routeModelId">{selectedModel.id}</small>
+                  <small className="routeModelId">{modelDisplayId(selectedModel)}</small>
                   <label>
                     Run via
                     <select
                       value={effectiveSelection.executionProvider}
-                      onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, executionProvider: event.currentTarget.value })}
+                      onChange={(event) => onChangeRouteSettings(node.manifest.id, modelRouteSelectionForProvider(effectiveSelection, selectedRoutes, event.currentTarget.value))}
                     >
                       <option value="auto">Auto</option>
                       {selectedRoutes.map((route) => <option key={route.providerId} value={route.providerId}>{executionRouteDisplayName(route.providerId)}</option>)}
@@ -7390,9 +7396,9 @@ function DialogueEditor({
               <input value={modelQuery} placeholder="Search model" onChange={(event) => setModelQuery(event.currentTarget.value)} />
               <div className="modelMenuList" data-canvas-wheel-scroll>
                 {visibleModels.map(({ model, providers }) => (
-                  <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
+                  <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: model.providerId, fallbackAllowed: true })}>
                     <ModelLogoImage logo={modelLogoForOption(model)} />
-                    <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
+                    <span><strong>{model.title}</strong><small>{modelDisplayId(model)}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small></span>
                   </button>
                 ))}
                 {visibleModels.length === 0 ? <div className="modelMenuEmpty"><span>Нет подключённых текстовых моделей</span><button type="button" onClick={onOpenModels}>Открыть панель моделей</button></div> : null}
@@ -7407,10 +7413,10 @@ function DialogueEditor({
           {routeSettingsOpen ? (
             <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
               <strong>{selectedModel.title}</strong>
-              <small className="routeModelId">{selectedModel.id}</small>
+              <small className="routeModelId">{modelDisplayId(selectedModel)}</small>
               <label>
                 Run via
-                <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, executionProvider: event.currentTarget.value })}>
+                <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, modelRouteSelectionForProvider(effectiveSelection, selectedRoutes, event.currentTarget.value))}>
                   <option value="auto">Auto</option>
                   {selectedRoutes.map((route) => <option key={route.providerId} value={route.providerId}>{executionRouteDisplayName(route.providerId)}</option>)}
                 </select>

@@ -745,9 +745,9 @@ function applyRoleSpecificMediaInputs(input: Record<string, unknown>, images: Pr
 }
 
 function providerPrimitiveParameters(params: Record<string, unknown>) {
-  const internal = new Set(["model", "prompt", "image", "images", "audio", "audios", "video", "videos", "pricing", "apiKey", "token", "secret", "password", "user"]);
+  const internal = new Set(["model", "modelProfileId", "providerModelId", "provider", "providerMode", "executionProvider", "prompt", "image", "images", "audio", "audios", "video", "videos", "pricing", "apiKey", "token", "secret", "password", "user"]);
   const result: Record<string, string | number | boolean> = {};
-  for (const [key, value] of Object.entries(params)) if (!internal.has(key) && (typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value))) result[key] = value;
+  for (const [key, value] of Object.entries(params)) if (!internal.has(key) && !/(api.?key|token|secret|password|authorization)/i.test(key) && (typeof value === "string" || typeof value === "boolean" || typeof value === "number" && Number.isFinite(value))) result[key] = value;
   if (params.aspectRatio !== undefined && result.aspect_ratio === undefined) result.aspect_ratio = String(params.aspectRatio);
   return result;
 }

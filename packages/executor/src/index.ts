@@ -1388,6 +1388,7 @@ function numberValue(value: unknown, fallback: number): number {
 }
 
 function operationFromNodeType(type: string, kind: "free" | "text" | "image" | "video" | "transform"): string {
+  if (/video/i.test(type) && /upscale/i.test(type)) return "video.generate";
   if (/upscale/i.test(type)) return "image.upscale";
   if (kind === "video") return "video.generate";
   if (kind === "image") return "image.generate";

@@ -31,8 +31,23 @@ class OnnxRuntime:
             import onnxruntime as ort
         except ImportError as exc:
             raise WorkerError("runtime_unavailable", "Install the worker gpu extra to use ONNX Runtime.") from exc
-        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if device.startswith("cuda") else ["CPUExecutionProvider"]
-        self.session = ort.InferenceSession(str(path), providers=providers)
+        wants_cuda = device.startswith("cuda")
+        preload_dlls = getattr(ort, "preload_dlls", None)
+        if wants_cuda and callable(preload_dlls):
+            # ORT 1.21+ can reuse the CUDA/cuDNN DLLs shipped with the matching
+            # PyTorch wheel. This avoids requiring a separate system CUDA install.
+            preload_dlls()
+        if wants_cuda and "CUDAExecutionProvider" not in ort.get_available_providers():
+            raise WorkerError("runtime_unavailable", "ONNX Runtime CUDAExecutionProvider is not available.")
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if wants_cuda else ["CPUExecutionProvider"]
+        try:
+            self.session = ort.InferenceSession(str(path), providers=providers)
+        except Exception as exc:
+            if wants_cuda:
+                raise WorkerError("runtime_unavailable", "ONNX Runtime could not initialize CUDAExecutionProvider.") from exc
+            raise
+        if wants_cuda and "CUDAExecutionProvider" not in self.session.get_providers():
+            raise WorkerError("runtime_unavailable", "ONNX Runtime silently fell back from CUDAExecutionProvider.")
         self.input_name = self.session.get_inputs()[0].name
 
     def infer(self, tile: np.ndarray) -> np.ndarray:

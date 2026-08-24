@@ -25,4 +25,5 @@ describe("provider portable tool manifests", () => {
     });
     expect(JSON.stringify(result.tool)).not.toMatch(/LOCAL_UPSCALE_WORKER_TOKEN/);
   });
+
 });

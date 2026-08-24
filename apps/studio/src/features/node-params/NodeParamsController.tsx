@@ -13,7 +13,7 @@ import { FisheyeTransformParams, ImageResizeTransformParams } from "./TransformN
 import { numericParam, restorePendingTextSelection, updateTextFieldPreservingCaret } from "./paramHelpers";
 import { PromptLibraryNodeParams } from "../prompt-library/PromptLibraryNodeParams";
 import { ModelSelectWithLogo } from "../model-catalog/ModelViews";
-import { connectionRouteHelper, enrichImageGenerationModelOptions, enrichPolzaImageModelOptions, geminiLlmPricingLabel, imageAspectRatioOptions, imageGenerationModelOptions, imageModelCostLabel, imageModelOptionLabel, imageModelOptionLogo, imageModelOptionsFromNodeOptions, imageRoutePreview, imageSizeOptionsForModel, llmModelOptionLabel, modelOptionForNodeLabel, modelOptionForNodeLogo, modelSupportsText, openRouterCostLabel, openRouterModelSupportsVisionInput, polzaImageModelLogo, polzaModelHint, polzaModelSupportsVisionInput, polzaModelsFromNodeOptions, polzaProviderModelId, polzaVideoSupportsAudio, supportedOptionValue, videoModelHint, videoModelOptionKey, videoModelOptionsFromNodeOptions } from "../model-catalog/modelOptionUtils";
+import { connectionRouteHelper, enrichImageGenerationModelOptions, enrichPolzaImageModelOptions, geminiLlmPricingLabel, imageAspectRatioOptions, imageGenerationModelOptions, imageModelCostLabel, imageModelOptionLabel, imageModelOptionLogo, imageModelOptionsFromNodeOptions, imageRoutePreview, imageSizeOptionsForModel, llmModelOptionLabel, modelOptionForNodeLabel, modelOptionForNodeLogo, modelSupportsText, openRouterCostLabel, openRouterModelSupportsVisionInput, polzaImageModelLogo, polzaModelHint, polzaModelSupportsVisionInput, polzaModelsFromNodeOptions, polzaProviderModelId, polzaVideoSupportsAudio, providerRouteOptionLabel, providerRouteSelectionKey, supportedOptionValue, videoModelHint, videoModelOptionKey, videoModelOptionsFromNodeOptions } from "../model-catalog/modelOptionUtils";
 import type { AssetKind, CostEstimate, ImageViewerState, ModelOptionForNodeV1, ModelQuotePreview, NodeManifest, OpenRouterModel, PendingTextSelection, PolzaModel, PromptLibraryData, PromptLibraryPrompt, PromptStatusFilter, StableDiffusionModel, UnifiedModelInfo } from "../../studioTypes";
 
 export type ChooseCameraPointParamsRenderProps = {
@@ -246,29 +246,39 @@ export function NodeParamsController({
     const promptConnected = connectedInputPorts.has("prompt");
     const model = String(params.model ?? "text.default");
     const nodeModelOptions = modelOptionsForNodes["ai.text"] ?? [];
-    const selectedNodeModel = nodeModelOptions.find((entry) => entry.storedModelId === model);
+    const selectedNodeModel = nodeModelOptions.find((entry) => entry.id === model || entry.storedModelId === model || entry.providerRoutes?.some((route) => route.providerModelId === model || route.storedModelId === model));
+    const providerRoutes = selectedNodeModel?.providerRoutes ?? [];
+    const legacyRoute = providerRoutes.find((route) => route.providerModelId === model || route.storedModelId === model);
+    const selectedProvider = String(params.executionProvider ?? params.provider ?? legacyRoute?.provider ?? providerRoutes[0]?.provider ?? selectedNodeModel?.executionProvider ?? "");
+    const selectedRoute = providerRoutes.find((route) => route.provider === selectedProvider && (!params.providerModelId || route.providerModelId === params.providerModelId)) ?? providerRoutes.find((route) => route.provider === selectedProvider) ?? providerRoutes[0];
+    const modelSelectValue = selectedNodeModel?.id ?? model;
+    const reasoningOptions = selectedRoute?.parameters.find((parameter) => parameter.id === "reasoning_effort")?.options ?? [];
     return (
       <>
         <label className="nodeField">
           <span className="nodeFieldTitle">model {modelCreditBadge}</span>
           <ModelSelectWithLogo logo={modelOptionForNodeLogo(selectedNodeModel) ?? modelLogoFor("openrouter", model)}>
-            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => {
+            <select className="nodrag nopan nodeInput nodeSelect" value={modelSelectValue} onChange={(event) => {
               const nextModel = event.target.value;
-              const option = nodeModelOptions.find((entry) => entry.storedModelId === nextModel);
-              onChange({ model: nextModel, provider: option?.executionProvider, executionProvider: option?.executionProvider, providerMode: option?.executionProvider === "rutronix" ? "rutronix" : undefined });
+              const option = nodeModelOptions.find((entry) => entry.id === nextModel || entry.storedModelId === nextModel);
+              const route = option?.providerRoutes?.[0];
+              onChange({ model: option?.id ?? nextModel, providerModelId: route?.providerModelId ?? option?.providerModelId, provider: route?.provider ?? option?.executionProvider, executionProvider: route?.provider ?? option?.executionProvider, providerMode: option?.executionProvider === "rutronix" ? "rutronix" : undefined });
             }}>
               <option value="text.default">Auto / default text model</option>
               {(nodeModelOptions.length > 0
-                ? nodeModelOptions.map((entry) => <option key={entry.id} value={entry.storedModelId}>{modelOptionForNodeLabel(entry)}</option>)
+                ? nodeModelOptions.map((entry) => <option key={entry.id} value={entry.id}>{modelOptionForNodeLabel(entry)}</option>)
                 : openRouterModels.filter((entry) => modelSupportsText(entry)).map((entry) => (
                   <option key={entry.id} value={entry.id}>{llmModelOptionLabel(entry.name ?? entry.id, entry.id, openRouterModelSupportsVisionInput(entry))}</option>
                 ))
               )}
-              {model && model !== "text.default" && !nodeModelOptions.some((entry) => entry.storedModelId === model) && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
+              {model && model !== "text.default" && !selectedNodeModel && !openRouterModels.some((entry) => entry.id === model) ? <option value={model}>{model}</option> : null}
             </select>
           </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{openRouterCostLabel(openRouterModels.find((entry) => entry.id === model))}</small>
         </label>
+        {providerRoutes.length > 1 ? <label className="nodeField"><span>provider route</span><select className="nodrag nopan nodeInput nodeSelect" value={providerRouteSelectionKey(selectedRoute)} onChange={(event) => { const route = providerRoutes.find((entry) => providerRouteSelectionKey(entry) === event.target.value); if (route) onChange({ model: selectedNodeModel?.id ?? model, provider: route.provider, executionProvider: route.provider, providerModelId: route.providerModelId, providerMode: undefined }); }}>
+          {providerRoutes.map((route) => <option key={providerRouteSelectionKey(route)} value={providerRouteSelectionKey(route)}>{providerRouteOptionLabel(route, providerRoutes)}</option>)}
+        </select></label> : null}
         <label className="nodeField">
           <span>system prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${systemPromptConnected ? "nodeParamDisabled" : ""}`} value={String(params.systemPrompt ?? "")} disabled={systemPromptConnected} onChange={(event) => updateTextParam("systemPrompt", event)} />
@@ -279,7 +289,7 @@ export function NodeParamsController({
         </label>
         <details className="nodeAdvanced">
           <summary>Advanced</summary>
-          <label className="nodeField">
+          {providerRoutes.length === 0 ? <label className="nodeField">
             <span>provider mode</span>
             <select className="nodrag nopan nodeInput nodeSelect" value={String(params.providerMode ?? "auto")} onChange={(event) => onChange({ providerMode: event.target.value })}>
               <option value="auto">Auto</option>
@@ -287,7 +297,8 @@ export function NodeParamsController({
               <option value="rutronix">RuTronix</option>
               <option value="direct">Direct</option>
             </select>
-          </label>
+          </label> : null}
+          {reasoningOptions.length > 0 ? <label className="nodeField"><span>reasoning effort</span><select className="nodrag nopan nodeInput nodeSelect" value={String(params.reasoning_effort ?? reasoningOptions[0]?.value ?? "medium")} onChange={(event) => onChange({ reasoning_effort: event.target.value })}>{reasoningOptions.map((option) => <option key={option.value} value={option.value}>{option.label ?? option.value}</option>)}</select></label> : null}
           <div className="nodeGridFields">
             <label className="nodeField"><span>temperature</span><input className="nodrag nopan nodeInput" inputMode="decimal" value={String(params.temperature ?? "")} onChange={(event) => updateTextParam("temperature", event, numericParam)} /></label>
             <label className="nodeField"><span>max tokens</span><input className="nodrag nopan nodeInput" inputMode="numeric" value={String(params.max_tokens ?? "")} onChange={(event) => updateTextParam("max_tokens", event, numericParam)} /></label>
@@ -304,7 +315,12 @@ export function NodeParamsController({
     const modelOptions = nodeModelOptions.length > 0
       ? imageModelOptionsFromNodeOptions(nodeModelOptions, model)
       : enrichImageGenerationModelOptions(imageGenerationModelOptions(openRouterModels, model), catalogImageModels ?? []);
-    const selectedModel = modelOptions.find((entry) => entry.id === model);
+    const selectedNodeModel = nodeModelOptions.find((entry) => entry.id === model || entry.storedModelId === model || entry.providerRoutes?.some((route) => route.storedModelId === model || route.providerModelId === model));
+    const providerRoutes = selectedNodeModel?.providerRoutes ?? [];
+    const selectedProvider = String(params.executionProvider ?? params.provider ?? providerRoutes[0]?.provider ?? selectedNodeModel?.executionProvider ?? "");
+    const selectedRoute = providerRoutes.find((route) => route.provider === selectedProvider && (!params.providerModelId || route.providerModelId === params.providerModelId)) ?? providerRoutes.find((route) => route.provider === selectedProvider) ?? providerRoutes[0];
+    const baseSelectedModel = modelOptions.find((entry) => entry.id === model || entry.catalogModelId === selectedNodeModel?.id);
+    const selectedModel = baseSelectedModel && selectedRoute ? { ...baseSelectedModel, slug: selectedRoute.providerModelId, provider: selectedRoute.provider, executionProvider: selectedRoute.provider, parameters: selectedRoute.parameters, pricing: selectedRoute.pricing, catalogProviderModelId: selectedRoute.providerModelId } : baseSelectedModel;
     const connectionRoute = imageConnectionRouteFromParams(params, selectedModel);
     const aspectRatioOptions = imageAspectRatioOptions(selectedModel);
     const imageSizeOptions = imageSizeOptionsForModel(selectedModel);
@@ -322,10 +338,12 @@ export function NodeParamsController({
               value={model}
               onChange={(event) => {
                 const nextModel = modelOptions.find((entry) => entry.id === event.target.value);
+                const nextNodeModel = nodeModelOptions.find((entry) => entry.id === nextModel?.catalogModelId || entry.storedModelId === event.target.value);
+                const nextRoute = nextNodeModel?.providerRoutes?.[0];
                 const nextImageSizes = imageSizeOptionsForModel(nextModel);
                 onChange({
                   model: event.target.value,
-                  ...imageRouteParamsForModel(nextModel),
+                  ...(nextRoute ? { provider: nextRoute.provider, executionProvider: nextRoute.provider, providerModelId: nextRoute.providerModelId } : imageRouteParamsForModel(nextModel)),
                   imageSize: supportedOptionValue(params.imageSize, nextImageSizes)
                 });
               }}
@@ -337,6 +355,9 @@ export function NodeParamsController({
           </ModelSelectWithLogo>
           <small className="nodeConnectedHint">{imageModelCostLabel(selectedModel)}</small>
         </label>
+        {providerRoutes.length > 1 ? <label className="nodeField"><span>provider route</span><select className="nodrag nopan nodeInput nodeSelect" value={providerRouteSelectionKey(selectedRoute)} onChange={(event) => { const route = providerRoutes.find((entry) => providerRouteSelectionKey(entry) === event.target.value); if (route) onChange({ model: selectedNodeModel?.id ?? model, provider: route.provider, executionProvider: route.provider, providerModelId: route.providerModelId, providerMode: undefined }); }}>
+          {providerRoutes.map((route) => <option key={providerRouteSelectionKey(route)} value={providerRouteSelectionKey(route)}>{providerRouteOptionLabel(route, providerRoutes)}</option>)}
+        </select></label> : null}
         <label className="nodeField">
           <span>prompt</span>
           <textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} />
@@ -355,7 +376,7 @@ export function NodeParamsController({
             </select>
           </label>
         </div>
-        <details className="nodeAdvanced">
+        {!providerRoutes.length ? <details className="nodeAdvanced">
           <summary>Advanced</summary>
           <label className="nodeField">
             <span>Connection route</span>
@@ -376,7 +397,7 @@ export function NodeParamsController({
             <div><span>Fallback</span><strong>{routePreview.fallbackUsed ? "yes" : "no"}</strong></div>
             {routePreview.fallbackReason ? <div><span>Fallback reason</span><strong>{routePreview.fallbackReason}</strong></div> : null}
           </div>
-        </details>
+        </details> : null}
       </>
     );
   }
@@ -484,6 +505,42 @@ export function NodeParamsController({
             </label>
           </div>
         </details>
+      </>
+    );
+  }
+
+  if (type === "ai.video.generate") {
+    const promptConnected = connectedInputPorts.has("prompt");
+    const options = modelOptionsForNodes["ai.video.generate"] ?? [];
+    const model = String(params.model ?? options[0]?.storedModelId ?? "");
+    const selected = options.find((entry) => entry.id === model || entry.storedModelId === model || entry.providerRoutes?.some((route) => route.providerModelId === model || route.storedModelId === model)) ?? options[0];
+    const routes = selected?.providerRoutes ?? [];
+    const provider = String(params.executionProvider ?? params.provider ?? routes[0]?.provider ?? selected?.executionProvider ?? "");
+    const route = routes.find((candidate) => candidate.provider === provider && (!params.providerModelId || candidate.providerModelId === params.providerModelId)) ?? routes.find((candidate) => candidate.provider === provider) ?? routes[0];
+    const resolutions = routeParameterOptions(route?.parameters, "resolution", POLZA_VIDEO_RESOLUTIONS);
+    const durations = routeParameterOptions(route?.parameters, "duration", POLZA_VIDEO_DURATIONS);
+    return (
+      <>
+        <label className="nodeField">
+          <span className="nodeFieldTitle">model {modelCreditBadge}</span>
+          <ModelSelectWithLogo logo={modelOptionForNodeLogo(selected) ?? modelLogoFor(provider, model)}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={selected?.id ?? model} onChange={(event) => {
+              const next = options.find((entry) => entry.id === event.target.value);
+              const nextRoute = next?.providerRoutes?.[0];
+              if (next) onChange({ model: next.id, provider: nextRoute?.provider ?? next.executionProvider, executionProvider: nextRoute?.provider ?? next.executionProvider, providerModelId: nextRoute?.providerModelId ?? next.providerModelId });
+            }}>
+              {options.length === 0 ? <option value="" disabled>Model catalog unavailable</option> : null}
+              {options.map((entry) => <option key={entry.id} value={entry.id}>{modelOptionForNodeLabel(entry)}</option>)}
+            </select>
+          </ModelSelectWithLogo>
+        </label>
+        {routes.length > 1 ? <label className="nodeField"><span>provider route</span><select className="nodrag nopan nodeInput nodeSelect" value={providerRouteSelectionKey(route)} onChange={(event) => { const next = routes.find((candidate) => providerRouteSelectionKey(candidate) === event.target.value); if (next) onChange({ provider: next.provider, executionProvider: next.provider, providerModelId: next.providerModelId }); }}>{routes.map((candidate) => <option key={providerRouteSelectionKey(candidate)} value={providerRouteSelectionKey(candidate)}>{providerRouteOptionLabel(candidate, routes)}</option>)}</select></label> : null}
+        <label className="nodeField"><span>prompt</span><textarea className={`nodrag nopan nodeTextarea ${promptConnected ? "nodeParamDisabled" : ""}`} value={String(params.prompt ?? "")} disabled={promptConnected} onChange={(event) => updateTextParam("prompt", event)} /></label>
+        <div className="nodeGridFields">
+          <label className="nodeField"><span>resolution</span><select className="nodrag nopan nodeInput nodeSelect" value={supportedOptionValue(params.resolution, resolutions)} onChange={(event) => onChange({ resolution: event.target.value })}>{resolutions.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+          <label className="nodeField"><span>duration</span><select className="nodrag nopan nodeInput nodeSelect" value={supportedOptionValue(params.duration, durations)} onChange={(event) => onChange({ duration: event.target.value })}>{durations.map((value) => <option key={value} value={value}>{value}s</option>)}</select></label>
+        </div>
+        {route?.capabilities.includes("video.generate") && route.constraints?.audio ? <label className="nodeCheckField"><input className="nodrag nopan" type="checkbox" checked={params.sound !== false} onChange={(event) => onChange({ sound: event.target.checked })} /><span>sound</span></label> : null}
       </>
     );
   }
@@ -727,6 +784,29 @@ export function NodeParamsController({
     return <HttpRequestParams params={params} onChange={onChange} updateTextParam={updateTextParam} />;
   }
 
+  if ((type === "local_upscale" || type === "local_video_upscale") && manifest?.params?.length) {
+    const modelOptions = modelOptionsForNodes[type] ?? [];
+    const model = String(params.model ?? modelOptions[0]?.storedModelId ?? "");
+    const selectedModel = modelOptions.find((option) => option.storedModelId === model || option.id === model);
+    const remainingManifest = { ...manifest, params: manifest.params.filter((param) => param.id !== "model") };
+    return (
+      <>
+        <label className="nodeField">
+          <span className="nodeFieldTitle">Model</span>
+          <ModelSelectWithLogo logo={modelOptionForNodeLogo(selectedModel) ?? modelLogoFor(type, model)}>
+            <select className="nodrag nopan nodeInput nodeSelect" value={model} onChange={(event) => onChange({ model: event.target.value })}>
+              {modelOptions.map((option) => (
+                <option key={option.id} value={option.storedModelId}>{modelOptionForNodeLabel(option)}</option>
+              ))}
+              {model && !selectedModel ? <option value={model}>{model}</option> : null}
+            </select>
+          </ModelSelectWithLogo>
+        </label>
+        <GenericManifestParams manifest={remainingManifest} params={params} onChange={onChange} updateTextParam={updateTextParam} />
+      </>
+    );
+  }
+
   if (manifest?.params?.length) {
     return <GenericManifestParams manifest={manifest} params={params} onChange={onChange} updateTextParam={updateTextParam} />;
   }
@@ -764,6 +844,11 @@ function imageRouteParamsForModel(model: { executionProvider?: string; routeSupp
   if (model?.routeSupport?.openrouter === "supported") return { provider: "openrouter", executionProvider: "openrouter", providerMode: "openrouter" };
   if (model?.routeSupport?.direct === "supported") return { provider: "gemini", executionProvider: "gemini", providerMode: "direct" };
   return {};
+}
+
+function routeParameterOptions(parameters: Array<{ id: string; options?: Array<{ value: string }> }> | undefined, id: string, fallback: string[]): string[] {
+  const values = parameters?.find((parameter) => parameter.id === id)?.options?.map((option) => String(option.value)).filter(Boolean);
+  return values?.length ? values : fallback;
 }
 
 function imageRouteParamsForConnectionRoute(route: string): Record<string, unknown> {

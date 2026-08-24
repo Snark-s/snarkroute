@@ -10,6 +10,7 @@ import { modelLogoFor, type ModelLogo } from "../../modelLogos";
 import type {
   ImageModelOption,
   ModelOptionForNodeV1,
+  ModelProviderRouteV1,
   OpenRouterModel,
   PolzaModel,
   UnifiedModelInfo,
@@ -179,7 +180,7 @@ export function enrichImageGenerationModelOptions(options: ImageModelOption[], c
 
 export function imageModelOptionsFromNodeOptions(options: ModelOptionForNodeV1[], selectedModelId: string): ImageModelOption[] {
   const mapped = options.map((entry): ImageModelOption => ({
-    id: entry.storedModelId,
+    id: entry.providerRoutes?.length ? entry.id : entry.storedModelId,
     slug: entry.providerModelId,
     label: entry.displayName,
     provider: providerLabelForModelOption(entry),
@@ -196,7 +197,8 @@ export function imageModelOptionsFromNodeOptions(options: ModelOptionForNodeV1[]
       openrouter: entry.executionProvider === "openrouter" ? "supported" : "unsupported",
       direct: entry.executionProvider === "gemini" ? "supported" : "unknown"
     },
-    pricing: entry.pricing
+    pricing: entry.pricing,
+    providerRoutes: entry.providerRoutes
   }));
   if (selectedModelId && !mapped.some((entry) => entry.id === selectedModelId)) {
     mapped.push({
@@ -267,7 +269,19 @@ export function modelOptionForNodeLogo(option: ModelOptionForNodeV1 | undefined)
 }
 
 export function modelOptionForNodeLabel(option: ModelOptionForNodeV1): string {
+  if (option.providerRoutes?.length) return option.displayName;
   return option.displayName === option.storedModelId ? option.storedModelId : `${option.displayName} (${option.storedModelId})`;
+}
+
+export function providerRouteSelectionKey(route: Pick<ModelProviderRouteV1, "provider" | "providerModelId"> | undefined): string {
+  return route ? `${route.provider}:${route.providerModelId}` : "";
+}
+
+export function providerRouteOptionLabel(route: ModelProviderRouteV1, routes: ModelProviderRouteV1[]): string {
+  const provider = route.provider === "openrouter" ? "OpenRouter" : route.provider === "polza" ? "Polza.ai" : route.provider === "kie" ? "KIE.ai" : route.provider;
+  return routes.filter((candidate) => candidate.provider === route.provider).length > 1
+    ? `${provider} · ${route.providerModelId}`
+    : provider;
 }
 
 export function providerLabelForModelOption(option: ModelOptionForNodeV1): string {
@@ -343,11 +357,19 @@ export function imageModelOptionLabel(model: ImageModelOption): string {
 }
 
 export function imageAspectRatioOptions(model: ImageModelOption | undefined): string[] {
-  return model?.aspectRatios?.length ? model.aspectRatios : GEMINI_IMAGE_ASPECT_RATIOS;
+  return model?.aspectRatios?.length ? model.aspectRatios : selectParameterValuesAny(model?.parameters, ["aspectRatio", "aspect_ratio", "image_size"]) ?? GEMINI_IMAGE_ASPECT_RATIOS;
 }
 
 export function imageSizeOptionsForModel(model: ImageModelOption | undefined): string[] {
-  return model?.imageSizes?.length ? model.imageSizes : GEMINI_IMAGE_SIZES;
+  return model?.imageSizes?.length ? model.imageSizes : selectParameterValuesAny(model?.parameters, ["imageSize", "resolution", "image_resolution"]) ?? GEMINI_IMAGE_SIZES;
+}
+
+function selectParameterValuesAny(parameters: UnifiedModelInfo["parameters"] | undefined, ids: string[]): string[] | undefined {
+  for (const id of ids) {
+    const values = parameters ? selectParameterValues(parameters, id) : undefined;
+    if (values?.length) return values;
+  }
+  return undefined;
 }
 
 export function supportedOptionValue(value: unknown, options: string[]): string {

@@ -1,12 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { createHash } from "node:crypto";
 import { requireAdmin } from "../auth/adapters";
-import { appCapabilities, appMode, isElevenLabsEnabled, isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, isWorldLabsEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
+import { appCapabilities, appMode, deleteEnvValue, isElevenLabsEnabled, isGeminiEnabled, isKieEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, isWorldLabsEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterSettingsStatus } from "../providers/openrouter";
 import { normalizeSeedanceBackend, seedanceSettingsStatus, SEEDANCE_BACKENDS } from "../providers/seedance";
 export async function registerSettingsRoutes(app: FastifyInstance) {
-const health = async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), openrouterEnabled: isOpenRouterEnabled(), polzaEnabled: isPolzaEnabled(), elevenlabsEnabled: isElevenLabsEnabled(), seedanceEnabled: isSeedanceEnabled(), worldLabsEnabled: isWorldLabsEnabled() });
+const health = async () => ({ ok: true, app: "snarkroute", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), openrouterEnabled: isOpenRouterEnabled(), polzaEnabled: isPolzaEnabled(), kieEnabled: isKieEnabled(), elevenlabsEnabled: isElevenLabsEnabled(), seedanceEnabled: isSeedanceEnabled(), worldLabsEnabled: isWorldLabsEnabled() });
 app.get("/api/health", health);
 app.get("/health", health);
 
@@ -20,6 +20,7 @@ app.get("/api/settings", async () => ({
     maskedApiKey: isPolzaEnabled() ? maskSecret(process.env.POLZA_AI_API_KEY) : "",
     apiKeyFingerprint: secretFingerprint(process.env.POLZA_AI_API_KEY)
   },
+  kie: { configured: isKieEnabled(), maskedApiKey: isKieEnabled() ? maskSecret(process.env.KIE_API_KEY) : "" },
   rutronix: {
     configured: Boolean(process.env.RUTRONIX_API_KEY?.trim()),
     maskedApiKey: process.env.RUTRONIX_API_KEY?.trim() ? maskSecret(process.env.RUTRONIX_API_KEY) : "",
@@ -80,6 +81,28 @@ app.post<{ Body: { polzaAiApiKey?: string } }>("/api/settings/polza-token", asyn
     await writeEnvValue("POLZA_AI_API_KEY", token);
     process.env.POLZA_AI_API_KEY = token;
     return { ok: true, polza: { configured: true, maskedApiKey: maskSecret(token), apiKeyFingerprint: secretFingerprint(token) } };
+  } catch (error) {
+    return reply.code(500).send({ error: errorMessage(error) });
+  }
+});
+
+app.post<{ Body: { kieApiKey?: string } }>("/api/settings/kie-token", async (request, reply) => {
+  const token = request.body?.kieApiKey?.trim();
+  if (!token || !/^[\x21-\x7E]+$/.test(token)) return reply.code(400).send({ error: "KIE_API_KEY cannot be empty or contain whitespace." });
+  try {
+    await writeEnvValue("KIE_API_KEY", token);
+    process.env.KIE_API_KEY = token;
+    return { ok: true, kie: { configured: true, maskedApiKey: maskSecret(token) } };
+  } catch (error) {
+    return reply.code(500).send({ error: errorMessage(error) });
+  }
+});
+
+app.delete("/api/settings/kie-token", async (_request, reply) => {
+  try {
+    await deleteEnvValue("KIE_API_KEY");
+    delete process.env.KIE_API_KEY;
+    return { ok: true, kie: { configured: false, maskedApiKey: "" } };
   } catch (error) {
     return reply.code(500).send({ error: errorMessage(error) });
   }

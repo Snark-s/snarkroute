@@ -98,6 +98,7 @@ export type ModelParameterDefinitionV1 = {
 
 export type ModelCatalogEntryV1 = {
   id: string;
+  canonicalModelId?: string;
   provider: ModelProviderIdV1;
   providerModelId: string;
   originVendor: ModelOriginVendorV1;
@@ -122,6 +123,7 @@ export type ModelCatalogEntryV1 = {
 export type ProviderModelInfoV1 = {
   provider: ModelProviderIdV1;
   providerModelId: string;
+  canonicalModelId?: string;
   id: string;
   originVendor: ModelOriginVendorV1;
   displayName: string;
@@ -137,6 +139,7 @@ export type ProviderModelInfoV1 = {
 export type CuratedModelMetadataV1 = {
   provider: ModelProviderIdV1;
   providerModelId: string;
+  canonicalModelId?: string;
   aliases?: string[];
   originVendor?: ModelOriginVendorV1;
   originModelId?: string;
@@ -158,6 +161,7 @@ export type ModelOptionForNodeV1 = ModelCatalogEntryV1 & {
   nodeType: string;
   storedModelId: string;
   executionProvider: ModelProviderIdV1;
+  providerRoutes?: ModelProviderRouteV1[];
   compatibilityReason?: string;
   inputContract?: ModelIOContract;
   requiredImageInputs?: number;
@@ -165,4 +169,19 @@ export type ModelOptionForNodeV1 = ModelCatalogEntryV1 & {
   optionalImageInputs?: number;
   inputRoles?: string[];
   runnableWithSuppliedInputs?: boolean;
+};
+
+export type ModelProviderRouteV1 = {
+  provider: ModelProviderIdV1;
+  providerModelId: string;
+  storedModelId: string;
+  availability: ModelAvailabilityV1;
+  inputTypes: ModelInputTypeV1[];
+  outputTypes: ModelOutputTypeV1[];
+  capabilities: ModelCapabilityV1[];
+  parameters: ModelParameterDefinitionV1[];
+  pricing?: ModelPricingInfoV1;
+  constraints?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  ioContract?: ModelIOContract;
 };

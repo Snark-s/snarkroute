@@ -13,8 +13,9 @@ import {
   type OpenRouterModelInfo,
   type ProviderMode
 } from "@snarkroute/openrouter";
-import { estimatePolzaPricingQuote, POLZA_IMAGE_DEFAULT_MODEL, POLZA_TEXT_DEFAULT_MODEL, POLZA_VIDEO_DEFAULT_MODEL, type PolzaModelInfo } from "@snarkroute/polza";
+import { createPolzaImageNodeRunner, estimatePolzaPricingQuote, POLZA_IMAGE_DEFAULT_MODEL, POLZA_TEXT_DEFAULT_MODEL, POLZA_VIDEO_DEFAULT_MODEL, type PolzaModelInfo } from "@snarkroute/polza";
 import { createRuTronixTextNodeRunner, estimateRuTronixPricingQuote } from "@snarkroute/rutronix";
+import { createKieNodeRunner, estimateKiePricingQuote, listDocumentedKieModels } from "@snarkroute/kie";
 import { getEffectivePricingState } from "../billing/pricing-service";
 
 type ResolvedPricingQuote = Omit<PricingQuote, "confidence"> & {
@@ -47,6 +48,10 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
   const geminiRunner = createGeminiLlmNodeRunner();
   const rutronixRunner = createRuTronixTextNodeRunner();
   return async (input) => {
+    const executionProvider = stringValue(input.params.executionProvider ?? input.params.provider);
+    const providerModelId = stringValue(input.params.providerModelId);
+    if (executionProvider === "kie") return createKieNodeRunner("text.generate")({ ...input, params: { ...input.params, model: providerModelId ?? input.params.model } });
+    if (executionProvider === "openrouter" && providerModelId) return rawOpenRouterRunner({ ...input, params: { ...input.params, model: providerModelId, providerMode: "openrouter" } });
     const providerMode = providerModeParam(input.params.providerMode);
     const requestedModel = stringValue(input.params.model);
     const modelId = !requestedModel || requestedModel === "text.default" ? process.env.OPENROUTER_DEFAULT_MODEL || "text.default" : requestedModel;
@@ -64,9 +69,19 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
 export function createRemoteImageNodeRunner(modelResolver: ReturnType<typeof createModelResolver>): NodeRunner {
   const geminiRunner = createNanoBanana2NodeRunner();
   const openRouterRunner = createOpenRouterImageNodeRunner({ modelResolver });
+  const polzaRunner = createPolzaImageNodeRunner();
   return async (input) => {
+    const executionProvider = stringValue(input.params.executionProvider ?? input.params.provider);
+    const providerModelId = stringValue(input.params.providerModelId) ?? stringValue(input.params.model) ?? "image.nano-banana";
+    if (executionProvider === "kie") {
+      const model = listDocumentedKieModels().find((entry) => entry.id === providerModelId);
+      const hasImages = Array.isArray(input.params.images) && input.params.images.length > 0 || Array.isArray(input.inputs.images) && input.inputs.images.length > 0;
+      const capability = hasImages && model?.capabilities.includes("image.edit") ? "image.edit" : model?.capabilities.includes("image.generate") ? "image.generate" : "image.edit";
+      return createKieNodeRunner(capability)({ ...input, params: { ...input.params, model: providerModelId, providerModelId } });
+    }
+    if (executionProvider === "polza") return polzaRunner({ ...input, params: { ...input.params, model: providerModelId } });
     const providerMode = providerModeParam(input.params.providerMode);
-    const modelId = stringValue(input.params.model) || "image.nano-banana";
+    const modelId = providerModelId;
     const cachedCatalog = await readOpenRouterModelCatalogCache(openRouterCatalogCachePath);
     const cachedModel = cachedCatalog?.models.find((model) => model.id === modelId);
     if (cachedModel && !openRouterModelSupportsImage(cachedModel)) throw new Error("This model is not available for image generation.");
@@ -155,6 +170,12 @@ export async function quoteModelExecutingNode(options: {
   }
 
   if (options.nodeType === "ai.text") {
+    const executionProvider = stringValue(params.executionProvider ?? params.provider);
+    const providerModelId = stringValue(params.providerModelId) ?? stringValue(params.model) ?? "gpt-5-2";
+    if (executionProvider === "kie") {
+      const quote = estimateKiePricingQuote({ logicalModel: stringValue(params.model), provider: "kie", providerModel: providerModelId, capability: "text.generate", params, inputMetadata: {} });
+      return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings: quote.warnings ?? [] };
+    }
     const providerMode = providerModeParam(params.providerMode);
     const requestedModel = stringValue(params.model);
     const modelId = !requestedModel || requestedModel === "text.default" ? process.env.OPENROUTER_DEFAULT_MODEL || "text.default" : requestedModel;

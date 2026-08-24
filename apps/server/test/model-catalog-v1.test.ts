@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assembleModelCatalogV1,
+  canonicalModelCatalogV1,
   fallbackProviderModelsForCatalogV1,
   modelOptionsForNodeV1,
   normalizeOpenRouterModelsForCatalogV1,
@@ -442,6 +443,7 @@ describe("server Model Catalog V1 assembly", () => {
     expect(optionIds).toContain("bytedance/seedance-2");
     expect(optionIds).not.toContain("topaz/video-upscale");
     expect(catalog.find((entry) => entry.providerModelId === "topaz/video-upscale")?.roles).toEqual(["upscaler"]);
+
   });
 
   it("fills missing live OpenRouter video inputs from curated model metadata", () => {
@@ -519,5 +521,26 @@ describe("server Model Catalog V1 assembly", () => {
       availability: { status: "available" }
     });
     expect(option?.pricing?.status ?? "missing").toBe("missing");
+  });
+
+  it("keeps provider rows for legacy clients and exposes one canonical row with executable routes", () => {
+    const catalog = assembleModelCatalogV1({
+      kieModels: [{ id: "kling-3.0/video", canonicalModelId: "kling-3.0-pro", inputTypes: ["text", "image"], outputTypes: ["video"], capabilities: ["video.generate"] }],
+      openRouterModels: [{ id: "kwaivgi/kling-v3.0-pro", kind: "video", inputTypes: ["text", "image"], outputTypes: ["video"], capabilities: ["video.generate"] }]
+    });
+    expect(catalog).toHaveLength(2);
+    const canonical = canonicalModelCatalogV1(catalog);
+    expect(canonical).toHaveLength(1);
+    expect(canonical[0]).toMatchObject({ id: "kling-3.0-pro", providerRoutes: [{ provider: "kie" }, { provider: "openrouter" }] });
+  });
+
+  it("groups documented KIE and OpenRouter GPT-5.2 text routes", () => {
+    const catalog = assembleModelCatalogV1({
+      kieModels: [{ id: "gpt-5-2", canonicalModelId: "gpt-5.2", inputTypes: ["text", "image"], outputTypes: ["text"], capabilities: ["text.generate"] }],
+      openRouterModels: [{ id: "openai/gpt-5.2", kind: "chat", inputTypes: ["text", "image"], outputTypes: ["text"], capabilities: ["text.generate"] }]
+    });
+    const options = modelOptionsForNodeV1("ai.text", catalog);
+    expect(options).toHaveLength(1);
+    expect(options[0]).toMatchObject({ id: "gpt-5.2", providerRoutes: [{ provider: "kie", providerModelId: "gpt-5-2" }, { provider: "openrouter", providerModelId: "openai/gpt-5.2" }] });
   });
 });

@@ -57,7 +57,7 @@ describe("Polza adapter", () => {
   });
 
   it("builds Wan video payload with video-specific parameters", () => {
-    expect(buildMediaVideoRequestBody("wan/2.6", "pan across the skyline", { resolution: "1080p", duration: "10", multi_shots: "true", generate_audio: true }, [
+    expect(buildMediaVideoRequestBody("wan/2.6", "pan across the skyline", { resolution: "1080p", duration: "10", multi_shots: "true", generate_audio: true, provider: "polza", executionProvider: "polza", providerModelId: "wan/2.6", apiKey: "must-not-leak", authorizationToken: "must-not-leak" }, [
       { type: "base64", data: "data:image/png;base64,aaa" },
       { type: "url", data: "https://cdn.polza.ai/reference.png" }
     ])).toMatchObject({

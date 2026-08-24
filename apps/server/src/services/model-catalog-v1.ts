@@ -1,5 +1,6 @@
 import {
   listCuratedModelMetadataV1,
+  groupCanonicalModelOptionsV1,
   mergeProviderModelsWithCuratedMetadata,
   normalizeProviderModelToV1Input,
   modelInputSlotsV1,
@@ -43,13 +44,17 @@ export type RawProviderModelV1 = Record<string, unknown> & {
   seed?: unknown;
   allowed_passthrough_parameters?: unknown;
   availability?: ModelAvailabilityV1;
+  canonicalModelId?: string;
+  providerConstraints?: Record<string, unknown>;
 };
 
 export type AssembleModelCatalogV1Input = {
   rutronixModels?: RawProviderModelV1[];
   polzaModels?: RawProviderModelV1[];
   openRouterModels?: RawProviderModelV1[];
+  kieModels?: RawProviderModelV1[];
   localUpscaleModels?: RawProviderModelV1[];
+  localVideoUpscaleModels?: RawProviderModelV1[];
   fallbackModels?: ProviderModelInfoV1[];
   curatedMetadata?: CuratedModelMetadataV1[];
 };
@@ -66,7 +71,9 @@ export function assembleModelCatalogV1(input: AssembleModelCatalogV1Input): Mode
     ...normalizeRuTronixModelsForCatalogV1(input.rutronixModels ?? []),
     ...normalizePolzaModelsForCatalogV1(input.polzaModels ?? []),
     ...normalizeOpenRouterModelsForCatalogV1(input.openRouterModels ?? []),
+    ...normalizeKieModelsForCatalogV1(input.kieModels ?? []),
     ...normalizeLocalUpscaleModelsForCatalogV1(input.localUpscaleModels ?? []),
+    ...normalizeLocalVideoUpscaleModelsForCatalogV1(input.localVideoUpscaleModels ?? []),
     ...(input.fallbackModels ?? [])
   ]), input.curatedMetadata ?? listCuratedModelMetadataV1());
 }
@@ -92,8 +99,16 @@ export function normalizeOpenRouterModelsForCatalogV1(models: RawProviderModelV1
   return models.flatMap((model) => normalizeRawProviderModel("openrouter", model));
 }
 
+export function normalizeKieModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
+  return models.flatMap((model) => normalizeRawProviderModel("kie", model));
+}
+
 export function normalizeLocalUpscaleModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
   return models.flatMap((model) => normalizeRawProviderModel("local_upscale", model));
+}
+
+export function normalizeLocalVideoUpscaleModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
+  return models.flatMap((model) => normalizeRawProviderModel("local_video_upscale", model));
 }
 
 function dedupeProviderModelsV1(providerModels: ProviderModelInfoV1[]): ProviderModelInfoV1[] {
@@ -277,7 +292,7 @@ export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
 }
 
 export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEntryV1[]): ModelOptionForNodeV1[] {
-  return catalog
+  const options = catalog
     .filter((entry) => isModelCompatibleWithNodeV1(nodeType, entry))
     .map((entry) => toModelOptionForNodeV1(nodeType, entry))
     .sort((left, right) =>
@@ -285,6 +300,7 @@ export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEnt
       || left.displayName.localeCompare(right.displayName)
       || left.providerModelId.localeCompare(right.providerModelId)
     );
+  return nodeType.startsWith("ai.") ? groupCanonicalModelOptionsV1(options) : options;
 }
 
 export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalogEntryV1): boolean {
@@ -301,18 +317,18 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
     return entry.provider === "polza" && hasOutputType(entry, "video") && !isUpscaleOnlyModel(entry, "video");
   }
   if (nodeType === "ai.image.generate") {
-    return (entry.provider === "openrouter" || entry.provider === "gemini")
+    return (entry.provider === "openrouter" || entry.provider === "gemini" || entry.provider === "polza" || entry.provider === "kie")
       && entry.providerModelId !== "openrouter/auto"
       && hasOutputType(entry, "image")
       && !isUpscaleOnlyModel(entry, "image");
   }
   if (nodeType === "ai.video.generate") {
-    return entry.provider === "openrouter"
+    return (entry.provider === "openrouter" || entry.provider === "polza" || entry.provider === "kie")
       && hasOutputType(entry, "video")
       && !isUpscaleOnlyModel(entry, "video");
   }
   if (nodeType === "ai.text") {
-    return (entry.provider === "openrouter" || entry.provider === "rutronix") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
+    return (entry.provider === "openrouter" || entry.provider === "rutronix" || entry.provider === "kie") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
   }
   if (nodeType === "ai.audio.generate") {
     return hasOutputType(entry, "audio") && !entry.roles.includes("upscaler");
@@ -321,6 +337,11 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
     return entry.provider === "local_upscale"
       && entry.capabilities.includes("image.upscale")
       && hasOutputType(entry, "image");
+  }
+  if (nodeType === "local_video_upscale") {
+    return entry.provider === "local_video_upscale"
+      && entry.capabilities.includes("video.upscale")
+      && hasOutputType(entry, "video");
   }
   return false;
 }
@@ -342,6 +363,17 @@ export function toModelOptionForNodeV1(nodeType: string, entry: ModelCatalogEntr
   };
 }
 
+/** Provider-neutral catalog projection. The original provider rows remain available
+ * for legacy consumers; every canonical row carries its executable providerRoutes. */
+export function canonicalModelCatalogV1(catalog: ModelCatalogEntryV1[]): ModelOptionForNodeV1[] {
+  return groupCanonicalModelOptionsV1(catalog.map((entry) => ({
+    ...entry,
+    nodeType: "catalog",
+    storedModelId: entry.providerModelId,
+    executionProvider: entry.provider
+  })));
+}
+
 function normalizeRawProviderModel(provider: ModelProviderIdV1, model: RawProviderModelV1): ProviderModelInfoV1[] {
   const providerModelId = stringValue(model.id);
   if (!providerModelId) return [];
@@ -358,13 +390,14 @@ function normalizeRawProviderModel(provider: ModelProviderIdV1, model: RawProvid
   return [normalizeProviderModelToV1Input({
     provider,
     providerModelId,
+    canonicalModelId: stringValue(model.canonicalModelId),
     displayName: stringValue(model.title) ?? stringValue(model.name) ?? providerModelId,
     inputTypes: unique([...inputTypes, ...contractInputTypes]),
     outputTypes,
     capabilities,
     roles: rolesForCapabilities(capabilities),
     availability: model.availability ?? { status: "available", source: "live" },
-    metadata: { providerRaw: model, providerParameterDefinitions },
+    metadata: { providerRaw: model, providerParameterDefinitions, providerConstraints: model.providerConstraints },
     ioContract
   })];
 }
@@ -392,9 +425,14 @@ function enrichUiCatalogMetadata(entry: ModelCatalogEntryV1): ModelCatalogEntryV
       ...(defaults?.metadata ?? {})
     }
   } : entry;
-  const withPricing = entry.provider === "local_upscale" ? {
+  const withPricing = entry.provider === "local_upscale" || entry.provider === "local_video_upscale" ? {
     ...enriched,
     pricing: { status: "fresh" as const, source: "manual" as const, currency: "USD", unit: "run", pricing: { providerCostMicrousd: 0, apiCost: 0 } }
+  } : entry.provider === "kie" ? {
+    ...enriched,
+    pricing: entry.providerModelId === "nano-banana-pro"
+      ? { status: "fresh" as const, source: "manual" as const, currency: "USD", unit: "image", pricing: { oneToTwoKMicrousd: 90_000, fourKMicrousd: 120_000 }, refreshedAt: "2026-08-21" }
+      : { status: "unknown" as const, source: "unknown" as const, currency: "USD", unit: "provider-credit", pricing: {}, warning: "KIE reports provider credits after completion; stable USD pricing is not documented for this route." }
   } : enriched;
   return withDefaultModelInputLimitsV1({ ...withPricing, ioContract: completeIoContract(withPricing) });
 }
@@ -593,6 +631,7 @@ function isUpscaleOnlyModel(entry: ModelCatalogEntryV1, mediaType: "image" | "vi
 
 function compatibilityReasonForNode(nodeType: string): string {
   if (nodeType === "local_upscale") return "available through the configured local upscale worker";
+  if (nodeType === "local_video_upscale") return "available through the configured local video upscale worker";
   if (nodeType.startsWith("polza.")) return "available through Polza with provider-native model id";
   if (nodeType.startsWith("ai.")) return "available through the selected provider with provider-native model id";
   return "available through provider catalog";

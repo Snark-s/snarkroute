@@ -1554,7 +1554,7 @@ async function executeTextNodeModel(input: GenerateTextNodeInput, prompt: string
 }
 
 async function runImageModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
-  if (!["auto", "polza", "openrouter", "gemini"].includes(input.executionProvider)) {
+  if (!["auto", "polza", "openrouter", "gemini", "kie"].includes(input.executionProvider)) {
     throw new Error(`Execution provider "${input.executionProvider}" is not available for image generation.`);
   }
   const autoCanUsePolza = input.executionProvider === "auto" && input.availableExecutionProviders?.includes("polza");
@@ -1577,7 +1577,7 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
 }
 
 async function runTextModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[] }) {
-  if (!["auto", "polza", "openrouter", "gemini"].includes(input.executionProvider)) {
+  if (!["auto", "polza", "openrouter", "gemini", "kie"].includes(input.executionProvider)) {
     throw new Error(`Execution provider "${input.executionProvider}" is not available for text generation.`);
   }
   const autoOnlyPolza = input.executionProvider === "auto" && input.availableExecutionProviders?.length === 1 && input.availableExecutionProviders[0] === "polza";
@@ -1642,7 +1642,10 @@ async function persistSnarkUsageStats(runResult: RunResult): Promise<void> {
 
 async function runVideoModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
   if (input.executionProvider === "openrouter") return runOpenRouterVideoModelForStackItem(input);
-  if (input.executionProvider !== "auto" && input.executionProvider !== "polza") throw new Error("Video generation is currently available through polza.ai or OpenRouter.");
+  if (input.executionProvider !== "auto" && input.executionProvider !== "polza" && input.executionProvider !== "kie") {
+    throw new Error("Video generation is currently available through polza.ai, OpenRouter, or KIE.ai.");
+  }
+  const nodeType = input.executionProvider === "kie" ? "ai.video.generate" : "polza.video.generate";
   const route = {
     routeVersion: "0.1",
     route: {
@@ -1652,7 +1655,7 @@ async function runVideoModelForStackItem(input: { nodeId: string; modelId: strin
     },
     nodes: [{
       id: "generate",
-      type: "polza.video.generate",
+      type: nodeType,
       params: imageGenerationParameters(input.modelId, input.executionProvider === "auto" ? "polza" : input.executionProvider, input.fallbackAllowed, input.prompt, input.images, input.parameters)
     }],
     edges: []

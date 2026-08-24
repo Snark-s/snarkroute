@@ -4,6 +4,7 @@ export type {
   ModelCapabilityV1,
   ModelInputTypeV1,
   ModelOptionForNodeV1,
+  ModelProviderRouteV1,
   ModelOriginVendorV1,
   ModelOutputTypeV1,
   ModelParameterDefinitionV1,
@@ -30,6 +31,11 @@ export {
 } from "./model-icons.js";
 
 export {
+  canonicalModelIdForProviderModelV1,
+  groupCanonicalModelOptionsV1,
+  legacyProviderRouteForModelV1,
+  mergeProviderModelsWithCuratedMetadata,
+  normalizeProviderModelToV1Input,
   listSeedCanonicalModelsV1,
   listSeedProviderOfferingsV1,
   listSeedProviderPricingCatalogV1,

@@ -210,7 +210,7 @@ export class ModelGatewayJobService {
     await this.transition(job, "starting_provider", 0.05);
     try {
       if (job.status === "cancelled") { this.controllers.delete(id); return; }
-      if (job.request.provider === "local_upscale") await this.transition(job, "loading_model", 0.1);
+      if (job.request.provider === "local_upscale" || job.request.provider === "local_video_upscale") await this.transition(job, "loading_model", 0.1);
       await this.transition(job, job.request.provider === "minimax-h3" ? "generating_768p" : "generating", 0.15);
       const outputDirectory = join(this.directory, job.id, "run");
       const result = await this.execute(job, outputDirectory, {
@@ -219,6 +219,7 @@ export class ModelGatewayJobService {
           if (job.status === "cancelled") return;
           job.progress = Math.max(job.progress ?? 0.15, Math.min(0.88, 0.15 + Math.max(0, Math.min(progress, 1)) * 0.73));
           if (stage === "loading_model" && canTransitionGenerationJob(job.status, "loading_model")) job.status = "loading_model";
+          job.providerJobId = providerJobIdFromProgressStage(stage) ?? job.providerJobId;
           job.updatedAt = new Date().toISOString();
           await this.persist(job);
         }
@@ -233,7 +234,7 @@ export class ModelGatewayJobService {
       job.outputMediaType = requestMediaKind(job.request);
       job.outputs = completed.outputs;
       job.result = completed.result;
-      job.providerJobId = providerJobIdFromRun(result);
+      job.providerJobId = providerJobIdFromRun(result) ?? job.providerJobId;
       job.costs = {
         providerCost: completed.result.actualCost ?? completed.result.estimatedCost,
         baseCost: completed.result.actualCost ?? completed.result.estimatedCost,
@@ -296,6 +297,9 @@ export function generationRouteFromJob(job: GenerationJob): OpenRoute {
       params: {
         ...(job.request.parameters ?? {}),
         model: job.request.providerModelId,
+        providerModelId: job.request.providerModelId,
+        provider: job.request.provider,
+        executionProvider: job.request.provider,
         ...(job.request.prompt ? { prompt: job.request.prompt } : {}),
         images: normalizedRouteInputs(job.request.inputs, "image"),
         audios: normalizedRouteInputs(job.request.inputs, "audio"),
@@ -313,7 +317,8 @@ function validateRequest(request: GenerationJobRequest): void {
     "polza.image.generate": { media: "image", capabilities: ["image.generate", "image.edit", "image.reference"] },
     "ai.image.generate": { media: "image", capabilities: ["image.generate", "image.edit", "image.reference"] },
     "replicate.clarity-upscaler": { media: "image", capabilities: ["image.upscale"] },
-    "local_upscale": { media: "image", capabilities: ["image.upscale"] }
+    "local_upscale": { media: "image", capabilities: ["image.upscale"] },
+    "local_video_upscale": { media: "video", capabilities: ["video.upscale"] }
   };
   const runner = supportedRunners[request.nodeType];
   if (!runner || runner.media !== requestMediaKind(request) || !runner.capabilities.includes(request.capability)) throw new Error("The selected model is not executable through the requested media runner.");
@@ -330,6 +335,7 @@ function validateRequest(request: GenerationJobRequest): void {
   assertJsonSize(request.sourceContext, 64 * 1024, "sourceContext");
   for (const input of request.inputs ?? []) if (!input.assetId?.trim() || !input.path?.trim()) throw new Error("Each input must include an asset id and local path.");
   if (request.nodeType === "local_upscale" && (request.inputs ?? []).filter((input) => input.kind === "image").length !== 1) throw new Error("local_upscale requires exactly one image input.");
+  if (request.nodeType === "local_video_upscale" && (request.inputs ?? []).filter((input) => input.kind === "video").length !== 1) throw new Error("local_video_upscale requires exactly one video input.");
 }
 
 function normalizedRouteInputs(inputs: GenerationJobRequest["inputs"], kind: GenerationMediaKind) {
@@ -372,7 +378,8 @@ function resultsFromRun(run: RunResult, job: GenerationJob): { result: NonNullab
       width: optionalNumber(descriptor.width),
       height: optionalNumber(descriptor.height),
       duration: optionalNumber(descriptor.duration),
-      fileSize: optionalNumber(descriptor.sizeBytes) ?? optionalNumber(descriptor.fileSize)
+      fileSize: optionalNumber(descriptor.sizeBytes) ?? optionalNumber(descriptor.fileSize),
+      resultUrl: stringValue(descriptor.resultUrl)
     };
   });
   if (!outputs.length) throw new Error(`Generation completed without a local ${media} result.`);
@@ -417,6 +424,12 @@ function numberValue(value: unknown): number | null {
 function providerJobIdFromRun(run: RunResult): string | undefined {
   const output = objectRecord(run.nodeResults.generate?.output);
   return stringValue(output.providerJobId) ?? stringValue(output.requestId) ?? stringValue(output.taskId);
+}
+
+function providerJobIdFromProgressStage(stage: string | undefined): string | undefined {
+  if (!stage?.startsWith("provider_job:")) return undefined;
+  const value = stage.slice("provider_job:".length).trim();
+  return /^[a-z0-9._:-]{1,256}$/i.test(value) ? value : undefined;
 }
 
 function sanitizeContext(value: Record<string, unknown> | undefined): Record<string, unknown> | undefined {

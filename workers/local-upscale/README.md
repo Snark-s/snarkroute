@@ -12,6 +12,8 @@ $env:LOCAL_UPSCALE_RUNTIME = 'auto'
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8091
 ```
 
+The `gpu` extra pins the matching PyTorch 2.7.1 / torchvision 0.22.1 CUDA 12.8 wheels from PyTorch's explicit package index. Verify `torch.cuda.is_available()` before starting a production worker; CPU fallback is not a successful CUDA setup.
+
 Configure the SnarkRoute server with the same token:
 
 ```dotenv
@@ -56,7 +58,7 @@ Submit this JSON to `POST /api/model-gateway/jobs`, poll `GET /api/model-gateway
 ## MVP limits
 
 - Single PNG/JPEG images only; no video/FFmpeg pipeline.
-- Registry includes four verified BSD-3-Clause Real-ESRGAN-family checkpoints, not the whole OpenModelDB catalog.
-- Published checkpoints are `.pth`, so the first registry entries use the safe PyTorch/Spandrel boundary. ONNX Runtime CUDA is implemented for future `.onnx` entries; TensorRT has an explicit runtime extension hook but no implementation.
+- Registry is a curated subset rather than the whole OpenModelDB catalog. It includes the four original BSD-3-Clause Real-ESRGAN-family checkpoints plus seven architecture-diverse OpenModelDB checkpoints for photography, AI/CGI and video frames, graphics/text, and restoration. Check each entry's license metadata before redistribution or commercial use; UltraSharpV2 is CC-BY-NC-SA-4.0.
+- PyTorch checkpoints run through the safe Spandrel boundary; the UltraSharpV2 DAT2 checkpoint exercises the ONNX Runtime CUDA path. TensorRT has an explicit runtime extension hook but no implementation.
 - Models expose only their native scale. Output is always lossless PNG. RGB is inferred; alpha is resized independently and restored. ICC bytes are retained without an implicit color conversion.
 - OOM is reported as `gpu_oom`; tile size is never silently retried.
