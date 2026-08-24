@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_7813d9b8-9063-4357-ab7c-dd897caf6fac",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "openmodeldb/video-tssm-x3",
+      "providerModelId": "openmodeldb/video-tssm-x3",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 18,
+        "overlap_frames": 1,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-cgi-game",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\cgi-game.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-cgi-game-openmodeldb-video-tssm-x3-1787596873581994500"
+    },
+    "createdAt": "2026-08-24T18:41:13.586Z",
+    "updatedAt": "2026-08-24T18:41:14.410Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:41:13.588Z",
+    "providerJobId": "vup_abc4b9d9-0c52-4d25-a7eb-b93e1bd72b9d",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_abc4b9d9-0c52-4d25-a7eb-b93e1bd72b9d.mp4",
+        "mimeType": "video/mp4",
+        "width": 288,
+        "height": 192,
+        "duration": 2,
+        "fileSize": 47282,
+        "resultUrl": "/api/model-gateway/jobs/gen_7813d9b8-9063-4357-ab7c-dd897caf6fac/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_7813d9b8-9063-4357-ab7c-dd897caf6fac\\run\\assets\\generate-vup_abc4b9d9-0c52-4d25-a7eb-b93e1bd72b9d.mp4",
+      "filename": "generate-vup_abc4b9d9-0c52-4d25-a7eb-b93e1bd72b9d.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "openmodeldb/video-tssm-x3",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:41:14.410Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_7813d9b8-9063-4357-ab7c-dd897caf6fac/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 288,
+    "height": 192,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 47282,
+    "temporal": true,
+    "processing_seconds": 0.5736715000239201,
+    "model_loading_seconds": 0.00012810001499019563,
+    "inference_seconds": 0.27635089997784235,
+    "processing_fps": 20.917894647894556,
+    "peak_vram_mb": 92.18310546875,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_7813d9b8-9063-4357-ab7c-dd897caf6fac",
+    "worker_job_id": "vup_abc4b9d9-0c52-4d25-a7eb-b93e1bd72b9d"
+  },
+  "metrics": {
+    "measured_width": 288,
+    "measured_height": 192,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 8.298949241638184,
+    "p95_frame_delta": 8.381811141967773,
+    "static_region_temporal_variation": 4.656162261962891,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": null
+  }
+}

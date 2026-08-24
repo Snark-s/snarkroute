@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_eb44528b-acd1-4e53-9ad6-0613c23e77fc",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "framewise/4x-purephoto-span",
+      "providerModelId": "framewise/4x-purephoto-span",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 1,
+        "overlap_frames": 0,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-compression",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\compression.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-compression-framewise-4x-purephoto-span-1787596887289409700"
+    },
+    "createdAt": "2026-08-24T18:41:27.293Z",
+    "updatedAt": "2026-08-24T18:41:28.424Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:41:27.295Z",
+    "providerJobId": "vup_70df92c4-2181-4749-b597-2b7fefa4995f",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_70df92c4-2181-4749-b597-2b7fefa4995f.mp4",
+        "mimeType": "video/mp4",
+        "width": 384,
+        "height": 256,
+        "duration": 2,
+        "fileSize": 60102,
+        "resultUrl": "/api/model-gateway/jobs/gen_eb44528b-acd1-4e53-9ad6-0613c23e77fc/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_eb44528b-acd1-4e53-9ad6-0613c23e77fc\\run\\assets\\generate-vup_70df92c4-2181-4749-b597-2b7fefa4995f.mp4",
+      "filename": "generate-vup_70df92c4-2181-4749-b597-2b7fefa4995f.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "framewise/4x-purephoto-span",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:41:28.424Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_eb44528b-acd1-4e53-9ad6-0613c23e77fc/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 384,
+    "height": 256,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 60102,
+    "temporal": false,
+    "processing_seconds": 0.9791509000060614,
+    "model_loading_seconds": 5.01000031363219e-05,
+    "inference_seconds": 0.5884439000510611,
+    "processing_fps": 12.25551648875134,
+    "peak_vram_mb": 80.0478515625,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_eb44528b-acd1-4e53-9ad6-0613c23e77fc",
+    "worker_job_id": "vup_70df92c4-2181-4749-b597-2b7fefa4995f"
+  },
+  "metrics": {
+    "measured_width": 384,
+    "measured_height": 256,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 0.8109651803970337,
+    "p95_frame_delta": 1.0722301006317139,
+    "static_region_temporal_variation": 0.0029494157060980797,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": 0.8109651803970337
+  }
+}

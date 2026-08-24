@@ -49,6 +49,8 @@ class OnnxRuntime:
         if wants_cuda and "CUDAExecutionProvider" not in self.session.get_providers():
             raise WorkerError("runtime_unavailable", "ONNX Runtime silently fell back from CUDAExecutionProvider.")
         self.input_name = self.session.get_inputs()[0].name
+        self.device_type = "cuda" if wants_cuda else "cpu"
+        self.torch_device = None
 
     def infer(self, tile: np.ndarray) -> np.ndarray:
         value = np.transpose(tile.astype(np.float32), (2, 0, 1))[None]
@@ -75,6 +77,8 @@ class PyTorchRuntime:
         # invoke the descriptor rather than bypassing it through the raw module.
         self.model = descriptor
         self.device = resolved_device
+        self.torch_device = resolved_device
+        self.device_type = resolved_device.type
 
     def infer(self, tile: np.ndarray) -> np.ndarray:
         tensor = self.torch.from_numpy(np.transpose(tile.astype(np.float32), (2, 0, 1))).unsqueeze(0).to(self.device)

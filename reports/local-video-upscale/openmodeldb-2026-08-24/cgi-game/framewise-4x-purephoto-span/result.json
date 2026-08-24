@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_bdc58f9a-570f-4400-9189-9860a744d2fb",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "framewise/4x-purephoto-span",
+      "providerModelId": "framewise/4x-purephoto-span",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 1,
+        "overlap_frames": 0,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-cgi-game",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\cgi-game.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-cgi-game-framewise-4x-purephoto-span-1787596874777470500"
+    },
+    "createdAt": "2026-08-24T18:41:14.780Z",
+    "updatedAt": "2026-08-24T18:41:15.603Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:41:14.782Z",
+    "providerJobId": "vup_4d84012e-b400-45b5-8e5f-6d3a8fffe234",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_4d84012e-b400-45b5-8e5f-6d3a8fffe234.mp4",
+        "mimeType": "video/mp4",
+        "width": 384,
+        "height": 256,
+        "duration": 2,
+        "fileSize": 81009,
+        "resultUrl": "/api/model-gateway/jobs/gen_bdc58f9a-570f-4400-9189-9860a744d2fb/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_bdc58f9a-570f-4400-9189-9860a744d2fb\\run\\assets\\generate-vup_4d84012e-b400-45b5-8e5f-6d3a8fffe234.mp4",
+      "filename": "generate-vup_4d84012e-b400-45b5-8e5f-6d3a8fffe234.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "framewise/4x-purephoto-span",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:41:15.603Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_bdc58f9a-570f-4400-9189-9860a744d2fb/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 384,
+    "height": 256,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 81009,
+    "temporal": false,
+    "processing_seconds": 0.772014800022589,
+    "model_loading_seconds": 2.069998299703002e-05,
+    "inference_seconds": 0.5327155999257229,
+    "processing_fps": 15.5437434614581,
+    "peak_vram_mb": 80.0478515625,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_bdc58f9a-570f-4400-9189-9860a744d2fb",
+    "worker_job_id": "vup_4d84012e-b400-45b5-8e5f-6d3a8fffe234"
+  },
+  "metrics": {
+    "measured_width": 384,
+    "measured_height": 256,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 12.590859413146973,
+    "p95_frame_delta": 12.689249038696289,
+    "static_region_temporal_variation": 6.578583717346191,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": 12.590859413146973
+  }
+}

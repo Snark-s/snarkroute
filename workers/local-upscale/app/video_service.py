@@ -14,6 +14,7 @@ from app.registry import ModelRegistry
 from app.runtime import RuntimeFactory, is_out_of_memory
 from app.video_pipeline import process_video
 from app.video_registry import VideoModelRegistry
+from app.video_runtime import TemporalRuntimeFactory
 
 
 @dataclass
@@ -65,11 +66,13 @@ class VideoUpscaleService:
         image_registry: ModelRegistry | None = None,
         registry: VideoModelRegistry | None = None,
         runtimes: RuntimeFactory | None = None,
+        temporal_runtimes: TemporalRuntimeFactory | None = None,
     ):
         self.settings = settings
         self.image_registry = image_registry or ModelRegistry.load()
         self.registry = registry or VideoModelRegistry.load(self.image_registry)
         self.runtimes = runtimes or RuntimeFactory()
+        self.temporal_runtimes = temporal_runtimes or TemporalRuntimeFactory()
         self.assets: dict[str, Path] = {}
         self.jobs: dict[str, VideoJob] = {}
         self.tasks: dict[str, asyncio.Task[None]] = {}
@@ -134,11 +137,22 @@ class VideoUpscaleService:
             raise WorkerError("invalid_parameters", "The MVP supports only libx264 in an MP4 container.")
         crf = _integer(request.get("crf", 18), "crf", 0, 51)
         chunk_size = _integer(request.get("chunk_size", model.recommended_chunk_size), "chunk_size", 1, 120)
-        overlap_frames = _integer(request.get("overlap_frames", 2 if model.temporal else 0), "overlap_frames", 0, 16)
+        overlap_frames = _integer(
+            request.get("overlap_frames", model.recommended_overlap_frames),
+            "overlap_frames",
+            0,
+            16,
+        )
         if not model.temporal and overlap_frames:
             raise WorkerError("invalid_parameters", "Framewise models do not support temporal overlap.")
         if overlap_frames >= chunk_size:
             raise WorkerError("invalid_parameters", "overlap_frames must be smaller than chunk_size.")
+        minimum_overlap = model.context_frames // 2 if model.inference_mode == "center-frame" else 0
+        if overlap_frames < minimum_overlap:
+            raise WorkerError(
+                "invalid_parameters",
+                f"{model.id} requires at least {minimum_overlap} overlap frames.",
+            )
         audio_handling = str(request.get("audio_handling") or "copy")
         if audio_handling not in {"copy", "drop"}:
             raise WorkerError("invalid_parameters", "audio_handling must be copy or drop.")
@@ -190,7 +204,8 @@ class VideoUpscaleService:
                 asyncio.to_thread(
                     process_video,
                     self.assets[job.input_asset], output_path, model, self.settings.model_dir,
-                    self.image_registry, self.runtimes, job.device, job.chunk_size, job.overlap_frames,
+                    self.image_registry, self.runtimes, self.temporal_runtimes,
+                    job.device, job.chunk_size, job.overlap_frames,
                     job.crf, job.audio_handling, job.tile_size, job.tile_overlap,
                     self.settings.max_input_pixels, update, job.cancel_event.is_set,
                 ),

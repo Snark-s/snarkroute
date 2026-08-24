@@ -11,11 +11,11 @@ from pathlib import Path
 import numpy as np
 
 from app.errors import WorkerError
-from app.nanovsr import load_nanovsr
 from app.registry import ModelRegistry
 from app.runtime import RuntimeFactory
 from app.tiling import tiled_inference
 from app.video_registry import VideoUpscaleModel
+from app.video_runtime import TemporalRuntimeFactory
 
 
 @dataclass(frozen=True)
@@ -104,6 +104,7 @@ def process_video(
     model_dir: Path,
     image_registry: ModelRegistry,
     runtimes: RuntimeFactory,
+    temporal_runtimes: TemporalRuntimeFactory,
     device: str,
     chunk_size: int,
     overlap_frames: int,
@@ -125,16 +126,16 @@ def process_video(
     if cancelled():
         raise WorkerError("cancelled", "Video upscale job was cancelled.")
 
-    temporal_model = None
-    resolved_device = None
+    temporal_runtime = None
     image_runtime = None
     image_model = None
+    model_load_started = time.perf_counter()
     if model.temporal:
         weights = model.weights_path(model_dir)
         if not weights or not weights.is_file():
             raise WorkerError("missing_weights", f"Weights for {model.id} are not installed.", details={"model": model.id, "expected_path": str(weights)})
         try:
-            temporal_model, resolved_device = load_nanovsr(weights, device, use_fp16=device != "cpu")
+            temporal_runtime = temporal_runtimes.create(model, weights, device)
         except Exception as exc:
             if "out of memory" in str(exc).lower():
                 raise WorkerError("gpu_oom", "GPU ran out of memory while loading the temporal model.", True) from exc
@@ -142,6 +143,7 @@ def process_video(
     else:
         image_model = image_registry.get(model.framewise_model_id or "")
         image_runtime = runtimes.create(image_model, image_model.weights_path(model_dir), device, "auto")
+    model_loading_seconds = time.perf_counter() - model_load_started
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     decoder = _start_decoder(input_path)
@@ -149,6 +151,7 @@ def process_video(
     decoded_frames = 0
     encoded_frames = 0
     peak_vram_mb = 0.0
+    inference_seconds = 0.0
     left_context: list[np.ndarray] = []
     pending: list[np.ndarray] = []
     eof = False
@@ -174,14 +177,20 @@ def process_video(
             keep_start = len(left_context)
             progress(_frame_progress(encoded_frames, probe.frame_count, 0.15, 0.75), "inference")
             if model.temporal:
-                enhanced = _run_temporal(temporal_model, resolved_device, window)
-                enhanced = enhanced[keep_start : keep_start + core_count]
-                peak_vram_mb = max(peak_vram_mb, _cuda_peak_vram_mb(resolved_device))
+                _reset_cuda_peak(temporal_runtime)
+                inference_started = time.perf_counter()
+                enhanced = _run_temporal(temporal_runtime, model, window, keep_start, core_count)
+                inference_seconds += time.perf_counter() - inference_started
+                peak_vram_mb = max(peak_vram_mb, _cuda_peak_vram_mb(temporal_runtime))
             else:
+                _reset_cuda_peak(image_runtime)
+                inference_started = time.perf_counter()
                 enhanced = [
                     _run_framewise(frame, image_model, image_runtime, tile_size, tile_overlap, cancelled)
                     for frame in core
                 ]
+                inference_seconds += time.perf_counter() - inference_started
+                peak_vram_mb = max(peak_vram_mb, _cuda_peak_vram_mb(image_runtime))
             for frame in enhanced:
                 if cancelled():
                     raise WorkerError("cancelled", "Video upscale job was cancelled.")
@@ -217,8 +226,14 @@ def process_video(
         "bytes": output_path.stat().st_size,
         "temporal": model.temporal,
         "processing_seconds": elapsed,
+        "model_loading_seconds": model_loading_seconds,
+        "inference_seconds": inference_seconds,
         "processing_fps": encoded_frames / elapsed if elapsed else 0.0,
         "peak_vram_mb": peak_vram_mb or None,
+        "vram_measurement": "torch_peak_allocated" if peak_vram_mb else (
+            "unavailable_for_onnxruntime_under_wddm" if model.runtime == "onnxruntime" else None
+        ),
+        "runtime_device": getattr(temporal_runtime if model.temporal else image_runtime, "device_type", device),
         "input": probe.__dict__,
     }
 
@@ -240,7 +255,7 @@ def _start_encoder(path: Path, source: Path, probe: VideoProbe, scale: int, crf:
         "-c:v", "libx264", "-preset", "medium", "-crf", str(crf),
         "-vf", "scale=in_range=full:out_range=tv:out_color_matrix=bt709",
         "-pix_fmt", "yuv420p", "-color_range", "tv", "-colorspace", "bt709",
-        "-color_trc", "bt709", "-color_primaries", "bt709", "-shortest", str(path),
+        "-color_trc", "bt709", "-color_primaries", "bt709", str(path),
     ]
     return subprocess.Popen(command, stdin=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
@@ -272,19 +287,25 @@ def _write_frame(process: subprocess.Popen[bytes], frame: np.ndarray) -> None:
         raise WorkerError("encode_failed", "FFmpeg stopped while encoding video.", details={"diagnostics": diagnostics}) from exc
 
 
-def _run_temporal(model, device, frames: list[np.ndarray]) -> list[np.ndarray]:
-    import torch
+def _run_temporal(runtime, model: VideoUpscaleModel, frames: list[np.ndarray], keep_start: int, core_count: int) -> list[np.ndarray]:
+    if model.inference_mode == "sequence":
+        output = runtime.infer(frames)
+        if len(output) != len(frames):
+            raise WorkerError("runtime_output_invalid", "Sequence temporal model changed the frame count.")
+        return output[keep_start : keep_start + core_count]
+    output = []
+    for center in range(keep_start, keep_start + core_count):
+        window = _center_context_window(frames, center, model.context_frames)
+        enhanced = runtime.infer(window)
+        if len(enhanced) != 1:
+            raise WorkerError("runtime_output_invalid", "Center-frame temporal model must emit one frame.")
+        output.append(enhanced[0])
+    return output
 
-    batch = np.stack(frames).astype(np.float32) / 255.0
-    tensor = torch.from_numpy(batch.transpose(0, 3, 1, 2)).unsqueeze(0).to(device)
-    if next(model.parameters()).dtype == torch.float16:
-        tensor = tensor.half()
-    if device.type == "cuda":
-        torch.cuda.reset_peak_memory_stats(device)
-    with torch.inference_mode():
-        output = model(tensor).float().squeeze(0)
-    array = output.clamp(0, 1).mul(255).round().to(torch.uint8).permute(0, 2, 3, 1).cpu().numpy()
-    return [np.ascontiguousarray(frame) for frame in array]
+
+def _center_context_window(frames: list[np.ndarray], center: int, context_frames: int) -> list[np.ndarray]:
+    radius = context_frames // 2
+    return [frames[min(max(index, 0), len(frames) - 1)] for index in range(center - radius, center + radius + 1)]
 
 
 def _run_framewise(frame, model, runtime, tile_size: int, tile_overlap: int, cancelled) -> np.ndarray:
@@ -299,7 +320,17 @@ def _run_framewise(frame, model, runtime, tile_size: int, tile_overlap: int, can
     return np.clip(output * 255.0 + 0.5, 0, 255).astype(np.uint8)
 
 
-def _cuda_peak_vram_mb(device) -> float:
+def _reset_cuda_peak(runtime) -> None:
+    device = getattr(runtime, "torch_device", None)
+    if not device or device.type != "cuda":
+        return
+    import torch
+
+    torch.cuda.reset_peak_memory_stats(device)
+
+
+def _cuda_peak_vram_mb(runtime) -> float:
+    device = getattr(runtime, "torch_device", None)
     if not device or device.type != "cuda":
         return 0.0
     import torch

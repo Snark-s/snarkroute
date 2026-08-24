@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_b543a1c0-cffe-42ff-bf4b-72b22033673f",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "openmodeldb/vimeoscale-unet-x2",
+      "providerModelId": "openmodeldb/vimeoscale-unet-x2",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 15,
+        "overlap_frames": 1,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-animation",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\animation.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-animation-openmodeldb-vimeoscale-unet-x2-1787596896092937700"
+    },
+    "createdAt": "2026-08-24T18:41:36.097Z",
+    "updatedAt": "2026-08-24T18:41:37.462Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:41:36.098Z",
+    "providerJobId": "vup_d61e40d7-e9c2-41d9-a12b-6a8ecf08e6ad",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_d61e40d7-e9c2-41d9-a12b-6a8ecf08e6ad.mp4",
+        "mimeType": "video/mp4",
+        "width": 192,
+        "height": 128,
+        "duration": 2,
+        "fileSize": 26408,
+        "resultUrl": "/api/model-gateway/jobs/gen_b543a1c0-cffe-42ff-bf4b-72b22033673f/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_b543a1c0-cffe-42ff-bf4b-72b22033673f\\run\\assets\\generate-vup_d61e40d7-e9c2-41d9-a12b-6a8ecf08e6ad.mp4",
+      "filename": "generate-vup_d61e40d7-e9c2-41d9-a12b-6a8ecf08e6ad.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "openmodeldb/vimeoscale-unet-x2",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:41:37.462Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_b543a1c0-cffe-42ff-bf4b-72b22033673f/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 192,
+    "height": 128,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 26408,
+    "temporal": true,
+    "processing_seconds": 1.1917262999922968,
+    "model_loading_seconds": 0.00028429998201318085,
+    "inference_seconds": 0.843722700024955,
+    "processing_fps": 10.069426176192945,
+    "peak_vram_mb": 87.5166015625,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_b543a1c0-cffe-42ff-bf4b-72b22033673f",
+    "worker_job_id": "vup_d61e40d7-e9c2-41d9-a12b-6a8ecf08e6ad"
+  },
+  "metrics": {
+    "measured_width": 192,
+    "measured_height": 128,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 9.518763542175293,
+    "p95_frame_delta": 9.59344482421875,
+    "static_region_temporal_variation": 0.2614228129386902,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": null
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_a52ec5a5-00a4-4ec9-a1c6-8a25e776d74b",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "openmodeldb/video-tssm-x3",
+      "providerModelId": "openmodeldb/video-tssm-x3",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 18,
+        "overlap_frames": 1,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-compression",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\compression.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-compression-openmodeldb-video-tssm-x3-1787596885978396300"
+    },
+    "createdAt": "2026-08-24T18:41:25.983Z",
+    "updatedAt": "2026-08-24T18:41:26.537Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:41:25.985Z",
+    "providerJobId": "vup_2d09c8ba-2cf7-4d48-b2c8-5648ebdad66a",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_2d09c8ba-2cf7-4d48-b2c8-5648ebdad66a.mp4",
+        "mimeType": "video/mp4",
+        "width": 288,
+        "height": 192,
+        "duration": 2,
+        "fileSize": 38624,
+        "resultUrl": "/api/model-gateway/jobs/gen_a52ec5a5-00a4-4ec9-a1c6-8a25e776d74b/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_a52ec5a5-00a4-4ec9-a1c6-8a25e776d74b\\run\\assets\\generate-vup_2d09c8ba-2cf7-4d48-b2c8-5648ebdad66a.mp4",
+      "filename": "generate-vup_2d09c8ba-2cf7-4d48-b2c8-5648ebdad66a.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "openmodeldb/video-tssm-x3",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:41:26.537Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_a52ec5a5-00a4-4ec9-a1c6-8a25e776d74b/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 288,
+    "height": 192,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 38624,
+    "temporal": true,
+    "processing_seconds": 0.4845694999967236,
+    "model_loading_seconds": 0.00012409998453222215,
+    "inference_seconds": 0.23334609999437816,
+    "processing_fps": 24.76424950410857,
+    "peak_vram_mb": 92.18310546875,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_a52ec5a5-00a4-4ec9-a1c6-8a25e776d74b",
+    "worker_job_id": "vup_2d09c8ba-2cf7-4d48-b2c8-5648ebdad66a"
+  },
+  "metrics": {
+    "measured_width": 288,
+    "measured_height": 192,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 0.989950954914093,
+    "p95_frame_delta": 1.3823573589324951,
+    "static_region_temporal_variation": 0.00845256820321083,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": null
+  }
+}

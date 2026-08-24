@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_1b83fb79-e39f-4363-9f71-4ff38f37f792",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "openmodeldb/gameup-v2-tscunet-small-x2",
+      "providerModelId": "openmodeldb/gameup-v2-tscunet-small-x2",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 12,
+        "overlap_frames": 2,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-compression",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\compression.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-compression-openmodeldb-gameup-v2-tscunet-small-x2-1787596879783469000"
+    },
+    "createdAt": "2026-08-24T18:41:19.786Z",
+    "updatedAt": "2026-08-24T18:41:20.596Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:41:19.787Z",
+    "providerJobId": "vup_ff619c26-ccb9-40d6-942f-ab3e4aeff39f",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_ff619c26-ccb9-40d6-942f-ab3e4aeff39f.mp4",
+        "mimeType": "video/mp4",
+        "width": 192,
+        "height": 128,
+        "duration": 2,
+        "fileSize": 29168,
+        "resultUrl": "/api/model-gateway/jobs/gen_1b83fb79-e39f-4363-9f71-4ff38f37f792/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_1b83fb79-e39f-4363-9f71-4ff38f37f792\\run\\assets\\generate-vup_ff619c26-ccb9-40d6-942f-ab3e4aeff39f.mp4",
+      "filename": "generate-vup_ff619c26-ccb9-40d6-942f-ab3e4aeff39f.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "openmodeldb/gameup-v2-tscunet-small-x2",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:41:20.596Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_1b83fb79-e39f-4363-9f71-4ff38f37f792/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 192,
+    "height": 128,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 29168,
+    "temporal": true,
+    "processing_seconds": 0.7306097999971826,
+    "model_loading_seconds": 0.00018129998352378607,
+    "inference_seconds": 0.5286091000016313,
+    "processing_fps": 16.424635968537892,
+    "peak_vram_mb": null,
+    "vram_measurement": "unavailable_for_onnxruntime_under_wddm",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_1b83fb79-e39f-4363-9f71-4ff38f37f792",
+    "worker_job_id": "vup_ff619c26-ccb9-40d6-942f-ab3e4aeff39f"
+  },
+  "metrics": {
+    "measured_width": 192,
+    "measured_height": 128,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 0.8364294171333313,
+    "p95_frame_delta": 1.1565008163452148,
+    "static_region_temporal_variation": 0.014046714641153812,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": null
+  }
+}

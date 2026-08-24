@@ -6,22 +6,33 @@ export type LocalVideoUpscaleModel = {
   id: string;
   display_name: string;
   architecture: string;
+  architecture_family: string;
   runtime: "pytorch" | "onnxruntime";
+  runtime_adapter: string;
   file_format: "pth" | "onnx";
   native_scale: number;
   temporal: boolean;
   context_frames: number;
   recurrent: string;
+  inference_mode: "sequence" | "center-frame" | "framewise";
   supported_pixel_formats: string[];
   supported_content_types: string[];
   supported_output_codecs: string[];
   supported_output_containers: string[];
   license: string;
   license_url: string;
+  license_restrictions: string[];
+  commercial_use: boolean | null;
+  source: string;
+  openmodeldb_url: string | null;
   source_url: string;
   checkpoint_source: string;
+  download_url: string | null;
+  checkpoint_size_bytes: number | null;
+  sha256: string | null;
   estimated_vram_mb: number | null;
   recommended_chunk_size: number;
+  recommended_overlap_frames: number;
   recommended_tile_size: number | null;
   spatial_tiling_supported: boolean;
   framewise_model_id: string | null;
@@ -51,8 +62,12 @@ export type LocalVideoUpscaleJob = {
     bytes: number;
     temporal: boolean;
     processing_seconds: number;
+    model_loading_seconds: number;
+    inference_seconds: number;
     processing_fps: number;
     peak_vram_mb: number | null;
+    vram_measurement: string;
+    runtime_device: string;
   };
 };
 
@@ -170,7 +185,11 @@ export function createLocalVideoUpscaleNodeRunner(options: Parameters<typeof cre
       fps: job.output?.fps, frameCount: job.output?.frame_count, codec: job.output?.codec,
       sizeBytes: job.output?.bytes, audioPreserved: job.output?.audio_preserved,
       temporal: job.output?.temporal, processingSeconds: job.output?.processing_seconds,
-      peakVramMb: job.output?.peak_vram_mb
+      modelLoadingSeconds: job.output?.model_loading_seconds,
+      inferenceSeconds: job.output?.inference_seconds,
+      peakVramMb: job.output?.peak_vram_mb,
+      vramMeasurement: job.output?.vram_measurement,
+      runtimeDevice: job.output?.runtime_device
     };
     return {
       output: { video, videos: [video], provider: "local_video_upscale", model, providerJobId: job.id, estimatedCost: 0, actualCost: 0, telemetry: job.output },

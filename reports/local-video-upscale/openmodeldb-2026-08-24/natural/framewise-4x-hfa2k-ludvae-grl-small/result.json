@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_32a0a9ac-a9ec-4601-9ba5-2424f53743e4",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "framewise/4x-hfa2k-ludvae-grl-small",
+      "providerModelId": "framewise/4x-hfa2k-ludvae-grl-small",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 1,
+        "overlap_frames": 0,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-natural",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\natural.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-natural-framewise-4x-hfa2k-ludvae-grl-small-1787596861801713700"
+    },
+    "createdAt": "2026-08-24T18:41:01.807Z",
+    "updatedAt": "2026-08-24T18:41:03.959Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:41:01.809Z",
+    "providerJobId": "vup_98edd747-e407-4a96-897a-8d26298f4d56",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_98edd747-e407-4a96-897a-8d26298f4d56.mp4",
+        "mimeType": "video/mp4",
+        "width": 384,
+        "height": 256,
+        "duration": 2,
+        "fileSize": 54306,
+        "resultUrl": "/api/model-gateway/jobs/gen_32a0a9ac-a9ec-4601-9ba5-2424f53743e4/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_32a0a9ac-a9ec-4601-9ba5-2424f53743e4\\run\\assets\\generate-vup_98edd747-e407-4a96-897a-8d26298f4d56.mp4",
+      "filename": "generate-vup_98edd747-e407-4a96-897a-8d26298f4d56.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "framewise/4x-hfa2k-ludvae-grl-small",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:41:03.959Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_32a0a9ac-a9ec-4601-9ba5-2424f53743e4/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 384,
+    "height": 256,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 54306,
+    "temporal": false,
+    "processing_seconds": 2.040849800017895,
+    "model_loading_seconds": 3.429999924264848e-05,
+    "inference_seconds": 1.7275276000145823,
+    "processing_fps": 5.8799035577702865,
+    "peak_vram_mb": 106.1025390625,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_32a0a9ac-a9ec-4601-9ba5-2424f53743e4",
+    "worker_job_id": "vup_98edd747-e407-4a96-897a-8d26298f4d56"
+  },
+  "metrics": {
+    "measured_width": 384,
+    "measured_height": 256,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 3.768479108810425,
+    "p95_frame_delta": 3.8131089210510254,
+    "static_region_temporal_variation": 0.6344693899154663,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": 3.768479108810425
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_138cd0dc-6e3e-421d-9c5b-b52376825395",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "openmodeldb/redsval-7f-rrdb-lite-x4",
+      "providerModelId": "openmodeldb/redsval-7f-rrdb-lite-x4",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 12,
+        "overlap_frames": 3,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-performance",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\performance-x4-320x180.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-performance-openmodeldb-redsval-7f-rrdb-lite-x4-1787596806270340100"
+    },
+    "createdAt": "2026-08-24T18:40:06.273Z",
+    "updatedAt": "2026-08-24T18:40:20.869Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:40:06.274Z",
+    "providerJobId": "vup_41532213-6b09-4503-a540-d109e3e1a4cf",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_41532213-6b09-4503-a540-d109e3e1a4cf.mp4",
+        "mimeType": "video/mp4",
+        "width": 1280,
+        "height": 720,
+        "duration": 1,
+        "fileSize": 476408,
+        "resultUrl": "/api/model-gateway/jobs/gen_138cd0dc-6e3e-421d-9c5b-b52376825395/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_138cd0dc-6e3e-421d-9c5b-b52376825395\\run\\assets\\generate-vup_41532213-6b09-4503-a540-d109e3e1a4cf.mp4",
+      "filename": "generate-vup_41532213-6b09-4503-a540-d109e3e1a4cf.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "openmodeldb/redsval-7f-rrdb-lite-x4",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:40:20.869Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_138cd0dc-6e3e-421d-9c5b-b52376825395/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 1280,
+    "height": 720,
+    "fps": 6.0,
+    "frame_count": 6,
+    "duration": 1.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 476408,
+    "temporal": true,
+    "processing_seconds": 14.362398099998245,
+    "model_loading_seconds": 1.2599413999996614,
+    "inference_seconds": 12.555695199989714,
+    "processing_fps": 0.4177575331239936,
+    "peak_vram_mb": 1732.10546875,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 320,
+      "height": 180,
+      "fps": 6.0,
+      "frame_count": 6,
+      "duration": 1.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_138cd0dc-6e3e-421d-9c5b-b52376825395",
+    "worker_job_id": "vup_41532213-6b09-4503-a540-d109e3e1a4cf"
+  },
+  "metrics": {
+    "measured_width": 1280,
+    "measured_height": 720,
+    "measured_fps": 6.0,
+    "measured_frame_count": 6,
+    "measured_duration": 1.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 2.6319968700408936,
+    "p95_frame_delta": 2.6436705589294434,
+    "static_region_temporal_variation": 8.249990463256836,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": null
+  }
+}

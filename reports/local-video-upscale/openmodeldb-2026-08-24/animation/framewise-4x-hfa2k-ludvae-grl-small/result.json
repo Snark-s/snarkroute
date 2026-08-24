@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_1e53df7b-ab78-47a4-9b9b-9691419653ab",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "framewise/4x-hfa2k-ludvae-grl-small",
+      "providerModelId": "framewise/4x-hfa2k-ludvae-grl-small",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 1,
+        "overlap_frames": 0,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-animation",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\animation.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-animation-framewise-4x-hfa2k-ludvae-grl-small-1787596903606557300"
+    },
+    "createdAt": "2026-08-24T18:41:43.625Z",
+    "updatedAt": "2026-08-24T18:41:46.296Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:41:43.626Z",
+    "providerJobId": "vup_6cf7b464-307c-4115-8abb-68acf4f19402",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_6cf7b464-307c-4115-8abb-68acf4f19402.mp4",
+        "mimeType": "video/mp4",
+        "width": 384,
+        "height": 256,
+        "duration": 2,
+        "fileSize": 46040,
+        "resultUrl": "/api/model-gateway/jobs/gen_1e53df7b-ab78-47a4-9b9b-9691419653ab/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_1e53df7b-ab78-47a4-9b9b-9691419653ab\\run\\assets\\generate-vup_6cf7b464-307c-4115-8abb-68acf4f19402.mp4",
+      "filename": "generate-vup_6cf7b464-307c-4115-8abb-68acf4f19402.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "framewise/4x-hfa2k-ludvae-grl-small",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:41:46.296Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_1e53df7b-ab78-47a4-9b9b-9691419653ab/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 384,
+    "height": 256,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 46040,
+    "temporal": false,
+    "processing_seconds": 2.5821751999901608,
+    "model_loading_seconds": 3.0199997127056122e-05,
+    "inference_seconds": 2.1363402999413665,
+    "processing_fps": 4.647244695110435,
+    "peak_vram_mb": 106.1025390625,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_1e53df7b-ab78-47a4-9b9b-9691419653ab",
+    "worker_job_id": "vup_6cf7b464-307c-4115-8abb-68acf4f19402"
+  },
+  "metrics": {
+    "measured_width": 384,
+    "measured_height": 256,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 7.62451171875,
+    "p95_frame_delta": 7.840444564819336,
+    "static_region_temporal_variation": 0.26504790782928467,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": 7.62451171875
+  }
+}

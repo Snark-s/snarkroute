@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_c3ef62df-54bb-4171-8817-f3ab1d2cd9c9",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "openmodeldb/vimeoscale-unet-x2",
+      "providerModelId": "openmodeldb/vimeoscale-unet-x2",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 15,
+        "overlap_frames": 1,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-compression",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\compression.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-compression-openmodeldb-vimeoscale-unet-x2-1787596880949716700"
+    },
+    "createdAt": "2026-08-24T18:41:20.952Z",
+    "updatedAt": "2026-08-24T18:41:22.280Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:41:20.953Z",
+    "providerJobId": "vup_78e535b1-9c92-48ca-a7ea-c4233d46266b",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_78e535b1-9c92-48ca-a7ea-c4233d46266b.mp4",
+        "mimeType": "video/mp4",
+        "width": 192,
+        "height": 128,
+        "duration": 2,
+        "fileSize": 29778,
+        "resultUrl": "/api/model-gateway/jobs/gen_c3ef62df-54bb-4171-8817-f3ab1d2cd9c9/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_c3ef62df-54bb-4171-8817-f3ab1d2cd9c9\\run\\assets\\generate-vup_78e535b1-9c92-48ca-a7ea-c4233d46266b.mp4",
+      "filename": "generate-vup_78e535b1-9c92-48ca-a7ea-c4233d46266b.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "openmodeldb/vimeoscale-unet-x2",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:41:22.280Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_c3ef62df-54bb-4171-8817-f3ab1d2cd9c9/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 192,
+    "height": 128,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 29778,
+    "temporal": true,
+    "processing_seconds": 1.132447999989381,
+    "model_loading_seconds": 0.0002319000195711851,
+    "inference_seconds": 0.9247052999853622,
+    "processing_fps": 10.596513040874745,
+    "peak_vram_mb": 87.5166015625,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_c3ef62df-54bb-4171-8817-f3ab1d2cd9c9",
+    "worker_job_id": "vup_78e535b1-9c92-48ca-a7ea-c4233d46266b"
+  },
+  "metrics": {
+    "measured_width": 192,
+    "measured_height": 128,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 0.9095433950424194,
+    "p95_frame_delta": 1.2737358808517456,
+    "static_region_temporal_variation": 0.0033143959008157253,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": null
+  }
+}

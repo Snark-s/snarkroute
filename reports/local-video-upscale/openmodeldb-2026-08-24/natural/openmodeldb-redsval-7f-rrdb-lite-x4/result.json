@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_d9b601eb-6b07-45ab-a440-c3c5112296f7",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "openmodeldb/redsval-7f-rrdb-lite-x4",
+      "providerModelId": "openmodeldb/redsval-7f-rrdb-lite-x4",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 12,
+        "overlap_frames": 3,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-natural",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\natural.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-natural-openmodeldb-redsval-7f-rrdb-lite-x4-1787596855925899700"
+    },
+    "createdAt": "2026-08-24T18:40:55.934Z",
+    "updatedAt": "2026-08-24T18:40:58.038Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:40:55.936Z",
+    "providerJobId": "vup_80b1dd1b-419b-45af-82dd-de4d4063814b",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_80b1dd1b-419b-45af-82dd-de4d4063814b.mp4",
+        "mimeType": "video/mp4",
+        "width": 384,
+        "height": 256,
+        "duration": 2,
+        "fileSize": 147810,
+        "resultUrl": "/api/model-gateway/jobs/gen_d9b601eb-6b07-45ab-a440-c3c5112296f7/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_d9b601eb-6b07-45ab-a440-c3c5112296f7\\run\\assets\\generate-vup_80b1dd1b-419b-45af-82dd-de4d4063814b.mp4",
+      "filename": "generate-vup_80b1dd1b-419b-45af-82dd-de4d4063814b.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "openmodeldb/redsval-7f-rrdb-lite-x4",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:40:58.038Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_d9b601eb-6b07-45ab-a440-c3c5112296f7/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 384,
+    "height": 256,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 147810,
+    "temporal": true,
+    "processing_seconds": 1.886848199996166,
+    "model_loading_seconds": 0.00016029999824240804,
+    "inference_seconds": 1.5059004000213463,
+    "processing_fps": 6.359812093004823,
+    "peak_vram_mb": 238.859375,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_d9b601eb-6b07-45ab-a440-c3c5112296f7",
+    "worker_job_id": "vup_80b1dd1b-419b-45af-82dd-de4d4063814b"
+  },
+  "metrics": {
+    "measured_width": 384,
+    "measured_height": 256,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 5.830607891082764,
+    "p95_frame_delta": 5.887141704559326,
+    "static_region_temporal_variation": 3.064023971557617,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": null
+  }
+}
