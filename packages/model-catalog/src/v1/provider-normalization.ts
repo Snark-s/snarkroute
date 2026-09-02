@@ -46,22 +46,30 @@ export function normalizeProviderModelToV1Input(input: ProviderModelToV1Input): 
 
 export function inferOriginVendorFromProviderModelId(providerModelId: string): ModelOriginVendorV1 {
   const normalized = providerModelId.trim().toLowerCase();
-  if (normalized.startsWith("gpt-")) return "openai";
-  if (normalized.startsWith("claude-")) return "anthropic";
-  if (normalized.startsWith("gemini-")) return "google";
-  if (normalized.startsWith("grok-")) return "x-ai";
-  if (normalized.startsWith("deepseek-")) return "deepseek";
-  if (normalized.startsWith("sonar")) return "perplexity";
-  if (normalized.startsWith("yandexgpt-")) return "yandex";
-  if (normalized.startsWith("minimax-")) return "minimax";
-  if (normalized.startsWith("kling-") || normalized.startsWith("kling/")) return "kling";
-  if (normalized === "image.nano-banana" || normalized.includes("nano-banana")) return "nano-banana";
-  if (/^google\/gemini-.+-image-preview$/.test(normalized)) return "nano-banana";
-  const prefix = normalized.split("/")[0];
+  const modelIdentity = normalized.includes(":") ? normalized.slice(normalized.lastIndexOf(":") + 1) : normalized;
+  if (modelIdentity.startsWith("gpt-")) return "openai";
+  if (modelIdentity.startsWith("claude-")) return "anthropic";
+  if (modelIdentity.startsWith("gemini-")) return "google";
+  if (modelIdentity.startsWith("grok-")) return "x-ai";
+  if (modelIdentity.startsWith("deepseek-")) return "deepseek";
+  if (modelIdentity.startsWith("qwen")) return "qwen";
+  if (modelIdentity.startsWith("flux-")) return "black-forest-labs";
+  if (modelIdentity.startsWith("sonar")) return "perplexity";
+  if (modelIdentity.startsWith("yandexgpt-")) return "yandex";
+  if (modelIdentity.startsWith("minimax-")) return "minimax";
+  if (modelIdentity.startsWith("kling-") || modelIdentity.startsWith("kling/")) return "kling";
+  if (modelIdentity === "image.nano-banana" || modelIdentity.includes("nano-banana")) return "nano-banana";
+  if (/^google\/gemini-.+-image-preview$/.test(modelIdentity)) return "nano-banana";
+  const prefix = modelIdentity.split("/")[0];
   if (prefix === "kwaivgi" || prefix === "kuaishou") return "kling";
   if (prefix === "tongyi-mai" || prefix === "zai" || prefix === "z-ai") return "z-ai";
   if (prefix === "x-ai" || prefix === "xai") return "x-ai";
   if (prefix === "minimax") return "minimax";
+  if (prefix === "alibaba") return "alibaba";
+  if (prefix === "heygen") return "heygen";
+  if (prefix === "runway") return "runway";
+  if (prefix === "seedream") return "seedream";
+  if (prefix === "tencent") return "tencent";
   return prefix || "unknown";
 }
 

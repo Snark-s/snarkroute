@@ -6,6 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HF_HOME=/models/huggingface \
     SGLANG_COMMIT=3f26febaff04bac4cfefd60bdc9097bc26a96cb8 \
+    SGLANG_BUILD_RUST_EXTS=none \
     COMFY_KITCHEN_VERSION=0.2.31 \
     H3_SGLANG_PRECISION_PROFILE=bf16_offload \
     PATH=/opt/sglang/bin:$PATH

@@ -4,11 +4,11 @@ No pod, volume, token, or paid resource is created by this runbook automatically
 
 ## Before renting
 
-Check live GPU/storage prices in the RunPod console. Set `GPU_USD_PER_HOUR` and `MAX_BUDGET_USD` from that quote. First choose 1×RTX 4090 24 GB, 192 GiB RAM minimum (256 GiB preferred), and a 250 GB persistent volume. Use the explicit `kitchen_int8` profile; reserve BF16 offload for the A/B baseline. The lossless alternative is 2×RTX 5090 32 GB with a 384 GiB-class host. Require an NVIDIA r580-or-newer driver capable of running the CUDA 13 image.
+Check live GPU/storage prices in the RunPod console. Set `GPU_USD_PER_HOUR` and `MAX_BUDGET_USD` from that quote. First choose a 48 GB GPU, at least 256 GiB usable RAM, and a 300 GB persistent volume. Use the explicit `kitchen_int8` profile; reserve BF16 offload for the A/B baseline. The 2026-08-30 modified-4090 validation peaked at 30,422 MiB during startup and 247.46 GiB cgroup memory, so do not start with the generic 24 GB/low-RAM 4090 shape. The lossless alternative is 2×RTX 5090 32 GB with a 384 GiB-class host. Require an NVIDIA r580-or-newer driver capable of running the CUDA 13 image.
 
 Set provider stop/termination time before boot. Persistent volumes may bill after a pod stops, so budget storage separately.
 
-The public RunPod GPU catalog currently shows only about 41 GB host RAM for its generic RTX 4090 listing, far below this offload profile's project-estimated floor. Do not rent that default shape. Continue on RunPod only if the concrete Pod/host configuration exposes at least 192 GiB RAM and 250 GB persistent storage; otherwise use a verified Vast offer where `cpu_ram` and `disk_space` can be filtered explicitly.
+The public RunPod GPU catalog's generic RTX 4090 shape is unsuitable. Continue on RunPod only if the concrete Pod exposes a 48 GB GPU, at least 256 GiB usable RAM, and 300 GB persistent storage; otherwise use a verified Vast offer where VRAM, `cpu_ram`, and `disk_space` can be checked explicitly.
 
 ## Build and run
 

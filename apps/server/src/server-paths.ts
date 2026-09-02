@@ -25,6 +25,7 @@ export const repoRoot = resolve(findExistingDirectory("apps"), "..");
 export const envPath = join(repoRoot, ".env");
 export const assetsDirectory = join(process.cwd(), "data", "assets");
 export const modelGatewayJobsDirectory = join(process.cwd(), "data", "model-gateway-jobs");
+export const h3StudioDirectory = join(process.cwd(), "data", "h3-studio");
 export const modelIconsDirectory = findExistingDirectory("data", "model_icons");
 export const librariesDirectory = join(process.cwd(), "data", "libraries");
 export const providerLinksPath = findExistingFile("data", "provider-links.json");

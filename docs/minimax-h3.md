@@ -1,6 +1,6 @@
 # MiniMax H3 first deployment
 
-Status: prepared and verified without a GPU on 2026-08-20. The official RTX 4090 results below are source evidence, not a local claim. This project has not yet verified H3 INT8 inference, output quality, peak VRAM, render time, MP4 validity/audio sync, or provider lifecycle on a real GPU.
+Status: `kitchen_int8` startup and a 20-step 1344×768 end-to-end T2VA functional benchmark were verified on a rented modified RTX 4090 48 GB on 2026-08-30. The test confirms CUDA kernels, online weight quantization, API readiness, MP4 creation, and audio/video streams on that machine; it is not a blind quality benchmark and does not validate an ordinary 24 GB RTX 4090 or TP2.
 
 ## Decision and boundaries
 
@@ -50,11 +50,11 @@ Primary references:
 
 | Capability | State | Notes |
 |---|---|---|
-| `fl2va` | implemented contract; SGLang-supported | Includes text-only `t2va` and first/last frames. GPU unverified here. |
+| `fl2va` | implemented contract; SGLang-supported | Text-only `t2va` tested at 20 steps and 1344×768 on a modified 48 GB RTX 4090; first/last-frame conditioning remains untested. |
 | `ref2va` | implemented contract; SGLang-supported | Semantic/motion/audio references, not pixel-aligned editing. GPU unverified here. |
 | `preview` | implemented, 4–10 sigma steps | Base preview works without hidden acceleration. Turbo LoRA is optional but disabled until its revision/checksum/license are resolvable. |
 | `final` | implemented, 20–40 sigma steps | No hidden LoRA/cache acceleration. |
-| `kitchen_int8` | optional CUDA/SGLang capability | Fail-closed startup CUDA kernel test; configured explicitly; end-to-end project GPU validation pending. |
+| `kitchen_int8` | optional CUDA/SGLang capability | Fail-closed CUDA test and 20-step end-to-end T2VA verified on a modified 48 GB RTX 4090; ordinary 24 GB and TP2 remain unverified. |
 | `video_inpaint` | contract/validation only | Returns `capability_not_available`; neither pinned backend exposes the required native noise-mask workflow. |
 | `automatic_tracking` | adapter boundary only | A ready mask video is the intended first working path. No SAM3 claim. |
 | `resample` | contract only | Hosted H3-Regenerate-2K is separate; open local weights are unavailable. |
@@ -82,9 +82,9 @@ Defaults: 100 MiB per upload, 500 MiB combined local input, 2 MiB JSON request, 
 
 The pinned original FL2VA partition is `144,051,185,561` bytes including the root index (about 134.16 GiB); Ref2VA is the same size. Provision at least 250 GB for one partition and operating margin, or 450 GB if both partitions and normal caches/results will coexist. Do not run an unscoped `hf download`: the full repository includes duplicate original partitions and a ~195.92 GiB Diffusers-format root.
 
-The first rational rental is one RTX 4090 24 GB with the explicit `kitchen_int8` profile, at least 192 GiB host RAM (256 GiB preferred), and 250 GB persistent disk. The 24 GB GPU floor is the officially exercised device class; the reported 18 GB peak is not a reason to promise an untested smaller card. The RAM figures are project capacity estimates, not upstream measurements: the 134.16 GiB FL2VA partition must coexist with offload state, quantization/load buffers, the process, and filesystem cache. A practical disk floor is about 200 GB; 250 GB remains the recommendation for the 134.16 GiB snapshot, 58.5 MB kernel wheel, image layers, caches, outputs, and rollback margin.
+The safest first repeat rental is one modified RTX 4090 with 48 GB VRAM, at least 256 GiB usable container RAM, and 300 GB disk, with the explicit `kitchen_int8` profile. On the tested machine, SGLang quantized 209 linear layers from 37.38 GiB BF16 to 18.69 GiB INT8. A 20-step, 1344×768, 4.458-second T2VA request completed in 259.71 seconds and reported 18,788 MB peak VRAM; startup briefly reached about 30,422 MiB. Cgroup memory peaked at 265,707,483,136 bytes (247.46 GiB), current model-server memory was about 171.94 GiB, the model occupied 135 GiB on disk, and the isolated SGLang environment occupied 9.6 GiB. Therefore 192 GiB RAM and an ordinary 24 GB card are no longer the project's safe first-rental recommendation even though the official cookbook reports a successful 24 GB recipe. Keep 250 GB as a tight disk floor only for a prebuilt image and small outputs; use 300 GB for the first deployment.
 
-Provider choice is secondary to host RAM. As of this verification, RunPod's public generic RTX 4090 shape advertises only about 41 GB RAM, so it is unsuitable unless a concrete high-RAM Pod is available. A verified Vast offer filtered for `cpu_ram>=192`, `disk_space>=250`, and driver `>=580` is therefore the more realistic first search target; always compare the live total price before creating it.
+Provider choice is secondary to usable host RAM and actual VRAM. A verified Vast offer exposing a 48 GB modified RTX 4090 (or another 48 GB CUDA-13-capable GPU), `cpu_ram>=256`, `disk_space>=300`, and driver `>=580` is the most realistic first repeat target. Do not infer 48 GB from the product name: verify `nvidia-smi` after boot. An ordinary 24 GB RTX 4090 remains a follow-up compatibility test, not the first recommendation.
 
 Keep `bf16_offload` as the lossless comparison profile on the same card. The official 2×RTX 5090 32 GB TP2 recipe remains the faster lossless alternative and requires a 384 GiB-class host (official validation used 377 GiB). `kitchen_int8` quantizes eligible DiT linear weights online; unsupported layers remaining BF16 are reported by SGLang. If the package or CUDA kernel self-test fails, startup stops and prints the error—there is no automatic BF16 fallback.
 

@@ -3484,12 +3484,146 @@ dd {
   margin-top: auto;
 }
 
+.drawingWindow {
+  width: min(96vw, 1380px);
+}
+
+.drawingBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 250px;
+  min-height: 520px;
+}
+
+.drawingStage {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 520px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--canvas) 94%, #000000);
+}
+
+.drawingStage img,
+.drawingCanvas {
+  display: block;
+  max-width: 100%;
+  max-height: calc(90vh - 92px);
+  object-fit: contain;
+}
+
+.drawingStage img {
+  user-select: none;
+}
+
+.drawingCanvas {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: auto;
+  height: auto;
+  touch-action: none;
+  cursor: none;
+}
+
+.drawingCanvas.is-eraser {
+  cursor: none;
+}
+
+.drawingCanvas.is-text {
+  cursor: text;
+}
+
+.drawingBrushCursor {
+  position: absolute;
+  z-index: 2;
+  border: 1px solid var(--drawing-cursor-color, #ffffff);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.78);
+  pointer-events: none;
+}
+
+.drawingBrushCursor.is-eraser {
+  border-style: dashed;
+}
+
+.drawingControls {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border-left: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 94%, var(--canvas));
+}
+
+.drawingToolGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.drawingToolGrid button {
+  justify-content: flex-start;
+}
+
+.drawingToolGrid button.isSelected {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.drawingColorControl,
+.drawingDiameterControl,
+.drawingTextControl {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.drawingColorControl input {
+  width: 100%;
+  height: 38px;
+  padding: 3px;
+}
+
+.drawingDiameterControl span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.drawingDiameterControl input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.drawingDiameterControl small {
+  justify-self: end;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.drawingTextControl textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.drawingApply {
+  justify-content: center;
+  margin-top: auto;
+}
+
 @media (max-width: 760px) {
   .cropBody {
     grid-template-columns: 1fr;
   }
 
-  .cropBody aside {
+  .drawingBody {
+    grid-template-columns: 1fr;
+  }
+
+  .cropBody aside,
+  .drawingControls {
     border-left: 0;
     border-top: 1px solid var(--line);
   }

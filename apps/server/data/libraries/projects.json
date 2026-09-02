@@ -1,7 +1,11 @@
 {
   "version": 1,
-  "currentProjectPath": "Y:\\Работа\\Мрамор",
+  "currentProjectPath": "Y:\\Процесс\\Феи",
   "projects": [
+    {
+      "path": "Y:\\Процесс\\Феи",
+      "addedAt": "2026-09-01T14:41:40.680Z"
+    },
     {
       "path": "Y:\\Работа\\Симе",
       "addedAt": "2026-08-16T10:53:21.787Z"

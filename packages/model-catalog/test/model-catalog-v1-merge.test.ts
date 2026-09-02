@@ -91,6 +91,39 @@ describe("Model Catalog V1 merge helpers", () => {
     ]);
   });
 
+  it.each([
+    ["qwen2-image-edit", "qwen.png"],
+    ["flux-2-pro", "flux-2-pro.png"],
+    ["black-forest-labs/flux-kontext-pro", "flux-2-pro.png"],
+    ["seedream/5-pro-text-to-image", "seedream-4-5.png"],
+    ["alibaba:alibaba/wan-3.0-prime", "alibaba.svg"],
+    ["alibaba:alibaba/wan-3.0", "alibaba.svg"],
+    ["alibaba:alibaba/happyhorse-1.1", "alibaba.svg"],
+    ["alibaba:alibaba/happyhorse-1.0", "alibaba.svg"],
+    ["heygen/avatar-iv", "heygen.svg"],
+    ["black-forest-labs/flux-video-upscale", "flux-2-pro.png"],
+    ["runway/aleph-2", "runway.png"],
+    ["runway/gen-4.5", "runway.png"],
+    ["alibaba/wan-2.7", "alibaba.svg"],
+    ["deepseek-v4-flash", "deepseek.png"],
+    ["deepseek-v4-pro", "deepseek.png"],
+    ["deepseek-chat", "deepseek.png"],
+    ["deepseek-reasoner", "deepseek.png"],
+    ["sonar", "perplexity.svg"],
+    ["sonar-pro", "perplexity.svg"],
+    ["yandexgpt-5.1", "yandexart.png"],
+    ["yandexgpt-5-pro", "yandexart.png"],
+    ["deepseek:deepseek/deepseek-v4-flash-vision", "deepseek.png"],
+    ["tencent:tencent/hy-mt2-1.8b", "tencent.svg"],
+    ["tencent:tencent/hy-mt2-30b-a3b", "tencent.svg"]
+  ])("resolves a non-placeholder icon for %s", (providerModelId, expectedFilename) => {
+    const model = normalizeProviderModelToV1Input({ provider: "polza", providerModelId });
+    const merged = mergeProviderModelWithCuratedMetadata(model);
+
+    expect(merged.iconPath).toBe(`/api/model-icons/${expectedFilename}`);
+    expect(merged.iconPath).not.toContain("unknown.svg");
+  });
+
   it("does not treat curated metadata as a whitelist", () => {
     const providerModels = [
       normalizeProviderModelToV1Input({ provider: "polza", providerModelId: "openai/known", outputTypes: ["image"] }),

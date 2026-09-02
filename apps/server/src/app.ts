@@ -23,6 +23,7 @@ import { registerSettingsRoutes } from "./routes/settings";
 import { registerSystemRoutes } from "./routes/system";
 import { registerWorldLabsMarbleRoutes } from "./routes/worldlabs-marble";
 import { registerAfterEffectsRoutes } from "./routes/after-effects";
+import { registerH3Routes } from "./routes/h3";
 import { registerMcpRoutes } from "./mcp/server";
 import { registerPortableToolJobRoutes } from "./routes/tool-jobs";
 import { startModelPricingRefreshScheduler } from "./billing/model-pricing-refresh-scheduler";
@@ -42,6 +43,7 @@ export function buildServer() {
   void registerAuthRoutes(app);
   void registerBillingRoutes(app);
   void registerSettingsRoutes(app);
+  void registerH3Routes(app);
   void registerSystemRoutes(app);
   void registerModelRoutes(app);
   void registerModelGatewayJobRoutes(app);

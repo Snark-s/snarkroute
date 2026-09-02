@@ -37,6 +37,22 @@ describe("Model Catalog V1 provider normalization", () => {
     expect(inferOriginVendorFromProviderModelId("google/gemini-3-pro")).toBe("google");
   });
 
+  it.each([
+    ["qwen2-image-edit", "qwen"],
+    ["flux-2-pro", "black-forest-labs"],
+    ["seedream/5-pro-text-to-image", "seedream"],
+    ["alibaba:alibaba/wan-3.0-prime", "alibaba"],
+    ["alibaba:alibaba/happyhorse-1.1", "alibaba"],
+    ["heygen/avatar-iv", "heygen"],
+    ["runway/gen-4.5", "runway"],
+    ["deepseek:deepseek/deepseek-v4-flash-vision", "deepseek"],
+    ["sonar-pro", "perplexity"],
+    ["yandexgpt-5.1", "yandex"],
+    ["tencent:tencent/hy-mt2-30b-a3b", "tencent"]
+  ])("infers the icon vendor for %s", (providerModelId, expectedVendor) => {
+    expect(inferOriginVendorFromProviderModelId(providerModelId)).toBe(expectedVendor);
+  });
+
   it("represents unknown live provider models as available live records", () => {
     const model = normalizeProviderModelToV1Input({
       provider: "unknown-provider",

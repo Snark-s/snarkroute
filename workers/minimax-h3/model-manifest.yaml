@@ -1,5 +1,5 @@
 schema_version: 1
-verified_at: "2026-08-20"
+verified_at: "2026-08-30"
 policy:
   production_runtime: "ComfyUI runtime and custom nodes are prohibited; standalone CUDA kernel libraries are reviewed independently"
   model_volume: /models
@@ -12,7 +12,7 @@ frameworks:
     torch: "2.13.0"
     diffusers: "0.37.0"
     cuda_base: "nvidia/cuda:13.0.1-cudnn-devel-ubuntu24.04"
-    status: official_source_supported_gpu_not_validated_in_this_project
+    status: kitchen_int8_t2va_20step_validated_on_modified_rtx4090_48gb
   comfy_kitchen:
     version: "0.2.31"
     package: "comfy-kitchen"
@@ -44,7 +44,7 @@ components:
     purpose: "H3-Base text and first/last-frame to synchronized audio-video"
     expected_bytes: 144051185561
     checksum: unresolved_multi_file_snapshot
-    minimum_requirements: "First deployment: 1xRTX 4090 24GB, kitchen_int8, 192GiB practical minimum/256GiB recommended host RAM, 250GB disk; project GPU validation pending"
+    minimum_requirements: "Safest first repeat: 1x modified RTX 4090 48GB, kitchen_int8, 256GiB usable host RAM, 300GB disk; ordinary 24GB RTX 4090 remains project-unverified"
     path: MiniMax-H3
     license: minimax-h3-community-license-agreement
     manual_license_acceptance_required: true
@@ -152,17 +152,17 @@ components:
     download: false
 quantization:
   selected_first_deployment: kitchen_int8
-  selected_hardware: "1x RTX 4090 24GB"
+  selected_hardware: "1x modified RTX 4090 48GB for first repeat; upstream 24GB recipe remains a follow-up test"
   single_rtx_4090_5090:
-    status: official_recipe_and_benchmark_project_gpu_validation_pending
+    status: t2va_20step_1344x768_validated_on_modified_rtx4090_48gb
     reason: "Official SGLang documents kitchen_int8 on one RTX 4090; comfy-kitchen 0.2.31 has no mandatory Python dependencies and contains no ComfyUI runtime or custom nodes"
   profiles:
     kitchen_int8:
-      gpu: "1x RTX 4090 24GB"
-      peak_vram: "about 18GB in official benchmark"
-      host_ram: "192GiB practical project estimate; 256GiB recommended"
-      disk: "200GB practical minimum; 250GB recommended"
-      status: gpu_unverified_in_this_project
+      gpu: "1x modified RTX 4090 48GB validated; ordinary 24GB RTX 4090 unverified in project"
+      peak_vram: "18,788MB for 20-step 1344x768 generation; about 30,422MiB observed during startup; official 24GB benchmark reports about 18GB"
+      host_ram: "247.46GiB observed cgroup peak; 256GiB usable minimum for first repeat"
+      disk: "149GB total observed after install/model; 250GB tight floor, 300GB recommended"
+      status: t2va_20step_1344x768_validated_2026_08_30
     bf16_offload:
       gpu: "1x RTX 4090 24GB"
       peak_vram: "about 18GB in official benchmark"

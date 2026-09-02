@@ -48,7 +48,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.sglang
-    command: ["--model-path", "/models/MiniMax-H3", "--model-variant", "fl2va", "--num-gpus", "1", "--tp-size", "1", "--ulysses-degree", "1", "--attention-backend", "fa", "--performance-mode", "memory", "--layerwise-offload-components", "dit,text_encoder", "--dit-offload-prefetch-size", "1", "--dit-layerwise-resident-layers", "0", "--enable-torch-compile", "false", "--host", "0.0.0.0", "--port", "30010"]
+    command: ["--model-path", "/models/MiniMax-H3", "--model-variant", "fl2va", "--backend", "sglang", "--num-gpus", "1", "--tp-size", "1", "--ulysses-degree", "1", "--attention-backend", "fa", "--performance-mode", "memory", "--layerwise-offload-components", "dit,text_encoder", "--dit-offload-prefetch-size", "1", "--dit-layerwise-resident-layers", "0", "--enable-torch-compile", "false", "--host", "0.0.0.0", "--port", "30010"]
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
       H3_SGLANG_PRECISION_PROFILE: kitchen_int8

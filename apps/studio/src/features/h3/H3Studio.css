@@ -1,0 +1,225 @@
+.h3Studio {
+  --h3-accent: #f0a84a;
+  --h3-accent-soft: rgba(240, 168, 74, 0.14);
+  background: radial-gradient(circle at 78% 2%, rgba(91, 56, 112, 0.28), transparent 31%), #0d1016;
+  color: #edf1f7;
+  min-height: 100vh;
+  padding: 0 28px 40px;
+}
+
+.h3StudioHeader {
+  align-items: center;
+  border-bottom: 1px solid #282e39;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 -28px;
+  padding: 14px 28px;
+}
+
+.h3StudioBrand,
+.h3StudioBrand > div,
+.h3ConnectionBadge,
+.h3ConnectionPanel header > div,
+.h3ConnectionActions,
+.h3StudioHeaderActions,
+.h3ToolsSection > header {
+  align-items: center;
+  display: flex;
+}
+
+.h3StudioBrand { gap: 12px; }
+.h3StudioBrand > div { align-items: flex-start; flex-direction: column; gap: 2px; }
+.h3StudioBrand strong { font-size: 18px; }
+.h3StudioBrand span:last-child { color: #9ba6b7; font-size: 11px; }
+.h3StudioMark { align-items: center; border-radius: 10px; display: flex; height: 40px; justify-content: center; overflow: hidden; width: 40px; }
+.h3StudioMark img { display: block; height: 40px; width: 40px; }
+.h3StudioHeaderActions { gap: 8px; }
+
+.h3StudioHero {
+  align-items: end;
+  display: grid;
+  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin: 0 auto;
+  max-width: 1440px;
+  padding: 48px 0 30px;
+}
+
+.h3StudioHero h1 { display: block; font-size: clamp(30px, 4vw, 58px); letter-spacing: -0.04em; line-height: 1.02; margin: 8px 0 16px; max-width: 850px; }
+.h3StudioHero p { color: #aab3c2; font-size: 15px; line-height: 1.6; margin: 0; max-width: 760px; }
+.h3Eyebrow { color: var(--h3-accent); font-size: 11px; font-weight: 800; letter-spacing: 0.18em; }
+
+.h3ConnectionBadge { background: #171c24; border: 1px solid #343c49; border-radius: 12px; gap: 10px; min-width: 220px; padding: 12px 14px; }
+.h3ConnectionBadge.ready { border-color: #3e755e; color: #9cedc7; }
+.h3ConnectionBadge > div { display: grid; gap: 2px; }
+.h3ConnectionBadge span { color: #909bac; font-size: 11px; max-width: 260px; overflow-wrap: anywhere; }
+
+.h3StudioGrid { display: grid; gap: 18px; grid-template-columns: minmax(340px, 0.8fr) minmax(480px, 1.35fr); margin: 0 auto; max-width: 1440px; }
+.h3ConnectionPanel, .h3WorkspacePreview, .h3ToolsSection, .h3QueueSection { background: rgba(20, 25, 33, 0.94); border: 1px solid #2d3541; border-radius: 14px; }
+.h3ConnectionPanel { display: grid; gap: 13px; padding: 18px; }
+.h3ConnectionPanel header { align-items: flex-start; display: flex; justify-content: space-between; }
+.h3ConnectionPanel header > div { align-items: flex-start; gap: 10px; }
+.h3ConnectionPanel h2, .h3ToolsSection h2 { color: #f5f7fb; font-size: 16px; letter-spacing: 0; margin: 0; text-transform: none; }
+.h3ConnectionPanel header p, .h3ToolsSection header p { color: #8f9aaa; font-size: 11px; line-height: 1.4; margin: 4px 0 0; }
+.h3PanelIcon { align-items: center; background: var(--h3-accent-soft); border: 1px solid rgba(240, 168, 74, 0.32); border-radius: 8px; color: var(--h3-accent); display: flex; height: 34px; justify-content: center; width: 34px; }
+.h3IconButton { min-height: 32px; padding: 6px; width: 32px; }
+.h3ConnectionPanel label { display: grid; gap: 5px; }
+.h3ConnectionPanel label span { color: #9ba6b7; font-size: 11px; }
+.h3ConnectionPanel input { background: #0d1118; border: 1px solid #343d4a; border-radius: 7px; color: #f1f4f8; font: 13px/1.4 ui-monospace, Consolas, monospace; min-height: 38px; padding: 8px 10px; width: 100%; }
+.h3ConnectionPanel input:focus { border-color: #a66f3f; outline: 2px solid rgba(240, 168, 74, 0.12); }
+.h3ConnectionActions { flex-wrap: wrap; gap: 8px; }
+.h3Primary { background: #9a6137; border-color: #d18b50; }
+.h3Primary:hover { background: #ad7041; }
+.h3SavedConnection { align-items: center; background: #0d1118; border: 1px solid #303945; border-radius: 9px; display: grid; gap: 10px; grid-template-columns: auto minmax(0, 1fr); padding: 11px; }
+.h3SavedConnection.ready { border-color: #3d725c; }
+.h3SavedConnectionIcon { align-items: center; background: #222a35; border-radius: 8px; color: #d2a06d; display: flex; height: 36px; justify-content: center; width: 36px; }
+.h3SavedConnection.ready .h3SavedConnectionIcon { background: rgba(70, 139, 106, 0.18); color: #8de0b8; }
+.h3SavedConnection > div { display: grid; gap: 3px; min-width: 0; }
+.h3SavedConnection strong { color: #e7ebf1; font-size: 13px; }
+.h3SavedConnection span:last-child { color: #8e99aa; font-size: 10px; overflow-wrap: anywhere; }
+.h3VastRental { background: linear-gradient(145deg, rgba(43, 55, 70, 0.72), rgba(15, 20, 28, 0.92)); border: 1px solid #384555; border-radius: 10px; display: grid; gap: 11px; padding: 12px; }
+.h3VastRentalHeading { align-items: center; display: grid; gap: 10px; grid-template-columns: auto minmax(0, 1fr); }
+.h3VastRentalHeading > div { display: grid; gap: 3px; }
+.h3VastRentalHeading strong { color: #edf2f8; font-size: 13px; }
+.h3VastRentalHeading span:last-child { color: #9ca8b8; font-size: 10px; line-height: 1.4; }
+.h3VastRentalIcon { align-items: center; background: rgba(85, 155, 232, 0.12); border: 1px solid rgba(103, 169, 239, 0.26); border-radius: 8px; color: #8ac1fb; display: flex; height: 36px; justify-content: center; width: 36px; }
+.h3VastFilters { display: flex; flex-wrap: wrap; gap: 5px; }
+.h3VastFilters > span { background: #111821; border: 1px solid #354253; border-radius: 999px; color: #c4cfdd; font-size: 9px; padding: 4px 7px; }
+.h3VastRental p { color: #9ba7b7; font-size: 10px; line-height: 1.45; margin: 0; }
+.h3VastRental p strong { color: #e4eaf2; }
+.h3VastButton { align-items: center; background: #1868d7; border: 1px solid #4a91ef; border-radius: 7px; color: #fff; display: inline-flex; font-size: 11px; font-weight: 700; gap: 7px; justify-content: center; min-height: 36px; padding: 8px 11px; text-decoration: none; width: fit-content; }
+.h3VastButton:hover { background: #2479e9; color: #fff; }
+.h3AdvancedToggle { background: transparent; border-color: transparent; color: #909bad; font-size: 11px; justify-content: flex-start; padding-left: 0; width: fit-content; }
+.h3AdvancedToggle:hover { background: transparent; color: #d4dbe5; }
+.h3AdvancedToggle svg:last-child { transition: transform 140ms ease; }
+.h3AdvancedToggle.open svg:last-child { transform: rotate(180deg); }
+.h3ManualConnection { background: #10151d; border: 1px solid #303945; border-radius: 9px; display: grid; gap: 12px; padding: 12px; }
+.h3ConnectionHelp { background: rgba(240, 168, 74, 0.06); border-left: 2px solid rgba(240, 168, 74, 0.48); display: grid; gap: 6px; padding: 9px 10px; }
+.h3ConnectionHelp p { color: #aab3c1; font-size: 11px; line-height: 1.45; margin: 0; }
+.h3ConnectionHelp strong { color: #e4e9f0; }
+.h3ConnectionHelp code { color: #e7b679; font-size: 10px; }
+.h3Message { color: #86d9b3; font-size: 12px; margin: 0; }
+.h3Message.warning { color: #ffbf84; }
+.h3BillingWarning { align-items: flex-start; background: rgba(128, 74, 44, 0.18); border: 1px solid rgba(224, 142, 82, 0.3); border-radius: 8px; color: #e4bea0; display: flex; font-size: 11px; gap: 8px; line-height: 1.45; margin: 0; padding: 9px; }
+.h3BillingWarning svg { flex: none; margin-top: 1px; }
+.h3RuntimeDetails { background: #0d1118; border: 1px solid #2c3440; border-radius: 8px; display: grid; font-size: 11px; gap: 7px 12px; grid-template-columns: auto minmax(0, 1fr); padding: 10px; }
+.h3RuntimeDetails span { color: #7f8b9c; }
+.h3RuntimeDetails strong { color: #d9e0e9; min-width: 0; overflow-wrap: anywhere; }
+
+.h3WorkspacePreview { display: grid; grid-template-rows: minmax(300px, 1fr) auto; min-height: 440px; overflow: hidden; }
+.h3StagePlaceholder { align-items: center; background: radial-gradient(circle at center, rgba(240, 168, 74, 0.09), transparent 52%), #090c11; color: #758092; display: flex; flex-direction: column; gap: 8px; justify-content: center; padding: 24px; text-align: center; }
+.h3StagePlaceholder strong { color: #ccd3de; font-size: 16px; }
+.h3StagePlaceholder span { font-size: 12px; max-width: 400px; }
+.h3TimelineStub { align-items: center; border-top: 1px solid #2c3440; display: grid; gap: 5px; grid-template-columns: repeat(5, 1fr); min-height: 74px; padding: 12px; }
+.h3TimelineStub span { background: linear-gradient(90deg, #293140, #384354); border-radius: 4px; height: 28px; }
+.h3TimelineStub span:first-child, .h3TimelineStub span:last-child { background: linear-gradient(90deg, #7e5738, #4c3a2d); }
+
+.h3ToolsSection { margin: 18px auto 0; max-width: 1440px; padding: 18px; }
+.h3ToolsSection > header { justify-content: space-between; margin-bottom: 14px; }
+.h3ToolsSection > header > div { display: grid; gap: 2px; }
+.h3ToolGrid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.h3ToolCard { background: #11161e; border: 1px solid #303846; border-radius: 10px; display: grid; gap: 8px; min-height: 172px; padding: 13px; }
+.h3ToolCard.available { border-color: #3f6f5c; box-shadow: inset 0 2px 0 rgba(110, 218, 168, 0.28); }
+.h3ToolCardStatus { align-items: center; color: #8b96a7; display: flex; font-size: 10px; gap: 5px; min-height: 18px; overflow-wrap: anywhere; }
+.h3ToolCard.available .h3ToolCardStatus { color: #8de0b8; }
+.h3ToolCard h3 { color: #edf1f7; font-size: 14px; margin: 0; }
+.h3ToolCard p { color: #929eae; font-size: 11px; line-height: 1.45; margin: 0; }
+.h3ToolCard footer { align-items: end; display: flex; gap: 8px; justify-content: space-between; margin-top: auto; }
+.h3ToolCard footer span { color: #d8aa76; font-size: 10px; }
+.h3ToolCard code { color: #788597; font-size: 9px; }
+.h3QueueSection { margin: 18px auto 0; max-width: 1440px; padding: 18px; }
+.h3QueueHeader { align-items: center; display: flex; justify-content: space-between; margin-bottom: 15px; }
+.h3QueueHeader h2 { font-size: 17px; margin: 0; }
+.h3QueueHeader p { color: #909cac; font-size: 11px; margin: 4px 0 0; }
+.h3QueueCount { background: #222a35; border: 1px solid #394453; border-radius: 999px; color: #bbc5d2; font-size: 10px; padding: 5px 9px; }
+.h3QueueLayout { display: grid; gap: 14px; grid-template-columns: minmax(320px, .72fr) minmax(440px, 1.28fr); }
+.h3QueueComposer { align-content: start; background: #10151d; border: 1px solid #303945; border-radius: 10px; display: grid; gap: 9px; padding: 12px; }
+.h3EditingBanner { align-items: center; background: rgba(240, 168, 74, .11); border: 1px solid rgba(240, 168, 74, .32); border-radius: 8px; color: #efbd88; display: flex; font-size: 10px; justify-content: space-between; padding: 6px 8px; }
+.h3EditingBanner span { align-items: center; display: flex; gap: 6px; }
+.h3EditingBanner button { min-height: 26px; padding: 4px; width: 26px; }
+.h3QueueComposer label, .h3VastConfig label { display: grid; gap: 5px; }
+.h3QueueComposer label > span, .h3VastConfig label > span { color: #9ba6b7; font-size: 10px; }
+.h3QueueComposer input, .h3QueueComposer select, .h3QueueComposer textarea, .h3VastConfig input { background: #0b0f15; border: 1px solid #343d4a; border-radius: 7px; color: #edf1f7; min-height: 36px; padding: 8px 9px; width: 100%; }
+.h3QueueComposer textarea { height: 96px; line-height: 1.4; min-height: 72px; resize: vertical; }
+.h3QueueComposer .h3JsonPrompt { font: 11px/1.45 ui-monospace, Consolas, monospace; }
+.h3QueueTopFields { align-items: start; display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.h3OperationField { display: grid; gap: 5px; }
+.h3PromptFields { display: grid; gap: 8px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.h3QueueFields { display: grid; gap: 7px; grid-template-columns: .7fr .8fr .8fr .9fr 1.45fr; }
+.h3SeedField { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr) auto; }
+.h3SeedField button { min-height: 36px; padding: 7px; width: 36px; }
+.h3OperationNote { align-items: center; color: #8eddb9; display: flex; font-size: 9px; gap: 5px; margin: 0; min-height: 14px; }
+.h3OperationNote.blocked { color: #efb177; }
+.h3AssetSlots { display: flex; flex-wrap: wrap; gap: 7px; }
+.h3AssetButton { align-items: center; background: #171e28; border: 1px dashed #465468; border-radius: 8px; color: #c3cbd6; cursor: pointer; display: grid !important; font-size: 10px; gap: 8px !important; grid-template-columns: 52px minmax(0, 1fr); min-height: 62px; min-width: 190px; padding: 5px; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; }
+.h3AssetButton:hover { background: #1c2531; border-color: #65768b; }
+.h3AssetButton:focus-visible { border-color: #f0a84a; box-shadow: 0 0 0 2px rgba(240, 168, 74, .18); outline: none; }
+.h3AssetButton.dropActive { background: rgba(240, 168, 74, .14); border-color: #f0a84a; box-shadow: 0 0 0 2px rgba(240, 168, 74, .12); transform: translateY(-1px); }
+.h3AssetButton.hasPreview { border-style: solid; }
+.h3AssetButton input { display: none; }
+.h3AssetUploadIcon { align-items: center; background: #10161f; border-radius: 6px; color: #91a2b7 !important; display: flex; height: 50px; justify-content: center; width: 52px; }
+.h3AssetCaption { display: grid; gap: 3px; min-width: 0; }
+.h3AssetCaption strong { color: #dbe2eb; font-size: 10px; }
+.h3AssetCaption small { color: #8693a4; font-size: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.h3AssetPreview { background: #090d12; border-radius: 6px; display: block; height: 50px; object-fit: cover; width: 52px; }
+.h3AssetAudioPreview { height: 30px; max-width: 130px; width: 130px; }
+.h3AssetButton:has(.h3AssetAudioPreview) { grid-template-columns: 130px minmax(0, 1fr); }
+.h3AddQueue { justify-content: center; width: 100%; }
+.h3QueueList { align-content: start; display: grid; gap: 9px; max-height: 690px; overflow: auto; }
+.h3QueueEmpty { align-items: center; border: 1px dashed #364150; border-radius: 10px; color: #697587; display: flex; flex-direction: column; gap: 6px; justify-content: center; min-height: 220px; padding: 20px; text-align: center; }
+.h3QueueEmpty strong { color: #bdc6d1; }
+.h3QueueEmpty span { font-size: 11px; }
+.h3QueueCard { background: #0e131a; border: 1px solid #303947; border-radius: 9px; display: grid; gap: 8px; padding: 11px; }
+.h3QueueCard.running { border-color: #aa7546; }
+.h3QueueCard.succeeded { border-color: #38705a; }
+.h3QueueCard.failed, .h3QueueCard.blocked { border-color: #875040; }
+.h3QueueCardTop { align-items: start; display: flex; gap: 10px; justify-content: space-between; }
+.h3QueueCardTop > div:first-child { display: grid; gap: 3px; }
+.h3QueueCardTop span { color: #7f8b9b; font-size: 9px; text-transform: uppercase; }
+.h3QueueCardTop strong { color: #e5eaf0; font-size: 13px; }
+.h3QueueCardButtons { display: flex; gap: 4px; }
+.h3QueueCardButtons button { min-height: 27px; padding: 4px; width: 27px; }
+.h3QueueCard > p { color: #a5afbd; display: -webkit-box; font-size: 10px; line-height: 1.4; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.h3QueueMeta { display: flex; flex-wrap: wrap; gap: 5px; }
+.h3QueueMeta span { background: #19212b; border-radius: 4px; color: #98a4b4; font-size: 8px; padding: 3px 5px; }
+.h3QueueProgress { background: #242c37; border-radius: 99px; height: 3px; overflow: hidden; }
+.h3QueueProgress span { background: #db914e; display: block; height: 100%; transition: width 200ms ease; }
+.h3QueueCard.succeeded .h3QueueProgress span { background: #68c397; }
+.h3QueueCard footer { align-items: center; display: flex; flex-wrap: wrap; gap: 7px; }
+.h3QueueCard footer strong { color: #c5ced8; font-size: 9px; text-transform: uppercase; }
+.h3QueueCard footer span { color: #e7a780; font-size: 9px; overflow-wrap: anywhere; }
+.h3QueueCard footer a { align-items: center; color: #83bdf9; display: flex; font-size: 9px; gap: 4px; margin-left: auto; }
+.h3QueueMessage { color: #efbd88; font-size: 11px; margin: 12px 0 0; }
+.h3SessionBar { align-items: center; background: #111821; border: 1px solid #374252; border-radius: 10px; display: flex; gap: 12px; justify-content: space-between; margin-top: 14px; padding: 12px; }
+.h3SessionBar.danger { background: rgba(124, 45, 36, .22); border-color: #a95745; }
+.h3SessionBar > div:first-child { display: grid; gap: 3px; }
+.h3SessionBar strong { font-size: 12px; }
+.h3SessionBar span { color: #99a4b3; font-size: 9px; overflow-wrap: anywhere; }
+.h3SessionActions { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; }
+.h3ManagedRun { background: #1d653f; border-color: #3a9463; }
+.h3Danger { background: #7b352d; border-color: #b35a49; }
+.h3QueueSection > .h3AdvancedToggle { margin-top: 11px; }
+.h3QueueSection > .h3AdvancedToggle span { color: #d3a168; margin-left: 4px; }
+.h3VastConfig { background: #10151d; border: 1px solid #303945; border-radius: 9px; display: grid; gap: 12px; padding: 12px; }
+.h3VastConfig > p { color: #9ca7b6; font-size: 10px; line-height: 1.45; margin: 0; }
+.h3VastConfigGrid { display: grid; gap: 9px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.h3Spin { animation: h3-spin 0.8s linear infinite; }
+
+@keyframes h3-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 900px) {
+  .h3Studio { padding: 0 16px 30px; }
+  .h3StudioHeader { align-items: flex-start; margin: 0 -16px; padding: 12px 16px; }
+  .h3StudioHeaderActions { align-items: stretch; flex-direction: column; }
+  .h3StudioHero, .h3StudioGrid, .h3QueueLayout { grid-template-columns: 1fr; }
+  .h3StudioHero { align-items: start; padding-top: 30px; }
+  .h3ConnectionBadge { min-width: 0; }
+  .h3QueueTopFields, .h3PromptFields { grid-template-columns: 1fr; }
+  .h3QueueFields, .h3VastConfigGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .h3SessionBar { align-items: stretch; flex-direction: column; }
+  .h3SessionActions { justify-content: flex-start; }
+}
+
+@media (max-width: 560px) {
+  .h3QueueFields, .h3VastConfigGrid { grid-template-columns: 1fr; }
+}

@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -7,21 +8,31 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 
-from sglang_entrypoint import prepare_command  # noqa: E402
-
 import benchmark  # noqa: E402
+from sglang_entrypoint import ensure_runtime_bin_on_path, prepare_command  # noqa: E402
 
 
 def test_kitchen_profile_injects_quantization_and_rejects_conflicts():
     command = prepare_command("kitchen_int8", ["--model-path", "/models/MiniMax-H3"])
-    assert command[-2:] == ["--quantization", "kitchen_int8"]
+    assert command[-4:] == ["--quantization", "kitchen_int8", "--backend", "sglang"]
     with pytest.raises(RuntimeError, match="conflicts"):
         prepare_command("kitchen_int8", ["--quantization", "fp8"])
+    with pytest.raises(RuntimeError, match="native sglang backend"):
+        prepare_command("kitchen_int8", ["--backend", "diffusers"])
 
 
 def test_bf16_profile_cannot_silently_run_kitchen_int8():
     with pytest.raises(RuntimeError, match="requires"):
         prepare_command("bf16_offload", ["--quantization=kitchen_int8"])
+
+
+def test_sglang_console_script_directory_is_added_to_path(tmp_path):
+    executable = tmp_path / "sglang-venv" / "bin" / "python"
+    environment = {"PATH": "/usr/local/bin:/usr/bin"}
+
+    ensure_runtime_bin_on_path(str(executable), environment)
+
+    assert environment["PATH"].split(os.pathsep, 1)[0] == str(executable.absolute().parent)
 
 
 def test_benchmark_records_explicit_profile_and_gpu_verification(tmp_path, monkeypatch):

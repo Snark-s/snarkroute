@@ -51,6 +51,11 @@ uv run python scripts/verify_models.py --component h3-base-fl2va --model-dir /mo
 
 The FL2VA partition is about 144.05 GB (134.16 GiB). Keep at least 250 GB for one partition, caches, image layers, temporary output, and a rollback margin. Both original partitions together are about 288.10 GB; the repository also contains a separate ~210.37 GB Diffusers-format root, so never download the entire repository accidentally.
 
-The recommended first GPU test is 1×RTX 4090 24 GB, 192 GiB RAM minimum (256 GiB preferred), and 250 GB disk with compose profile `gpu-int8`. Startup runs a real CUDA kernel self-test and never silently falls back to BF16. End-to-end H3 INT8 remains unverified until the smoke test and benchmark complete on the rented GPU. Use `gpu`/`gpu-bf16` for the official 2×RTX 5090 lossless profile.
+The safest first repeat GPU test is 1×modified RTX 4090 48 GB, at least 256 GiB usable RAM, and 300 GB disk with compose profile `gpu-int8`. On 2026-08-30 this shape completed a 20-step 1344×768 T2VA functional benchmark with synchronized H.264/AAC output in 259.71 seconds; generation reported 18,788 MB peak VRAM, while startup briefly used about 30,422 MiB and cgroup memory peaked at 247.46 GiB. Startup runs a real CUDA kernel self-test and never silently falls back to BF16 or Diffusers. A normal 24 GB RTX 4090 is officially documented upstream but remains unverified by this project. Use `gpu`/`gpu-bf16` for the official 2×RTX 5090 lossless profile.
+
+For a supervised first run on a generic Vast NVIDIA PyTorch/Jupyter image, copy this directory to
+`/workspace/snarkroute-h3`, copy `workers/shared` to `/workspace/shared`, supply the two mode-600
+secret files described in the Vast runbook, and run `scripts/bootstrap_vast_fl2va.sh`. It prepares
+only FL2VA, binds both services to localhost, and fails closed if `kitchen_int8` is unavailable.
 
 See [the main H3 document](../../docs/minimax-h3.md), the [RunPod runbook](../../docs/runbooks/minimax-h3-runpod.md), and the [Vast.ai runbook](../../docs/runbooks/minimax-h3-vast.md).

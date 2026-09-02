@@ -87,10 +87,11 @@ export interface SnarkCanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop" | "imageCorrection" | "videoFrame" | "canvasAction" | "collectionItem";
+  kind?: "representation" | "crop" | "imageCorrection" | "drawing" | "videoFrame" | "canvasAction" | "collectionItem";
   fromPinned?: boolean;
   actionId?: string;
   correction?: ImageCorrectionSettings;
+  drawingSourceStackItemId?: string;
   note?: string;
 }
 

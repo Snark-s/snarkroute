@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "title": "Перенос движения",
+      "operation": "motion_transfer",
+      "prompt": "Use the reference image as the visual identity and opening composition. Follow only the motion, pose sequence, timing, and camera movement from the reference video. Preserve the character’s face, hairstyle, clothing, body proportions, background, lighting, and color palette from the reference image. Do not copy the person, clothing, background, or visual style from the reference video. Maintain stable anatomy and identity, natural motion, consistent face and hands, no morphing or visual drift.",
+      "duration": 5,
+      "aspectRatio": "16:9",
+      "seed": 1775054638,
+      "variants": 1,
+      "renderMode": "preview",
+      "assets": [
+        {
+          "slot": "referenceVideo",
+          "kind": "video",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_79853cd2-af2b-432d-b135-6aa1c74b7e66-ai-render-camera-2026-09-01T14-08-09-818Z.mp4",
+          "filename": "ai-render-camera-2026-09-01T14-08-09-818Z.mp4",
+          "mimeType": "video/mp4"
+        },
+        {
+          "slot": "referenceImage",
+          "kind": "image",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_7ffdd5b9-e13a-43fc-9be8-e0b4c404ebd3-image.png",
+          "filename": "image.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_4eb01789-608f-4524-bb8e-0557b9ad284b",
+      "status": "blocked",
+      "progress": 0,
+      "createdAt": "2026-09-01T14:36:24.549Z",
+      "updatedAt": "2026-09-02T10:56:45.338Z",
+      "error": "H3 worker does not provide ref2va.",
+      "startedAt": "2026-09-02T10:56:45.212Z",
+      "completedAt": "2026-09-02T10:56:45.338Z",
+      "stage": "blocked"
+    },
+    {
+      "title": "Первый / последний кадр",
+      "operation": "first_last_frame",
+      "prompt": "Маленькая печальная фея с большими глазами, длинными тёмными кудрявыми волосами и полупрозрачными крыльями сидит внутри большого винного бокала с небольшим количеством красного вина. Бокал стоит на старом деревянном столе посреди волшебного ночного сада.\n\nКамера очень медленно приближается к бокалу. Фея спокойно дышит, моргает, слегка поднимает голову и смотрит вверх. Её волосы едва заметно колышутся, тонкие прозрачные крылья чуть шевелятся. Поверхность вина мягко покачивается.\n\nВокруг медленно движутся растения и огромные цветы, словно от слабого ночного ветра. Пламя свечи в старинном фонаре мерцает. В стеклянных бутылках и бокале живут тёплые отражения. В воздухе медленно плывут крошечные золотые светящиеся частицы, отдельные искры и пыльца. Иногда в глубине кадра пролетает маленькая светящаяся бабочка.\n\nГлубокие синие и бирюзовые ночные тени контрастируют с мягким золотым светом цветов и свечей. Сказочная, немного меланхоличная атмосфера. Всё движение очень плавное, тихое и естественное. Сохранить исходную композицию, дизайн персонажа, формы предметов и стиль изображения. Никаких резких движений камеры, деформации лица, изменения внешности феи или появления новых персонажей.\n\nSlow cinematic push-in, subtle parallax, delicate character animation, gentle breathing, natural blinking, slight head movement, soft hair and wing motion, liquid movement, flickering candlelight, floating golden particles, dreamy magical atmosphere, highly detailed, smooth motion.",
+      "duration": 5,
+      "aspectRatio": "16:9",
+      "seed": 1415611743,
+      "variants": 1,
+      "renderMode": "preview",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_16a46a95-9a1a-4649-9844-b8421a2666d6-image.png",
+          "filename": "image.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_59349b9e-d047-438b-99c5-17e804d7a9de",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-09-01T14:44:43.305Z",
+      "updatedAt": "2026-09-02T11:00:56.847Z",
+      "stage": "complete",
+      "startedAt": "2026-09-02T10:56:45.339Z",
+      "workerJobId": "7100b642-a075-4057-9572-484b3fdaab2c",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_59349b9e-d047-438b-99c5-17e804d7a9de\\h3q_59349b9e-d047-438b-99c5-17e804d7a9de-0.mp4"
+      ],
+      "completedAt": "2026-09-02T11:00:56.847Z"
+    }
+  ],
+  "session": {
+    "id": "h3s_5b25095e-a8a2-45ae-8628-6df3bebe8c61",
+    "mode": "saved_worker",
+    "status": "completed_with_errors",
+    "cleanupConfirmed": true,
+    "createdAt": "2026-09-02T10:56:44.708Z",
+    "updatedAt": "2026-09-02T11:00:56.851Z",
+    "completedAt": "2026-09-02T11:00:56.851Z"
+  }
+}

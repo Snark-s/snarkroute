@@ -63,6 +63,7 @@ import { MarkdownDocument } from "./MarkdownDocument";
 import { fetchImageCatalogModels, fetchModelsForNode } from "./modelCatalogClient";
 import { modelLogoFor } from "./modelLogos";
 import { AdminDashboard, AdminLoginPage, LoginPage } from "./features/admin/AdminRoutes";
+import { H3Studio } from "./features/h3/H3Studio";
 import { CreditHistoryPanel, CreditTransactionMiniList, EconomicsPanel } from "./features/billing/EconomicsPanel";
 import { RouteNodeCardContainer, type RouteNodeInlineResultRenderProps } from "./features/canvas-node/RouteNodeCardContainer";
 import type { ChooseCameraPointParamsRenderProps } from "./features/node-params/NodeParamsController";
@@ -9344,6 +9345,7 @@ function RootApp() {
   if (path === "/admin") return <AdminDashboard />;
   if (path === "/admin/login") return <AdminLoginPage />;
   if (path === "/login") return <LoginPage />;
+  if (path === "/h3") return <H3Studio />;
   return <App />;
 }
 

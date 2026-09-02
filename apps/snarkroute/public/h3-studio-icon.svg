@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="H3 Studio">
+  <defs>
+    <linearGradient id="h3-bg" x1="8" y1="6" x2="57" y2="59" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#35213f"/>
+      <stop offset="1" stop-color="#121923"/>
+    </linearGradient>
+    <linearGradient id="h3-mark" x1="15" y1="14" x2="51" y2="49" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffd176"/>
+      <stop offset="1" stop-color="#ef7d55"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#h3-bg)"/>
+  <rect x="2.75" y="2.75" width="58.5" height="58.5" rx="15.25" fill="none" stroke="#735482" stroke-width="1.5"/>
+  <path d="M16 17v30M31 17v30M16 32h15" fill="none" stroke="url(#h3-mark)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M40 20c8-4 14 0 14 6 0 4-3 6-8 6 5 0 9 2 9 7 0 7-8 11-16 6" fill="none" stroke="#f4f7fb" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m50 11 1.4 3.6L55 16l-3.6 1.4L50 21l-1.4-3.6L45 16l3.6-1.4L50 11Z" fill="#ffd176"/>
+</svg>

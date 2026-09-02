@@ -15,6 +15,13 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def local_component_bytes(root: Path, variant: str) -> int:
+    """Count the partition plus the root index included by its allow-patterns."""
+    total = sum(path.stat().st_size for path in (root / variant).rglob("*") if path.is_file())
+    root_index = root / "model_index.json"
+    return total + (root_index.stat().st_size if root_index.is_file() else 0)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify the pinned H3 snapshot without loading model code")
     parser.add_argument("--manifest", type=Path, default=default_manifest())
@@ -33,7 +40,7 @@ def main() -> int:
     if missing:
         print("missing required files:", *missing, sep="\n  ")
         return 2
-    total = sum(path.stat().st_size for path in (root / variant).rglob("*") if path.is_file())
+    total = local_component_bytes(root, variant)
     print(f"variant={variant} local_bytes={total} expected_bytes={component['expected_bytes']}")
     if total != int(component["expected_bytes"]):
         print("warning: byte total differs from manifest; run --checksums before use")

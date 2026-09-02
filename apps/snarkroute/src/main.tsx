@@ -125,10 +125,11 @@ interface CanvasEdge {
   id: string;
   fromNodeId: string;
   toNodeId: string;
-  kind?: "representation" | "crop" | "imageCorrection" | "videoFrame" | "canvasAction" | "collectionItem";
+  kind?: "representation" | "crop" | "imageCorrection" | "drawing" | "videoFrame" | "canvasAction" | "collectionItem";
   fromPinned?: boolean;
   actionId?: string;
   correction?: CorrectionSettings;
+  drawingSourceStackItemId?: string;
   note?: string;
 }
 
@@ -276,6 +277,14 @@ interface CropMetadata {
   aspectRatio?: number | null;
 }
 
+interface DrawingDraft {
+  sourceNodeId: string;
+  targetNodeId?: string;
+  title: string;
+  src: string;
+  originalSrc: string;
+}
+
 interface LocalLibraryAsset {
   id: string;
   relativePath: string;
@@ -358,7 +367,7 @@ interface CollectionNodeView {
 type NodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView | LibraryNodeView | CollectionNodeView;
 type EditableNodeView = ImageNodeView | VideoNodeView | AudioNodeView | TextNodeView;
 type EditableNodeType = EditableNodeView["manifest"]["type"];
-type BuiltInNodeToolbarActionId = "download" | "crop" | "adjust" | "expand" | "captureFrame" | "upload" | "stack" | "collapse" | "collectSelected" | "keepSelected" | "delete";
+type BuiltInNodeToolbarActionId = "download" | "crop" | "adjust" | "draw" | "expand" | "captureFrame" | "upload" | "stack" | "collapse" | "collectSelected" | "keepSelected" | "delete";
 type NodeToolbarActionId = string;
 type NodeToolbarConfig = Record<EditableNodeType, NodeToolbarActionId[]>;
 
@@ -717,6 +726,7 @@ const builtInNodeToolbarActions: Array<{ id: BuiltInNodeToolbarActionId; label: 
   { id: "download", label: "Download" },
   { id: "crop", label: "Crop" },
   { id: "adjust", label: "Adjust" },
+  { id: "draw", label: "Draw" },
   { id: "expand", label: "Expand" },
   { id: "captureFrame", label: "Create frame" },
   { id: "upload", label: "Upload" },
@@ -727,7 +737,7 @@ const builtInNodeToolbarActions: Array<{ id: BuiltInNodeToolbarActionId; label: 
   { id: "delete", label: "Delete node" }
 ];
 const defaultNodeToolbarConfig: NodeToolbarConfig = {
-  image: ["download", "crop", "expand"],
+  image: ["download", "crop", "draw", "expand"],
   video: ["download", "expand", "captureFrame"],
   audio: ["download"],
   text: ["stack", "collapse"]
@@ -764,6 +774,7 @@ function App() {
   const [previewImage, setPreviewImage] = useState<{ nodeId: string; title: string; index: number } | null>(null);
   const [imageCorrection, setImageCorrection] = useState<ImageCorrectionDraft | null>(null);
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null);
+  const [drawingDraft, setDrawingDraft] = useState<DrawingDraft | null>(null);
   const [openStackNodeId, setOpenStackNodeId] = useState<string | null>(null);
   const [stackItemMenu, setStackItemMenu] = useState<StackItemMenu | null>(null);
   const [missingStackItems, setMissingStackItems] = useState<Record<string, true>>({});
@@ -2445,6 +2456,62 @@ function App() {
     });
   }
 
+  function openDrawingEditor(sourceNodeId: string, targetNodeId?: string, drawingSourceStackItemId?: string) {
+    const sourceNode = nodes.find((candidate) => candidate.canvas.id === sourceNodeId && candidate.manifest.type === "image") as ImageNodeView | undefined;
+    const targetNode = targetNodeId
+      ? nodes.find((candidate) => candidate.canvas.id === targetNodeId && candidate.manifest.type === "image") as ImageNodeView | undefined
+      : undefined;
+    const sourceImageChanged = Boolean(targetNode && drawingSourceStackItemId !== sourceNode?.activeStackItem?.id);
+    const baseNode = sourceImageChanged ? sourceNode : targetNode ?? sourceNode;
+    if (!sourceNode || !baseNode?.previewUrl) {
+      setStatus("Image node has no active image to draw on.");
+      return;
+    }
+    setDrawingDraft({
+      sourceNodeId,
+      targetNodeId,
+      title: baseNode.manifest.title || sourceNode.manifest.title || "Image",
+      src: `${apiBase}${baseNode.previewUrl}?v=${encodeURIComponent(baseNode.activeStackItem?.id ?? baseNode.manifest.id)}`,
+      originalSrc: `${apiBase}${sourceNode.previewUrl}?v=${encodeURIComponent(sourceNode.activeStackItem?.id ?? sourceNode.manifest.id)}`
+    });
+  }
+
+  async function applyDrawingResult(draft: DrawingDraft, dataUrl: string) {
+    const sourceNode = nodes.find((node) => node.canvas.id === draft.sourceNodeId && node.manifest.type === "image") as ImageNodeView | undefined;
+    if (!sourceNode || !library?.canvas) return;
+    const existingNodeIds = new Set(nodes.map((node) => node.canvas.id));
+    const mutationSeq = beginLibraryMutation();
+    try {
+      pushUndoSnapshot();
+      const dataBase64 = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+      const filename = `${safeDownloadName(draft.title)} drawing.png`;
+      const snapshot = draft.targetNodeId
+        ? await apiPost<LibrarySnapshot>(`/api/libraries/current/image-nodes/${encodeURIComponent(draft.targetNodeId)}/stack`, { filename, dataBase64 })
+        : await apiPost<LibrarySnapshot>("/api/libraries/current/import-image", {
+          filename,
+          dataBase64,
+          dropX: sourceNode.canvas.x + sourceNode.canvas.width + imageNodeWidth / 2 + 80,
+          dropY: sourceNode.canvas.y + imageNodeHeight / 2,
+          width: imageNodeWidth,
+          height: imageNodeHeight,
+          connectFromNodeId: draft.sourceNodeId
+        });
+      if (!applyLibrarySnapshot(snapshot, mutationSeq)) return;
+      const targetNodeId = draft.targetNodeId ?? snapshot.nodes.find((node) => !existingNodeIds.has(node.canvas.id))?.canvas.id ?? null;
+      if (!targetNodeId || !snapshot.canvas) return;
+      const canvas = withDrawingEdge(snapshot.canvas, draft.sourceNodeId, targetNodeId, sourceNode.activeStackItem?.id);
+      setLibrary((current) => current ? { ...current, canvas } : current);
+      await apiPut<CanvasDocument>("/api/libraries/current/canvas", canvas);
+      applyLibrarySnapshot(await apiGet<LibrarySnapshot>("/api/libraries/current"));
+      setSelectedNodeId(targetNodeId);
+      setSelectedNodeIds([targetNodeId]);
+      setDrawingDraft(null);
+      setStatus(draft.targetNodeId ? "Drawing added to stack" : "Drawing created");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save drawing.");
+    }
+  }
+
   async function applyImageCorrectionResult(draft: ImageCorrectionDraft, dataUrl: string, settings: CorrectionSettings) {
     const sourceNode = nodes.find((node) => node.canvas.id === draft.sourceNodeId && node.manifest.type === "image") as ImageNodeView | undefined;
     if (!sourceNode || !library?.canvas) return;
@@ -3265,6 +3332,20 @@ function App() {
     }
   }
 
+  async function openH3Studio() {
+    try {
+      const result = await apiPost<{ ok: boolean; url?: string; started?: boolean }>("/api/system/open-boojum", { studioPort: new URL(boojumRouteLabUrl).port || "5173" });
+      const h3Url = new URL("/h3", result.url ?? boojumRouteLabUrl).toString();
+      const opened = window.open(h3Url, "h3-studio");
+      opened?.focus();
+      setStatus(result.started ? "Starting H3 Studio..." : "Opening H3 Studio");
+    } catch (error) {
+      const opened = window.open(new URL("/h3", boojumRouteLabUrl).toString(), "h3-studio");
+      opened?.focus();
+      setStatus(error instanceof Error ? error.message : "Opening H3 Studio");
+    }
+  }
+
   async function openBrandeshmyg() {
     try {
       const result = await apiPost<{ ok: boolean; url?: string; started?: boolean }>("/api/system/open-brandeshmyg", { brandeshmygPort: new URL(brandeshmygBase).port || "5175" });
@@ -3549,6 +3630,7 @@ function App() {
             onCaptureVideoFrame={(edge) => void captureVideoFrame(edge.fromNodeId, edge.toNodeId, edge.id)}
             onOpenCrop={(nodeId, cropNodeId) => void openCropEditor(nodeId, cropNodeId)}
             onOpenCorrection={(edge) => openImageCorrection(edge.fromNodeId, edge.toNodeId, edge.correction)}
+            onOpenDrawing={(edge) => openDrawingEditor(edge.fromNodeId, edge.toNodeId, edge.drawingSourceStackItemId)}
             onRunCanvasActionEdge={(edge) => void rerunCanvasActionEdge(edge)}
             onSelectEdge={(edgeId) => {
               setSelectedEdgeId(edgeId);
@@ -3644,6 +3726,7 @@ function App() {
               onOpenPreview={(nodeId, index, title) => setPreviewImage({ nodeId, index, title })}
               onOpenCorrection={(nodeId) => openImageCorrection(nodeId)}
               onOpenCrop={openCropEditor}
+              onOpenDrawing={(nodeId) => openDrawingEditor(nodeId)}
               onUploadStackImage={(nodeId) => void uploadImageToNodeStack(nodeId)}
               onCaptureVideoFrame={(nodeId) => void captureVideoFrame(nodeId)}
               videoFrameCaptureBusy={videoFrameCaptureBusyKey === node.canvas.id}
@@ -4165,6 +4248,13 @@ function App() {
           <button type="button" onClick={() => void deleteCollectionItem(collectionItemMenu)}><Trash2 size={14} /> Delete</button>
         </div>
       ) : null}
+      {drawingDraft ? (
+        <DrawingEditor
+          draft={drawingDraft}
+          onClose={() => setDrawingDraft(null)}
+          onApply={(dataUrl) => void applyDrawingResult(drawingDraft, dataUrl)}
+        />
+      ) : null}
       {projectMenu && (
         <div ref={projectMenuPosition.ref} className="projectMenu" style={projectMenuPosition.style}>
           <button type="button" onClick={() => void copyProject(projectMenu.project)}><Copy size={14} /> Copy</button>
@@ -4273,6 +4363,10 @@ function App() {
                 <button type="button" onClick={() => void openBoojumRouteLab()} title="Open BoojumRoute Lab">
                   <img className="appButtonIcon" src="/boojumroute-icon.png" alt="" />
                   Boojum
+                </button>
+                <button type="button" onClick={() => void openH3Studio()} title="Open H3 Studio">
+                  <img className="appButtonIcon" src="/h3-studio-icon.svg" alt="" />
+                  H3 Studio
                 </button>
                 <button type="button" onClick={() => void openBrandeshmyg()} title="Open Brandeshmyg tools">
                   <img className="appButtonIcon" src="/brandeshmyg-icon.png" alt="" />
@@ -4660,6 +4754,7 @@ function NodeToolbarActionIcon({ action }: { action: NodeToolbarAction }) {
   if (actionId === "download") return <Download size={16} />;
   if (actionId === "crop") return <Crop size={16} />;
   if (actionId === "adjust") return <SlidersHorizontal size={16} />;
+  if (actionId === "draw") return <Brush size={16} />;
   if (actionId === "expand") return <Expand size={16} />;
   if (actionId === "captureFrame") return <Camera size={16} />;
   if (actionId === "upload") return <ImagePlus size={16} />;
@@ -4682,6 +4777,7 @@ function nodeToolbarActionSupported(actionId: NodeToolbarActionId, type: Editabl
   if (type === "text") return actionId === "stack" || actionId === "collapse" || actionId === "delete";
   if (actionId === "crop") return type === "image";
   if (actionId === "adjust") return type === "image";
+  if (actionId === "draw") return type === "image";
   if (actionId === "expand") return type === "image" || type === "video";
   if (actionId === "captureFrame") return type === "video";
   return true;
@@ -5667,6 +5763,7 @@ function CanvasEdges({
   onCaptureVideoFrame,
   onOpenCrop,
   onOpenCorrection,
+  onOpenDrawing,
   onRunCanvasActionEdge,
   onSelectEdge
 }: {
@@ -5684,6 +5781,7 @@ function CanvasEdges({
   onCaptureVideoFrame: (edge: CanvasEdge) => void;
   onOpenCrop: (nodeId: string, cropNodeId?: string) => void;
   onOpenCorrection: (edge: CanvasEdge) => void;
+  onOpenDrawing: (edge: CanvasEdge) => void;
   onRunCanvasActionEdge: (edge: CanvasEdge) => void;
   onSelectEdge: (edgeId: string) => void;
 }) {
@@ -5785,6 +5883,22 @@ function CanvasEdges({
                 </button>
               </foreignObject>
             ) : null}
+            {edge.kind === "drawing" ? (
+              <foreignObject x={midpoint.x - 14} y={midpoint.y - 14} width={28} height={28}>
+                <button
+                  className="edgeSyncButton"
+                  type="button"
+                  title="Modify drawing"
+                  aria-label="Modify drawing"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOpenDrawing(edge);
+                  }}
+                >
+                  <Brush size={13} />
+                </button>
+              </foreignObject>
+            ) : null}
             {edge.kind === "canvasAction" && edge.actionId ? (() => {
               const action = actions.find((candidate) => candidate.id === canvasActionToolbarId(edge.actionId!));
               if (!action?.canvasAction) {
@@ -5847,6 +5961,208 @@ function CanvasEdges({
         />
       )}
     </svg>
+  );
+}
+
+type DrawingTool = "brush" | "eraser" | "text";
+
+function DrawingEditor({ draft, onClose, onApply }: { draft: DrawingDraft; onClose: () => void; onApply: (dataUrl: string) => void }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const originalImageRef = useRef<HTMLImageElement | null>(null);
+  const targetImageRef = useRef<HTMLImageElement | null>(null);
+  const drawingRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const [tool, setTool] = useState<DrawingTool>("brush");
+  const [color, setColor] = useState("#ff3b30");
+  const [diameter, setDiameter] = useState(18);
+  const [textValue, setTextValue] = useState("");
+  const [ready, setReady] = useState(false);
+  const [brushCursor, setBrushCursor] = useState({ x: 0, y: 0, scale: 1, visible: false });
+
+  function resetCanvas() {
+    const canvas = canvasRef.current;
+    const target = targetImageRef.current;
+    if (!canvas || !target?.naturalWidth || !target.naturalHeight) return;
+    canvas.width = target.naturalWidth;
+    canvas.height = target.naturalHeight;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(target, 0, 0, canvas.width, canvas.height);
+    setReady(true);
+  }
+
+  useEffect(() => {
+    setReady(false);
+    const original = new Image();
+    const target = new Image();
+    original.crossOrigin = "anonymous";
+    target.crossOrigin = "anonymous";
+    originalImageRef.current = original;
+    targetImageRef.current = target;
+    let loaded = 0;
+    const markLoaded = () => {
+      loaded += 1;
+      if (loaded === 2) resetCanvas();
+    };
+    original.onload = markLoaded;
+    target.onload = markLoaded;
+    original.src = draft.originalSrc;
+    target.src = draft.src;
+    return () => {
+      original.onload = null;
+      target.onload = null;
+    };
+  }, [draft.originalSrc, draft.src]);
+
+  useEffect(() => {
+    const changeDiameter = (event: KeyboardEvent) => {
+      if (event.code !== "BracketLeft" && event.code !== "BracketRight") return;
+      const target = event.target;
+      if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || (target instanceof HTMLElement && target.isContentEditable)) return;
+      event.preventDefault();
+      setDiameter((current) => clamp(current + (event.code === "BracketLeft" ? -5 : 5), 2, 120));
+    };
+    window.addEventListener("keydown", changeDiameter);
+    return () => window.removeEventListener("keydown", changeDiameter);
+  }, []);
+
+  function updateBrushCursor(event: React.PointerEvent<HTMLCanvasElement>, visible = true) {
+    const canvas = canvasRef.current;
+    const stage = stageRef.current;
+    if (!canvas || !stage) return;
+    const canvasBounds = canvas.getBoundingClientRect();
+    const stageBounds = stage.getBoundingClientRect();
+    setBrushCursor({
+      x: event.clientX - stageBounds.left,
+      y: event.clientY - stageBounds.top,
+      scale: canvasBounds.width / Math.max(canvas.width, 1),
+      visible
+    });
+  }
+
+  function canvasPoint(event: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const bounds = canvas.getBoundingClientRect();
+    return {
+      x: (event.clientX - bounds.left) * canvas.width / Math.max(bounds.width, 1),
+      y: (event.clientY - bounds.top) * canvas.height / Math.max(bounds.height, 1)
+    };
+  }
+
+  function drawLine(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const context = canvasRef.current?.getContext("2d");
+    if (!context) return;
+    context.save();
+    context.globalCompositeOperation = tool === "eraser" ? "destination-out" : "source-over";
+    context.strokeStyle = color;
+    context.lineWidth = diameter;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.beginPath();
+    context.moveTo(from.x, from.y);
+    context.lineTo(to.x, to.y);
+    context.stroke();
+    context.restore();
+  }
+
+  function placeText(point: { x: number; y: number }) {
+    if (!textValue.trim()) return;
+    const context = canvasRef.current?.getContext("2d");
+    if (!context) return;
+    context.save();
+    context.globalCompositeOperation = "source-over";
+    context.fillStyle = color;
+    context.font = `600 ${Math.max(14, diameter * 2)}px sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(textValue.trim(), point.x, point.y);
+    context.restore();
+  }
+
+  function saveDrawing() {
+    const canvas = canvasRef.current;
+    const original = originalImageRef.current;
+    if (!canvas || !original || !ready) return;
+    const output = document.createElement("canvas");
+    output.width = canvas.width;
+    output.height = canvas.height;
+    const context = output.getContext("2d");
+    if (!context) return;
+    context.drawImage(original, 0, 0, output.width, output.height);
+    context.drawImage(canvas, 0, 0);
+    onApply(output.toDataURL("image/png"));
+  }
+
+  return (
+    <div className="cropOverlay" role="dialog" aria-modal="true" aria-label="Draw on image" onClick={onClose}>
+      <div className="cropWindow drawingWindow" onClick={(event) => event.stopPropagation()}>
+        <header>
+          <strong>Draw on {draft.title}</strong>
+          <button type="button" aria-label="Close drawing editor" onClick={onClose}>×</button>
+        </header>
+        <div className="drawingBody">
+          <div ref={stageRef} className="drawingStage">
+            <img src={draft.originalSrc} alt="" draggable={false} />
+            <canvas
+              ref={canvasRef}
+              className={`drawingCanvas is-${tool}`}
+              onPointerDown={(event) => {
+                updateBrushCursor(event);
+                const point = canvasPoint(event);
+                if (!point) return;
+                if (tool === "text") {
+                  placeText(point);
+                  return;
+                }
+                event.currentTarget.setPointerCapture(event.pointerId);
+                drawingRef.current = { pointerId: event.pointerId, ...point };
+                drawLine(point, { x: point.x + 0.01, y: point.y + 0.01 });
+              }}
+              onPointerMove={(event) => {
+                updateBrushCursor(event);
+                const previous = drawingRef.current;
+                const point = canvasPoint(event);
+                if (!previous || previous.pointerId !== event.pointerId || !point) return;
+                drawLine(previous, point);
+                drawingRef.current = { pointerId: event.pointerId, ...point };
+              }}
+              onPointerUp={(event) => {
+                if (drawingRef.current?.pointerId === event.pointerId) drawingRef.current = null;
+              }}
+              onPointerEnter={(event) => updateBrushCursor(event)}
+              onPointerLeave={(event) => updateBrushCursor(event, false)}
+              onPointerCancel={() => { drawingRef.current = null; }}
+            />
+            {tool !== "text" && brushCursor.visible ? (
+              <span
+                className={`drawingBrushCursor is-${tool}`}
+                style={{
+                  left: brushCursor.x,
+                  top: brushCursor.y,
+                  width: Math.max(2, diameter * brushCursor.scale),
+                  height: Math.max(2, diameter * brushCursor.scale),
+                  "--drawing-cursor-color": tool === "brush" ? color : "#ffffff"
+                } as React.CSSProperties}
+              />
+            ) : null}
+          </div>
+          <aside className="drawingControls">
+            <div className="drawingToolGrid">
+              <button type="button" className={tool === "brush" ? "isSelected" : ""} onClick={() => setTool("brush")}><Brush size={16} /> Brush</button>
+              <button type="button" className={tool === "eraser" ? "isSelected" : ""} onClick={() => setTool("eraser")}><Eraser size={16} /> Eraser</button>
+              <button type="button" className={tool === "text" ? "isSelected" : ""} onClick={() => setTool("text")}><Type size={16} /> Text</button>
+            </div>
+            <label className="drawingColorControl">Color<input type="color" value={color} onChange={(event) => setColor(event.currentTarget.value)} /></label>
+            <label className="drawingDiameterControl"><span>Diameter <strong>{diameter}px</strong></span><input type="range" min="2" max="120" value={diameter} onChange={(event) => setDiameter(Number(event.currentTarget.value))} /><small>[ / ]</small></label>
+            <label className="drawingTextControl">Text<textarea value={textValue} placeholder="Enter text, then click the image" onChange={(event) => setTextValue(event.currentTarget.value)} /></label>
+            <button type="button" onClick={resetCanvas}><RotateCcw size={15} /> Reset</button>
+            <button type="button" className="drawingApply" disabled={!ready} onClick={saveDrawing}><Check size={15} /> Create image</button>
+          </aside>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -6084,6 +6400,7 @@ function ImageNode({
   onOpenPreview,
   onOpenCorrection,
   onOpenCrop,
+  onOpenDrawing,
   onUploadStackImage,
   onCaptureVideoFrame,
   videoFrameCaptureBusy,
@@ -6138,6 +6455,7 @@ function ImageNode({
   onOpenPreview: (nodeId: string, index: number, title: string) => void;
   onOpenCorrection: (nodeId: string) => void;
   onOpenCrop: (nodeId: string) => void;
+  onOpenDrawing: (nodeId: string) => void;
   onUploadStackImage: (nodeId: string) => void;
   onCaptureVideoFrame: (nodeId: string) => void;
   videoFrameCaptureBusy: boolean;
@@ -6333,6 +6651,10 @@ function ImageNode({
     if (actionId === "adjust") {
       if (!previewUrl || node.manifest.type !== "image") return null;
       return <button key={actionId} type="button" aria-label="Adjust image" title="Adjust" onClick={() => onOpenCorrection(node.manifest.id)}><SlidersHorizontal size={16} /></button>;
+    }
+    if (actionId === "draw") {
+      if (!previewUrl || node.manifest.type !== "image") return null;
+      return <button key={actionId} type="button" aria-label="Draw on image" title="Draw" onClick={() => onOpenDrawing(node.manifest.id)}><Brush size={16} /></button>;
     }
     if (actionId === "expand") {
       if (!previewUrl || node.manifest.type === "text" || node.manifest.type === "audio") return null;
@@ -8595,6 +8917,17 @@ function withImageCorrectionEdge(canvas: CanvasDocument, sourceNodeId: string, t
     edges: hasEdge
       ? edges.map((edge) => edge.fromNodeId === sourceNodeId && edge.toNodeId === targetNodeId ? { ...edge, kind: "imageCorrection", correction: settings } : edge)
       : [...edges, { id: `edge_${Date.now().toString(36)}`, fromNodeId: sourceNodeId, toNodeId: targetNodeId, kind: "imageCorrection", correction: settings }]
+  };
+}
+
+function withDrawingEdge(canvas: CanvasDocument, sourceNodeId: string, targetNodeId: string, drawingSourceStackItemId?: string): CanvasDocument {
+  const edges = canvas.edges ?? [];
+  const hasEdge = edges.some((edge) => edge.fromNodeId === sourceNodeId && edge.toNodeId === targetNodeId);
+  return {
+    ...canvas,
+    edges: hasEdge
+      ? edges.map((edge) => edge.fromNodeId === sourceNodeId && edge.toNodeId === targetNodeId ? { ...edge, kind: "drawing", drawingSourceStackItemId } : edge)
+      : [...edges, { id: `edge_${Date.now().toString(36)}`, fromNodeId: sourceNodeId, toNodeId: targetNodeId, kind: "drawing", drawingSourceStackItemId }]
   };
 }
 

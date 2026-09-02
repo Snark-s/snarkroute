@@ -10,6 +10,7 @@ type LogoDefinition = {
 };
 
 const logoDefinitions = {
+  alibaba: { label: "Alibaba", filename: "alibaba.svg" },
   anthropic: { label: "Anthropic", filename: "claude.png" },
   blackForestLabs: { label: "Black Forest Labs", filename: "flux-2-pro.png" },
   bytedance: { label: "ByteDance", filename: "seedream-4-5.png" },
@@ -20,6 +21,7 @@ const logoDefinitions = {
   gemini: { label: "Gemini", filename: "gemini.png" },
   google: { label: "Google", filename: "gemini.png" },
   huggingface: { label: "Hugging Face", filename: "huggingface.svg" },
+  heygen: { label: "HeyGen", filename: "heygen.svg" },
   kling: { label: "Kling", filename: "kling.png" },
   leonardo: { label: "Leonardo", filename: "leonardo.svg" },
   local: { label: "Local", filename: "local.svg" },
@@ -43,6 +45,7 @@ const logoDefinitions = {
   sora: { label: "Sora", filename: "sora.png" },
   stability: { label: "Stability AI", filename: "stability.svg" },
   suno: { label: "Suno", filename: "suno.svg" },
+  tencent: { label: "Tencent", filename: "tencent.svg" },
   topaz: { label: "Topaz Labs", filename: "topaz.svg" },
   veo: { label: "Veo", filename: "veo.png" },
   wan: { label: "Wan", filename: "wan.svg" },
@@ -55,6 +58,7 @@ const logoDefinitions = {
 export type ModelLogoKey = keyof typeof logoDefinitions;
 
 export const modelLogoRegistry: Array<{ family: string; logo: ModelLogoKey; pattern: RegExp }> = [
+  { family: "Alibaba", logo: "alibaba", pattern: /alibaba|happyhorse/i },
   { family: "Anthropic Claude", logo: "anthropic", pattern: /anthropic|claude/i },
   { family: "Nano Banana", logo: "nanoBanana", pattern: /nano[-_\s]?banana|gemini-(?:\d|\w|[-.])*image/i },
   { family: "Google Veo", logo: "veo", pattern: /\bveo\b/i },
@@ -69,6 +73,7 @@ export const modelLogoRegistry: Array<{ family: string; logo: ModelLogoKey; patt
   { family: "DeepSeek", logo: "deepseek", pattern: /deepseek/i },
   { family: "ElevenLabs", logo: "elevenlabs", pattern: /elevenlabs|eleven/i },
   { family: "Hugging Face", logo: "huggingface", pattern: /huggingface|hugging-face|hf\//i },
+  { family: "HeyGen", logo: "heygen", pattern: /heygen|avatar-iv/i },
   { family: "Kling", logo: "kling", pattern: /kling|kwaivgi/i },
   { family: "Leonardo", logo: "leonardo", pattern: /leonardo/i },
   { family: "Llama / Meta", logo: "meta", pattern: /llama|meta/i },
@@ -83,6 +88,7 @@ export const modelLogoRegistry: Array<{ family: string; logo: ModelLogoKey; patt
   { family: "Runway Gen", logo: "runway", pattern: /runway|gen-?3|gen-?4/i },
   { family: "Stability AI", logo: "stability", pattern: /stable-diffusion|stability/i },
   { family: "Suno", logo: "suno", pattern: /suno/i },
+  { family: "Tencent", logo: "tencent", pattern: /tencent|hy-mt2/i },
   { family: "Z.ai / Z-Image", logo: "zai", pattern: /z-?image|tongyi-mai|zai|z\.ai/i },
   { family: "Qwen", logo: "qwen", pattern: /qwen|tongyi-mai/i },
   { family: "Topaz", logo: "topaz", pattern: /topaz/i },
@@ -199,13 +205,17 @@ function iconKeyCandidates(value: string): string[] {
 }
 
 const iconFilenamesByKey: Record<string, string> = {
+  alibaba: "alibaba.svg",
   anthropic: "claude.png",
   "black-forest-labs": "flux-2-pro.png",
+  "flux-2-pro": "flux-2-pro.png",
   bytedance: "seedream-4-5.png",
   claude: "claude.png",
   gemini: "gemini.png",
   google: "gemini.png",
   gpt: "gpt.png",
+  deepseek: "deepseek.png",
+  heygen: "heygen.svg",
   local: "local.svg",
   kling: "kling.png",
   kwaivgi: "kling.png",
@@ -218,14 +228,17 @@ const iconFilenamesByKey: Record<string, string> = {
   "google/gemini-3-pro-image-preview": "nano-banana.svg",
   openai: "gpt.png",
   openrouter: "openrouter.svg",
+  perplexity: "perplexity.svg",
   polza: "polza.svg",
   qwen: "qwen.png",
   replicate: "replicate.svg",
+  runway: "runway.png",
   rutronix: "unknown.svg",
   seedance: "seedream-4-5.png",
   seedream: "seedream-4-5.png",
   "seedream-4-5": "seedream-4-5.png",
   stability: "stability.svg",
+  tencent: "tencent.svg",
   topaz: "topaz.svg",
   unknown: "unknown.svg",
   wan: "wan.svg",
