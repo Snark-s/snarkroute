@@ -1,0 +1,11 @@
+{
+  "operation": "video.generate.h3",
+  "task": "t2va",
+  "prompt": "A simple studio motion test with one subject and a locked camera.",
+  "conditions": [],
+  "target": {"short_edge": 768, "aspect_ratio": "16:9", "duration_seconds": 4},
+  "seed": 4101,
+  "num_inference_steps": 8,
+  "quality_mode": "preview",
+  "turbo_lora": false
+}

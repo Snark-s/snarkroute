@@ -1,0 +1,29 @@
+# kitchen_int8 was merged after SGLang 0.5.17. Pin the reviewed source commit.
+FROM nvidia/cuda:13.0.1-cudnn-devel-ubuntu24.04
+
+ARG APP_UID=10001
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    HF_HOME=/models/huggingface \
+    SGLANG_COMMIT=3f26febaff04bac4cfefd60bdc9097bc26a96cb8 \
+    COMFY_KITCHEN_VERSION=0.2.31 \
+    H3_SGLANG_PRECISION_PROFILE=bf16_offload \
+    PATH=/opt/sglang/bin:$PATH
+COPY requirements.sglang.txt /tmp/requirements.sglang.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates ffmpeg git python3.12 python3.12-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3.12 -m venv /opt/sglang \
+    && /opt/sglang/bin/pip install --no-cache-dir \
+      "sglang[diffusion] @ git+https://github.com/sgl-project/sglang.git@${SGLANG_COMMIT}#subdirectory=python" \
+    && /opt/sglang/bin/pip install --no-cache-dir --no-deps --only-binary=:all: \
+      --require-hashes -r /tmp/requirements.sglang.txt \
+    && useradd --create-home --uid ${APP_UID} sglang \
+    && mkdir -p /models /data/results /data/media \
+    && chown -R sglang:sglang /models /data
+COPY --chown=sglang:sglang scripts/kitchen_selftest.py scripts/sglang_entrypoint.py /opt/snarkroute/
+USER sglang
+VOLUME ["/models", "/data/results"]
+EXPOSE 30010
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["python", "/opt/snarkroute/sglang_entrypoint.py"]

@@ -11,7 +11,7 @@ describe("interactive canvas actions", () => {
     expect(source).toContain("const runParams = params;");
     expect(source).toContain('return !param.poseManaged || axis === "fov"');
     expect(source).toContain("yaw {Math.round(view.yaw * 180 / Math.PI)}° · pitch");
-    expect(source).toContain('syncCanvasActionPose(canvasActionRunDialog, { fov: parameterValue })');
+    expect(source).toContain('axis === "fov" && typeof parameterValue === "number" ? syncCanvasActionPose(canvasActionRunDialog, { fov: parameterValue })');
     expect(source).toContain("<BusyGears /> Running...");
     expect(source).toContain(">Prepare again</button>");
     expect(styles).toContain('.canvasActionPanoramaViewer input[type="range"]::-webkit-slider-runnable-track');

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { loadModelCatalog, mergeModelsForDisplay, mergeProviderAndUserDefinedPickerModels, modelImageInputLimit, modelMatchesCatalogGroup, modelSelectionId, modelsCompatibleWithNodeInputs, modelsForContentKind, modelsForPickerContentKind, providerDisplayName } from "../src/modelCatalog";
+import { loadModelCatalog, mergeModelsForDisplay, mergeProviderAndUserDefinedPickerModels, modelDisplayId, modelImageInputLimit, modelMatchesCatalogGroup, modelRouteSelectionForProvider, modelSelectionId, modelsCompatibleWithNodeInputs, modelsForContentKind, modelsForPickerContentKind, providerDisplayName } from "../src/modelCatalog";
 import type { ModelOption } from "../src/modelCatalog";
 
 function v1Model(overrides: {
@@ -37,8 +37,9 @@ describe("Living Canvas model catalog", () => {
   it("keeps RuTronix text models from the V1 catalog", async () => {
     const getJson = vi.fn(async () => ({ models: [v1Model({ provider: "rutronix", providerModelId: "deepseek-v4-flash", outputTypes: ["text"], capabilities: ["text.generate"] })] }));
     const catalog = await loadModelCatalog(getJson, { rutronix: { configured: false } });
-    expect(catalog.availableModels).toEqual([expect.objectContaining({ id: "rutronix:deepseek-v4-flash", providerId: "rutronix" })]);
+    expect(catalog.availableModels).toEqual([expect.objectContaining({ id: "rutronix:deepseek-v4-flash", providerId: "rutronix", providerModelId: "deepseek-v4-flash" })]);
     expect(providerDisplayName("rutronix")).toBe("RuTronix");
+    expect(providerDisplayName("kie")).toBe("KIE.ai");
   });
   it("does not invent provider models when the V1 catalog is unavailable", async () => {
     const getJson = vi.fn(async () => {
@@ -184,6 +185,68 @@ describe("Living Canvas model catalog", () => {
 
     expect(shared?.providers.map(providerDisplayName).join(", ")).toBe("OpenRouter, polza.ai");
     expect(shared?.routes.map((route) => route.providerId)).toEqual(["openrouter", "polza"]);
+  });
+
+  it("renders one canonical Kling model while retaining its executable provider routes", async () => {
+    const canonical = {
+      ...v1Model({
+        provider: "kie",
+        providerModelId: "kling-3.0/video",
+        originVendor: "kling",
+        displayName: "Kling 3.0 Pro",
+        iconKey: "kling",
+        iconPath: "/api/model-icons/kling.png",
+        inputTypes: ["text", "image"],
+        outputTypes: ["video"],
+        capabilities: ["video.generate"]
+      }),
+      id: "kling-3.0-pro",
+      canonicalModelId: "kling-3.0-pro",
+      providerRoutes: [{
+        provider: "kie",
+        providerModelId: "kling-3.0/video",
+        storedModelId: "kling-3.0/video",
+        availability: { status: "available" },
+        inputTypes: ["text", "image"],
+        outputTypes: ["video"],
+        capabilities: ["video.generate"],
+        parameters: []
+      }, {
+        provider: "openrouter",
+        providerModelId: "kwaivgi/kling-v3.0-pro",
+        storedModelId: "kwaivgi/kling-v3.0-pro",
+        availability: { status: "available" },
+        inputTypes: ["text", "image"],
+        outputTypes: ["video"],
+        capabilities: ["video.generate"],
+        parameters: []
+      }]
+    };
+    const getJson = vi.fn(async () => ({
+      models: [v1Model({ provider: "kie", providerModelId: "kling-3.0/video", outputTypes: ["video"] })],
+      canonicalModels: [canonical]
+    }));
+
+    const catalog = await loadModelCatalog(getJson, { kie: { configured: true }, openrouter: { configured: true } });
+    const rows = mergeModelsForDisplay(modelsForContentKind(catalog.models, "video"));
+
+    expect(catalog.availableModels.map((model) => [model.id, model.providerId, model.canonicalModelId])).toEqual([
+      ["kling-3.0/video", "kie", "kling-3.0-pro"],
+      ["kwaivgi/kling-v3.0-pro", "openrouter", "kling-3.0-pro"]
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].providers).toEqual(["kie", "openrouter"]);
+    expect(rows[0].routes.map(modelSelectionId)).toEqual([
+      "kie:kling-3.0/video",
+      "openrouter:kwaivgi/kling-v3.0-pro"
+    ]);
+    expect(modelDisplayId(rows[0].model)).toBe("kling-3.0-pro");
+    expect(rows[0].model.iconPath).toBe("/api/model-icons/kling.png");
+    expect(modelRouteSelectionForProvider(
+      { modelId: "kling-3.0/video", executionProvider: "kie", fallbackAllowed: true },
+      rows[0].routes,
+      "openrouter"
+    )).toEqual({ modelId: "kwaivgi/kling-v3.0-pro", executionProvider: "openrouter", fallbackAllowed: true });
   });
 
   it("uses only V1 output types for text/image separation", async () => {

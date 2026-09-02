@@ -13,10 +13,11 @@ Copy `.env.example` to the root `.env` if needed and set long random values:
 
 ```dotenv
 SNARKROUTE_MCP_TOKEN=replace-with-a-long-random-value
-SNARKROUTE_AE_BRIDGE_TOKEN=replace-with-another-long-random-value
+# Optional development/admin fallback only; normal local pairing does not need it.
+SNARKROUTE_AE_BRIDGE_TOKEN=
 ```
 
-There are no default secrets. Without `SNARKROUTE_MCP_TOKEN`, `/mcp` returns a configuration error while all other SnarkRoute routes continue to work. In the CEP panel, enter the bridge token under **AE MCP**; it is stored in CEP local storage and is never committed.
+There are no default MCP secrets. Without `SNARKROUTE_MCP_TOKEN`, `/mcp` returns a configuration error while all other SnarkRoute routes continue to work. In local mode the CEP panel automatically requests a short-lived, one-time credential from `/api/ae-bridge/pair`; it is consumed by the WebSocket handshake and is never persisted. `SNARKROUTE_AE_BRIDGE_TOKEN` remains an optional, separate development/admin fallback and must not reuse the MCP token.
 
 ## Build, install, and launch
 
@@ -29,7 +30,7 @@ corepack pnpm install:after-effects
 
 You can drag an `.aep` file onto `start-snarkroute-ae.bat`. The launcher sets `SNARKROUTE_AUTO_OPEN=0`, reuses a backend that already answers `/api/health`, otherwise starts the normal `start-snarkroute.bat`, waits for readiness, and launches After Effects 2026, 2025, or 2024.
 
-Open **Window > Extensions (Legacy) > SnarkRoute** and verify `AE MCP connected`. Existing video-generation controls remain in the same panel.
+Open **Window > Extensions (Legacy) > SnarkRoute** and verify `MCP server: reachable`, `AE Bridge: connected`, and `AE session: registered`. Existing video-generation controls remain in the same panel.
 
 ## Connect local Codex
 
@@ -99,7 +100,8 @@ The wrapper supplies `console.log`, `console.warn`, and `console.error`; their m
 
 - **MCP 503:** set `SNARKROUTE_MCP_TOKEN` in root `.env` and restart the backend.
 - **MCP 401:** Codex's environment token differs from the root `.env` value.
-- **AE MCP offline:** open the CEP panel, enter the bridge token, and confirm the backend is at `127.0.0.1:4317`.
+- **Pairing unavailable:** confirm the backend is local (`APP_MODE=local`) and the panel uses a loopback URL such as `127.0.0.1:4317`; cloud mode deliberately disables local pairing.
+- **AE Bridge disconnected:** keep the CEP panel open; it automatically repeats the health check, obtains a fresh one-time credential, and reconnects.
 - **No AE sessions:** the panel is not open/authenticated, or its heartbeat expired.
 - **CEP panel missing:** build/install it and enable Adobe CEP `PlayerDebugMode=1` as described in `apps/after-effects-panel/README.md`.
 - **Timeout:** AE may still be executing the JSX; wait before sending a conflicting manual operation.

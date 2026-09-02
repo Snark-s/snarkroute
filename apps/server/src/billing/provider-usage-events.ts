@@ -74,6 +74,7 @@ function microusdFromProviderCost(cost: number | null | undefined, currency: str
 }
 
 export function operationForProviderUsage(nodeType: string): string {
+  if (/video/i.test(nodeType) && /upscale/i.test(nodeType)) return "video.generate";
   if (/upscale/i.test(nodeType)) return "image.upscale";
   if (/audio|speech|sound|music/i.test(nodeType)) return "audio.generate";
   if (/video/i.test(nodeType)) return "video.generate";

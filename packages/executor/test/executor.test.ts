@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { OpenRoute } from "@snarkroute/protocol";
-import { createExecutor, detectCycles, estimateRouteCost, ProviderRunError, resolveTemplates, topologicalSort } from "../src/index";
+import { createExecutor, detectCycles, estimateRouteCost, ProviderOutcomeUnknownError, ProviderRunError, resolveTemplates, topologicalSort } from "../src/index";
 
 function route(overrides: Partial<OpenRoute> = {}): OpenRoute {
   return {
@@ -170,6 +170,39 @@ describe("executor", () => {
     expect(result.nodeResults.polza).toMatchObject({
       errorCode: "provider_insufficient_funds",
       providerId: "polza"
+    });
+  });
+
+  it("keeps external provider billing unknown when the response is lost after submission", async () => {
+    const executor = createExecutor();
+    executor.registerNodeRunner("polza.image.generate", () => {
+      throw new ProviderOutcomeUnknownError("Polza.ai response stream terminated.", {
+        provider: "polza",
+        externalId: "aig_123"
+      });
+    });
+    const result = await executor.executeRoute(
+      route({
+        nodes: [{ id: "polza", type: "polza.image.generate", title: "Polza Image" }],
+        edges: []
+      }),
+      { outputDirectory: await mkdtemp(join(tmpdir(), "sr-")) }
+    );
+    expect(result.status).toBe("failed");
+    expect(result.nodeResults.polza.error).toBe("Polza.ai response stream terminated. Boojum credits were not charged. External provider billing may have occurred.");
+    expect(result.nodeResults.polza.actualCredits).toBe(0);
+    expect(result.nodeResults.polza.actualProviderCostAmount).toBeNull();
+    expect(result.nodeResults.polza.actualUsage).toEqual({ requestCount: 1 });
+    expect(result.nodeResults.polza.usageSource).toBe("unknown");
+    expect(result.nodeResults.polza.providerUsage?.[0]).toMatchObject({
+      provider: "polza",
+      externalId: "aig_123",
+      status: "unknown"
+    });
+    expect(result.economics.providersUsed[0]).toMatchObject({
+      provider: "polza",
+      externalId: "aig_123",
+      status: "unknown"
     });
   });
 

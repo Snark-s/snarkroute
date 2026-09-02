@@ -24,6 +24,7 @@ import { registerSystemRoutes } from "./routes/system";
 import { registerWorldLabsMarbleRoutes } from "./routes/worldlabs-marble";
 import { registerAfterEffectsRoutes } from "./routes/after-effects";
 import { registerMcpRoutes } from "./mcp/server";
+import { registerPortableToolJobRoutes } from "./routes/tool-jobs";
 import { startModelPricingRefreshScheduler } from "./billing/model-pricing-refresh-scheduler";
 import { appMode, assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
@@ -45,6 +46,7 @@ export function buildServer() {
   void registerModelRoutes(app);
   void registerModelGatewayJobRoutes(app);
   void registerProviderRoutes(app);
+  void registerPortableToolJobRoutes(app);
   void registerNodeCatalogRoutes(app);
   void registerNodePackageRoutes(app);
   void registerCanvasActionSessionRoutes(app);

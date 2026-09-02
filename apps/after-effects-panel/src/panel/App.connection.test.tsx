@@ -10,6 +10,15 @@ const image = { id: "image", storedModelId: "image", providerModelId: "image", d
 const video = { id: "video", storedModelId: "video", providerModelId: "video", displayName: "Seedance Video", provider: "polza", inputTypes: ["text", "image"], outputTypes: ["video"], capabilities: ["video.generate"], roles: ["generator"], availability: { status: "available", configured: true }, parameters: [{ id: "prompt", type: "text" }], nodeType: "polza.video.generate" };
 
 describe("panel connection and operation flow", () => {
+  it("separates MCP server, bridge, and AE session status without a token field", async () => {
+    mockCatalog([image]); render(<App />);
+    expect(await screen.findByText("MCP / After Effects")).toBeTruthy();
+    expect(screen.getByText(/MCP server:/)).toBeTruthy();
+    expect(screen.getByText(/AE Bridge:/)).toBeTruthy();
+    expect(screen.getByText(/AE session:/)).toBeTruthy();
+    expect(screen.queryByText("Bridge token")).toBeNull();
+    expect(localStorage.getItem("snarkroute.after-effects.bridge-token")).toBeNull();
+  });
   it("auto-connects and reloads the executable generation catalog on reconnect", async () => { const fetchMock = mockCatalog([image, video]); render(<App />); await screen.findByText("SnarkRoute server: connected"); expect(calls(fetchMock, "/health")).toHaveLength(1); expect(calls(fetchMock, "/api/models/executable-generation")).toHaveLength(1); fireEvent.click(screen.getByRole("button", { name: "Reconnect" })); await waitFor(() => expect(calls(fetchMock, "/health")).toHaveLength(2)); });
   it("rebuilds models and inputs when operation changes", async () => { mockCatalog([image, video]); render(<App />); await screen.findByRole("option", { name: "Text to image" }); const operationSection = screen.getByText("Operation").parentElement!; fireEvent.change(operationSection.querySelector("select")!, { target: { value: "text-to-image" } }); expect(await screen.findByRole("option", { name: /Flux Image/ })).toBeTruthy(); expect(screen.queryByRole("option", { name: /Seedance Video/ })).toBeNull(); expect(await screen.findByText("Source image")).toBeTruthy(); });
   it("shows a read-only operation field when only one operation is executable", async () => { mockCatalog([{ ...image, inputTypes: ["text"] }]); render(<App />); expect(await screen.findByDisplayValue("Text to image")).toHaveProperty("readOnly", true); });

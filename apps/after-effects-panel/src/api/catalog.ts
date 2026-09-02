@@ -26,7 +26,7 @@ export function modelSupportsOperation(model: GenerationModel, operation: Genera
   if (!isExecutableByRunner(model) || !panelCanRepresentModel(model)) return false;
   const output = outputMediaTypeForOperation(operation);
   if (!model.outputTypes.includes(output)) return false;
-  const hasImageInput = model.inputTypes.includes("image") || Boolean(imageContract(model)) || (model.maximumImageInputs ?? model.requiredImageInputs ?? 0) > 0 || model.runnableWithSuppliedInputs === true;
+  const hasImageInput = model.inputTypes.includes("image") || Boolean(imageContract(model)) || (model.maximumImageInputs ?? model.requiredImageInputs ?? 0) > 0;
   const requiresImage = requiredImageInputs(model) > 0;
   const prompt = modelSupportsPrompt(model);
   const imageCapability = model.capabilities.some((capability) => ["image.generate", "image.edit", "image.reference"].includes(capability));

@@ -294,12 +294,14 @@ describe("settings API", () => {
     const previousToken = process.env.REPLICATE_API_TOKEN;
     const previousGeminiToken = process.env.GEMINI_API_KEY;
     const previousOpenRouterToken = process.env.OPENROUTER_API_KEY;
+    const previousKieToken = process.env.KIE_API_KEY;
     const previousSeedanceBackend = process.env.SEEDANCE_PROVIDER_BACKEND;
     const previousArkToken = process.env.ARK_API_KEY;
     const previousSeedanceToken = process.env.SEEDANCE_API_KEY;
     process.env.REPLICATE_API_TOKEN = "test-secret-token";
     process.env.GEMINI_API_KEY = "test-gemini-secret-key";
     process.env.OPENROUTER_API_KEY = "sk-or-test-secret-key";
+    process.env.KIE_API_KEY = "kie-test-secret-key";
     process.env.SEEDANCE_PROVIDER_BACKEND = "byteplus-modelark";
     process.env.ARK_API_KEY = "ark-test-secret-b740";
     const { buildServer } = await import("../src/index");
@@ -308,12 +310,14 @@ describe("settings API", () => {
     try {
       const response = await app.inject({ method: "GET", url: "/api/settings" });
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({ replicate: { configured: true }, gemini: { configured: true }, openrouter: { configured: true }, seedance: { configured: true, backend: "byteplus-modelark", apiKeyEnvKey: "ARK_API_KEY" } });
+      expect(response.json()).toMatchObject({ replicate: { configured: true }, gemini: { configured: true }, kie: { configured: true }, openrouter: { configured: true }, seedance: { configured: true, backend: "byteplus-modelark", apiKeyEnvKey: "ARK_API_KEY" } });
       expect(response.body).not.toContain("test-secret-token");
       expect(response.body).not.toContain("test-gemini-secret-key");
       expect(response.body).not.toContain("sk-or-test-secret-key");
+      expect(response.body).not.toContain("kie-test-secret-key");
       expect(response.body).not.toContain("ark-test-secret-b740");
       expect(response.json().openrouter.maskedApiKey).toContain("****");
+      expect(response.json().kie.maskedApiKey).toContain("****");
       expect(response.json().seedance.maskedApiKey).toContain("****");
     } finally {
       await app.close();
@@ -323,6 +327,8 @@ describe("settings API", () => {
       else process.env.GEMINI_API_KEY = previousGeminiToken;
       if (previousOpenRouterToken === undefined) delete process.env.OPENROUTER_API_KEY;
       else process.env.OPENROUTER_API_KEY = previousOpenRouterToken;
+      if (previousKieToken === undefined) delete process.env.KIE_API_KEY;
+      else process.env.KIE_API_KEY = previousKieToken;
       if (previousSeedanceBackend === undefined) delete process.env.SEEDANCE_PROVIDER_BACKEND;
       else process.env.SEEDANCE_PROVIDER_BACKEND = previousSeedanceBackend;
       if (previousArkToken === undefined) delete process.env.ARK_API_KEY;

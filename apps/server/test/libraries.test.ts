@@ -1640,6 +1640,38 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("runs a Brandeshmyg action with every named mixed-type input", async () => {
+    await writeCanvasActionManifest(libraryPath, multiInputCanvasActionManifest());
+    const app = await testServer();
+    try {
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: { action: { status: "succeeded", output: { text: "done" } } }
+      });
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/canvas-action-sessions/multi-session/actions/test.multi-input/run",
+        payload: {
+          inputs: {
+            startImage: { type: "image", filename: "start.png", mimeType: "image/png", dataBase64: onePixelPngBase64 },
+            endImage: { type: "image", filename: "end.png", mimeType: "image/png", dataBase64: onePixelPngBase64 },
+            prompt: { type: "text", text: "Animate between frames" }
+          }
+        }
+      });
+
+      expect(response.statusCode, response.body).toBe(200);
+      expect(executeRouteMock.mock.calls[0][0].edges).toEqual([
+        { from: "source_0", to: "action", fromPort: "value", toPort: "startImage" },
+        { from: "source_1", to: "action", fromPort: "value", toPort: "endImage" },
+        { from: "source_2", to: "action", fromPort: "value", toPort: "prompt" }
+      ]);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("completes a panorama pause action with pose and ordinary parameters", async () => {
     await writeCanvasActionManifest(libraryPath, panoramaCanvasActionManifest());
     const executor = createExecutor();
@@ -1795,6 +1827,33 @@ function poseCanvasActionManifest() {
     generatedWith: {
       kind: "compound.subroute", compound: { inputs: [{ id: "image", nodeId: "provider", port: "image" }], outputs: [{ id: "image", nodeId: "downstream", port: "image" }] },
       subroute: { routeVersion: "0.1", route: { id: "pose", title: "Pose", author: { name: "Test" } }, nodes: [{ id: "provider", type: "test.provider" }, { id: "pause", type: "transform.panorama360ToFisheye" }, { id: "downstream", type: "test.downstream" }], edges: [{ from: "provider", to: "pause", fromPort: "image", toPort: "image" }, { from: "pause", to: "downstream", fromPort: "image", toPort: "image" }] }
+    }
+  };
+}
+
+function multiInputCanvasActionManifest() {
+  return {
+    kind: "snarkroute.node", schemaVersion: "0.1", id: "test.multi-input", title: "Multi-input action", version: "0.1.0", author: { name: "Test" }, license: "UNLICENSED", origin: "generated",
+    permissions: { network: false, readFiles: false, writeOutputs: false, shell: false, env: [] }, executor: { type: "declarative" },
+    inputs: [{ id: "startImage", type: "image" }, { id: "endImage", type: "image" }, { id: "prompt", type: "text" }],
+    outputs: [{ id: "text", type: "text" }],
+    canvasAction: { enabled: true, surface: "brandeshmyg" },
+    generatedWith: {
+      kind: "compound.subroute",
+      compound: {
+        inputs: [
+          { id: "startImage", nodeId: "join", port: "startImage" },
+          { id: "endImage", nodeId: "join", port: "endImage" },
+          { id: "prompt", nodeId: "join", port: "prompt" }
+        ],
+        outputs: [{ id: "text", nodeId: "join", port: "text" }]
+      },
+      subroute: {
+        routeVersion: "0.1",
+        route: { id: "multi-input", title: "Multi-input", author: { name: "Test" } },
+        nodes: [{ id: "join", type: "test.join" }],
+        edges: []
+      }
     }
   };
 }

@@ -1,4 +1,4 @@
-import type { DialogueContentPart } from "@snarkroute/protocol";
+import type { DialogueContentPart, ModelIOContract } from "@snarkroute/protocol";
 
 export type CompoundPortMapping = {
   id: string;
@@ -394,6 +394,7 @@ export type ImageModelOption = {
   disabled?: boolean;
   note?: string;
   pricing?: Record<string, unknown>;
+  providerRoutes?: ModelProviderRouteV1[];
 };
 
 export type ModelParameterDefinition = {
@@ -444,12 +445,36 @@ export type ModelOptionForNodeV1 = {
   compatibilityReason?: string;
   metadata?: Record<string, unknown>;
   pricing?: Record<string, unknown>;
+  canonicalModelId?: string;
+  providerRoutes?: ModelProviderRouteV1[];
+  ioContract?: ModelIOContract;
+  inputContract?: ModelIOContract;
+  requiredImageInputs?: number;
+  maximumImageInputs?: number;
+  optionalImageInputs?: number;
+  inputRoles?: string[];
+  runnableWithSuppliedInputs?: boolean;
+};
+
+export type ModelProviderRouteV1 = {
+  provider: string;
+  providerModelId: string;
+  storedModelId: string;
+  availability?: Record<string, unknown>;
+  inputTypes: string[];
+  outputTypes: string[];
+  capabilities: string[];
+  parameters: ModelParameterDefinition[];
+  pricing?: Record<string, unknown>;
+  constraints?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+  ioContract?: ModelIOContract;
 };
 
 export type VideoModelOption = {
   id: string;
   name?: string;
-  providerId: "polza" | "openrouter";
+  providerId: "polza" | "openrouter" | "kie";
   providerLabel: string;
   pricing?: Record<string, unknown>;
   short_description?: string;
@@ -514,6 +539,7 @@ export type NodeManifest = {
   params?: Array<{ id: string; type: string; label?: string; description?: string; default?: unknown; options?: Array<{ value: unknown; label?: string }>; min?: number; max?: number; step?: number; binding?: { nodeId: string; paramId: string }; poseManaged?: boolean }>;
   canvasAction?: {
     enabled: boolean;
+    surface?: "livingCanvas" | "brandeshmyg";
     title?: string;
     description?: string;
     icon?: { kind: "preset"; name: string } | { kind: "custom"; svg?: string; dataUrl?: string };
@@ -524,6 +550,7 @@ export type NodeManifest = {
       preview?: Array<{ kind: "image" | "video" | "audio" | "panorama360" | "splat"; source: "input" | { output: string } | { pause: string } }>;
     };
   };
+  tool?: unknown;
   generatedWith?: unknown;
   ui?: {
     params?: Record<string, {

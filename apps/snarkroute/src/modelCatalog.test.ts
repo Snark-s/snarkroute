@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeAvailableModelOptions } from "./modelCatalog";
+import { modelAspectRatioLockedToInput, modelDurationGuidance, normalizeAvailableModelOptions } from "./modelCatalog";
 
 const baseModel = {
   displayName: "GPT-5.4",
@@ -53,5 +53,43 @@ describe("available model normalization", () => {
       expect.objectContaining({ id: "aspect_ratio", label: "Aspect Ratio", default: "auto" }),
       expect.objectContaining({ id: "n", label: "Images", default: 1 })
     ]);
+  });
+});
+
+describe("model duration guidance", () => {
+  const motionControlModel = {
+    id: "kling/v3-motion-control",
+    providerModelId: "kling/v3-motion-control"
+  };
+
+  it("explains that Motion Control duration follows the reference video", () => {
+    expect(modelDurationGuidance(motionControlModel, { character_orientation: "image" })).toBe(
+      "Duration follows the reference video: 3–10 s for Image orientation."
+    );
+    expect(modelDurationGuidance(motionControlModel, { character_orientation: "video" })).toBe(
+      "Duration follows the reference video: 3–30 s for Video orientation."
+    );
+  });
+
+  it("does not add duration guidance to unrelated models", () => {
+    expect(modelDurationGuidance({ id: "kling/v3", providerModelId: "kling/v3" }, {})).toBeUndefined();
+  });
+});
+
+describe("input-controlled model parameters", () => {
+  const klingModel = {
+    id: "kling/v3",
+    providerId: "polza",
+    providerModelId: "kling/v3"
+  };
+
+  it("locks Kling 3.0 aspect ratio when a start frame is connected", () => {
+    expect(modelAspectRatioLockedToInput(klingModel, true)).toBe(true);
+  });
+
+  it("keeps the aspect ratio editable without a start frame or for other routes", () => {
+    expect(modelAspectRatioLockedToInput(klingModel, false)).toBe(false);
+    expect(modelAspectRatioLockedToInput({ ...klingModel, providerId: "openrouter" }, true)).toBe(false);
+    expect(modelAspectRatioLockedToInput({ ...klingModel, providerModelId: "kling/v3-motion-control" }, true)).toBe(false);
   });
 });

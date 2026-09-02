@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  collapseCanvasFolder,
   createCanvasFolder,
+  expandCanvasFolder,
   folderAwareEdgeVisible,
   hiddenCanvasNodeIds,
   placeNodesInFolder,
@@ -41,6 +43,20 @@ describe("canvas folders", () => {
 
     expect([...hiddenCanvasNodeIds(folders)]).toEqual(["a", "b"]);
     expect(nodes.map((node) => node.id)).toEqual(["a", "b"]);
+  });
+
+  it("restores members relative to a collapsed folder after it moves", () => {
+    const collapsed = collapseCanvasFolder(createCanvasFolder("folder-1", "Folder", nodes), nodes);
+    const moved = { ...collapsed, x: collapsed.x + 180, y: collapsed.y - 40 };
+
+    const expanded = expandCanvasFolder(moved);
+
+    expect(expanded.folder.collapsed).toBe(false);
+    expect(expanded.folder.nodeOffsets).toBeUndefined();
+    expect(expanded.nodePositions).toEqual([
+      { id: "a", x: nodes[0].x + 180, y: nodes[0].y - 40 },
+      { id: "b", x: nodes[1].x + 180, y: nodes[1].y - 40 }
+    ]);
   });
 
   it("keeps panel-routed edges while hiding ordinary edges from collapsed members", () => {

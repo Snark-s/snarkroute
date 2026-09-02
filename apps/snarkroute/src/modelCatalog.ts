@@ -22,6 +22,7 @@ export interface ModelParameterDefinition {
 
 export interface ModelOption {
   id: string;
+  canonicalModelId?: string;
   title: string;
   providerId: string;
   providerModelId?: string;
@@ -52,6 +53,19 @@ export interface ModelOption {
 type ModelOptionForNodeResponse = {
   ok?: boolean;
   models?: unknown;
+  canonicalModels?: unknown;
+};
+
+type ServerModelProviderRoute = {
+  provider: string;
+  providerModelId: string;
+  storedModelId: string;
+  availability?: { status?: string; reason?: string };
+  inputTypes: string[];
+  outputTypes: string[];
+  capabilities: string[];
+  parameters: ModelParameterDefinition[];
+  metadata?: Record<string, unknown>;
 };
 
 type ServerModelOptionForNode = {
@@ -73,6 +87,7 @@ type ServerModelOptionForNode = {
 
 type ServerModelCatalogEntry = {
   id: string;
+  canonicalModelId?: string;
   provider: string;
   providerModelId: string;
   originVendor?: string;
@@ -86,12 +101,14 @@ type ServerModelCatalogEntry = {
   parameters: ModelParameterDefinition[];
   availability?: { status?: string; reason?: string };
   metadata?: Record<string, unknown>;
+  providerRoutes?: ServerModelProviderRoute[];
 };
 
 export interface ProviderSettings {
   replicate?: { configured?: boolean };
   gemini?: { configured?: boolean };
   polza?: { configured?: boolean };
+  kie?: { configured?: boolean };
   rutronix?: { configured?: boolean };
   openai?: { configured?: boolean };
   seedance?: { configured?: boolean };
@@ -204,13 +221,11 @@ export function modelSelectionId(model: ModelOption | undefined): string {
 export function mergeModelsForDisplay(models: ModelOption[]): DisplayModelOption[] {
   const entries = new Map<string, DisplayModelOption>();
   for (const model of models) {
-    const key = model.id.toLowerCase();
+    const key = (model.canonicalModelId ?? model.id).toLowerCase();
     const existing = entries.get(key);
     if (existing) {
-      if (!existing.providers.includes(model.providerId)) {
-        existing.providers.push(model.providerId);
-        existing.routes.push(model);
-      }
+      if (!existing.providers.includes(model.providerId)) existing.providers.push(model.providerId);
+      if (!existing.routes.some((route) => modelSelectionId(route) === modelSelectionId(model))) existing.routes.push(model);
       continue;
     }
     entries.set(key, { model, providers: [model.providerId], routes: [model] });
@@ -221,6 +236,7 @@ export function mergeModelsForDisplay(models: ModelOption[]): DisplayModelOption
 export function providerDisplayName(providerId: string): string {
   const names: Record<string, string> = {
     polza: "polza.ai",
+    kie: "KIE.ai",
     rutronix: "RuTronix",
     openrouter: "OpenRouter",
     gemini: "Gemini",
@@ -251,6 +267,39 @@ export function generationParameterSummary(definitions: ModelParameterDefinition
     .filter(Boolean)
     .slice(0, 2);
   return compactValues.join(" / ") || "Parameters";
+}
+
+export function modelDisplayId(model: ModelOption | undefined): string {
+  return model?.canonicalModelId ?? model?.id ?? "";
+}
+
+export function modelRouteSelectionForProvider(selection: ModelRouteSelection, routes: ModelOption[], providerId: string): ModelRouteSelection {
+  if (providerId === "auto") return { ...selection, executionProvider: "auto" };
+  const route = routes.find((candidate) => candidate.providerId === providerId && candidate.id === selection.modelId)
+    ?? routes.find((candidate) => candidate.providerId === providerId);
+  return {
+    ...selection,
+    modelId: route?.id ?? selection.modelId,
+    executionProvider: providerId
+  };
+}
+
+export function modelDurationGuidance(
+  model: Pick<ModelOption, "id" | "providerModelId">,
+  values: ImageGenerationParameters
+): string | undefined {
+  const modelId = (model.providerModelId ?? model.id).trim().toLowerCase();
+  if (modelId !== "kling/v3-motion-control") return undefined;
+  const videoOrientation = String(values.character_orientation ?? "image").toLowerCase() === "video";
+  return `Duration follows the reference video: 3–${videoOrientation ? 30 : 10} s for ${videoOrientation ? "Video" : "Image"} orientation.`;
+}
+
+export function modelAspectRatioLockedToInput(
+  model: Pick<ModelOption, "id" | "providerId" | "providerModelId">,
+  hasImageInput: boolean
+): boolean {
+  if (!hasImageInput || model.providerId.toLowerCase() !== "polza") return false;
+  return (model.providerModelId ?? model.id).trim().toLowerCase() === "kling/v3";
 }
 
 export function modelParameterEnabled(definition: ModelParameterDefinition, values: ImageGenerationParameters): boolean {
@@ -295,43 +344,71 @@ export function normalizeNodeModelOptions(value: unknown, nodeType: string): Mod
 
 export function normalizeAvailableModelOptions(value: unknown): ModelOption[] {
   const response = value as ModelOptionForNodeResponse;
-  const candidates = Array.isArray(response?.models) ? response.models : [];
+  const canonicalCandidates = Array.isArray(response?.canonicalModels) ? response.canonicalModels : [];
+  const candidates = canonicalCandidates.length > 0 ? canonicalCandidates : Array.isArray(response?.models) ? response.models : [];
   return candidates.flatMap((entry) => {
     if (!isServerModelCatalogEntry(entry)) return [];
-    const produces = entry.outputTypes.flatMap(contentKind);
-    if (produces.length === 0) return [];
-    const accepts = entry.inputTypes.flatMap(contentKind);
-    const generationParameters = normalizeGenerationParameterDefinitions(entry.parameters);
-    const metadata = entry.metadata ?? {};
-    const storedModelId = entry.provider === "rutronix" ? entry.id : entry.providerModelId;
-    return [{
-      id: storedModelId,
-      title: entry.displayName,
-      providerId: entry.provider,
-      providerModelId: entry.providerModelId,
-      storedModelId,
-      iconPath: resolvedCatalogIconPath(entry.iconPath, entry.iconKey, entry.originVendor, entry.providerModelId, entry.provider),
-      iconKey: entry.iconKey,
-      originVendor: entry.originVendor,
-      inputTypes: entry.inputTypes,
-      outputTypes: entry.outputTypes,
-      roles: entry.roles,
-      contentKinds: [...new Set(produces)],
-      accepts: accepts.length ? [...new Set(accepts)] : ["text"],
-      produces: [...new Set(produces)],
-      capabilities: entry.capabilities,
-      paramsSchema: generationParameters,
-      source: "models.v1",
-      isAvailable: entry.availability?.status !== "unavailable",
-      statusReason: typeof entry.availability?.reason === "string" ? entry.availability.reason : undefined,
-      acceptsImageInput: entry.inputTypes.includes("image"),
-      maxImageInputs: positiveInteger(metadata.maxImageInputs) ?? positiveInteger(metadata.maxImages),
-      imageReferenceSyntax: stringParameter(metadata.imageReferenceSyntax),
-      generationParameters,
-      defaultParameters: Object.fromEntries(generationParameters.flatMap((definition) => definition.default === undefined ? [] : [[definition.id, definition.default]])),
-      role: entry.roles.includes("upscaler") ? produces.includes("video") ? "video-upscaler" : "image-upscaler" : undefined
-    }];
+    const routes = Array.isArray(entry.providerRoutes) ? entry.providerRoutes.filter(isServerModelProviderRoute) : [];
+    return routes.length > 0
+      ? routes.flatMap((route) => normalizeAvailableModelOption(entry, route, entry.id))
+      : normalizeAvailableModelOption(entry);
   });
+}
+
+function normalizeAvailableModelOption(entry: ServerModelCatalogEntry, route?: ServerModelProviderRoute, canonicalModelId?: string): ModelOption[] {
+  const provider = route?.provider ?? entry.provider;
+  const providerModelId = route?.providerModelId ?? entry.providerModelId;
+  const storedModelId = route?.storedModelId ?? (provider === "rutronix" ? entry.id : providerModelId);
+  const inputTypes = route?.inputTypes ?? entry.inputTypes;
+  const outputTypes = route?.outputTypes ?? entry.outputTypes;
+  const capabilities = route?.capabilities ?? entry.capabilities;
+  const parameters = route?.parameters ?? entry.parameters;
+  const availability = route?.availability ?? entry.availability;
+  const metadata = route?.metadata ?? entry.metadata ?? {};
+  const produces = outputTypes.flatMap(contentKind);
+  if (produces.length === 0) return [];
+  const accepts = inputTypes.flatMap(contentKind);
+  const generationParameters = normalizeGenerationParameterDefinitions(parameters);
+  return [{
+    id: storedModelId,
+    canonicalModelId: canonicalModelId ?? entry.canonicalModelId,
+    title: entry.displayName,
+    providerId: provider,
+    providerModelId,
+    storedModelId,
+    iconPath: resolvedCatalogIconPath(entry.iconPath, entry.iconKey, entry.originVendor, providerModelId, provider),
+    iconKey: entry.iconKey,
+    originVendor: entry.originVendor,
+    inputTypes,
+    outputTypes,
+    roles: entry.roles,
+    contentKinds: [...new Set(produces)],
+    accepts: accepts.length ? [...new Set(accepts)] : ["text"],
+    produces: [...new Set(produces)],
+    capabilities,
+    paramsSchema: generationParameters,
+    source: "models.v1",
+    isAvailable: availability?.status !== "unavailable",
+    statusReason: typeof availability?.reason === "string" ? availability.reason : undefined,
+    acceptsImageInput: inputTypes.includes("image"),
+    maxImageInputs: positiveInteger(metadata.maxImageInputs) ?? positiveInteger(metadata.maxImages),
+    imageReferenceSyntax: stringParameter(metadata.imageReferenceSyntax),
+    generationParameters,
+    defaultParameters: Object.fromEntries(generationParameters.flatMap((definition) => definition.default === undefined ? [] : [[definition.id, definition.default]])),
+    role: entry.roles.includes("upscaler") ? produces.includes("video") ? "video-upscaler" : "image-upscaler" : undefined
+  }];
+}
+
+function isServerModelProviderRoute(value: unknown): value is ServerModelProviderRoute {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return typeof record.provider === "string"
+    && typeof record.providerModelId === "string"
+    && typeof record.storedModelId === "string"
+    && Array.isArray(record.inputTypes)
+    && Array.isArray(record.outputTypes)
+    && Array.isArray(record.capabilities)
+    && Array.isArray(record.parameters);
 }
 
 function isServerModelOptionForNode(value: unknown, nodeType: string): value is ServerModelOptionForNode {

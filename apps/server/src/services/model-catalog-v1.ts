@@ -1,5 +1,6 @@
 import {
   listCuratedModelMetadataV1,
+  groupCanonicalModelOptionsV1,
   mergeProviderModelsWithCuratedMetadata,
   modelImageInputContractV1,
   modelInputCompatibilityReasonsV1,
@@ -21,7 +22,8 @@ import type {
   ProviderModelInfoV1,
   ModelCatalogEntryV1,
   ModelOptionForNodeV1,
-  ModelParameterDefinitionV1
+  ModelParameterDefinitionV1,
+  ModelAvailabilityV1
 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import type { SuppliedModelInputsV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import type { ModelIOItem } from "@snarkroute/protocol";
@@ -41,12 +43,23 @@ export type RawProviderModelV1 = Record<string, unknown> & {
     modality?: unknown;
   };
   top_provider?: Record<string, unknown>;
+  supported_frame_images?: unknown;
+  supported_frame_image_modes?: unknown;
+  generate_audio?: unknown;
+  seed?: unknown;
+  allowed_passthrough_parameters?: unknown;
+  availability?: ModelAvailabilityV1;
+  canonicalModelId?: string;
+  providerConstraints?: Record<string, unknown>;
 };
 
 export type AssembleModelCatalogV1Input = {
   rutronixModels?: RawProviderModelV1[];
   polzaModels?: RawProviderModelV1[];
   openRouterModels?: RawProviderModelV1[];
+  kieModels?: RawProviderModelV1[];
+  localUpscaleModels?: RawProviderModelV1[];
+  localVideoUpscaleModels?: RawProviderModelV1[];
   fallbackModels?: ProviderModelInfoV1[];
   curatedMetadata?: CuratedModelMetadataV1[];
 };
@@ -63,6 +76,9 @@ export function assembleModelCatalogV1(input: AssembleModelCatalogV1Input): Mode
     ...normalizeRuTronixModelsForCatalogV1(input.rutronixModels ?? []),
     ...normalizePolzaModelsForCatalogV1(input.polzaModels ?? []),
     ...normalizeOpenRouterModelsForCatalogV1(input.openRouterModels ?? []),
+    ...normalizeKieModelsForCatalogV1(input.kieModels ?? []),
+    ...normalizeLocalUpscaleModelsForCatalogV1(input.localUpscaleModels ?? []),
+    ...normalizeLocalVideoUpscaleModelsForCatalogV1(input.localVideoUpscaleModels ?? []),
     ...(input.fallbackModels ?? [])
   ]), input.curatedMetadata ?? listCuratedModelMetadataV1());
 }
@@ -86,6 +102,18 @@ export function normalizeRuTronixModelsForCatalogV1(models: RawProviderModelV1[]
 
 export function normalizeOpenRouterModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
   return models.flatMap((model) => normalizeRawProviderModel("openrouter", model));
+}
+
+export function normalizeKieModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
+  return models.flatMap((model) => normalizeRawProviderModel("kie", model));
+}
+
+export function normalizeLocalUpscaleModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
+  return models.flatMap((model) => normalizeRawProviderModel("local_upscale", model));
+}
+
+export function normalizeLocalVideoUpscaleModelsForCatalogV1(models: RawProviderModelV1[]): ProviderModelInfoV1[] {
+  return models.flatMap((model) => normalizeRawProviderModel("local_video_upscale", model));
 }
 
 function mergeProviderModelDefaultsV1(providerModels: ProviderModelInfoV1[]): ProviderModelInfoV1[] {
@@ -281,7 +309,7 @@ export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
 }
 
 export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEntryV1[], suppliedInputs?: SuppliedModelInputsV1): ModelOptionForNodeV1[] {
-  return catalog
+  const options = catalog
     .filter((entry) => isModelCompatibleWithNodeV1(nodeType, entry) && (!suppliedInputs || modelRunnableWithSuppliedInputsV1(entry, suppliedInputs)))
     .map((entry) => ({
       ...toModelOptionForNodeV1(nodeType, entry),
@@ -294,6 +322,7 @@ export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEnt
       || left.displayName.localeCompare(right.displayName)
       || left.providerModelId.localeCompare(right.providerModelId)
     );
+  return nodeType.startsWith("ai.") ? groupCanonicalModelOptionsV1(options) : options;
 }
 
 export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalogEntryV1): boolean {
@@ -310,16 +339,31 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
     return compatibilityReasonsForNodeV1(nodeType, entry).length === 0;
   }
   if (nodeType === "ai.image.generate") {
-    return (entry.provider === "openrouter" || entry.provider === "gemini")
+    return (entry.provider === "openrouter" || entry.provider === "gemini" || entry.provider === "polza" || entry.provider === "kie")
       && entry.providerModelId !== "openrouter/auto"
       && hasOutputType(entry, "image")
       && !isUpscaleOnlyModel(entry, "image");
   }
+  if (nodeType === "ai.video.generate") {
+    return (entry.provider === "openrouter" || entry.provider === "polza" || entry.provider === "kie")
+      && hasOutputType(entry, "video")
+      && !isUpscaleOnlyModel(entry, "video");
+  }
   if (nodeType === "ai.text") {
-    return (entry.provider === "openrouter" || entry.provider === "rutronix") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
+    return (entry.provider === "openrouter" || entry.provider === "rutronix" || entry.provider === "kie") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
   }
   if (nodeType === "ai.audio.generate") {
     return hasOutputType(entry, "audio") && !entry.roles.includes("upscaler");
+  }
+  if (nodeType === "local_upscale") {
+    return entry.provider === "local_upscale"
+      && entry.capabilities.includes("image.upscale")
+      && hasOutputType(entry, "image");
+  }
+  if (nodeType === "local_video_upscale") {
+    return entry.provider === "local_video_upscale"
+      && entry.capabilities.includes("video.upscale")
+      && hasOutputType(entry, "video");
   }
   return false;
 }
@@ -341,24 +385,41 @@ export function toModelOptionForNodeV1(nodeType: string, entry: ModelCatalogEntr
   };
 }
 
+/** Provider-neutral catalog projection. The original provider rows remain available
+ * for legacy consumers; every canonical row carries its executable providerRoutes. */
+export function canonicalModelCatalogV1(catalog: ModelCatalogEntryV1[]): ModelOptionForNodeV1[] {
+  return groupCanonicalModelOptionsV1(catalog.map((entry) => ({
+    ...entry,
+    nodeType: "catalog",
+    storedModelId: entry.providerModelId,
+    executionProvider: entry.provider
+  })));
+}
+
 function normalizeRawProviderModel(provider: ModelProviderIdV1, model: RawProviderModelV1): ProviderModelInfoV1[] {
   const providerModelId = stringValue(model.id);
   if (!providerModelId) return [];
   const outputTypes = outputTypesForModel(model);
   const capabilities = capabilitiesForModel(model, outputTypes);
   const providerParams = providerParameters(model);
-  const ioContract = providerParameterIOContractV1(providerParams, inputTypesForModel(model), outputTypes);
+  const providerParameterDefinitions = mergeParameterDefinitions(
+    providerParameterDefinitionsV1(providerParams),
+    provider === "openrouter" ? supportedGenerationParameterDefinitions(model) : []
+  );
+  const inputTypes = inputTypesForModel(model);
+  const ioContract = providerVideoIOContractV1(provider, model, providerParameterIOContractV1(providerParams, inputTypes, outputTypes));
   const contractInputTypes = (ioContract.inputs ?? []).map((item) => item.kind) as ModelInputTypeV1[];
   return [normalizeProviderModelToV1Input({
     provider,
     providerModelId,
+    canonicalModelId: stringValue(model.canonicalModelId),
     displayName: stringValue(model.title) ?? stringValue(model.name) ?? providerModelId,
-    inputTypes: unique([...inputTypesForModel(model), ...contractInputTypes]),
+    inputTypes: unique([...inputTypes, ...contractInputTypes]),
     outputTypes,
     capabilities,
     roles: rolesForCapabilities(capabilities),
-    availability: { status: "available", source: "live" },
-    metadata: { providerRaw: model, providerParameterDefinitions: providerParameterDefinitionsV1(providerParams) },
+    availability: model.availability ?? { status: "available", source: "live" },
+    metadata: { providerRaw: model, providerParameterDefinitions, providerConstraints: model.providerConstraints },
     ioContract
   })];
 }
@@ -386,7 +447,29 @@ function enrichUiCatalogMetadata(entry: ModelCatalogEntryV1): ModelCatalogEntryV
       ...(defaults?.metadata ?? {})
     }
   } : entry;
-  return withDefaultModelInputLimitsV1({ ...enriched, ioContract: enriched.ioContract ?? providerParameterIOContractV1(undefined, enriched.inputTypes, enriched.outputTypes) });
+  const withPricing = entry.provider === "local_upscale" || entry.provider === "local_video_upscale" ? {
+    ...enriched,
+    pricing: { status: "fresh" as const, source: "manual" as const, currency: "USD", unit: "run", pricing: { providerCostMicrousd: 0, apiCost: 0 } }
+  } : entry.provider === "kie" ? {
+    ...enriched,
+    pricing: entry.providerModelId === "nano-banana-pro"
+      ? { status: "fresh" as const, source: "manual" as const, currency: "USD", unit: "image", pricing: { oneToTwoKMicrousd: 90_000, fourKMicrousd: 120_000 }, refreshedAt: "2026-08-21" }
+      : { status: "unknown" as const, source: "unknown" as const, currency: "USD", unit: "provider-credit", pricing: {}, warning: "KIE reports provider credits after completion; stable USD pricing is not documented for this route." }
+  } : enriched;
+  const completed = { ...withPricing, ioContract: completeIoContract(withPricing) };
+  return Number.isFinite(Number(completed.metadata?.maxImageInputs))
+    ? completed
+    : withDefaultModelInputLimitsV1(completed);
+}
+
+function completeIoContract(entry: ModelCatalogEntryV1) {
+  const fallback = providerParameterIOContractV1(undefined, entry.inputTypes, entry.outputTypes);
+  if (!entry.ioContract) return fallback;
+  return {
+    ...entry.ioContract,
+    inputs: [...(entry.ioContract.inputs ?? []), ...(fallback.inputs ?? []).filter((item) => !(entry.ioContract?.inputs ?? []).some((candidate) => candidate.kind === item.kind))],
+    outputs: [...(entry.ioContract.outputs ?? []), ...(fallback.outputs ?? []).filter((item) => !(entry.ioContract?.outputs ?? []).some((candidate) => candidate.kind === item.kind))]
+  };
 }
 
 function mergeParameterDefinitions(base: ModelParameterDefinitionV1[], preferred: ModelParameterDefinitionV1[]) {
@@ -418,7 +501,7 @@ export function compatibilityReasonsForNodeV1(nodeType: string, entry: ModelCata
   if (!entry.capabilities.includes("video.generate")) reasons.push("wrong capability");
   if (!entry.outputTypes.includes("video")) reasons.push("media input/output");
   if (!entry.roles.includes("generator") || entry.roles.includes("upscaler")) reasons.push("role");
-  if (entry.parameters.length === 0) reasons.push("missing params schema");
+  if (entry.parameters.length === 0 && entry.providerModelId !== "kling/v3-motion-control") reasons.push("missing params schema");
   if (suppliedInputs) reasons.push(...modelInputCompatibilityReasonsV1(entry, suppliedInputs));
   return unique(reasons);
 }
@@ -466,7 +549,19 @@ export function modelCompatibilityDebugForNodeV1(nodeType: string, catalog: Mode
 function mergeIOContracts(primary: ModelCatalogEntryV1["ioContract"], defaults: ModelCatalogEntryV1["ioContract"]): ModelCatalogEntryV1["ioContract"] {
   if (!primary) return defaults;
   if (!defaults) return primary;
-  const mergeItems = (left: ModelIOItem[] = [], right: ModelIOItem[] = []) => [...left, ...right.filter((item) => !left.some((candidate) => candidate.kind === item.kind))];
+  const mergeItems = (left: ModelIOItem[] = [], right: ModelIOItem[] = []) => {
+    const merged = new Map(right.map((item) => [item.kind, item]));
+    for (const item of left) {
+      const fallback = merged.get(item.kind);
+      merged.set(item.kind, fallback ? {
+        ...fallback,
+        ...item,
+        minItems: Math.max(fallback.minItems ?? 0, item.minItems ?? 0),
+        maxItems: Math.max(fallback.maxItems ?? 0, item.maxItems ?? 0)
+      } : item);
+    }
+    return [...merged.values()];
+  };
   return { ...defaults, ...primary, inputs: mergeItems(primary.inputs, defaults.inputs), outputs: mergeItems(primary.outputs, defaults.outputs) };
 }
 
@@ -475,6 +570,9 @@ export function modelFamily(providerModelId: string): string {
 }
 
 function defaultUiCatalogMetadata(entry: ModelCatalogEntryV1): { parameters: ModelParameterDefinitionV1[]; metadata?: Record<string, unknown> } | undefined {
+  if (entry.provider === "polza" && entry.providerModelId === "kling/v3-motion-control") {
+    return undefined;
+  }
   if (entry.provider === "polza" && hasOutputType(entry, "video") && !entry.roles.includes("upscaler")) {
     return {
       parameters: [videoResolutions, videoDurations, videoMultiShots]
@@ -540,10 +638,49 @@ function parameter(id: string, label: string, options: string[], defaultValue: s
 }
 
 function inputTypesForModel(model: RawProviderModelV1): ModelInputTypeV1[] {
-  return normalizeInputTypes([
+  const inputTypes = normalizeInputTypes([
     ...stringArray(model.inputTypes),
     ...stringArray(model.architecture?.input_modalities)
   ]);
+  return frameImageModes(model).length && !inputTypes.includes("image") ? [...inputTypes, "image"] : inputTypes;
+}
+
+function providerVideoIOContractV1(
+  provider: ModelProviderIdV1,
+  model: RawProviderModelV1,
+  contract: ReturnType<typeof providerParameterIOContractV1>
+) {
+  const modes = provider === "openrouter" ? frameImageModes(model) : [];
+  if (!modes.length) return contract;
+  const slots = modes.map((mode) => ({
+    id: mode,
+    role: mode === "last_frame" ? "lastFrame" : "firstFrame",
+    label: mode === "last_frame" ? "Last frame" : "First frame",
+    minItems: 0,
+    maxItems: 1,
+    required: false,
+    ordered: true
+  }));
+  const image = {
+    kind: "image" as const,
+    minItems: 0,
+    maxItems: slots.length,
+    required: false,
+    roles: slots.map((slot) => slot.role),
+    slots,
+    ordered: true
+  };
+  return {
+    ...contract,
+    inputs: [image, ...(contract.inputs ?? []).filter((item) => item.kind !== "image")]
+  };
+}
+
+function frameImageModes(model: RawProviderModelV1): string[] {
+  return unique([
+    ...stringArray(model.supported_frame_images),
+    ...stringArray(model.supported_frame_image_modes)
+  ]).filter((mode) => mode === "first_frame" || mode === "last_frame");
 }
 
 function outputTypesForModel(model: RawProviderModelV1): ModelOutputTypeV1[] {
@@ -601,6 +738,8 @@ function isUpscaleOnlyModel(entry: ModelCatalogEntryV1, mediaType: "image" | "vi
 }
 
 function compatibilityReasonForNode(nodeType: string): string {
+  if (nodeType === "local_upscale") return "available through the configured local upscale worker";
+  if (nodeType === "local_video_upscale") return "available through the configured local video upscale worker";
   if (nodeType.startsWith("polza.")) return "available through Polza with provider-native model id";
   if (nodeType.startsWith("ai.")) return "available through the selected provider with provider-native model id";
   return "available through provider catalog";
@@ -635,6 +774,34 @@ function providerParameters(model: RawProviderModelV1): Record<string, unknown> 
   const topProvider = model.top_provider && typeof model.top_provider === "object" && !Array.isArray(model.top_provider) ? model.top_provider as Record<string, unknown> : undefined;
   const parameters = topProvider?.parameters;
   return parameters && typeof parameters === "object" && !Array.isArray(parameters) ? parameters as Record<string, unknown> : undefined;
+}
+
+function supportedGenerationParameterDefinitions(model: RawProviderModelV1): ModelParameterDefinitionV1[] {
+  const definitions: Array<ModelParameterDefinitionV1 | undefined> = [
+    supportedSelectParameter("aspectRatio", "Aspect ratio", model.supported_aspect_ratios),
+    supportedSelectParameter("duration", "Duration", model.supported_durations),
+    supportedSelectParameter("resolution", "Resolution", model.supported_resolutions),
+    model.generate_audio === true ? { id: "generate_audio", label: "Generate audio", type: "boolean", default: true } : undefined,
+    model.seed === true ? { id: "seed", label: "Seed", type: "number", min: 0, max: 2147483647, step: 1, advanced: true } : undefined
+  ];
+  const passthrough = new Set(stringArray(model.allowed_passthrough_parameters));
+  if (passthrough.has("negative_prompt")) definitions.push({ id: "negative_prompt", label: "Negative prompt", type: "text", default: "", advanced: true });
+  if (passthrough.has("cfg_scale")) definitions.push({ id: "cfg_scale", label: "CFG scale", type: "number", min: 0, max: 20, step: 0.1, advanced: true });
+  for (const [id, label, defaultValue] of [
+    ["prompt_optimizer", "Prompt optimizer", true],
+    ["fast_pretreatment", "Fast pretreatment", false],
+    ["watermark", "Watermark", false],
+    ["prompt_extend", "Prompt expansion", true],
+    ["enable_prompt_expansion", "Prompt expansion", true]
+  ] as const) {
+    if (passthrough.has(id)) definitions.push({ id, label, type: "boolean", default: defaultValue, advanced: true });
+  }
+  return definitions.flatMap((definition) => definition ? [definition] : []);
+}
+
+function supportedSelectParameter(id: string, label: string, rawValues: unknown): ModelParameterDefinitionV1 | undefined {
+  const values = unique(stringArray(rawValues));
+  return values.length ? parameter(id, label, values, values[0]) : undefined;
 }
 
 function modalityOutputModalities(modality: string): string[] {

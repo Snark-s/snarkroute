@@ -1,0 +1,10 @@
+{
+  "operation": "video.resample.h3",
+  "task": "resample",
+  "resample": {
+    "source_video": {"uri": "file:///data/results/inputs/REPLACE_768P/input.mp4"},
+    "prompt": "Reuse the original generation context without changing shot structure.",
+    "target_resolution": "2k",
+    "seed": 5101
+  }
+}

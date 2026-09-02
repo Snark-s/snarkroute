@@ -6,8 +6,11 @@ import { errorMessage } from "../services/errors";
 export async function registerCanvasActionSessionRoutes(app: FastifyInstance) {
   app.post<{ Params: { sessionId: string; actionId: string }; Body: Omit<RunCanvasActionSessionInput, "sessionId" | "actionId"> }>("/api/canvas-action-sessions/:sessionId/actions/:actionId/run", async (request, reply) => {
     try {
-      if (!request.body?.input || !["image", "video", "audio", "text"].includes(request.body.input.type)) return reply.code(400).send({ error: "A supported input is required." });
-      return await runCanvasActionSession({ ...request.body, sessionId: request.params.sessionId, actionId: request.params.actionId });
+      const inputs = request.body?.inputs ?? (request.body?.input ? { input: request.body.input } : {});
+      if (!Object.keys(inputs).length || Object.values(inputs).some((input) => !input || !["image", "video", "audio", "text"].includes(input.type))) {
+        return reply.code(400).send({ error: "At least one supported input is required." });
+      }
+      return await runCanvasActionSession({ ...request.body, sessionId: request.params.sessionId, actionId: request.params.actionId, surface: "brandeshmyg" });
     } catch (error) {
       if (error instanceof CanvasActionContinuationGoneError) return reply.code(410).send({ error: errorMessage(error) });
       return reply.code(400).send({ error: errorMessage(error) });

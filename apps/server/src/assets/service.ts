@@ -14,6 +14,8 @@ export function browseLocalFile(kind: LocalAssetKind): Promise<string> {
       ? "Images (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp|All files (*.*)|*.*"
       : kind === "video"
         ? "Videos (*.mp4;*.mov;*.webm;*.mkv;*.avi)|*.mp4;*.mov;*.webm;*.mkv;*.avi|All files (*.*)|*.*"
+        : kind === "audio"
+          ? "Audio (*.wav;*.mp3;*.aac;*.m4a;*.flac;*.ogg)|*.wav;*.mp3;*.aac;*.m4a;*.flac;*.ogg|All files (*.*)|*.*"
         : "All files (*.*)|*.*";
   const script = `
 Add-Type -AssemblyName System.Windows.Forms

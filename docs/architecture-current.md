@@ -1,6 +1,12 @@
 # Current Architecture
 
-Updated: 2026-06-14
+## Portable creative tools and hosts
+
+Collapsed BoojumRoute subroutes can publish a declarative Portable Tool Schema from `packages/nodes`. The server catalog validates and migrates schemas, then exposes them to BoojumRoute and Adobe adapters. After Effects CEP and the Photoshop UXP scaffold share schema/job semantics and a server-authoritative API; host capture and placement remain isolated behind host adapters. See [portable-tools.md](portable-tools.md) and [adobe-host-adapters.md](adobe-host-adapters.md).
+
+MiniMax H3 is a provider boundary rather than a UI special case. `@snarkroute/h3` talks to an authenticated, versioned standalone worker facade with backend-neutral jobs and local/S3-compatible result storage. SGLang is the first inference backend; Diffusers/custom Python can replace it behind the same API after GPU validation. Hosted 2K regeneration is a separate idempotent next-stage job. ComfyUI is excluded from production rather than merely optional. See [minimax-h3.md](minimax-h3.md) and the [deployment runbooks](runbooks/).
+
+Updated: 2026-08-19
 
 ## Product Split
 

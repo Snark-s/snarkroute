@@ -5,11 +5,13 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildChatRequestBody,
   buildImageRequestBody,
+  buildOpenRouterVideoRequestBody,
   createOpenRouterImageNodeRunner,
   createModelResolver,
   createOpenRouterClient,
   createOpenRouterProviderAdapter,
   createOpenRouterTextNodeRunner,
+  createOpenRouterVideoNodeRunner,
   estimateOpenRouterPricingQuote,
   estimateOpenRouterPricingQuoteFromCatalog,
   openRouterPricingCatalogFromModels,
@@ -17,10 +19,33 @@ import {
   readOpenRouterPricingCatalogCache,
   refreshOpenRouterPricingCatalog,
   refreshOpenRouterModelCatalog,
+  resolveOpenRouterProxyUrl,
   resolveModelProvider
 } from "../src/index";
 
 describe("OpenRouter adapter", () => {
+  it("builds first/last-frame video requests with supported controls", () => {
+    expect(buildOpenRouterVideoRequestBody("kwaivgi/kling-video-o1", "move", {
+      duration: "5",
+      resolution: "720p",
+      aspectRatio: "16:9",
+      generate_audio: true,
+      negative_prompt: "flicker"
+    }, ["data:image/png;base64,first", "data:image/png;base64,last"])).toEqual({
+      model: "kwaivgi/kling-video-o1",
+      prompt: "move",
+      duration: 5,
+      resolution: "720p",
+      aspect_ratio: "16:9",
+      generate_audio: true,
+      negative_prompt: "flicker",
+      frame_images: [
+        { frame_type: "first_frame", type: "image_url", image_url: { url: "data:image/png;base64,first" } },
+        { frame_type: "last_frame", type: "image_url", image_url: { url: "data:image/png;base64,last" } }
+      ]
+    });
+  });
+
   it("builds a chat completions request with supported parameters only", () => {
     expect(buildChatRequestBody("openai/gpt-5.2", [{ role: "user", content: "hi" }], { temperature: 0.2, max_tokens: 42, presence_penalty: 1 })).toEqual({
       model: "openai/gpt-5.2",
@@ -102,6 +127,23 @@ describe("OpenRouter adapter", () => {
     }
   });
 
+  it("resolves an explicit OpenRouter proxy before standard proxy environment variables", () => {
+    expect(resolveOpenRouterProxyUrl({
+      explicitProxyUrl: "http://127.0.0.1:10809",
+      env: {
+        OPENROUTER_PROXY_URL: "http://openrouter-proxy.local:8080",
+        HTTPS_PROXY: "http://https-proxy.local:8080",
+        HTTP_PROXY: "http://http-proxy.local:8080"
+      }
+    })).toBe("http://127.0.0.1:10809");
+    expect(resolveOpenRouterProxyUrl({
+      env: {
+        OPENROUTER_PROXY_URL: "http://openrouter-proxy.local:8080",
+        HTTPS_PROXY: "http://https-proxy.local:8080"
+      }
+    })).toBe("http://openrouter-proxy.local:8080");
+  });
+
   it("handles invalid API keys with a human error", async () => {
     const fetchImpl = vi.fn(async () => new Response("bad key", { status: 401 })) as unknown as typeof fetch;
     await expect(createOpenRouterClient({ apiKey: "sk-bad", fetchImpl }).testConnection()).rejects.toThrow("OpenRouter API key seems invalid.");
@@ -145,7 +187,10 @@ describe("OpenRouter adapter", () => {
         supported_durations: ["5", "10"],
         supported_aspect_ratios: ["16:9", "9:16"],
         supported_resolutions: ["720p", "1080p"],
-        supported_frame_image_modes: ["first_frame"],
+        supported_frame_images: ["first_frame", "last_frame"],
+        generate_audio: true,
+        seed: false,
+        allowed_passthrough_parameters: ["negative_prompt"],
         pricing: { generation: "0.1" }
       }]
     }, "video")).toEqual([expect.objectContaining({
@@ -157,7 +202,10 @@ describe("OpenRouter adapter", () => {
       supported_durations: ["5", "10"],
       supported_aspect_ratios: ["16:9", "9:16"],
       supported_resolutions: ["720p", "1080p"],
-      supported_frame_image_modes: ["first_frame"],
+      supported_frame_image_modes: ["first_frame", "last_frame"],
+      generate_audio: true,
+      seed: false,
+      allowed_passthrough_parameters: ["negative_prompt"],
       pricing: { generation: "0.1" }
     })]);
   });
@@ -177,7 +225,7 @@ describe("OpenRouter adapter", () => {
 
   it("parses catalogs defensively when optional fields are missing", () => {
     expect(parseOpenRouterModelCatalog({ data: [{ id: "x/y" }, { name: "missing id" }] })).toEqual([
-      { id: "x/y", provider: "openrouter", kind: "text", architecture: { input_modalities: undefined, output_modalities: undefined, modality: undefined }, supported_durations: undefined, supported_aspect_ratios: undefined, supported_resolutions: undefined, supported_frame_image_modes: undefined, context_length: undefined, description: undefined, name: undefined, pricing: undefined, supported_parameters: undefined, top_provider: undefined }
+      { id: "x/y", provider: "openrouter", kind: "text", architecture: { input_modalities: undefined, output_modalities: undefined, modality: undefined }, supported_durations: undefined, supported_aspect_ratios: undefined, supported_resolutions: undefined, supported_frame_image_modes: undefined, generate_audio: undefined, seed: undefined, allowed_passthrough_parameters: undefined, context_length: undefined, description: undefined, name: undefined, pricing: undefined, supported_parameters: undefined, top_provider: undefined }
     ]);
   });
 
@@ -310,6 +358,35 @@ describe("OpenRouter adapter", () => {
       metadata: expect.objectContaining({ nodeId: "n1", nodeType: "ai.image.generate" })
     }));
     expect(result.output).toMatchObject({ image, requestModelSlug: "openai/gpt-5.4-image-2", status: "succeeded" });
+  });
+
+  it("runs OpenRouter video generation through submit, poll, and local download", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-openrouter-video-"));
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/videos") && init?.method === "POST") return new Response(JSON.stringify({ id: "video-job-1" }), { status: 200 });
+      if (url.endsWith("/videos/video-job-1")) return new Response(JSON.stringify({ status: "completed", unsigned_urls: ["https://openrouter.ai/api/v1/videos/video-job-1/content?index=0"] }), { status: 200 });
+      if (url.includes("/videos/video-job-1/content")) {
+        expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer sk-test");
+        return new Response(Buffer.from("video-bytes"), { status: 200, headers: { "content-type": "video/mp4" } });
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+    try {
+      const runner = createOpenRouterVideoNodeRunner({ apiKey: "sk-test", fetchImpl, videoPollIntervalMs: 0 });
+      const result = await runner({
+        node: { id: "n1", type: "ai.video.generate" },
+        params: { model: "kwaivgi/kling-v3.0-pro", prompt: "move slowly", duration: "5", resolution: "720p" },
+        inputs: {},
+        context: { runId: "r1", route: { routeVersion: "0.1", route: { id: "r", title: "R", author: {} }, nodes: [], edges: [] }, outputDirectory, nodeOutputs: {}, log: () => undefined }
+      });
+      const video = (result.output as { video: { localPath: string } }).video;
+      expect(await readFile(video.localPath)).toEqual(Buffer.from("video-bytes"));
+      expect(result.output).toMatchObject({ provider: "openrouter", model: "kwaivgi/kling-v3.0-pro", status: "succeeded" });
+      expect(fetchImpl).toHaveBeenCalledWith("https://openrouter.ai/api/v1/videos", expect.objectContaining({ method: "POST" }));
+    } finally {
+      await rm(outputDirectory, { recursive: true, force: true });
+    }
   });
 
   it("OpenRouter provider adapter works through the Gateway contract", async () => {

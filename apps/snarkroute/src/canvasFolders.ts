@@ -15,6 +15,7 @@ export interface CanvasFolder {
   width: number;
   height: number;
   collapsed: boolean;
+  nodeOffsets?: Record<string, { x: number; y: number }>;
 }
 
 const folderPaddingX = 28;
@@ -50,6 +51,30 @@ export function placeNodesInFolder(folders: CanvasFolder[], folder: CanvasFolder
 
 export function hiddenCanvasNodeIds(folders: CanvasFolder[]): Set<string> {
   return new Set(folders.filter((folder) => folder.collapsed).flatMap((folder) => folder.nodeIds));
+}
+
+export function collapseCanvasFolder(folder: CanvasFolder, nodes: FolderCanvasNode[]): CanvasFolder {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  return {
+    ...folder,
+    collapsed: true,
+    nodeOffsets: Object.fromEntries(folder.nodeIds.flatMap((nodeId) => {
+      const node = nodeById.get(nodeId);
+      return node ? [[nodeId, { x: node.x - folder.x, y: node.y - folder.y }]] : [];
+    }))
+  };
+}
+
+export function expandCanvasFolder(folder: CanvasFolder): {
+  folder: CanvasFolder;
+  nodePositions: Array<{ id: string; x: number; y: number }>;
+} {
+  const nodePositions = folder.nodeIds.flatMap((nodeId) => {
+    const offset = folder.nodeOffsets?.[nodeId];
+    return offset ? [{ id: nodeId, x: folder.x + offset.x, y: folder.y + offset.y }] : [];
+  });
+  const { nodeOffsets: _nodeOffsets, ...expandedFolder } = folder;
+  return { folder: { ...expandedFolder, collapsed: false }, nodePositions };
 }
 
 export function folderAwareEdgeVisible(

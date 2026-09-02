@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import type { ModelOptionForNodeV1, ModelProviderRouteV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { buildServer } from "../src/app";
+import { executableGenerationModelsV1 } from "../src/routes/models";
 
 describe("model catalog API", () => {
   it("returns legacy model shape as a V1 compatibility adapter", async () => {
@@ -130,26 +132,27 @@ describe("model catalog API", () => {
     }
   });
 
-  it("returns provider-native ai.image.generate options with the direct fallback", async () => {
+  it("returns canonical ai.image.generate options with executable provider routes", async () => {
     const app = buildServer();
     try {
       const response = await app.inject({ method: "GET", url: "/api/models/for-node/ai.image.generate" });
       const body = response.json();
-      const optionIds = body.models.map((model: { storedModelId: string }) => model.storedModelId);
-      const openRouterOptionIds = body.models
-        .filter((model: { provider: string }) => model.provider === "openrouter")
-        .map((model: { storedModelId: string }) => model.storedModelId);
+      const routes = body.models.flatMap((model: { providerRoutes?: ModelProviderRouteV1[] }) => model.providerRoutes ?? []);
+      const routeIds = routes.map((route: ModelProviderRouteV1) => route.storedModelId);
+      const openRouterRouteIds = routes
+        .filter((route: ModelProviderRouteV1) => route.provider === "openrouter")
+        .map((route: ModelProviderRouteV1) => route.storedModelId);
 
       expect(response.statusCode).toBe(200);
       expect(body.ok).toBe(true);
       expect(body.nodeType).toBe("ai.image.generate");
       expect(body.modelCount).toBeGreaterThan(1);
-      expect(optionIds).toContain("image.nano-banana");
-      expect(openRouterOptionIds.length).toBeGreaterThan(1);
-      expect(openRouterOptionIds).toContain("openai/gpt-image-1");
-      expect(optionIds).not.toContain("openrouter/auto");
-      expect(body.models.every((model: { storedModelId: string; providerModelId: string }) =>
-        model.storedModelId === model.providerModelId
+      expect(routeIds).toContain("image.nano-banana");
+      expect(openRouterRouteIds.length).toBeGreaterThan(1);
+      expect(openRouterRouteIds).toContain("openai/gpt-image-1");
+      expect(routeIds).not.toContain("openrouter/auto");
+      expect(routes.every((route: ModelProviderRouteV1) =>
+        route.storedModelId === route.providerModelId
       )).toBe(true);
     } finally {
       await app.close();
@@ -168,7 +171,55 @@ describe("model catalog API", () => {
       expect(body.models.every((model: { nodeType: string; availability: { status: string } }) => model.nodeType && model.availability.status === "available")).toBe(true);
       expect(body.models.every((model: { inputContract?: object }) => model.inputContract)).toBe(true);
       expect(body.models.filter((model: { outputTypes: string[] }) => model.outputTypes.includes("video")).some((model: { inputContract: { inputs?: Array<{ kind: string }> } }) => model.inputContract.inputs?.some((input) => input.kind === "image"))).toBe(true);
+      const physicalIdentities = body.models.map((model: { provider: string; providerModelId: string; outputTypes: string[] }) =>
+        `${model.provider}\u0000${model.providerModelId}\u0000${[...model.outputTypes].sort().join(",")}`.toLowerCase()
+      );
+      expect(new Set(physicalIdentities).size).toBe(physicalIdentities.length);
+      expect(body.models.some((model: { provider: string }) => model.provider === "openrouter")).toBe(true);
     } finally { await app.close(); }
+  });
+
+  it("restores every physical provider route while preferring the provider-neutral node over legacy duplicates", () => {
+    const route = (provider: string, providerModelId: string): ModelProviderRouteV1 => ({
+      provider,
+      providerModelId,
+      storedModelId: providerModelId,
+      availability: { status: "available", source: "live", configured: true },
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate"],
+      parameters: [],
+      ioContract: { inputs: [{ kind: "image", minItems: 0, maxItems: 1 }], outputs: [{ kind: "image", minItems: 1, maxItems: 1 }] }
+    });
+    const routes = [route("polza", "vendor/shared-image"), route("openrouter", "vendor/shared-image")];
+    const canonical = {
+      id: "shared-image",
+      canonicalModelId: "shared-image",
+      provider: "polza",
+      providerModelId: "vendor/shared-image",
+      originVendor: "vendor",
+      displayName: "Shared image",
+      iconKey: "generic",
+      iconPath: "",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate"],
+      roles: ["generator"],
+      availability: routes[0].availability,
+      parameters: [],
+      catalogStatus: "known",
+      nodeType: "ai.image.generate",
+      storedModelId: "vendor/shared-image",
+      executionProvider: "polza",
+      providerRoutes: routes
+    } as ModelOptionForNodeV1;
+    const legacyPolza = { ...canonical, id: "polza:vendor/shared-image", canonicalModelId: undefined, nodeType: "polza.image.generate", providerRoutes: undefined };
+
+    const projected = executableGenerationModelsV1([canonical, legacyPolza]);
+
+    expect(projected.map((model) => model.provider)).toEqual(["polza", "openrouter"]);
+    expect(projected.find((model) => model.provider === "polza")?.nodeType).toBe("ai.image.generate");
+    expect(new Set(projected.map((model) => model.id)).size).toBe(projected.length);
   });
 
   it("keeps image and video output models out of text node selectors", async () => {

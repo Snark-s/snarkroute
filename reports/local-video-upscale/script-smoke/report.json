@@ -1,0 +1,121 @@
+{
+  "generated_at": "2026-08-24T18:30:53Z",
+  "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU, 610.88, 16384 MiB",
+  "models": [
+    {
+      "id": "openmodeldb/gameup-v2-tscunet-small-x2",
+      "display_name": "GameUpV2 TSCUNet Small \u2014 Compressed Game Video",
+      "architecture": "TSCUNet Small, five-frame Swin-Conv-UNet",
+      "architecture_family": "TSCUNet",
+      "runtime": "onnxruntime",
+      "runtime_adapter": "tscunet-onnx",
+      "file_format": "onnx",
+      "native_scale": 2,
+      "temporal": true,
+      "context_frames": 5,
+      "recurrent": "none",
+      "inference_mode": "center-frame",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-NC-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+      "license_restrictions": [
+        "NC",
+        "SA"
+      ],
+      "commercial_use": false,
+      "source": "OpenModelDB",
+      "openmodeldb_url": "https://openmodeldb.info/models/2x-GameUpV2-TSCUNet-Small",
+      "source_url": "https://github.com/Kim2091/TSCUNet",
+      "checkpoint_source": "https://github.com/Kim2091/Kim2091-Models/releases/tag/2x-GameUpV2_TSCUNet",
+      "download_url": "https://github.com/Kim2091/Kim2091-Models/releases/download/2x-GameUpV2_TSCUNet/2x-GameUpV2_TSCUNet_Small_op17_fp16.onnx",
+      "checkpoint_size_bytes": 43760071,
+      "sha256": "e2377e0179452a66c771489039784c8e32c3820b752fc1e6af06eb6bb2b3c3f3",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 12,
+      "recommended_overlap_frames": 2,
+      "recommended_tile_size": null,
+      "spatial_tiling_supported": false,
+      "framewise_model_id": null,
+      "notes": "OpenModelDB checkpoint for temporally restoring H.264/H.265/AV1-degraded game footage. Five RGB frames are flattened into the ONNX input and the center frame is emitted. Non-commercial ShareAlike license; input dimensions are reflection-padded to multiples of 64.",
+      "weights_installed": true
+    }
+  ],
+  "results": [
+    {
+      "fixture": "natural",
+      "model_id": "openmodeldb/gameup-v2-tscunet-small-x2",
+      "architecture_family": "TSCUNet",
+      "temporal": true,
+      "native_scale": 2,
+      "context_frames": 5,
+      "runtime": "onnxruntime",
+      "license": "CC-BY-NC-SA-4.0",
+      "commercial_use": false,
+      "provider_cost": 0,
+      "filename": "result.mp4",
+      "mime_type": "video/mp4",
+      "width": 192,
+      "height": 128,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "audio_preserved": true,
+      "audio_codec": "aac",
+      "bytes": 45658,
+      "processing_seconds": 7.493819399998756,
+      "model_loading_seconds": 5.0451302000146825,
+      "inference_seconds": 2.035342200018931,
+      "processing_fps": 1.6013196154689813,
+      "peak_vram_mb": null,
+      "vram_measurement": "unavailable_for_onnxruntime_under_wddm",
+      "runtime_device": "cuda",
+      "input": {
+        "width": 96,
+        "height": 64,
+        "fps": 6.0,
+        "frame_count": 12,
+        "duration": 2.0,
+        "codec": "h264",
+        "pixel_format": "yuv420p",
+        "has_audio": true,
+        "audio_codec": "aac",
+        "rotation": 0
+      },
+      "gateway_job_id": "gen_86cd1044-1a52-4f11-a61d-85280e894217",
+      "worker_job_id": "vup_3d0764b5-3ef3-4cff-9a20-581bff40f3d0",
+      "measured_width": 192,
+      "measured_height": 128,
+      "measured_fps": 6.0,
+      "measured_frame_count": 12,
+      "measured_duration": 2.0,
+      "has_audio": true,
+      "audio_codec_measured": "aac",
+      "mean_frame_delta": 4.940134048461914,
+      "p95_frame_delta": 5.02235221862793,
+      "static_region_temporal_variation": 0.6306027770042419,
+      "duplicate_adjacent_frames": 0,
+      "chunk_boundary_mean_delta": null
+    }
+  ],
+  "notes": [
+    "No aggregate quality score or automatic winner is calculated.",
+    "Temporal variation metrics describe outputs; they are not perceptual quality rankings.",
+    "ONNX Runtime VRAM is unavailable under WDDM in the worker telemetry."
+  ]
+}

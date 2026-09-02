@@ -17,7 +17,7 @@ Generates a video through official ByteDance cloud products: BytePlus ModelArk f
 - `endpointMode`: `auto`, `text-to-video`, `image-to-video`, or `reference-to-video`.
 - `providerBackend`: optional node override for `SEEDANCE_PROVIDER_BACKEND`. Supported values are `byteplus-modelark`, `volcengine-las`, and `seedance-compatible`.
 - `baseUrl`: advanced custom API base URL. Required only for `seedance-compatible`; official backends use their default base URLs unless `SEEDANCE_API_BASE_URL` overrides them.
-- `model`: defaults to `seedance-2.0`.
+- `model`: defaults to the official BytePlus ModelArk ID `dreamina-seedance-2-0-260128`. Legacy `seedance-2.0` and `seedance-2.0-fast` values are mapped to the current BytePlus IDs.
 - `duration`: `auto` or seconds supported by the provider, usually `4` to `15`.
 - `resolution`: provider resolution such as `720p` or `1080p`.
 - `aspectRatio`: provider aspect ratio such as `16:9`, `9:16`, `1:1`, or `auto`.
@@ -29,6 +29,8 @@ Generates a video through official ByteDance cloud products: BytePlus ModelArk f
 - `timeoutMs`: total generation timeout.
 
 Studio renders fixed-choice parameters as dropdowns: endpoint mode, model, duration, resolution, aspect ratio, poll interval, and timeout.
+
+For BytePlus ModelArk, the node uses the official content-generation task API (`/contents/generations/tasks`) and reads the completed video from `content.video_url`. Custom compatible endpoints retain the legacy `/generate/...` request shape.
 
 ## Output
 

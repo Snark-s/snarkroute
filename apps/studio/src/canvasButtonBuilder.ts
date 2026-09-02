@@ -15,7 +15,9 @@ export type CanvasButtonDraft = {
   packageId: string;
   iconName: string;
   customIconDataUrl?: string;
+  surface?: "livingCanvas" | "brandeshmyg";
   inputKind: string;
+  inputs?: Array<{ id: string; kind: string; label?: string }>;
   outputs: Array<{ id: string; kind: string; label?: string }>;
   params: Array<ParamManifest & { selected: boolean; displayLabel: string }>;
   previewCandidates: CanvasButtonPreviewCandidate[];
@@ -27,6 +29,28 @@ const runtimeParamKeys = new Set([
   "marbleWorld", "pinnedMarbleWorld", "sourceImageHash", "pinnedOutput",
   "pinnedOutputAt", "pollingIntervalMs", "timeoutMs"
 ]);
+
+export function compoundCanvasButtonEligible(compoundNode: RouteDoc["nodes"][number]): boolean {
+  const inputs = compoundNode.compound?.inputs ?? [];
+  const outputs = compoundNode.compound?.outputs ?? [];
+  return inputs.length === 1
+    && isCanvasActionPortKind(String(inputs[0]?.kind ?? "json"))
+    && outputs.length > 0
+    && outputs.every((output) => isCanvasActionPortKind(String(output.kind ?? "json")));
+}
+
+export function compoundBrandeshmygActionEligible(compoundNode: RouteDoc["nodes"][number]): boolean {
+  const inputs = compoundNode.compound?.inputs ?? [];
+  const outputs = compoundNode.compound?.outputs ?? [];
+  return inputs.length > 0
+    && inputs.every((input) => isCanvasActionPortKind(String(input.kind ?? "json")))
+    && outputs.length > 0
+    && outputs.every((output) => isCanvasActionPortKind(String(output.kind ?? "json")));
+}
+
+export function canvasActionInputKind(compoundNode: RouteDoc["nodes"][number]): string {
+  return String(compoundNode.compound?.inputs?.find((input) => isCanvasActionPortKind(String(input.kind ?? "json")))?.kind ?? "json");
+}
 
 export function canvasButtonParamCandidates(
   compoundNode: RouteDoc["nodes"][number],
@@ -94,28 +118,98 @@ export function canvasButtonManifestFromDraft(draft: CanvasButtonDraft, compound
   const poseBindings = canvasButtonPoseBindings(selectedParams);
   const icon = draft.customIconDataUrl ? { kind: "custom" as const, dataUrl: draft.customIconDataUrl } : { kind: "preset" as const, name: draft.iconName };
   return nodeManifestFromCompoundNode(compoundNode, id, title, {
-    canvasAction: { enabled: true, icon, params: selectedParams, poseBindings, preview: selectedPreview ? [{ kind: selectedPreview.kind, source: selectedPreview.source }] : undefined }
+    canvasAction: {
+      enabled: true,
+      surface: draft.surface ?? "livingCanvas",
+      icon,
+      params: selectedParams,
+      poseBindings,
+      preview: selectedPreview ? [{ kind: selectedPreview.kind, source: selectedPreview.source }] : undefined
+    }
   });
 }
 
-export function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string, options: { canvasAction?: { enabled: boolean; icon?: NonNullable<NodeManifest["canvasAction"]>["icon"]; params?: NonNullable<NodeManifest["params"]>; poseBindings?: NonNullable<NodeManifest["canvasAction"]>["poseBindings"]; preview?: NonNullable<NonNullable<NodeManifest["canvasAction"]>["dialog"]>["preview"] } } = {}): NodeManifest {
+export function nodeManifestFromCompoundNode(compoundNode: RouteDoc["nodes"][number], id: string, title: string, options: { canvasAction?: { enabled: boolean; surface?: "livingCanvas" | "brandeshmyg"; icon?: NonNullable<NodeManifest["canvasAction"]>["icon"]; params?: NonNullable<NodeManifest["params"]>; poseBindings?: NonNullable<NodeManifest["canvasAction"]>["poseBindings"]; preview?: NonNullable<NonNullable<NodeManifest["canvasAction"]>["dialog"]>["preview"] } } = {}): NodeManifest {
   const compound = compoundNode.compound ?? {};
   const inputs = (compound.inputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
   const outputs = (compound.outputs ?? []).map((port) => ({ id: port.id, type: String(port.kind ?? "json"), label: port.label ?? port.id }));
+  const params = options.canvasAction?.params ?? [];
   return {
     kind: "snarkroute.node", schemaVersion: "0.1", id, title, version: "0.1.0",
     author: { name: "SnarkRoute Studio" }, license: "UNLICENSED", origin: "generated", source: "snarkroute-studio", category: "Compound",
     description: `Generated from compound route "${compound.title ?? compoundNode.title ?? compoundNode.id}".`,
     permissions: { network: false, networkHosts: [], readFiles: false, writeOutputs: false, shell: false, env: [] },
     executor: { type: "declarative" }, inputs, outputs,
-    ...(options.canvasAction?.params?.length ? { params: options.canvasAction.params } : {}),
+    ...(params.length ? { params } : {}),
     ...(options.canvasAction?.enabled ? { canvasAction: {
-      enabled: true, title, description: `Run "${title}" from the Living Canvas node toolbar.`, icon: options.canvasAction.icon ?? { kind: "preset", name: "wrench" },
+      enabled: true,
+      surface: options.canvasAction.surface ?? "livingCanvas",
+      title,
+      description: options.canvasAction.surface === "brandeshmyg" ? `Run "${title}" as a Brandeshmyg action.` : `Run "${title}" from the Living Canvas node toolbar.`,
+      icon: options.canvasAction.icon ?? { kind: "preset", name: "wrench" },
       ...(options.canvasAction.poseBindings && Object.keys(options.canvasAction.poseBindings).length ? { poseBindings: options.canvasAction.poseBindings } : {}),
       ...(options.canvasAction.params?.length || options.canvasAction.preview?.length ? { dialog: { enabled: true, params: (options.canvasAction.params ?? []).map((param) => param.id), ...(options.canvasAction.preview?.length ? { preview: options.canvasAction.preview } : {}) } } : {})
     } } : {}),
+    ...(options.canvasAction?.enabled ? { tool: portableToolSchema(id, title, `Generated from compound route "${compound.title ?? compoundNode.title ?? compoundNode.id}".`, inputs, outputs, params) } : {}),
     generatedWith: { tool: "snarkroute-studio", kind: "compound.subroute", compound: { ...compound, title }, subroute: compoundNode.subroute }
   };
+}
+
+function portableToolSchema(id: string, title: string, description: string, inputs: Array<{ id: string; type: string; label?: string }>, outputs: Array<{ id: string; type: string; label?: string }>, params: NonNullable<NodeManifest["params"]>) {
+  const mediaInputs = inputs.filter((input) => input.type !== "text");
+  const photoshopCompatible = mediaInputs.length === 1 && mediaInputs[0]?.type === "image" && outputs.length > 0 && outputs.every((output) => output.type === "image" || output.type === "text");
+  const portableInputs = inputs.map((input, index) => ({
+    id: input.id,
+    label: input.label ?? input.id,
+    type: portableFieldType(input.type),
+    required: true,
+    source: input.type === "text" ? "manual" : "host_selection",
+    hostSources: {
+      boojumroute: input.type === "text" ? "manual" : "host_selection",
+      after_effects: input.type === "text" ? "manual" : input.type === "image" && index === 0 ? "host_current_frame" : "host_active_layer",
+      ...(photoshopCompatible ? { photoshop: input.type === "text" ? "manual" : "photoshop_selection" } : {})
+    },
+    multiple: false,
+    acceptedMimes: input.type === "image" ? ["image/*"] : input.type === "video" ? ["video/*"] : input.type === "audio" ? ["audio/*"] : undefined,
+    ...(photoshopCompatible && input.type === "image" ? { includeMask: true, includeComposite: true, contextPadding: 0.2 } : {})
+  }));
+  const portableOutputs = outputs.map((output) => ({
+    id: output.id,
+    label: output.label ?? output.id,
+    type: portableFieldType(output.type),
+    required: true,
+    placement: "new_artifact",
+    hostPlacements: {
+      boojumroute: "new_artifact",
+      after_effects: output.type === "text" ? "next_stage" : "replace_placeholder",
+      ...(photoshopCompatible ? { photoshop: output.type === "image" ? "selection_layer" : "next_stage" } : {})
+    },
+    allowSelection: outputs.length > 1,
+    ...(photoshopCompatible && output.type === "image" ? { clipToSelection: true } : {})
+  }));
+  const portableParams = params.map((param) => ({
+    id: param.id, label: param.label ?? param.id, description: param.description, type: portableParamType(param), required: false,
+    default: param.default, min: param.min, max: param.max, step: param.step,
+    options: param.options?.flatMap((option) => ["string", "number", "boolean"].includes(typeof option.value) ? [{ value: option.value, label: option.label }] : [])
+  }));
+  const hosts = [
+    { host: "boojumroute", sources: ["manual", "host_selection"], placements: ["new_artifact", "next_stage"], capabilities: ["artifact_input", "multiple_results"] },
+    { host: "after_effects", sources: ["manual", "upload", "host_selection", "host_current_frame", "host_active_layer", "host_work_area"], placements: ["project_item", "replace_placeholder", "next_stage"], capabilities: ["current_frame", "selected_layer", "work_area", "placeholder_replace"] },
+    ...(photoshopCompatible ? [{ host: "photoshop", sources: ["manual", "upload", "photoshop_selection"], placements: ["selection_layer", "new_layer", "next_stage"], capabilities: ["selection_bounds", "selection_mask", "context_padding"] }] : [])
+  ];
+  return {
+    schemaVersion: "1.0", id, title, description, version: "0.1.0", action: { kind: "node", value: id },
+    inputs: portableInputs, outputs: portableOutputs, params: portableParams, hosts,
+    job: { states: ["queued", "starting_provider", "loading_model", "generating", "generating_768p", "regenerating_2k", "downloading", "completed", "failed", "cancelled"], cancellable: false, retryable: true, selectableResults: outputs.length > 1 }
+  };
+}
+
+function portableFieldType(type: string): string { return type === "image" || type === "video" || type === "audio" ? type : "text"; }
+function portableParamType(param: ParamManifest): string {
+  if (param.options?.length) return "select";
+  if (param.type === "string" || param.type === "text") return "text";
+  if (param.type === "multiline") return "multiline_text";
+  return ["number", "integer", "boolean", "seed", "duration", "resolution"].includes(param.type) ? param.type : "text";
 }
 
 function canvasButtonPoseBindings(params: NonNullable<NodeManifest["params"]>): NonNullable<NodeManifest["canvasAction"]>["poseBindings"] {
@@ -151,4 +245,8 @@ function isIsoTimestampParam(key: string, value: unknown): boolean {
 
 function isBasicPreviewKind(value: string): value is "image" | "video" | "audio" {
   return value === "image" || value === "video" || value === "audio";
+}
+
+function isCanvasActionPortKind(value: string): boolean {
+  return value === "image" || value === "video" || value === "audio" || value === "text";
 }

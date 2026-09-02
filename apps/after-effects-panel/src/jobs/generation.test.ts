@@ -32,11 +32,11 @@ describe("generation input preparation", () => {
         getActiveComposition: async () => { calls.push("getActiveComposition"); return source; },
         renderCurrentFrame: async () => { calls.push("renderCurrentFrame"); expect(placeholderExists).toBe(false); return rendered("C:\\Temp\\input.png"); },
         validateInputFile: async (path) => { calls.push("validateInputFile"); return { path, sizeBytes: 128, fileError: "" }; },
-        createGenerationPlaceholder: async (spec) => { calls.push("createPlaceholder"); expect(spec.jobId).toBe("job_1"); placeholderExists = true; return { compositionId: 17, layerIndex: 1, footageItemId: 90, jobId: spec.jobId }; }
+        createGenerationPlaceholder: async (spec) => { calls.push("createPlaceholder"); expect(spec).toMatchObject({ jobId: "job_1", modelId: "wan/2.6", displayName: "Wan 2.6", name: "Generating · Wan 2.6", previewPath: "C:\\Temp\\input.png", previewTemporary: true }); placeholderExists = true; return { compositionId: 17, layerIndex: 1, footageItemId: 90, jobId: spec.jobId, previewPath: spec.previewPath, previewTemporary: spec.previewTemporary, placeholderKind: "source-preview", overlayCreated: true }; }
       },
       client: {
         importAsset: async () => { calls.push("uploadAsset"); return { id: "asset_input", path: "C:\\server\\asset_input.png" }; },
-        createJob: async (request) => { calls.push("createJob"); expect(request.assets?.[0].id).toBe("asset_input"); return { id: "job_1", status: "queued", createdAt: "job-time", updatedAt: "job-time" }; }
+        createJob: async (request) => { calls.push("createJob"); expect(request.assets?.[0].id).toBe("asset_input"); expect(JSON.stringify(request)).not.toContain("Generating"); return { id: "job_1", status: "queued", createdAt: "job-time", updatedAt: "job-time" }; }
       },
       readFileBase64: () => "cG5n",
       now: () => "placeholder-time",
@@ -49,7 +49,7 @@ describe("generation input preparation", () => {
     expect(phases).toEqual(["exporting_current_frame", "validating_input", "uploading_asset", "creating_job"]);
     expect(persisted[0].placeholder).toBeUndefined();
     expect(persisted[1].placeholder).toBeDefined();
-    expect(pending).toMatchObject({ inputFramePath: "C:\\Temp\\input.png", inputAssetId: "asset_input", jobCreatedAt: "job-time", placeholderCreatedAt: "placeholder-time", inputModelContract: { requiredImageInputs: 0, maximumImageInputs: 1, imagesSupplied: 1 }, placeholder: { jobId: "job_1" } });
+    expect(pending).toMatchObject({ inputFramePath: "C:\\Temp\\input.png", inputAssetId: "asset_input", jobCreatedAt: "job-time", placeholderCreatedAt: "placeholder-time", inputModelContract: { requiredImageInputs: 0, maximumImageInputs: 1, imagesSupplied: 1 }, placeholder: { jobId: "job_1", previewPath: "C:\\Temp\\input.png", previewTemporary: true, placeholderKind: "source-preview", overlayCreated: true } });
   });
 
   it("blocks upload, provider job, and placeholder when the PNG is empty", async () => {
@@ -91,6 +91,28 @@ describe("generation input preparation", () => {
     });
     expect(pending.placeholder).toBeUndefined();
     expect(pending.warning).toContain("AE refused solid");
+  });
+
+  it("keeps the provider job when the overlay cannot be created", async () => {
+    const pending = await prepareGeneration({ serverUrl: "local", model, prompt: "move", parameters: {} }, {
+      host: { getActiveComposition: async () => source, renderCurrentFrame: async () => rendered("C:\\Temp\\input.png", 1), validateInputFile: async (path) => ({ path, sizeBytes: 1, fileError: "" }), createGenerationPlaceholder: async (spec) => ({ compositionId: source.id, layerIndex: 1, footageItemId: 90, jobId: spec.jobId, placeholderKind: "source-preview", overlayCreated: false, overlayError: "Text layers are unavailable" }) },
+      client: { importAsset: async () => ({ id: "asset_input", path: "C:\\server\\input.png" }), createJob: async () => ({ id: "job_1", status: "queued", createdAt: "job-time", updatedAt: "job-time" }) },
+      readFileBase64: () => "cA=="
+    });
+    expect(pending).toMatchObject({ jobId: "job_1", placeholder: { overlayCreated: false }, status: "queued" });
+    expect(pending.warning).toContain("Generation overlay could not be created");
+  });
+
+  it("uses a Solid fallback only when no visual input is available", async () => {
+    const textModel: VideoModel = { ...model, inputTypes: ["text"], inputContract: { inputs: [] } };
+    const createGenerationPlaceholder = vi.fn(async (spec) => ({ compositionId: source.id, layerIndex: 1, footageItemId: 90, jobId: spec.jobId, placeholderKind: "solid-fallback" as const, overlayCreated: true }));
+    const pending = await prepareGeneration({ serverUrl: "local", model: textModel, operation: "text-to-video", prompt: "move", parameters: {} }, {
+      host: { getActiveComposition: async () => source, renderCurrentFrame: vi.fn(), validateInputFile: vi.fn(), createGenerationPlaceholder },
+      client: { importAsset: vi.fn(), createJob: async () => ({ id: "job_text", status: "queued", createdAt: "job-time", updatedAt: "job-time" }) },
+      readFileBase64: vi.fn()
+    });
+    expect(createGenerationPlaceholder).toHaveBeenCalledWith(expect.objectContaining({ jobId: "job_text", previewPath: undefined, previewKind: undefined }));
+    expect(pending.placeholder?.placeholderKind).toBe("solid-fallback");
   });
 });
 

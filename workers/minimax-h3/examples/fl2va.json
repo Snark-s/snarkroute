@@ -1,0 +1,13 @@
+{
+  "operation": "video.generate.h3",
+  "task": "fl2va",
+  "prompt": "Continue naturally from the first frame and arrive at the final frame with synchronized ambient sound.",
+  "conditions": [
+    {"type": "image", "uri": "file:///data/results/inputs/REPLACE_FIRST/input.png", "role": "keyframe", "frame_index": 0},
+    {"type": "image", "uri": "file:///data/results/inputs/REPLACE_LAST/input.png", "role": "keyframe", "frame_index": -1}
+  ],
+  "target": {"short_edge": 768, "aspect_ratio": "16:9", "duration_seconds": 5},
+  "seed": 1101,
+  "num_inference_steps": 30,
+  "quality_mode": "final"
+}

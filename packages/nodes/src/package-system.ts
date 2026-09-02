@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import JSZip from "jszip";
 import type { NodeRunner, RouteExecutor } from "@snarkroute/executor";
 import type { OpenRoute, RouteEdge, RouteNode, ValidationIssue } from "@snarkroute/protocol";
+import { validatePortableToolSchema, type PortableToolSchema } from "./portable-tool";
 
 export type SnarkNodeOrigin = "bundled" | "local" | "installed" | "linked" | "remote" | "generated";
 export type SnarkNodeRuntime = "builtin" | "node" | "javascript" | "typescript";
@@ -39,8 +40,11 @@ export type CanvasActionIconManifest =
   | { kind: "preset"; name: string }
   | { kind: "custom"; svg?: string; dataUrl?: string };
 
+export type CanvasActionSurface = "livingCanvas" | "brandeshmyg";
+
 export interface CanvasActionManifest {
   enabled: boolean;
+  surface?: CanvasActionSurface;
   title?: string;
   description?: string;
   icon?: CanvasActionIconManifest;
@@ -98,6 +102,7 @@ export interface SnarkNodeManifest {
   params?: NodeParamManifest[];
   capabilities?: NodeCapabilityManifest[];
   canvasAction?: CanvasActionManifest;
+  tool?: PortableToolSchema;
   ui?: unknown;
   description?: string;
   category?: string;
@@ -245,6 +250,10 @@ export function validateNodeManifest(input: unknown, options: { basePath?: strin
   if (record.params !== undefined) validatePorts(record.params, "params", issues);
   if (record.capabilities !== undefined) validateCapabilities(record.capabilities, issues);
   if (record.canvasAction !== undefined) validateCanvasAction(record.canvasAction, record.inputs, record.outputs, record.params, record.generatedWith, issues);
+  if (record.tool !== undefined) {
+    const validation = validatePortableToolSchema(record.tool);
+    issues.push(...validation.issues.filter((issue) => issue.severity === "error").map((issue) => ({ path: `tool.${issue.path}`, message: `[${issue.code}] ${issue.message}` })));
+  }
 
   return issues.length === 0 ? { ok: true, manifest: normalizeNodeManifest(record), issues: [] } : { ok: false, issues };
 }
@@ -818,6 +827,9 @@ function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown,
   }
   const record = value as Record<string, unknown>;
   if (typeof record.enabled !== "boolean") issues.push({ path: "canvasAction.enabled", message: "enabled must be boolean." });
+  if (record.surface !== undefined && record.surface !== "livingCanvas" && record.surface !== "brandeshmyg") {
+    issues.push({ path: "canvasAction.surface", message: 'surface must be "livingCanvas" or "brandeshmyg".' });
+  }
   if (record.title !== undefined && typeof record.title !== "string") issues.push({ path: "canvasAction.title", message: "title must be string." });
   if (record.description !== undefined && typeof record.description !== "string") issues.push({ path: "canvasAction.description", message: "description must be string." });
   if (record.icon !== undefined) validateCanvasActionIcon(record.icon, issues);
@@ -837,10 +849,18 @@ function validateCanvasAction(value: unknown, inputs: unknown, outputs: unknown,
 
   const inputPorts = Array.isArray(inputs) ? inputs as Array<Record<string, unknown>> : [];
   const outputPorts = Array.isArray(outputs) ? outputs as Array<Record<string, unknown>> : [];
-  if (inputPorts.length !== 1) issues.push({ path: "canvasAction", message: "Canvas actions must declare exactly one input port." });
-  const inputType = inputPorts[0]?.type;
-  if (typeof inputType !== "string" || !isCanvasActionPortType(inputType)) {
-    issues.push({ path: "inputs.0.type", message: 'Canvas action input type must be "image", "video", "audio", or "text".' });
+  if (inputPorts.length === 0) issues.push({ path: "canvasAction", message: "Canvas actions must declare at least one input port." });
+  if (record.surface === "livingCanvas" && inputPorts.length !== 1) {
+    issues.push({ path: "canvasAction.surface", message: "Living Canvas buttons must declare exactly one input port." });
+  }
+  if (record.surface === "brandeshmyg") {
+    inputPorts.forEach((port, index) => {
+      if (typeof port.type !== "string" || !isCanvasActionPortType(port.type)) {
+        issues.push({ path: `inputs.${index}.type`, message: 'Brandeshmyg action inputs must be "image", "video", "audio", or "text".' });
+      }
+    });
+  } else if (!inputPorts.some((port) => typeof port.type === "string" && isCanvasActionPortType(port.type))) {
+    issues.push({ path: "canvasAction", message: 'Canvas actions must declare at least one "image", "video", "audio", or "text" input port.' });
   }
   if (outputPorts.length === 0) issues.push({ path: "outputs", message: "Canvas actions must declare at least one output port." });
   outputPorts.forEach((port, index) => {

@@ -12,7 +12,8 @@
   "dependencies": {
     "@snarkroute/core": "workspace:*",
     "@snarkroute/executor": "workspace:*",
-    "@snarkroute/model-registry": "workspace:*"
+    "@snarkroute/model-registry": "workspace:*",
+    "undici": "^6.28.0"
   },
   "devDependencies": {
     "vitest": "^1.6.0"

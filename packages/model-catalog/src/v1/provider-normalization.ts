@@ -13,6 +13,7 @@ import type { ModelIOContract } from "@snarkroute/protocol";
 export type ProviderModelToV1Input = {
   provider: ModelProviderIdV1;
   providerModelId: string;
+  canonicalModelId?: string;
   displayName?: string;
   inputTypes?: ModelInputTypeV1[];
   outputTypes?: ModelOutputTypeV1[];
@@ -29,6 +30,7 @@ export function normalizeProviderModelToV1Input(input: ProviderModelToV1Input): 
   return {
     provider: input.provider,
     providerModelId,
+    canonicalModelId: input.canonicalModelId,
     id: createUnifiedModelId(input.provider, providerModelId),
     originVendor: inferOriginVendorFromProviderModelId(providerModelId),
     displayName: input.displayName?.trim() || providerModelId,
@@ -52,6 +54,7 @@ export function inferOriginVendorFromProviderModelId(providerModelId: string): M
   if (normalized.startsWith("sonar")) return "perplexity";
   if (normalized.startsWith("yandexgpt-")) return "yandex";
   if (normalized.startsWith("minimax-")) return "minimax";
+  if (normalized.startsWith("kling-") || normalized.startsWith("kling/")) return "kling";
   if (normalized === "image.nano-banana" || normalized.includes("nano-banana")) return "nano-banana";
   if (/^google\/gemini-.+-image-preview$/.test(normalized)) return "nano-banana";
   const prefix = normalized.split("/")[0];

@@ -61,6 +61,38 @@ describe("node package upload API", () => {
     }
   });
 
+  it("publishes validated portable tools and filters them by host", async () => {
+    const app = await testServer();
+    const manifest = {
+      ...exampleManifest(), id: "example.portable.tool", title: "Portable Tool",
+      inputs: [{ id: "image", type: "image", required: true }], outputs: [{ id: "image", type: "image" }],
+      tool: {
+        schemaVersion: "1.0", id: "example.portable.tool", title: "Portable Tool", version: "1.0.0",
+        action: { kind: "node", value: "example.portable.tool" },
+        inputs: [{ id: "image", type: "image", required: true, source: "host_selection", hostSources: { after_effects: "host_current_frame" }, acceptedMimes: ["image/*"] }],
+        outputs: [{ id: "image", type: "image", required: true, placement: "new_artifact", hostPlacements: { after_effects: "replace_placeholder" } }],
+        params: [{ id: "prompt", type: "multiline_text", required: false }],
+        hosts: [
+          { host: "boojumroute", sources: ["host_selection"], placements: ["new_artifact"] },
+          { host: "after_effects", sources: ["host_current_frame"], placements: ["replace_placeholder"] }
+        ],
+        job: { states: ["queued", "generating", "completed", "failed", "cancelled"], cancellable: false, retryable: true, selectableResults: false }
+      }
+    };
+    try {
+      const install = await app.inject({ method: "POST", url: "/api/node-packages/install", payload: { filename: "portable.node.json", text: JSON.stringify(manifest) } });
+      expect(install.statusCode, install.body).toBe(200);
+      const list = await app.inject({ method: "GET", url: "/api/tools?host=after_effects" });
+      expect(list.statusCode, list.body).toBe(200);
+      expect(list.json().tools).toEqual(expect.arrayContaining([expect.objectContaining({ source: "explicit", tool: expect.objectContaining({ id: "example.portable.tool" }) })]));
+      expect(JSON.stringify(list.json())).not.toMatch(/apiKey|accessToken|password/);
+      const one = await app.inject({ method: "GET", url: "/api/tools/example.portable.tool" });
+      expect(one.json()).toMatchObject({ ok: true, source: "explicit", tool: { hosts: expect.arrayContaining([expect.objectContaining({ host: "after_effects" })]) } });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("previews valid .snarknode ZIP packages", async () => {
     const app = await testServer();
     const sourceDirectory = await mkdtemp(join(tmpdir(), "sr-node-upload-package-"));
@@ -163,6 +195,50 @@ describe("node package upload API", () => {
       expect(await readdir(process.env.SNARKROUTE_CANVAS_ACTIONS_PATH!)).toEqual([]);
       const actions = await app.inject({ method: "GET", url: "/api/nodes/canvas-actions" });
       expect(actions.json().actions).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: "example.canvas.action" })]));
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("separates one-input Living Canvas buttons from multi-input Brandeshmyg actions", async () => {
+    const app = await testServer();
+    const button = {
+      ...exampleManifest(),
+      id: "example.living-button",
+      inputs: [{ id: "image", type: "image", label: "Image" }],
+      outputs: [{ id: "image", type: "image", label: "Image" }],
+      canvasAction: { enabled: true, surface: "livingCanvas", title: "Living button" }
+    };
+    const action = {
+      ...exampleManifest(),
+      id: "example.brand-action",
+      inputs: [
+        { id: "startImage", type: "image", label: "Start image" },
+        { id: "endImage", type: "image", label: "End image" },
+        { id: "prompt", type: "text", label: "Prompt" }
+      ],
+      outputs: [{ id: "video", type: "video", label: "Video" }],
+      canvasAction: { enabled: true, surface: "brandeshmyg", title: "Brand action" }
+    };
+    try {
+      for (const manifest of [button, action]) {
+        const install = await app.inject({
+          method: "POST",
+          url: "/api/node-packages/install",
+          payload: { filename: `${manifest.id}.node.json`, text: JSON.stringify(manifest) }
+        });
+        expect(install.statusCode, install.body).toBe(200);
+      }
+
+      const living = (await app.inject({ method: "GET", url: "/api/nodes/canvas-actions?surface=livingCanvas" })).json().actions;
+      const brandeshmyg = (await app.inject({ method: "GET", url: "/api/nodes/canvas-actions?surface=brandeshmyg" })).json().actions;
+
+      expect(living).toEqual(expect.arrayContaining([expect.objectContaining({ id: button.id })]));
+      expect(living).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: action.id })]));
+      expect(brandeshmyg).toEqual(expect.arrayContaining([expect.objectContaining({
+        id: action.id,
+        inputs: action.inputs.map((input) => ({ ...input, required: undefined }))
+      })]));
     } finally {
       await app.close();
     }

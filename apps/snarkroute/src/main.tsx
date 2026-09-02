@@ -5,7 +5,7 @@ import JSZip from "jszip";
 import { Panorama360Viewer, SplatViewer, type CameraPose } from "@snarkroute/media-viewers";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { canvasActionNeedsDialog } from "./canvasActionDialog";
-import { createCanvasFolder, folderAwareEdgeVisible, hiddenCanvasNodeIds, placeNodesInFolder, type CanvasFolder } from "./canvasFolders";
+import { collapseCanvasFolder, createCanvasFolder, expandCanvasFolder, folderAwareEdgeVisible, hiddenCanvasNodeIds, placeNodesInFolder, type CanvasFolder } from "./canvasFolders";
 import { useClampedMenuPosition } from "@snarkroute/media-viewers";
 import { readTextDialogueDraft, writeTextDialogueDraft } from "./dialogueDraft";
 import { edgePath, pinnedNodeEdgePath, setConnectionPinnedSource, togglePinnedNodeState } from "./pinnedNodes";
@@ -15,10 +15,14 @@ import {
   loadModelCatalog,
   mergeModelsForDisplay,
   mergeProviderAndUserDefinedPickerModels,
+  modelAspectRatioLockedToInput,
+  modelDurationGuidance,
+  modelDisplayId,
   modelMatchesCatalogGroup,
   modelGenerationParameters,
   modelImageInputLimit,
   modelParameterEnabled,
+  modelRouteSelectionForProvider,
   modelSelectionId,
   modelsCompatibleWithNodeInputs,
   modelsForContentKind,
@@ -515,6 +519,8 @@ type DragState =
       startX: number;
       startY: number;
       nodeStartPositions: { id: string; x: number; y: number }[];
+      collapsed: boolean;
+      nodeOffsets?: CanvasFolder["nodeOffsets"];
     }
   | {
       kind: "connection";
@@ -634,7 +640,7 @@ interface GenerationFeedback {
   error?: boolean;
 }
 
-type ProviderId = "polza" | "rutronix" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
+type ProviderId = "polza" | "kie" | "rutronix" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
 type NodeRepresentationType = "image" | "video" | "audio" | "text";
 
 interface ProviderDefinition {
@@ -659,6 +665,7 @@ interface LocalProviderConnection {
 
 const providerDefinitions: ProviderDefinition[] = [
   { id: "polza", title: "Polza", capabilityText: "Image generation catalog", settingsEndpoint: "/api/settings/polza-token", keyField: "polzaAiApiKey", refreshModels: true },
+  { id: "kie", title: "KIE.ai", capabilityText: "Image, video, and text models", settingsEndpoint: "/api/settings/kie-token", keyField: "kieApiKey", testEndpoint: "/api/providers/kie/test" },
   { id: "rutronix", title: "RuTronix", capabilityText: "Text models with RUB token billing", settingsEndpoint: "/api/settings/rutronix-token", keyField: "rutronixApiKey", refreshModels: true },
   { id: "openrouter", title: "OpenRouter", capabilityText: "Text and multimodal routed models", settingsEndpoint: "/api/settings/openrouter", keyField: "openRouterApiKey", testEndpoint: "/api/providers/openrouter/test", refreshModels: true },
   { id: "gemini", title: "Gemini", capabilityText: "Image generation / multimodal", settingsEndpoint: "/api/settings/gemini-token", keyField: "geminiApiKey" },
@@ -819,7 +826,7 @@ function App() {
 
   async function refreshCanvasNodeActions() {
     try {
-      const response = await apiGet<CanvasNodeActionsResponse>("/api/nodes/canvas-actions");
+      const response = await apiGet<CanvasNodeActionsResponse>("/api/nodes/canvas-actions?surface=livingCanvas");
       setCanvasNodeActions(response.actions.filter((action) => nodeRepresentationOptions.some((option) => option.type === action.inputType)));
     } catch {
       setCanvasNodeActions([]);
@@ -964,15 +971,18 @@ function App() {
         interactionMovedRef.current = true;
         const dx = (event.clientX - activeDrag.startClientX) / viewportScale;
         const dy = (event.clientY - activeDrag.startClientY) / viewportScale;
-        updateNodePositions(activeDrag.nodeStartPositions.map((node) => ({
-          id: node.id,
-          x: Math.round(node.x + dx),
-          y: Math.round(node.y + dy)
-        })));
+        if (!activeDrag.collapsed) {
+          updateNodePositions(activeDrag.nodeStartPositions.map((node) => ({
+            id: node.id,
+            x: Math.round(node.x + dx),
+            y: Math.round(node.y + dy)
+          })));
+        }
         updateCanvasFolders(canvasFolders.map((folder) => folder.id === activeDrag.folderId ? {
           ...folder,
           x: Math.round(activeDrag.startX + dx),
-          y: Math.round(activeDrag.startY + dy)
+          y: Math.round(activeDrag.startY + dy),
+          nodeOffsets: activeDrag.nodeOffsets
         } : folder));
         return;
       }
@@ -1058,13 +1068,15 @@ function App() {
         }
       }
       if (activeDrag.kind === "folder") {
-        const dx = (event.clientX - activeDrag.startClientX) / viewportScale;
-        const dy = (event.clientY - activeDrag.startClientY) / viewportScale;
-        void persistNodePositions(activeDrag.nodeStartPositions.map((node) => ({
-          id: node.id,
-          x: Math.round(node.x + dx),
-          y: Math.round(node.y + dy)
-        })));
+        if (!activeDrag.collapsed) {
+          const dx = (event.clientX - activeDrag.startClientX) / viewportScale;
+          const dy = (event.clientY - activeDrag.startClientY) / viewportScale;
+          void persistNodePositions(activeDrag.nodeStartPositions.map((node) => ({
+            id: node.id,
+            x: Math.round(node.x + dx),
+            y: Math.round(node.y + dy)
+          })));
+        }
       }
       if (activeDrag.kind === "collectionItem") {
         const point = screenToWorld(event.clientX, event.clientY);
@@ -1530,6 +1542,13 @@ function App() {
     interactionMovedRef.current = false;
     setSelectedEdgeId(null);
     setSelectionMenu(null);
+    const memberNodes = folder.nodeIds.flatMap((nodeId) => {
+      const node = nodeById.get(nodeId)?.canvas;
+      return node ? [node] : [];
+    });
+    const collapsedFolder = folder.collapsed && !folder.nodeOffsets
+      ? collapseCanvasFolder(folder, memberNodes)
+      : folder;
     setDragState({
       kind: "folder",
       pointerId: event.pointerId,
@@ -1538,18 +1557,38 @@ function App() {
       startClientY: event.clientY,
       startX: folder.x,
       startY: folder.y,
-      nodeStartPositions: folder.nodeIds.flatMap((nodeId) => {
-        const node = nodeById.get(nodeId)?.canvas;
-        return node ? [{ id: node.id, x: node.x, y: node.y }] : [];
-      })
+      nodeStartPositions: memberNodes.map((node) => ({ id: node.id, x: node.x, y: node.y })),
+      collapsed: folder.collapsed,
+      nodeOffsets: collapsedFolder.nodeOffsets
     });
   }
 
-  function updateCanvasFolder(folderId: string, patch: Partial<Pick<CanvasFolder, "title" | "collapsed">>) {
+  function updateCanvasFolder(folderId: string, patch: Pick<CanvasFolder, "title">) {
     updateCanvasFolders(canvasFolders.map((folder) => folder.id === folderId ? { ...folder, ...patch } : folder));
   }
 
+  function toggleCanvasFolder(folder: CanvasFolder) {
+    if (!folder.collapsed) {
+      const memberNodes = folder.nodeIds.flatMap((nodeId) => {
+        const node = nodeById.get(nodeId)?.canvas;
+        return node ? [node] : [];
+      });
+      const collapsedFolder = collapseCanvasFolder(folder, memberNodes);
+      updateCanvasFolders(canvasFolders.map((entry) => entry.id === folder.id ? collapsedFolder : entry));
+      return;
+    }
+
+    const expanded = expandCanvasFolder(folder);
+    updateCanvasFolders(canvasFolders.map((entry) => entry.id === folder.id ? expanded.folder : entry));
+    if (expanded.nodePositions.length > 0) void persistNodePositions(expanded.nodePositions);
+  }
+
   function removeCanvasFolder(folderId: string) {
+    const folder = canvasFolders.find((entry) => entry.id === folderId);
+    if (folder?.collapsed) {
+      const expanded = expandCanvasFolder(folder);
+      if (expanded.nodePositions.length > 0) void persistNodePositions(expanded.nodePositions);
+    }
     updateCanvasFolders(canvasFolders.filter((folder) => folder.id !== folderId));
     setStatus("Folder removed; its nodes remain on the canvas.");
   }
@@ -3491,7 +3530,7 @@ function App() {
               folder={folder}
               onPointerDown={handleFolderPointerDown}
               onRename={(title) => updateCanvasFolder(folder.id, { title })}
-              onToggleCollapsed={() => updateCanvasFolder(folder.id, { collapsed: !folder.collapsed })}
+              onToggleCollapsed={() => toggleCanvasFolder(folder)}
               onRemove={() => removeCanvasFolder(folder.id)}
             />
           ))}
@@ -4230,14 +4269,16 @@ function App() {
               <span>{canvasNodeActions.length} actions</span>
             </header>
             <div className="buttonSetupActions">
-              <button type="button" onClick={() => void openBoojumRouteLab()} title="Open BoojumRoute Lab">
-                <ExternalLink size={14} />
-                Boojum
-              </button>
-              <button type="button" onClick={() => void openBrandeshmyg()} title="Open Brandeshmyg tools">
-                <img className="brandeshmygButtonIcon" src="/brandeshmyg-icon.png" alt="" />
-                Brandeshmyg
-              </button>
+              <div className="appLaunchActions">
+                <button type="button" onClick={() => void openBoojumRouteLab()} title="Open BoojumRoute Lab">
+                  <img className="appButtonIcon" src="/boojumroute-icon.png" alt="" />
+                  Boojum
+                </button>
+                <button type="button" onClick={() => void openBrandeshmyg()} title="Open Brandeshmyg tools">
+                  <img className="appButtonIcon" src="/brandeshmyg-icon.png" alt="" />
+                  Brandeshmyg
+                </button>
+              </div>
               <button type="button" onClick={() => void exportCanvasSettingsArchive()} title="Export settings archive">
                 <FileDown size={14} />
                 Export
@@ -6161,7 +6202,7 @@ function ImageNode({
   const displayModels = mergeModelsForDisplay(compatibleModels);
   const selectedDisplayModel = displayModels.find((entry) =>
     entry.routes.some((route) => route.id === modelSelection.modelId && (modelSelection.executionProvider === "auto" || route.providerId === modelSelection.executionProvider))
-  ) ?? displayModels.find((entry) => entry.model.id === modelSelection.modelId);
+  ) ?? displayModels.find((entry) => modelDisplayId(entry.model) === modelSelection.modelId);
   const selectedRoutes = selectedDisplayModel?.routes ?? [];
   const selectedModel: ModelOption = resolveProviderRoute(selectedRoutes, modelSelection.executionProvider, providerFunds, Date.now(), providerFundsTtlMs) ?? compatibleModels[0] ?? {
     id: "",
@@ -6174,12 +6215,15 @@ function ImageNode({
     isAvailable: false
   };
   const effectiveSelection: ModelRouteSelection = selectedModel.id && selectedModel.id !== modelSelection.modelId
-    ? { modelId: selectedModel.id, executionProvider: "auto", fallbackAllowed: true }
+    ? selectedDisplayModel
+      ? { ...modelSelection, modelId: selectedModel.id }
+      : { modelId: selectedModel.id, executionProvider: "auto", fallbackAllowed: true }
     : modelSelection;
   const normalizedModelQuery = modelQuery.toLowerCase();
   const visibleModels = displayModels.filter(({ model, providers, routes }) =>
     model.title.toLowerCase().includes(normalizedModelQuery)
     || model.id.toLowerCase().includes(normalizedModelQuery)
+    || modelDisplayId(model).toLowerCase().includes(normalizedModelQuery)
     || providers.some((provider) => provider.toLowerCase().includes(normalizedModelQuery) || providerDisplayName(provider).toLowerCase().includes(normalizedModelQuery))
     || routes.some((route) => route.title.toLowerCase().includes(normalizedModelQuery) || route.id.toLowerCase().includes(normalizedModelQuery))
   );
@@ -6193,8 +6237,10 @@ function ImageNode({
   const inputAspectRatio = node.manifest.type === "text" ? undefined : aspectRatioFromInputs(orderedInputNodes) ?? "16:9";
   const [generationParameters, setGenerationParameters] = useState<ImageGenerationParameters>(() => defaultGenerationParametersForNode(selectedModel, parameterDefinitions, inputAspectRatio));
   const parameterSummary = generationParameterSummary(parameterDefinitions, generationParameters);
+  const durationGuidance = modelDurationGuidance(selectedModel, generationParameters);
   const maxImageInputs = modelImageInputLimit(selectedModel);
   const activeInputNodes = orderedInputNodes.filter((input) => !inputChipInactive(input, imageInputs, maxImageInputs));
+  const aspectRatioLockedToInput = modelAspectRatioLockedToInput(selectedModel, activeInputNodes.some((input) => input.type === "image"));
   useEffect(() => {
     setOrderedInputNodes((current) => {
       const byId = new Map(inputNodes.map((input) => [input.id, input]));
@@ -6692,9 +6738,9 @@ function ImageNode({
                     <input value={modelQuery} placeholder="Search model" onChange={(event) => setModelQuery(event.currentTarget.value)} />
                     <div className="modelMenuList" data-canvas-wheel-scroll>
                       {visibleModels.map(({ model, providers }) => (
-                        <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
+                        <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: model.providerId, fallbackAllowed: true })}>
                           <ModelLogoImage logo={modelLogoForOption(model)} />
-                          <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>{model.fundsWarning ? <small className="fundsWarning">{model.fundsWarning}</small> : null}</span>
+                          <span><strong>{model.title}</strong><small>{modelDisplayId(model)}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>{model.fundsWarning ? <small className="fundsWarning">{model.fundsWarning}</small> : null}</span>
                         </button>
                       ))}
                       {visibleModels.length === 0 ? (
@@ -6714,10 +6760,10 @@ function ImageNode({
                 {routeSettingsOpen ? (
                   <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
                     <strong>{selectedModel.title}</strong>
-                    <small className="routeModelId">{selectedModel.id}</small>
+                    <small className="routeModelId">{modelDisplayId(selectedModel)}</small>
                     <label>
                       Run via
-                      <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, executionProvider: event.currentTarget.value })}>
+                      <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, modelRouteSelectionForProvider(effectiveSelection, selectedRoutes, event.currentTarget.value))}>
                         <option value="auto">Auto</option>
                         {selectedRoutes.map((route) => <option key={route.providerId} value={route.providerId}>{executionRouteDisplayName(route.providerId)}</option>)}
                       </select>
@@ -6944,11 +6990,11 @@ function ImageNode({
                   />
                   <div className="modelMenuList" data-canvas-wheel-scroll>
                     {visibleModels.map(({ model, providers }) => (
-                      <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
+                      <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: model.providerId, fallbackAllowed: true })}>
                 <ModelLogoImage logo={modelLogoForOption(model)} />
                         <span>
                           <strong>{model.title}</strong>
-                          <small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>
+                          <small>{modelDisplayId(model)}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>
                           {model.fundsWarning ? <small className="fundsWarning">{model.fundsWarning}</small> : null}
                         </span>
                       </button>
@@ -6976,12 +7022,12 @@ function ImageNode({
               {routeSettingsOpen && (
                 <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
                   <strong>{selectedModel.title}</strong>
-                  <small className="routeModelId">{selectedModel.id}</small>
+                  <small className="routeModelId">{modelDisplayId(selectedModel)}</small>
                   <label>
                     Run via
                     <select
                       value={effectiveSelection.executionProvider}
-                      onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, executionProvider: event.currentTarget.value })}
+                      onChange={(event) => onChangeRouteSettings(node.manifest.id, modelRouteSelectionForProvider(effectiveSelection, selectedRoutes, event.currentTarget.value))}
                     >
                       <option value="auto">Auto</option>
                       {selectedRoutes.map((route) => <option key={route.providerId} value={route.providerId}>{executionRouteDisplayName(route.providerId)}</option>)}
@@ -7014,8 +7060,11 @@ function ImageNode({
               {parametersOpen && parameterDefinitions.length > 0 && (
                 <div className="generationParametersMenu" onPointerDown={(event) => event.stopPropagation()}>
                   <strong>{selectedModel.title}</strong>
+                  {durationGuidance ? <p className="generationParametersHint"><Clock3 size={14} />{durationGuidance}</p> : null}
+                  {aspectRatioLockedToInput ? <p className="generationParametersHint"><ImageIcon size={14} />Aspect ratio follows the connected start frame for Kling 3.0.</p> : null}
                   {basicParameterDefinitions.map((definition) => {
-                    const enabled = modelParameterEnabled(definition, generationParameters);
+                    const enabled = modelParameterEnabled(definition, generationParameters)
+                      && !(aspectRatioLockedToInput && isAspectRatioParameter(definition.id));
                     return (
                       <label key={definition.id} className={`${definition.type === "text" ? "isWide" : ""}${enabled ? "" : " isDisabled"}`.trim()}>
                         {definition.label}
@@ -7032,7 +7081,8 @@ function ImageNode({
                     <details className="generationParametersAdvanced">
                       <summary>Advanced</summary>
                       {advancedParameterDefinitions.map((definition) => {
-                        const enabled = modelParameterEnabled(definition, generationParameters);
+                        const enabled = modelParameterEnabled(definition, generationParameters)
+                          && !(aspectRatioLockedToInput && isAspectRatioParameter(definition.id));
                         return (
                           <label key={definition.id} className={`${definition.type === "text" ? "isWide" : ""}${enabled ? "" : " isDisabled"}`.trim()}>
                             {definition.label}
@@ -7410,9 +7460,9 @@ function DialogueEditor({
               <input value={modelQuery} placeholder="Search model" onChange={(event) => setModelQuery(event.currentTarget.value)} />
               <div className="modelMenuList" data-canvas-wheel-scroll>
                 {visibleModels.map(({ model, providers }) => (
-                  <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: "auto", fallbackAllowed: true })}>
+                  <button key={model.id} type="button" onClick={() => onSelectModel(node.manifest.id, { modelId: model.id, executionProvider: model.providerId, fallbackAllowed: true })}>
                     <ModelLogoImage logo={modelLogoForOption(model)} />
-                    <span><strong>{model.title}</strong><small>{model.id}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>{model.fundsWarning ? <small className="fundsWarning">{model.fundsWarning}</small> : null}</span>
+                    <span><strong>{model.title}</strong><small>{modelDisplayId(model)}{providers.length > 1 ? ` - ${providers.map(providerDisplayName).join(", ")}` : ""}</small>{model.fundsWarning ? <small className="fundsWarning">{model.fundsWarning}</small> : null}</span>
                   </button>
                 ))}
                 {visibleModels.length === 0 ? <div className="modelMenuEmpty"><span>Нет подключённых текстовых моделей</span><button type="button" onClick={onOpenModels}>Открыть панель моделей</button></div> : null}
@@ -7427,10 +7477,10 @@ function DialogueEditor({
           {routeSettingsOpen ? (
             <div className="routeSettingsMenu" onPointerDown={(event) => event.stopPropagation()}>
               <strong>{selectedModel.title}</strong>
-              <small className="routeModelId">{selectedModel.id}</small>
+              <small className="routeModelId">{modelDisplayId(selectedModel)}</small>
               <label>
                 Run via
-                <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, { ...effectiveSelection, executionProvider: event.currentTarget.value })}>
+                <select value={effectiveSelection.executionProvider} onChange={(event) => onChangeRouteSettings(node.manifest.id, modelRouteSelectionForProvider(effectiveSelection, selectedRoutes, event.currentTarget.value))}>
                   <option value="auto">Auto</option>
                   {selectedRoutes.map((route) => <option key={route.providerId} value={route.providerId}>{executionRouteDisplayName(route.providerId)}</option>)}
                 </select>

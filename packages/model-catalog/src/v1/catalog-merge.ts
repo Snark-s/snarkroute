@@ -15,6 +15,7 @@ export function mergeProviderModelWithCuratedMetadata(
   const curated = curatedMetadata && curatedMetadataMatchesProviderModel(curatedMetadata, providerModel) ? curatedMetadata : undefined;
   return {
     id: createUnifiedModelId(providerModel.provider, providerModel.providerModelId),
+    canonicalModelId: curated?.canonicalModelId ?? providerModel.canonicalModelId,
     provider: providerModel.provider,
     providerModelId: providerModel.providerModelId,
     originVendor: curated?.originVendor ?? providerModel.originVendor,

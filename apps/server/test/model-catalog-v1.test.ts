@@ -1,15 +1,34 @@
 import { describe, expect, it } from "vitest";
 import {
   assembleModelCatalogV1,
+  canonicalModelCatalogV1,
   fallbackProviderModelsForCatalogV1,
   compatibilityReasonsForNodeV1,
   modelCompatibilityDebugForNodeV1,
   modelOptionsForNodeV1,
   normalizeOpenRouterModelsForCatalogV1,
+  normalizeLocalUpscaleModelsForCatalogV1,
   normalizePolzaModelsForCatalogV1
 } from "../src/services/model-catalog-v1";
 
 describe("server Model Catalog V1 assembly", () => {
+  it("publishes local upscale capabilities, parameters, required image input and zero API cost", () => {
+    const catalog = assembleModelCatalogV1({
+      localUpscaleModels: [{
+        id: "4x-realesrgan-x4plus",
+        name: "RealESRGAN x4Plus",
+        inputTypes: ["image"],
+        outputTypes: ["image"],
+        capabilities: ["image.upscale"],
+        availability: { status: "available", source: "live", configured: true },
+        top_provider: { parameters: { image: { required: true, min: 1, max: 1 }, scale: { type: "integer", default: 4, enum: [4] }, tile_size: { type: "integer", default: 256, min: 64, max: 2048 }, tile_overlap: { type: "integer", default: 32, min: 0, max: 256 }, device: { enum: ["auto", "cuda", "cpu"], default: "auto" } } }
+      }]
+    });
+    const [model] = modelOptionsForNodeV1("local_upscale", catalog);
+    expect(model).toMatchObject({ provider: "local_upscale", storedModelId: "4x-realesrgan-x4plus", roles: ["upscaler"], capabilities: ["image.upscale"], requiredImageInputs: 1, maximumImageInputs: 1, pricing: { pricing: { providerCostMicrousd: 0, apiCost: 0 } } });
+    expect(model.parameters.map((parameter) => parameter.id)).toEqual(["scale", "tile_size", "tile_overlap", "device"]);
+    expect(normalizeLocalUpscaleModelsForCatalogV1([{ id: "4x-test", type: "image", capabilities: ["image.upscale"] }])[0].provider).toBe("local_upscale");
+  });
   it("keeps live unknown Polza models present after merge", () => {
     const catalog = assembleModelCatalogV1({
       polzaModels: [{ id: "qwen/image-2", name: "Qwen Image 2", type: "image" }]
@@ -103,6 +122,30 @@ describe("server Model Catalog V1 assembly", () => {
     expect(model?.ioContract?.inputs.find((input) => input.kind === "image")?.maxItems).toBe(4);
   });
 
+  it("uses only provider-native controls for Kling 3 Motion Control", () => {
+    const catalog = assembleModelCatalogV1({
+      polzaModels: [{
+        id: "kling/v3-motion-control",
+        type: "video",
+        top_provider: {
+          parameters: {
+            images: { required: true, min: 1, max: 1 },
+            videos: { required: true, min: 1, max: 1 },
+            mode: { enum: ["720p", "1080p"], default: "720p" },
+            character_orientation: { enum: ["image", "video"], default: "image" }
+          }
+        }
+      }]
+    });
+
+    const model = catalog.find((entry) => entry.providerModelId === "kling/v3-motion-control");
+    expect(model?.parameters.map((parameter) => parameter.id)).toEqual(["mode", "character_orientation"]);
+    expect(model?.ioContract?.inputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "image", minItems: 1, maxItems: 1 }),
+      expect.objectContaining({ kind: "video", minItems: 1, maxItems: 1 })
+    ]));
+  });
+
   it("uses custom-mode Suno music parameters from the catalog overlay", () => {
     const catalog = assembleModelCatalogV1({ fallbackModels: fallbackProviderModelsForCatalogV1() });
     const suno = catalog.find((entry) => entry.providerModelId === "suno/generate");
@@ -170,6 +213,28 @@ describe("server Model Catalog V1 assembly", () => {
       outputTypes: ["text"],
       capabilities: ["text.generate"]
     });
+  });
+
+  it("exposes OpenRouter video generation parameters from supported values", () => {
+    const catalog = assembleModelCatalogV1({
+      openRouterModels: [{
+        id: "kwaivgi/kling-v3.0-std",
+        name: "Kling: Video v3.0 Standard",
+        kind: "video",
+        architecture: { output_modalities: ["video"] },
+        supported_durations: ["3", "4", "5"],
+        supported_aspect_ratios: ["16:9", "9:16", "1:1"],
+        supported_resolutions: ["720p"]
+      }]
+    });
+
+    const model = catalog.find((entry) => entry.providerModelId === "kwaivgi/kling-v3.0-std");
+    expect(model?.parameters).toEqual([
+      expect.objectContaining({ id: "aspectRatio", type: "select", default: "16:9" }),
+      expect.objectContaining({ id: "duration", type: "select", default: "3" }),
+      expect.objectContaining({ id: "resolution", type: "select", default: "720p" })
+    ]);
+    expect(model?.parameters[0]?.options?.map((option) => option.value)).toEqual(["16:9", "9:16", "1:1"]);
   });
 
   it("uses curated image-input metadata when OpenRouter omits video model input modalities", () => {
@@ -380,6 +445,53 @@ describe("server Model Catalog V1 assembly", () => {
     expect(optionIds).toContain("bytedance/seedance-2");
     expect(optionIds).not.toContain("topaz/video-upscale");
     expect(catalog.find((entry) => entry.providerModelId === "topaz/video-upscale")?.roles).toEqual(["upscaler"]);
+
+  });
+
+  it("fills missing live OpenRouter video inputs from curated model metadata", () => {
+    const catalog = assembleModelCatalogV1({
+      openRouterModels: [{
+        id: "kwaivgi/kling-video-o1",
+        kind: "video",
+        architecture: { output_modalities: ["video"] }
+      }]
+    });
+
+    const option = modelOptionsForNodeV1("ai.video.generate", catalog)
+      .find((entry) => entry.providerModelId === "kwaivgi/kling-video-o1");
+
+    expect(option?.inputContract?.inputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "image", minItems: 0, maxItems: 1 })
+    ]));
+    expect(option?.inputRoles).toContain("sourceImage");
+  });
+
+  it("projects OpenRouter frame-image capabilities and video controls into panel options", () => {
+    const catalog = assembleModelCatalogV1({
+      openRouterModels: [{
+        id: "kwaivgi/kling-video-o1",
+        kind: "video",
+        architecture: { output_modalities: ["video"] },
+        supported_frame_image_modes: ["first_frame", "last_frame"],
+        supported_durations: ["5", "10"],
+        supported_aspect_ratios: ["16:9", "9:16"],
+        supported_resolutions: ["720p"],
+        generate_audio: true,
+        allowed_passthrough_parameters: ["negative_prompt"]
+      }]
+    });
+
+    const option = modelOptionsForNodeV1("ai.video.generate", catalog)
+      .find((entry) => entry.providerModelId === "kwaivgi/kling-video-o1");
+    const image = option?.inputContract?.inputs.find((input) => input.kind === "image");
+
+    expect(image?.slots).toEqual([
+      expect.objectContaining({ role: "firstFrame", maxItems: 1 }),
+      expect.objectContaining({ role: "lastFrame", maxItems: 1 })
+    ]);
+    expect(option?.parameters.map((parameter) => parameter.id)).toEqual(expect.arrayContaining([
+      "duration", "aspectRatio", "resolution", "generate_audio", "negative_prompt"
+    ]));
   });
 
   it("uses the live provider schema for Kling 2.6 required video parameters", () => {
@@ -478,5 +590,26 @@ describe("server Model Catalog V1 assembly", () => {
       availability: { status: "available" }
     });
     expect(option?.pricing?.status ?? "missing").toBe("missing");
+  });
+
+  it("keeps provider rows for legacy clients and exposes one canonical row with executable routes", () => {
+    const catalog = assembleModelCatalogV1({
+      kieModels: [{ id: "kling-3.0/video", canonicalModelId: "kling-3.0-pro", inputTypes: ["text", "image"], outputTypes: ["video"], capabilities: ["video.generate"] }],
+      openRouterModels: [{ id: "kwaivgi/kling-v3.0-pro", kind: "video", inputTypes: ["text", "image"], outputTypes: ["video"], capabilities: ["video.generate"] }]
+    });
+    expect(catalog).toHaveLength(2);
+    const canonical = canonicalModelCatalogV1(catalog);
+    expect(canonical).toHaveLength(1);
+    expect(canonical[0]).toMatchObject({ id: "kling-3.0-pro", providerRoutes: [{ provider: "kie" }, { provider: "openrouter" }] });
+  });
+
+  it("groups documented KIE and OpenRouter GPT-5.2 text routes", () => {
+    const catalog = assembleModelCatalogV1({
+      kieModels: [{ id: "gpt-5-2", canonicalModelId: "gpt-5.2", inputTypes: ["text", "image"], outputTypes: ["text"], capabilities: ["text.generate"] }],
+      openRouterModels: [{ id: "openai/gpt-5.2", kind: "chat", inputTypes: ["text", "image"], outputTypes: ["text"], capabilities: ["text.generate"] }]
+    });
+    const options = modelOptionsForNodeV1("ai.text", catalog);
+    expect(options).toHaveLength(1);
+    expect(options[0]).toMatchObject({ id: "gpt-5.2", providerRoutes: [{ provider: "kie", providerModelId: "gpt-5-2" }, { provider: "openrouter", providerModelId: "openai/gpt-5.2" }] });
   });
 });

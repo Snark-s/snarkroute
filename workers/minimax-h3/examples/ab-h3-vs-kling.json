@@ -1,0 +1,17 @@
+{
+  "rules": {
+    "cases": 5,
+    "same_prompt_and_references": true,
+    "blind_review": true,
+    "score_range": [1, 5],
+    "dimensions": ["motion", "identity", "prompt_adherence", "artifacts"],
+    "acceptance_rule": "Record attempts and accepted outputs before revealing the system name."
+  },
+  "cases": [
+    {"id": "ab-01", "focus": "single-subject natural motion", "prompt": "One person walks toward a locked camera in soft daylight."},
+    {"id": "ab-02", "focus": "first/last-frame continuity", "prompt": "Move continuously between the supplied endpoint frames without a cut."},
+    {"id": "ab-03", "focus": "identity from reference", "prompt": "Keep the supplied character identity while changing the environment."},
+    {"id": "ab-04", "focus": "motion-reference adherence", "prompt": "Follow the supplied motion rhythm while preserving coherent anatomy."},
+    {"id": "ab-05", "focus": "audio-video synchronization", "prompt": "A person taps a glass twice; synchronize the impacts with the audio."}
+  ]
+}

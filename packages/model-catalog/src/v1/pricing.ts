@@ -71,8 +71,12 @@ export type ProviderPricingCatalogEntryV1 = {
 };
 
 const seededCanonicalModels: CanonicalModelV1[] = [
+  { id: "kling-3.0-pro", vendor: "kling", displayName: "Kling 3.0 Pro", family: "kling-3.0", capabilities: ["video.generate"], inputTypes: ["text", "image", "video", "audio"], outputTypes: ["video"] },
+  { id: "wan-2.6-text-to-video", vendor: "wan", displayName: "Wan 2.6 Text to Video", family: "wan-2.6", capabilities: ["video.generate"], inputTypes: ["text"], outputTypes: ["video"] },
+  { id: "wan-2.6-image-to-video", vendor: "wan", displayName: "Wan 2.6 Image to Video", family: "wan-2.6", capabilities: ["video.generate"], inputTypes: ["text", "image"], outputTypes: ["video"] },
+  { id: "nano-banana-pro", vendor: "google", displayName: "Nano Banana Pro", family: "nano-banana", capabilities: ["image.generate", "image.edit", "image.reference"], inputTypes: ["text", "image"], outputTypes: ["image"] },
   {
-    id: "google/nano-banana-2",
+    id: "nano-banana-2",
     vendor: "google",
     displayName: "Nano Banana 2",
     family: "nano-banana",
@@ -168,7 +172,7 @@ const seededProviderPricing: ProviderModelPricingV1[] = [
     ["4K", 151000]
   ].map(([resolution, microusd]) => seededPrice({
     id: `gemini:gemini-3.1-flash-image-preview:image.generate:resolution=${resolution}`,
-    canonicalModelId: "google/nano-banana-2",
+    canonicalModelId: "nano-banana-2",
     provider: "gemini",
     providerModelId: "gemini-3.1-flash-image-preview",
     operation: "image.generate",
@@ -202,6 +206,9 @@ const seededProviderPricing: ProviderModelPricingV1[] = [
   seededFallbackPrice({ id: "gemini:*:text.generate", provider: "gemini", operation: "text.generate", providerCostMicrousd: 1000, notes: "Low-confidence fallback. Gemini text pricing is token/model dependent." }),
   seededFallbackPrice({ id: "openrouter:*:image.generate", provider: "openrouter", operation: "image.generate", providerCostMicrousd: 40000, notes: "Low-confidence fallback. OpenRouter prices vary by model; refresh OpenRouter pricing for model-specific estimates." }),
   seededFallbackPrice({ id: "openrouter:*:text.generate", provider: "openrouter", operation: "text.generate", providerCostMicrousd: 1000, notes: "Low-confidence fallback. OpenRouter text prices vary by model/token usage." }),
+  seededFallbackPrice({ id: "kie:*:image.generate", provider: "kie", operation: "image.generate", providerCostMicrousd: 90000, notes: "Low-confidence fallback. Prefer model-specific KIE pricing or creditsConsumed from the completed provider task." }),
+  seededFallbackPrice({ id: "kie:*:image.edit", provider: "kie", operation: "image.edit", providerCostMicrousd: 90000, notes: "Low-confidence fallback. Prefer model-specific KIE pricing or creditsConsumed from the completed provider task." }),
+  seededFallbackPrice({ id: "kie:*:video.generate", provider: "kie", operation: "video.generate", providerCostMicrousd: 100000, notes: "Low-confidence placeholder because KIE video price depends on model, tier, duration, resolution, and audio." }),
   seededFallbackPrice({ id: "seedance:*:video.generate", provider: "seedance", operation: "video.generate", providerCostMicrousd: 80000, notes: "Low-confidence fallback. Seedance pricing depends on model, duration, resolution, and provider route." })
 ];
 

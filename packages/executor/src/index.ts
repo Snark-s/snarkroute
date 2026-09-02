@@ -11,6 +11,8 @@ export interface NodeExecutionContext {
   outputDirectory: string;
   nodeOutputs: Record<string, unknown>;
   log: (message: string, nodeId?: string) => void;
+  signal?: AbortSignal;
+  reportProgress?: (progress: number, stage?: string) => void | Promise<void>;
 }
 
 export interface NodeRunnerInput {
@@ -31,6 +33,18 @@ export interface NodeRunnerResult {
 }
 
 export type NodeRunner = (input: NodeRunnerInput) => Promise<NodeRunnerResult> | NodeRunnerResult;
+
+export class ProviderOutcomeUnknownError extends Error {
+  readonly provider: string;
+  readonly externalId?: string;
+
+  constructor(message: string, details: { provider: string; externalId?: string }) {
+    super(message);
+    this.name = "ProviderOutcomeUnknownError";
+    this.provider = details.provider;
+    this.externalId = details.externalId;
+  }
+}
 
 export interface CostEstimate {
   nodeId: string;
@@ -135,6 +149,7 @@ export interface NodeResult {
   error?: string;
   errorCode?: RunErrorCode;
   providerId?: string;
+  errorDetails?: { code: string; retryable: boolean; details?: Record<string, unknown> };
   logs: string[];
   metrics?: Record<string, unknown>;
   provenance?: Record<string, unknown>;
@@ -193,6 +208,8 @@ export interface ExecuteOptions {
   ledgerPath?: string;
   initialNodeOutputs?: Record<string, unknown>;
   onNodeResult?: (result: NodeResult) => void;
+  signal?: AbortSignal;
+  onProgress?: (progress: number, stage?: string) => void | Promise<void>;
   costModel?: NodeCostModel;
 }
 
@@ -324,7 +341,15 @@ export function createExecutor(): RouteExecutor {
       const log = (message: string, nodeId?: string) => logs.push({ timestamp: new Date().toISOString(), message: redactSecrets(message), nodeId });
       const nodesById = new Map(routeNodes.map((routeNode) => [routeNode.id, routeNode]));
 
-      const context: NodeExecutionContext = { runId, route, outputDirectory, nodeOutputs, log };
+      const context: NodeExecutionContext = {
+        runId,
+        route,
+        outputDirectory,
+        nodeOutputs,
+        log,
+        signal: options.signal,
+        reportProgress: options.onProgress
+      };
 
       try {
         const cycle = detectCycles(route);
@@ -334,6 +359,7 @@ export function createExecutor(): RouteExecutor {
         validateTemplateDependencies(route);
 
         for (const node of topologicalSort(route)) {
+          if (options.signal?.aborted) throw new Error("Route execution cancelled.");
           const blockedBy = upstreamBlockingNode(route, node, nodeResults, nodesById);
           if (blockedBy) {
             const now = new Date().toISOString();
@@ -480,7 +506,26 @@ export function createExecutor(): RouteExecutor {
             const rawMessage = redactSecrets(error instanceof Error ? error.message : String(error));
             const errorDetails = structuredRunError(error);
             const estimate = nodeResults[node.id]?.costEstimate;
-            const message = isPaidProviderEstimate(estimate, []) ? noChargeProviderMessage(rawMessage) : rawMessage;
+            const providerOutcomeUnknown = error instanceof ProviderOutcomeUnknownError;
+            const message = isPaidProviderEstimate(estimate, [])
+              ? providerOutcomeUnknown ? unknownProviderOutcomeMessage(rawMessage) : noChargeProviderMessage(rawMessage)
+              : rawMessage;
+            const unknownProviderUsage: ProviderUsageEvent[] | undefined = providerOutcomeUnknown
+              ? [{
+                  provider: error.provider || estimate?.provider || providerFromNodeType(node.type) || "unknown",
+                  model: estimate?.model,
+                  providerModel: estimate?.model,
+                  nodeId: node.id,
+                  nodeType: node.type,
+                  externalId: error.externalId,
+                  status: "unknown",
+                  estimatedCost: estimate?.estimatedProviderCostAmount ?? null,
+                  actualCost: null,
+                  actualCostCurrency: null,
+                  pricingSource: estimate?.pricingSource
+                }]
+              : undefined;
+            if (unknownProviderUsage) providersUsed.push(...unknownProviderUsage);
             if (error instanceof CompoundExecutionError) {
               providersUsed.push(...error.providersUsed);
               for (const [internalNodeId, internalResult] of Object.entries(error.internalNodeResults)) {
@@ -502,13 +547,20 @@ export function createExecutor(): RouteExecutor {
               error: message,
               errorCode: errorDetails.errorCode,
               providerId: errorDetails.providerId,
+              errorDetails: structuredRunnerError(error),
               logs: [message],
+              provenance: providerOutcomeUnknown ? {
+                provider: error.provider,
+                providerOperationId: error.externalId,
+                providerOutcome: "unknown"
+              } : undefined,
               costEstimate: nodeResults[node.id]?.costEstimate,
-              actualUsage: { requestCount: 0 },
+              actualUsage: { requestCount: providerOutcomeUnknown ? 1 : 0 },
               actualCredits: 0,
-              actualProviderCostAmount: 0,
+              actualProviderCostAmount: providerOutcomeUnknown ? null : 0,
               actualProviderCostCurrency: null,
-              usageSource: "provider",
+              usageSource: providerOutcomeUnknown ? "unknown" : "provider",
+              providerUsage: unknownProviderUsage,
               startedAt: nodeStartedAt,
               completedAt: new Date().toISOString()
             };
@@ -940,6 +992,17 @@ function actualNodeCost(node: RouteNode, result: NodeRunnerResult, providerUsage
   } satisfies { actualCredits: number; actualProviderCostAmount: number | null; actualProviderCostCurrency: string | null; usageUnits: ActualUsage; usageSource: "provider" | "estimated" | "unknown" | "catalog_estimate" };
 }
 
+function structuredRunnerError(error: unknown): NodeResult["errorDetails"] {
+  if (!error || typeof error !== "object") return undefined;
+  const record = error as Record<string, unknown>;
+  if (typeof record.code !== "string") return undefined;
+  return {
+    code: record.code,
+    retryable: record.retryable === true,
+    ...(record.details && typeof record.details === "object" && !Array.isArray(record.details) ? { details: record.details as Record<string, unknown> } : {})
+  };
+}
+
 function nonBillableProviderFailure(node: RouteNode, output: unknown, providerUsage: ProviderUsageEvent[], estimate: CostEstimate | undefined): string | null {
   if (!isPaidProviderEstimate(estimate, providerUsage)) return null;
   const paidEstimate = estimate as CostEstimate;
@@ -984,6 +1047,12 @@ function noChargeProviderMessage(detail: string): string {
   const trimmed = detail.trim() || "Provider did not return a usable result.";
   if (/No credits were charged\.$/i.test(trimmed)) return trimmed;
   return `${trimmed.replace(/[.。]\s*$/, "")}. No credits were charged.`;
+}
+
+function unknownProviderOutcomeMessage(detail: string): string {
+  const trimmed = detail.trim() || "Provider outcome is unknown.";
+  if (/Boojum credits were not charged\.\s+External provider billing may have occurred\.$/i.test(trimmed)) return trimmed;
+  return `${trimmed.replace(/[.。]\s*$/, "")}. Boojum credits were not charged. External provider billing may have occurred.`;
 }
 
 function finalizeRunCostSummary(estimateSummary: RunCostSummary, nodeResults: Record<string, NodeResult>): RunCostSummary {
@@ -1354,6 +1423,7 @@ function numberValue(value: unknown, fallback: number): number {
 }
 
 function operationFromNodeType(type: string, kind: "free" | "text" | "image" | "video" | "transform"): string {
+  if (/video/i.test(type) && /upscale/i.test(type)) return "video.generate";
   if (/upscale/i.test(type)) return "image.upscale";
   if (kind === "video") return "video.generate";
   if (kind === "image") return "image.generate";

@@ -17,6 +17,16 @@ describe("gateway client", () => {
     await expect(client.health()).resolves.toMatchObject({ connected: true, status: 200 });
   });
 
+  it("always refreshes the executable model catalog", async () => {
+    const fetchImpl = vi.fn(async () => new Response('{"models":[]}', { status: 200 })) as unknown as typeof fetch;
+    const client = new SnarkRouteGatewayClient("http://127.0.0.1:4317", fetchImpl);
+    await client.models();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/api/models/executable-generation?materialize=image,audio,video&multipleImages=1",
+      expect.objectContaining({ cache: "no-store" })
+    );
+  });
+
   it("puts the uploaded asset id and path in the provider-neutral image input", () => {
     const model = { nodeType: "polza.video.generate", storedModelId: "stored-wan", providerModelId: "wan/2.6", provider: "polza" } as VideoModel;
     expect(providerNeutralJobRequest({ model, prompt: "move", parameters: {}, asset: { id: "asset_frame", path: "C:\\assets\\frame.png" } })).toMatchObject({

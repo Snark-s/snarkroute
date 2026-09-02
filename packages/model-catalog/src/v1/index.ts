@@ -4,6 +4,7 @@ export type {
   ModelCapabilityV1,
   ModelInputTypeV1,
   ModelOptionForNodeV1,
+  ModelProviderRouteV1,
   ModelOriginVendorV1,
   ModelOutputTypeV1,
   ModelParameterDefinitionV1,
@@ -15,6 +16,12 @@ export type {
   ModelProviderIdV1,
   ModelRoleV1
 } from "./types.js";
+
+export {
+  canonicalModelIdForProviderModelV1,
+  groupCanonicalModelOptionsV1,
+  legacyProviderRouteForModelV1
+} from "./canonical-models.js";
 
 export {
   createProviderNativeStoredModelId,

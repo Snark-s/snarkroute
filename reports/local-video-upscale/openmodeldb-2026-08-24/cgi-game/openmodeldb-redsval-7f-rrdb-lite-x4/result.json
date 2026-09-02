@@ -1,0 +1,124 @@
+{
+  "gateway": {
+    "id": "gen_039e6f01-6fa7-4fb7-a14e-cd2ceb219e3c",
+    "status": "completed",
+    "progress": 1,
+    "request": {
+      "capability": "video.upscale",
+      "nodeType": "local_video_upscale",
+      "outputMediaType": "video",
+      "modelId": "openmodeldb/redsval-7f-rrdb-lite-x4",
+      "providerModelId": "openmodeldb/redsval-7f-rrdb-lite-x4",
+      "provider": "local_video_upscale",
+      "hostType": "boojumroute",
+      "parameters": {
+        "device": "cuda",
+        "chunk_size": 12,
+        "overlap_frames": 3,
+        "crf": 18,
+        "audio_handling": "copy",
+        "tile_size": 128,
+        "tile_overlap": 16
+      },
+      "inputs": [
+        {
+          "kind": "video",
+          "role": "source",
+          "index": 0,
+          "assetId": "fixture-cgi-game",
+          "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\reports\\local-video-upscale\\openmodeldb-2026-08-24\\fixtures\\cgi-game.mp4"
+        }
+      ],
+      "idempotencyKey": "omdb-video-cgi-game-openmodeldb-redsval-7f-rrdb-lite-x4-1787596870842925400"
+    },
+    "createdAt": "2026-08-24T18:41:10.847Z",
+    "updatedAt": "2026-08-24T18:41:13.262Z",
+    "retry": {
+      "attempt": 1
+    },
+    "startedAt": "2026-08-24T18:41:10.848Z",
+    "providerJobId": "vup_0544537a-452c-4a90-a3b8-0729a1bde968",
+    "outputMediaType": "video",
+    "outputs": [
+      {
+        "kind": "video",
+        "role": "primary",
+        "index": 0,
+        "filename": "generate-vup_0544537a-452c-4a90-a3b8-0729a1bde968.mp4",
+        "mimeType": "video/mp4",
+        "width": 384,
+        "height": 256,
+        "duration": 2,
+        "fileSize": 94898,
+        "resultUrl": "/api/model-gateway/jobs/gen_039e6f01-6fa7-4fb7-a14e-cd2ceb219e3c/result?index=0"
+      }
+    ],
+    "result": {
+      "path": "Y:\\\u041f\u0440\u043e\u0446\u0435\u0441\u0441\\SnarkRoute\\data\\model-gateway-jobs\\gen_039e6f01-6fa7-4fb7-a14e-cd2ceb219e3c\\run\\assets\\generate-vup_0544537a-452c-4a90-a3b8-0729a1bde968.mp4",
+      "filename": "generate-vup_0544537a-452c-4a90-a3b8-0729a1bde968.mp4",
+      "mimeType": "video/mp4",
+      "provider": "local_video_upscale",
+      "modelId": "openmodeldb/redsval-7f-rrdb-lite-x4",
+      "estimatedCost": 0,
+      "actualCost": 0
+    },
+    "costs": {
+      "providerCost": 0,
+      "baseCost": 0,
+      "markup": null,
+      "finalCredits": null
+    },
+    "completedAt": "2026-08-24T18:41:13.262Z",
+    "resultUrl": "/api/model-gateway/jobs/gen_039e6f01-6fa7-4fb7-a14e-cd2ceb219e3c/result"
+  },
+  "worker_output": {
+    "filename": "result.mp4",
+    "mime_type": "video/mp4",
+    "width": 384,
+    "height": 256,
+    "fps": 6.0,
+    "frame_count": 12,
+    "duration": 2.0,
+    "codec": "h264",
+    "pixel_format": "yuv420p",
+    "audio_preserved": true,
+    "audio_codec": "aac",
+    "bytes": 94898,
+    "temporal": true,
+    "processing_seconds": 2.2641817000112496,
+    "model_loading_seconds": 0.00017839999054558575,
+    "inference_seconds": 1.9936083999928087,
+    "processing_fps": 5.2999280048683275,
+    "peak_vram_mb": 238.859375,
+    "vram_measurement": "torch_peak_allocated",
+    "runtime_device": "cuda",
+    "input": {
+      "width": 96,
+      "height": 64,
+      "fps": 6.0,
+      "frame_count": 12,
+      "duration": 2.0,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "has_audio": true,
+      "audio_codec": "aac",
+      "rotation": 0
+    },
+    "gateway_job_id": "gen_039e6f01-6fa7-4fb7-a14e-cd2ceb219e3c",
+    "worker_job_id": "vup_0544537a-452c-4a90-a3b8-0729a1bde968"
+  },
+  "metrics": {
+    "measured_width": 384,
+    "measured_height": 256,
+    "measured_fps": 6.0,
+    "measured_frame_count": 12,
+    "measured_duration": 2.0,
+    "has_audio": true,
+    "audio_codec_measured": "aac",
+    "mean_frame_delta": 15.371472358703613,
+    "p95_frame_delta": 15.588912010192871,
+    "static_region_temporal_variation": 8.90519905090332,
+    "duplicate_adjacent_frames": 0,
+    "chunk_boundary_mean_delta": null
+  }
+}

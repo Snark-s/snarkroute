@@ -4,7 +4,7 @@ import { requireAdmin } from "../auth/adapters";
 import { getEffectivePricingState, pricingCatalogState, savePricingConfig, savePricingOverride } from "../billing/pricing-service";
 import { adjustLocalDevCredits, ensureLocalDevSeedUsers, getLocalDevBillingUser, grantLocalDevCredits, listLocalDevBillingUsers, listLocalDevCreditTransactions, localDevAdminOverview, rememberLocalDevUser } from "../billing/local-dev-credit-store";
 import { getCloudStorage } from "../services/cloud-storage";
-import { isCloudStorageConfigured, isGeminiEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled } from "../services/env";
+import { isCloudStorageConfigured, isGeminiEnabled, isKieEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled } from "../services/env";
 import { errorMessage } from "../services/errors";
 
 export async function registerAdminRoutes(app: FastifyInstance) {
@@ -235,6 +235,7 @@ function providerKeyStatus(): Record<string, boolean> {
   return {
     openrouter: isOpenRouterEnabled(),
     polza: isPolzaEnabled(),
+    kie: isKieEnabled(),
     replicate: isReplicateEnabled(),
     gemini: isGeminiEnabled(),
     openai: isOpenAiEnabled(),

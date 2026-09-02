@@ -1,0 +1,16 @@
+{
+  "operation": "video.inpaint.h3",
+  "task": "video_inpaint",
+  "inpaint": {
+    "source_video": {"uri": "file:///data/results/inputs/REPLACE_SOURCE/input.mp4"},
+    "mask": {"uri": "file:///data/results/inputs/REPLACE_MASK/input.mp4"},
+    "reference_image": {"uri": "file:///data/results/inputs/REPLACE_REFERENCE/input.png"},
+    "prompt": "Replace only the masked subject while preserving timing and the rest of every frame.",
+    "audio_mode": "preserve",
+    "crop_padding": 96,
+    "denoise": 0.7,
+    "steps": 30,
+    "seed": 3101,
+    "quality": "final"
+  }
+}

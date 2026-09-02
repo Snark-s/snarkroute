@@ -13,9 +13,9 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
       origin: "bundled",
       source: "snarkroute-core",
       category: "Text",
-      description: "Runs remote text models through OpenRouter by default, with Direct mode in Advanced.",
+      description: "Runs remote text models through provider-neutral catalog routes.",
       enabled: true,
-      permissions: { network: true, networkHosts: ["openrouter.ai", "generativelanguage.googleapis.com", "rutronix.ai", "api.rutronix.ai"], readFiles: true, writeOutputs: false, shell: false, env: ["OPENROUTER_API_KEY", "GEMINI_API_KEY", "RUTRONIX_API_KEY"] },
+      permissions: { network: true, networkHosts: ["openrouter.ai", "generativelanguage.googleapis.com", "rutronix.ai", "api.rutronix.ai", "api.kie.ai", "kieai.redpandaai.co"], readFiles: true, writeOutputs: false, shell: false, env: ["OPENROUTER_API_KEY", "GEMINI_API_KEY", "RUTRONIX_API_KEY", "KIE_API_KEY"] },
       executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.text" },
       inputs: [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "systemPrompt", type: "text", required: false, label: "System" }, { id: "images", type: "image", required: false, label: "Images" }],
       outputs: [{ id: "text", type: "text", label: "Text" }, { id: "output", type: "json", label: "JSON" }],
@@ -29,6 +29,170 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
     {
       kind: "snarkroute.node",
       schemaVersion: "0.1",
+      id: "minimax.h3.generate",
+      title: "MiniMax H3 768p",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Video Generation",
+      description: "Generates synchronized audio-video through an authenticated standalone H3-Base worker.",
+      enabled: Boolean(process.env.H3_WORKER_URL && process.env.H3_WORKER_SERVICE_TOKEN),
+      permissions: { network: true, networkHosts: ["127.0.0.1", "localhost"], readFiles: true, writeOutputs: true, shell: false, env: ["H3_WORKER_URL", "H3_WORKER_SERVICE_TOKEN"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "minimax.h3.generate" },
+      inputs: [
+        { id: "firstFrame", type: "image", required: false, label: "First frame" },
+        { id: "lastFrame", type: "image", required: false, label: "Last frame" },
+        { id: "referenceImage", type: "image", required: false, label: "Reference image" },
+        { id: "referenceVideo", type: "video", required: false, label: "Reference video" },
+        { id: "referenceAudio", type: "audio", required: false, label: "Reference audio" }
+      ],
+      outputs: [{ id: "video", type: "video", label: "768p audio-video" }],
+      params: [
+        { id: "prompt", type: "text", label: "Prompt", default: "" },
+        { id: "duration", type: "number", label: "Duration", default: 5, min: 4, max: 15, step: 1 },
+        { id: "aspectRatio", type: "text", label: "Aspect ratio", default: "auto" },
+        { id: "seed", type: "number", label: "Seed", default: 0, min: 0, max: 2147483647, step: 1 },
+        { id: "variants", type: "number", label: "Variants", default: 1, min: 1, max: 10, step: 1 }
+      ],
+      tool: {
+        schemaVersion: "1.0",
+        id: "minimax.h3.generate",
+        title: "MiniMax H3 768p",
+        description: "Generate a 768p video with synchronized stereo audio using a standalone H3 worker.",
+        version: "0.1.0",
+        action: { kind: "node", value: "minimax.h3.generate" },
+        inputs: [
+          { id: "firstFrame", type: "image", label: "First frame", required: false, source: "upload", hostSources: { after_effects: "host_first_frame" }, acceptedMimes: ["image/png", "image/jpeg"] },
+          { id: "lastFrame", type: "image", label: "Last frame", required: false, source: "upload", hostSources: { after_effects: "host_last_frame" }, acceptedMimes: ["image/png", "image/jpeg"] },
+          { id: "referenceImage", type: "image", label: "Reference image", required: false, source: "host_selection", hostSources: { after_effects: "host_current_frame" }, acceptedMimes: ["image/*"] },
+          { id: "referenceVideo", type: "video", label: "Reference video", required: false, source: "upload", acceptedMimes: ["video/mp4", "video/quicktime"] },
+          { id: "referenceAudio", type: "audio", label: "Reference audio", required: false, source: "upload", acceptedMimes: ["audio/*"] }
+        ],
+        outputs: [{ id: "video", type: "video", label: "768p audio-video", placement: "new_artifact", hostPlacements: { after_effects: "replace_placeholder" }, allowSelection: true }],
+        params: [
+          { id: "prompt", type: "multiline_text", label: "Prompt", required: true, default: "" },
+          { id: "duration", type: "duration", label: "Duration", default: 5, min: 4, max: 15, step: 1 },
+          { id: "aspectRatio", type: "select", label: "Aspect ratio", default: "auto", options: [{ value: "auto" }, { value: "16:9" }, { value: "9:16" }, { value: "1:1" }, { value: "4:3" }, { value: "3:4" }, { value: "21:9" }] },
+          { id: "seed", type: "seed", label: "Seed", default: 0, min: 0, max: 2147483647 },
+          { id: "variants", type: "integer", label: "Variants", default: 1, min: 1, max: 10 }
+        ],
+        hosts: [
+          { host: "boojumroute", sources: ["manual", "upload", "host_selection"], placements: ["new_artifact", "next_stage"], capabilities: ["video", "audio", "multiple_results"] },
+          { host: "after_effects", sources: ["manual", "upload", "host_current_frame", "host_first_frame", "host_last_frame"], placements: ["replace_placeholder", "project_item"], capabilities: ["current_frame", "first_frame", "last_frame", "video", "audio"] }
+        ],
+        job: { states: ["queued", "starting_provider", "loading_model", "generating_768p", "downloading", "completed", "failed", "cancelled"], cancellable: true, retryable: true, selectableResults: true },
+        metadata: { model: "MiniMaxAI/MiniMax-H3", resolution: "768p", audio: "32kHz stereo", comfyUiRequired: false }
+      }
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "local_upscale",
+      title: "Local Upscale / Restoration",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Image Processing",
+      description: "Upscales or restores one image through the authenticated local GPU worker without ComfyUI.",
+      enabled: Boolean(process.env.LOCAL_UPSCALE_WORKER_URL && process.env.LOCAL_UPSCALE_WORKER_TOKEN),
+      permissions: { network: true, networkHosts: ["127.0.0.1", "localhost"], readFiles: true, writeOutputs: true, shell: false, env: ["LOCAL_UPSCALE_WORKER_URL", "LOCAL_UPSCALE_WORKER_TOKEN"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "local_upscale" },
+      inputs: [{ id: "image", type: "image", required: true, label: "Source image" }],
+      outputs: [{ id: "image", type: "image", label: "Upscaled PNG" }],
+      params: [
+        { id: "model", type: "text", label: "Model", default: "4x-realesrgan-x4plus" },
+        { id: "scale", type: "number", label: "Scale", default: 4, min: 1, max: 8, step: 1 },
+        { id: "tile_size", type: "number", label: "Tile size", default: 256, min: 64, max: 2048, step: 16 },
+        { id: "tile_overlap", type: "number", label: "Tile overlap", default: 32, min: 0, max: 256, step: 1 },
+        { id: "device", type: "text", label: "Device", default: "auto" }
+      ],
+      tool: {
+        schemaVersion: "1.0",
+        id: "local_upscale",
+        title: "Local Upscale / Restoration",
+        description: "Upscale or restore one image locally with tiled GPU inference.",
+        version: "0.1.0",
+        action: { kind: "node", value: "local_upscale" },
+        inputs: [{ id: "image", type: "image", label: "Source image", required: true, source: "host_selection", hostSources: { after_effects: "host_current_frame" }, acceptedMimes: ["image/png", "image/jpeg"] }],
+        outputs: [{ id: "image", type: "image", label: "Upscaled PNG", placement: "new_artifact", hostPlacements: { after_effects: "project_item" } }],
+        params: [
+          { id: "model", type: "text", label: "Model", required: true, default: "4x-realesrgan-x4plus" },
+          { id: "scale", type: "integer", label: "Scale", default: 4, min: 1, max: 8, step: 1 },
+          { id: "tile_size", type: "integer", label: "Tile size", default: 256, min: 64, max: 2048, step: 16 },
+          { id: "tile_overlap", type: "integer", label: "Tile overlap", default: 32, min: 0, max: 256, step: 1 },
+          { id: "device", type: "select", label: "Device", default: "auto", options: [{ value: "auto" }, { value: "cuda" }, { value: "cpu" }] }
+        ],
+        hosts: [
+          { host: "boojumroute", sources: ["manual", "upload", "host_selection"], placements: ["new_artifact", "next_stage"], capabilities: ["image"] },
+          { host: "after_effects", sources: ["manual", "upload", "host_current_frame"], placements: ["project_item", "replace_placeholder"], capabilities: ["current_frame", "image"] }
+        ],
+        job: { states: ["queued", "starting_provider", "loading_model", "generating", "downloading", "completed", "failed", "cancelled"], cancellable: true, retryable: true, selectableResults: false },
+        metadata: { provider: "local_upscale", apiCost: 0, outputFormat: "image/png", comfyUiRequired: false }
+      }
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "local_video_upscale",
+      title: "Local Video Upscale / Restoration",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Video Processing",
+      description: "Upscales one video on the authenticated local NVIDIA worker with framewise or genuine temporal models.",
+      enabled: Boolean(process.env.LOCAL_UPSCALE_WORKER_URL && process.env.LOCAL_UPSCALE_WORKER_TOKEN),
+      permissions: { network: true, networkHosts: ["127.0.0.1", "localhost"], readFiles: true, writeOutputs: true, shell: false, env: ["LOCAL_UPSCALE_WORKER_URL", "LOCAL_UPSCALE_WORKER_TOKEN"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "local_video_upscale" },
+      inputs: [{ id: "video", type: "video", required: true, label: "Source video" }],
+      outputs: [{ id: "video", type: "video", label: "Upscaled MP4" }],
+      params: [
+        { id: "model", type: "text", label: "Model", default: "nanovsr-644k-x4" },
+        { id: "scale", type: "number", label: "Scale", default: 4, min: 1, max: 8, step: 1 },
+        { id: "device", type: "text", label: "Device", default: "auto" },
+        { id: "output_codec", type: "text", label: "Output codec", default: "libx264" },
+        { id: "output_container", type: "text", label: "Output container", default: "mp4" },
+        { id: "crf", type: "number", label: "CRF", default: 18, min: 0, max: 51, step: 1 },
+        { id: "chunk_size", type: "number", label: "Chunk size", default: 15, min: 1, max: 120, step: 1 },
+        { id: "overlap_frames", type: "number", label: "Overlap frames", default: 2, min: 0, max: 16, step: 1 },
+        { id: "audio_handling", type: "text", label: "Audio", default: "copy", options: [{ value: "copy", label: "Copy" }, { value: "drop", label: "Drop" }] }
+      ],
+      tool: {
+        schemaVersion: "1.0",
+        id: "local_video_upscale",
+        title: "Local Video Upscale / Restoration",
+        description: "Upscale or restore one video locally with a catalog-selected framewise or temporal CUDA model.",
+        version: "0.1.0",
+        action: { kind: "node", value: "local_video_upscale" },
+        inputs: [{ id: "video", type: "video", label: "Source video", required: true, source: "host_selection", acceptedMimes: ["video/mp4", "video/quicktime", "video/webm", "video/x-matroska"] }],
+        outputs: [{ id: "video", type: "video", label: "Upscaled MP4", placement: "new_artifact", hostPlacements: { after_effects: "project_item" } }],
+        params: [
+          { id: "model", type: "text", label: "Model", required: true, default: "nanovsr-644k-x4" },
+          { id: "scale", type: "integer", label: "Scale", default: 4, min: 1, max: 8, step: 1 },
+          { id: "device", type: "select", label: "Device", default: "auto", options: [{ value: "auto" }, { value: "cuda" }, { value: "cpu" }] },
+          { id: "output_codec", type: "select", label: "Output codec", default: "libx264", options: [{ value: "libx264" }] },
+          { id: "output_container", type: "select", label: "Output container", default: "mp4", options: [{ value: "mp4" }] },
+          { id: "crf", type: "integer", label: "CRF", default: 18, min: 0, max: 51, step: 1 },
+          { id: "chunk_size", type: "integer", label: "Chunk size", default: 15, min: 1, max: 120, step: 1 },
+          { id: "overlap_frames", type: "integer", label: "Overlap frames", default: 2, min: 0, max: 16, step: 1 },
+          { id: "audio_handling", type: "select", label: "Audio", default: "copy", options: [{ value: "copy", label: "Copy" }, { value: "drop", label: "Drop" }] }
+        ],
+        hosts: [
+          { host: "boojumroute", sources: ["manual", "upload", "host_selection"], placements: ["new_artifact", "next_stage"], capabilities: ["video"] },
+          { host: "after_effects", sources: ["manual", "upload", "host_selection"], placements: ["project_item", "replace_placeholder"], capabilities: ["video"] }
+        ],
+        job: { states: ["queued", "starting_provider", "loading_model", "generating", "downloading", "completed", "failed", "cancelled"], cancellable: true, retryable: true, selectableResults: false },
+        metadata: { provider: "local_video_upscale", capability: "video.upscale", apiCost: 0, outputFormat: "video/mp4", comfyUiRequired: false, modelMetadataSource: "live_catalog" }
+      }
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
       id: "ai.image.generate",
       title: "Image Generation",
       version: "0.1.0",
@@ -37,9 +201,9 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
       origin: "bundled",
       source: "snarkroute-core",
       category: "Image Processing",
-      description: "Task-based image generation with explicit model selection and transparent connection routing.",
+      description: "Task-based image generation/editing with provider-neutral model selection and transparent connection routing.",
       enabled: true,
-      permissions: { network: true, networkHosts: ["openrouter.ai", "generativelanguage.googleapis.com"], readFiles: true, writeOutputs: true, shell: false, env: ["OPENROUTER_API_KEY", "GEMINI_API_KEY"] },
+      permissions: { network: true, networkHosts: ["openrouter.ai", "generativelanguage.googleapis.com", "api.kie.ai", "kieai.redpandaai.co"], readFiles: true, writeOutputs: true, shell: false, env: ["OPENROUTER_API_KEY", "GEMINI_API_KEY", "POLZA_AI_API_KEY", "KIE_API_KEY"] },
       executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.image.generate" },
       inputs: [{ id: "images", type: "image", required: false, label: "Images" }, { id: "prompt", type: "text", required: false, label: "Prompt" }],
       outputs: [{ id: "image", type: "image", label: "Image" }, { id: "output", type: "json", label: "JSON" }],
@@ -49,6 +213,31 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
         { id: "prompt", type: "text", label: "Prompt", default: "Create a polished image." },
         { id: "aspectRatio", type: "text", label: "Aspect Ratio", default: "1:1" },
         { id: "imageSize", type: "text", label: "Quality", default: "2K" }
+      ]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "ai.video.generate",
+      title: "Video Generation",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Video Generation",
+      description: "Runs video generation models through the selected Model Gateway provider.",
+      enabled: true,
+      permissions: { network: true, networkHosts: ["openrouter.ai", "api.kie.ai", "kieai.redpandaai.co", "127.0.0.1", "localhost"], readFiles: true, writeOutputs: true, shell: false, env: ["OPENROUTER_API_KEY", "OPENROUTER_PROXY_URL", "POLZA_AI_API_KEY", "KIE_API_KEY"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.video.generate" },
+      inputs: [{ id: "images", type: "image", required: false, label: "Images" }, { id: "prompt", type: "text", required: false, label: "Prompt" }],
+      outputs: [{ id: "video", type: "video", label: "Video" }, { id: "output", type: "json", label: "JSON" }],
+      params: [
+        { id: "model", type: "text", label: "Model", default: "google/veo-3.1-fast" },
+        { id: "prompt", type: "text", label: "Prompt", default: "Create a polished short video." },
+        { id: "aspectRatio", type: "text", label: "Aspect Ratio", default: "16:9" },
+        { id: "resolution", type: "text", label: "Resolution", default: "720p" },
+        { id: "duration", type: "text", label: "Duration", default: "5" }
       ]
     },
     {
@@ -195,8 +384,8 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
       params: [
         { id: "model", type: "text", label: "Model", default: "wan/2.6" },
         { id: "prompt", type: "text", label: "Prompt", default: "Create a polished short video." },
-        { id: "resolution", type: "text", label: "Resolution", default: "720p" },
-        { id: "duration", type: "text", label: "Duration", default: "5" },
+        { id: "resolution", type: "text", label: "Resolution", default: "720p", options: [{ value: "720p" }, { value: "1080p" }] },
+        { id: "duration", type: "text", label: "Duration", default: "5", options: [{ value: "5", label: "5s" }, { value: "10", label: "10s" }] },
         { id: "multi_shots", type: "boolean", label: "Multi Shots", default: false }
       ]
     }

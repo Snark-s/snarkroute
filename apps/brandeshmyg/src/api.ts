@@ -1,4 +1,4 @@
-import type { CanvasNodeAction, ToolInputState, ToolResult } from "@snarkroute/canvas-action-host";
+import type { CanvasNodeAction, ToolInputState, ToolResult, ToolTabState } from "@snarkroute/canvas-action-host";
 
 export const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 
@@ -10,21 +10,50 @@ export interface SessionRunResponse {
 }
 
 export async function loadActions(): Promise<CanvasNodeAction[]> {
-  return (await api<{ actions: CanvasNodeAction[] }>("/api/nodes/canvas-actions")).actions;
+  return (await api<{ actions: CanvasNodeAction[] }>("/api/nodes/canvas-actions?surface=brandeshmyg")).actions;
 }
 
-export async function runSession(input: { sessionId: string; actionId: string; toolInput: ToolInputState; params: Record<string, unknown>; phase?: "prepare" | "complete"; continuationId?: string }): Promise<SessionRunResponse> {
-  const bodyInput = input.toolInput.kind === "text"
-    ? { type: "text" as const, text: input.toolInput.text }
-    : input.toolInput.kind === "file"
-      ? { type: input.toolInput.type, filename: input.toolInput.file.name, mimeType: input.toolInput.file.type, dataBase64: await fileBase64(input.toolInput.file) }
-      : null;
-  if (!bodyInput) throw new Error("Select an input first.");
-  return api(`/api/canvas-action-sessions/${encodeURIComponent(input.sessionId)}/actions/${encodeURIComponent(input.actionId)}/run`, {
+export async function runSession(input: { sessionId: string; actionId: string; toolInputs: Record<string, ToolInputState>; params: Record<string, unknown>; phase?: "prepare" | "complete"; continuationId?: string }): Promise<SessionRunResponse> {
+  const bodyInputs = await serializeToolInputs(input.toolInputs);
+  const response = await api<SessionRunResponse>(`/api/canvas-action-sessions/${encodeURIComponent(input.sessionId)}/actions/${encodeURIComponent(input.actionId)}/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input: bodyInput, params: input.params, phase: input.phase, continuationId: input.continuationId })
+    body: JSON.stringify({ inputs: bodyInputs, params: input.params, phase: input.phase, continuationId: input.continuationId })
   });
+  return resolveSessionMediaUrls(response);
+}
+
+export async function serializeToolInputs(inputs: Record<string, ToolInputState>): Promise<Record<string, { type: "text"; text: string } | { type: "image" | "video" | "audio"; filename: string; mimeType: string; dataBase64: string }>> {
+  const entries = await Promise.all(Object.entries(inputs).map(async ([id, input]) => {
+    if (input.kind === "empty") throw new Error(`Select ${id} first.`);
+    return [id, input.kind === "text"
+      ? { type: "text" as const, text: input.text }
+      : { type: input.type, filename: input.file.name, mimeType: input.file.type, dataBase64: await fileBase64(input.file) }] as const;
+  }));
+  return Object.fromEntries(entries);
+}
+
+export function resolveSessionMediaUrls(response: SessionRunResponse, base = apiBase): SessionRunResponse {
+  const previews = response.previews?.map((preview) => ({ ...preview, src: resolveApiMediaUrl(preview.src, base) }));
+  return {
+    ...response,
+    ...(previews ? { previews } : {}),
+    results: response.results.map((result) => result.url ? { ...result, url: resolveApiMediaUrl(result.url, base) } : result)
+  };
+}
+
+export function resolveToolTabMediaUrls(tab: ToolTabState, base = apiBase): ToolTabState {
+  const media = resolveSessionMediaUrls({
+    status: tab.status === "paused" ? "paused" : "completed",
+    previews: tab.preparedPreviews,
+    results: tab.results
+  }, base);
+  return { ...tab, preparedPreviews: media.previews, results: media.results };
+}
+
+export function resolveApiMediaUrl(url: string, base = apiBase): string {
+  if (!/^\/api(?:\/|\?|$)/i.test(url)) return url;
+  return `${base.replace(/\/+$/, "")}${url}`;
 }
 
 export async function disposeSession(sessionId: string): Promise<void> {

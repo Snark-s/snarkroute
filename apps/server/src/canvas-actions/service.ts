@@ -84,10 +84,12 @@ export async function deleteCanvasActionPackage(id: string): Promise<void> {
 }
 
 function isCanvasActionManifest(manifest: SnarkNodeManifest): boolean {
+  const surface = manifest.canvasAction?.surface;
   return manifest.enabled !== false
     && manifest.canvasAction?.enabled === true
-    && manifest.inputs.length === 1
-    && isCanvasActionPortType(manifest.inputs[0].type)
+    && manifest.inputs.length > 0
+    && manifest.inputs.every((input) => isCanvasActionPortType(input.type))
+    && (surface !== "livingCanvas" || manifest.inputs.length === 1)
     && manifest.outputs.length > 0
     && manifest.outputs.every((output) => isCanvasActionPortType(output.type));
 }

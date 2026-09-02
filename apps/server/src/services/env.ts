@@ -123,6 +123,10 @@ export function isPolzaEnabled(): boolean {
   return Boolean(process.env.POLZA_AI_API_KEY?.trim());
 }
 
+export function isKieEnabled(): boolean {
+  return Boolean(process.env.KIE_API_KEY?.trim());
+}
+
 export function isRuTronixEnabled(): boolean {
   return Boolean(process.env.RUTRONIX_API_KEY?.trim());
 }
@@ -169,4 +173,21 @@ export async function writeEnvValue(key: string, value: string): Promise<void> {
     : `${text.trimEnd()}${text.trimEnd() ? "\n" : ""}${line}\n`;
 
   await writeFile(envPath, next, "utf8");
+}
+
+export async function deleteEnvValue(key: string): Promise<void> {
+  let text: string;
+  try {
+    text = await readFile(envPath, "utf8");
+  } catch {
+    return;
+  }
+  const next = deleteEnvLine(text, key);
+  if (next === text) return;
+  await writeFile(envPath, next, "utf8");
+}
+
+export function deleteEnvLine(text: string, key: string): string {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(`^[ \\t]*${escapedKey}[ \\t]*=.*(?:\\r?\\n|$)`, "gm"), "");
 }

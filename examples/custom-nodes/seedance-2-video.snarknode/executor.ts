@@ -19,6 +19,14 @@ const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_IMAGES = 9;
 const MAX_VIDEOS = 3;
 const MAX_AUDIO = 3;
+const BYTEPLUS_MODEL_ALIASES = {
+  "seedance-2.0": "dreamina-seedance-2-0-260128",
+  "seedance-2.0-fast": "dreamina-seedance-2-0-fast-260128",
+  "seedance-2.0-text-to-video": "dreamina-seedance-2-0-260128",
+  "seedance-2.0-fast-text-to-video": "dreamina-seedance-2-0-fast-260128",
+  "seedance-2.0-image-to-video": "dreamina-seedance-2-0-260128",
+  "seedance-2.0-fast-image-to-video": "dreamina-seedance-2-0-fast-260128"
+};
 
 export async function runNode(context) {
   const inferredBackend = inferBackendFromEnv(context.env);
@@ -47,8 +55,8 @@ export async function runNode(context) {
   const baseUrl = trimTrailingSlash(stringParam(context.params.baseUrl) ?? stringParam(context.env.SEEDANCE_API_BASE_URL) ?? backendConfig.defaultBaseUrl ?? "");
   if (!baseUrl) throw new Error("Seedance API base URL is missing");
   const endpointMode = normalizeEndpointMode(context.params.endpointMode, { images, videos, audio, endImage });
-  const body = buildRequestBody({ prompt, images, videos, audio, endImage, endpointMode, params: context.params });
-  const createPath = stringParam(context.params.createPath) ?? pathForMode(endpointMode);
+  const body = buildRequestBody({ backend, prompt, images, videos, audio, endImage, endpointMode, params: context.params });
+  const createPath = stringParam(context.params.createPath) ?? pathForMode(endpointMode, backend);
   const started = Date.now();
   const createResult = await seedanceJson(`${baseUrl}${normalizePath(createPath)}`, {
     method: "POST",
@@ -65,7 +73,7 @@ export async function runNode(context) {
     initial: createResult,
     pollIntervalMs: positiveNumber(context.params.pollIntervalMs) ?? DEFAULT_POLL_INTERVAL_MS,
     timeoutMs: positiveNumber(context.params.timeoutMs) ?? DEFAULT_TIMEOUT_MS,
-    statusPathTemplate: stringParam(context.params.statusPathTemplate) ?? "/video/{video_id}/status"
+    statusPathTemplate: stringParam(context.params.statusPathTemplate) ?? statusPathTemplateForBackend(backend)
   });
 
   const videoUrl = findVideoUrl(completed);
@@ -83,7 +91,11 @@ export async function runNode(context) {
   };
 }
 
-function buildRequestBody({ prompt, images, videos, audio, endImage, endpointMode, params }) {
+function buildRequestBody({ backend, prompt, images, videos, audio, endImage, endpointMode, params }) {
+  if (backend === "byteplus-modelark") {
+    return buildBytePlusRequestBody({ prompt, images, videos, audio, endImage, endpointMode, params });
+  }
+
   const extra = objectParam(params.extraJson);
   const body = filterDefined({
     ...extra,
@@ -114,6 +126,46 @@ function buildRequestBody({ prompt, images, videos, audio, endImage, endpointMod
   }
 
   return body;
+}
+
+function buildBytePlusRequestBody({ prompt, images, videos, audio, endImage, endpointMode, params }) {
+  const extra = objectParam(params.extraJson);
+  const model = bytePlusModelId(stringParam(params.model) ?? extra?.model ?? "seedance-2.0");
+  const content = [{ type: "text", text: prompt }];
+
+  if (endpointMode === "image-to-video") {
+    if (images[0]) content.push({
+      type: "image_url",
+      image_url: { url: images[0] },
+      role: "first_frame"
+    });
+    if (endImage) content.push({
+      type: "image_url",
+      image_url: { url: endImage },
+      role: "last_frame"
+    });
+  } else if (endpointMode === "reference-to-video") {
+    for (const url of images) {
+      content.push({ type: "image_url", image_url: { url }, role: "reference_image" });
+    }
+    for (const url of videos) {
+      content.push({ type: "video_url", video_url: { url }, role: "reference_video" });
+    }
+    for (const url of audio) {
+      content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" });
+    }
+  }
+
+  return filterDefined({
+    ...extra,
+    model,
+    content,
+    duration: bytePlusDuration(params.duration),
+    resolution: stringParam(params.resolution),
+    ratio: stringParam(params.aspectRatio),
+    generate_audio: booleanParam(params.generateAudio),
+    seed: supportsBytePlusSeed(model) ? integerParam(params.seed) : undefined
+  });
 }
 
 async function waitForVideo({ baseUrl, token, initial, pollIntervalMs, timeoutMs, statusPathTemplate }) {
@@ -172,10 +224,17 @@ function normalizeEndpointMode(value, inputs) {
   return "text-to-video";
 }
 
-function pathForMode(mode) {
+function pathForMode(mode, backend) {
+  if (backend === "byteplus-modelark") return "/contents/generations/tasks";
   if (mode === "image-to-video") return "/generate/image-to-video";
   if (mode === "reference-to-video") return "/generate/reference-to-video";
   return "/generate/text-to-video";
+}
+
+function statusPathTemplateForBackend(backend) {
+  return backend === "byteplus-modelark"
+    ? "/contents/generations/tasks/{id}"
+    : "/video/{video_id}/status";
 }
 
 function statusPath(template, videoId) {
@@ -233,6 +292,7 @@ function findVideoUrl(value) {
   return stringParam(record.video_url)
     ?? stringParam(record.output_url)
     ?? stringParam(record.url)
+    ?? stringParam(record.content?.video_url)
     ?? stringParam(record.video?.url)
     ?? stringParam(record.result?.video_url)
     ?? stringParam(record.result?.video?.url);
@@ -286,6 +346,22 @@ function normalizeDuration(value) {
   const text = stringParam(value);
   if (!text) return undefined;
   return text.toLowerCase() === "auto" ? "auto" : text;
+}
+
+function bytePlusDuration(value) {
+  const text = stringParam(value);
+  if (!text || text.toLowerCase() === "auto") return undefined;
+  const number = Number(text);
+  return Number.isInteger(number) && number > 0 ? number : undefined;
+}
+
+function bytePlusModelId(value) {
+  const model = stringParam(value) ?? "seedance-2.0";
+  return BYTEPLUS_MODEL_ALIASES[model.toLowerCase()] ?? model;
+}
+
+function supportsBytePlusSeed(model) {
+  return !model.toLowerCase().includes("seedance-2-0");
 }
 
 function filterDefined(value) {

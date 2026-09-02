@@ -1554,7 +1554,7 @@ async function executeTextNodeModel(input: GenerateTextNodeInput, prompt: string
 }
 
 async function runImageModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
-  if (!["auto", "polza", "openrouter", "gemini"].includes(input.executionProvider)) {
+  if (!["auto", "polza", "openrouter", "gemini", "kie"].includes(input.executionProvider)) {
     throw new Error(`Execution provider "${input.executionProvider}" is not available for image generation.`);
   }
   const autoCanUsePolza = input.executionProvider === "auto" && input.availableExecutionProviders?.includes("polza");
@@ -1577,7 +1577,7 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
 }
 
 async function runTextModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[] }) {
-  if (!["auto", "polza", "openrouter", "gemini"].includes(input.executionProvider)) {
+  if (!["auto", "polza", "openrouter", "gemini", "kie"].includes(input.executionProvider)) {
     throw new Error(`Execution provider "${input.executionProvider}" is not available for text generation.`);
   }
   const autoOnlyPolza = input.executionProvider === "auto" && input.availableExecutionProviders?.length === 1 && input.availableExecutionProviders[0] === "polza";
@@ -1649,7 +1649,10 @@ async function persistSnarkUsageStats(runResult: RunResult): Promise<void> {
 
 async function runVideoModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
   if (input.executionProvider === "openrouter") return runOpenRouterVideoModelForStackItem(input);
-  if (input.executionProvider !== "auto" && input.executionProvider !== "polza") throw new Error("Video generation is currently available through polza.ai or OpenRouter.");
+  if (input.executionProvider !== "auto" && input.executionProvider !== "polza" && input.executionProvider !== "kie") {
+    throw new Error("Video generation is currently available through polza.ai, OpenRouter, or KIE.ai.");
+  }
+  const nodeType = input.executionProvider === "kie" ? "ai.video.generate" : "polza.video.generate";
   const route = {
     routeVersion: "0.1",
     route: {
@@ -1659,7 +1662,7 @@ async function runVideoModelForStackItem(input: { nodeId: string; modelId: strin
     },
     nodes: [{
       id: "generate",
-      type: "polza.video.generate",
+      type: nodeType,
       params: imageGenerationParameters(input.modelId, input.executionProvider === "auto" ? "polza" : input.executionProvider, input.fallbackAllowed, input.prompt, input.images, input.parameters)
     }],
     edges: []
@@ -2214,15 +2217,15 @@ export async function createEmptyCanvasNode(input: CreateNodeInput): Promise<Lib
 export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Promise<LibrarySnapshot | CanvasActionPrepareResult> {
   const libraryPath = await ensureCurrentLibrary();
   const canvas = await ensureCanvas(libraryPath);
-  const action = await findCanvasActionManifest(input.actionId);
+  const action = await findCanvasActionManifest(input.actionId, "livingCanvas");
   if (!action) throw new Error(`Canvas action "${input.actionId}" was not found.`);
-  const inputPort = action.inputs[0];
+  const inputPort = canvasActionInputPort(action);
   const source = await canvasActionSourceInput(libraryPath, input.nodeId, inputPort.type);
   const targetNode = input.targetNodeId ? canvas.nodes.find((node) => node.id === input.targetNodeId) : undefined;
   if (input.targetNodeId && !targetNode) throw new Error(`Target node "${input.targetNodeId}" was not found.`);
   let output: Record<string, unknown>;
   if (input.phase === "prepare") {
-    const execution = canvasActionCompoundExecution(action, input.nodeId, source.value, input.params);
+    const execution = canvasActionCompoundExecution(action, input.nodeId, { [inputPort.id]: source.value }, input.params);
     const pauseNodeId = canvasActionPauseNodeId(action);
     const upstream = upstreamNodeIds(execution.route, pauseNodeId);
     const prepareRoute: OpenRoute = {
@@ -2249,7 +2252,7 @@ export async function runCanvasNodeAction(input: RunCanvasNodeActionInput): Prom
     if (!continuation || continuation.actionId !== action.id || continuation.sourceNodeId !== input.nodeId) {
       throw new CanvasActionContinuationGoneError("This interactive action expired. Start the preview again.");
     }
-    const execution = canvasActionCompoundExecution(action, input.nodeId, source.value, input.params, continuation.nodeOutputs);
+    const execution = canvasActionCompoundExecution(action, input.nodeId, { [inputPort.id]: source.value }, input.params, continuation.nodeOutputs);
     const runResult = await executeSnarkRouteWithUsageStats(execution.route, { initialNodeOutputs: execution.initialNodeOutputs });
     if (runResult.status !== "succeeded") throw canvasActionRunFailure(action, "completing", runResult);
     canvasActionContinuations.delete(input.continuationId!);
@@ -2472,14 +2475,23 @@ export async function deleteCanvasNode(nodeId: string): Promise<LibrarySnapshot>
 }
 
 export async function runCanvasActionSession(input: RunCanvasActionSessionInput): Promise<CanvasActionSessionResult> {
-  const action = await findCanvasActionManifest(input.actionId);
+  const action = await findCanvasActionManifest(input.actionId, input.surface ?? "brandeshmyg");
   if (!action) throw new Error(`Canvas action "${input.actionId}" was not found.`);
-  if (action.inputs[0].type !== input.input.type) throw new Error(`Canvas action expects ${action.inputs[0].type}, but the session input is ${input.input.type}.`);
+  const submittedInputs = input.inputs ?? (input.input && action.inputs.length === 1 ? { [action.inputs[0].id]: input.input } : {});
+  for (const port of action.inputs) {
+    const submitted = submittedInputs[port.id];
+    if (!submitted && port.required !== false) throw new Error(`Canvas action input "${port.label ?? port.id}" is required.`);
+    if (!submitted) continue;
+    if (port.type !== submitted.type) throw new Error(`Canvas action input "${port.id}" expects ${port.type}, but received ${submitted.type}.`);
+  }
   const sourceKey = `session:${input.sessionId}`;
-  const value = await canvasActionSessionInputValue(input);
+  const values = Object.fromEntries(await Promise.all(action.inputs.map(async (port) => [
+    port.id,
+    submittedInputs[port.id] ? await canvasActionSessionInputValue(input.sessionId, port.id, submittedInputs[port.id]) : undefined
+  ] as const)));
 
   if (input.phase === "prepare") {
-    const execution = canvasActionCompoundExecution(action, sourceKey, value, input.params);
+    const execution = canvasActionCompoundExecution(action, sourceKey, values, input.params);
     const pauseNodeId = canvasActionPauseNodeId(action);
     const upstream = upstreamNodeIds(execution.route, pauseNodeId);
     const prepareRoute: OpenRoute = {
@@ -2503,18 +2515,19 @@ export async function runCanvasActionSession(input: RunCanvasActionSessionInput)
     if (!continuation || continuation.actionId !== action.id || continuation.sourceNodeId !== sourceKey) {
       throw new CanvasActionContinuationGoneError("This interactive action expired. Start the preview again.");
     }
-    const execution = canvasActionCompoundExecution(action, sourceKey, value, input.params, continuation.nodeOutputs);
+    const execution = canvasActionCompoundExecution(action, sourceKey, values, input.params, continuation.nodeOutputs);
     const runResult = await executeSnarkRouteWithUsageStats(execution.route, { initialNodeOutputs: execution.initialNodeOutputs });
     if (runResult.status !== "succeeded") throw canvasActionRunFailure(action, "completing", runResult);
     canvasActionContinuations.delete(input.continuationId!);
     output = compoundTemplateOutput(execution, runResult.nodeResults);
   } else {
+    const sourceNodes = action.inputs.map((port, index) => ({ id: `source_${index}`, type: "utility.null" as const }));
     const runResult = await executeSnarkRouteWithUsageStats({
       routeVersion: "0.1",
       route: { id: `brandeshmyg-${action.id}-${createHash("sha256").update(input.sessionId).digest("hex").slice(0, 12)}`, title: action.canvasAction?.title?.trim() || action.title, author: { name: "Brandeshmyg" } },
-      nodes: [{ id: "source", type: "utility.null" }, { id: "action", type: action.id, params: input.params ?? {} }],
-      edges: [{ from: "source", to: "action", fromPort: "value", toPort: action.inputs[0].id }]
-    }, { initialNodeOutputs: { source: { value } } });
+      nodes: [...sourceNodes, { id: "action", type: action.id, params: input.params ?? {} }],
+      edges: action.inputs.map((port, index) => ({ from: `source_${index}`, to: "action", fromPort: "value", toPort: port.id }))
+    }, { initialNodeOutputs: Object.fromEntries(action.inputs.map((port, index) => [`source_${index}`, { value: values[port.id] }])) });
     const actionResult = runResult.nodeResults.action;
     if (runResult.status !== "succeeded" || actionResult?.status !== "succeeded") throw new Error(actionResult?.error || `Canvas action "${action.title}" failed.`);
     output = actionResult.output && typeof actionResult.output === "object" ? actionResult.output as Record<string, unknown> : {};
@@ -2530,13 +2543,13 @@ export async function disposeCanvasActionSession(sessionId: string): Promise<voi
   await rm(canvasActionSessionDirectory(sessionId), { recursive: true, force: true });
 }
 
-function canvasActionCompoundExecution(action: SnarkNodeManifest, sourceNodeId: string, sourceValue: unknown, params?: Record<string, unknown>, initialNodeOutputs?: Record<string, unknown>): CompoundTemplateExecution {
+function canvasActionCompoundExecution(action: SnarkNodeManifest, sourceNodeId: string, inputValues: Record<string, unknown>, params?: Record<string, unknown>, initialNodeOutputs?: Record<string, unknown>): CompoundTemplateExecution {
   return buildCompoundTemplateExecution(action, {
     nodeId: "action",
     routeId: `snarkroute-canvas-action-${action.id}-${sourceNodeId}`,
     title: action.canvasAction?.title?.trim() || action.title,
     params,
-    inputs: { [action.inputs[0].id]: sourceValue },
+    inputs: inputValues,
     initialNodeOutputs
   });
 }
@@ -3703,7 +3716,7 @@ function sourcePromptText(source: ImageNodeManifest | VideoNodeManifest | AudioN
   return promptText;
 }
 
-async function findCanvasActionManifest(actionId: string): Promise<SnarkNodeManifest | null> {
+async function findCanvasActionManifest(actionId: string, surface: "livingCanvas" | "brandeshmyg" | "portable"): Promise<SnarkNodeManifest | null> {
   const manifests = [
     ...builtInNodeManifests,
     ...providerNodeManifests(),
@@ -3714,11 +3727,18 @@ async function findCanvasActionManifest(actionId: string): Promise<SnarkNodeMani
     manifest.id === actionId
     && manifest.enabled !== false
     && manifest.canvasAction?.enabled === true
-    && manifest.inputs.length === 1
-    && isCanvasActionPortType(manifest.inputs[0].type)
+    && manifest.inputs.length > 0
+    && manifest.inputs.every((input) => isCanvasActionPortType(input.type))
+    && (surface === "portable" || (manifest.canvasAction.surface
+      ? manifest.canvasAction.surface === surface
+      : surface === "brandeshmyg" || manifest.inputs.length === 1))
     && manifest.outputs.length > 0
     && manifest.outputs.every((output) => isCanvasActionPortType(output.type))
   ) ?? null;
+}
+
+function canvasActionInputPort(action: SnarkNodeManifest): SnarkNodeManifest["inputs"][number] {
+  return action.inputs.find((input) => isCanvasActionPortType(input.type))!;
 }
 
 async function canvasActionSourceInput(libraryPath: string, nodeId: string, expectedType: string): Promise<{ value: unknown; canvas: SnarkCanvasNode }> {
@@ -4168,34 +4188,34 @@ function resolveInputTokens(
   });
 }
 
-async function canvasActionSessionInputValue(input: RunCanvasActionSessionInput): Promise<unknown> {
-  if (input.input.type === "text") return input.input.text ?? "";
-  if (!input.input.dataBase64) {
-    const existing = join(canvasActionSessionDirectory(input.sessionId), sanitizeFilename(input.input.filename ?? `input.${input.input.type}`));
+async function canvasActionSessionInputValue(sessionId: string, inputId: string, input: NonNullable<RunCanvasActionSessionInput["input"]>): Promise<unknown> {
+  if (input.type === "text") return input.text ?? "";
+  if (!input.dataBase64) {
+    const existing = join(canvasActionSessionDirectory(sessionId), `${sanitizeFilename(inputId)}-${sanitizeFilename(input.filename ?? `input.${input.type}`)}`);
     if (!(await stat(existing).catch(() => null))) throw new Error("The input file must be selected again.");
-    return canvasActionSessionFileValue(input, existing);
+    return canvasActionSessionFileValue(sessionId, inputId, input, existing);
   }
-  const directory = canvasActionSessionDirectory(input.sessionId);
+  const directory = canvasActionSessionDirectory(sessionId);
   await mkdir(directory, { recursive: true });
-  const filename = sanitizeFilename(input.input.filename ?? `input.${input.input.type}`) || `input.${input.input.type}`;
+  const filename = `${sanitizeFilename(inputId)}-${sanitizeFilename(input.filename ?? `input.${input.type}`) || `input.${input.type}`}`;
   const path = join(directory, filename);
-  const base64 = input.input.dataBase64.replace(/^data:[^;]+;base64,/i, "");
+  const base64 = input.dataBase64.replace(/^data:[^;]+;base64,/i, "");
   await writeFile(path, Buffer.from(base64, "base64"));
-  return canvasActionSessionFileValue(input, path);
+  return canvasActionSessionFileValue(sessionId, inputId, input, path);
 }
 
 function canvasActionSessionDirectory(sessionId: string): string {
   return join(canvasActionCacheDirectory, "sessions", createHash("sha256").update(sessionId).digest("hex"));
 }
 
-function canvasActionSessionFileValue(input: RunCanvasActionSessionInput, path: string): Record<string, unknown> {
+function canvasActionSessionFileValue(sessionId: string, inputId: string, input: NonNullable<RunCanvasActionSessionInput["input"]>, path: string): Record<string, unknown> {
   return {
-    type: input.input.type,
+    type: input.type,
     path,
     localPath: path,
-    ref: `session://${input.sessionId}/input`,
-    filename: input.input.filename ?? basename(path),
-    mimeType: input.input.mimeType
+    ref: `session://${sessionId}/${inputId}`,
+    filename: input.filename ?? basename(path),
+    mimeType: input.mimeType
   };
 }
 

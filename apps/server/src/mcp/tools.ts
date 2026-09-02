@@ -1,44 +1,44 @@
 import { readFile } from "node:fs/promises";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { aeBridgeService, type ExecuteJsxCommand } from "../ae-bridge/service";
+import { aeBridgeService, type AeBridgeService, type ExecuteJsxCommand } from "../ae-bridge/service";
 
 const session = z.string().min(1).optional().describe("Optional AE session id; omitted when exactly one session is connected.");
 
-export function registerAeTools(server: McpServer): void {
-  server.registerTool("ae_list_sessions", { description: "List active local After Effects CEP sessions.", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } }, async () => output({ ok: true, sessions: aeBridgeService.listSessions() }));
+export function registerAeTools(server: McpServer, bridge: AeBridgeService = aeBridgeService): void {
+  server.registerTool("ae_list_sessions", { description: "List active local After Effects CEP sessions.", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } }, async () => output({ ok: true, sessions: bridge.listSessions() }));
 
-  server.registerTool("ae_get_project", { description: "Read the open After Effects project summary.", inputSchema: { sessionId: session }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ sessionId }) => run(sessionId, projectJsx()));
-  server.registerTool("ae_get_active_comp", { description: "Read active composition parameters.", inputSchema: { sessionId: session }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ sessionId }) => run(sessionId, activeCompJsx()));
-  server.registerTool("ae_list_layers", { description: "List active composition layers and their basic transform properties; does not dump the full property tree.", inputSchema: { sessionId: session, includeProperties: z.boolean().default(false) }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ sessionId, includeProperties }) => run(sessionId, listLayersJsx(includeProperties)));
+  server.registerTool("ae_get_project", { description: "Read the open After Effects project summary.", inputSchema: { sessionId: session }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ sessionId }) => run(bridge, sessionId, projectJsx()));
+  server.registerTool("ae_get_active_comp", { description: "Read active composition parameters.", inputSchema: { sessionId: session }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ sessionId }) => run(bridge, sessionId, activeCompJsx()));
+  server.registerTool("ae_list_layers", { description: "List active composition layers and their basic transform properties; does not dump the full property tree.", inputSchema: { sessionId: session, includeProperties: z.boolean().default(false) }, annotations: { readOnlyHint: true, openWorldHint: false } }, async ({ sessionId, includeProperties }) => run(bridge, sessionId, listLayersJsx(includeProperties)));
 
   server.registerTool("ae_run_arbitrary_jsx", {
     description: "Execute unrestricted ExtendScript/JSX directly in the open After Effects project, or preview it without execution.",
     inputSchema: { sessionId: session, code: z.string().min(1), mode: z.enum(["execute", "preview"]).default("execute"), timeoutMs: z.number().int().min(1_000).max(120_000).default(30_000), undoGroup: z.union([z.string(), z.literal(false)]).default("MCP: arbitrary JSX") }
   }, async ({ sessionId, code, mode, timeoutMs, undoGroup }) => {
     if (mode === "preview") return output({ ok: true, mode, preparedJsx: code, undoGroup, timeoutMs, note: "Preview only; JSX was not sent to After Effects." });
-    return execute(sessionId, { code, mode, timeoutMs, undoGroup });
+    return execute(bridge, sessionId, { code, mode, timeoutMs, undoGroup });
   });
 
-  server.registerTool("ae_create_text", { description: "Create an editable text layer in the active composition.", inputSchema: { sessionId: session, text: z.string(), name: z.string().optional() } }, async ({ sessionId, text, name }) => run(sessionId, `var c=activeComp(); var l=c.layers.addText(${q(text)}); ${name ? `l.name=${q(name)};` : ""} return {layerName:l.name,layerIndex:l.index,compName:c.name};`));
-  server.registerTool("ae_import_file", { description: "Import a local file into the After Effects project.", inputSchema: { sessionId: session, path: z.string().min(1), name: z.string().optional() } }, async ({ sessionId, path, name }) => run(sessionId, `var f=new File(${q(path)}); if(!f.exists) throw new Error("File not found: "+f.fsName); var item=app.project.importFile(new ImportOptions(f)); ${name ? `item.name=${q(name)};` : ""} return {id:item.id,name:item.name,path:f.fsName};`));
-  server.registerTool("ae_set_property", { description: "Set an AE layer property by match-name/display-name path.", inputSchema: { sessionId: session, layerIndex: z.number().int().positive(), propertyPath: z.array(z.string()).min(1), value: z.any() } }, async ({ sessionId, layerIndex, propertyPath, value }) => run(sessionId, propertyLookup(layerIndex, propertyPath, `p.setValue(${q(value)}); return {layerIndex:${layerIndex},property:p.name,value:p.value};`)));
-  server.registerTool("ae_apply_expression", { description: "Apply an expression to an AE layer property.", inputSchema: { sessionId: session, layerIndex: z.number().int().positive(), propertyPath: z.array(z.string()).min(1), expression: z.string(), enabled: z.boolean().default(true) } }, async ({ sessionId, layerIndex, propertyPath, expression, enabled }) => run(sessionId, propertyLookup(layerIndex, propertyPath, `if(!p.canSetExpression) throw new Error("Property cannot use expressions"); p.expression=${q(expression)}; p.expressionEnabled=${enabled}; return {layerIndex:${layerIndex},property:p.name,expressionEnabled:p.expressionEnabled};`)));
-  server.registerTool("ae_precompose", { description: "Precompose selected layer indices in the active composition.", inputSchema: { sessionId: session, layerIndices: z.array(z.number().int().positive()).min(1), name: z.string().min(1), moveAllAttributes: z.boolean().default(true) } }, async ({ sessionId, layerIndices, name, moveAllAttributes }) => run(sessionId, `var c=activeComp(); var item=c.layers.precompose(${q(layerIndices)},${q(name)},${moveAllAttributes}); return {id:item.id,name:item.name,numLayers:item.numLayers};`));
-  server.registerTool("ae_add_to_render_queue", { description: "Add the active composition to the After Effects render queue.", inputSchema: { sessionId: session, outputPath: z.string().optional() } }, async ({ sessionId, outputPath }) => run(sessionId, `var c=activeComp(); var item=app.project.renderQueue.items.add(c); ${outputPath ? `item.outputModule(1).file=new File(${q(outputPath)});` : ""} return {renderQueueIndex:item.index,status:String(item.status),outputPath:item.outputModule(1).file?item.outputModule(1).file.fsName:null};`));
+  server.registerTool("ae_create_text", { description: "Create an editable text layer in the active composition.", inputSchema: { sessionId: session, text: z.string(), name: z.string().optional() } }, async ({ sessionId, text, name }) => run(bridge, sessionId, `var c=activeComp(); var l=c.layers.addText(${q(text)}); ${name ? `l.name=${q(name)};` : ""} return {layerName:l.name,layerIndex:l.index,compName:c.name};`));
+  server.registerTool("ae_import_file", { description: "Import a local file into the After Effects project.", inputSchema: { sessionId: session, path: z.string().min(1), name: z.string().optional() } }, async ({ sessionId, path, name }) => run(bridge, sessionId, `var f=new File(${q(path)}); if(!f.exists) throw new Error("File not found: "+f.fsName); var item=app.project.importFile(new ImportOptions(f)); ${name ? `item.name=${q(name)};` : ""} return {id:item.id,name:item.name,path:f.fsName};`));
+  server.registerTool("ae_set_property", { description: "Set an AE layer property by match-name/display-name path.", inputSchema: { sessionId: session, layerIndex: z.number().int().positive(), propertyPath: z.array(z.string()).min(1), value: z.any() } }, async ({ sessionId, layerIndex, propertyPath, value }) => run(bridge, sessionId, propertyLookup(layerIndex, propertyPath, `p.setValue(${q(value)}); return {layerIndex:${layerIndex},property:p.name,value:p.value};`)));
+  server.registerTool("ae_apply_expression", { description: "Apply an expression to an AE layer property.", inputSchema: { sessionId: session, layerIndex: z.number().int().positive(), propertyPath: z.array(z.string()).min(1), expression: z.string(), enabled: z.boolean().default(true) } }, async ({ sessionId, layerIndex, propertyPath, expression, enabled }) => run(bridge, sessionId, propertyLookup(layerIndex, propertyPath, `if(!p.canSetExpression) throw new Error("Property cannot use expressions"); p.expression=${q(expression)}; p.expressionEnabled=${enabled}; return {layerIndex:${layerIndex},property:p.name,expressionEnabled:p.expressionEnabled};`)));
+  server.registerTool("ae_precompose", { description: "Precompose selected layer indices in the active composition.", inputSchema: { sessionId: session, layerIndices: z.array(z.number().int().positive()).min(1), name: z.string().min(1), moveAllAttributes: z.boolean().default(true) } }, async ({ sessionId, layerIndices, name, moveAllAttributes }) => run(bridge, sessionId, `var c=activeComp(); var item=c.layers.precompose(${q(layerIndices)},${q(name)},${moveAllAttributes}); return {id:item.id,name:item.name,numLayers:item.numLayers};`));
+  server.registerTool("ae_add_to_render_queue", { description: "Add the active composition to the After Effects render queue.", inputSchema: { sessionId: session, outputPath: z.string().optional() } }, async ({ sessionId, outputPath }) => run(bridge, sessionId, `var c=activeComp(); var item=app.project.renderQueue.items.add(c); ${outputPath ? `item.outputModule(1).file=new File(${q(outputPath)});` : ""} return {renderQueueIndex:item.index,status:String(item.status),outputPath:item.outputModule(1).file?item.outputModule(1).file.fsName:null};`));
   server.registerTool("ae_import_subtitles", { description: "Import SRT as one editable text layer with timed layer markers and a Source Text expression.", inputSchema: { sessionId: session, srt: z.string().min(1).optional(), path: z.string().min(1).optional(), layerName: z.string().default("SnarkRoute Subtitles") } }, async ({ sessionId, srt, path, layerName }) => {
     const content = srt ?? (path ? await readFile(path, "utf8") : "");
     if (!content) throw new Error("Provide srt content or path.");
     const cues = parseSrt(content);
-    return run(sessionId, subtitlesJsx(cues, layerName));
+    return run(bridge, sessionId, subtitlesJsx(cues, layerName));
   });
 }
 
-async function execute(sessionId: string | undefined, command: ExecuteJsxCommand) {
-  try { const result = await aeBridgeService.execute(sessionId, command); return output(result, !result.ok); }
+async function execute(bridge: AeBridgeService, sessionId: string | undefined, command: ExecuteJsxCommand) {
+  try { const result = await bridge.execute(sessionId, command); return output(result, !result.ok); }
   catch (error) { return output({ ok: false, error: { message: error instanceof Error ? error.message : String(error) }, logs: [], durationMs: 0 }, true); }
 }
-function run(sessionId: string | undefined, body: string) { return execute(sessionId, { code: `(function(){function activeComp(){var c=app.project&&app.project.activeItem;if(!(c instanceof CompItem))throw new Error("No active composition.");return c;} ${body}})()` }); }
+function run(bridge: AeBridgeService, sessionId: string | undefined, body: string) { return execute(bridge, sessionId, { code: `(function(){function activeComp(){var c=app.project&&app.project.activeItem;if(!(c instanceof CompItem))throw new Error("No active composition.");return c;} ${body}})()` }); }
 function output(value: unknown, isError = false) { return { content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }], isError }; }
 function q(value: unknown): string { return JSON.stringify(value); }
 

@@ -1,0 +1,10 @@
+{
+  "manifestVersion": 5,
+  "id": "com.snarkroute.photoshop",
+  "name": "SnarkRoute Tools",
+  "version": "0.1.0",
+  "main": "index.html",
+  "host": { "app": "PS", "minVersion": "25.0.0", "data": { "apiVersion": 2 } },
+  "entrypoints": [{ "type": "panel", "id": "snarkrouteTools", "label": { "default": "SnarkRoute Tools" }, "minimumSize": { "width": 280, "height": 360 }, "preferredDockedSize": { "width": 320, "height": 600 } }],
+  "requiredPermissions": { "network": { "domains": ["http://127.0.0.1:4317", "http://localhost:4317"] }, "localFileSystem": "request" }
+}

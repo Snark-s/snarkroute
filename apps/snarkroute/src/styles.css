@@ -221,6 +221,19 @@ dd {
   gap: 7px;
 }
 
+.appLaunchActions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  width: 100%;
+}
+
+.appLaunchActions button {
+  min-width: 0;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
 .buttonSetupActions button {
   display: inline-flex;
   gap: 5px;
@@ -238,7 +251,7 @@ dd {
   border-color: var(--accent);
 }
 
-.brandeshmygButtonIcon {
+.appButtonIcon {
   width: 16px;
   height: 16px;
   border-radius: 4px;
@@ -3937,6 +3950,26 @@ dd {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.generationParametersHint {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--panel-soft));
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.generationParametersHint svg {
+  margin-top: 1px;
+  color: var(--accent);
 }
 
 .generationParametersMenu label {

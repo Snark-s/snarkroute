@@ -13,6 +13,14 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   });
 }
 
+function bodyReadFailureResponse(message = "terminated"): Response {
+  return {
+    ok: true,
+    status: 200,
+    json: vi.fn().mockRejectedValue(new TypeError(message))
+  } as unknown as Response;
+}
+
 describe("Polza adapter", () => {
   afterEach(() => {
     delete process.env.BOOJUM_RUB_PER_USD;
@@ -49,7 +57,7 @@ describe("Polza adapter", () => {
   });
 
   it("builds Wan video payload with video-specific parameters", () => {
-    expect(buildMediaVideoRequestBody("wan/2.6", "pan across the skyline", { resolution: "1080p", duration: "10", multi_shots: "true", generate_audio: true }, [
+    expect(buildMediaVideoRequestBody("wan/2.6", "pan across the skyline", { resolution: "1080p", duration: "10", multi_shots: "true", generate_audio: true, provider: "polza", executionProvider: "polza", providerModelId: "wan/2.6", apiKey: "must-not-leak", authorizationToken: "must-not-leak" }, [
       { type: "base64", data: "data:image/png;base64,aaa" },
       { type: "url", data: "https://cdn.polza.ai/reference.png" }
     ])).toMatchObject({
@@ -97,6 +105,15 @@ describe("Polza adapter", () => {
     expect(body.input).toMatchObject({ aspect_ratio: "16:9", camera_control: "pan", images: expect.arrayContaining([expect.objectContaining({ role: "firstFrame" }), expect.objectContaining({ role: "lastFrame" })]), tail_image_url: { type: "url", data: "https://cdn/last.png" }, audios: [expect.objectContaining({ role: "audio" })], videos: [expect.objectContaining({ role: "sourceVideo" })] });
   });
 
+  it("adds required Kling 2.6 defaults when the UI catalog omits them", () => {
+    const body = buildMediaVideoRequestBody("kling/v2.6", "move", { resolution: "1080p", duration: "5" }) as { input: Record<string, unknown> };
+
+    expect(body.input).toMatchObject({
+      aspect_ratio: "16:9",
+      sound: "false"
+    });
+  });
+
   it("builds Kling 3 payload with its required mode and sound fields", () => {
     expect(buildMediaVideoRequestBody("kling/v3", "orbit @image 1 and transform into @image 2.", { resolution: "720p", duration: "5" }, [
       { type: "url", data: "https://cdn.polza.ai/start.png" },
@@ -117,6 +134,37 @@ describe("Polza adapter", () => {
       async: true,
       user: undefined
     });
+  });
+
+  it("builds a native Kling 3 Motion Control payload without generic video fields", () => {
+    expect(buildMediaVideoRequestBody("kling/v3-motion-control", "camera pulls away", {
+      resolution: "1080p",
+      duration: "5",
+      multi_shots: "false",
+      mode: "1080p",
+      character_orientation: "video"
+    }, [
+      { type: "url", data: "https://cdn.polza.ai/character.png" }
+    ], [], [
+      { type: "url", data: "https://cdn.polza.ai/motion.mp4" }
+    ])).toEqual({
+      model: "kling/v3-motion-control",
+      input: {
+        prompt: "camera pulls away",
+        images: [{ type: "url", data: "https://cdn.polza.ai/character.png" }],
+        videos: [{ type: "url", data: "https://cdn.polza.ai/motion.mp4" }],
+        mode: "1080p",
+        character_orientation: "video"
+      },
+      async: true,
+      user: undefined
+    });
+  });
+
+  it("rejects Kling 3 Motion Control before the provider call when media inputs are incomplete", () => {
+    expect(() => buildMediaVideoRequestBody("kling/v3-motion-control", "move", {}, [
+      { type: "url", data: "https://cdn.polza.ai/character.png" }
+    ])).toThrow("requires exactly one motion-reference video");
   });
 
   it("catalog pricing returns a Polza image quote", () => {
@@ -398,6 +446,65 @@ describe("Polza adapter", () => {
     expect(fetchImpl).toHaveBeenNthCalledWith(2, "https://polza.ai/api/v1/media/aig_123", expect.any(Object));
     expect(fetchImpl).toHaveBeenNthCalledWith(3, "https://polza.ai/api/v1/media/aig_123", expect.any(Object));
     expect(result.output).toMatchObject({ provider: "polza", image: { originalUrl: "https://cdn.polza.ai/out.png" } });
+  });
+
+  it("retries an interrupted media status response without creating another generation", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-poll-retry-"));
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ id: "aig_123", status: "pending" }))
+      .mockResolvedValueOnce(bodyReadFailureResponse())
+      .mockResolvedValueOnce(jsonResponse({ id: "aig_123", status: "completed", data: { url: "https://cdn.polza.ai/out.png" } }))
+      .mockResolvedValueOnce(new Response(Buffer.from("image"), { status: 200, headers: { "content-type": "image/png" } }));
+    const runner = createPolzaImageNodeRunner({ apiKey: "pza-test", fetchImpl, mediaPollIntervalMs: 1, retryDelayMs: 1 });
+
+    const result = await runner({
+      node: { id: "image", type: "polza.image.generate", params: {} },
+      params: { model: "openai/gpt-5.4-image-2", prompt: "draw" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    });
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://polza.ai/api/v1/media", expect.any(Object));
+    expect(fetchImpl).toHaveBeenNthCalledWith(2, "https://polza.ai/api/v1/media/aig_123", expect.any(Object));
+    expect(fetchImpl).toHaveBeenNthCalledWith(3, "https://polza.ai/api/v1/media/aig_123", expect.any(Object));
+    expect(result.output).toMatchObject({ provider: "polza", image: { originalUrl: "https://cdn.polza.ai/out.png" } });
+  });
+
+  it("does not repeat a generation POST when its successful response body is interrupted", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-post-unknown-"));
+    const fetchImpl = vi.fn().mockResolvedValueOnce(bodyReadFailureResponse());
+    const runner = createPolzaImageNodeRunner({ apiKey: "pza-test", fetchImpl, retryDelayMs: 1 });
+
+    await expect(runner({
+      node: { id: "image", type: "polza.image.generate", params: {} },
+      params: { model: "openai/gpt-5.4-image-2", prompt: "draw" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    })).rejects.toMatchObject({
+      name: "ProviderOutcomeUnknownError",
+      provider: "polza"
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the Polza operation id when status response retries are exhausted", async () => {
+    const outputDirectory = await mkdtemp(join(tmpdir(), "sr-polza-poll-unknown-"));
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ id: "aig_123", status: "pending" }))
+      .mockResolvedValue(bodyReadFailureResponse());
+    const runner = createPolzaImageNodeRunner({ apiKey: "pza-test", fetchImpl, mediaPollIntervalMs: 1, retryDelayMs: 1 });
+
+    await expect(runner({
+      node: { id: "image", type: "polza.image.generate", params: {} },
+      params: { model: "openai/gpt-5.4-image-2", prompt: "draw" },
+      inputs: {},
+      context: { runId: "r", route: {} as never, outputDirectory, nodeOutputs: {}, log: () => undefined }
+    })).rejects.toMatchObject({
+      name: "ProviderOutcomeUnknownError",
+      provider: "polza",
+      externalId: "aig_123"
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
   });
 
   it("routes OpenAI-compatible Polza image models through image generations", async () => {
