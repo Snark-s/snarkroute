@@ -5,14 +5,14 @@ describe("VastClient", () => {
   it("selects the cheapest safe H3 offer below the configured ceiling and outside excluded regions", () => {
     const selected = selectH3VastOffer([
       { id: 1, dph_total: 0.75, gpu_name: "RTX 4090", gpu_ram: 49152, cpu_ram: 262144, disk_space: 500, cuda_max_good: 13, reliability2: 0.99, direct_port_count: 2, geolocation: "Texas, US", num_gpus: 1 },
-      { id: 2, dph_total: 1.05, gpu_name: "RTX 6000 Ada", gpu_ram: 49152, cpu_ram: 270000, disk_space: 400, cuda_max_good: 13.1, reliability2: 0.995, direct_port_count: 2, geolocation: "Tokyo, JP", num_gpus: 1 },
-      { id: 3, dph_total: 1.25, gpu_name: "RTX 6000 Ada", gpu_ram: 49152, cpu_ram: 270000, disk_space: 400, cuda_max_good: 13.1, reliability2: 0.995, direct_port_count: 2, geolocation: "Osaka, JP", num_gpus: 1 }
+      { id: 2, dph_total: 1.05, gpu_name: "RTX 6000 Ada", gpu_ram: 49152, cpu_ram: 270000, disk_space: 400, cuda_max_good: 13.2, reliability2: 0.995, direct_port_count: 2, geolocation: "Tokyo, JP", num_gpus: 1 },
+      { id: 3, dph_total: 1.25, gpu_name: "RTX 6000 Ada", gpu_ram: 49152, cpu_ram: 270000, disk_space: 400, cuda_max_good: 13.2, reliability2: 0.995, direct_port_count: 2, geolocation: "Osaka, JP", num_gpus: 1 }
     ], { maxHourlyUsd: 1.2, excludedCountryCodes: ["US", "GB", "KR"] });
     expect(selected?.id).toBe(2);
   });
 
   it("fails closed when an offer has no country or enough direct ports", () => {
-    const base = { dph_total: 0.5, gpu_name: "GPU", gpu_ram: 49152, cpu_ram: 262144, disk_space: 300, cuda_max_good: 13, reliability2: 0.99, num_gpus: 1 };
+    const base = { dph_total: 0.5, gpu_name: "GPU", gpu_ram: 49152, cpu_ram: 262144, disk_space: 300, cuda_max_good: 13.2, reliability2: 0.99, num_gpus: 1 };
     expect(selectH3VastOffer([
       { ...base, id: 1, direct_port_count: 2 },
       { ...base, id: 2, direct_port_count: 1, geolocation: "JP" }
@@ -27,5 +27,25 @@ describe("VastClient", () => {
     await client.destroyAndConfirm(49258049, { retries: 1, delayMs: 0 });
     expect(fetchImpl.mock.calls[0]?.[0]).toBe("https://console.vast.ai/api/v0/instances/49258049");
     expect(fetchImpl.mock.calls[1]?.[0]).toBe("https://console.vast.ai/api/v0/instances/49258049");
+  });
+
+  it("creates a private SSH template and returns its content hash", async () => {
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => new Response(JSON.stringify({ id: 77, hash_id: "template-content-hash" }), { status: 200 }));
+    const client = new VastClient({ apiKey: "vast-secret", fetchImpl: fetchImpl as typeof fetch });
+    const template = await client.createTemplate({
+      name: "H3",
+      description: "Pinned H3",
+      readme: "Private template",
+      image: "vastai/pytorch",
+      tag: "pinned",
+      env: "-e SAFE=value",
+      onstart: "echo ready",
+      extraFilters: { cuda_max_good: { gte: 13.2 } },
+      recommendedDiskSpaceGb: 300
+    });
+    expect(template).toEqual({ id: 77, hashId: "template-content-hash" });
+    const request = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(request).toMatchObject({ private: true, runtype: "ssh", ssh_direct: true, recommended_disk_space: 300 });
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe("https://console.vast.ai/api/v0/template/");
   });
 });

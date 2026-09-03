@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { h3StudioDirectory } from "../server-paths";
 import { deleteEnvValue, writeEnvValue } from "../services/env";
@@ -5,6 +6,7 @@ import { errorMessage } from "../services/errors";
 import { inspectH3Connection, normalizeH3WorkerUrl } from "../services/h3-connection";
 import { H3QueueService, H3_QUEUE_OPERATIONS, type H3QueueAsset, type H3QueueOperation, type H3SessionMode } from "../services/h3-queue";
 import { createDefaultH3QueueRuntime, h3VastConfigStatus } from "../services/h3-session-runtime";
+import { createH3VastTemplate } from "../services/h3-vast-template";
 
 const h3QueueService = new H3QueueService({ directory: h3StudioDirectory, runtime: createDefaultH3QueueRuntime() });
 
@@ -91,7 +93,8 @@ export async function registerH3Routes(app: FastifyInstance) {
         ["HF_TOKEN", request.body?.hfToken, validateSecret],
         ["H3_WORKER_SERVICE_TOKEN", request.body?.serviceToken, validateSecret],
         ["H3_VAST_TEMPLATE_HASH", request.body?.templateHash, validateTemplateHash],
-        ["H3_VAST_WORKER_URL_TEMPLATE", request.body?.workerUrlTemplate, validateWorkerUrlTemplate]
+        ["H3_VAST_WORKER_URL_TEMPLATE", request.body?.workerUrlTemplate, validateWorkerUrlTemplate],
+        ["H3_VAST_SSH_PRIVATE_KEY", request.body?.sshPrivateKeyPath, validateLocalPath]
       ];
       for (const [key, raw, validate] of values) {
         const value = raw?.trim();
@@ -113,7 +116,36 @@ export async function registerH3Routes(app: FastifyInstance) {
         await writeEnvValue("H3_VAST_EXCLUDED_COUNTRIES", value);
         process.env.H3_VAST_EXCLUDED_COUNTRIES = value;
       }
+      if (!process.env.H3_WORKER_SERVICE_TOKEN?.trim()) {
+        const serviceToken = randomBytes(32).toString("hex");
+        await writeEnvValue("H3_WORKER_SERVICE_TOKEN", serviceToken);
+        process.env.H3_WORKER_SERVICE_TOKEN = serviceToken;
+      }
+      if (request.body?.acceptLicense === true) {
+        await writeEnvValue("H3_ACCEPT_MODEL_LICENSE", "1");
+        process.env.H3_ACCEPT_MODEL_LICENSE = "1";
+      }
+      await writeEnvValue("H3_VAST_CONNECTION_MODE", "ssh_tunnel");
+      process.env.H3_VAST_CONNECTION_MODE = "ssh_tunnel";
       return { ok: true, status: h3VastConfigStatus() };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/h3/vast/template", async (_request, reply) => {
+    try {
+      const before = h3VastConfigStatus();
+      if (!before.apiKeyConfigured) throw new Error("Save the Vast API key first.");
+      if (!before.hfTokenConfigured) throw new Error("Save the Hugging Face token first.");
+      if (!before.licenseAccepted) throw new Error("Accept the pinned MiniMax H3 model license first.");
+      if (!before.sshKeyConfigured) throw new Error("No local SSH private key was found. Select the key used by Vast first.");
+      const template = await createH3VastTemplate(process.env.VAST_API_KEY!);
+      await writeEnvValue("H3_VAST_TEMPLATE_HASH", template.hashId);
+      process.env.H3_VAST_TEMPLATE_HASH = template.hashId;
+      await writeEnvValue("H3_VAST_CONNECTION_MODE", "ssh_tunnel");
+      process.env.H3_VAST_CONNECTION_MODE = "ssh_tunnel";
+      return { ok: true, template, status: h3VastConfigStatus() };
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -172,8 +204,10 @@ type H3VastConfigBody = {
   serviceToken?: string;
   templateHash?: string;
   workerUrlTemplate?: string;
+  sshPrivateKeyPath?: string;
   maxHourlyUsd?: number;
   excludedCountryCodes?: string[];
+  acceptLicense?: boolean;
 };
 
 function operationValue(value: unknown): H3QueueOperation {
@@ -202,4 +236,7 @@ function validateWorkerUrlTemplate(value: string): void {
   if (!value.startsWith("https://")) throw new Error("Managed Vast worker URL template must use HTTPS.");
   const sample = value.replace(/\{instance_id\}/g, "1").replace(/\{public_ipaddr\}/g, "203.0.113.10").replace(/\{ssh_host\}/g, "ssh.example.test").replace(/\{ssh_port\}/g, "22");
   normalizeH3WorkerUrl(sample);
+}
+function validateLocalPath(value: string): void {
+  if (value.includes("\0") || value.length > 1_024) throw new Error("SSH private key path is invalid.");
 }

@@ -30,6 +30,23 @@ export type VastInstance = {
   geolocation?: string;
 };
 
+export type VastTemplateInput = {
+  name: string;
+  description: string;
+  readme: string;
+  image: string;
+  tag: string;
+  env: string;
+  onstart: string;
+  extraFilters: Record<string, unknown>;
+  recommendedDiskSpaceGb: number;
+};
+
+export type VastTemplate = {
+  id?: number;
+  hashId: string;
+};
+
 export const DEFAULT_EXCLUDED_H3_COUNTRIES = [
   "US", "GB", "KR",
   "AT", "BE", "BG", "HR", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GR", "HU", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK"
@@ -61,7 +78,7 @@ export class VastClient {
         cpu_ram: { gte: 262_144 },
         disk_space: { gte: options.allocatedStorageGb ?? 300 },
         reliability2: { gte: 0.985 },
-        cuda_max_good: { gte: 13 },
+        cuda_max_good: { gte: 13.2 },
         direct_port_count: { gte: 2 },
         cpu_arch: { eq: "amd64" },
         allocated_storage: options.allocatedStorageGb ?? 300,
@@ -93,6 +110,43 @@ export class VastClient {
     const instanceId = numberField(payload.new_contract);
     if (!instanceId) throw new Error(stringField(payload.msg) ?? "Vast did not return the new instance id.");
     return { instanceId, ...(stringField(payload.instance_api_key) ? { instanceApiKey: stringField(payload.instance_api_key)! } : {}) };
+  }
+
+  async createTemplate(input: VastTemplateInput): Promise<VastTemplate> {
+    const payload = await this.json("/template/", {
+      method: "POST",
+      body: JSON.stringify({
+        name: input.name,
+        desc: input.description,
+        readme: input.readme,
+        image: input.image,
+        tag: input.tag,
+        repo: input.image,
+        href: `https://hub.docker.com/r/${input.image}`,
+        env: input.env,
+        onstart: input.onstart,
+        args_str: "",
+        runtype: "ssh",
+        ssh_direct: true,
+        use_ssh: true,
+        jup_direct: false,
+        use_jupyter_lab: false,
+        docker_login_repo: "",
+        docker_login_user: "",
+        docker_login_pass: "",
+        extra_filters: input.extraFilters,
+        recommended_disk_space: input.recommendedDiskSpaceGb,
+        private: true,
+        volume_info: null
+      })
+    });
+    const template = record(payload.template);
+    const hashId = stringField(payload.hash_id) ?? stringField(template?.hash_id);
+    if (!hashId) throw new Error(stringField(payload.msg) ?? "Vast did not return the template hash id.");
+    return {
+      hashId,
+      ...(numberField(payload.id) ?? numberField(template?.id) ? { id: numberField(payload.id) ?? numberField(template?.id) } : {})
+    };
   }
 
   async getInstance(instanceId: number): Promise<VastInstance | null> {
@@ -168,7 +222,7 @@ export function selectH3VastOffer(offers: VastOffer[], options: { maxHourlyUsd: 
       && offer.gpu_ram >= 49_152
       && offer.cpu_ram >= 262_144
       && offer.disk_space >= 300
-      && offer.cuda_max_good >= 13
+      && offer.cuda_max_good >= 13.2
       && (offer.direct_port_count ?? 0) >= 2
       && (offer.reliability2 ?? offer.reliability ?? 0) >= 0.985
       && offer.dph_total <= maximum

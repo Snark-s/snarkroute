@@ -10,22 +10,29 @@ The managed button **Rent → render → destroy** is enabled only after the loc
 
 - `VAST_API_KEY`;
 - `HF_TOKEN`;
-- `H3_WORKER_SERVICE_TOKEN`;
-- `H3_VAST_TEMPLATE_HASH` for a Vast template that starts this repository's H3 worker without manual SSH steps;
-- `H3_VAST_WORKER_URL_TEMPLATE`, an external HTTPS URL such as `https://{public_ipaddr}:8000`;
+- accepted MiniMax H3 model license (`H3_ACCEPT_MODEL_LICENSE=1`);
+- a local SSH private key that matches a public key already added to the Vast account;
+- `H3_WORKER_SERVICE_TOKEN`, generated automatically if it is not already saved;
+- `H3_VAST_TEMPLATE_HASH`, created and saved by H3 Studio;
 - `H3_VAST_MAX_HOURLY_USD`, the hard offer-price ceiling.
 
-The Vast template is part of the deployment contract: it must expose the authenticated H3 API, download or mount the pinned weights, run readiness checks, and keep the service alive. A generic CUDA/Jupyter template is not sufficient.
+Open **Automatic Vast rental** in H3 Studio, enter the Vast API key and HF token once, confirm the model license, and press **Prepare automatic launch**. SnarkRoute creates a private Vast template through the official template API. The template pins:
+
+- source revision `a5e3a57c0806ee10d719f0631eee7fb61f51124c`;
+- image `vastai/pytorch:2.13.0-cu130-cuda-13.2-mini-py312-2026-09-01`;
+- one GPU with at least 48 GiB VRAM, 256 GiB host RAM, 300 GB disk and Max CUDA 13.2;
+- SSH direct mode and the fail-closed FL2VA `kitchen_int8` bootstrap.
+
+No provider secret is stored in the template. The Vast create-instance request injects secrets for that instance only. The H3 API binds to remote `127.0.0.1:18080`; the local SnarkRoute server starts and owns the SSH tunnel automatically, so no H3 API port is exposed publicly. Vast documents template hashes, private templates, merged instance environment variables, and SSH launch mode in its [template API guide](https://docs.vast.ai/api-reference/creating-and-using-templates-with-api).
 
 A generic NVIDIA PyTorch/Jupyter template can still be used for a **manual first test** with
-`scripts/bootstrap_vast_fl2va.sh`. That script does not make the template compatible with the
-managed button; it prepares one SSH-tunnelled FL2VA worker on an already rented instance.
+`scripts/bootstrap_vast_fl2va.sh`. It prepares the same SSH-tunnelled FL2VA worker on an already rented instance, but the managed path now performs these steps without Jupyter or terminal input.
 
 Immediately after Vast returns an instance ID, SnarkRoute persists that exact ID in `data/h3-studio/queue.json`. The session destroys that ID in a `finally` cleanup path after success, render failure, or startup timeout, then confirms the instance is absent. If confirmation fails, H3 Studio enters a red `cleanup_failed` state, retains the exact instance ID, and exposes a retry button. Do not assume billing stopped until cleanup is confirmed. Vast documents that destroying an instance stops all charges, while stopping it may continue storage charges: [Destroy instance](https://docs.vast.ai/api-reference/instances/destroy-instance).
 
 ## Select an offer
 
-Use Vast.ai's live search at rental time. Record the complete hourly price in `GPU_USD_PER_HOUR` and set `MAX_BUDGET_USD`. First rent a verified 48 GB modified RTX 4090 (or another 48 GB CUDA-13-capable GPU), at least 256 GiB usable RAM, 300 GB disk, and an NVIDIA r580-or-newer driver. Run explicit `kitchen_int8`; use BF16 offload as the A/B baseline. The 2026-08-30 validation peaked at 30,422 MiB during startup, 18,788 MB during a 20-step 1344×768 generation, and 247.46 GiB cgroup memory, so an ordinary 24 GB 4090/192 GiB host is now a follow-up compatibility test rather than the safest first rental. The lossless alternative is 2×RTX 5090 32 GB with peer access and 384 GiB-class RAM. Avoid interruptible offers for the first model download unless the volume persists independently.
+Use Vast.ai's live search at rental time. Record the complete hourly price in `GPU_USD_PER_HOUR` and set `MAX_BUDGET_USD`. The managed pinned image requires Max CUDA 13.2. First rent a verified 48 GB modified RTX 4090 (or another 48 GB CUDA-13.2-capable GPU), at least 256 GiB usable RAM, 300 GB disk, and a compatible current NVIDIA driver. Run explicit `kitchen_int8`; use BF16 offload as the A/B baseline. The 2026-08-30 validation peaked at 30,422 MiB during startup, 18,788 MB during a 20-step 1344×768 generation, and 247.46 GiB cgroup memory, so an ordinary 24 GB 4090/192 GiB host is now a follow-up compatibility test rather than the safest first rental. The lossless alternative is 2×RTX 5090 32 GB with peer access and 384 GiB-class RAM. Avoid interruptible offers for the first model download unless the volume persists independently.
 
 Set maximum duration/auto-destroy before launch. Bind the worker to localhost and use an SSH tunnel or private authenticated proxy.
 

@@ -90,6 +90,10 @@ Keep `bf16_offload` as the lossless comparison profile on the same card. The off
 
 ## First server launch
 
+H3 Studio can create its own private Vast template and run the complete managed path without Jupyter or manual terminal commands. The template pins source revision `a5e3a57c0806ee10d719f0631eee7fb61f51124c` and `vastai/pytorch:2.13.0-cu130-cuda-13.2-mini-py312-2026-09-01`, injects secrets only when creating an instance, runs the fail-closed bootstrap, and exposes the localhost-only worker through a SnarkRoute-owned SSH tunnel. See `docs/runbooks/minimax-h3-vast.md` for the one-time UI setup and manual fallback.
+
+The commands below remain the provider-neutral manual path.
+
 From `workers/minimax-h3`, after checking the current provider price and setting provider-side auto-stop:
 
 ```bash

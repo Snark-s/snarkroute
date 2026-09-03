@@ -4,18 +4,28 @@ import { createH3WorkerClient, type H3GenerationInput, type H3Reference, type H3
 import { h3StudioDirectory } from "../server-paths";
 import { inspectH3Connection, normalizeH3WorkerUrl } from "./h3-connection";
 import { H3ManagedInstanceError, H3QueueBlockedError, type H3QueueItem, type H3QueueLease, type H3QueueRuntime, type H3SessionMode } from "./h3-queue";
+import { openH3SshTunnel, resolveH3SshPrivateKeyPath, type H3SshTunnel } from "./h3-ssh-tunnel";
+import { H3_VAST_IMAGE, H3_VAST_IMAGE_TAG, H3_VAST_SOURCE_REVISION } from "./h3-vast-template";
 import { DEFAULT_EXCLUDED_H3_COUNTRIES, selectH3VastOffer, VastClient, type VastInstance } from "./vast-client";
+
+const activeVastTunnels = new Map<number, H3SshTunnel>();
 
 export type H3VastConfigStatus = {
   configured: boolean;
   apiKeyConfigured: boolean;
   templateHashConfigured: boolean;
   workerUrlTemplateConfigured: boolean;
+  sshKeyConfigured: boolean;
   hfTokenConfigured: boolean;
   serviceTokenConfigured: boolean;
+  licenseAccepted: boolean;
+  connectionMode: "ssh_tunnel" | "external_https";
   maxHourlyUsd: number;
   excludedCountryCodes: string[];
   workerUrlTemplate: string;
+  sshPrivateKeyPath: string;
+  sourceRevision: string;
+  image: string;
   reason?: string;
 };
 
@@ -24,22 +34,33 @@ export function h3VastConfigStatus(): H3VastConfigStatus {
   const templateHashConfigured = Boolean(process.env.H3_VAST_TEMPLATE_HASH?.trim());
   const workerUrlTemplate = process.env.H3_VAST_WORKER_URL_TEMPLATE?.trim() ?? "";
   const workerUrlTemplateConfigured = Boolean(workerUrlTemplate);
+  const connectionMode = process.env.H3_VAST_CONNECTION_MODE === "external_https" ? "external_https" : "ssh_tunnel";
+  const sshPrivateKeyPath = resolveH3SshPrivateKeyPath();
+  const sshKeyConfigured = Boolean(sshPrivateKeyPath);
   const hfTokenConfigured = Boolean(process.env.HF_TOKEN?.trim());
   const serviceTokenConfigured = Boolean(process.env.H3_WORKER_SERVICE_TOKEN?.trim());
+  const licenseAccepted = process.env.H3_ACCEPT_MODEL_LICENSE === "1";
   const maxHourlyUsd = positiveNumber(process.env.H3_VAST_MAX_HOURLY_USD, 1.2);
   const excludedCountryCodes = excludedCountries();
-  const configured = apiKeyConfigured && templateHashConfigured && workerUrlTemplateConfigured && hfTokenConfigured && serviceTokenConfigured;
+  const transportConfigured = connectionMode === "ssh_tunnel" ? sshKeyConfigured : workerUrlTemplateConfigured;
+  const configured = apiKeyConfigured && templateHashConfigured && transportConfigured && hfTokenConfigured && serviceTokenConfigured && licenseAccepted;
   return {
     configured,
     apiKeyConfigured,
     templateHashConfigured,
     workerUrlTemplateConfigured,
+    sshKeyConfigured,
     hfTokenConfigured,
     serviceTokenConfigured,
+    licenseAccepted,
+    connectionMode,
     maxHourlyUsd,
     excludedCountryCodes,
     workerUrlTemplate,
-    ...(configured ? {} : { reason: "Vast mode requires API key, template hash, HTTPS worker URL template, HF token, and H3 service token." })
+    sshPrivateKeyPath,
+    sourceRevision: H3_VAST_SOURCE_REVISION,
+    image: `${H3_VAST_IMAGE}:${H3_VAST_IMAGE_TAG}`,
+    ...(configured ? {} : { reason: "Vast mode requires an API key, generated template, HF token, accepted model license, H3 service token, and a local SSH private key." })
   };
 }
 
@@ -81,6 +102,8 @@ async function acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Pr
       env: {
         HF_TOKEN: requiredEnv("HF_TOKEN"),
         H3_WORKER_SERVICE_TOKEN: requiredEnv("H3_WORKER_SERVICE_TOKEN"),
+        H3_ACCEPT_MODEL_LICENSE: "1",
+        H3_SNARKROUTE_REVISION: H3_VAST_SOURCE_REVISION,
         H3_SGLANG_PRECISION_PROFILE: process.env.H3_SGLANG_PRECISION_PROFILE?.trim() || "kitchen_int8"
       }
     });
@@ -96,7 +119,9 @@ async function acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Pr
       timeoutMs: positiveInteger(process.env.H3_VAST_STARTUP_TIMEOUT_MS, 25 * 60_000),
       pollMs: positiveInteger(process.env.H3_VAST_POLL_MS, 10_000)
     });
-    const workerUrl = resolveWorkerUrl(requiredEnv("H3_VAST_WORKER_URL_TEMPLATE"), instance);
+    const workerUrl = config.connectionMode === "external_https"
+      ? resolveWorkerUrl(requiredEnv("H3_VAST_WORKER_URL_TEMPLATE"), instance)
+      : await openManagedTunnel(instance);
     await waitForWorker(workerUrl, requiredEnv("H3_WORKER_SERVICE_TOKEN"), fetchImpl);
     return {
       workerUrl,
@@ -107,6 +132,7 @@ async function acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Pr
     };
   } catch (error) {
     if (!instanceId) throw error;
+    await closeManagedTunnel(instanceId);
     try {
       await vast.destroyAndConfirm(instanceId);
     } catch (cleanupError) {
@@ -174,12 +200,36 @@ async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progr
 async function cleanup(lease: H3QueueLease, fetchImpl: typeof fetch): Promise<void> {
   if (!lease.managedInstanceId) return;
   const client = new VastClient({ apiKey: requiredEnv("VAST_API_KEY"), fetchImpl });
-  await client.destroyAndConfirm(lease.managedInstanceId);
+  try {
+    await client.destroyAndConfirm(lease.managedInstanceId);
+  } finally {
+    await closeManagedTunnel(lease.managedInstanceId);
+  }
+}
+
+async function openManagedTunnel(instance: VastInstance): Promise<string> {
+  const host = String(instance.ssh_host ?? instance.public_ipaddr ?? "");
+  const port = Number(instance.ssh_port ?? 0);
+  const tunnel = await openH3SshTunnel({
+    instanceId: instance.id,
+    host,
+    port,
+    privateKeyPath: process.env.H3_VAST_SSH_PRIVATE_KEY,
+    remotePort: positiveInteger(process.env.H3_VAST_REMOTE_WORKER_PORT, 18_080)
+  });
+  activeVastTunnels.set(instance.id, tunnel);
+  return tunnel.workerUrl;
+}
+
+async function closeManagedTunnel(instanceId: number): Promise<void> {
+  const tunnel = activeVastTunnels.get(instanceId);
+  activeVastTunnels.delete(instanceId);
+  await tunnel?.close();
 }
 
 async function waitForWorker(workerUrl: string, serviceToken: string, fetchImpl: typeof fetch): Promise<void> {
   const started = Date.now();
-  const timeoutMs = positiveInteger(process.env.H3_VAST_WORKER_READY_TIMEOUT_MS, 25 * 60_000);
+  const timeoutMs = positiveInteger(process.env.H3_VAST_WORKER_READY_TIMEOUT_MS, 90 * 60_000);
   let lastReason = "worker is not ready";
   while (Date.now() - started < timeoutMs) {
     const status = await inspectH3Connection({ workerUrl, serviceToken, fetchImpl, timeoutMs: 10_000 });

@@ -34,7 +34,7 @@ const EMPTY_STATUS: ConnectionStatus = {
   capabilities: []
 };
 
-const VAST_H3_SEARCH_URL = "https://cloud.vast.ai/create/?gpuRamMin=49152&instanceDiskSizeMin=300&machinePortsOpenMin=2&machineReliabilityMin=0.985&offerGpuNumMax=1&offerGpuNumMin=1&versionCudaMin=13&machineCpuRamMin=262144";
+const VAST_H3_SEARCH_URL = "https://cloud.vast.ai/create/?gpuRamMin=49152&instanceDiskSizeMin=300&machinePortsOpenMin=2&machineReliabilityMin=0.985&offerGpuNumMax=1&offerGpuNumMin=1&versionCudaMin=13.2&machineCpuRamMin=262144";
 
 const vastH3Filters = [
   "1× GPU",

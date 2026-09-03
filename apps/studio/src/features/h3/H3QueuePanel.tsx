@@ -43,11 +43,17 @@ type VastStatus = {
   apiKeyConfigured: boolean;
   templateHashConfigured: boolean;
   workerUrlTemplateConfigured: boolean;
+  sshKeyConfigured: boolean;
   hfTokenConfigured: boolean;
   serviceTokenConfigured: boolean;
+  licenseAccepted: boolean;
+  connectionMode: "ssh_tunnel" | "external_https";
   maxHourlyUsd: number;
   excludedCountryCodes: string[];
   workerUrlTemplate: string;
+  sshPrivateKeyPath: string;
+  sourceRevision: string;
+  image: string;
   reason?: string;
 };
 type QueueState = { version: 1; items: QueueItem[]; session: QueueSession; vast: VastStatus };
@@ -91,7 +97,8 @@ const assetSlots: Record<Operation, Array<{ slot: AssetSlot; kind: AssetKind; la
 
 const EMPTY_VAST: VastStatus = {
   configured: false, apiKeyConfigured: false, templateHashConfigured: false, workerUrlTemplateConfigured: false,
-  hfTokenConfigured: false, serviceTokenConfigured: false, maxHourlyUsd: 1.2, excludedCountryCodes: [], workerUrlTemplate: ""
+  sshKeyConfigured: false, hfTokenConfigured: false, serviceTokenConfigured: false, licenseAccepted: false,
+  connectionMode: "ssh_tunnel", maxHourlyUsd: 1.2, excludedCountryCodes: [], workerUrlTemplate: "", sshPrivateKeyPath: "", sourceRevision: "", image: ""
 };
 
 export function H3QueuePanel() {
@@ -112,7 +119,7 @@ export function H3QueuePanel() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [vastOpen, setVastOpen] = useState(false);
-  const [vastForm, setVastForm] = useState({ apiKey: "", hfToken: "", serviceToken: "", templateHash: "", workerUrlTemplate: "", maxHourlyUsd: "1.2" });
+  const [vastForm, setVastForm] = useState({ apiKey: "", hfToken: "", sshPrivateKeyPath: "", maxHourlyUsd: "1.2", acceptLicense: false });
 
   const sessionActive = Boolean(state && ["connecting", "rendering", "cleaning"].includes(state.session.status));
   const operationInfo = useMemo(() => operations.find((item) => item.value === operation)!, [operation]);
@@ -141,7 +148,12 @@ export function H3QueuePanel() {
       const result = await response.json() as QueueState & { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Не удалось прочитать очередь H3.");
       setState(result);
-      setVastForm((current) => ({ ...current, maxHourlyUsd: String(result.vast?.maxHourlyUsd ?? 1.2), workerUrlTemplate: current.workerUrlTemplate || result.vast?.workerUrlTemplate || "" }));
+      setVastForm((current) => ({
+        ...current,
+        maxHourlyUsd: String(result.vast?.maxHourlyUsd ?? 1.2),
+        sshPrivateKeyPath: current.sshPrivateKeyPath || result.vast?.sshPrivateKeyPath || "",
+        acceptLicense: current.acceptLicense || result.vast?.licenseAccepted === true
+      }));
     } catch (error) {
       if (showError) setMessage(errorText(error));
     }
@@ -259,8 +271,9 @@ export function H3QueuePanel() {
     finally { setBusy(false); }
   }
 
-  async function saveVast() {
+  async function prepareVastTemplate() {
     setBusy(true);
+    setMessage("Сохраняю секреты и создаю приватный H3 template в Vast…");
     try {
       const response = await apiFetch(`${apiBase}/api/h3/vast`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -272,8 +285,11 @@ export function H3QueuePanel() {
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Не удалось сохранить Vast-настройки.");
-      setVastForm((current) => ({ ...current, apiKey: "", hfToken: "", serviceToken: "", templateHash: "" }));
-      setMessage("Vast-настройки и секреты сохранены локально.");
+      const templateResponse = await apiFetch(`${apiBase}/api/h3/vast/template`, { method: "POST" });
+      const templateResult = await templateResponse.json() as { template?: { hashId?: string }; error?: string };
+      if (!templateResponse.ok || !templateResult.template?.hashId) throw new Error(templateResult.error ?? "Vast не вернул hash созданного шаблона.");
+      setVastForm((current) => ({ ...current, apiKey: "", hfToken: "" }));
+      setMessage(`Приватный H3 template создан и сохранён (${templateResult.template.hashId}). Автоматический запуск готов.`);
       await refresh(false);
     } catch (error) { setMessage(errorText(error)); }
     finally { setBusy(false); }
@@ -348,16 +364,17 @@ export function H3QueuePanel() {
 
       <button className={`h3AdvancedToggle ${vastOpen ? "open" : ""}`} type="button" onClick={() => setVastOpen((value) => !value)}><Settings2 size={15} /> Автоматическая аренда Vast <span>{state?.vast.configured ? "настроена" : "не настроена"}</span></button>
       {vastOpen ? <div className="h3VastConfig">
-        <p>Нужен Vast template, который сам запускает H3 worker с внешним HTTPS endpoint. Секреты сохраняются только локальным API SnarkRoute и обратно не показываются.</p>
+        <p>SnarkRoute сам создаст приватный Vast template, запустит worker и откроет локальный SSH-туннель. Терминал, Jupyter и внешний публичный H3-порт не понадобятся. Секреты сохраняются только локальным API и обратно не показываются.</p>
+        <p><strong>Закреплено:</strong> {state?.vast.image || "образ загружается…"} · source {state?.vast.sourceRevision?.slice(0, 12) || "…"}</p>
         <div className="h3VastConfigGrid">
           <SecretInput label={`Vast API key${state?.vast.apiKeyConfigured ? " · сохранён" : ""}`} value={vastForm.apiKey} onChange={(value) => setVastForm((current) => ({ ...current, apiKey: value }))} />
           <SecretInput label={`HF token${state?.vast.hfTokenConfigured ? " · сохранён" : ""}`} value={vastForm.hfToken} onChange={(value) => setVastForm((current) => ({ ...current, hfToken: value }))} />
-          <SecretInput label={`H3 service token${state?.vast.serviceTokenConfigured ? " · сохранён" : ""}`} value={vastForm.serviceToken} onChange={(value) => setVastForm((current) => ({ ...current, serviceToken: value }))} />
-          <label><span>Template hash{state?.vast.templateHashConfigured ? " · сохранён" : ""}</span><input value={vastForm.templateHash} onChange={(event) => setVastForm((current) => ({ ...current, templateHash: event.target.value }))} placeholder="Vast template hash" /></label>
-          <label><span>HTTPS URL worker</span><input value={vastForm.workerUrlTemplate} onChange={(event) => setVastForm((current) => ({ ...current, workerUrlTemplate: event.target.value }))} placeholder="https://{public_ipaddr}:8000" /></label>
+          <label><span>SSH private key{state?.vast.sshKeyConfigured ? " · найден" : ""}</span><input value={vastForm.sshPrivateKeyPath} onChange={(event) => setVastForm((current) => ({ ...current, sshPrivateKeyPath: event.target.value }))} placeholder="Обычно определяется из ~/.ssh/id_ed25519" /></label>
           <label><span>Предел $/час</span><input type="number" min="0.01" max="20" step="0.01" value={vastForm.maxHourlyUsd} onChange={(event) => setVastForm((current) => ({ ...current, maxHourlyUsd: event.target.value }))} /></label>
         </div>
-        <button type="button" disabled={busy} onClick={() => void saveVast()}><Settings2 size={15} /> Сохранить локально</button>
+        <label className="h3LicenseAccept"><input type="checkbox" checked={vastForm.acceptLicense} onChange={(event) => setVastForm((current) => ({ ...current, acceptLicense: event.target.checked }))} /><span>Я ознакомился и принимаю лицензию закреплённой модели MiniMax H3.</span></label>
+        <button type="button" disabled={busy || !vastForm.acceptLicense} onClick={() => void prepareVastTemplate()}><Settings2 size={15} /> {state?.vast.templateHashConfigured ? "Пересоздать приватный H3 template" : "Подготовить автоматический запуск"}</button>
+        {!state?.vast.sshKeyConfigured ? <p className="h3OperationNote blocked"><AlertTriangle size={14} /> Не найден локальный SSH-ключ, добавленный в аккаунт Vast. Укажи путь к private key.</p> : null}
       </div> : null}
     </section>
   );
