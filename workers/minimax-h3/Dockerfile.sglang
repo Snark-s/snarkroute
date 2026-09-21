@@ -1,11 +1,11 @@
-# kitchen_int8 was merged after SGLang 0.5.17. Pin the reviewed source commit.
+# Pin the reviewed SGLang 0.5.19 release commit with the low-memory H3 recipe.
 FROM nvidia/cuda:13.0.1-cudnn-devel-ubuntu24.04
 
 ARG APP_UID=10001
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     HF_HOME=/models/huggingface \
-    SGLANG_COMMIT=3f26febaff04bac4cfefd60bdc9097bc26a96cb8 \
+    SGLANG_COMMIT=0bcd822377da7b5718e674eaf9c870d349424dd1 \
     SGLANG_BUILD_RUST_EXTS=none \
     COMFY_KITCHEN_VERSION=0.2.31 \
     H3_SGLANG_PRECISION_PROFILE=bf16_offload \

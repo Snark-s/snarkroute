@@ -14,8 +14,9 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
-from .backends import CapabilityUnavailable, create_backend
+from .backends import BackendFailure, CapabilityUnavailable, create_backend
 from .config import Settings
+from .model_manager import DOWNLOADS, H3ModelManager
 from .models import GenerateRequest, JobView, StructuredError
 from .storage import JobRepository, create_result_store
 
@@ -44,6 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configured = settings or Settings.from_env()
     repository = JobRepository(configured.result_dir)
     backend = create_backend(configured)
+    model_manager = H3ModelManager(configured)
     result_store = create_result_store(configured)
     jobs: dict[str, dict[str, Any]] = {}
     idempotency: dict[str, str] = {}
@@ -137,6 +139,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 progress=None,
                 error=StructuredError(
                     code="job_timeout", message="job exceeded its configured timeout", retryable=True
+                ).model_dump(mode="json"),
+                completed_at=now(),
+            )
+            persist(job)
+        except BackendFailure as exc:
+            job.update(
+                status="failed",
+                stage="failed",
+                progress=None,
+                error=StructuredError(
+                    code=exc.code,
+                    message=exc.message,
+                    retryable=exc.retryable,
                 ).model_dump(mode="json"),
                 completed_at=now(),
             )
@@ -264,12 +279,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.get("/v1/capabilities", dependencies=[Depends(authorize)])
     async def capabilities() -> dict[str, Any]:
+        backend_models = backend.models() if hasattr(backend, "models") else []
+        download_status = {variant: model_manager.status(variant) for variant in DOWNLOADS}
         return {
             "backend": backend.name,
             "backendVersion": backend.version,
             "mock": backend.name == "mock",
             "capabilities": [item.model_dump(mode="json") for item in backend.capabilities()],
+            "models": [
+                {**model, **download_status.get(model.get("id"), {})}
+                for model in backend_models
+            ],
         }
+
+    @application.get("/v1/models", dependencies=[Depends(authorize)])
+    async def models() -> dict[str, Any]:
+        backend_models = backend.models() if hasattr(backend, "models") else []
+        download_status = {variant: model_manager.status(variant) for variant in DOWNLOADS}
+        return {
+            "models": [
+                {**model, **download_status.get(model.get("id"), {})}
+                for model in backend_models
+            ]
+        }
+
+    @application.post("/v1/models/{variant}/download", dependencies=[Depends(authorize)], status_code=202)
+    async def download_model(variant: str) -> dict[str, Any]:
+        try:
+            return model_manager.start(variant)
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=409, detail={"code": "model_download_unavailable", "message": str(exc)}) from exc
 
     @application.post("/v1/assets", dependencies=[Depends(authorize)], status_code=201)
     async def upload_asset(request: Request) -> dict[str, str]:

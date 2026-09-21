@@ -21,6 +21,7 @@ import { registerProviderRoutes } from "./routes/providers";
 import { registerRouteDocumentRoutes } from "./routes/route-documents";
 import { registerSettingsRoutes } from "./routes/settings";
 import { registerSystemRoutes } from "./routes/system";
+import { registerPersonaAgentRoutes } from "./routes/persona-agent";
 import { registerWorldLabsMarbleRoutes } from "./routes/worldlabs-marble";
 import { registerAfterEffectsRoutes } from "./routes/after-effects";
 import { registerH3Routes } from "./routes/h3";
@@ -45,6 +46,7 @@ export function buildServer() {
   void registerSettingsRoutes(app);
   void registerH3Routes(app);
   void registerSystemRoutes(app);
+  void registerPersonaAgentRoutes(app);
   void registerModelRoutes(app);
   void registerModelGatewayJobRoutes(app);
   void registerProviderRoutes(app);

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { ensurePersonaBridge } from "./persona-bridge.mjs";
 
 const product = process.argv[2] ?? "boojum";
 const flags = new Set(process.argv.slice(3));
@@ -29,6 +30,10 @@ if (product === "snarkroute") {
   const port = Number(env.BRANDESHMYG_PORT ?? 5175);
   appUrl = `http://127.0.0.1:${port}`;
   args.push("--stream", "--filter", "@snarkroute/server", "--filter", "@snarkroute/brandeshmyg", "run", "dev");
+} else if (product === "launcher") {
+  const port = Number(env.LAUNCHER_PORT ?? 5172);
+  appUrl = `http://127.0.0.1:${port}`;
+  args.push("--stream", "--filter", "@snarkroute/server", "--filter", "@snarkroute/launcher", "run", "dev");
 } else {
   console.error(`Unknown product: ${product}`);
   process.exit(1);
@@ -65,6 +70,7 @@ async function openWhenReady(url) {
 }
 
 const child = spawn("corepack", args, { env, stdio: "inherit", shell: process.platform === "win32" });
+if (product === "snarkroute" || product === "launcher") void ensurePersonaBridge();
 if (autoOpen && appUrl) void openWhenReady(appUrl);
 
 child.on("exit", (code, signal) => {

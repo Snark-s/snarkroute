@@ -36,12 +36,14 @@ export async function createRouteExecutor() {
   const openRouterVideoRunner = createOpenRouterVideoNodeRunner();
   const polzaVideoRunner = createPolzaVideoNodeRunner();
   const kieVideoRunner = createKieNodeRunner("video.generate");
+  const h3VideoRunner = createH3NodeRunner();
   executor.registerNodeRunner("ai.video.generate", (input) => {
     const executionProvider = String(input.params.executionProvider ?? input.params.provider ?? "openrouter");
     const providerModelId = String(input.params.providerModelId ?? input.params.model ?? "");
     const forwarded = { ...input, params: { ...input.params, model: providerModelId, providerModelId } };
     if (executionProvider === "kie") return kieVideoRunner(forwarded);
     if (executionProvider === "polza") return polzaVideoRunner(forwarded);
+    if (executionProvider === "minimax-h3") return h3VideoRunner({ ...forwarded, params: { ...forwarded.params, modelVariant: providerModelId } });
     return openRouterVideoRunner(forwarded);
   });
   return executor;

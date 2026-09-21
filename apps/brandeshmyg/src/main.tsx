@@ -12,7 +12,7 @@ import {
   RotateCcw, RotateCw, Route, Save, Scissors, Search, Send, Settings, Share2, Shuffle, SlidersHorizontal,
   Sparkles, Square, Star, Table, Type, Upload, Video, Volume2, Wand2, Wrench, X, Zap, ZoomIn, ZoomOut
 } from "lucide-react";
-import { disposeSession, installPackage, loadActions, previewPackage, resolveToolTabMediaUrls, runSession } from "./api";
+import { apiBase, disposeSession, installPackage, loadActions, previewPackage, resolveToolTabMediaUrls, runSession } from "./api";
 import "./styles.css";
 
 const tabsKey = "brandeshmyg.tabs.v1";
@@ -32,6 +32,13 @@ function App() {
   async function refresh() {
     try { setActions(await loadActions()); setRuntimeError(""); }
     catch { setRuntimeError("SnarkRoute Runtime не запущен"); }
+  }
+  async function openLauncher() {
+    try {
+      const response = await fetch(`${apiBase}/api/system/apps/launcher/open`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const result = await response.json() as { url?: string };
+      window.open(result.url ?? "http://127.0.0.1:5172", "snarkroute-launcher")?.focus();
+    } catch { window.open("http://127.0.0.1:5172", "snarkroute-launcher")?.focus(); }
   }
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { localStorage.setItem(tabsKey, JSON.stringify(tabs.map(persistToolTab))); }, [tabs]);
@@ -117,7 +124,7 @@ function App() {
   }
 
   return <div className="appShell" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { const file = event.dataTransfer.files[0]; if (file?.name.toLowerCase().endsWith(".node.json")) void choosePackage(file); }}>
-    <header className="topbar"><div className="brand"><img src="/brandeshmyg-icon.png" alt="" /><div><strong>Брандешмыг</strong><small>Canvas Actions as tools</small></div></div>{runtimeError ? <div className="runtimeError">{runtimeError}<code>corepack pnpm start:brandeshmyg</code><button onClick={() => void refresh()}>Retry</button></div> : <span className="runtimeOk">Runtime connected</span>}</header>
+    <header className="topbar"><div className="brand"><img src="/brandeshmyg-icon.png" alt="" /><div><strong>Брандешмыг</strong><small>Canvas Actions as tools</small></div></div><div className="topbarActions"><button onClick={() => void openLauncher()}><Grid3X3 size={16} /> Launcher</button>{runtimeError ? <div className="runtimeError">{runtimeError}<code>corepack pnpm start:brandeshmyg</code><button onClick={() => void refresh()}>Retry</button></div> : <span className="runtimeOk">Runtime connected</span>}</div></header>
     <div className="workspace">
       <aside className={libraryOpen ? "library open" : "library"}>
         <button className="collapse" onClick={() => setLibraryOpen(!libraryOpen)}>{libraryOpen ? <ChevronLeft /> : <ChevronRight />}</button>

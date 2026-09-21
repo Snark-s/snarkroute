@@ -69,7 +69,7 @@ H3_ACCEPT_MODEL_LICENSE=1
 H3_WORKER_SERVICE_TOKEN='<random 64-hex-character value>'
 ```
 
-The bootstrap pins SGLang commit `3f26febaff04bac4cfefd60bdc9097bc26a96cb8`, installs
+The bootstrap pins the SGLang `0.5.19` release commit `0bcd822377da7b5718e674eaf9c870d349424dd1`, installs
 `comfy-kitchen==0.2.31` with its pinned wheel hash, downloads only the pinned FL2VA partition,
 verifies all LFS hashes, runs the real CUDA kernel self-test, and starts both services on
 localhost. It exits instead of selecting BF16 when `kitchen_int8` fails. Readiness is written to

@@ -1,11 +1,12 @@
 import { randomInt, randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 
 export const H3_QUEUE_OPERATIONS = [
   "text_to_video",
   "first_last_frame",
   "motion_transfer",
+  "style_transfer",
   "reference_mix",
   "replace_object",
   "automatic_tracking",
@@ -13,9 +14,9 @@ export const H3_QUEUE_OPERATIONS = [
 ] as const;
 
 export type H3QueueOperation = typeof H3_QUEUE_OPERATIONS[number];
-export type H3QueueItemStatus = "ready" | "running" | "succeeded" | "failed" | "blocked";
+export type H3QueueItemStatus = "ready" | "running" | "succeeded" | "failed" | "blocked" | "cancelled";
 export type H3SessionMode = "saved_worker" | "vast";
-export type H3SessionStatus = "idle" | "connecting" | "rendering" | "cleaning" | "completed" | "completed_with_errors" | "failed" | "cleanup_failed";
+export type H3SessionStatus = "idle" | "connecting" | "rendering" | "cancelling" | "cleaning" | "completed" | "completed_with_errors" | "cancelled" | "failed" | "cleanup_failed";
 
 export type H3QueueAsset = {
   slot: "firstFrame" | "lastFrame" | "referenceImage" | "referenceVideo" | "referenceAudio" | "sourceVideo" | "mask";
@@ -36,6 +37,7 @@ export type H3QueueItem = {
   seed?: number;
   variants: number;
   renderMode: "preview" | "final";
+  modelVariant: "h3_base" | "10eros_max" | "10eros_max_turbo";
   inferenceSteps?: number;
   assets: H3QueueAsset[];
   status: H3QueueItemStatus;
@@ -48,6 +50,8 @@ export type H3QueueItem = {
   updatedAt: string;
   startedAt?: string;
   completedAt?: string;
+  selectedForRun?: boolean;
+  archivedAt?: string;
 };
 
 export type H3QueueSession = {
@@ -86,7 +90,8 @@ export type H3RenderResult = {
 
 export type H3QueueRuntime = {
   acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Promise<void>): Promise<H3QueueLease>;
-  render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progress: number, stage?: string) => Promise<void>): Promise<H3RenderResult>;
+  render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progress: number, stage?: string) => Promise<void>, onJobCreated?: (workerJobId: string) => Promise<void>): Promise<H3RenderResult>;
+  cancel?(item: H3QueueItem, lease: H3QueueLease): Promise<void>;
   cleanup(lease: H3QueueLease): Promise<void>;
 };
 
@@ -99,7 +104,7 @@ export class H3ManagedInstanceError extends Error {
   constructor(message: string, readonly managedInstanceId: number) { super(message); }
 }
 
-type CreateH3QueueItem = Pick<H3QueueItem, "title" | "operation" | "prompt"> & Partial<Pick<H3QueueItem, "promptJson" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "inferenceSteps" | "assets">>;
+type CreateH3QueueItem = Pick<H3QueueItem, "title" | "operation" | "prompt"> & Partial<Pick<H3QueueItem, "promptJson" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "modelVariant" | "inferenceSteps" | "assets">>;
 
 const IDLE_SESSION: H3QueueSession = {
   id: "session_idle",
@@ -117,6 +122,9 @@ export class H3QueueService {
   private initialized?: Promise<void>;
   private activeRun?: Promise<void>;
   private activeLease?: H3QueueLease;
+  private stopRequested = false;
+  private cancellationDispatched = false;
+  private persistence = Promise.resolve();
 
   constructor(options: { directory: string; runtime: H3QueueRuntime }) {
     this.directory = options.directory;
@@ -174,36 +182,131 @@ export class H3QueueService {
     const item = this.state.items.find((candidate) => candidate.id === id);
     if (!item) return false;
     if (item.status === "running") throw new Error("A running H3 queue item cannot be removed.");
+    await this.trashResults(id);
     this.state.items = this.state.items.filter((candidate) => candidate.id !== id);
     await this.persist();
     return true;
   }
 
+  async setSelected(id: string, selected: boolean): Promise<H3QueueItem | null> {
+    await this.initialize();
+    const item = this.state.items.find((candidate) => candidate.id === id);
+    if (!item) return null;
+    if (item.status === "running") throw new Error("A running H3 queue item cannot be skipped.");
+    if (item.archivedAt) throw new Error("Restore an archived H3 queue item before selecting it.");
+    item.selectedForRun = selected;
+    item.updatedAt = new Date().toISOString();
+    await this.persist();
+    return clone(item);
+  }
+
+  async archive(id: string): Promise<H3QueueItem | null> {
+    await this.initialize();
+    const index = this.state.items.findIndex((candidate) => candidate.id === id);
+    if (index < 0) return null;
+    const item = this.state.items[index]!;
+    if (item.status === "running") throw new Error("A running H3 queue item cannot be archived.");
+    item.archivedAt = new Date().toISOString();
+    item.selectedForRun = false;
+    item.updatedAt = item.archivedAt;
+    this.state.items.splice(index, 1);
+    this.state.items.push(item);
+    await this.persist();
+    return clone(item);
+  }
+
+  async restore(id: string): Promise<H3QueueItem | null> {
+    await this.initialize();
+    const index = this.state.items.findIndex((candidate) => candidate.id === id);
+    if (index < 0) return null;
+    const item = this.state.items[index]!;
+    if (!item.archivedAt) return clone(item);
+    delete item.archivedAt;
+    item.selectedForRun = true;
+    item.updatedAt = new Date().toISOString();
+    this.state.items.splice(index, 1);
+    const firstArchived = this.state.items.findIndex((candidate) => Boolean(candidate.archivedAt));
+    this.state.items.splice(firstArchived < 0 ? this.state.items.length : firstArchived, 0, item);
+    await this.persist();
+    return clone(item);
+  }
+
   async move(id: string, direction: -1 | 1): Promise<H3QueueState> {
     await this.initialize();
-    const index = this.state.items.findIndex((item) => item.id === id);
+    const activeItems = this.state.items.filter((item) => !item.archivedAt);
+    const index = activeItems.findIndex((item) => item.id === id);
     const target = index + direction;
-    if (index < 0 || target < 0 || target >= this.state.items.length) return clone(this.state);
-    const [item] = this.state.items.splice(index, 1);
-    this.state.items.splice(target, 0, item!);
+    if (index < 0 || target < 0 || target >= activeItems.length) return clone(this.state);
+    const sourceIndex = this.state.items.findIndex((item) => item.id === activeItems[index]!.id);
+    const targetIndex = this.state.items.findIndex((item) => item.id === activeItems[target]!.id);
+    [this.state.items[sourceIndex], this.state.items[targetIndex]] = [this.state.items[targetIndex]!, this.state.items[sourceIndex]!];
     await this.persist();
     return clone(this.state);
   }
 
   async clearFinished(): Promise<H3QueueState> {
     await this.initialize();
-    this.state.items = this.state.items.filter((item) => item.status === "ready" || item.status === "running");
-    await this.persist();
+    const finished = this.state.items.filter((item) => !item.archivedAt && item.status !== "ready" && item.status !== "running");
+    for (const item of finished) await this.remove(item.id);
     return clone(this.state);
+  }
+
+  private async trashResults(id: string): Promise<boolean> {
+    if (!/^h3q_[a-zA-Z0-9_-]+$/.test(id)) throw new Error("Invalid H3 result folder.");
+    const source = resolve(this.directory, "results", id);
+    // Results may be reused as inputs by another task, including archived tasks.
+    if (this.state.items.some((item) => item.id !== id && [...item.assets.map((asset) => asset.path), ...(item.resultPaths ?? [])]
+      .some((path) => resolve(path) === source || resolve(path).startsWith(source + sep)))) return false;
+    const trash = resolve(this.directory, ".trash", "results");
+    await mkdir(trash, { recursive: true });
+    try {
+      await rename(source, join(trash, `${id}-${randomUUID()}`));
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+  }
+
+  async collectOrphanResults(): Promise<{ movedCount: number }> {
+    await this.initialize();
+    const entries = await readdir(join(this.directory, "results"), { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    let movedCount = 0;
+    for (const entry of entries) {
+      if (entry.isDirectory() && /^h3q_[a-zA-Z0-9_-]+$/.test(entry.name) && !this.state.items.some((item) => item.id === entry.name)) {
+        if (await this.trashResults(entry.name)) movedCount++;
+      }
+    }
+    return { movedCount };
+  }
+
+  async emptyTrash(): Promise<{ deletedCount: number }> {
+    const trash = resolve(this.directory, ".trash", "results");
+    const entries = await readdir(trash).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    let deletedCount = 0;
+    for (const entry of entries) {
+      const target = resolve(trash, entry);
+      if (!target.startsWith(trash + sep)) throw new Error("Invalid trash path.");
+      await rm(target, { recursive: true, force: true });
+      deletedCount++;
+    }
+    return { deletedCount };
   }
 
   async start(mode: H3SessionMode): Promise<H3QueueSession> {
     await this.initialize();
-    if (this.activeRun || ["connecting", "rendering", "cleaning"].includes(this.state.session.status)) throw new Error("An H3 render session is already active.");
-    if (!this.state.items.some((item) => item.status === "ready" || item.status === "failed" || item.status === "blocked")) throw new Error("The H3 queue has no jobs to render.");
+    if (this.activeRun || ["connecting", "rendering", "cancelling", "cleaning"].includes(this.state.session.status)) throw new Error("An H3 render session is already active.");
+    if (!this.state.items.some((item) => isRunnable(item))) throw new Error("Select at least one non-archived H3 job to render.");
     for (const item of this.state.items) {
-      if (item.status === "failed" || item.status === "blocked") {
+      if (isRunnable(item) && (item.status === "failed" || item.status === "blocked" || item.status === "cancelled")) {
         item.status = "ready";
+        delete item.stage;
         item.progress = 0;
         delete item.error;
         delete item.completedAt;
@@ -218,8 +321,41 @@ export class H3QueueService {
       createdAt: now,
       updatedAt: now
     };
+    this.stopRequested = false;
+    this.cancellationDispatched = false;
     await this.persist();
-    this.activeRun = this.run(mode).finally(() => { this.activeRun = undefined; this.activeLease = undefined; });
+    this.activeRun = this.run(mode).catch((error) => {
+      // A failed final disk write must not become an unhandled rejection
+      // that terminates the API and leaves every client showing stale progress.
+      this.state.session.status = this.state.session.managedInstanceId && this.state.session.cleanupConfirmed !== true ? "cleanup_failed" : "failed";
+      this.state.session.error = `Could not save H3 queue state: ${errorMessage(error)}`;
+      this.state.session.updatedAt = new Date().toISOString();
+    }).finally(() => {
+      this.activeRun = undefined;
+      this.activeLease = undefined;
+      this.stopRequested = false;
+      this.cancellationDispatched = false;
+    });
+    return clone(this.state.session);
+  }
+
+  async cancelActive(): Promise<H3QueueSession> {
+    await this.initialize();
+    const item = this.state.items.find((candidate) => candidate.id === this.state.session.currentItemId);
+    if (!this.activeRun || !item || item.status !== "running" || !this.activeLease) {
+      throw new Error("There is no active H3 generation to stop.");
+    }
+    this.stopRequested = true;
+    this.state.session.status = "cancelling";
+    this.state.session.updatedAt = new Date().toISOString();
+    item.stage = "cancelling";
+    item.updatedAt = this.state.session.updatedAt;
+    await this.persist();
+    if (item.workerJobId && this.runtime.cancel && !this.cancellationDispatched) {
+      this.cancellationDispatched = true;
+      try { await this.runtime.cancel(item, this.activeLease); }
+      catch (error) { this.cancellationDispatched = false; throw error; }
+    }
     return clone(this.state.session);
   }
 
@@ -269,6 +405,7 @@ export class H3QueueService {
         this.state.session.updatedAt = new Date().toISOString();
         await this.persist();
       });
+      const renderLease = lease;
       this.activeLease = lease;
       this.state.session.managedInstanceId = lease.managedInstanceId;
       this.state.session.offerId = lease.offerId;
@@ -278,7 +415,8 @@ export class H3QueueService {
       await this.persist();
 
       for (const item of this.state.items) {
-        if (item.status !== "ready") continue;
+        if (this.stopRequested) break;
+        if (item.archivedAt || item.selectedForRun === false || item.status !== "ready") continue;
         const now = new Date().toISOString();
         item.status = "running";
         item.stage = "starting";
@@ -289,12 +427,26 @@ export class H3QueueService {
         this.state.session.updatedAt = now;
         await this.persist();
         try {
-          const result = await this.runtime.render(item, lease, async (progress, stage) => {
-            item.progress = Math.max(item.progress, Math.min(0.99, Math.max(0, progress)));
-            item.stage = stage;
-            item.updatedAt = this.state.session.updatedAt = new Date().toISOString();
-            await this.persist();
-          });
+          const result = await this.runtime.render(
+            item,
+            renderLease,
+            async (progress, stage) => {
+              item.progress = Math.max(item.progress, Math.min(0.99, Math.max(0, progress)));
+              item.stage = stage;
+              item.updatedAt = this.state.session.updatedAt = new Date().toISOString();
+              await this.persist();
+            },
+            async (workerJobId) => {
+              item.workerJobId = workerJobId;
+              item.updatedAt = this.state.session.updatedAt = new Date().toISOString();
+              await this.persist();
+              if (this.stopRequested && this.runtime.cancel && !this.cancellationDispatched) {
+                this.cancellationDispatched = true;
+                try { await this.runtime.cancel(item, renderLease); }
+                catch (error) { this.cancellationDispatched = false; throw error; }
+              }
+            }
+          );
           item.status = "succeeded";
           item.progress = 1;
           item.stage = "complete";
@@ -302,15 +454,17 @@ export class H3QueueService {
           item.resultPaths = result.resultPaths;
           delete item.error;
         } catch (error) {
-          item.status = error instanceof H3QueueBlockedError ? "blocked" : "failed";
+          item.status = this.stopRequested ? "cancelled" : error instanceof H3QueueBlockedError ? "blocked" : "failed";
           item.progress = 0;
           item.stage = item.status;
-          item.error = errorMessage(error);
-          finalStatus = "completed_with_errors";
+          item.error = this.stopRequested ? "Generation stopped by the user." : errorMessage(error);
+          finalStatus = this.stopRequested ? "cancelled" : "completed_with_errors";
         }
         item.completedAt = item.updatedAt = new Date().toISOString();
         await this.persist();
+        if (this.stopRequested) break;
       }
+      if (this.stopRequested && finalStatus === "completed") finalStatus = "cancelled";
     } catch (error) {
       finalStatus = "failed";
       this.state.session.error = errorMessage(error);
@@ -356,16 +510,22 @@ export class H3QueueService {
     } catch {
       return;
     }
-    if (["connecting", "rendering", "cleaning"].includes(this.state.session.status)) {
+    for (const item of this.state.items) {
+      if (item.status === "ready") delete item.stage;
+    }
+    if (["connecting", "rendering", "cancelling", "cleaning"].includes(this.state.session.status)) {
+      const cancellationWasPending = this.state.session.status === "cancelling";
       for (const item of this.state.items) {
         if (item.status === "running") {
-          item.status = "failed";
+          item.status = cancellationWasPending ? "cancelled" : "failed";
           item.progress = 0;
-          item.error = "SnarkRoute restarted while this item was running. Retry it after checking the worker.";
+          item.error = cancellationWasPending
+            ? "Generation cancellation was interrupted by a SnarkRoute restart. Check the worker before retrying."
+            : "SnarkRoute restarted while this item was running. Retry it after checking the worker.";
           item.completedAt = item.updatedAt = new Date().toISOString();
         }
       }
-      this.state.session.status = this.state.session.managedInstanceId ? "cleanup_failed" : "failed";
+      this.state.session.status = this.state.session.managedInstanceId ? "cleanup_failed" : cancellationWasPending ? "cancelled" : "failed";
       this.state.session.cleanupConfirmed = this.state.session.managedInstanceId ? false : null;
       this.state.session.error = this.state.session.managedInstanceId
         ? "SnarkRoute restarted before Vast cleanup was confirmed. Retry cleanup for the exact recorded instance."
@@ -375,11 +535,34 @@ export class H3QueueService {
     }
   }
 
-  private async persist(): Promise<void> {
-    await mkdir(this.directory, { recursive: true });
-    const temporary = `${this.path()}.tmp`;
-    await writeFile(temporary, `${JSON.stringify(this.state, null, 2)}\n`, "utf8");
-    await rename(temporary, this.path());
+  private persist(): Promise<void> {
+    const snapshot = `${JSON.stringify(this.state, null, 2)}\n`;
+    const write = async () => {
+      await mkdir(this.directory, { recursive: true });
+      const temporary = `${this.path()}.tmp`;
+      await writeFile(temporary, snapshot, "utf8");
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await rename(temporary, this.path());
+          break;
+        } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (!["EPERM", "EACCES", "EBUSY"].includes(code ?? "")) throw error;
+          if (attempt >= 6) {
+            // Some Windows/network-drive readers allow writes but deny replacement renames.
+            // Preserve queue progress with an in-place fallback instead of losing a completed render.
+            await writeFile(this.path(), snapshot, "utf8");
+            await rm(temporary, { force: true });
+            break;
+          }
+          // Windows readers/indexers can briefly lock the destination.
+          // Keep the previous snapshot intact until atomic replacement succeeds.
+          await new Promise((resolve) => setTimeout(resolve, 50 * 2 ** attempt));
+        }
+      }
+    };
+    this.persistence = this.persistence.then(write, write);
+    return this.persistence;
   }
 
   private path(): string { return join(this.directory, "queue.json"); }
@@ -393,8 +576,9 @@ function normalizeItem(value: Partial<H3QueueItem> & Pick<H3QueueItem, "id" | "t
   if (!prompt || prompt.length > 20_000) throw new Error("H3 queue prompt must be between 1 and 20000 characters.");
   const duration = integer(value.duration ?? 5, 4, 15, "duration");
   const variants = integer(value.variants ?? 1, 1, 10, "variants");
-  const renderMode = value.renderMode === "preview" ? "preview" : "final";
-  const inferenceSteps = value.inferenceSteps === undefined ? undefined : integer(value.inferenceSteps, renderMode === "preview" ? 4 : 20, renderMode === "preview" ? 10 : 40, "inferenceSteps");
+  const modelVariant = value.modelVariant === "10eros_max" || value.modelVariant === "10eros_max_turbo" ? value.modelVariant : "h3_base";
+  const renderMode = value.renderMode === "preview" || value.renderMode === "final" ? value.renderMode : modelVariant === "10eros_max" ? "final" : "preview";
+  const inferenceSteps = value.inferenceSteps === undefined ? undefined : integer(value.inferenceSteps, modelVariant.startsWith("10eros_") ? 4 : renderMode === "preview" ? 4 : 20, modelVariant.startsWith("10eros_") ? 8 : renderMode === "preview" ? 10 : 40, "inferenceSteps");
   const seed = value.seed === undefined ? randomInt(0, 2_147_483_648) : integer(value.seed, 0, 2_147_483_647, "seed");
   const promptJson = value.promptJson && typeof value.promptJson === "object" && !Array.isArray(value.promptJson) ? value.promptJson : undefined;
   const assets = Array.isArray(value.assets) ? value.assets.map(normalizeAsset) : [];
@@ -410,10 +594,13 @@ function normalizeItem(value: Partial<H3QueueItem> & Pick<H3QueueItem, "id" | "t
     seed,
     variants,
     renderMode,
+    modelVariant,
     ...(inferenceSteps === undefined ? {} : { inferenceSteps }),
     assets,
     status: value.status,
     progress: value.progress,
+    selectedForRun: value.selectedForRun !== false,
+    ...(value.archivedAt ? { archivedAt: value.archivedAt } : {}),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt
   };
@@ -432,6 +619,10 @@ function normalizeAsset(value: H3QueueAsset): H3QueueAsset {
 function integer(value: number, min: number, max: number, name: string): number {
   if (!Number.isInteger(value) || value < min || value > max) throw new Error(`${name} must be an integer between ${min} and ${max}.`);
   return value;
+}
+
+function isRunnable(item: H3QueueItem): boolean {
+  return !item.archivedAt && item.selectedForRun !== false && ["ready", "failed", "blocked", "cancelled"].includes(item.status);
 }
 
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }

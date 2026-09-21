@@ -92,6 +92,8 @@ start-boojumroute.bat
 
 `start-boojumroute.bat` prepares the required workspace package builds, starts the local API server, waits for `/api/health`, starts BoojumRoute Lab, and opens `http://127.0.0.1:5173`. It uses `corepack pnpm` directly and does not require global `pnpm` or a `.lnk` shortcut.
 
+For the local application hub, double-click `ОТКРЫТЬ МАСТЕРСКУЮ.vbs` (silent start) or `start-launcher.bat`. On Windows the launcher prefers an installed Google Chrome and falls back to the system browser only when Chrome is unavailable. It starts the shared SnarkRoute runtime when needed and opens the launcher at `http://127.0.0.1:5172`. The launcher can open Living Canvas, BoojumRoute, Brandeshmyg, H3, and Jabberwock. Jabberwock reads models and their available provider routes from the SnarkRoute model catalog; provider buttons are not hardcoded. Its **Continue in Codex** action checkpoints the same task and opens a Work task in Codex Desktop for the selected project; **Return from Codex** imports the completed visible exchange back into that task.
+
 If you downloaded the GitHub archive instead of cloning with Git:
 
 1. Unzip the archive to a local folder.
@@ -282,7 +284,7 @@ See `docs/terminology.md` for the full conceptual model.
 - Import/export Open Route Protocol documents, preferring `.orp`
 - Local provider settings through `.env` or Studio Settings where supported
 
-The early SnarkRoute Living Canvas shell does not have a public one-click launcher. To try it manually:
+The SnarkRoute Living Canvas can also be started directly:
 
 ```bat
 corepack pnpm install
@@ -295,6 +297,7 @@ It runs at `http://127.0.0.1:5174`.
 Default one-click ports:
 
 - API: `http://127.0.0.1:4317`
+- Launcher and Jabberwock: `http://127.0.0.1:5172`
 - BoojumRoute Lab: `http://127.0.0.1:5173`
 - SnarkRoute Living Canvas: `http://127.0.0.1:5174`
 

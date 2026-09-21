@@ -26,6 +26,15 @@ def test_bf16_profile_cannot_silently_run_kitchen_int8():
         prepare_command("bf16_offload", ["--quantization=kitchen_int8"])
 
 
+def test_local_wsl_launcher_uses_the_official_lossless_low_memory_recipe():
+    launcher = (SCRIPTS / "start_local_wsl.sh").read_text(encoding="utf-8")
+
+    assert "H3_SGLANG_PRECISION_PROFILE=bf16_offload" in launcher
+    assert "--layerwise-offload-components dit,text_encoder,vae" in launcher
+    assert "--layerwise-resident-layers video_vae=36" in launcher
+    assert "--quantization" not in launcher
+
+
 def test_sglang_console_script_directory_is_added_to_path(tmp_path):
     executable = tmp_path / "sglang-venv" / "bin" / "python"
     environment = {"PATH": "/usr/local/bin:/usr/bin"}

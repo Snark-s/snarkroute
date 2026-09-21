@@ -1,9 +1,14 @@
 import { randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
+import { access } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
+import { createH3WorkerClient, type H3ModelVariant } from "@snarkroute/h3";
 import { h3StudioDirectory } from "../server-paths";
 import { deleteEnvValue, writeEnvValue } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { inspectH3Connection, normalizeH3WorkerUrl } from "../services/h3-connection";
+import { h3LocalWslStatus, startH3LocalWsl, stopH3LocalWsl } from "../services/h3-local-wsl";
 import { H3QueueService, H3_QUEUE_OPERATIONS, type H3QueueAsset, type H3QueueOperation, type H3SessionMode } from "../services/h3-queue";
 import { createDefaultH3QueueRuntime, h3VastConfigStatus } from "../services/h3-session-runtime";
 import { createH3VastTemplate } from "../services/h3-vast-template";
@@ -11,9 +16,51 @@ import { createH3VastTemplate } from "../services/h3-vast-template";
 const h3QueueService = new H3QueueService({ directory: h3StudioDirectory, runtime: createDefaultH3QueueRuntime() });
 
 export async function registerH3Routes(app: FastifyInstance) {
-  app.get("/api/h3/connection", async () => inspectH3Connection());
+  app.get("/api/h3/connection", async () => {
+    const status = await inspectH3Connection();
+    return { ...status, local: h3LocalWslStatus(status) };
+  });
+
+  app.post("/api/h3/local/start", async (_request, reply) => {
+    try {
+      const started = await startH3LocalWsl();
+      await writeEnvValue("H3_WORKER_URL", started.status.workerUrl);
+      await writeEnvValue("H3_WORKER_SERVICE_TOKEN", started.serviceToken);
+      process.env.H3_WORKER_URL = started.status.workerUrl;
+      process.env.H3_WORKER_SERVICE_TOKEN = started.serviceToken;
+      return { ok: true, status: { ...started.status, local: started.local } };
+    } catch (error) {
+      return reply.code(500).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/h3/local/stop", async (_request, reply) => {
+    try {
+      const local = await stopH3LocalWsl();
+      const status = await inspectH3Connection();
+      return { ok: true, status: { ...status, local } };
+    } catch (error) {
+      return reply.code(500).send({ error: errorMessage(error) });
+    }
+  });
 
   app.get("/api/h3/queue", async () => ({ ...(await h3QueueService.getState()), vast: h3VastConfigStatus() }));
+
+  app.get("/api/h3/models", async (_request, reply) => {
+    try {
+      return await h3Client().models();
+    } catch (error) {
+      return reply.code(503).send({ error: errorMessage(error), models: [] });
+    }
+  });
+
+  app.post<{ Params: { variant: H3ModelVariant } }>("/api/h3/models/:variant/download", async (request, reply) => {
+    try {
+      return reply.code(202).send(await h3Client().downloadModel(request.params.variant));
+    } catch (error) {
+      return reply.code(409).send({ error: errorMessage(error) });
+    }
+  });
 
   app.post<{ Body: H3QueueItemBody }>("/api/h3/queue", async (request, reply) => {
     try {
@@ -28,6 +75,7 @@ export async function registerH3Routes(app: FastifyInstance) {
         seed: request.body?.seed,
         variants: request.body?.variants,
         renderMode: request.body?.renderMode,
+        modelVariant: request.body?.modelVariant,
         inferenceSteps: request.body?.inferenceSteps,
         assets: Array.isArray(request.body?.assets) ? request.body.assets : []
       }));
@@ -49,6 +97,7 @@ export async function registerH3Routes(app: FastifyInstance) {
         ...(body.seed === undefined ? {} : { seed: body.seed }),
         ...(body.variants === undefined ? {} : { variants: body.variants }),
         ...(body.renderMode === undefined ? {} : { renderMode: body.renderMode }),
+        ...(body.modelVariant === undefined ? {} : { modelVariant: body.modelVariant }),
         ...(body.inferenceSteps === undefined ? {} : { inferenceSteps: body.inferenceSteps }),
         ...(body.assets === undefined ? {} : { assets: body.assets })
       });
@@ -69,7 +118,34 @@ export async function registerH3Routes(app: FastifyInstance) {
   });
 
   app.post<{ Params: { id: string }; Body: { direction?: "up" | "down" } }>("/api/h3/queue/:id/move", async (request) => h3QueueService.move(request.params.id, request.body?.direction === "up" ? -1 : 1));
+  app.post<{ Params: { id: string }; Body: { selected?: boolean } }>("/api/h3/queue/:id/selection", async (request, reply) => {
+    try {
+      const item = await h3QueueService.setSelected(request.params.id, request.body?.selected === true);
+      return item ?? reply.code(404).send({ error: "H3 queue item not found." });
+    } catch (error) { return reply.code(409).send({ error: errorMessage(error) }); }
+  });
+  app.post<{ Params: { id: string } }>("/api/h3/queue/:id/archive", async (request, reply) => {
+    try {
+      const item = await h3QueueService.archive(request.params.id);
+      return item ?? reply.code(404).send({ error: "H3 queue item not found." });
+    } catch (error) { return reply.code(409).send({ error: errorMessage(error) }); }
+  });
+  app.post<{ Params: { id: string } }>("/api/h3/queue/:id/restore", async (request, reply) => {
+    try {
+      const item = await h3QueueService.restore(request.params.id);
+      return item ?? reply.code(404).send({ error: "H3 queue item not found." });
+    } catch (error) { return reply.code(409).send({ error: errorMessage(error) }); }
+  });
   app.post("/api/h3/queue/clear-finished", async () => h3QueueService.clearFinished());
+
+  app.post("/api/h3/results/trash-orphans", async (_request, reply) => {
+    try { return await h3QueueService.collectOrphanResults(); }
+    catch (error) { return reply.code(409).send({ error: errorMessage(error) }); }
+  });
+  app.post("/api/h3/results/empty-trash", async (_request, reply) => {
+    try { return await h3QueueService.emptyTrash(); }
+    catch (error) { return reply.code(409).send({ error: errorMessage(error) }); }
+  });
 
   app.post<{ Body: { mode?: H3SessionMode } }>("/api/h3/queue/session", async (request, reply) => {
     try {
@@ -128,6 +204,28 @@ export async function registerH3Routes(app: FastifyInstance) {
       await writeEnvValue("H3_VAST_CONNECTION_MODE", "ssh_tunnel");
       process.env.H3_VAST_CONNECTION_MODE = "ssh_tunnel";
       return { ok: true, status: h3VastConfigStatus() };
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
+  });
+
+  app.post("/api/h3/queue/session/cancel", async (_request, reply) => {
+    try { return { session: await h3QueueService.cancelActive() }; }
+    catch (error) { return reply.code(409).send({ error: errorMessage(error) }); }
+  });
+
+  app.post<{ Body: { path?: string; mode?: "open" | "folder" } }>("/api/h3/results/open", async (request, reply) => {
+    try {
+      const path = await h3ResultPath(request.body?.path);
+      const child = request.body?.mode === "folder"
+        ? spawn("explorer.exe", ["/select,", path], { detached: true, stdio: "ignore", windowsHide: false })
+        : spawn("rundll32.exe", ["url.dll,FileProtocolHandler", path], { detached: true, stdio: "ignore", windowsHide: false });
+      await new Promise<void>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("spawn", resolve);
+      });
+      child.unref();
+      return { ok: true };
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });
     }
@@ -194,6 +292,7 @@ type H3QueueItemBody = {
   seed?: number;
   variants?: number;
   renderMode?: "preview" | "final";
+  modelVariant?: "h3_base" | "10eros_max" | "10eros_max_turbo";
   inferenceSteps?: number;
   assets?: H3QueueAsset[];
 };
@@ -236,6 +335,26 @@ function validateWorkerUrlTemplate(value: string): void {
   if (!value.startsWith("https://")) throw new Error("Managed Vast worker URL template must use HTTPS.");
   const sample = value.replace(/\{instance_id\}/g, "1").replace(/\{public_ipaddr\}/g, "203.0.113.10").replace(/\{ssh_host\}/g, "ssh.example.test").replace(/\{ssh_port\}/g, "22");
   normalizeH3WorkerUrl(sample);
+}
+
+function h3Client() {
+  return createH3WorkerClient({
+    baseUrl: process.env.H3_WORKER_URL,
+    serviceToken: process.env.H3_WORKER_SERVICE_TOKEN,
+    timeoutMs: 30_000,
+  });
+}
+
+async function h3ResultPath(value: string | undefined): Promise<string> {
+  if (!value) throw new Error("Result path is required.");
+  const root = resolve(join(h3StudioDirectory, "results"));
+  const path = resolve(value);
+  const child = relative(root, path);
+  if (!child || child === ".." || child.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(child)) {
+    throw new Error("Only generated H3 result files can be opened.");
+  }
+  await access(path);
+  return path;
 }
 function validateLocalPath(value: string): void {
   if (value.includes("\0") || value.length > 1_024) throw new Error("SSH private key path is invalid.");

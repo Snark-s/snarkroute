@@ -1,8 +1,8 @@
 # SnarkRoute MiniMax H3 worker
 
-Versioned, authenticated, backend-neutral worker for MiniMax H3. It has no ComfyUI runtime, custom nodes, or ComfyUI container. The CUDA/SGLang image alone pins the independent `comfy-kitchen==0.2.31` kernel extension for the optional `kitchen_int8` capability; the API image does not install it.
+Versioned, authenticated, backend-neutral worker for MiniMax H3. The normal API and SGLang images have no ComfyUI runtime, custom nodes, or ComfyUI container. The optional local `matlow_int8` backend imports a pinned ComfyUI core checkout strictly as a headless Python model-loading/sampling library for the checkpoint's native `comfy_quant` format. It does not start ComfyUI's GUI, HTTP server, or workflow engine.
 
-The stable facade owns validation, asynchronous jobs, idempotency, cancellation, metadata and result storage. `mock` validates the API only; `sglang` delegates to the official `/v1/videos` contract; `diffusers` is an isolated future boundary and currently reports unavailable.
+The stable facade owns validation, asynchronous jobs, idempotency, cancellation, metadata and result storage. Select the runtime with `H3_BACKEND=mock|sglang|matlow_int8|diffusers|vdn`. `matlow_int8` exposes the GPU-verified `local_fast` T2VA, FL2VA and visual Ref2VA preview paths with native generated audio; audio references and final-quality mode remain fail-closed. `diffusers` and `vdn` remain unavailable boundaries.
 
 ## Local no-GPU verification
 
@@ -58,4 +58,4 @@ For a supervised first run on a generic Vast NVIDIA PyTorch/Jupyter image, copy 
 secret files described in the Vast runbook, and run `scripts/bootstrap_vast_fl2va.sh`. It prepares
 only FL2VA, binds both services to localhost, and fails closed if `kitchen_int8` is unavailable.
 
-See [the main H3 document](../../docs/minimax-h3.md), the [RunPod runbook](../../docs/runbooks/minimax-h3-runpod.md), and the [Vast.ai runbook](../../docs/runbooks/minimax-h3-vast.md).
+See [the local WSL/H3 Studio runbook](../../docs/runbooks/minimax-h3-local-wsl.md), [the main H3 document](../../docs/minimax-h3.md), the [RunPod runbook](../../docs/runbooks/minimax-h3-runpod.md), and the [Vast.ai runbook](../../docs/runbooks/minimax-h3-vast.md).

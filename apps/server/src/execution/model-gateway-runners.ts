@@ -1,3 +1,4 @@
+import { createExperientialTextNodeRunner } from "../providers/experiential";
 import { readFile } from "node:fs/promises";
 import type { PricingQuote } from "@snarkroute/core";
 import { resolveNodePricing, type NodeRunner, type PricingBreakdown } from "@snarkroute/executor";
@@ -13,7 +14,7 @@ import {
   type OpenRouterModelInfo,
   type ProviderMode
 } from "@snarkroute/openrouter";
-import { createPolzaImageNodeRunner, estimatePolzaPricingQuote, POLZA_IMAGE_DEFAULT_MODEL, POLZA_TEXT_DEFAULT_MODEL, POLZA_VIDEO_DEFAULT_MODEL, type PolzaModelInfo } from "@snarkroute/polza";
+import { createPolzaImageNodeRunner, createPolzaTextNodeRunner, estimatePolzaPricingQuote, POLZA_IMAGE_DEFAULT_MODEL, POLZA_TEXT_DEFAULT_MODEL, POLZA_VIDEO_DEFAULT_MODEL, type PolzaModelInfo } from "@snarkroute/polza";
 import { createRuTronixTextNodeRunner, estimateRuTronixPricingQuote } from "@snarkroute/rutronix";
 import { createKieNodeRunner, estimateKiePricingQuote, listDocumentedKieModels } from "@snarkroute/kie";
 import { getEffectivePricingState } from "../billing/pricing-service";
@@ -46,24 +47,37 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
   const openRouterRunner = createOpenRouterTextNodeRunner({ modelResolver });
   const rawOpenRouterRunner = createOpenRouterTextNodeRunner();
   const geminiRunner = createGeminiLlmNodeRunner();
+  const polzaRunner = createPolzaTextNodeRunner();
   const rutronixRunner = createRuTronixTextNodeRunner();
   return async (input) => {
-    const executionProvider = stringValue(input.params.executionProvider ?? input.params.provider);
-    const providerModelId = stringValue(input.params.providerModelId);
-    if (executionProvider === "kie") return createKieNodeRunner("text.generate")({ ...input, params: { ...input.params, model: providerModelId ?? input.params.model } });
-    if (executionProvider === "openrouter" && providerModelId) return rawOpenRouterRunner({ ...input, params: { ...input.params, model: providerModelId, providerMode: "openrouter" } });
-    const providerMode = providerModeParam(input.params.providerMode);
-    const requestedModel = stringValue(input.params.model);
+    const params = decodeOpaquePromptParams(input.params);
+    const executionProvider = stringValue(params.executionProvider ?? params.provider);
+    const providerModelId = stringValue(params.providerModelId);
+    if (executionProvider === "experiential") return createExperientialTextNodeRunner()({ ...input, params: { ...params, model: providerModelId ?? params.model } });
+    if (executionProvider === "kie") return createKieNodeRunner("text.generate")({ ...input, params: { ...params, model: providerModelId ?? params.model } });
+    if (executionProvider === "openrouter" && providerModelId) return rawOpenRouterRunner({ ...input, params: { ...params, model: providerModelId, providerMode: "openrouter" } });
+    if (executionProvider === "polza" && providerModelId) return polzaRunner({ ...input, params: { ...params, model: providerModelId } });
+    if (executionProvider === "gemini" && providerModelId) return geminiRunner({ ...input, params: { ...params, model: providerModelId } });
+    const providerMode = providerModeParam(params.providerMode);
+    const requestedModel = stringValue(params.model);
     const modelId = !requestedModel || requestedModel === "text.default" ? process.env.OPENROUTER_DEFAULT_MODEL || "text.default" : requestedModel;
-    if (modelId.startsWith("rutronix:")) return rutronixRunner({ ...input, params: { ...input.params, model: modelId.slice("rutronix:".length) } });
-    if (modelId.includes("/") && providerMode !== "direct") return rawOpenRouterRunner({ ...input, params: { ...input.params, model: modelId, providerMode } });
+    if (modelId.startsWith("rutronix:")) return rutronixRunner({ ...input, params: { ...params, model: modelId.slice("rutronix:".length) } });
+    if (modelId.includes("/") && providerMode !== "direct") return rawOpenRouterRunner({ ...input, params: { ...params, model: modelId, providerMode } });
     const resolution = modelResolver({ task: "text", modelId, providerMode });
-    if (resolution.provider === "openrouter") return openRouterRunner({ ...input, params: { ...input.params, model: modelId, providerMode } });
+    if (resolution.provider === "openrouter") return openRouterRunner({ ...input, params: { ...params, model: modelId, providerMode } });
     if (resolution.provider === "direct" && resolution.directProvider === "gemini") {
-      return geminiRunner({ ...input, params: { ...input.params, model: resolution.model } });
+      return geminiRunner({ ...input, params: { ...params, model: resolution.model } });
     }
     throw new Error(resolution.provider === "direct" ? "Direct provider is not configured." : "Local provider is not available.");
   };
+}
+
+export function decodeOpaquePromptParams(params: Record<string, unknown>): Record<string, unknown> {
+  const encoded = stringValue(params.promptBase64);
+  if (!encoded) return params;
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded)) throw new Error("Invalid opaque prompt encoding.");
+  const { promptBase64: _promptBase64, ...rest } = params;
+  return { ...rest, prompt: Buffer.from(encoded, "base64").toString("utf8") };
 }
 
 export function createRemoteImageNodeRunner(modelResolver: ReturnType<typeof createModelResolver>): NodeRunner {
@@ -172,8 +186,27 @@ export async function quoteModelExecutingNode(options: {
   if (options.nodeType === "ai.text") {
     const executionProvider = stringValue(params.executionProvider ?? params.provider);
     const providerModelId = stringValue(params.providerModelId) ?? stringValue(params.model) ?? "gpt-5-2";
+    if (executionProvider === "experiential") {
+      const quote = unknownSelected(providerModelId, "experiential", providerModelId, "text.generate", params, "Experiential Labs pricing depends on the selected provider waterfall; cost is unknown.");
+      return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings: quote.warnings ?? [] };
+    }
+
     if (executionProvider === "kie") {
       const quote = estimateKiePricingQuote({ logicalModel: stringValue(params.model), provider: "kie", providerModel: providerModelId, capability: "text.generate", params, inputMetadata: {} });
+      return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings: quote.warnings ?? [] };
+    }
+    if (executionProvider === "polza") {
+      const pricing = pricingForModel(polzaPricing, providerModelId) ?? options.polzaModels?.find((model) => model.id === providerModelId)?.pricing;
+      const quote = estimatePolzaPricingQuote({ logicalModel: stringValue(params.model), provider: "polza", providerModel: providerModelId, capability: "text.generate", params: { ...params, pricing }, inputMetadata: {} });
+      return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings: quote.warnings ?? [] };
+    }
+    if (executionProvider === "openrouter") {
+      const model = openRouterCatalog?.models.find((entry) => entry.id === providerModelId);
+      const quote = openRouterQuote(stringValue(params.model) ?? providerModelId, providerModelId, "text.generate", params, pricingForModel(openRouterPricing, providerModelId) ?? model?.pricing, openRouterPricing);
+      return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };
+    }
+    if (executionProvider === "gemini") {
+      const quote = geminiQuote(stringValue(params.model) ?? providerModelId, providerModelId, "text.generate", params, geminiPricingConfig);
       return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings: quote.warnings ?? [] };
     }
     const providerMode = providerModeParam(params.providerMode);

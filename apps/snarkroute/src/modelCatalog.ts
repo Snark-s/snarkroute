@@ -105,6 +105,7 @@ type ServerModelCatalogEntry = {
 };
 
 export interface ProviderSettings {
+  experiential?: { configured?: boolean };
   replicate?: { configured?: boolean };
   gemini?: { configured?: boolean };
   polza?: { configured?: boolean };

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, ChevronDown, Cpu, ExternalLink, Film, KeyRound, Link, LoaderCircle, Plug, RefreshCw, Server, Settings2, ShieldAlert, Unplug, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Cpu, ExternalLink, KeyRound, Link, LoaderCircle, Plug, RefreshCw, Server, Settings2, ShieldAlert, Unplug, X } from "lucide-react";
 import { apiBase } from "../../studioConfig";
 import { apiFetch } from "../../shared/apiClient";
 import { navigate } from "../../shared/navigation";
@@ -23,6 +23,13 @@ type ConnectionStatus = {
   reason?: string | null;
   activeJobs?: number;
   capabilities: CapabilityStatus[];
+  local?: {
+    supported: boolean;
+    distro: string;
+    workerUrl: string;
+    running: boolean;
+    reason?: string;
+  };
   error?: string;
 };
 
@@ -50,7 +57,8 @@ const tools = [
   { id: "text", title: "Текст → видео и звук", description: "Создание ролика по описанию.", capability: "fl2va", badge: "проверено на GPU" },
   { id: "frames", title: "Первый / последний кадр", description: "Оживить кадр или построить переход между двумя кадрами.", capability: "fl2va", badge: "нужна GPU-проверка" },
   { id: "motion", title: "Движение из видео", description: "Ref2VA использует действие, камеру и ритм исходного видео как смысловой референс.", capability: "ref2va", badge: "эксперимент" },
-  { id: "references", title: "Персонаж, стиль и звук", description: "Изображения, видео и аудио как совместные референсы.", capability: "ref2va", badge: "эксперимент" },
+  { id: "references", title: "Персонажи и смысловые референсы", description: "Ref2VA связывает изображения и видео с субъектами и содержанием сцены; аудиореференсы локально не включены.", capability: "ref2va", badge: "эксперимент" },
+  { id: "style", title: "Устойчивый перенос стиля", description: "Не объявляется доступным, пока нейтральный A/B не подтвердит отличие по всей длине ролика.", capability: "style_transfer", badge: "не подтверждено" },
   { id: "replace", title: "Замена области или объекта", description: "Маска, стабильный crop и masked sampling.", capability: "video_inpaint", badge: "лаборатория" },
   { id: "tracking", title: "Автотрекинг объекта", description: "Автоматическое распространение выделения по кадрам.", capability: "automatic_tracking", badge: "ещё не подключено" },
   { id: "resample", title: "Перегенерация 2K", description: "Отдельный hosted H3 Regenerate этап.", capability: "resample", badge: "отдельный сервис" }
@@ -72,8 +80,8 @@ export function H3Studio() {
     const previousFaviconType = favicon?.getAttribute("type") ?? null;
     document.title = "H3 Studio · SnarkRoute";
     if (favicon) {
-      favicon.href = "/h3-studio-icon.svg";
-      favicon.type = "image/svg+xml";
+      favicon.type = "image/png";
+      favicon.href = "/h3-studio-icon.png";
     }
     void refresh(false);
     return () => {
@@ -107,12 +115,57 @@ export function H3Studio() {
   }
 
   async function activateH3() {
+    const localConnection = status.workerUrl === status.local?.workerUrl;
+    if (!status.ready && status.local?.supported && (!status.configured || localConnection)) {
+      await startLocal();
+      return;
+    }
     if (!status.configured) {
       setAdvancedOpen(true);
       setMessage("Для первого подключения нужен адрес уже развёрнутого worker и созданный при его запуске H3_WORKER_SERVICE_TOKEN. После успешной проверки SnarkRoute сохранит их сам.");
       return;
     }
     await refresh(true);
+  }
+
+  async function startLocal() {
+    setBusy(true);
+    setMessage("Запускаю локальный H3 в WSL2, проверяю CUDA kernel и worker…");
+    try {
+      const response = await apiFetch(`${apiBase}/api/h3/local/start`, { method: "POST" });
+      const result = await response.json() as { status?: ConnectionStatus; error?: string };
+      if (!response.ok || !result.status) throw new Error(result.error ?? "Локальный H3 не запустился.");
+      setStatus(result.status);
+      setWorkerUrl(result.status.workerUrl);
+      setServiceToken("");
+      setAdvancedOpen(false);
+      setMessage("Локальный H3 запущен и сохранён. Можно запускать очередь на подключённом H3.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function stopLocal() {
+    const active = status.activeJobs ?? 0;
+    const confirmed = window.confirm(active > 0
+      ? `Сейчас выполняется задач: ${active}. Остановить локальный H3 и прервать их?`
+      : "Остановить локальный H3? Веса и готовые результаты останутся на диске.");
+    if (!confirmed) return;
+    setBusy(true);
+    setMessage("Останавливаю только локальный H3 worker…");
+    try {
+      const response = await apiFetch(`${apiBase}/api/h3/local/stop`, { method: "POST" });
+      const result = await response.json() as { status?: ConnectionStatus; error?: string };
+      if (!response.ok || !result.status) throw new Error(result.error ?? "Не удалось остановить локальный H3.");
+      setStatus(result.status);
+      setMessage("Локальный H3 остановлен. Веса и результаты сохранены; аренды и тарификации здесь нет.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function connect() {
@@ -165,7 +218,7 @@ export function H3Studio() {
     <main className="h3Studio">
       <header className="h3StudioHeader">
         <div className="h3StudioBrand">
-          <span className="h3StudioMark"><img src="/h3-studio-icon.svg" alt="" /></span>
+          <span className="h3StudioMark"><img src="/h3-studio-icon.png" alt="" /></span>
           <div>
             <strong>H3 Studio</strong>
             <span>MiniMax H3 внутри SnarkRoute</span>
@@ -180,7 +233,6 @@ export function H3Studio() {
       <section className="h3StudioHero">
         <div>
           <span className="h3Eyebrow">AUDIO · VIDEO · REFERENCES</span>
-          <h1>Рабочее место для H3, а не ещё один граф.</h1>
           <p>Подключи GPU-worker, выбери задачу и работай с кадрами, видео, звуком и масками. Любую операцию позже можно раскрыть как переносимый маршрут SnarkRoute.</p>
         </div>
         <ConnectionBadge status={status} loading={loading} />
@@ -207,8 +259,9 @@ export function H3Studio() {
           <div className="h3ConnectionActions">
             <button className="h3Primary" type="button" onClick={() => void activateH3()} disabled={busy || loading}>
               {busy || loading ? <LoaderCircle className="h3Spin" size={16} /> : status.configured ? <RefreshCw size={16} /> : <Plug size={16} />}
-              {status.ready ? "Проверить H3" : status.configured ? "Подключить сохранённый H3" : "Запустить / подключить H3"}
+              {status.ready ? "Проверить H3" : status.local?.supported && (!status.configured || status.workerUrl === status.local.workerUrl) ? "Запустить локальный H3" : status.configured ? "Подключить сохранённый H3" : "Подключить H3"}
             </button>
+            {status.local?.running ? <button type="button" onClick={() => void stopLocal()} disabled={busy || loading}><Unplug size={16} /> Остановить локальный H3</button> : null}
           </div>
 
           {!status.configured ? (
@@ -259,7 +312,7 @@ export function H3Studio() {
             </div>
           ) : null}
 
-          <p className="h3BillingWarning"><ShieldAlert size={16} /> Закрытие H3 Studio или удаление токена не останавливает аренду. Остановку и уничтожение GPU нужно подтверждать отдельно.</p>
+          <p className="h3BillingWarning"><ShieldAlert size={16} /> {status.workerUrl === status.local?.workerUrl ? "Локальный worker не тарифицируется. Закрытие вкладки его не останавливает — используй кнопку «Остановить локальный H3»." : "Закрытие H3 Studio или удаление токена не останавливает аренду. Остановку и уничтожение GPU нужно подтверждать отдельно."}</p>
 
           {status.configured ? (
             <div className="h3RuntimeDetails">
@@ -271,17 +324,9 @@ export function H3Studio() {
           ) : null}
         </section>
 
-        <section className="h3WorkspacePreview">
-          <div className="h3StagePlaceholder">
-            <Film size={42} />
-            <strong>Предпросмотр и таймлайн</strong>
-            <span>{status.ready ? "Worker готов. Следующий этап — загрузка исходников и запуск задач." : "Сначала подключи готовый H3 worker."}</span>
-          </div>
-          <div className="h3TimelineStub"><span /><span /><span /><span /><span /></div>
-        </section>
       </div>
 
-      <H3QueuePanel />
+      <H3QueuePanel finalAvailable={capabilityMap.get("final")?.available === true} />
 
       <section className="h3ToolsSection">
         <header><div><h2>Возможности</h2><p>Карточка активна только когда worker честно объявил соответствующую capability.</p></div><Cpu size={20} /></header>

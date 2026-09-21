@@ -15,6 +15,16 @@ class CapabilityUnavailable(RuntimeError):
         self.reason = reason
 
 
+class BackendFailure(RuntimeError):
+    """A backend error safe to expose through the stable worker job contract."""
+
+    def __init__(self, code: str, message: str, *, retryable: bool):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+
+
 @dataclass(frozen=True)
 class BackendOutput:
     path: Path

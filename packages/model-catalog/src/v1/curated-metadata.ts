@@ -2,8 +2,27 @@ import type { CuratedModelMetadataV1, ModelProviderIdV1 } from "./types.js";
 
 const aspectRatiosWithAuto = parameter("aspectRatio", "Aspect ratio", ["auto", "1:1", "3:2", "2:3", "4:3", "3:4", "16:9", "9:16"], "auto");
 const imageCount = { id: "n", label: "Images", type: "number" as const, default: 1, min: 1, max: 4, step: 1 };
+const gemini38Metadata: CuratedModelMetadataV1[] = ([
+  ["gemini", "gemini-3.8-flash"],
+  ["kie", "gemini-3-8-flash"],
+  ["polza", "google/gemini-3.8-flash"],
+  ["openrouter", "google/gemini-3.8-flash"]
+] as Array<[ModelProviderIdV1, string]>).map(([provider, providerModelId]) => ({
+  provider,
+  providerModelId,
+  canonicalModelId: "gemini-3.8-flash",
+  displayName: "Gemini 3.8 Flash",
+  originVendor: "google",
+  iconKey: "gemini",
+  iconPath: "/api/model-icons/gemini.png",
+  inputTypes: ["text", "image"],
+  outputTypes: ["text"],
+  capabilities: ["text.generate"],
+  roles: ["generator"]
+}));
 
 const curatedModelMetadata = defineCuratedModelMetadataV1([
+  ...gemini38Metadata,
   {
     provider: "polza",
     providerModelId: "topaz/image-upscale",

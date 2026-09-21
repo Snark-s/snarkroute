@@ -26,7 +26,7 @@ The worker uses `queued/running/succeeded/failed/cancelled`, progress, stages, s
 
 Pinned model: `MiniMaxAI/MiniMax-H3@42ed227ee7df40d41602854ae760620d6eb651fe`, MiniMax H3 Community License Agreement. The repository is not gated, but operators must review/accept the license and any territorial/commercial conditions themselves.
 
-SGLang `0.5.17` does **not** contain `kitchen_int8`. The CUDA image therefore pins the reviewed post-release source commit `3f26febaff04bac4cfefd60bdc9097bc26a96cb8` (the feature landed in `63d783bbe0955237ec41f9ddabf7235ddf04673c`), with PyTorch `2.13.0`, Diffusers `0.37.0`, and CUDA base `13.0.1`. It supports H3 FL2VA/Ref2VA through asynchronous `/v1/videos`.
+The CUDA image pins the reviewed SGLang `0.5.19` release commit `0bcd822377da7b5718e674eaf9c870d349424dd1` (the `kitchen_int8` feature landed in `63d783bbe0955237ec41f9ddabf7235ddf04673c`), with PyTorch `2.13.0`, Diffusers `0.37.0`, and CUDA base `13.0.1`. This release contains the official low-memory H3 Recipe A needed for a 12–16 GiB consumer GPU and supports FL2VA/Ref2VA through asynchronous `/v1/videos`.
 
 `comfy-kitchen==0.2.31` is pinned to the Linux CPython 3.12 ABI3 wheel SHA-256 `d7c2522e6a6cde7a7303e30d739c05989cf4b0a246684e496a129b950055d35f` (58,541,121 bytes). Its wheel metadata has no mandatory `Requires-Dist` entries. The uninstalled optional extras are `cublas` (`nvidia-cublas>=13.0.0`), `dev`, and `build`; the image deliberately installs the base wheel with `--no-deps`, so it adds no transitive Python packages. The library uses PyTorch at runtime, supplied by SGLang's pinned `torch==2.13.0`. Wheel-content inspection found only the `comfy_kitchen` package/native extension and metadata, with no ComfyUI, server, web runtime, nodes, or `custom_nodes` tree.
 
@@ -39,8 +39,8 @@ Confirmed open H3-Base behavior: 4–15 seconds, 24 fps, 768-pixel short edge, s
 Primary references:
 
 - [MiniMax model card](https://huggingface.co/MiniMaxAI/MiniMax-H3)
-- [Pinned SGLang H3 cookbook](https://github.com/sgl-project/sglang/blob/3f26febaff04bac4cfefd60bdc9097bc26a96cb8/docs/cookbook/diffusion/MiniMax/MiniMax-H3.mdx)
-- [Pinned SGLang kitchen_int8 implementation](https://github.com/sgl-project/sglang/blob/3f26febaff04bac4cfefd60bdc9097bc26a96cb8/python/sglang/multimodal_gen/runtime/layers/quantization/kitchen_int8.py)
+- [Pinned SGLang H3 cookbook](https://github.com/sgl-project/sglang/blob/0bcd822377da7b5718e674eaf9c870d349424dd1/docs/cookbook/diffusion/MiniMax/MiniMax-H3.mdx)
+- [Pinned SGLang kitchen_int8 implementation](https://github.com/sgl-project/sglang/blob/0bcd822377da7b5718e674eaf9c870d349424dd1/python/sglang/multimodal_gen/runtime/layers/quantization/kitchen_int8.py)
 - [comfy-kitchen package metadata](https://pypi.org/project/comfy-kitchen/0.2.31/)
 - [Diffusers MiniMax H3 merge](https://github.com/huggingface/diffusers/pull/14355)
 - [RunPod current GPU catalog](https://www.runpod.io/gpu-models)
@@ -91,6 +91,8 @@ Keep `bf16_offload` as the lossless comparison profile on the same card. The off
 ## First server launch
 
 H3 Studio can create its own private Vast template and run the complete managed path without Jupyter or manual terminal commands. The template pins source revision `a5e3a57c0806ee10d719f0631eee7fb61f51124c` and `vastai/pytorch:2.13.0-cu130-cuda-13.2-mini-py312-2026-09-01`, injects secrets only when creating an instance, runs the fail-closed bootstrap, and exposes the localhost-only worker through a SnarkRoute-owned SSH tunnel. See `docs/runbooks/minimax-h3-vast.md` for the one-time UI setup and manual fallback.
+
+The local Lenovo/WSL installation uses the official lossless 12–16 GiB Recipe A and loads one task family at a time. See `docs/runbooks/minimax-h3-local-wsl.md` for its installed paths, start/stop commands, and the explicit FL2VA/Ref2VA switch.
 
 The commands below remain the provider-neutral manual path.
 

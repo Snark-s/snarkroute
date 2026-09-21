@@ -1,0 +1,16 @@
+# Additive dependencies for the pinned headless Comfy core runtime.
+# Install into the CUDA/SGLang environment only; never into the API-only image.
+av==17.0.0
+comfy-aimdo==0.4.15
+comfy-kitchen==0.2.31
+einops==0.8.2
+numpy==2.3.5
+nvidia-ml-py==13.610.43
+Pillow==11.3.0
+psutil==7.2.2
+safetensors==0.8.0
+sentencepiece==0.2.2
+tokenizers==0.22.2
+torchsde==0.2.6
+trampoline==0.1.2
+transformers==5.12.1

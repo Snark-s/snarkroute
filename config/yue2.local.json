@@ -1,0 +1,8 @@
+{
+  "wslDistro": "Ubuntu-24.04",
+  "linuxUser": "serge",
+  "yuePath": "/home/serge/YuE",
+  "python": "/home/serge/YuE/.venv/bin/python",
+  "port": 7862,
+  "url": "http://127.0.0.1:7862"
+}

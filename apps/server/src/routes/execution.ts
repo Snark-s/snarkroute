@@ -41,6 +41,9 @@ app.post<{ Body: RunRequestBody }>("/api/routes/run", async (request, reply) => 
   let cloudRunId = "";
   let reservationId = "";
   let reservationAmount = 0;
+  const controller = new AbortController();
+  request.raw.once("aborted", () => controller.abort());
+  reply.raw.once("close", () => { if (!reply.raw.writableEnded) controller.abort(); });
   try {
     const routeInput = request.body && typeof request.body === "object" && "routeVersion" in request.body ? request.body : request.body?.route;
     const route = parseRoute(routeInput);
@@ -65,6 +68,7 @@ app.post<{ Body: RunRequestBody }>("/api/routes/run", async (request, reply) => 
       executor.executeRoute(route, {
         runId,
         outputDirectory,
+        signal: controller.signal,
         initialNodeOutputs: request.body?.initialNodeOutputs,
         onNodeResult: (nodeResult: NodeResult) => {
           bookkeeping.push(persistRunNodeResult(runId, cloudRunId, nodeResult, { user: actor.user, recordCredits: actor.actorType === "guest" || reservation.amount > 0 }));
@@ -94,6 +98,9 @@ app.post<{ Body: RunRequestBody }>("/api/routes/run/stream", async (request, rep
   let cloudRunId = "";
   let reservationId = "";
   let reservationAmount = 0;
+  const controller = new AbortController();
+  request.raw.once("aborted", () => controller.abort());
+  reply.raw.once("close", () => { if (!reply.raw.writableEnded) controller.abort(); });
   reply.raw.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
   reply.raw.setHeader("Cache-Control", "no-cache");
   reply.raw.setHeader("X-Accel-Buffering", "no");
@@ -127,6 +134,7 @@ app.post<{ Body: RunRequestBody }>("/api/routes/run/stream", async (request, rep
       executor.executeRoute(route, {
         runId,
         outputDirectory,
+        signal: controller.signal,
         initialNodeOutputs: request.body?.initialNodeOutputs,
         onNodeResult: (nodeResult: NodeResult) => {
           sendEvent({ type: "nodeResult", nodeResult });

@@ -11,10 +11,18 @@ from verify_models import local_component_bytes  # noqa: E402
 def test_manifest_is_pinned_and_marks_unknowns_honestly():
     manifest = load_manifest(default_manifest())
     assert manifest["model"]["revision"] == "42ed227ee7df40d41602854ae760620d6eb651fe"
-    assert manifest["frameworks"]["sglang"]["commit"] == ("3f26febaff04bac4cfefd60bdc9097bc26a96cb8")
+    assert manifest["frameworks"]["sglang"]["version"] == "0.5.19"
+    assert manifest["frameworks"]["sglang"]["commit"] == ("0bcd822377da7b5718e674eaf9c870d349424dd1")
     assert manifest["frameworks"]["comfy_kitchen"]["version"] == "0.2.31"
     assert manifest["frameworks"]["comfy_kitchen"]["required_dependencies"] == []
+    assert manifest["frameworks"]["matlow_int8"]["comfyui_core_commit"] == (
+        "f938505952476e48a12687eac696cdc94d48a3fe"
+    )
     components = {item["id"]: item for item in manifest["components"]}
+    assert components["matlow-fused-turbo-int8"]["expected_bytes"] == 20_980_178_976
+    assert components["matlow-video-vae-int8"]["checksum_sha256"] == (
+        "9bb2d96f218c76babd85e0611b85ca8fb330a90546c01a0005e8a58a59593410"
+    )
     assert components["h3-base-fl2va"]["expected_bytes"] > 100_000_000_000
     assert components["h3-clip-proj"]["filename"] == "unresolved"
     assert components["h3-turbo-lora-4-eval"]["download"] is False

@@ -48,6 +48,7 @@ export type DocumentedKieModel = ModelInfo & {
 
 const documentedModels: DocumentedKieModel[] = [
   kieModel("gpt-5-2", "gpt-5.2", "GPT-5.2", ["text.generate"], ["text", "image"], ["text"], [select("reasoning_effort", ["low", "medium", "high"], "medium"), bool("web_search", false)], { chatEndpoint: "/gpt-5-2/v1/chat/completions", maxImageInputs: 8 }),
+  kieModel("gemini-3-8-flash", "gemini-3.8-flash", "Gemini 3.8 Flash", ["text.generate"], ["text", "image"], ["text"], [select("reasoning_effort", ["low", "medium", "high"], "medium")], { chatEndpoint: "/gemini-3-8-flash-openai/v1/chat/completions", maxImageInputs: 8 }),
   kieModel("kling-3.0/video", "kling-3.0-pro", "Kling 3.0 Pro", ["video.generate"], ["text", "image"], ["video"], [
     select("mode", ["pro"], "pro"), select("aspect_ratio", ["16:9", "9:16", "1:1"], "16:9"), select("duration", ["3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15"], "5"), bool("sound", true)
   ], { mode: "pro", durationSeconds: [3, 15], firstLastFrame: true, audio: true, multiShot: false, maxImageInputs: 2 }),
@@ -109,10 +110,14 @@ export function createKieClient(options: KieClientOptions = {}) {
         return stringValue(data.data) ?? url;
       } catch { return url; }
     },
-    async chatCompletion(model: string, body: Record<string, unknown>): Promise<Record<string, unknown>> {
-      const endpoint = model === "gpt-5-2" ? "/gpt-5-2/v1/chat/completions" : undefined;
+    async chatCompletion(model: string, body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+      const endpoint = model === "gpt-5-2"
+        ? "/gpt-5-2/v1/chat/completions"
+        : model === "gemini-3-8-flash"
+          ? "/gemini-3-8-flash-openai/v1/chat/completions"
+          : undefined;
       if (!endpoint) throw new KieError("unsupported_model", `KIE chat model ${model} is not registered.`, false);
-      return requestJson(fetchImpl, `${baseUrl}${endpoint}`, { method: "POST", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      return requestJson(fetchImpl, `${baseUrl}${endpoint}`, { method: "POST", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
     }
   };
 }
@@ -141,10 +146,12 @@ export function createKieProviderAdapter(options: KieClientOptions = {}): Provid
         const response = await client.chatCompletion(request.model.id, {
           messages: [...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []), { role: "user", content: userContent }],
           ...kieChatParameters(request.parameters ?? {})
-        });
+        }, request.metadata?.signal as AbortSignal | undefined);
         const text = firstChatText(response);
         if (!text) throw new KieError("missing_result", "KIE chat completion returned no text.", false);
-        const usage = objectRecord(response.usage);
+        const usage = Object.keys(objectRecord(response.usage)).length
+          ? objectRecord(response.usage)
+          : objectRecord(response.usageMetadata);
         return { modelId: request.model.id, providerId: "kie", capability: request.capability, output: { text, output: response }, usage, raw: response };
       }
       const input = buildKieTaskInput(request.model.id, request.input, request.parameters ?? {}, urls);
@@ -270,7 +277,10 @@ function kieTextUsageEvent(nodeId: string, nodeType: string, model: string, usag
 
 async function requestJson(fetchImpl: KieFetch, url: string, init: RequestInit): Promise<Record<string, unknown>> {
   let response: Response;
-  try { response = await fetchImpl(url, init); } catch (error) { throw new KieError("network_error", `KIE network request failed: ${safeMessage(error)}`, true); }
+  try { response = await fetchImpl(url, init); } catch (error) {
+    if (init.signal?.aborted) throw new KieError("cancelled", "KIE request cancelled locally.", false);
+    throw new KieError("network_error", `KIE network request failed: ${safeMessage(error)}`, true);
+  }
   const text = await response.text();
   const data = objectRecord(safeJson(text));
   const code = numberValue(data.code);
@@ -339,9 +349,17 @@ function stringValue(value: unknown): string | undefined { return typeof value =
 function numberValue(value: unknown): number | undefined { const number = typeof value === "number" ? value : Number(value); return Number.isFinite(number) ? number : undefined; }
 function stringArray(value: unknown): string[] { return Array.isArray(value) ? value.map(String).filter(Boolean) : []; }
 function firstChatText(value: unknown): string | undefined {
-  const choices = objectRecord(value).choices;
+  const record = objectRecord(value);
+  const choices = record.choices;
   const choice = Array.isArray(choices) ? choices[0] : undefined;
-  return stringValue(objectRecord(objectRecord(choice).message).content);
+  const openAiText = stringValue(objectRecord(objectRecord(choice).message).content);
+  if (openAiText) return openAiText;
+  const candidates = record.candidates;
+  const candidate = Array.isArray(candidates) ? candidates[0] : undefined;
+  const parts = objectRecord(objectRecord(candidate).content).parts;
+  if (!Array.isArray(parts)) return undefined;
+  const text = parts.map((part) => stringValue(objectRecord(part).text)).filter((part): part is string => Boolean(part)).join("\n");
+  return stringValue(text);
 }
 function unique<T>(values: T[]): T[] { return [...new Set(values)]; }
 function filterDefined(value: Record<string, unknown>) { return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== null && item !== "" && (!Array.isArray(item) || item.length > 0))); }

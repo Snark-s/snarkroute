@@ -10,7 +10,7 @@ from ..models import CapabilityView, GenerateRequest, ResultMetadata
 from .base import BackendOutput, ProgressCallback
 
 MODEL_REVISION = "42ed227ee7df40d41602854ae760620d6eb651fe"
-SGLANG_COMMIT = "3f26febaff04bac4cfefd60bdc9097bc26a96cb8"
+SGLANG_COMMIT = "0bcd822377da7b5718e674eaf9c870d349424dd1"
 
 
 class SGLangBackend:
@@ -86,7 +86,7 @@ class SGLangBackend:
         await progress(0.03, "submitting_backend")
         timeout = httpx.Timeout(self.settings.request_timeout_seconds)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(f"{upstream}/v1/videos", json=request.sglang_payload())
+            response = await client.post(f"{upstream}/v1/videos", json=build_sglang_payload(request))
             response.raise_for_status()
             upstream_id = str(response.json()["id"])
             deadline = asyncio.get_running_loop().time() + (
@@ -132,6 +132,29 @@ class SGLangBackend:
                 outputs.append(BackendOutput(path, f"h3-{upstream_id}-{index}.mp4", "video/mp4", metadata))
         await progress(0.9, "persisting_result")
         return outputs
+
+
+def build_sglang_payload(request: GenerateRequest) -> dict[str, Any]:
+    """Translate the stable worker request into SGLang's upstream contract."""
+    steps = request.num_inference_steps or (
+        9
+        if request.quality_mode == "preview" and request.turbo_lora
+        else 8
+        if request.quality_mode == "preview"
+        else 30
+    )
+    return {
+        "model": "MiniMaxAI/MiniMax-H3",
+        "task": request.task,
+        "prompt": request.prompt.strip(),
+        "conditions": request.conditions,
+        "target": request.target.model_dump() if request.target else None,
+        "seed": request.seed,
+        "num_outputs_per_prompt": request.num_outputs_per_prompt,
+        "num_inference_steps": steps,
+        "quality": request.quality,
+        **({"lora_scale": request.lora_scale} if request.turbo_lora else {}),
+    }
 
 
 def _metadata(

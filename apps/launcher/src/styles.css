@@ -1,0 +1,76 @@
+:root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #f4f5fb; background: #090b12; font-synthesis: none; }
+* { box-sizing: border-box; } html, body, #root { margin: 0; min-width: 320px; min-height: 100%; } body { min-height: 100vh; } button, input, textarea, select { font: inherit; } button { color: inherit; }
+body::before { content: ""; position: fixed; inset: 0; pointer-events: none; background: radial-gradient(circle at 12% 0%, #7357ff22, transparent 34%), radial-gradient(circle at 88% 22%, #ee5c9d18, transparent 28%), linear-gradient(#0a0d16, #07090e); z-index: -1; }
+.launcherPage { width: min(1260px, calc(100% - 48px)); margin: auto; padding: 72px 0 90px; }
+.hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; margin-bottom: 42px; }
+.launcherBrand { display: flex; align-items: center; gap: 22px; } .launcherBrand > img { width: 82px; height: 82px; flex: 0 0 auto; object-fit: contain; filter: drop-shadow(0 12px 22px #0009); }
+.eyebrow { color: #a79bff; text-transform: uppercase; letter-spacing: .16em; font-size: 12px; font-weight: 800; }
+.agentWorkspace h1 { margin: 10px 0 12px; line-height: 1.02; letter-spacing: -.045em; }
+.hero p { max-width: 650px; margin: 12px 0 0; color: #9ba3b7; font-size: 18px; line-height: 1.55; }
+.runtimePill, .taskState { display: flex; align-items: center; gap: 9px; padding: 10px 15px; border: 1px solid #293044; border-radius: 999px; background: #111522aa; color: #b9c1d2; white-space: nowrap; }
+.pulse { width: 9px; height: 9px; border-radius: 50%; background: #8de888; box-shadow: 0 0 0 5px #8de88815, 0 0 18px #8de88888; }
+.appGrid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 18px; }
+.appCard { position: relative; grid-column: span 2; min-height: 260px; display: flex; flex-direction: column; align-items: stretch; overflow: hidden; padding: 0; text-align: left; border: 1px solid #252b3b; border-radius: 25px; background: linear-gradient(145deg, #151927ee, #0f121cdd); box-shadow: 0 18px 50px #0005; opacity: 0; animation: rise .45s ease forwards; transition: transform .2s, border-color .2s; }
+.cardMain { position:relative; z-index:1; flex:1; display:flex; flex-direction:column; align-items:stretch; width:100%; padding:25px; border:0; color:inherit; background:transparent; text-align:left; cursor:pointer }
+.cardActions { position:relative; z-index:2; display:flex; gap:8px; padding:0 25px 20px }.cardActions button{display:flex;align-items:center;gap:6px;padding:7px 10px;border:1px solid #343b50;border-radius:9px;background:#181d2b;color:#b7c0d7;cursor:pointer}.cardActions button:disabled{opacity:.4;cursor:default}.cardActions svg{width:14px;height:14px}
+.appCard:hover { transform: translateY(-5px); border-color: #ffffff3d; }
+.cardGlow { position: absolute; width: 190px; height: 190px; top: -70px; right: -55px; border-radius: 50%; filter: blur(12px); opacity: .22; background: #8a70ff; }
+.appCard.amber .cardGlow { background: #ffad4d; } .appCard.lime .cardGlow { background: #bdff68; } .appCard.cyan .cardGlow { background: #46dcec; } .appCard.rose .cardGlow { background: #ff6caa; }
+.appIcon { width: 62px; height: 62px; display: grid; place-items: center; border-radius: 19px; background: #755cff; box-shadow: 0 12px 30px #755cff45; }
+.amber .appIcon { background: #e79836; box-shadow: 0 12px 30px #e7983645; } .lime .appIcon { color: #18200c; background: #b9e95c; box-shadow: 0 12px 30px #b9e95c35; } .cyan .appIcon { color: #071b20; background: #54d2e1; box-shadow: 0 12px 30px #54d2e135; } .rose .appIcon { background: #db5b91; box-shadow: 0 12px 30px #db5b9145; }
+.appIcon svg { width: 29px; height: 29px; } .appCopy { display: grid; gap: 8px; margin-top: 35px; } .appCopy strong { font-size: 27px; letter-spacing: -.035em; } .appCopy small { color: #8f98ac; font-size: 15px; }
+.appIcon.branded { overflow: hidden; padding: 5px; background: #121621; box-shadow: 0 12px 30px #0007, 0 0 0 1px #ffffff18; } .appIcon.branded img { width: 100%; height: 100%; object-fit: contain; }
+.cardFooter { display: flex; align-items: center; justify-content: space-between; margin-top: auto; color: #778096; } .cardFooter > svg { width: 20px; }
+.status { display: flex; align-items: center; gap: 7px; font-size: 13px; } .status svg { width: 14px; } .status.on { color: #8de888; }
+.errorBanner { padding: 13px 16px; margin: 0 0 18px; border: 1px solid #8f3d5d; border-radius: 13px; color: #ffb3cd; background: #401b2b99; }
+.successBanner { padding: 13px 16px; margin: 0 0 18px; border: 1px solid #3f7650; border-radius: 13px; color: #b9f2c4; background: #173522b8; }
+.personaPage { height: 100vh; min-height: 0; display: grid; grid-template-columns: 330px 1fr; overflow: hidden; }
+.taskRail { height: 100vh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 24px 18px; border-right: 1px solid #22283a; background: #0b0e17d9; }
+.backLink { display: flex; align-items: center; gap: 8px; color: #929caf; text-decoration: none; font-size: 14px; } .backLink svg { width: 17px; }
+.personaMark { display: flex; align-items: center; gap: 13px; margin: 28px 2px 22px; } .personaMark > img { width: 52px; height: 52px; object-fit: contain; padding: 3px; border-radius: 14px; background: #17121c; box-shadow: 0 0 0 1px #ffffff18, 0 10px 28px #0008; }
+.personaMark div { display: grid; gap: 3px; } .personaMark strong { font-size: 18px; } .personaMark small { color: #818b9e; }
+.handoffButton, .continueCodexButton, .returnCodexButton, .newTask button, .composer button { display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 12px; background: linear-gradient(135deg, #775cf1, #bd5cd3); font-weight: 750; cursor: pointer; }
+.handoffButton { width: 100%; padding: 12px; } .handoffButton svg, .newTask button svg, .composer button svg { width: 17px; }
+.continueCodexButton { width: 100%; margin-top: 9px; padding: 11px; border: 1px solid #3b435b; color: #cbd2e2; background: #171c2a; }
+.continueCodexButton:hover { border-color: #775cf1; color: #fff; }
+.continueCodexButton svg, .returnCodexButton svg { width: 17px; }
+.returnCodexButton { width: 100%; margin-top: 7px; padding: 10px; color: #aeb7ca; background: transparent; }
+.returnCodexButton:hover { color: #fff; background: #151a29; }
+.newTask { margin: 14px 0 20px; padding: 10px; border: 1px solid #262c3c; border-radius: 14px; background: #111522; } .newTask textarea { width: 100%; min-height: 62px; resize: vertical; border: 0; outline: 0; color: inherit; background: transparent; } .newTask button { padding: 8px 12px; margin-left: auto; }
+.taskList { min-height: 0; display: grid; align-content: start; flex: 1; gap: 7px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; } .taskList::-webkit-scrollbar { display: none; }
+.taskListItem { display: grid; grid-template-columns: minmax(0, 1fr) 36px; align-items: center; border: 1px solid transparent; border-radius: 12px; background: transparent; }
+.taskListItem:hover, .taskListItem.active { border-color: #30364a; background: #151a29; }
+.taskListItem button { border: 0; color: inherit; background: transparent; cursor: pointer; }
+.taskSelect { min-width: 0; display: grid; gap: 8px; padding: 13px; text-align: left; }
+.taskDelete { width: 32px; height: 32px; display: grid; place-items: center; padding: 7px; border-radius: 9px !important; color: #697388 !important; opacity: 0; transition: opacity .15s, color .15s, background .15s; }
+.taskListItem:hover .taskDelete, .taskListItem.active .taskDelete, .taskDelete:focus-visible { opacity: 1; }
+.taskDelete:hover { color: #ff91b6 !important; background: #4b2133 !important; }
+.taskDelete svg { width: 16px; height: 16px; }
+.taskList strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .taskList small { display: flex; align-items: center; gap: 5px; color: #7f899d; } .taskList small svg { width: 13px; }
+.agentWorkspace { min-width: 0; min-height: 0; height: 100vh; display: flex; flex-direction: column; gap: 14px; overflow: hidden; padding: 22px clamp(24px, 4vw, 56px) 20px; }
+.agentWorkspace > header { display: flex; justify-content: space-between; align-items: center; gap: 20px; } .agentWorkspace h1 { max-width: 900px; margin: 6px 0 4px; font-size: clamp(28px, 2.5vw, 38px); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.taskState.complete { color: #8de888; } .controlPanel { display: grid; grid-template-columns: 1.2fr 1fr 1fr auto; gap: 12px; padding: 12px 14px; margin: 14px 0 18px; border: 1px solid #272d3d; border-radius: 17px; background: #10141fbb; }
+.controlPanel > label { display: grid; gap: 7px; } .controlPanel label > span { color: #858fa3; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+select { min-width: 0; padding: 10px 34px 10px 11px; border: 1px solid #30374a; border-radius: 10px; color: #eef0f7; background: #0c1019; }
+.permissions { display: grid; align-content: center; gap: 7px; color: #9aa3b6; font-size: 13px; white-space: nowrap; }
+.conversation { min-width: 0; min-height: 0; flex: 1 1 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; } .emptyAgent { height: 100%; min-height: 220px; display: grid; place-content: center; justify-items: center; text-align: center; color: #818b9d; } .emptyAgent > img { width: 92px; height: 92px; object-fit: contain; padding: 5px; border: 1px solid #4a2c3d; border-radius: 21px; background: #17121c; }
+.emptyAgent h2 { margin: 18px 0 6px; color: #e9ebf3; } .emptyAgent p { max-width: 510px; line-height: 1.55; }
+.agentReply { min-width: 0; max-width: 880px; padding: 24px; border: 1px solid #292f40; border-radius: 18px; background: #111622; } .agentReply > span { display: flex; align-items: center; gap: 8px; color: #d77ba4; font-weight: 750; } .agentReply span svg { width: 18px; } .agentReply p { overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; line-height: 1.65; }
+.activityPanel { max-width: 880px; margin-bottom: 14px; overflow: hidden; border: 1px solid #343b4e; border-radius: 18px; background: #0e131e; } .activityPanel.running { border-color: #70582f; box-shadow: 0 0 28px #e6a83a12; } .activityPanel.cancelled, .activityPanel.failed { border-color: #71394e; }
+.activityHeader { display: grid; grid-template-columns: 22px auto 1fr; align-items: center; gap: 9px; padding: 13px 16px; border-bottom: 1px solid #292f40; color: #e9c47d; } .activityHeader svg { width: 18px; } .activityHeader small { justify-self: end; color: #778196; font-size: 12px; }
+.activityList { min-width: 0; padding: 9px 16px 13px; } .activityEvent { min-width: 0; display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 10px; align-items: start; color: #b9c1d1; } .activityEvent > span { width: 6px; height: 6px; margin-top: 12px; border-radius: 50%; background: #7661b8; } .activityEvent p { min-width: 0; margin: 6px 0; overflow-wrap: anywhere; word-break: break-word; white-space: pre-wrap; line-height: 1.45; } .activityEvent.response > span { background: #db6ba1; } .activityEvent.tool > span, .activityEvent.tool_result > span { background: #e6ac49; } .activityEvent.checkpoint > span { background: #70d883; }
+.composer { flex-shrink: 0; display: grid; grid-template-columns: 46px 1fr auto; gap: 12px; padding: 12px; border: 1px solid #2d3447; border-radius: 17px; background: #111621; box-shadow: 0 16px 45px #0005; } .composer textarea { min-height: 58px; max-height: 180px; resize: vertical; overflow-y: auto; scrollbar-width: none; padding: 9px; border: 0; outline: 0; color: inherit; background: transparent; } .composer textarea::-webkit-scrollbar { display: none; } .composer .runButton { align-self: stretch; padding: 0 20px; }
+.fileInput { display: none; }
+.composer .attachButton { align-self: stretch; padding: 0; border: 1px solid #30384c; background: #181d2a; color: #aeb7ca; }
+.composer .attachButton:hover { color: #fff; border-color: #59637c; }
+.composer .stopButton { align-self: stretch; padding: 0 20px; border: 1px solid #8b4059; color: #ffd6e2; background: linear-gradient(135deg, #713149, #a83d5c); } .composer .stopButton:hover { border-color: #d56c8b; }
+.attachmentStrip { grid-column: 1 / -1; display: flex; gap: 10px; overflow-x: auto; padding: 2px 2px 8px; }
+.attachmentPreview { position: relative; flex: 0 0 116px; height: 86px; overflow: hidden; border: 1px solid #343c52; border-radius: 12px; background: #0b0f18; }
+.attachmentPreview img { width: 100%; height: 100%; object-fit: cover; }
+.attachmentPreview span { position: absolute; inset: auto 0 0; overflow: hidden; padding: 18px 7px 6px; color: #fff; background: linear-gradient(transparent, #05070be8); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.attachmentPreview button { position: absolute; top: 5px; right: 5px; width: 24px; height: 24px; min-height: 0; padding: 5px; border-radius: 50%; background: #080b10dd; }
+.attachmentPreview button svg { width: 14px; }
+.imageRouteWarning { grid-column: 1 / -1; color: #ffb3cd; font-size: 13px; }
+button:disabled { opacity: .5; cursor: wait; } .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } } @keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 950px) { .appGrid { grid-template-columns: repeat(2, 1fr); } .appCard { grid-column: span 1; } .personaPage { grid-template-columns: 270px 1fr; } .controlPanel { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 680px) { .launcherPage { width: min(100% - 28px, 560px); padding-top: 38px; } .hero { align-items: flex-start; flex-direction: column; } .launcherBrand { align-items: flex-start; gap: 14px; } .launcherBrand > img { width: 58px; height: 58px; } .appGrid { grid-template-columns: 1fr; } .personaPage { height: auto; min-height: 100vh; display: block; overflow: visible; } .taskRail { height: auto; min-height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid #22283a; } .taskList { max-height: 210px; } .agentWorkspace { height: auto; min-height: 100vh; overflow: visible; padding: 28px 16px; } .conversation { overflow: visible; } .controlPanel { grid-template-columns: 1fr; } .composer { grid-template-columns: 46px 1fr; } .composer .runButton { grid-column: 1 / -1; min-height: 48px; } }

@@ -90,9 +90,10 @@ export function createGeminiClient(options: GeminiClientOptions = {}) {
   }
 
   return {
-    async generateContent(model: string, parts: unknown[], imageConfig: GeminiImageConfig = {}): Promise<GeminiGenerateResult> {
+    async generateContent(model: string, parts: unknown[], imageConfig: GeminiImageConfig = {}, signal?: AbortSignal): Promise<GeminiGenerateResult> {
       const output = await request(`/models/${encodeURIComponent(model)}:generateContent`, {
         method: "POST",
+        signal,
         body: JSON.stringify({
           contents: [{ role: "user", parts }],
           generationConfig: {
@@ -111,9 +112,10 @@ export function createGeminiClient(options: GeminiClientOptions = {}) {
         text: firstText(output)
       };
     },
-    async generateText(model: string, parts: unknown[], systemPrompt?: string): Promise<GeminiGenerateResult> {
+    async generateText(model: string, parts: unknown[], systemPrompt?: string, signal?: AbortSignal): Promise<GeminiGenerateResult> {
       const output = await request(`/models/${encodeURIComponent(model)}:generateContent`, {
         method: "POST",
+        signal,
         body: JSON.stringify({
           systemInstruction: stringParam(systemPrompt) ? { parts: [{ text: String(systemPrompt) }] } : undefined,
           contents: [{ role: "user", parts }],
@@ -144,7 +146,7 @@ export function createNanoBanana2NodeRunner(options: GeminiClientOptions = {}): 
         aspectRatio: stringParam(params.aspectRatio),
         imageSize: stringParam(params.imageSize)
       },
-      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type }
+      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type, signal: context.signal }
     });
     const result = geminiGenerateResultFromGateway(gatewayResult, model);
     const pricingQuote = quoteFromGatewayOutput(gatewayResult.output) ?? estimateGeminiPricingQuote({
@@ -208,7 +210,7 @@ export function createNanoBanana2NodeRunner(options: GeminiClientOptions = {}): 
 }
 
 export function createGeminiLlmNodeRunner(options: GeminiClientOptions = {}): NodeRunner {
-  return async ({ node, params, inputs }) => {
+  return async ({ node, params, inputs, context }) => {
     const model = stringParam(params.model) ?? GEMINI_LLM_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     const systemPrompt = firstInputText(inputs.systemPrompt) ?? String(params.systemPrompt ?? GEMINI_LLM_DEFAULT_SYSTEM_PROMPT);
@@ -219,7 +221,7 @@ export function createGeminiLlmNodeRunner(options: GeminiClientOptions = {}): No
       capability: "text.generate",
       modelRef: `model://gemini/${model}`,
       input: { prompt, images, systemPrompt },
-      metadata: { nodeId: node.id, nodeType: node.type }
+      metadata: { nodeId: node.id, nodeType: node.type, signal: context.signal }
     });
     const result = geminiGenerateResultFromGateway(gatewayResult, model);
     const pricingQuote = estimateGeminiPricingQuote({
@@ -286,7 +288,7 @@ export function createGeminiProviderAdapter(options: GeminiClientOptions = {}): 
       if (images.length > 14) throw new Error(`gemini provider adapter accepts at most 14 input images, got ${images.length}.`);
       if (request.capability === "text.generate") {
         const parts = await buildNanoBanana2Parts({ prompt, images, fetchImpl: options.fetchImpl });
-        const result = await client.generateText(request.model.id, parts, stringParam(request.input.systemPrompt));
+        const result = await client.generateText(request.model.id, parts, stringParam(request.input.systemPrompt), request.metadata?.signal as AbortSignal | undefined);
         return {
           modelId: request.model.id,
           providerId: "gemini",
@@ -306,7 +308,7 @@ export function createGeminiProviderAdapter(options: GeminiClientOptions = {}): 
         const result = await client.generateContent(request.model.id, parts, {
           aspectRatio: stringParam(request.parameters?.aspectRatio),
           imageSize: stringParam(request.parameters?.imageSize)
-        });
+        }, request.metadata?.signal as AbortSignal | undefined);
         const imageAsset = result.image
           ? await writeGeneratedImage(result.image, {
               outputDirectory: stringParam(request.metadata?.outputDirectory) ?? process.cwd(),

@@ -3,9 +3,11 @@ import { join } from "node:path";
 import type { ModelInfo, ModelInvokeRequest, ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner } from "@snarkroute/executor";
 
-export type H3Reference = { kind: "image" | "video" | "audio"; uri: string; role?: "firstFrame" | "lastFrame" | "reference"; startTimeSeconds?: number; requireVideoAudio?: boolean };
-export type H3GenerationInput = { prompt: string; duration: number; aspectRatio?: string; seed?: number; references?: H3Reference[]; variants?: number; quality?: "lossless" | "high"; renderMode?: "preview" | "final"; turboLora?: boolean; inferenceSteps?: number };
-export type H3WorkerRequest = { operation: "video.generate.h3"; task: "t2va" | "fl2va" | "ref2va"; prompt: string; conditions: Array<Record<string, unknown>>; target: { short_edge: 768; aspect_ratio: string; duration_seconds: number }; seed?: number; num_outputs_per_prompt: number; num_inference_steps: number; quality_mode: "preview" | "final"; quality: "lossless" | "high"; turbo_lora: boolean };
+export type H3Reference = { kind: "image" | "video" | "audio"; uri: string; role?: "firstFrame" | "lastFrame" | "reference"; startTimeSeconds?: number; requireVideoAudio?: boolean; visualMode?: "full" | "motion" };
+export type H3ModelVariant = "h3_base" | "10eros_max" | "10eros_max_turbo";
+export type H3GenerationInput = { prompt: string; duration: number; aspectRatio?: string; seed?: number; references?: H3Reference[]; variants?: number; quality?: "lossless" | "high"; renderMode?: "preview" | "final"; turboLora?: boolean; inferenceSteps?: number; modelVariant?: H3ModelVariant };
+export type H3WorkerRequest = { operation: "video.generate.h3"; task: "t2va" | "fl2va" | "ref2va"; prompt: string; conditions: Array<Record<string, unknown>>; target: { short_edge: 768; aspect_ratio: string; duration_seconds: number }; seed?: number; num_outputs_per_prompt: number; num_inference_steps: number; quality_mode: "preview" | "final"; quality: "lossless" | "high"; turbo_lora: boolean; model_variant: H3ModelVariant };
+export type H3WorkerModel = { id: H3ModelVariant; family: "h3"; variant: string; display_name: string; purpose: "preview" | "final"; default_steps: number; minimum_steps: number; maximum_steps: number; revision: string; weights_installed: boolean; recommended_for_16gb?: boolean; downloading?: boolean; progress?: number; downloaded_bytes?: number; expected_bytes?: number; error?: string | null; reference_modes?: string[]; style_transfer_verified?: boolean };
 export type H3WorkerError = { code: string; message: string; retryable: boolean; details?: Record<string, unknown> };
 export type H3WorkerJob = { id: string; status: "queued" | "running" | "succeeded" | "failed" | "cancelled" | "completed"; stage?: string; progress?: number; error?: H3WorkerError | string; outputs?: Array<{ index: number; filename: string; mime_type: string; bytes: number; storage_backend: string; storage_key: string }>; metadata?: Record<string, unknown>; variants?: number };
 export type H3WorkerAsset = { id: string; uri: string; mimeType: string };
@@ -23,11 +25,21 @@ export function serializeH3Request(input: H3GenerationInput): H3WorkerRequest {
   const task = semantic.length ? "ref2va" : first.length || last.length ? "fl2va" : "t2va";
   const conditions = task === "fl2va"
     ? [...first.map((item) => ({ type: "image", uri: safeUri(item.uri), role: "keyframe", frame_index: 0 })), ...last.map((item) => ({ type: "image", uri: safeUri(item.uri), role: "keyframe", frame_index: -1 }))]
-    : semantic.map((item) => ({ type: item.kind === "video" && item.requireVideoAudio ? "video_audio" : item.kind, uri: safeUri(item.uri), role: "reference", ...(item.kind === "video" && item.startTimeSeconds !== undefined ? { start_time_seconds: nonNegative(item.startTimeSeconds) } : {}) }));
-  const renderMode = input.renderMode ?? "final";
-  const inferenceSteps = integerRange(input.inferenceSteps ?? (renderMode === "preview" ? 8 : 30), renderMode === "preview" ? 4 : 20, renderMode === "preview" ? 10 : 40, "inferenceSteps");
+    : semantic.map((item) => ({
+      type: item.kind === "video" && item.requireVideoAudio ? "video_audio" : item.kind,
+      uri: safeUri(item.uri),
+      role: "reference",
+      ...(item.kind === "video" && item.startTimeSeconds !== undefined ? { start_time_seconds: nonNegative(item.startTimeSeconds) } : {}),
+      ...(item.kind === "video" && item.visualMode === "motion" ? { visual_mode: "motion" } : {})
+    }));
+  const modelVariant = input.modelVariant ?? "h3_base";
+  const renderMode = input.renderMode ?? (modelVariant === "10eros_max" ? "final" : "preview");
+  const defaultSteps = modelVariant === "10eros_max" ? 8 : modelVariant === "10eros_max_turbo" ? 6 : renderMode === "preview" ? 8 : 30;
+  const minimumSteps = modelVariant.startsWith("10eros_") ? 4 : renderMode === "preview" ? 4 : 20;
+  const maximumSteps = modelVariant.startsWith("10eros_") ? 8 : renderMode === "preview" ? 10 : 40;
+  const inferenceSteps = integerRange(input.inferenceSteps ?? defaultSteps, minimumSteps, maximumSteps, "inferenceSteps");
   const variants = integerRange(input.variants ?? 1, 1, 10, "variants");
-  return { operation: "video.generate.h3", task, prompt, conditions, target: { short_edge: 768, aspect_ratio: input.aspectRatio?.trim() || "auto", duration_seconds: input.duration }, ...(input.seed === undefined ? {} : { seed: integerRange(input.seed, 0, 2_147_483_647, "seed") }), num_outputs_per_prompt: variants, num_inference_steps: inferenceSteps, quality_mode: renderMode, quality: input.quality ?? "lossless", turbo_lora: input.turboLora ?? false };
+  return { operation: "video.generate.h3", task, prompt, conditions, target: { short_edge: 768, aspect_ratio: input.aspectRatio?.trim() || "auto", duration_seconds: input.duration }, ...(input.seed === undefined ? {} : { seed: integerRange(input.seed, 0, 2_147_483_647, "seed") }), num_outputs_per_prompt: variants, num_inference_steps: inferenceSteps, quality_mode: renderMode, quality: input.quality ?? "lossless", turbo_lora: input.turboLora ?? false, model_variant: modelVariant };
 }
 
 export function createH3WorkerClient(options: { baseUrl?: string; serviceToken?: string; fetchImpl?: typeof fetch; pollingIntervalMs?: number; timeoutMs?: number } = {}) {
@@ -44,7 +56,9 @@ export function createH3WorkerClient(options: { baseUrl?: string; serviceToken?:
     async health() { return (await request("/health")).json(); },
     async ready() { return (await request("/ready")).json(); },
     async capabilities() { return (await request("/v1/capabilities")).json(); },
-    async upload(data: Uint8Array, filename: string, mimeType: string) { return (await request("/v1/assets", { method: "POST", body: new Uint8Array(data).buffer, headers: { "Content-Type": mimeType, "X-Filename": filename } })).json() as Promise<H3WorkerAsset>; },
+    async models() { return (await request("/v1/models")).json() as Promise<{ models: H3WorkerModel[] }>; },
+    async downloadModel(variant: H3ModelVariant) { return (await request(`/v1/models/${encodeURIComponent(variant)}/download`, { method: "POST", body: "{}" })).json() as Promise<H3WorkerModel>; },
+    async upload(data: Uint8Array, filename: string, mimeType: string) { return (await request("/v1/assets", { method: "POST", body: new Uint8Array(data).buffer, headers: { "Content-Type": mimeType, "X-Filename": encodeURIComponent(filename) } })).json() as Promise<H3WorkerAsset>; },
     async create(input: H3GenerationInput, idempotencyKey?: string) { return (await request("/v1/jobs", { method: "POST", body: JSON.stringify(serializeH3Request(input)), headers: idempotencyKey ? { "Idempotency-Key": idempotencyKey } : undefined })).json() as Promise<H3WorkerJob>; },
     async get(id: string) { return (await request(`/v1/jobs/${encodeURIComponent(id)}`)).json() as Promise<H3WorkerJob>; },
     async cancel(id: string) { return (await request(`/v1/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" })).json() as Promise<H3WorkerJob>; },
@@ -127,8 +141,10 @@ async function h3InputFromNode(params: Record<string, unknown>, inputs: Record<s
       if (asset) references.push({ kind, role, uri: asset.uri });
     }
   }
-  return { prompt: String(params.prompt ?? inputs.prompt ?? ""), duration: Number(params.duration ?? params.duration_seconds ?? 5), aspectRatio: String(params.aspectRatio ?? params.aspect_ratio ?? "auto"), seed: params.seed === undefined ? undefined : Number(params.seed), variants: Number(params.variants ?? params.num_outputs_per_prompt ?? 1), quality: params.quality === "high" ? "high" : "lossless", renderMode: params.quality_mode === "preview" ? "preview" : "final", turboLora: params.turbo_lora === true, inferenceSteps: params.num_inference_steps === undefined ? undefined : Number(params.num_inference_steps), references };
+  const modelVariant = h3ModelVariant(params.modelVariant ?? params.model_variant ?? params.providerModelId ?? params.model);
+  return { prompt: String(params.prompt ?? inputs.prompt ?? ""), duration: Number(params.duration ?? params.duration_seconds ?? 5), aspectRatio: String(params.aspectRatio ?? params.aspect_ratio ?? "auto"), seed: params.seed === undefined ? undefined : Number(params.seed), variants: Number(params.variants ?? params.num_outputs_per_prompt ?? 1), quality: params.quality === "high" ? "high" : "lossless", renderMode: params.quality_mode === "preview" ? "preview" : modelVariant === "10eros_max" ? "final" : "preview", turboLora: params.turbo_lora === true, inferenceSteps: params.num_inference_steps === undefined ? undefined : Number(params.num_inference_steps), modelVariant, references };
 }
+function h3ModelVariant(value: unknown): H3ModelVariant { const id = String(value ?? "h3_base").replace(/^h3[/:]/, ""); return id === "10eros_max" || id === "10eros_max_turbo" ? id : "h3_base"; }
 function inputValues(value: unknown): unknown[] { return Array.isArray(value) ? value : value === undefined || value === null ? [] : [value]; }
 async function uploadInput(value: unknown, upload: (data: Uint8Array, filename: string, mimeType: string) => Promise<H3WorkerAsset>): Promise<H3WorkerAsset | null> {
   if (!value || typeof value !== "object") return null;

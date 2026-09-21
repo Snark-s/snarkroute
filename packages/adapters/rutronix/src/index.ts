@@ -31,10 +31,10 @@ export function createRuTronixClient(options: RuTronixClientOptions = {}) {
   const fetcher = options.fetchImpl ?? fetch;
   const baseUrl = (options.baseUrl ?? process.env.RUTRONIX_BASE_URL ?? RUTRONIX_BASE_URL).replace(/\/+$/u, "");
   return {
-    async chatCompletions(body: Record<string, unknown>): Promise<unknown> {
+    async chatCompletions(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
       const apiKey = options.apiKey ?? process.env.RUTRONIX_API_KEY;
       if (!apiKey?.trim()) throw new Error(RUTRONIX_MISSING_KEY_MESSAGE);
-      const response = await fetcher(`${baseUrl}${RUTRONIX_CHAT_PATH}`, { method: "POST", headers: { Authorization: `Bearer ${apiKey.trim()}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const response = await fetcher(`${baseUrl}${RUTRONIX_CHAT_PATH}`, { method: "POST", headers: { Authorization: `Bearer ${apiKey.trim()}`, "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
       if (!response.ok) {
         const text = await response.text().catch(() => "");
         throw new Error(`RuTronix request failed (${response.status})${text ? `: ${text.slice(0, 300)}` : ""}`);
@@ -51,13 +51,13 @@ export function createRuTronixClient(options: RuTronixClientOptions = {}) {
 
 export function createRuTronixTextNodeRunner(options: RuTronixClientOptions = {}): NodeRunner {
   const gateway = options.modelGateway;
-  return async ({ node, params, inputs }) => {
+  return async ({ node, params, inputs, context }) => {
     const model = stringValue(params.model) || RUTRONIX_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? stringValue(params.prompt) ?? "";
     if (!prompt.trim()) throw new Error("RuTronix Text requires a prompt.");
     const systemPrompt = firstInputText(inputs.systemPrompt) ?? stringValue(params.systemPrompt);
-    const invoked = gateway ? await gateway.invoke({ capability: "text.generate", modelRef: `model://rutronix/${model}`, input: { prompt, systemPrompt }, parameters: params, metadata: { nodeId: node.id, nodeType: node.type } }) : null;
-    const response = invoked?.output.output ?? await createRuTronixClient(options).chatCompletions({ model, messages: [...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []), { role: "user", content: prompt }], stream: false, temperature: params.temperature, max_completion_tokens: params.max_completion_tokens ?? params.max_tokens });
+    const invoked = gateway ? await gateway.invoke({ capability: "text.generate", modelRef: `model://rutronix/${model}`, input: { prompt, systemPrompt }, parameters: params, metadata: { nodeId: node.id, nodeType: node.type, signal: context.signal } }) : null;
+    const response = invoked?.output.output ?? await createRuTronixClient(options).chatCompletions({ model, messages: [...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []), { role: "user", content: prompt }], stream: false, temperature: params.temperature, max_completion_tokens: params.max_completion_tokens ?? params.max_tokens }, context.signal);
     const text = invoked && typeof invoked.output.text === "string" ? invoked.output.text : firstChatText(response);
     if (!text) throw new Error(`RuTronix model "${model}" did not return text.`);
     const usage = objectField(response, "usage");
@@ -78,7 +78,7 @@ export function createRuTronixProviderAdapter(options: RuTronixClientOptions = {
     if (request.capability !== "text.generate") throw new Error(`RuTronix adapter does not support capability "${request.capability}".`);
     const prompt = stringValue(request.input.prompt) ?? "";
     const systemPrompt = stringValue(request.input.systemPrompt);
-    const response = await client.chatCompletions({ model: request.model.id, messages: [...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []), { role: "user", content: prompt }], stream: false, ...(request.parameters ?? {}) });
+    const response = await client.chatCompletions({ model: request.model.id, messages: [...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []), { role: "user", content: prompt }], stream: false, ...(request.parameters ?? {}) }, request.metadata?.signal as AbortSignal | undefined);
     return { modelId: request.model.id, providerId: "rutronix", capability: request.capability, output: { text: firstChatText(response), output: response, model: request.model.id }, usage: objectRecord(objectField(response, "usage")), raw: response };
   } };
 }

@@ -78,6 +78,27 @@ describe("H3QueueService", () => {
     expect(settled.session.cleanupConfirmed).toBe(true);
   });
 
+  it("accepts and persists a video style-transfer job", async () => {
+    const runtime: H3QueueRuntime = {
+      acquire: async () => ({ workerUrl: "https://worker.example", serviceToken: "secret" }),
+      render: async (item) => ({ workerJobId: item.id, resultPaths: [] }),
+      cleanup: async () => undefined
+    };
+    const service = new H3QueueService({ directory: await queueDirectory(), runtime });
+    const item = await service.create({
+      title: "Voxel restyle",
+      operation: "style_transfer",
+      prompt: "Video 1 sets motion and camera. Image 1 sets the visual style.",
+      assets: [
+        { slot: "referenceVideo", kind: "video", path: "/inputs/source.mp4", filename: "source.mp4", mimeType: "video/mp4" },
+        { slot: "referenceImage", kind: "image", path: "/inputs/style.png", filename: "style.png", mimeType: "image/png" }
+      ]
+    });
+
+    const reloaded = new H3QueueService({ directory: service.directory, runtime });
+    expect((await reloaded.getState()).items[0]).toMatchObject({ id: item.id, operation: "style_transfer" });
+  });
+
   it("persists and cleans the exact instance when startup fails after Vast creation", async () => {
     const events: string[] = [];
     const runtime: H3QueueRuntime = {
@@ -117,4 +138,75 @@ describe("H3QueueService", () => {
     expect(settled.session.managedInstanceId).toBe(99);
     expect(settled.session.error).toContain("Vast destroy was not confirmed");
   });
+
+  it("cancels the active worker job and leaves later queue items ready", async () => {
+    const events: string[] = [];
+    let rejectRender: ((error: Error) => void) | undefined;
+    const runtime: H3QueueRuntime = {
+      acquire: async () => ({ workerUrl: "https://worker.example", serviceToken: "secret" }),
+      render: async (item, _lease, _onProgress, onJobCreated) => {
+        events.push(`render:${item.id}`);
+        const cancelled = new Promise<never>((_resolve, reject) => { rejectRender = reject; });
+        await onJobCreated?.(`worker-${item.id}`);
+        return cancelled;
+      },
+      cancel: async (item) => {
+        events.push(`cancel:${item.workerJobId}`);
+        rejectRender?.(new Error("Worker job cancelled"));
+      },
+      cleanup: async () => { events.push("cleanup"); }
+    };
+    const service = new H3QueueService({ directory: await queueDirectory(), runtime });
+    const first = await service.create({ title: "Cancel me", operation: "text_to_video", prompt: "Scene 1" });
+    const second = await service.create({ title: "Keep me", operation: "text_to_video", prompt: "Scene 2" });
+
+    await service.start("saved_worker");
+    await waitUntil(async () => (await service.getState()).items[0]?.workerJobId === `worker-${first.id}`);
+    const cancelling = await service.cancelActive();
+    const settled = await service.waitForSettled();
+
+    expect(cancelling.status).toBe("cancelling");
+    expect(events).toEqual([`render:${first.id}`, `cancel:worker-${first.id}`, "cleanup"]);
+    expect(settled.session.status).toBe("cancelled");
+    expect(settled.items[0]).toMatchObject({ status: "cancelled", workerJobId: `worker-${first.id}` });
+    expect(settled.items[1]).toMatchObject({ id: second.id, status: "ready" });
+  });
+
+  it("renders only selected non-archived items and can restore archived jobs", async () => {
+    const rendered: string[] = [];
+    const runtime: H3QueueRuntime = {
+      acquire: async () => ({ workerUrl: "https://worker.example", serviceToken: "secret" }),
+      render: async (item) => {
+        rendered.push(item.id);
+        return { workerJobId: `worker-${item.id}`, resultPaths: [] };
+      },
+      cleanup: async () => undefined
+    };
+    const service = new H3QueueService({ directory: await queueDirectory(), runtime });
+    const selected = await service.create({ title: "Selected", operation: "text_to_video", prompt: "Scene 1" });
+    const skipped = await service.create({ title: "Skipped", operation: "text_to_video", prompt: "Scene 2" });
+    const archived = await service.create({ title: "Archived", operation: "text_to_video", prompt: "Scene 3" });
+
+    await service.setSelected(skipped.id, false);
+    await service.archive(archived.id);
+    await service.start("saved_worker");
+    const settled = await service.waitForSettled();
+
+    expect(rendered).toEqual([selected.id]);
+    expect(settled.items.find((item) => item.id === skipped.id)).toMatchObject({ status: "ready", selectedForRun: false });
+    expect(settled.items.find((item) => item.id === archived.id)).toMatchObject({ archivedAt: expect.any(String), selectedForRun: false });
+
+    const restored = await service.restore(archived.id);
+    expect(restored).toMatchObject({ selectedForRun: true });
+    expect(restored?.archivedAt).toBeUndefined();
+  });
 });
+
+async function waitUntil(predicate: () => Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + 1_000;
+  while (Date.now() < deadline) {
+    if (await predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error("Timed out waiting for the queue state.");
+}

@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "title": "Первый / последний кадр",
+      "operation": "first_last_frame",
+      "prompt": "Девушка сидит на скамейке и рисует",
+      "duration": 5,
+      "aspectRatio": "16:9",
+      "seed": 134897941,
+      "variants": 1,
+      "renderMode": "preview",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_92cb9cc2-c8eb-4ad0-b1d7-f0e7912ec812-Снимок экрана 2026-07-29 142822.png",
+          "filename": "Снимок экрана 2026-07-29 142822.png",
+          "mimeType": "image/png"
+        },
+        {
+          "slot": "lastFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_a0c6148b-d9e9-4bae-ab00-bc6ac6be054e-Снимок экрана 2026-07-29 143254.png",
+          "filename": "Снимок экрана 2026-07-29 143254.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_ed331286-63da-4358-ad6b-bee79a6c05b9",
+      "status": "failed",
+      "progress": 0,
+      "createdAt": "2026-09-09T16:01:37.281Z",
+      "updatedAt": "2026-09-10T11:55:32.158Z",
+      "stage": "models_loaded",
+      "startedAt": "2026-09-09T21:14:42.040Z",
+      "selectedForRun": true,
+      "workerJobId": "052a495e-8c19-4173-ae5e-4cfe073fce44",
+      "error": "SnarkRoute restarted while this item was running. Retry it after checking the worker.",
+      "completedAt": "2026-09-10T11:55:32.158Z"
+    },
+    {
+      "title": "Первый / последний кадр",
+      "operation": "first_last_frame",
+      "prompt": "Девушка просыпается",
+      "duration": 10,
+      "aspectRatio": "16:9",
+      "seed": 134897941,
+      "variants": 1,
+      "renderMode": "preview",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_3c334a91-f33e-4b6b-8b9b-14f488a09c93-image.png",
+          "filename": "image.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_e4a668c1-678e-4ba9-b931-1e14df3fc521",
+      "status": "ready",
+      "progress": 0,
+      "createdAt": "2026-09-09T15:51:50.411Z",
+      "updatedAt": "2026-09-09T21:09:48.452Z",
+      "stage": "failed",
+      "startedAt": "2026-09-09T21:09:48.413Z",
+      "selectedForRun": true
+    },
+    {
+      "title": "Текст → видео и звук",
+      "operation": "text_to_video",
+      "prompt": "лошадь в стиле пикторализма бежит по лесу сквозь туман. Стилизация - пикторализм",
+      "duration": 5,
+      "aspectRatio": "16:9",
+      "seed": 163977734,
+      "variants": 1,
+      "renderMode": "preview",
+      "assets": [],
+      "id": "h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-09-09T15:57:56.701Z",
+      "updatedAt": "2026-09-09T19:54:37.252Z",
+      "stage": "complete",
+      "startedAt": "2026-09-09T15:58:37.020Z",
+      "workerJobId": "194f599a-5a1f-4eb1-8441-1a661a945546",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9\\h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4"
+      ],
+      "completedAt": "2026-09-09T16:01:27.977Z",
+      "archivedAt": "2026-09-09T19:54:37.252Z",
+      "selectedForRun": false
+    }
+  ],
+  "session": {
+    "id": "h3s_bc7fb267-4019-43fe-918a-c5290c7f0656",
+    "mode": "saved_worker",
+    "status": "failed",
+    "cleanupConfirmed": null,
+    "createdAt": "2026-09-09T21:14:42.021Z",
+    "updatedAt": "2026-09-10T11:55:32.158Z",
+    "currentItemId": "h3q_ed331286-63da-4358-ad6b-bee79a6c05b9",
+    "error": "SnarkRoute restarted before the render session completed."
+  }
+}

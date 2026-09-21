@@ -82,6 +82,6 @@ describe("Model Catalog V1 curated metadata registry", () => {
   });
 
   it("has the expected initial curated model count", () => {
-    expect(listCuratedModelMetadataV1()).toHaveLength(14);
+    expect(listCuratedModelMetadataV1()).toHaveLength(18);
   });
 });

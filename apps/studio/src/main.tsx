@@ -272,6 +272,16 @@ import type {
   VideoModelOption
 } from "./studioTypes";
 
+async function openLocalLauncher() {
+  try {
+    const response = await fetch(`${apiBase}/api/system/apps/launcher/open`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const result = await response.json() as { url?: string };
+    window.open(result.url ?? "http://127.0.0.1:5172", "snarkroute-launcher")?.focus();
+  } catch {
+    window.open("http://127.0.0.1:5172", "snarkroute-launcher")?.focus();
+  }
+}
+
 const localJsonUploadLimitBytes = 180 * 1024 * 1024;
 
 // Compatibility note: storage keys and protocol fields keep the old node/studio names
@@ -8063,6 +8073,7 @@ function App() {
         onDrop={handleCanvasDrop}
       >
         <div className="topbar">
+          <button type="button" onClick={() => void openLocalLauncher()} title="Open the app launcher"><Grid3X3 size={16} /> Launcher</button>
           {routeStack.length > 0 ? (
             <div className="routeBreadcrumbs" aria-label="Internal tool route breadcrumbs">
               <button className="breadcrumbBack" title="Back to parent internal tool route" onClick={closeSubroute}><ChevronLeft size={16} /></button>

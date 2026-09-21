@@ -166,17 +166,17 @@ export function createPolzaClient(options: PolzaClientOptions = {}) {
   }
 
   return {
-    async chatCompletions(body: Record<string, unknown>): Promise<unknown> {
-      return request("/v1/chat/completions", { method: "POST", body: JSON.stringify(body) }, { billable: true });
+    async chatCompletions(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+      return request("/v1/chat/completions", { method: "POST", body: JSON.stringify(body), signal }, { billable: true });
     },
-    async imageGenerations(body: Record<string, unknown>): Promise<unknown> {
-      return request("/v2/images/generations", { method: "POST", body: JSON.stringify(body) }, { billable: true });
+    async imageGenerations(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+      return request("/v2/images/generations", { method: "POST", body: JSON.stringify(body), signal }, { billable: true });
     },
-    async media(body: Record<string, unknown>): Promise<unknown> {
-      return request("/v1/media", { method: "POST", body: JSON.stringify(body) }, { billable: true });
+    async media(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
+      return request("/v1/media", { method: "POST", body: JSON.stringify(body), signal }, { billable: true });
     },
-    async mediaStatus(id: string): Promise<unknown> {
-      return request(`/v1/media/${encodeURIComponent(id)}`, { method: "GET" }, { billable: true, externalId: id });
+    async mediaStatus(id: string, signal?: AbortSignal): Promise<unknown> {
+      return request(`/v1/media/${encodeURIComponent(id)}`, { method: "GET", signal }, { billable: true, externalId: id });
     },
     async getModels(type?: PolzaModelType): Promise<PolzaModelInfo[]> {
       const query = type ? `?type=${encodeURIComponent(type)}` : "";
@@ -310,7 +310,7 @@ function compactRecord(record: Record<string, unknown>): Record<string, unknown>
 }
 
 export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): NodeRunner {
-  return async ({ node, params, inputs }) => {
+  return async ({ node, params, inputs, context }) => {
     const model = stringParam(params.model) ?? POLZA_TEXT_DEFAULT_MODEL;
     const prompt = firstInputText(inputs.prompt) ?? String(params.prompt ?? "");
     if (!prompt.trim()) throw new Error("Polza Text requires a prompt.");
@@ -323,7 +323,7 @@ export function createPolzaTextNodeRunner(options: PolzaClientOptions = {}): Nod
       modelRef: `model://polza/${model}`,
       input: { prompt, images, systemPrompt },
       parameters: params,
-      metadata: { nodeId: node.id, nodeType: node.type }
+      metadata: { nodeId: node.id, nodeType: node.type, signal: context.signal }
     });
     const response = gatewayResult.output.output;
     const text = typeof gatewayResult.output.text === "string" ? gatewayResult.output.text : firstChatText(response);
@@ -374,7 +374,7 @@ export function createPolzaImageNodeRunner(options: PolzaClientOptions = {}): No
       modelRef: `model://polza/${model}`,
       input: { prompt, images },
       parameters: params,
-      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type }
+      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type, signal: context.signal }
     });
     const response = gatewayResult.output.output;
     const request = gatewayResult.output.request as Record<string, unknown> | undefined;
@@ -432,7 +432,7 @@ export function createPolzaVideoNodeRunner(options: PolzaClientOptions = {}): No
       modelRef: `model://polza/${model}`,
       input: { prompt, images, audios, videos },
       parameters: params,
-      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type }
+      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type, signal: context.signal }
     });
     const response = gatewayResult.output.output;
     const request = gatewayResult.output.request as Record<string, unknown> | undefined;
@@ -501,7 +501,7 @@ export function createPolzaProviderAdapter(options: PolzaClientOptions = {}): Pr
           ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
           { role: "user", content: userContent }
         ];
-        const response = await client.chatCompletions(buildChatRequestBody(request.model.id, messages, request.parameters ?? {}));
+        const response = await client.chatCompletions(buildChatRequestBody(request.model.id, messages, request.parameters ?? {}), request.metadata?.signal as AbortSignal | undefined);
         const text = firstChatText(response);
         return {
           modelId: request.model.id,
@@ -518,7 +518,8 @@ export function createPolzaProviderAdapter(options: PolzaClientOptions = {}): Pr
         const requestBody = usesImageGenerations
           ? buildImageRequestBody(polzaImageGenerationsModel(request.model.id), prompt, request.parameters ?? {})
           : buildMediaImageRequestBody(request.model.id, prompt, request.parameters ?? {}, imageInputs);
-        const response = usesImageGenerations ? await client.imageGenerations(requestBody) : await waitForPolzaMediaResult(await client.media(requestBody), client, options);
+        const signal = request.metadata?.signal as AbortSignal | undefined;
+        const response = usesImageGenerations ? await client.imageGenerations(requestBody, signal) : await waitForPolzaMediaResult(await client.media(requestBody, signal), client, options, "image", signal);
         const image = firstGeneratedImage(response);
         if (!image) throw new Error(`Polza image model "${request.model.id}" did not return an image.`);
         const imageAsset = await writePolzaImage(image, {
@@ -541,7 +542,8 @@ export function createPolzaProviderAdapter(options: PolzaClientOptions = {}): Pr
         const audioInputs = await Promise.all(collectInputImages(request.input.audios ?? request.input.audio).map((audio) => prepareMediaFileInput(audio, "audio")));
         const videoInputs = await Promise.all(collectInputImages(request.input.videos ?? request.input.video).map((video) => prepareMediaFileInput(video, "video")));
         const requestBody = buildMediaVideoRequestBody(request.model.id, prompt, request.parameters ?? {}, imageInputs, audioInputs, videoInputs);
-        const response = await waitForPolzaMediaResult(await client.media(requestBody), client, options, "video");
+        const signal = request.metadata?.signal as AbortSignal | undefined;
+        const response = await waitForPolzaMediaResult(await client.media(requestBody, signal), client, options, "video", signal);
         const video = firstGeneratedVideo(response);
         if (!video) throw new Error(`Polza video model "${request.model.id}" did not return a video.`);
         const videoAsset = await writePolzaVideo(video, {
@@ -836,9 +838,10 @@ function firstGeneratedVideo(response: unknown): unknown {
 
 async function waitForPolzaMediaResult(
   initialResponse: unknown,
-  client: { mediaStatus: (id: string) => Promise<unknown> },
+  client: { mediaStatus: (id: string, signal?: AbortSignal) => Promise<unknown> },
   options: PolzaClientOptions,
-  kind: "image" | "video" = "image"
+  kind: "image" | "video" = "image",
+  signal?: AbortSignal
 ): Promise<unknown> {
   const outputFrom = kind === "video" ? firstGeneratedVideo : firstGeneratedImage;
   if (outputFrom(initialResponse)) return initialResponse;
@@ -850,8 +853,9 @@ async function waitForPolzaMediaResult(
   const intervalMs = options.mediaPollIntervalMs ?? 3000;
   const maxAttempts = options.mediaPollMaxAttempts ?? 100;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    signal?.throwIfAborted();
     await delay(intervalMs);
-    const response = await client.mediaStatus(id);
+    const response = await client.mediaStatus(id, signal);
     const nextStatus = mediaOperationState(response).status;
     if (nextStatus === "completed" || outputFrom(response)) return response;
     if (nextStatus === "failed") throw new Error(`Polza ${kind} generation failed (${id}). ${JSON.stringify(objectField(response, "error") ?? response)}`);

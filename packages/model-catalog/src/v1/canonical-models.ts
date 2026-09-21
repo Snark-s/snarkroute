@@ -4,6 +4,10 @@ import type { ModelCatalogEntryV1, ModelOptionForNodeV1, ModelProviderRouteV1 } 
 type ProviderIdentity = Pick<ModelCatalogEntryV1, "provider" | "providerModelId" | "originVendor" | "displayName" | "canonicalModelId">;
 
 const explicitCanonicalIds = new Map<string, string>([
+  ["gemini:gemini-3.8-flash", "gemini-3.8-flash"],
+  ["kie:gemini-3-8-flash", "gemini-3.8-flash"],
+  ["polza:google/gemini-3.8-flash", "gemini-3.8-flash"],
+  ["openrouter:google/gemini-3.8-flash", "gemini-3.8-flash"],
   ["kie:gpt-5-2", "gpt-5.2"],
   ["openrouter:openai/gpt-5.2", "gpt-5.2"],
   ["kie:bytedance/seedance-2", "seedance-2.0"],
@@ -45,6 +49,7 @@ const explicitCanonicalIds = new Map<string, string>([
 ]);
 
 const canonicalDisplayNames = new Map<string, string>([
+  ["gemini-3.8-flash", "Gemini 3.8 Flash"],
   ["kling-3.0-standard", "Kling 3.0 Standard"],
   ["wan-2.6", "Wan 2.6"]
 ]);

@@ -2,6 +2,8 @@ import time
 
 from fastapi.testclient import TestClient
 
+from app.backends.base import BackendFailure
+
 
 def generation_payload() -> dict:
     return {
@@ -99,6 +101,43 @@ def test_inpaint_contract_is_honest_about_unavailable_sampling(configured_app, a
         response = client.post("/v1/jobs", headers=auth_headers, json=payload)
         assert response.status_code == 409
         assert response.json()["detail"]["code"] == "capability_not_available"
+
+
+def test_backend_failure_preserves_safe_reason(monkeypatch, tmp_path, auth_headers):
+    from app import main
+    from app.config import Settings
+
+    class FailingBackend:
+        name = "failing"
+        version = "1"
+
+        def capabilities(self):
+            from app.models import CapabilityView
+
+            return [CapabilityView(name="fl2va", available=True)]
+
+        async def ready(self):
+            return True, None
+
+        async def execute(self, _request, _work_dir, _progress):
+            raise BackendFailure(
+                "resource_exhausted",
+                "CUDA out of memory in local_fast",
+                retryable=True,
+            )
+
+    monkeypatch.setattr(main, "create_backend", lambda _settings: FailingBackend())
+    monkeypatch.setenv("H3_RESULT_DIR", str(tmp_path / "results"))
+    monkeypatch.setenv("H3_TEMP_DIR", str(tmp_path / "tmp"))
+    with TestClient(main.create_app(Settings.from_env())) as client:
+        response = client.post("/v1/jobs", headers=auth_headers, json=generation_payload())
+        job = wait_for_terminal(client, response.json()["id"], auth_headers)
+    assert job["error"] == {
+        "code": "resource_exhausted",
+        "message": "CUDA out of memory in local_fast",
+        "retryable": True,
+        "details": None,
+    }
 
 
 def test_upload_checks_size_type_and_magic(configured_app, auth_headers):

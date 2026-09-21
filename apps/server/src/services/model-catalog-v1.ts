@@ -54,6 +54,7 @@ export type RawProviderModelV1 = Record<string, unknown> & {
 };
 
 export type AssembleModelCatalogV1Input = {
+  experientialModels?: RawProviderModelV1[];
   rutronixModels?: RawProviderModelV1[];
   polzaModels?: RawProviderModelV1[];
   openRouterModels?: RawProviderModelV1[];
@@ -73,6 +74,7 @@ const textOnlyProviderModelIds = new Set([
 
 export function assembleModelCatalogV1(input: AssembleModelCatalogV1Input): ModelCatalogEntryV1[] {
   return assembleProviderModelsV1(mergeProviderModelDefaultsV1([
+    ...(input.experientialModels ?? []).flatMap((model) => normalizeRawProviderModel("experiential", { ...model, type: "chat", inputTypes: ["text"], outputTypes: ["text"], capabilities: ["text.generate"] })),
     ...normalizeRuTronixModelsForCatalogV1(input.rutronixModels ?? []),
     ...normalizePolzaModelsForCatalogV1(input.polzaModels ?? []),
     ...normalizeOpenRouterModelsForCatalogV1(input.openRouterModels ?? []),
@@ -140,6 +142,39 @@ function mergeProviderModelDefaultsV1(providerModels: ProviderModelInfoV1[]): Pr
 
 export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
   return [
+    normalizeProviderModelToV1Input({
+      provider: "gemini",
+      providerModelId: "gemini-3.8-flash",
+      displayName: "Gemini 3.8 Flash",
+      inputTypes: ["text", "image"],
+      outputTypes: ["text"],
+      capabilities: ["text.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback", configured: Boolean(process.env.GEMINI_API_KEY?.trim()) },
+      metadata: { fallback: "gemini-direct-text-model", providerEndpoint: "generateContent" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "openrouter",
+      providerModelId: "google/gemini-3.8-flash",
+      displayName: "Gemini 3.8 Flash",
+      inputTypes: ["text", "image"],
+      outputTypes: ["text"],
+      capabilities: ["text.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback", configured: Boolean(process.env.OPENROUTER_API_KEY?.trim()) },
+      metadata: { fallback: "openrouter-gemini-text-model", providerEndpoint: "chat.completions" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "polza",
+      providerModelId: "google/gemini-3.8-flash",
+      displayName: "Gemini 3.8 Flash",
+      inputTypes: ["text", "image"],
+      outputTypes: ["text"],
+      capabilities: ["text.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "fallback", configured: Boolean(process.env.POLZA_AI_API_KEY?.trim()) },
+      metadata: { fallback: "polza-gemini-text-model", providerEndpoint: "chat" }
+    }),
     normalizeProviderModelToV1Input({
       provider: "openrouter",
       providerModelId: "openai/gpt-5.1",
@@ -345,12 +380,12 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
       && !isUpscaleOnlyModel(entry, "image");
   }
   if (nodeType === "ai.video.generate") {
-    return (entry.provider === "openrouter" || entry.provider === "polza" || entry.provider === "kie")
+    return (entry.provider === "openrouter" || entry.provider === "polza" || entry.provider === "kie" || entry.provider === "minimax-h3")
       && hasOutputType(entry, "video")
       && !isUpscaleOnlyModel(entry, "video");
   }
   if (nodeType === "ai.text") {
-    return (entry.provider === "openrouter" || entry.provider === "rutronix" || entry.provider === "kie") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
+    return (entry.provider === "experiential" || entry.provider === "openrouter" || entry.provider === "rutronix" || entry.provider === "kie" || entry.provider === "polza" || entry.provider === "gemini") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
   }
   if (nodeType === "ai.audio.generate") {
     return hasOutputType(entry, "audio") && !entry.roles.includes("upscaler");

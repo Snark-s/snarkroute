@@ -14,7 +14,10 @@ CapabilityName = Literal[
     "final",
     "automatic_tracking",
     "kitchen_int8",
+    "style_transfer",
 ]
+
+H3ModelVariant = Literal["h3_base", "10eros_max", "10eros_max_turbo"]
 
 
 class Target(BaseModel):
@@ -98,6 +101,7 @@ class GenerateRequest(BaseModel):
     quality: Literal["lossless", "high"] = "lossless"
     turbo_lora: bool = False
     lora_scale: float = Field(default=1.0, ge=0, le=2)
+    model_variant: H3ModelVariant = "h3_base"
     idempotency_key: str | None = Field(
         default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
     )
@@ -140,13 +144,35 @@ class GenerateRequest(BaseModel):
                 raise ValueError("fl2va frame_index must be 0, -1, or both")
         if self.task == "ref2va" and not self.conditions:
             raise ValueError("ref2va requires at least one reference")
-        if self.quality_mode == "preview":
+        if self.model_variant == "10eros_max" and self.quality_mode != "final":
+            raise ValueError("10eros_max is the quality/final profile")
+        if self.model_variant == "10eros_max_turbo" and self.quality_mode != "preview":
+            raise ValueError("10eros_max_turbo is the fast/preview profile")
+        if self.model_variant == "10eros_max":
+            steps = self.num_inference_steps or 8
+            if not 4 <= steps <= 8:
+                raise ValueError("10eros_max requires 4-8 sigma steps")
+        elif self.model_variant == "10eros_max_turbo":
+            steps = self.num_inference_steps or 6
+            if not 4 <= steps <= 8:
+                raise ValueError("10eros_max_turbo requires 4-8 sigma steps")
+        elif self.quality_mode == "preview":
             steps = self.num_inference_steps or (9 if self.turbo_lora else 8)
             if not 4 <= steps <= 10:
                 raise ValueError("preview requires 4-10 sigma steps")
         elif self.num_inference_steps is not None and not 20 <= self.num_inference_steps <= 40:
             raise ValueError("final requires 20-40 sigma steps")
         return self
+
+    @property
+    def effective_steps(self) -> int:
+        if self.num_inference_steps is not None:
+            return self.num_inference_steps
+        if self.model_variant == "10eros_max":
+            return 8
+        if self.model_variant == "10eros_max_turbo":
+            return 6
+        return 8 if self.quality_mode == "preview" else 30
 
     @property
     def requested_capability(self) -> str:
@@ -159,27 +185,6 @@ class GenerateRequest(BaseModel):
         if self.operation == "video.resample.h3" or self.task == "resample":
             return "resample"
         return "ref2va" if self.task == "ref2va" else "fl2va"
-
-    def sglang_payload(self) -> dict[str, Any]:
-        steps = self.num_inference_steps or (
-            9
-            if self.quality_mode == "preview" and self.turbo_lora
-            else 8
-            if self.quality_mode == "preview"
-            else 30
-        )
-        return {
-            "model": "MiniMaxAI/MiniMax-H3",
-            "task": self.task,
-            "prompt": self.prompt.strip(),
-            "conditions": self.conditions,
-            "target": self.target.model_dump() if self.target else None,
-            "seed": self.seed,
-            "num_outputs_per_prompt": self.num_outputs_per_prompt,
-            "num_inference_steps": steps,
-            "quality": self.quality,
-            **({"lora_scale": self.lora_scale} if self.turbo_lora else {}),
-        }
 
 
 class StructuredError(BaseModel):
@@ -203,9 +208,20 @@ class ResultMetadata(BaseModel):
     seed: int | None = None
     quantization: str | None = None
     attention_backend: str | None = None
+    vae_tile_size: int | None = None
     lora: dict[str, Any] | None = None
     render_time_seconds: float
     peak_vram_gib: float | None = None
+    peak_ram_gib: float | None = None
+    peak_system_ram_gib: float | None = None
+    peak_swap_gib: float | None = None
+    peak_swap_growth_gib: float | None = None
+    model_load_seconds: float | None = None
+    text_encoder_seconds: float | None = None
+    diffusion_seconds: float | None = None
+    vae_decode_seconds: float | None = None
+    audio_seconds: float | None = None
+    kernel: str | None = None
     input_bytes: int = 0
     output_bytes: int
     verified_gpu_inference: bool = False

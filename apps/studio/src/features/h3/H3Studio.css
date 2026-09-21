@@ -36,17 +36,16 @@
 .h3StudioHeaderActions { gap: 8px; }
 
 .h3StudioHero {
-  align-items: end;
+  align-items: center;
   display: grid;
   gap: 28px;
   grid-template-columns: minmax(0, 1fr) auto;
   margin: 0 auto;
   max-width: 1440px;
-  padding: 48px 0 30px;
+  padding: 18px 0;
 }
 
-.h3StudioHero h1 { display: block; font-size: clamp(30px, 4vw, 58px); letter-spacing: -0.04em; line-height: 1.02; margin: 8px 0 16px; max-width: 850px; }
-.h3StudioHero p { color: #aab3c2; font-size: 15px; line-height: 1.6; margin: 0; max-width: 760px; }
+.h3StudioHero p { color: #aab3c2; font-size: 12px; line-height: 1.5; margin: 5px 0 0; max-width: 760px; }
 .h3Eyebrow { color: var(--h3-accent); font-size: 11px; font-weight: 800; letter-spacing: 0.18em; }
 
 .h3ConnectionBadge { background: #171c24; border: 1px solid #343c49; border-radius: 12px; gap: 10px; min-width: 220px; padding: 12px 14px; }
@@ -54,8 +53,8 @@
 .h3ConnectionBadge > div { display: grid; gap: 2px; }
 .h3ConnectionBadge span { color: #909bac; font-size: 11px; max-width: 260px; overflow-wrap: anywhere; }
 
-.h3StudioGrid { display: grid; gap: 18px; grid-template-columns: minmax(340px, 0.8fr) minmax(480px, 1.35fr); margin: 0 auto; max-width: 1440px; }
-.h3ConnectionPanel, .h3WorkspacePreview, .h3ToolsSection, .h3QueueSection { background: rgba(20, 25, 33, 0.94); border: 1px solid #2d3541; border-radius: 14px; }
+.h3StudioGrid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); margin: 0 auto; max-width: 1440px; }
+.h3ConnectionPanel, .h3ToolsSection, .h3QueueSection { background: rgba(20, 25, 33, 0.94); border: 1px solid #2d3541; border-radius: 14px; }
 .h3ConnectionPanel { display: grid; gap: 13px; padding: 18px; }
 .h3ConnectionPanel header { align-items: flex-start; display: flex; justify-content: space-between; }
 .h3ConnectionPanel header > div { align-items: flex-start; gap: 10px; }
@@ -106,14 +105,6 @@
 .h3RuntimeDetails span { color: #7f8b9c; }
 .h3RuntimeDetails strong { color: #d9e0e9; min-width: 0; overflow-wrap: anywhere; }
 
-.h3WorkspacePreview { display: grid; grid-template-rows: minmax(300px, 1fr) auto; min-height: 440px; overflow: hidden; }
-.h3StagePlaceholder { align-items: center; background: radial-gradient(circle at center, rgba(240, 168, 74, 0.09), transparent 52%), #090c11; color: #758092; display: flex; flex-direction: column; gap: 8px; justify-content: center; padding: 24px; text-align: center; }
-.h3StagePlaceholder strong { color: #ccd3de; font-size: 16px; }
-.h3StagePlaceholder span { font-size: 12px; max-width: 400px; }
-.h3TimelineStub { align-items: center; border-top: 1px solid #2c3440; display: grid; gap: 5px; grid-template-columns: repeat(5, 1fr); min-height: 74px; padding: 12px; }
-.h3TimelineStub span { background: linear-gradient(90deg, #293140, #384354); border-radius: 4px; height: 28px; }
-.h3TimelineStub span:first-child, .h3TimelineStub span:last-child { background: linear-gradient(90deg, #7e5738, #4c3a2d); }
-
 .h3ToolsSection { margin: 18px auto 0; max-width: 1440px; padding: 18px; }
 .h3ToolsSection > header { justify-content: space-between; margin-bottom: 14px; }
 .h3ToolsSection > header > div { display: grid; gap: 2px; }
@@ -148,8 +139,11 @@
 .h3QueueFields { display: grid; gap: 7px; grid-template-columns: .7fr .8fr .8fr .9fr 1.45fr; }
 .h3SeedField { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr) auto; }
 .h3SeedField button { min-height: 36px; padding: 7px; width: 36px; }
-.h3OperationNote { align-items: center; color: #8eddb9; display: flex; font-size: 9px; gap: 5px; margin: 0; min-height: 14px; }
+.h3OperationNote { color: #8eddb9; display: block; font-size: 9px; line-height: 1.5; margin: 0; min-height: 14px; }
 .h3OperationNote.blocked { color: #efb177; }
+.h3OperationNote > svg { margin-right: 5px; vertical-align: -2px; }
+.h3PromptTag { background: none; border: 0; border-bottom: 1px dashed currentColor; color: inherit; cursor: pointer; display: inline-block; font: inherit; line-height: inherit; min-height: 0; padding: 0; vertical-align: baseline; white-space: nowrap; }
+.h3PromptTag:hover, .h3PromptTag:focus-visible { color: #d8ffec; outline: none; }
 .h3AssetSlots { display: flex; flex-wrap: wrap; gap: 7px; }
 .h3AssetButton { align-items: center; background: #171e28; border: 1px dashed #465468; border-radius: 8px; color: #c3cbd6; cursor: pointer; display: grid !important; font-size: 10px; gap: 8px !important; grid-template-columns: 52px minmax(0, 1fr); min-height: 62px; min-width: 190px; padding: 5px; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; }
 .h3AssetButton:hover { background: #1c2531; border-color: #65768b; }
@@ -172,12 +166,18 @@
 .h3QueueCard { background: #0e131a; border: 1px solid #303947; border-radius: 9px; display: grid; gap: 8px; padding: 11px; }
 .h3QueueCard.running { border-color: #aa7546; }
 .h3QueueCard.succeeded { border-color: #38705a; }
-.h3QueueCard.failed, .h3QueueCard.blocked { border-color: #875040; }
+.h3QueueCard.failed, .h3QueueCard.blocked, .h3QueueCard.cancelled { border-color: #875040; }
+.h3QueueCard.skipped { opacity: .58; }
 .h3QueueCardTop { align-items: start; display: flex; gap: 10px; justify-content: space-between; }
 .h3QueueCardTop > div:first-child { display: grid; gap: 3px; }
 .h3QueueCardTop span { color: #7f8b9b; font-size: 9px; text-transform: uppercase; }
 .h3QueueCardTop strong { color: #e5eaf0; font-size: 13px; }
+.h3QueueSelection { align-items: center; cursor: pointer; display: flex; gap: 5px; justify-self: start; }
+.h3QueueSelection input { accent-color: #d7904d; height: 14px; margin: 0; width: 14px; }
+.h3QueueSelection span { color: #d8a06c; }
 .h3QueueCardButtons { display: flex; gap: 4px; }
+.h3QueueTrashActions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.h3QueueTrashActions button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; }
 .h3QueueCardButtons button { min-height: 27px; padding: 4px; width: 27px; }
 .h3QueueCard > p { color: #a5afbd; display: -webkit-box; font-size: 10px; line-height: 1.4; margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .h3QueueMeta { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -185,10 +185,14 @@
 .h3QueueProgress { background: #242c37; border-radius: 99px; height: 3px; overflow: hidden; }
 .h3QueueProgress span { background: #db914e; display: block; height: 100%; transition: width 200ms ease; }
 .h3QueueCard.succeeded .h3QueueProgress span { background: #68c397; }
+.h3QueueResults { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.h3QueueResult { background: #090d12; border: 1px solid #2d3744; border-radius: 8px; display: grid; gap: 6px; overflow: hidden; padding: 6px; }
+.h3QueueResult video { aspect-ratio: 16 / 9; background: #05070a; border-radius: 5px; display: block; max-height: 260px; object-fit: contain; width: 100%; }
+.h3QueueResultActions { display: flex; flex-wrap: wrap; gap: 6px; }
+.h3QueueResultActions button { flex: 1 1 150px; font-size: 9px; gap: 5px; min-height: 28px; padding: 5px 8px; }
 .h3QueueCard footer { align-items: center; display: flex; flex-wrap: wrap; gap: 7px; }
 .h3QueueCard footer strong { color: #c5ced8; font-size: 9px; text-transform: uppercase; }
 .h3QueueCard footer span { color: #e7a780; font-size: 9px; overflow-wrap: anywhere; }
-.h3QueueCard footer a { align-items: center; color: #83bdf9; display: flex; font-size: 9px; gap: 4px; margin-left: auto; }
 .h3QueueMessage { color: #efbd88; font-size: 11px; margin: 12px 0 0; }
 .h3SessionBar { align-items: center; background: #111821; border: 1px solid #374252; border-radius: 10px; display: flex; gap: 12px; justify-content: space-between; margin-top: 14px; padding: 12px; }
 .h3SessionBar.danger { background: rgba(124, 45, 36, .22); border-color: #a95745; }
@@ -198,6 +202,15 @@
 .h3SessionActions { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; }
 .h3ManagedRun { background: #1d653f; border-color: #3a9463; }
 .h3Danger { background: #7b352d; border-color: #b35a49; }
+.h3QueueArchive { background: #0f141b; border: 1px solid #2f3844; border-radius: 10px; display: grid; gap: 8px; margin-top: 11px; padding: 8px; }
+.h3ArchiveToggle { background: transparent; border: 0; color: #aab4c1; justify-content: flex-start; min-height: 30px; }
+.h3ArchiveList { display: grid; gap: 6px; }
+.h3ArchiveItem { align-items: center; background: #151b23; border: 1px solid #303a47; border-radius: 7px; display: flex; gap: 10px; justify-content: space-between; padding: 8px 10px; }
+.h3ArchiveItem > div:first-child { display: grid; gap: 3px; }
+.h3ArchiveItem strong { color: #cfd6df; font-size: 11px; }
+.h3ArchiveItem span { color: #7f8b9b; font-size: 9px; }
+.h3ArchiveItem > div:last-child { display: flex; gap: 5px; }
+.h3ArchiveItem button { font-size: 9px; min-height: 28px; padding: 5px 7px; }
 .h3QueueSection > .h3AdvancedToggle { margin-top: 11px; }
 .h3QueueSection > .h3AdvancedToggle span { color: #d3a168; margin-left: 4px; }
 .h3VastConfig { background: #10151d; border: 1px solid #303945; border-radius: 9px; display: grid; gap: 12px; padding: 12px; }

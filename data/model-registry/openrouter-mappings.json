@@ -13,6 +13,16 @@
       "notes": ""
     },
     {
+      "id": "gemini-3.8-flash",
+      "task": "text",
+      "defaultProvider": "openrouter",
+      "openrouterModel": "google/gemini-3.8-flash",
+      "directProvider": "gemini",
+      "directModel": "gemini-3.8-flash",
+      "status": "supported",
+      "notes": "KIE and Polza alternatives are exposed by Model Catalog V1 provider routes."
+    },
+    {
       "id": "image.nano-banana",
       "task": "image",
       "defaultProvider": "openrouter",

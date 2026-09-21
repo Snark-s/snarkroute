@@ -89,6 +89,23 @@ describe("canonical model grouping", () => {
     expect(grouped.find((entry) => entry.canonicalModelId === "seedance-2.0")?.providerRoutes).toHaveLength(3);
   });
 
+  it("groups Gemini 3.8 Flash across direct, KIE, Polza, and OpenRouter routes", () => {
+    const grouped = groupCanonicalModelOptionsV1([
+      option("gemini", "gemini-3.8-flash", "Gemini 3.8 Flash", ["text.generate"]),
+      option("kie", "gemini-3-8-flash", "Gemini 3.8 Flash", ["text.generate"]),
+      option("polza", "google/gemini-3.8-flash", "Google Gemini 3.8 Flash", ["text.generate"]),
+      option("openrouter", "google/gemini-3.8-flash", "Google: Gemini 3.8 Flash", ["text.generate"])
+    ]);
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]).toMatchObject({ id: "gemini-3.8-flash", displayName: "Gemini 3.8 Flash" });
+    expect(grouped[0].providerRoutes?.map((route) => [route.provider, route.providerModelId])).toEqual([
+      ["kie", "gemini-3-8-flash"],
+      ["polza", "google/gemini-3.8-flash"],
+      ["openrouter", "google/gemini-3.8-flash"],
+      ["gemini", "gemini-3.8-flash"]
+    ]);
+  });
+
   it("uses a canonical superset while preserving route-specific reality", () => {
     const textOnly = option("kie", "wan/2-6-text-to-video", "Wan 2.6 Text to Video");
     textOnly.inputTypes = ["text"];

@@ -1,3 +1,4 @@
+import { createExperientialClient, experientialConfigured } from "../providers/experiential";
 import type { FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 import { createReplicateClient } from "@snarkroute/replicate";
@@ -33,6 +34,21 @@ app.get("/api/providers/links", async (request, reply) => {
   } catch (error) {
     return reply.code(500).send({ error: `Provider links are unavailable: ${errorMessage(error)}` });
   }
+});
+
+app.get("/api/providers/experiential/status", async () => ({ experiential: { configured: experientialConfigured() } }));
+app.post("/api/providers/experiential/test", async (_request, reply) => {
+  try {
+    const models = await createExperientialClient().getModels();
+    return { ok: true, status: "connected", modelCount: models.length };
+  } catch (error) { return reply.code(400).send({ ok: false, error: errorMessage(error) }); }
+});
+app.get("/api/providers/experiential/models", async (_request, reply) => {
+  if (!experientialConfigured()) return { ok: true, configured: false, models: [] };
+  try {
+    const models = await createExperientialClient().getModels();
+    return { ok: true, configured: true, modelCount: models.length, models };
+  } catch (error) { return reply.code(400).send({ ok: false, error: errorMessage(error) }); }
 });
 
 app.get("/api/providers/openrouter/status", async () => ({ openrouter: await openRouterSettingsStatus() }));

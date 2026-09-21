@@ -649,7 +649,7 @@ interface GenerationFeedback {
   error?: boolean;
 }
 
-type ProviderId = "polza" | "kie" | "rutronix" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
+type ProviderId = "experiential" | "polza" | "kie" | "rutronix" | "openrouter" | "gemini" | "replicate" | "seedance" | "openai";
 type NodeRepresentationType = "image" | "video" | "audio" | "text";
 
 interface ProviderDefinition {
@@ -673,6 +673,7 @@ interface LocalProviderConnection {
 }
 
 const providerDefinitions: ProviderDefinition[] = [
+  { id: "experiential", title: "Experiential Labs", capabilityText: "Text models via Experiential gateway", settingsEndpoint: "/api/settings/experiential-token", keyField: "experientialApiKey", testEndpoint: "/api/providers/experiential/test", refreshModels: true },
   { id: "polza", title: "Polza", capabilityText: "Image generation catalog", settingsEndpoint: "/api/settings/polza-token", keyField: "polzaAiApiKey", refreshModels: true },
   { id: "kie", title: "KIE.ai", capabilityText: "Image, video, and text models", settingsEndpoint: "/api/settings/kie-token", keyField: "kieApiKey", testEndpoint: "/api/providers/kie/test" },
   { id: "rutronix", title: "RuTronix", capabilityText: "Text models with RUB token billing", settingsEndpoint: "/api/settings/rutronix-token", keyField: "rutronixApiKey", refreshModels: true },
@@ -3359,6 +3360,15 @@ function App() {
     }
   }
 
+  async function openLauncher() {
+    try {
+      const result = await apiPost<{ url?: string }>("/api/system/apps/launcher/open", {});
+      window.open(result.url ?? "http://127.0.0.1:5172", "snarkroute-launcher")?.focus();
+    } catch {
+      window.open("http://127.0.0.1:5172", "snarkroute-launcher")?.focus();
+    }
+  }
+
   function openCanvasActionSettings(actionId: NodeToolbarActionId) {
     const canvasActionId = canvasActionIdFromToolbarId(actionId);
     const action = availableNodeToolbarActions.find((candidate) => candidate.id === actionId)?.canvasAction;
@@ -4360,12 +4370,16 @@ function App() {
             </header>
             <div className="buttonSetupActions">
               <div className="appLaunchActions">
+                <button type="button" onClick={() => void openLauncher()} title="Open launcher">
+                  <Grid3X3 size={18} />
+                  Launcher
+                </button>
                 <button type="button" onClick={() => void openBoojumRouteLab()} title="Open BoojumRoute Lab">
                   <img className="appButtonIcon" src="/boojumroute-icon.png" alt="" />
                   Boojum
                 </button>
                 <button type="button" onClick={() => void openH3Studio()} title="Open H3 Studio">
-                  <img className="appButtonIcon" src="/h3-studio-icon.svg" alt="" />
+                  <img className="appButtonIcon" src="/h3-studio-icon.png" alt="" />
                   H3 Studio
                 </button>
                 <button type="button" onClick={() => void openBrandeshmyg()} title="Open Brandeshmyg tools">

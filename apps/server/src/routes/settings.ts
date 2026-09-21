@@ -1,3 +1,4 @@
+import { experientialConfigured } from "../providers/experiential";
 import type { FastifyInstance } from "fastify";
 import { createHash } from "node:crypto";
 import { requireAdmin } from "../auth/adapters";
@@ -13,6 +14,7 @@ app.get("/health", health);
 app.get("/api/capabilities", async () => appCapabilities());
 
 app.get("/api/settings", async () => ({
+  experiential: { configured: experientialConfigured(), maskedApiKey: experientialConfigured() ? maskSecret(process.env.EXPLABS_API_KEY) : "" },
   replicate: { configured: isReplicateEnabled() },
   gemini: { configured: isGeminiEnabled() },
   polza: {
@@ -106,6 +108,19 @@ app.delete("/api/settings/kie-token", async (_request, reply) => {
   } catch (error) {
     return reply.code(500).send({ error: errorMessage(error) });
   }
+});
+
+app.post<{ Body: { experientialApiKey?: string } }>("/api/settings/experiential-token", async (request, reply) => {
+  const token = request.body?.experientialApiKey;
+  if (typeof token !== "string" || !/^xpl_[a-f0-9]{40}$/.test(token.trim())) return reply.code(400).send({ error: "Enter a valid Experiential Labs API key (xpl_...)." });
+  await writeEnvValue("EXPLABS_API_KEY", token.trim());
+  process.env.EXPLABS_API_KEY = token.trim();
+  return { ok: true, experiential: { configured: true, maskedApiKey: maskSecret(token) } };
+});
+app.delete("/api/settings/experiential-token", async () => {
+  await deleteEnvValue("EXPLABS_API_KEY");
+  delete process.env.EXPLABS_API_KEY;
+  return { ok: true, experiential: { configured: false } };
 });
 
 app.post<{ Body: { rutronixApiKey?: string } }>("/api/settings/rutronix-token", async (request, reply) => {

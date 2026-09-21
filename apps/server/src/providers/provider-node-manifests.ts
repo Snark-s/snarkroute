@@ -15,7 +15,7 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
       category: "Text",
       description: "Runs remote text models through provider-neutral catalog routes.",
       enabled: true,
-      permissions: { network: true, networkHosts: ["openrouter.ai", "generativelanguage.googleapis.com", "rutronix.ai", "api.rutronix.ai", "api.kie.ai", "kieai.redpandaai.co"], readFiles: true, writeOutputs: false, shell: false, env: ["OPENROUTER_API_KEY", "GEMINI_API_KEY", "RUTRONIX_API_KEY", "KIE_API_KEY"] },
+      permissions: { network: true, networkHosts: ["api.experientiallabs.ai", "openrouter.ai", "generativelanguage.googleapis.com", "rutronix.ai", "api.rutronix.ai", "api.kie.ai", "kieai.redpandaai.co"], readFiles: true, writeOutputs: false, shell: false, env: ["EXPLABS_API_KEY", "OPENROUTER_API_KEY", "GEMINI_API_KEY", "RUTRONIX_API_KEY", "KIE_API_KEY"] },
       executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.text" },
       inputs: [{ id: "prompt", type: "text", required: false, label: "Prompt" }, { id: "systemPrompt", type: "text", required: false, label: "System" }, { id: "images", type: "image", required: false, label: "Images" }],
       outputs: [{ id: "text", type: "text", label: "Text" }, { id: "output", type: "json", label: "JSON" }],
@@ -50,11 +50,13 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
       ],
       outputs: [{ id: "video", type: "video", label: "768p audio-video" }],
       params: [
+        { id: "modelVariant", type: "text", label: "Model", default: "10eros_max_turbo" },
         { id: "prompt", type: "text", label: "Prompt", default: "" },
         { id: "duration", type: "number", label: "Duration", default: 5, min: 4, max: 15, step: 1 },
         { id: "aspectRatio", type: "text", label: "Aspect ratio", default: "auto" },
         { id: "seed", type: "number", label: "Seed", default: 0, min: 0, max: 2147483647, step: 1 },
-        { id: "variants", type: "number", label: "Variants", default: 1, min: 1, max: 10, step: 1 }
+        { id: "variants", type: "number", label: "Variants", default: 1, min: 1, max: 10, step: 1 },
+        { id: "inferenceSteps", type: "number", label: "Steps", default: 6, min: 4, max: 8, step: 1 }
       ],
       tool: {
         schemaVersion: "1.0",
@@ -72,18 +74,20 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
         ],
         outputs: [{ id: "video", type: "video", label: "768p audio-video", placement: "new_artifact", hostPlacements: { after_effects: "replace_placeholder" }, allowSelection: true }],
         params: [
+          { id: "modelVariant", type: "select", label: "Model", default: "10eros_max_turbo", options: [{ value: "10eros_max_turbo", label: "H3 · 10Eros Max Turbo" }, { value: "10eros_max", label: "H3 · 10Eros Max" }, { value: "h3_base", label: "MiniMax H3 (legacy)" }] },
           { id: "prompt", type: "multiline_text", label: "Prompt", required: true, default: "" },
           { id: "duration", type: "duration", label: "Duration", default: 5, min: 4, max: 15, step: 1 },
           { id: "aspectRatio", type: "select", label: "Aspect ratio", default: "auto", options: [{ value: "auto" }, { value: "16:9" }, { value: "9:16" }, { value: "1:1" }, { value: "4:3" }, { value: "3:4" }, { value: "21:9" }] },
           { id: "seed", type: "seed", label: "Seed", default: 0, min: 0, max: 2147483647 },
-          { id: "variants", type: "integer", label: "Variants", default: 1, min: 1, max: 10 }
+          { id: "variants", type: "integer", label: "Variants", default: 1, min: 1, max: 10 },
+          { id: "inferenceSteps", type: "integer", label: "Steps", default: 6, min: 4, max: 8 }
         ],
         hosts: [
           { host: "boojumroute", sources: ["manual", "upload", "host_selection"], placements: ["new_artifact", "next_stage"], capabilities: ["video", "audio", "multiple_results"] },
           { host: "after_effects", sources: ["manual", "upload", "host_current_frame", "host_first_frame", "host_last_frame"], placements: ["replace_placeholder", "project_item"], capabilities: ["current_frame", "first_frame", "last_frame", "video", "audio"] }
         ],
         job: { states: ["queued", "starting_provider", "loading_model", "generating_768p", "downloading", "completed", "failed", "cancelled"], cancellable: true, retryable: true, selectableResults: true },
-        metadata: { model: "MiniMaxAI/MiniMax-H3", resolution: "768p", audio: "32kHz stereo", comfyUiRequired: false }
+        metadata: { model: "h3", variants: ["10eros_max", "10eros_max_turbo", "h3_base"], resolution: "768p", audio: "32kHz stereo", styleTransferVerified: false, comfyUiRequired: false }
       }
     },
     {

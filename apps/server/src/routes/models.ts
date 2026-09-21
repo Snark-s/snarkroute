@@ -1,3 +1,4 @@
+import { createExperientialClient, experientialConfigured } from "../providers/experiential";
 import type { FastifyInstance } from "fastify";
 import { readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
@@ -5,7 +6,9 @@ import { listDocumentedKieModels } from "@snarkroute/kie";
 import { documentedRuTronixModels } from "@snarkroute/rutronix";
 import { createLocalUpscaleWorkerClient } from "@snarkroute/local-upscale";
 import { createLocalVideoUpscaleWorkerClient } from "@snarkroute/local-video-upscale";
+import { createH3WorkerClient } from "@snarkroute/h3";
 import type { ModelOptionForNodeV1, ModelOutputTypeV1, ModelProviderRouteV1, ModelRoleV1, SuppliedModelInputsV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
+import { normalizeProviderModelToV1Input } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { openRouterCatalogCachePath } from "../server-paths";
 import { isPolzaEnabled } from "../services/env";
 import { providerNodeManifests } from "../providers/provider-node-manifests";
@@ -189,29 +192,57 @@ function legacyModelFromV1(model: ReturnType<typeof assembleModelCatalogV1>[numb
 }
 
 async function loadLiveModelCatalogV1(nodeType?: string) {
-  const openRouterModels = nodeType?.startsWith("polza.") ? [] : await loadOpenRouterModelsForCatalogV1();
   const polzaTypes = polzaTypesForCatalogV1(nodeType);
-  const polzaModels = isPolzaEnabled() && polzaTypes.length > 0
-    ? await loadPolzaModelsForCatalogV1(polzaTypes).catch(() => [])
-    : [];
-  const localUpscaleModels = nodeType === undefined || nodeType === "local_upscale"
-    ? await loadLocalUpscaleModelsForCatalogV1().catch(() => [])
-    : [];
-  const localVideoUpscaleModels = nodeType === undefined || nodeType === "local_video_upscale"
-    ? await loadLocalVideoUpscaleModelsForCatalogV1().catch(() => [])
-    : [];
+  const [experientialModels, openRouterModels, polzaModels, localUpscaleModels, localVideoUpscaleModels, h3Models] = await Promise.all([
+    experientialConfigured() && (nodeType === undefined || nodeType === "ai.text") ? createExperientialClient().getModels().catch(() => []) : Promise.resolve([]),
+    nodeType?.startsWith("polza.") ? Promise.resolve([]) : loadOpenRouterModelsForCatalogV1(),
+    isPolzaEnabled() && polzaTypes.length > 0 ? loadPolzaModelsForCatalogV1(polzaTypes).catch(() => []) : Promise.resolve([]),
+    nodeType === undefined || nodeType === "local_upscale" ? loadLocalUpscaleModelsForCatalogV1().catch(() => []) : Promise.resolve([]),
+    nodeType === undefined || nodeType === "local_video_upscale" ? loadLocalVideoUpscaleModelsForCatalogV1().catch(() => []) : Promise.resolve([]),
+    nodeType === undefined || nodeType === "ai.video.generate" || nodeType === "minimax.h3.generate" ? loadH3ModelsForCatalogV1().catch(() => []) : Promise.resolve([])
+  ]);
   const kieModels = nodeType === undefined || nodeType === "ai.text" || nodeType === "ai.image.generate" || nodeType === "ai.video.generate"
     ? documentedKieModelsForCatalogV1()
     : [];
   return assembleModelCatalogV1({
+    experientialModels,
     openRouterModels,
     polzaModels,
     localUpscaleModels,
     localVideoUpscaleModels,
     kieModels,
     rutronixModels: nodeType === undefined || nodeType === "ai.text" ? documentedRuTronixModels() : [],
-    fallbackModels: fallbackProviderModelsForCatalogV1()
+    fallbackModels: [...fallbackProviderModelsForCatalogV1(), ...h3Models]
   });
+}
+
+async function loadH3ModelsForCatalogV1(): Promise<import("@snarkroute/model-catalog/dist/v1/index.js").ProviderModelInfoV1[]> {
+  if (!process.env.H3_WORKER_URL?.trim() || !process.env.H3_WORKER_SERVICE_TOKEN?.trim()) return [];
+  const response = await withTimeout(createH3WorkerClient({ timeoutMs: modelCatalogRequestTimeoutMs() }).models(), modelCatalogRequestTimeoutMs());
+  return response.models.map((model) => normalizeProviderModelToV1Input({
+    provider: "minimax-h3",
+    providerModelId: model.id,
+    displayName: model.display_name,
+    canonicalModelId: `h3:${model.variant}`,
+    inputTypes: ["text", "image", "video"],
+    outputTypes: ["video"],
+    capabilities: ["video.generate", ...(model.reference_modes?.includes("ref2va") ? ["video.reference"] : [])],
+    roles: ["generator"],
+    availability: model.weights_installed
+      ? { status: "available", source: "live", configured: true }
+      : { status: "unavailable", source: "live", configured: true, reason: "Model weights are not installed in the H3 worker." },
+    metadata: {
+      ...model,
+      family: "h3",
+      style: model.style_transfer_verified === true,
+      audio: true,
+      providerParameterDefinitions: [
+        { id: "duration", label: "Duration", type: "number", default: 5, min: 4, max: 15, step: 1 },
+        { id: "aspectRatio", label: "Aspect ratio", type: "select", default: "auto", options: ["auto", "16:9", "9:16", "1:1", "4:3", "3:4", "21:9"].map((value) => ({ value })) },
+        { id: "inferenceSteps", label: "Steps", type: "number", default: model.default_steps, min: model.minimum_steps, max: model.maximum_steps },
+      ]
+    }
+  }));
 }
 
 function documentedKieModelsForCatalogV1(): RawProviderModelV1[] {
@@ -341,6 +372,9 @@ function polzaTypesForCatalogV1(nodeType?: string): PolzaCatalogModelType[] {
   if (nodeType === "polza.image.generate") return ["image"];
   if (nodeType === "polza.text") return ["chat"];
   if (nodeType === "polza.video.generate") return ["video"];
+  // Shared AI nodes use registered fallbacks for Polza. Avoid a live provider
+  // catalog round-trip on every selector request; provider-native nodes still
+  // load the full live catalog above.
   if (nodeType?.startsWith("ai.")) return [];
   return ["chat", "image", "video", "audio", "embedding"];
 }

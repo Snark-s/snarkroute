@@ -13,6 +13,7 @@ describe("KIE adapter", () => {
     expect(kling).toMatchObject({ canonicalModelId: "kling-3.0-pro", capabilities: ["video.generate"], constraints: { mode: "pro", firstLastFrame: true, audio: true } });
     expect(KIE_PROVIDER_MANIFEST).toMatchObject({ id: "kie", apiKeyEnv: "KIE_API_KEY", modelDiscovery: "official_documentation_curated" });
     expect(listDocumentedKieModels().find((model) => model.id === "gpt-5-2")).toMatchObject({ canonicalModelId: "gpt-5.2", capabilities: ["text.generate"], constraints: { chatEndpoint: "/gpt-5-2/v1/chat/completions" } });
+    expect(listDocumentedKieModels().find((model) => model.id === "gemini-3-8-flash")).toMatchObject({ canonicalModelId: "gemini-3.8-flash", capabilities: ["text.generate"], constraints: { chatEndpoint: "/gemini-3-8-flash-openai/v1/chat/completions" } });
   });
 
   it("builds model-specific inputs without exposing internal routing parameters", () => {
@@ -73,6 +74,37 @@ describe("KIE adapter", () => {
     const result = await runner({ node: { id: "text", type: "ai.text", params: {} }, params: { model: "gpt-5-2", prompt: "hello", reasoning_effort: "high", web_search: true, temperature: 2, max_tokens: 1 }, inputs: {}, context: { runId: "run", route: {} as never, outputDirectory: ".", nodeOutputs: {}, log: () => undefined } });
     expect(result.output).toMatchObject({ text: "hi", provider: "kie", model: "gpt-5-2", actualUsage: { total_tokens: 2 } });
     expect(result.providerUsage).toMatchObject({ provider: "kie", status: "succeeded", metrics: { total_tokens: 2 } });
+  });
+
+  it("runs the documented Gemini 3.8 Flash OpenAI-compatible endpoint", async () => {
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      expect(String(url)).toBe("https://api.kie.ai/gemini-3-8-flash-openai/v1/chat/completions");
+      expect(JSON.parse(String(init?.body))).toEqual({ messages: [{ role: "user", content: "hello" }], reasoning_effort: "high" });
+      return json({ responseId: "chat_gemini", candidates: [{ content: { role: "model", parts: [{ text: "hi" }] } }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1, totalTokenCount: 2 } });
+    });
+    const runner = createKieNodeRunner("text.generate", { apiKey: "test-key", fetch: fetchMock as typeof fetch });
+    const result = await runner({ node: { id: "text", type: "ai.text", params: {} }, params: { model: "gemini-3-8-flash", prompt: "hello", reasoning_effort: "high" }, inputs: {}, context: { runId: "run", route: {} as never, outputDirectory: ".", nodeOutputs: {}, log: () => undefined } });
+    expect(result.output).toMatchObject({ text: "hi", provider: "kie", model: "gemini-3-8-flash", actualUsage: { totalTokenCount: 2 } });
+  });
+
+  it("propagates cancellation to an in-flight Gemini chat request", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn(async (_url: string | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      if (init?.signal?.aborted) return reject(new DOMException("aborted", "AbortError"));
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+    }));
+    const runner = createKieNodeRunner("text.generate", { apiKey: "test-key", fetch: fetchMock as typeof fetch });
+    const pending = runner({
+      node: { id: "text", type: "ai.text", params: {} },
+      params: { model: "gemini-3-8-flash", prompt: "hello" },
+      inputs: {},
+      context: { runId: "run", route: {} as never, outputDirectory: ".", nodeOutputs: {}, log: () => undefined, signal: controller.signal }
+    });
+
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject<KieError>({ code: "cancelled", retryable: false });
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
   });
 
   it("keeps pricing on the provider route and parses result payload variants", () => {

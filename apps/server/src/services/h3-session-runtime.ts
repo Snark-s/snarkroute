@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { createH3WorkerClient, type H3GenerationInput, type H3Reference, type H3WorkerJob } from "@snarkroute/h3";
@@ -69,7 +70,8 @@ export function createDefaultH3QueueRuntime(options: { fetchImpl?: typeof fetch;
   const resultsDirectory = options.resultsDirectory ?? join(h3StudioDirectory, "results");
   return {
     acquire: (mode, onLease) => acquire(mode, onLease, fetchImpl),
-    render: (item, lease, onProgress) => render(item, lease, onProgress, resultsDirectory, fetchImpl),
+    render: (item, lease, onProgress, onJobCreated) => render(item, lease, onProgress, onJobCreated, resultsDirectory, fetchImpl),
+    cancel: (item, lease) => cancel(item, lease, fetchImpl),
     cleanup: (lease) => cleanup(lease, fetchImpl)
   };
 }
@@ -142,11 +144,11 @@ async function acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Pr
   }
 }
 
-async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progress: number, stage?: string) => Promise<void>, resultsDirectory: string, fetchImpl: typeof fetch) {
+async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progress: number, stage?: string) => Promise<void>, onJobCreated: ((workerJobId: string) => Promise<void>) | undefined, resultsDirectory: string, fetchImpl: typeof fetch) {
   const requiredCapability = capabilityFor(item.operation);
   if (!requiredCapability) throw new H3QueueBlockedError(blockedReason(item.operation));
   const client = createH3WorkerClient({ baseUrl: lease.workerUrl, serviceToken: lease.serviceToken, fetchImpl, pollingIntervalMs: 2_000, timeoutMs: 60 * 60_000 });
-  const capabilities = await client.capabilities() as { capabilities?: Array<{ name?: string; available?: boolean; reason?: string }> };
+  const capabilities = await client.capabilities() as { backend?: string; capabilities?: Array<{ name?: string; available?: boolean; reason?: string }> };
   const capability = capabilities.capabilities?.find((entry) => entry.name === requiredCapability);
   if (!capability?.available) throw new H3QueueBlockedError(capability?.reason ?? `H3 worker does not provide ${requiredCapability}.`);
 
@@ -157,23 +159,15 @@ async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progr
     references.push({
       kind: asset.kind,
       uri: uploaded.uri,
-      role: asset.slot === "firstFrame" ? "firstFrame" : asset.slot === "lastFrame" ? "lastFrame" : "reference"
+      role: asset.slot === "firstFrame" ? "firstFrame" : asset.slot === "lastFrame" ? "lastFrame" : "reference",
+      ...(item.operation === "style_transfer" && asset.kind === "video" ? { visualMode: "motion" as const } : {})
     });
   }
   validateAssets(item, references);
-  const input: H3GenerationInput = {
-    prompt: item.prompt,
-    duration: item.duration,
-    aspectRatio: item.aspectRatio,
-    ...(item.seed === undefined ? {} : { seed: item.seed }),
-    variants: item.variants,
-    renderMode: item.renderMode,
-    ...(item.inferenceSteps === undefined ? {} : { inferenceSteps: item.inferenceSteps }),
-    quality: "lossless",
-    turboLora: false,
-    references
-  };
-  let job = await client.create(input, item.id);
+  const inferenceSteps = inferenceStepsForWorker(item, capabilities.backend);
+  const input = generationInputForH3QueueItem(item, references, inferenceSteps);
+  let job = await client.create(input, idempotencyKeyForQueueItem(item));
+  await onJobCreated?.(job.id);
   const started = Date.now();
   while (!terminal(job.status)) {
     if (Date.now() - started > positiveInteger(process.env.H3_QUEUE_ITEM_TIMEOUT_MS, 60 * 60_000)) throw new Error(`H3 job ${job.id} timed out.`);
@@ -197,6 +191,37 @@ async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progr
   return { workerJobId: job.id, resultPaths };
 }
 
+export function generationInputForH3QueueItem(
+  item: Pick<H3QueueItem, "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode"> & Partial<Pick<H3QueueItem, "modelVariant">>,
+  references: H3Reference[],
+  inferenceSteps?: number
+): H3GenerationInput {
+  return {
+    prompt: promptForH3QueueItem(item),
+    duration: item.duration,
+    aspectRatio: item.aspectRatio,
+    ...(item.seed === undefined ? {} : { seed: item.seed }),
+    variants: item.variants,
+    renderMode: item.renderMode,
+    modelVariant: item.modelVariant ?? "h3_base",
+    ...(inferenceSteps === undefined ? {} : { inferenceSteps }),
+    quality: "lossless",
+    turboLora: false,
+    references
+  };
+}
+
+async function cancel(item: H3QueueItem, lease: H3QueueLease, fetchImpl: typeof fetch): Promise<void> {
+  if (!item.workerJobId) throw new Error("The active H3 worker job id is not available yet.");
+  const client = createH3WorkerClient({
+    baseUrl: lease.workerUrl,
+    serviceToken: lease.serviceToken,
+    fetchImpl,
+    timeoutMs: 30_000,
+  });
+  await client.cancel(item.workerJobId);
+}
+
 async function cleanup(lease: H3QueueLease, fetchImpl: typeof fetch): Promise<void> {
   if (!lease.managedInstanceId) return;
   const client = new VastClient({ apiKey: requiredEnv("VAST_API_KEY"), fetchImpl });
@@ -205,6 +230,98 @@ async function cleanup(lease: H3QueueLease, fetchImpl: typeof fetch): Promise<vo
   } finally {
     await closeManagedTunnel(lease.managedInstanceId);
   }
+}
+
+export function idempotencyKeyForQueueItem(
+  item: Pick<H3QueueItem, "id" | "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "inferenceSteps" | "assets" | "startedAt"> & Partial<Pick<H3QueueItem, "modelVariant">>
+): string {
+  const renderRevision = JSON.stringify({
+    attemptStartedAt: item.startedAt,
+    operation: item.operation,
+    prompt: promptForH3QueueItem(item),
+    duration: item.duration,
+    aspectRatio: item.aspectRatio,
+    seed: item.seed,
+    variants: item.variants,
+    renderMode: item.renderMode,
+    modelVariant: item.modelVariant,
+    inferenceSteps: item.inferenceSteps,
+    assets: item.assets.map(({ slot, kind, path, filename, mimeType }) => ({
+      slot,
+      kind,
+      path,
+      filename,
+      mimeType,
+    })),
+  });
+  const revisionHash = createHash("sha256").update(renderRevision).digest("hex").slice(0, 32);
+  return `${item.id}:${revisionHash}`;
+}
+
+export function promptForH3QueueItem(item: Pick<H3QueueItem, "operation" | "prompt">): string {
+  if (item.operation === "style_transfer") {
+    const style = styleLanguageForPrompt(item.prompt);
+    return [
+      "subject_definitions:",
+      "<Subject 1> is the visual rendering style abstracted from <Picture 1>. Transfer only its medium, linework, shape language, materials, textures, color palette, contrast and lighting; do not copy its depicted objects or composition.",
+      "<Subject 2> is the main subject and environment from <Video 1>. Preserve their identity, anatomy, spatial layout, action and continuity while changing their entire visual rendering.",
+      "<Video 1> is a low-detail motion guide derived from the source video for a whole-video style edit. It supplies only subject motion, timing, camera movement, framing and temporal structure; its grayscale rendering must never appear in the result.",
+      "",
+      "summary:",
+      `[video editing + visual style transfer] Redraw the complete source motion as ${style.summary}, while retaining only the action, camera and temporal structure of <Video 1>.`,
+      "",
+      "retention_analysis:",
+      "<Subject 1> (appears throughout [Shot 1]): attribute_transfer - apply the complete visual style from <Picture 1> consistently to the subject, background and every visible element.",
+      "<Subject 2> (appears throughout [Shot 1]): fully_preserved - keep the recognizable subject, scene geometry, poses and movement from <Video 1>, but preserve none of its original rendering style.",
+      "<Video 1> (appears throughout [Shot 1]): weak_reference - preserve only motion, timing, camera path, framing and scene continuity; discard the guide pixels, colors, textures, materials and lighting.",
+      "",
+      "detailed_description:",
+      `The entire target video has ${style.description} from <Subject 1> in <Picture 1>. This target style is mandatory and more important than preserving the guide's appearance.`,
+      `[Shot 1] Recreate the full action and camera movement of <Video 1> with the same subject placement and timing. Redraw every frame from scratch as ${style.artwork}: foreground, subject and background must all use the exact line treatment, illustrated forms, surface texture, palette, contrast and lighting of <Picture 1>. No region may retain a photographic or grayscale guide look. Keep the target style temporally stable without flicker.`,
+      `Additional user direction: ${item.prompt}`,
+      "",
+      "overall_soundscape:",
+      "Generate synchronized natural ambience and physical action sounds appropriate to the recreated scene.",
+      "",
+      "non_diegetic_music:",
+      "None unless explicitly requested by the user."
+    ].join("\n");
+  }
+  return item.prompt;
+}
+
+function styleLanguageForPrompt(prompt: string): { summary: string; description: string; artwork: string } {
+  const explicit = prompt.match(/(?:стиль|style)\s*[:=\-–—]\s*([^\n.!?]+)/iu)?.[1]?.trim();
+  if (explicit && /(?:^|\s)(?:аниме|anime)(?:\s|$)/iu.test(explicit)) {
+    return {
+      summary: "polished colorful anime artwork in <Subject 1>",
+      description: "the unmistakable colorful anime illustration style",
+      artwork: "polished colorful anime artwork",
+    };
+  }
+  if (explicit) {
+    return {
+      summary: `polished artwork in the requested “${explicit}” style from <Subject 1>`,
+      description: `the unmistakable requested “${explicit}” visual style`,
+      artwork: `polished artwork in the requested “${explicit}” style`,
+    };
+  }
+  return {
+    summary: "polished artwork in the target style of <Subject 1>",
+    description: "the unmistakable target visual style",
+    artwork: "polished artwork in the exact target style of <Picture 1>",
+  };
+}
+
+export function inferenceStepsForWorker(
+  item: Pick<H3QueueItem, "renderMode" | "inferenceSteps"> & Partial<Pick<H3QueueItem, "modelVariant">>,
+  backend?: string
+): number | undefined {
+  if (item.inferenceSteps !== undefined) return item.inferenceSteps;
+  if (item.modelVariant === "10eros_max") return 8;
+  if (item.modelVariant === "10eros_max_turbo") return 6;
+  if (backend === "matlow_int8" && item.renderMode === "preview") return 4;
+  return undefined;
 }
 
 async function openManagedTunnel(instance: VastInstance): Promise<string> {
@@ -252,8 +369,9 @@ function resolveWorkerUrl(template: string, instance: VastInstance): string {
   return normalizeH3WorkerUrl(resolved);
 }
 
-function capabilityFor(operation: H3QueueItem["operation"]): "fl2va" | "ref2va" | null {
+function capabilityFor(operation: H3QueueItem["operation"]): "fl2va" | "ref2va" | "style_transfer" | null {
   if (operation === "text_to_video" || operation === "first_last_frame") return "fl2va";
+  if (operation === "style_transfer") return "style_transfer";
   if (operation === "motion_transfer" || operation === "reference_mix") return "ref2va";
   return null;
 }
@@ -266,6 +384,7 @@ function blockedReason(operation: H3QueueItem["operation"]): string {
 
 function validateAssets(item: H3QueueItem, references: H3Reference[]): void {
   if (item.operation === "first_last_frame" && !references.some((reference) => reference.role === "firstFrame" || reference.role === "lastFrame")) throw new H3QueueBlockedError("First/last-frame generation requires at least one endpoint image.");
+  if (item.operation === "style_transfer" && (!references.some((reference) => reference.kind === "video") || !references.some((reference) => reference.kind === "image"))) throw new H3QueueBlockedError("Video style transfer requires both a source video and a style reference image.");
   if ((item.operation === "motion_transfer" || item.operation === "reference_mix") && !references.some((reference) => reference.role === "reference")) throw new H3QueueBlockedError("Reference generation requires at least one image, video, or audio reference.");
 }
 

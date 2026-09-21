@@ -612,4 +612,14 @@ describe("server Model Catalog V1 assembly", () => {
     expect(options).toHaveLength(1);
     expect(options[0]).toMatchObject({ id: "gpt-5.2", providerRoutes: [{ provider: "kie", providerModelId: "gpt-5-2" }, { provider: "openrouter", providerModelId: "openai/gpt-5.2" }] });
   });
+
+  it("offers direct Gemini and Polza text models through the shared text node", () => {
+    const catalog = assembleModelCatalogV1({
+      fallbackModels: fallbackProviderModelsForCatalogV1(),
+      polzaModels: [{ id: "google/gemini-3.8-flash", name: "Google Gemini 3.8 Flash", inputTypes: ["text", "image"], outputTypes: ["text"], capabilities: ["text.generate"] }]
+    });
+    const options = modelOptionsForNodeV1("ai.text", catalog);
+    expect(options.some((entry) => entry.providerRoutes?.some((route) => route.provider === "gemini" && route.providerModelId === "gemini-3.8-flash"))).toBe(true);
+    expect(options.some((entry) => entry.providerRoutes?.some((route) => route.provider === "polza" && route.providerModelId === "google/gemini-3.8-flash"))).toBe(true);
+  });
 });

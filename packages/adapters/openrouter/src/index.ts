@@ -219,25 +219,26 @@ export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
       return parseOpenRouterModelCatalog(await request("/videos/models", { method: "GET" }, keyRequired), "video");
     },
 
-    async createVideo(body: Record<string, unknown>): Promise<Record<string, unknown>> {
-      return objectRecord(await request("/videos", { method: "POST", body: JSON.stringify(body) }));
+    async createVideo(body: Record<string, unknown>, signal?: AbortSignal): Promise<Record<string, unknown>> {
+      return objectRecord(await request("/videos", { method: "POST", body: JSON.stringify(body), signal }));
     },
 
-    async getVideo(id: string): Promise<Record<string, unknown>> {
-      return objectRecord(await request(`/videos/${encodeURIComponent(id)}`, { method: "GET" }));
+    async getVideo(id: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+      return objectRecord(await request(`/videos/${encodeURIComponent(id)}`, { method: "GET", signal }));
     },
 
-    async chatCompletions(body: Record<string, unknown>): Promise<unknown> {
+    async chatCompletions(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
       return request("/chat/completions", {
         method: "POST",
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal
       }, true);
     }
   };
 }
 
 export function createOpenRouterTextNodeRunner(options: OpenRouterClientOptions & { modelResolver?: ModelResolver } = {}): NodeRunner {
-  return async ({ node, params, inputs }) => {
+  return async ({ node, params, inputs, context }) => {
     const resolution = options.modelResolver?.({ task: "text", modelId: stringParam(params.model) ?? "text.default", providerMode: providerModeParam(params.providerMode) }) ?? {
       provider: "openrouter" as const,
       model: stringParam(params.model) ?? "openai/gpt-5.2",
@@ -263,7 +264,7 @@ export function createOpenRouterTextNodeRunner(options: OpenRouterClientOptions 
       modelRef: `model://openrouter/${resolution.model}`,
       input: { prompt, images, systemPrompt },
       parameters: params,
-      metadata: { nodeId: node.id, nodeType: node.type, warnings: resolution.warnings }
+      metadata: { nodeId: node.id, nodeType: node.type, warnings: resolution.warnings, signal: context.signal }
     });
     const response = gatewayResult.output.output;
     const text = typeof gatewayResult.output.text === "string" ? gatewayResult.output.text : firstOpenRouterText(response);
@@ -332,7 +333,7 @@ export function createOpenRouterImageNodeRunner(options: OpenRouterClientOptions
       modelRef: `model://openrouter/${resolution.model}`,
       input: { prompt, images },
       parameters: params,
-      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type, warnings: resolution.warnings }
+      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type, warnings: resolution.warnings, signal: context.signal }
     });
     const response = gatewayResult.output.output;
     const imageAsset = openRouterImageAssetFromGateway(gatewayResult);
@@ -397,7 +398,7 @@ export function createOpenRouterVideoNodeRunner(options: OpenRouterClientOptions
       modelRef: `model://openrouter/${model}`,
       input: { prompt, images },
       parameters: params,
-      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type }
+      metadata: { outputDirectory: context.outputDirectory, sourceNodeId: node.id, nodeId: node.id, nodeType: node.type, signal: context.signal }
     });
     const videoAsset = openRouterVideoAssetFromGateway(gatewayResult);
     if (!videoAsset) throw new Error(`OpenRouter model "${model}" did not return a video.`);
@@ -458,7 +459,7 @@ export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions
           ...(systemPrompt ? [{ role: "system" as const, content: systemPrompt }] : []),
           { role: "user", content: userContent }
         ];
-        const response = await client.chatCompletions(buildChatRequestBody(request.model.id, messages, request.parameters ?? {}));
+        const response = await client.chatCompletions(buildChatRequestBody(request.model.id, messages, request.parameters ?? {}), request.metadata?.signal as AbortSignal | undefined);
         const usage = response && typeof response === "object" ? (response as Record<string, unknown>).usage : undefined;
         return {
           modelId: request.model.id,
@@ -484,7 +485,7 @@ export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions
         };
       }
       if (request.capability === "image.generate") {
-        const response = await client.chatCompletions(buildImageRequestBody(request.model.id, prompt, request.parameters ?? {}, imageUrls));
+        const response = await client.chatCompletions(buildImageRequestBody(request.model.id, prompt, request.parameters ?? {}, imageUrls), request.metadata?.signal as AbortSignal | undefined);
         const image = firstOpenRouterImage(response);
         if (!image) throw new Error(`OpenRouter model "${request.model.id}" did not return an image.`);
         const imageAsset = await writeOpenRouterImage(image, {
@@ -518,10 +519,11 @@ export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions
         };
       }
       if (request.capability === "video.generate") {
-        const created = await client.createVideo(buildOpenRouterVideoRequestBody(request.model.id, prompt, request.parameters ?? {}, imageUrls));
+        const signal = request.metadata?.signal as AbortSignal | undefined;
+        const created = await client.createVideo(buildOpenRouterVideoRequestBody(request.model.id, prompt, request.parameters ?? {}, imageUrls), signal);
         const jobId = stringParam(created.id) ?? stringParam(created.generation_id);
         if (!jobId) throw new Error("OpenRouter video generation did not return a job id.");
-        const completed = await pollOpenRouterVideo(client, jobId, options);
+        const completed = await pollOpenRouterVideo(client, jobId, options, signal);
         const videoUrl = firstOpenRouterVideoUrl(completed);
         if (!videoUrl) throw new Error("OpenRouter video generation completed without a downloadable video URL.");
         let video;
@@ -651,15 +653,17 @@ export function buildOpenRouterVideoRequestBody(model: string, prompt: string, p
 }
 
 async function pollOpenRouterVideo(
-  client: { getVideo(id: string): Promise<Record<string, unknown>> },
+  client: { getVideo(id: string, signal?: AbortSignal): Promise<Record<string, unknown>> },
   jobId: string,
-  options: OpenRouterClientOptions
+  options: OpenRouterClientOptions,
+  signal?: AbortSignal
 ): Promise<Record<string, unknown>> {
   const intervalMs = options.videoPollIntervalMs ?? 3000;
   const deadline = Date.now() + (options.videoTimeoutMs ?? 10 * 60 * 1000);
   while (Date.now() <= deadline) {
+    signal?.throwIfAborted();
     if (intervalMs > 0) await delay(intervalMs);
-    const status = await client.getVideo(jobId);
+    const status = await client.getVideo(jobId, signal);
     const state = stringParam(status.status)?.toLowerCase();
     if (state === "completed" || state === "succeeded") return status;
     if (state === "failed" || state === "cancelled" || state === "canceled") {
