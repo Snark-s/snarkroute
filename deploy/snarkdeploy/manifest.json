@@ -368,12 +368,12 @@
     {
       "id": "h3-models",
       "distro": "Ubuntu-24.04",
-      "command": "find ~/h3/models -type f -printf '%p\\t%s\\n' 2>/dev/null | sort"
+      "command": "timeout 20s find ~/h3/models -type f -printf '%p\\t%s\\n' 2>/dev/null | sort"
     },
     {
       "id": "h3-runtime",
       "distro": "Ubuntu-24.04",
-      "command": "find ~/h3/runtime -maxdepth 3 -type f -printf '%p\\t%s\\n' 2>/dev/null | sort"
+      "command": "timeout 20s find ~/h3/runtime -maxdepth 3 -type f -printf '%p\\t%s\\n' 2>/dev/null | sort"
     }
   ],
   "secret_requirements": [
