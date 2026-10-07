@@ -115,6 +115,11 @@
       "install_commands": [
         "corepack enable",
         "corepack pnpm install --frozen-lockfile"
+      ],
+      "patch_excludes": [
+        "apps/server/data/h3-studio/queue.json",
+        "apps/server/data/h3-studio/results/**",
+        "apps/server/nohup.out"
       ]
     },
     {

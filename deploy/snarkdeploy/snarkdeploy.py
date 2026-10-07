@@ -163,13 +163,16 @@ def copy_tree_into_zip(zf, src, prefix, excludes):
     return {"files": files, "bytes": total_bytes}
 
 
-def git_info(path):
+def git_info(path, patch_excludes=None):
     path = Path(path)
+    patch_excludes = patch_excludes or []
     if not (path / ".git").exists():
         return None
     commit = clean_output(run(["git", "rev-parse", "HEAD"], cwd=path).stdout)
     remote = clean_output(run(["git", "remote", "get-url", "origin"], cwd=path, check=False).stdout)
-    patch = run(["git", "diff", "--binary", "HEAD"], cwd=path, check=False).stdout
+    changed = run(["git", "diff", "--name-only", "HEAD", "--", "."], cwd=path, check=False).stdout.splitlines()
+    included = [name for name in changed if not should_exclude(name, patch_excludes)]
+    patch = run(["git", "diff", "--binary", "HEAD", "--", *included], cwd=path, check=False).stdout if included else ""
     untracked = run(["git", "ls-files", "--others", "--exclude-standard"], cwd=path, check=False).stdout.splitlines()
     branch = clean_output(run(["git", "branch", "--show-current"], cwd=path, check=False).stdout)
     return {"commit": commit, "remote": remote, "branch": branch, "patch": patch, "untracked": untracked}
@@ -442,7 +445,7 @@ def snapshot(args):
                 state["components"].append(record)
                 continue
             component_excludes = excludes + component.get("snapshot_excludes", [])
-            info = git_info(path) if component["strategy"] in ("git", "git-or-copy") else None
+            info = git_info(path, component.get("patch_excludes", [])) if component["strategy"] in ("git", "git-or-copy") else None
             if info and info.get("remote"):
                 record.update({
                     "mode": "git",
