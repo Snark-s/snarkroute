@@ -1,6 +1,6 @@
 # H3 backend audit
 
-Status: 2026-09-09. This document describes the checked-in SnarkRoute implementation. MATLOWAI T2VA and first-frame FL2VA preview have now completed on the real RTX 3080 Laptop GPU. It does not claim that VDN-H3, last-frame FL2VA, Ref2VA, native audio or final-quality MATLOWAI generation works.
+Status: 2026-09-21. This document describes the checked-in SnarkRoute implementation. MATLOWAI T2VA, 10-second FL2VA, first/last-frame generation, visual image+video Ref2VA and native generated audio have completed on the real RTX 3080 Laptop GPU. It does not claim that VDN-H3, local audio-reference conditioning, stable style transfer, FaceSwap visual identity fidelity or final-quality MATLOWAI generation works. See `docs/minimax-h3-production.md` for the current production-line architecture.
 
 ## What is actually wired today
 
@@ -91,7 +91,7 @@ SGLang-specific configuration remains intentionally isolated and backward compat
 
 `H3_BACKEND=matlow_int8` reuses the same worker HTTP contract and result storage. The adapter imports ComfyUI core `f938505952476e48a12687eac696cdc94d48a3fe` as a Python library because the checkpoint is a single-file `comfy_quant` model. No ComfyUI process, server, GUI, frontend package, public node graph, or public workflow JSON is used. The first backend milestone calls the core loaders, H3 conditioner, `res_multistep` sampler, VAE decoder and video writer directly.
 
-`local_fast` is intentionally fail-closed: 960x544 at 16:9, 124 frames for a requested five seconds, four denoise steps, fused Turbo weights, dense attention, DynamicVRAM, 256/64 VAE tiles and native audio disabled. `final`, last-frame FL2VA, Ref2VA and `local_quality` remain unavailable until separately exercised. Startup checks the exact ComfyUI and `comfy-kitchen==0.2.31` versions and executes a real ConvRot `int8_linear` operation. T2VA and first-frame FL2VA both completed on RTX 3080 Laptop (compute capability 8.6, PyTorch 2.13.0+cu130, CUDA 13.0), with valid H.264 MP4 output and zero swap growth. The measured runs are recorded in `docs/runbooks/minimax-h3-local-wsl.md`.
+`local_fast` is intentionally fail-closed: 960x544 at 16:9, 124 frames for a requested five seconds, four denoise steps, fused Turbo weights, dense attention, DynamicVRAM and 256/64 VAE tiles. `final`, local audio-reference conditioning and stable style transfer remain unavailable until separately exercised. Startup checks the exact ComfyUI and `comfy-kitchen==0.2.31` versions and executes a real ConvRot `int8_linear` operation. T2VA, first/last FL2VA and visual Ref2VA completed on RTX 3080 Laptop (compute capability 8.6, PyTorch 2.13.0+cu130, CUDA 13.0), producing valid H.264 MP4; native generated audio is enabled and verified on the combined Ref2VA smoke. The measured runs are recorded in `docs/runbooks/minimax-h3-local-wsl.md`.
 
 The four pinned model files total 40,444,247,247 bytes (37.67 GiB). They cannot be hard-linked to the existing Diffusers/SGLang shards because the quantized single-file layouts and checksums differ. All revisions, byte counts and SHA-256 values are in `workers/minimax-h3/model-manifest.yaml`.
 

@@ -1,0 +1,18 @@
+{
+  "scope": "Read-only metadata of interrupted normalization; no decode/render/model",
+  "status": "INVALID_INTERRUPTED_OUTPUT",
+  "error": "probe_capture() takes from 1 to 2 positional arguments but 3 were given",
+  "bytes": 2621488,
+  "sha256": "b843e0f69ab2a72913123bc04fa2507151659def580757d607f26b927978f81a",
+  "native_sha256": "a5cae1aa824ddd3ddf69fd3d1eb626f1cc874742597c808043edf3e7b9e55b60",
+  "baseline_sha256": "da7d07ce11946d5103ccd38010ee6141f2f24ba2cacf8073372bd32c3bbbeffb",
+  "final_cleanup_snapshot": {
+    "timestamp": "2026-10-04T00:00:30.810976+03:00",
+    "active_processes": 0,
+    "active_pids": [],
+    "processes": [],
+    "identity_errors": [],
+    "affinity_mask": 3
+  },
+  "preserved_path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\comparison-2026-10-03\\interrupted-vimeo.mp4"
+}

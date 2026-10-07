@@ -1,0 +1,1621 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-29T23:26:44.695Z",
+  "experiment": "SnarkRoute H3 stage 3",
+  "root": "Y:\\Процесс\\SnarkRoute",
+  "status": "completed_with_blocked_local_2k",
+  "noAutoRouting": true,
+  "turboPaidCalls": 3,
+  "turboEstimatedTotalUsd": 0.6,
+  "invoiceVerified": false,
+  "newMaxCalls": 0,
+  "endpointFidelity": {
+    "MAX-I1": {
+      "firstFrameSsim": 0.934199
+    },
+    "TURBO-I1": {
+      "firstFrameSsim": 0.934203
+    },
+    "MAX-FL1": {
+      "firstFrameSsim": 0.9341,
+      "lastFrameSsim": 0.940506
+    },
+    "TURBO-FL1": {
+      "firstFrameSsim": 0.933605,
+      "lastFrameSsim": 0.939996
+    },
+    "method": "Previously measured ffmpeg SSIM, input JPEG resized to output 1344x768, first/final decoded frame. Similarity is not perceptual identity scoring."
+  },
+  "contamination": {
+    "sequence": [
+      "C0",
+      "C1",
+      "C2",
+      "C0R"
+    ],
+    "status": "passed",
+    "beforeSha256": "29aeb82564fd5c1811f516f159a482ae260a3c59f167c1c11a7eddba776ff56a",
+    "afterSha256": "29aeb82564fd5c1811f516f159a482ae260a3c59f167c1c11a7eddba776ff56a",
+    "method": "complete MP4 SHA-256 equality",
+    "scope": "One fixed-seed local sequence; C2M was completed later and is not covered by this reset comparison."
+  },
+  "visualModifier": {
+    "id": "authentic_cinematic_texture",
+    "status": "limited",
+    "source": "https://civitai.com/models/2890588/minimax-h3-authentic-cinematic-texture",
+    "author": "TuTu_1018",
+    "version": "v1.0",
+    "versionId": 3267949,
+    "published": "2026-08-26",
+    "filename": "Minimax H3真实电影质感.safetensors",
+    "bytes": 309965208,
+    "sha256": "51dda79218ea126cbb2e08f3a6d9cc595e2224f4977d7618061954043a8bafcf",
+    "mirror": "Alex995647/loras-minimax-h3",
+    "revision": "1517498210f571b0ed956f40df2765078daa749d",
+    "remoteFilename": "minimax-h3-authentic-cinematic-texture/Minimax H3真实电影质感.safetensors",
+    "windowsPath": "C:/Users/serge/AppData/Local/SnarkRoute/models/h3/visual-loras/authentic-cinematic-texture-v1/Minimax H3真实电影质感.safetensors",
+    "workerPath": "/home/serge/h3/models/Alex995647/loras-minimax-h3/Minimax H3真实电影质感.safetensors",
+    "dtype": "BF16",
+    "tensorCount": 516,
+    "rank": 16,
+    "targetModules": [
+      "adaln_proj.linear",
+      "attn.qkv_proj",
+      "attn.out_proj",
+      "mlp.fc1",
+      "mlp.fc2",
+      "token_refiner"
+    ],
+    "defaultStrength": 0.7,
+    "motionStrength": 0.5,
+    "trigger": {
+      "description": "DY",
+      "structuredTrainedWords": [],
+      "conflict": true,
+      "requiredByExperiment": false
+    },
+    "license": {
+      "type": "Civitai custom permissions, not SPDX",
+      "allowNoCredit": true,
+      "allowCommercialUse": [
+        "Image",
+        "RentCivit",
+        "Rent"
+      ],
+      "allowDerivatives": true,
+      "allowDifferentLicense": true
+    },
+    "isolatedLoadSeconds": null,
+    "isolatedUnloadSeconds": null,
+    "faceSwapCombination": "not_tested_rejected_by_current_contract",
+    "pictureReferenceStyleTransfer": "remains_failed"
+  },
+  "limitations": [
+    "One prompt/seed, no statistical model ranking.",
+    "Max controls from a different day; resumed MAX-T0 latency is not a fair generation baseline.",
+    "Audio stream presence/codec checked; no listening or lip-sync verdict.",
+    "Mean luma frame difference measures movement/change, not flicker.",
+    "Hands absent; sampled frames do not establish absence of texture crawling.",
+    "Local timings are affected by offload, encoder caching, swap and worker restarts.",
+    "No isolated LoRA load/unload timing; total GPU peak was not measured.",
+    "FL2VA/Ref2VA with Visual LoRA not GPU-verified.",
+    "C2M had interrupted attempts before successful v2; only completed attempt used in comparisons."
+  ],
+  "comparisonImages": {
+    "maxTurbo": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\max-vs-turbo-contact-sheet.jpg",
+    "baseCinematic": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\contact-sheet.jpg",
+    "maxBase2K": null
+  },
+  "reports": {
+    "markdown": "Y:\\Процесс\\SnarkRoute\\docs\\research\\h3-stage3-results-2026-09-30.md",
+    "json": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-stage3-eval\\2026-09-30\\run.json",
+    "preview": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-stage3-eval\\2026-09-30\\comparison.html"
+  },
+  "runs": [
+    {
+      "id": "MAX-T0",
+      "alias": "MAX-T0",
+      "status": "succeeded",
+      "provider": "fal",
+      "localHosted": "historical_hosted_control",
+      "model": "fal/minimax-h3-max",
+      "jobId": "01a0e48b-1078-7750-943b-23107ccc1567",
+      "endpoint": "minimax/h3-max/text-to-video",
+      "seed": 5242017,
+      "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+      "parameters": {
+        "endpoint": "minimax/h3-max/text-to-video",
+        "body": {
+          "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+          "duration": 5,
+          "resolution": "768P",
+          "enable_safety_checker": true,
+          "prompt_expansion_mode": "disabled",
+          "seed": 5242017,
+          "aspect_ratio": "16:9"
+        },
+        "warnings": [],
+        "provenance": {
+          "owner": "fal",
+          "upstream": "MiniMaxAI/MiniMax-H3",
+          "variant": "h3_max",
+          "nativeCameraAdapter": false
+        },
+        "assets": []
+      },
+      "references": [],
+      "modifiers": null,
+      "timings": {
+        "endToEndMs": 3412,
+        "provider": {
+          "acceptedMs": 0,
+          "generationMs": 1055,
+          "totalMs": 1055,
+          "download": 2357,
+          "totalWithDownload": 3412
+        },
+        "providerTimings": {
+          "inference": 2.677080389999901
+        },
+        "worker": null
+      },
+      "cost": {
+        "originalRecordedQuote": {
+          "amountUsd": 0.2,
+          "rateUsdPerSecond": 0.04,
+          "currency": "USD",
+          "confidence": "exact-output-only",
+          "promotion": "fal launch promotion through 2026-09-30",
+          "excludesReferenceTokenCharges": true,
+          "source": "https://fal.ai/models/minimax/h3-max/text-to-video",
+          "referenceInputChargeUsd": 0
+        },
+        "invoiceVerified": false,
+        "currentListEstimateUsd": 0.4,
+        "staleHistoricalQuote": true
+      },
+      "vram": null,
+      "startedAt": "2026-09-27T20:27:05.277Z",
+      "completedAt": "2026-09-27T20:27:09.157Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-T0\\output.mp4",
+      "sha256": "50aaee1d1868bcfef42a8fa44a14a8b15902469086d7259ac901e1cda7557f02",
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 3372120,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-T0\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-T0\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-T0\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-T0\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 0.9757182113821141,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "MAX-I1",
+      "alias": "MAX-I1",
+      "status": "succeeded",
+      "provider": "fal",
+      "localHosted": "historical_hosted_control",
+      "model": "fal/minimax-h3-max",
+      "jobId": "01a0e48c-d255-7df2-a10e-9fcbb4e5ac7d",
+      "endpoint": "minimax/h3-max/image-to-video",
+      "seed": 5242017,
+      "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+      "parameters": {
+        "endpoint": "minimax/h3-max/image-to-video",
+        "body": {
+          "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+          "duration": 5,
+          "resolution": "768P",
+          "enable_safety_checker": true,
+          "prompt_expansion_mode": "disabled",
+          "seed": 5242017,
+          "image_url": "[data URI image/jpeg]"
+        },
+        "warnings": [],
+        "provenance": {
+          "owner": "fal",
+          "upstream": "MiniMaxAI/MiniMax-H3",
+          "variant": "h3_max",
+          "nativeCameraAdapter": false
+        },
+        "assets": [
+          {
+            "kind": "image",
+            "role": "firstFrame",
+            "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+          }
+        ]
+      },
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        }
+      ],
+      "modifiers": null,
+      "timings": {
+        "endToEndMs": 9144,
+        "provider": {
+          "acceptedMs": 331,
+          "generationMs": 5073,
+          "totalMs": 5404,
+          "download": 3740,
+          "totalWithDownload": 9144
+        },
+        "providerTimings": {
+          "inference": 2.9903433179970307
+        },
+        "worker": null
+      },
+      "cost": {
+        "originalRecordedQuote": {
+          "amountUsd": 0.2,
+          "rateUsdPerSecond": 0.04,
+          "currency": "USD",
+          "confidence": "exact-output-only",
+          "promotion": "fal launch promotion through 2026-09-30",
+          "excludesReferenceTokenCharges": true,
+          "source": "https://fal.ai/models/minimax/h3-max/text-to-video",
+          "referenceInputChargeUsd": 0
+        },
+        "invoiceVerified": false,
+        "currentListEstimateUsd": 0.4,
+        "staleHistoricalQuote": true
+      },
+      "vram": null,
+      "startedAt": "2026-09-27T20:27:09.161Z",
+      "completedAt": "2026-09-27T20:27:18.738Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+      "sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 4826842,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 1.6259241788617877,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "MAX-FL1",
+      "alias": "MAX-FL1",
+      "status": "succeeded",
+      "provider": "fal",
+      "localHosted": "historical_hosted_control",
+      "model": "fal/minimax-h3-max",
+      "jobId": "01a0e48c-f938-7f32-b561-cc8ba151c7e8",
+      "endpoint": "minimax/h3-max/image-to-video",
+      "seed": 5242017,
+      "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+      "parameters": {
+        "endpoint": "minimax/h3-max/image-to-video",
+        "body": {
+          "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+          "duration": 5,
+          "resolution": "768P",
+          "enable_safety_checker": true,
+          "prompt_expansion_mode": "disabled",
+          "seed": 5242017,
+          "image_url": "[data URI image/jpeg]",
+          "end_image_url": "[data URI image/jpeg]"
+        },
+        "warnings": [],
+        "provenance": {
+          "owner": "fal",
+          "upstream": "MiniMaxAI/MiniMax-H3",
+          "variant": "h3_max",
+          "nativeCameraAdapter": false
+        },
+        "assets": [
+          {
+            "kind": "image",
+            "role": "firstFrame",
+            "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+          },
+          {
+            "kind": "image",
+            "role": "lastFrame",
+            "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+          }
+        ]
+      },
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        },
+        {
+          "kind": "image",
+          "role": "lastFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+        }
+      ],
+      "modifiers": null,
+      "timings": {
+        "endToEndMs": 8911,
+        "provider": {
+          "acceptedMs": 710,
+          "generationMs": 5766,
+          "totalMs": 6476,
+          "download": 2435,
+          "totalWithDownload": 8911
+        },
+        "providerTimings": {
+          "inference": 2.924997129943222
+        },
+        "worker": null
+      },
+      "cost": {
+        "originalRecordedQuote": {
+          "amountUsd": 0.2,
+          "rateUsdPerSecond": 0.04,
+          "currency": "USD",
+          "confidence": "exact-output-only",
+          "promotion": "fal launch promotion through 2026-09-30",
+          "excludesReferenceTokenCharges": true,
+          "source": "https://fal.ai/models/minimax/h3-max/text-to-video",
+          "referenceInputChargeUsd": 0
+        },
+        "invoiceVerified": false,
+        "currentListEstimateUsd": 0.4,
+        "staleHistoricalQuote": true
+      },
+      "vram": null,
+      "startedAt": "2026-09-27T20:27:18.743Z",
+      "completedAt": "2026-09-27T20:27:28.047Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-FL1\\output.mp4",
+      "sha256": "3176bcf4a53a6a308ea1a3fc4f095cc14d87d86d6ab7eb2a3aee1fc76c2da11c",
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 4749735,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-FL1\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-FL1\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-FL1\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-FL1\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 1.8262351951219509,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "TURBO-T0",
+      "alias": "TURBO-T0",
+      "status": "succeeded",
+      "provider": "fal",
+      "localHosted": "hosted",
+      "model": "fal/minimax-h3-max-turbo",
+      "jobId": "01a0e901-df3c-70c0-a484-c65e116c240b",
+      "endpoint": "minimax/h3-max-turbo/text-to-video",
+      "seed": 5242017,
+      "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+      "parameters": {
+        "endpoint": "minimax/h3-max-turbo/text-to-video",
+        "body": {
+          "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+          "duration": 5,
+          "resolution": "768P",
+          "enable_safety_checker": true,
+          "prompt_expansion_mode": "disabled",
+          "seed": 5242017,
+          "aspect_ratio": "16:9"
+        },
+        "warnings": [],
+        "provenance": {
+          "owner": "fal",
+          "upstream": "MiniMaxAI/MiniMax-H3",
+          "variant": "h3_max_turbo",
+          "nativeCameraAdapter": false
+        },
+        "quote": {
+          "amountUsd": 0.2,
+          "rateUsdPerSecond": 0.04,
+          "currency": "USD",
+          "confidence": "exact-output-only",
+          "promotion": null,
+          "excludesReferenceTokenCharges": true,
+          "source": "https://fal.ai/models/minimax/h3-max-turbo/text-to-video"
+        },
+        "assets": []
+      },
+      "references": [],
+      "modifiers": null,
+      "timings": {
+        "endToEndMs": 10497,
+        "provider": {
+          "acceptedMs": 564,
+          "generationMs": 5277,
+          "totalMs": 5841,
+          "download": 4656,
+          "totalWithDownload": 10497
+        },
+        "providerTimings": {
+          "inference": 1.4046351360157132
+        },
+        "worker": null
+      },
+      "cost": {
+        "originalRecordedQuote": {
+          "amountUsd": 0.2,
+          "rateUsdPerSecond": 0.04,
+          "currency": "USD",
+          "confidence": "exact-output-only",
+          "promotion": null,
+          "excludesReferenceTokenCharges": true,
+          "source": "https://fal.ai/models/minimax/h3-max-turbo/text-to-video"
+        },
+        "invoiceVerified": false,
+        "currentListEstimateUsd": 0.2,
+        "staleHistoricalQuote": false
+      },
+      "vram": null,
+      "startedAt": "2026-09-28T17:13:28.771Z",
+      "completedAt": "2026-09-28T17:13:40.156Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-T0\\output.mp4",
+      "sha256": "ecc101b5df4c6fd8dcda37f17f45f7eb1cd793cb5301c4c5cf02fe5f2317769f",
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 3390372,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-T0\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-T0\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-T0\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-T0\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 0.9177319918699179,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "TURBO-I1",
+      "alias": "TURBO-I1",
+      "status": "succeeded",
+      "provider": "fal",
+      "localHosted": "hosted",
+      "model": "fal/minimax-h3-max-turbo",
+      "jobId": "01a0e902-0bdd-7531-8317-58102f72ad45",
+      "endpoint": "minimax/h3-max-turbo/image-to-video",
+      "seed": 5242017,
+      "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+      "parameters": {
+        "endpoint": "minimax/h3-max-turbo/image-to-video",
+        "body": {
+          "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+          "duration": 5,
+          "resolution": "768P",
+          "enable_safety_checker": true,
+          "prompt_expansion_mode": "disabled",
+          "seed": 5242017,
+          "image_url": "[data URI image/jpeg]"
+        },
+        "warnings": [],
+        "provenance": {
+          "owner": "fal",
+          "upstream": "MiniMaxAI/MiniMax-H3",
+          "variant": "h3_max_turbo",
+          "nativeCameraAdapter": false
+        },
+        "quote": {
+          "amountUsd": 0.2,
+          "rateUsdPerSecond": 0.04,
+          "currency": "USD",
+          "confidence": "exact-output-only",
+          "promotion": null,
+          "excludesReferenceTokenCharges": true,
+          "source": "https://fal.ai/models/minimax/h3-max-turbo/text-to-video"
+        },
+        "assets": [
+          {
+            "kind": "image",
+            "role": "firstFrame",
+            "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+          }
+        ]
+      },
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        }
+      ],
+      "modifiers": null,
+      "timings": {
+        "endToEndMs": 6343,
+        "provider": {
+          "acceptedMs": 609,
+          "generationMs": 2802,
+          "totalMs": 3411,
+          "download": 2932,
+          "totalWithDownload": 6343
+        },
+        "providerTimings": {
+          "inference": 1.5550016130000586
+        },
+        "worker": null
+      },
+      "cost": {
+        "originalRecordedQuote": {
+          "amountUsd": 0.2,
+          "rateUsdPerSecond": 0.04,
+          "currency": "USD",
+          "confidence": "exact-output-only",
+          "promotion": null,
+          "excludesReferenceTokenCharges": true,
+          "source": "https://fal.ai/models/minimax/h3-max-turbo/text-to-video"
+        },
+        "invoiceVerified": false,
+        "currentListEstimateUsd": 0.2,
+        "staleHistoricalQuote": false
+      },
+      "vram": null,
+      "startedAt": "2026-09-28T17:13:40.162Z",
+      "completedAt": "2026-09-28T17:13:46.778Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-I1\\output.mp4",
+      "sha256": "962858c49ee9e9c8a51f7d58f7d4fdfc5685b2cd5ff37c6148ccde9071356429",
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 4887802,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-I1\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-I1\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-I1\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-I1\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 1.601112195121952,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "TURBO-FL1",
+      "alias": "TURBO-FL1",
+      "status": "succeeded",
+      "provider": "fal",
+      "localHosted": "hosted",
+      "model": "fal/minimax-h3-max-turbo",
+      "jobId": "01a0e902-2509-7591-b12a-056abc96134a",
+      "endpoint": "minimax/h3-max-turbo/image-to-video",
+      "seed": 5242017,
+      "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+      "parameters": {
+        "endpoint": "minimax/h3-max-turbo/image-to-video",
+        "body": {
+          "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+          "duration": 5,
+          "resolution": "768P",
+          "enable_safety_checker": true,
+          "prompt_expansion_mode": "disabled",
+          "seed": 5242017,
+          "image_url": "[data URI image/jpeg]",
+          "end_image_url": "[data URI image/jpeg]"
+        },
+        "warnings": [],
+        "provenance": {
+          "owner": "fal",
+          "upstream": "MiniMaxAI/MiniMax-H3",
+          "variant": "h3_max_turbo",
+          "nativeCameraAdapter": false
+        },
+        "quote": {
+          "amountUsd": 0.2,
+          "rateUsdPerSecond": 0.04,
+          "currency": "USD",
+          "confidence": "exact-output-only",
+          "promotion": null,
+          "excludesReferenceTokenCharges": true,
+          "source": "https://fal.ai/models/minimax/h3-max-turbo/text-to-video"
+        },
+        "assets": [
+          {
+            "kind": "image",
+            "role": "firstFrame",
+            "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+          },
+          {
+            "kind": "image",
+            "role": "lastFrame",
+            "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+          }
+        ]
+      },
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        },
+        {
+          "kind": "image",
+          "role": "lastFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+        }
+      ],
+      "modifiers": null,
+      "timings": {
+        "endToEndMs": 9133,
+        "provider": {
+          "acceptedMs": 424,
+          "generationMs": 4965,
+          "totalMs": 5389,
+          "download": 3744,
+          "totalWithDownload": 9133
+        },
+        "providerTimings": {
+          "inference": 1.5253627789934399
+        },
+        "worker": null
+      },
+      "cost": {
+        "originalRecordedQuote": {
+          "amountUsd": 0.2,
+          "rateUsdPerSecond": 0.04,
+          "currency": "USD",
+          "confidence": "exact-output-only",
+          "promotion": null,
+          "excludesReferenceTokenCharges": true,
+          "source": "https://fal.ai/models/minimax/h3-max-turbo/text-to-video"
+        },
+        "invoiceVerified": false,
+        "currentListEstimateUsd": 0.2,
+        "staleHistoricalQuote": false
+      },
+      "vram": null,
+      "startedAt": "2026-09-28T17:13:46.783Z",
+      "completedAt": "2026-09-28T17:13:56.189Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-FL1\\output.mp4",
+      "sha256": "af21ed23ff385c1f56c4cc94ab0e3ca5704eab4f60b38f7f6bf5df3e333d6c76",
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 4632947,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-FL1\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-FL1\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-FL1\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-FL1\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 1.7001199105691058,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "C0",
+      "alias": "C0_base",
+      "status": "succeeded",
+      "provider": "local",
+      "localHosted": "local",
+      "model": "h3_base/MATLOW fused Turbo INT8",
+      "jobId": "bea64f16-2837-4bb2-97df-f39c4e27995d",
+      "endpoint": "/v1/jobs",
+      "seed": 5242017,
+      "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+      "parameters": {
+        "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+        "duration": 5,
+        "aspectRatio": "16:9",
+        "seed": 5242017,
+        "variants": 1,
+        "renderMode": "preview",
+        "modelVariant": "h3_base",
+        "inferenceSteps": 4,
+        "quality": "lossless"
+      },
+      "references": [],
+      "modifiers": null,
+      "timings": {
+        "endToEndMs": 820910,
+        "provider": 820910,
+        "providerTimings": null,
+        "worker": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+          "variant": "t2va",
+          "model_variant": "h3_base",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 124,
+          "duration_seconds": 5,
+          "steps": 4,
+          "seed": 5242017,
+          "quantization": "comfy_quant:int8_convrot",
+          "sampler": "res_multistep",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  71,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  71
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  37,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 817.380832897,
+          "peak_vram_gib": 2.373046875,
+          "peak_ram_gib": 24.387737274169922,
+          "peak_system_ram_gib": 23.268203735351562,
+          "peak_swap_gib": 0,
+          "peak_swap_growth_gib": 0,
+          "model_load_seconds": 2.9013760870000738,
+          "text_encoder_seconds": 501.464787377,
+          "diffusion_seconds": 270.74863567599994,
+          "vae_decode_seconds": 29.221288130999937,
+          "audio_seconds": 1.970990208999865,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 0,
+          "output_bytes": 615302,
+          "verified_gpu_inference": true
+        }
+      },
+      "cost": {
+        "providerChargeUsd": 0,
+        "electricityAndHardwareCost": "not_measured"
+      },
+      "vram": {
+        "torchReservedPeakGiB": 2.373046875,
+        "totalGpuPeakGiB": null,
+        "note": "Torch reserved memory only; dynamic offload allocations are outside this measurement."
+      },
+      "startedAt": "2026-09-28T17:20:56.577Z",
+      "completedAt": "2026-09-28T17:34:37.487Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0\\output.mp4",
+      "sha256": "29aeb82564fd5c1811f516f159a482ae260a3c59f167c1c11a7eddba776ff56a",
+      "media": {
+        "durationSeconds": 5.167,
+        "sizeBytes": 615302,
+        "video": {
+          "codec": "h264",
+          "width": 960,
+          "height": 544,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 2.9233067479674815,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "C1",
+      "alias": "C1_cinematic",
+      "status": "succeeded",
+      "provider": "local",
+      "localHosted": "local",
+      "model": "h3_base/MATLOW fused Turbo INT8",
+      "jobId": "67df9dfb-23e7-491f-9b9f-93c8740499d7",
+      "endpoint": "/v1/jobs",
+      "seed": 5242017,
+      "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+      "parameters": {
+        "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+        "duration": 5,
+        "aspectRatio": "16:9",
+        "seed": 5242017,
+        "variants": 1,
+        "renderMode": "preview",
+        "modelVariant": "h3_base",
+        "inferenceSteps": 4,
+        "quality": "lossless",
+        "visualModifier": {
+          "id": "authentic_cinematic_texture",
+          "enabled": true,
+          "strength": 0.7,
+          "includeTrigger": false
+        }
+      },
+      "references": [],
+      "modifiers": {
+        "id": "authentic_cinematic_texture",
+        "enabled": true,
+        "strength": 0.7,
+        "includeTrigger": false
+      },
+      "timings": {
+        "endToEndMs": 620734,
+        "provider": 620734,
+        "providerTimings": null,
+        "worker": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+          "variant": "t2va",
+          "model_variant": "h3_base",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 124,
+          "duration_seconds": 5,
+          "steps": 4,
+          "seed": 5242017,
+          "quantization": "comfy_quant:int8_convrot",
+          "sampler": "res_multistep",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "strength": 0.7,
+            "kind": "visual_modifier",
+            "id": "authentic_cinematic_texture",
+            "artifact": "civitai:2890588/version:3267949",
+            "mirror": "Alex995647/loras-minimax-h3",
+            "revision": "1517498210f571b0ed956f40df2765078daa749d",
+            "sha256": "51dda79218ea126cbb2e08f3a6d9cc595e2224f4977d7618061954043a8bafcf",
+            "trigger": null,
+            "trigger_metadata_conflict": true
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  71,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  71
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  37,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 619.115169508,
+          "peak_vram_gib": 2.587890625,
+          "peak_ram_gib": 26.503101348876953,
+          "peak_system_ram_gib": 25.353275299072266,
+          "peak_swap_gib": 0.001964569091796875,
+          "peak_swap_growth_gib": 0.001964569091796875,
+          "model_load_seconds": 3.9453611759997784,
+          "text_encoder_seconds": 228.84877162199996,
+          "diffusion_seconds": 341.8074232009999,
+          "vae_decode_seconds": 27.593643292000024,
+          "audio_seconds": 1.742342767999844,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 0,
+          "output_bytes": 469387,
+          "verified_gpu_inference": true
+        }
+      },
+      "cost": {
+        "providerChargeUsd": 0,
+        "electricityAndHardwareCost": "not_measured"
+      },
+      "vram": {
+        "torchReservedPeakGiB": 2.587890625,
+        "totalGpuPeakGiB": null,
+        "note": "Torch reserved memory only; dynamic offload allocations are outside this measurement."
+      },
+      "startedAt": "2026-09-28T17:34:37.568Z",
+      "completedAt": "2026-09-28T17:44:58.302Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C1\\output.mp4",
+      "sha256": "6452dea95c9f8b03ea47a1bef941d99cdbb676e5d689259aea115ea5f1772f2b",
+      "media": {
+        "durationSeconds": 5.167,
+        "sizeBytes": 469387,
+        "video": {
+          "codec": "h264",
+          "width": 960,
+          "height": 544,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C1\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C1\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C1\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C1\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 1.3617679999999999,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "C2M",
+      "alias": "C2_motion_strength",
+      "status": "succeeded",
+      "provider": "local",
+      "localHosted": "local",
+      "model": "h3_base/MATLOW fused Turbo INT8",
+      "jobId": "7d2e06cb-e615-436c-9281-f59297a14f2a",
+      "endpoint": "/v1/jobs",
+      "seed": 5242017,
+      "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+      "parameters": {
+        "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+        "duration": 5,
+        "aspectRatio": "16:9",
+        "seed": 5242017,
+        "variants": 1,
+        "renderMode": "preview",
+        "modelVariant": "h3_base",
+        "inferenceSteps": 4,
+        "quality": "lossless",
+        "visualModifier": {
+          "id": "authentic_cinematic_texture",
+          "enabled": true,
+          "strength": 0.5,
+          "includeTrigger": false
+        }
+      },
+      "references": [],
+      "modifiers": {
+        "id": "authentic_cinematic_texture",
+        "enabled": true,
+        "strength": 0.5,
+        "includeTrigger": false
+      },
+      "timings": {
+        "endToEndMs": 1131432,
+        "provider": 1131432,
+        "providerTimings": null,
+        "worker": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+          "variant": "t2va",
+          "model_variant": "h3_base",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 124,
+          "duration_seconds": 5,
+          "steps": 4,
+          "seed": 5242017,
+          "quantization": "comfy_quant:int8_convrot",
+          "sampler": "res_multistep",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "strength": 0.5,
+            "kind": "visual_modifier",
+            "id": "authentic_cinematic_texture",
+            "artifact": "civitai:2890588/version:3267949",
+            "mirror": "Alex995647/loras-minimax-h3",
+            "revision": "1517498210f571b0ed956f40df2765078daa749d",
+            "sha256": "51dda79218ea126cbb2e08f3a6d9cc595e2224f4977d7618061954043a8bafcf",
+            "trigger": null,
+            "trigger_metadata_conflict": true
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  71,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  71
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  37,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1128.376779891,
+          "peak_vram_gib": 2.568359375,
+          "peak_ram_gib": 20.110050201416016,
+          "peak_system_ram_gib": 22.855506896972656,
+          "peak_swap_gib": 2.8774642944335938,
+          "peak_swap_growth_gib": 2.8774642944335938,
+          "model_load_seconds": 2.069077071000045,
+          "text_encoder_seconds": 377.820468259,
+          "diffusion_seconds": 707.446267895,
+          "vae_decode_seconds": 25.35963559400011,
+          "audio_seconds": 1.5110113069999898,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 0,
+          "output_bytes": 505355,
+          "verified_gpu_inference": true
+        }
+      },
+      "cost": {
+        "providerChargeUsd": 0,
+        "electricityAndHardwareCost": "not_measured"
+      },
+      "vram": {
+        "torchReservedPeakGiB": 2.568359375,
+        "totalGpuPeakGiB": null,
+        "note": "Torch reserved memory only; dynamic offload allocations are outside this measurement."
+      },
+      "startedAt": "2026-09-29T21:53:47.352Z",
+      "completedAt": "2026-09-29T22:12:38.784Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C2M\\output.mp4",
+      "sha256": "8a717eef74d453cdfee384022b87e1353886870b343a609342a96a60c7a5a02c",
+      "media": {
+        "durationSeconds": 5.167,
+        "sizeBytes": 505355,
+        "video": {
+          "codec": "h264",
+          "width": 960,
+          "height": 544,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C2M\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C2M\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C2M\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C2M\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 1.812813967479675,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "C2",
+      "alias": "C3_trigger_test",
+      "status": "succeeded",
+      "provider": "local",
+      "localHosted": "local",
+      "model": "h3_base/MATLOW fused Turbo INT8",
+      "jobId": "23fb1d67-638a-435b-a1f2-755ed24a832c",
+      "endpoint": "/v1/jobs",
+      "seed": 5242017,
+      "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+      "parameters": {
+        "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+        "duration": 5,
+        "aspectRatio": "16:9",
+        "seed": 5242017,
+        "variants": 1,
+        "renderMode": "preview",
+        "modelVariant": "h3_base",
+        "inferenceSteps": 4,
+        "quality": "lossless",
+        "visualModifier": {
+          "id": "authentic_cinematic_texture",
+          "enabled": true,
+          "strength": 0.7,
+          "includeTrigger": true
+        }
+      },
+      "references": [],
+      "modifiers": {
+        "id": "authentic_cinematic_texture",
+        "enabled": true,
+        "strength": 0.7,
+        "includeTrigger": true
+      },
+      "timings": {
+        "endToEndMs": 1466793,
+        "provider": 1466793,
+        "providerTimings": null,
+        "worker": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+          "variant": "t2va",
+          "model_variant": "h3_base",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 124,
+          "duration_seconds": 5,
+          "steps": 4,
+          "seed": 5242017,
+          "quantization": "comfy_quant:int8_convrot",
+          "sampler": "res_multistep",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "strength": 0.7,
+            "kind": "visual_modifier",
+            "id": "authentic_cinematic_texture",
+            "artifact": "civitai:2890588/version:3267949",
+            "mirror": "Alex995647/loras-minimax-h3",
+            "revision": "1517498210f571b0ed956f40df2765078daa749d",
+            "sha256": "51dda79218ea126cbb2e08f3a6d9cc595e2224f4977d7618061954043a8bafcf",
+            "trigger": "DY",
+            "trigger_metadata_conflict": true
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  73,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  73
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  37,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1464.7858574549998,
+          "peak_vram_gib": 2.587890625,
+          "peak_ram_gib": 22.81262969970703,
+          "peak_system_ram_gib": 21.708358764648438,
+          "peak_swap_gib": 8.041030883789062,
+          "peak_swap_growth_gib": 8.039066314697266,
+          "model_load_seconds": 2.9118617710000763,
+          "text_encoder_seconds": 369.78272833200003,
+          "diffusion_seconds": 1048.9664221520002,
+          "vae_decode_seconds": 25.006899869000335,
+          "audio_seconds": 1.3397533309998835,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 0,
+          "output_bytes": 473506,
+          "verified_gpu_inference": true
+        }
+      },
+      "cost": {
+        "providerChargeUsd": 0,
+        "electricityAndHardwareCost": "not_measured"
+      },
+      "vram": {
+        "torchReservedPeakGiB": 2.587890625,
+        "totalGpuPeakGiB": null,
+        "note": "Torch reserved memory only; dynamic offload allocations are outside this measurement."
+      },
+      "startedAt": "2026-09-28T17:44:58.379Z",
+      "completedAt": "2026-09-28T18:09:25.172Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C2\\output.mp4",
+      "sha256": "b0e6145c0f5e3ea118d57d17e4586910a072fa23e73d904b556ccce5cda08b0e",
+      "media": {
+        "durationSeconds": 5.167,
+        "sizeBytes": 473506,
+        "video": {
+          "codec": "h264",
+          "width": 960,
+          "height": 544,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C2\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C2\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C2\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C2\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 1.3098836910569103,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "C0R",
+      "alias": "C0_reset_control",
+      "status": "succeeded",
+      "provider": "local",
+      "localHosted": "local",
+      "model": "h3_base/MATLOW fused Turbo INT8",
+      "jobId": "dc8e9f5a-aee2-443d-a11f-7b9a05cb082d",
+      "endpoint": "/v1/jobs",
+      "seed": 5242017,
+      "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+      "parameters": {
+        "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+        "duration": 5,
+        "aspectRatio": "16:9",
+        "seed": 5242017,
+        "variants": 1,
+        "renderMode": "preview",
+        "modelVariant": "h3_base",
+        "inferenceSteps": 4,
+        "quality": "lossless"
+      },
+      "references": [],
+      "modifiers": null,
+      "timings": {
+        "endToEndMs": 710812,
+        "provider": 710812,
+        "providerTimings": null,
+        "worker": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+          "variant": "t2va",
+          "model_variant": "h3_base",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 124,
+          "duration_seconds": 5,
+          "steps": 4,
+          "seed": 5242017,
+          "quantization": "comfy_quant:int8_convrot",
+          "sampler": "res_multistep",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  71,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  71
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  37,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 708.989531574,
+          "peak_vram_gib": 2.392578125,
+          "peak_ram_gib": 21.624309539794922,
+          "peak_system_ram_gib": 22.365413665771484,
+          "peak_swap_gib": 5.981304168701172,
+          "peak_swap_growth_gib": 0.9682044982910156,
+          "model_load_seconds": 5.178043340999466,
+          "text_encoder_seconds": 175.70955633799986,
+          "diffusion_seconds": 486.163162329,
+          "vae_decode_seconds": 24.68798989600009,
+          "audio_seconds": 1.5012828210001317,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 0,
+          "output_bytes": 615302,
+          "verified_gpu_inference": true
+        }
+      },
+      "cost": {
+        "providerChargeUsd": 0,
+        "electricityAndHardwareCost": "not_measured"
+      },
+      "vram": {
+        "torchReservedPeakGiB": 2.392578125,
+        "totalGpuPeakGiB": null,
+        "note": "Torch reserved memory only; dynamic offload allocations are outside this measurement."
+      },
+      "startedAt": "2026-09-28T18:09:25.559Z",
+      "completedAt": "2026-09-28T18:21:16.371Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0R\\output.mp4",
+      "sha256": "29aeb82564fd5c1811f516f159a482ae260a3c59f167c1c11a7eddba776ff56a",
+      "media": {
+        "durationSeconds": 5.167,
+        "sizeBytes": 615302,
+        "video": {
+          "codec": "h264",
+          "width": 960,
+          "height": 544,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000
+        }
+      },
+      "metadataPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0R\\metadata.json",
+      "requestPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0R\\request.json",
+      "reviewStripPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0R\\review-strip.jpg",
+      "thumbnailPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0R\\thumbnail.jpg",
+      "temporalMetrics": {
+        "hardSceneCutsThreshold03": 0,
+        "meanFrameDiffY": 2.9233067479674815,
+        "method": "ffmpeg tblend difference + signalstats.YAVG; scene select >0.3. This is not a flicker quality score."
+      }
+    },
+    {
+      "id": "PIPELINE-M2K",
+      "status": "blocked",
+      "localHosted": "hybrid_requested",
+      "source": {
+        "provider": "fal",
+        "model": "fal/minimax-h3-max",
+        "jobId": "01a0e48c-d255-7df2-a10e-9fcbb4e5ac7d",
+        "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+        "sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+        "media": {
+          "durationSeconds": 5.184,
+          "sizeBytes": 4826842,
+          "video": {
+            "codec": "h264",
+            "width": 1344,
+            "height": 768,
+            "frameRate": "24/1"
+          },
+          "audio": {
+            "present": true,
+            "codec": "aac",
+            "channels": 2,
+            "channelLayout": "stereo",
+            "sampleRate": 32000,
+            "durationSeconds": 5.184
+          }
+        }
+      },
+      "requestedFinalization": {
+        "provider": "local",
+        "model": "h3_base",
+        "operation": "regenerate",
+        "resolution": "2K",
+        "worker": "matlow_int8"
+      },
+      "reason": "Current MATLOW local worker declares resample unavailable. Existing video_regeneration adapter uses the hosted MiniMax API, not a local Base Regenerate checkpoint.",
+      "acceptanceTest": "not_run_no_local_regenerate_backend",
+      "outputPath": null,
+      "media": null,
+      "timings": null,
+      "peakVramGiB": null,
+      "contentPreservation": null,
+      "motionPreservation": null,
+      "detailImprovement": null,
+      "artifacts": null,
+      "practicalCost": {
+        "hostedSourceListEstimateUsd": 0.4,
+        "localFinalizationSeconds": null,
+        "note": "Source invoice unverified; original metadata used a stale launch-promotion estimate. No new Max call."
+      }
+    }
+  ]
+}

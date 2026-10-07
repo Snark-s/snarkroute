@@ -1,0 +1,118 @@
+{
+  "status": "succeeded",
+  "id": "C0R",
+  "purpose": "base control after LoRA for contamination check",
+  "jobId": "dc8e9f5a-aee2-443d-a11f-7b9a05cb082d",
+  "startedAt": "2026-09-28T18:09:25.559Z",
+  "completedAt": "2026-09-28T18:21:16.371Z",
+  "latencyMs": 710812,
+  "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-visual-lora-eval\\2026-09-28-controlled\\C0R\\output.mp4",
+  "media": {
+    "durationSeconds": 5.167,
+    "sizeBytes": 615302,
+    "video": {
+      "codec": "h264",
+      "width": 960,
+      "height": 544,
+      "frameRate": "24/1"
+    },
+    "audio": {
+      "present": true,
+      "codec": "aac",
+      "channels": 2,
+      "sampleRate": 32000
+    }
+  },
+  "workerResult": {
+    "id": "dc8e9f5a-aee2-443d-a11f-7b9a05cb082d",
+    "outputs": [
+      {
+        "index": 0,
+        "filename": "h3-matlow-5242017-0.mp4",
+        "mime_type": "video/mp4",
+        "bytes": 615302,
+        "storage_backend": "local",
+        "storage_key": "dc8e9f5a-aee2-443d-a11f-7b9a05cb082d/0-h3-matlow-5242017-0.mp4"
+      }
+    ],
+    "metadata": {
+      "backend": "matlow_int8",
+      "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+      "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+      "variant": "t2va",
+      "model_variant": "h3_base",
+      "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "vram_gib": 15.99951171875,
+      "resolution": "960x544",
+      "frames": 124,
+      "duration_seconds": 5,
+      "steps": 4,
+      "seed": 5242017,
+      "quantization": "comfy_quant:int8_convrot",
+      "sampler": "res_multistep",
+      "scheduler": "simple",
+      "flow_parameters": {
+        "shift_video": 12,
+        "shift_audio": 3
+      },
+      "guidance": {
+        "type": "basic",
+        "cfg": null
+      },
+      "attention_backend": "dense",
+      "vae_tile_size": 256,
+      "lora": {
+        "enabled": true,
+        "kind": "fused_turbo"
+      },
+      "references": null,
+      "conditioning": {
+        "encoder": "MiniMaxH3ImageToVideo",
+        "slot": "keyframes",
+        "conditioning_shapes": [
+          {
+            "path": "root[0][0]",
+            "shape": [
+              1,
+              71,
+              5120
+            ]
+          },
+          {
+            "path": "root[0][1].minimax_token_tags",
+            "shape": [
+              71
+            ]
+          }
+        ],
+        "latent_shapes": [
+          {
+            "path": "root.samples",
+            "shape": [
+              1,
+              24,
+              37,
+              34,
+              60
+            ]
+          }
+        ]
+      },
+      "render_time_seconds": 708.989531574,
+      "peak_vram_gib": 2.392578125,
+      "peak_ram_gib": 21.624309539794922,
+      "peak_system_ram_gib": 22.365413665771484,
+      "peak_swap_gib": 5.981304168701172,
+      "peak_swap_growth_gib": 0.9682044982910156,
+      "model_load_seconds": 5.178043340999466,
+      "text_encoder_seconds": 175.70955633799986,
+      "diffusion_seconds": 486.163162329,
+      "vae_decode_seconds": 24.68798989600009,
+      "audio_seconds": 1.5012828210001317,
+      "kernel": "comfy_kitchen.int8_linear.cuda",
+      "input_bytes": 0,
+      "output_bytes": 615302,
+      "verified_gpu_inference": true
+    }
+  }
+}

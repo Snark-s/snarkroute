@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -15,6 +16,8 @@ from app.runtime import RuntimeFactory, is_out_of_memory
 from app.video_pipeline import process_video
 from app.video_registry import VideoModelRegistry
 from app.video_runtime import TemporalRuntimeFactory
+from app.video_benchmark import Policy, candidate_job
+from app.video_production import PROFILE, delivery_geometry
 
 
 @dataclass
@@ -32,6 +35,9 @@ class VideoJob:
     audio_handling: str
     tile_size: int
     tile_overlap: int
+    delivery: list[int] | None = None
+    preset: str = "medium"
+    gop: int = 48
     status: str = "queued"
     stage: str = "queued"
     progress: float = 0.0
@@ -78,6 +84,8 @@ class VideoUpscaleService:
         self.tasks: dict[str, asyncio.Task[None]] = {}
         self.asset_dir = settings.data_dir / "video-assets"
         self.result_dir = settings.data_dir / "video-results"
+        self.benchmark_policy = Policy.from_env()
+        self.benchmark_claimed = False
 
     def capabilities(self) -> dict[str, Any]:
         return {
@@ -121,14 +129,25 @@ class VideoUpscaleService:
         return {"id": asset_id, "filename": safe_name, "mime_type": mime_type}
 
     async def create_job(self, request: dict[str, Any]) -> VideoJob:
-        model = self.registry.get(str(request.get("model") or "").strip())
+        production = os.getenv("LOCAL_VIDEO_PRODUCTION") == "1"
+        if production and self.jobs:
+            raise WorkerError("production_locked", "This isolated worker processes exactly one job.")
+        if self.benchmark_policy.enabled:
+            if self.benchmark_claimed:
+                raise WorkerError("benchmark_locked","This isolated worker accepts exactly one job, including failed/cancelled attempts.")
+            expected = candidate_job(self.benchmark_policy.candidate,str(request.get("input_asset") or ""))
+            if any(request.get(key) != value for key,value in expected.items()):
+                raise WorkerError("invalid_parameters","Benchmark request must match the approved CUDA-only candidate exactly.")
+        model = self.registry.get(str(request.get("model") or PROFILE["model"]).strip())
         asset_id = str(request.get("input_asset") or "").strip()
         if asset_id not in self.assets:
             raise WorkerError("invalid_input", "input_asset does not reference an uploaded video.")
         scale = _integer(request.get("scale", model.native_scale), "scale", 1, 8)
         if scale != model.native_scale:
             raise WorkerError("invalid_parameters", f"{model.id} supports only {model.native_scale}x output.")
-        device = str(request.get("device") or "auto").lower()
+        device = str(request.get("device") or ("cuda" if production or model.id == PROFILE["model"] else "auto")).lower()
+        if (production or model.id == PROFILE["model"]) and device != "cuda":
+            raise WorkerError("cuda_required", "Video Upscale requires CUDA; CPU fallback is disabled.")
         if device not in {"auto", "cuda", "cpu"} and not device.startswith("cuda:"):
             raise WorkerError("invalid_parameters", "device must be auto, cuda, cuda:N, or cpu.")
         output_codec = str(request.get("output_codec") or "libx264")
@@ -154,8 +173,14 @@ class VideoUpscaleService:
                 f"{model.id} requires at least {minimum_overlap} overlap frames.",
             )
         audio_handling = str(request.get("audio_handling") or "copy")
-        if audio_handling not in {"copy", "drop"}:
-            raise WorkerError("invalid_parameters", "audio_handling must be copy or drop.")
+        if audio_handling not in {"copy", "drop", "aac"}:
+            raise WorkerError("invalid_parameters", "audio_handling must be copy, drop, or explicit aac re-encode.")
+        delivery = request.get("delivery")
+        delivery_geometry(2, 2, delivery)
+        preset = str(request.get("preset") or "medium")
+        if preset not in {"fast", "medium", "slow"}:
+            raise WorkerError("invalid_parameters", "preset must be fast, medium, or slow.")
+        gop = _integer(request.get("gop", 48), "gop", 1, 600)
         tile_size = _integer(request.get("tile_size", model.recommended_tile_size or 256), "tile_size", 64, 2048)
         tile_overlap = _integer(request.get("tile_overlap", 32), "tile_overlap", 0, 256)
         if tile_overlap >= tile_size:
@@ -166,8 +191,11 @@ class VideoUpscaleService:
         job = VideoJob(
             f"vup_{uuid4()}", model.id, asset_id, scale, device, output_codec, output_container,
             crf, chunk_size, overlap_frames, audio_handling, tile_size, tile_overlap,
+            delivery=delivery, preset=preset, gop=gop,
         )
         self.jobs[job.id] = job
+        if self.benchmark_policy.enabled:
+            self.benchmark_claimed = True  # no await before claim: atomic on the service event loop
         self.tasks[job.id] = asyncio.create_task(self._run(job))
         return job
 
@@ -208,6 +236,7 @@ class VideoUpscaleService:
                     job.device, job.chunk_size, job.overlap_frames,
                     job.crf, job.audio_handling, job.tile_size, job.tile_overlap,
                     self.settings.max_input_pixels, update, job.cancel_event.is_set,
+                    delivery=job.delivery, preset=job.preset, gop=job.gop,
                 ),
                 timeout=self.settings.job_timeout_seconds,
             )
@@ -242,6 +271,8 @@ class VideoUpscaleService:
             job.error = error.as_dict()
             output_path.unlink(missing_ok=True)
         finally:
+            if self.benchmark_policy.enabled and job.error:
+                job.error["retryable"] = False
             job.updated_at = datetime.now(UTC).isoformat()
 
 

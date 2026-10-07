@@ -1,0 +1,36 @@
+{
+  "operation": "video.generate.h3",
+  "task": "ref2va",
+  "prompt": "Use <Picture 1> for subject identity. Use <Picture 2> for stained-glass rendering. Use <Picture 3> only for the restrained warm-gray palette and background treatment.\n\nA woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+  "conditions": [
+    {
+      "type": "image",
+      "uri": "file:///home/serge/h3/outputs/inputs/616d4626-499c-4c1a-9976-3220b3df878c/input.png",
+      "role": "reference",
+      "purpose": "subject"
+    },
+    {
+      "type": "image",
+      "uri": "file:///home/serge/h3/outputs/inputs/b4e43065-9dfe-4ee2-9422-3d27088d0e51/input.png",
+      "role": "reference",
+      "purpose": "style"
+    },
+    {
+      "type": "image",
+      "uri": "file:///home/serge/h3/outputs/inputs/6f2f881c-0b4c-420c-8bce-cf7f9e1bcd51/input.png",
+      "role": "reference",
+      "purpose": "appearance"
+    }
+  ],
+  "target": {
+    "short_edge": 768,
+    "aspect_ratio": "16:9",
+    "duration_seconds": 5
+  },
+  "seed": 424242,
+  "num_outputs_per_prompt": 1,
+  "num_inference_steps": 4,
+  "quality_mode": "preview",
+  "quality": "lossless",
+  "turbo_lora": false
+}

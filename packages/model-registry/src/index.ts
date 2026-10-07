@@ -83,7 +83,7 @@ export function resolveModelProvider({
     if (openrouterModel) {
       return { ...base, provider: "openrouter", resolvedProvider: "OpenRouter", resolvedRoute: "openrouter", model: openrouterModel, reason: "OpenRouter selected explicitly.", localMappingRequired: Boolean(mapping?.openrouterModel), mappingKeyUsed: mapping?.id };
     }
-    throw new Error(mapping ? "This model is listed in the UI but has no executable image route." : "This model is not available for image generation.");
+    throw new Error(unavailableRouteMessage(task, Boolean(mapping)));
   }
   if (providerMode === "direct") {
     if (mapping?.directProvider && mapping.directModel) return { ...base, provider: "direct", resolvedProvider: mapping.directProvider, resolvedRoute: "direct", directProvider: mapping.directProvider, model: mapping.directModel, reason: "Direct API selected explicitly.", localMappingRequired: true, mappingKeyUsed: mapping.id };
@@ -108,7 +108,13 @@ export function resolveModelProvider({
   if (task === "image" && (!mapping || hasOpenRouterSlug || supportsImageGeneration === "unknown")) {
     throw new Error("Auto route cannot resolve this model because image support is unknown. Choose OpenRouter or Direct API explicitly.");
   }
-  throw new Error(mapping ? "This model is listed in the UI but has no executable image route." : "This model is not available for image generation.");
+  throw new Error(unavailableRouteMessage(task, Boolean(mapping)));
+}
+
+function unavailableRouteMessage(task: string, listed: boolean): string {
+  return listed
+    ? `This model is listed in the UI but has no executable ${task} route.`
+    : `This model is not available for ${task} generation.`;
 }
 
 export function resolutionMetadata(resolution: ResolvedModelProvider, extra: Record<string, unknown> = {}): Record<string, unknown> {

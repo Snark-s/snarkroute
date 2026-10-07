@@ -1,0 +1,132 @@
+{
+  "id": "S2",
+  "status": "succeeded",
+  "jobId": "7502aa94-138e-4fc5-b8e9-a7ecb8f32c6c",
+  "startedAt": "2026-09-27T15:45:00.754Z",
+  "completedAt": "2026-09-27T15:56:55.218Z",
+  "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\S2\\output.mp4",
+  "outputBytes": 547829,
+  "references": [
+    {
+      "tag": "Picture 1",
+      "kind": "image",
+      "purpose": "style",
+      "visualMode": null,
+      "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\inputs\\face-b.png",
+      "filename": "face-b.png",
+      "bytes": 305520,
+      "sha256": "bb618fdcb3f4f5f1fb8d98bc5acafa5b06242e35748352559f6d8920b1a4e6f0",
+      "preview": "reference-1.jpg"
+    }
+  ],
+  "metadata": {
+    "backend": "matlow_int8",
+    "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+    "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+    "variant": "ref2va",
+    "model_variant": "h3_base",
+    "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+    "vram_gib": 15.99951171875,
+    "resolution": "960x544",
+    "frames": 124,
+    "duration_seconds": 5,
+    "steps": 4,
+    "seed": 424242,
+    "quantization": "comfy_quant:int8_convrot",
+    "sampler": "res_multistep",
+    "scheduler": "simple",
+    "flow_parameters": {
+      "shift_video": 12,
+      "shift_audio": 3
+    },
+    "guidance": {
+      "type": "basic",
+      "cfg": null
+    },
+    "attention_backend": "dense",
+    "vae_tile_size": 256,
+    "lora": {
+      "enabled": true,
+      "kind": "fused_turbo"
+    },
+    "references": {
+      "counts": {
+        "image": 1,
+        "video": 0,
+        "audio": 0
+      },
+      "encoder": "MiniMaxH3ReferenceToVideo",
+      "conditioning_slot": "minimax_refs",
+      "model_mode": "ref2va",
+      "reference_weights": null,
+      "references": [
+        {
+          "source_id": "input.png",
+          "tag": "Picture 1",
+          "kind": "image",
+          "purpose": "style",
+          "visual_mode": null,
+          "preprocessed_shape": [
+            1,
+            784,
+            756,
+            3
+          ]
+        }
+      ]
+    },
+    "conditioning": {
+      "encoder": "MiniMaxH3ReferenceToVideo",
+      "slot": "minimax_refs",
+      "conditioning_shapes": [
+        {
+          "path": "root[0][0]",
+          "shape": [
+            1,
+            571,
+            5120
+          ]
+        },
+        {
+          "path": "root[0][1].minimax_token_tags",
+          "shape": [
+            571
+          ]
+        }
+      ],
+      "latent_shapes": [
+        {
+          "path": "root.samples",
+          "shape": [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    "render_time_seconds": 702.165156882,
+    "peak_vram_gib": 2.50390625,
+    "peak_ram_gib": 24.200794219970703,
+    "peak_system_ram_gib": 23.132667541503906,
+    "peak_swap_gib": 4.029075622558594,
+    "peak_swap_growth_gib": 4.027122497558594,
+    "model_load_seconds": 1.95231281700012,
+    "text_encoder_seconds": 46.284358500999815,
+    "diffusion_seconds": 616.1011707739999,
+    "vae_decode_seconds": 23.096977942000194,
+    "audio_seconds": 1.2637447479996808,
+    "kernel": "comfy_kitchen.int8_linear.cuda",
+    "input_bytes": 305520,
+    "output_bytes": 547829,
+    "verified_gpu_inference": true
+  },
+  "observationPrompts": [
+    "Photoreal material rendering",
+    "Identity leakage",
+    "Lighting and texture",
+    "Difference from S1 at fixed seed"
+  ]
+}

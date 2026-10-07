@@ -18,6 +18,12 @@ apps/server/data/assets/
 apps/server/data/billing/
 apps/server/data/secrets/
 apps/server/data/model-gateway-jobs/
+# Controlled H3 research videos remain local; metadata/contact sheets can be shared.
+apps/server/data/h3-max-eval/**/*.mp4
+apps/server/data/h3-turbo-eval/**/*.mp4
+apps/server/data/h3-visual-lora-eval/**/*.mp4
+apps/server/data/h3-stage3-eval/**/*.mp4
+apps/server/data/h3-hosted-regenerate-eval/**/*.mp4
 **/data/ledger/
 **/data/billing/
 **/data/secrets/
@@ -58,3 +64,12 @@ graphify-out/
 .graphify-cache/
 .graphify-out/
 *.graphify.log
+# Local bake-off media; retain JSON plans/provenance in Git.
+apps/server/data/video-upscale-eval/**/*.mp4
+
+# Local transient release/runtime state
+.tmp/
+apps/server/data/jabberwock/
+apps/server/data/h3-studio/.trash/
+artifacts/code-animation-ab-*/
+apps/server/data/h3-ref2va-eval/**/*.mp4

@@ -1,0 +1,32 @@
+{
+  "endpoint": "minimax/h3-max/image-to-video",
+  "body": {
+    "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+    "duration": 5,
+    "resolution": "768P",
+    "enable_safety_checker": true,
+    "prompt_expansion_mode": "disabled",
+    "seed": 5242017,
+    "image_url": "[data URI image/jpeg]",
+    "end_image_url": "[data URI image/jpeg]"
+  },
+  "warnings": [],
+  "provenance": {
+    "owner": "fal",
+    "upstream": "MiniMaxAI/MiniMax-H3",
+    "variant": "h3_max",
+    "nativeCameraAdapter": false
+  },
+  "assets": [
+    {
+      "kind": "image",
+      "role": "firstFrame",
+      "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+    },
+    {
+      "kind": "image",
+      "role": "lastFrame",
+      "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+    }
+  ]
+}

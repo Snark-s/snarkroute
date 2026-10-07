@@ -14,7 +14,8 @@ describe("Living Canvas provider sources", () => {
     const main = readFileSync(fileURLToPath(new URL("../src/main.tsx", import.meta.url)), "utf8");
     expect(main).toContain('{ id: "kie", title: "KIE.ai"');
     expect(main).toContain('settingsEndpoint: "/api/settings/kie-token"');
-    expect(main).toContain('testEndpoint: "/api/providers/kie/test"');
+    expect(main).toContain('/api/providers/${encodeURIComponent(providerId)}/test');
+    expect(main).not.toContain("testEndpoint");
     expect(main).not.toContain('type: "kie.');
   });
 });

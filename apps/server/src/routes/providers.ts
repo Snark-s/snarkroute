@@ -2,18 +2,19 @@ import { createExperientialClient, experientialConfigured } from "../providers/e
 import type { FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 import { createReplicateClient } from "@snarkroute/replicate";
-import { createOpenRouterClient, openRouterModelInfoToModelInfo, readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache, refreshOpenRouterModelCatalog, refreshOpenRouterPricingCatalog } from "@snarkroute/openrouter";
+import { openRouterModelInfoToModelInfo, readOpenRouterModelCatalogCache, readOpenRouterPricingCatalogCache, refreshOpenRouterModelCatalog, refreshOpenRouterPricingCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient, polzaModelInfoToModelInfo, readPolzaPricingCatalogCache, refreshPolzaPricingCatalog } from "@snarkroute/polza";
-import { createKieClient, listDocumentedKieModels } from "@snarkroute/kie";
+import { listDocumentedKieModels } from "@snarkroute/kie";
 import { documentedRuTronixModels, rutronixModelInfoToModelInfo } from "@snarkroute/rutronix";
 import { openRouterCatalogCachePath, openRouterPricingCachePath, polzaPricingCachePath, providerLinksPath } from "../server-paths";
 import { createModelResolver } from "@snarkroute/openrouter";
 import { refreshModelPricing } from "../billing/model-pricing-refresh-service";
 import { loadModelRouteMappings, quoteModelExecutingNode } from "../execution/model-gateway-runners";
-import { isKieEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled } from "../services/env";
+import { isKieEnabled, isPolzaEnabled, isReplicateEnabled } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterPublicError, openRouterSettingsStatus } from "../providers/openrouter";
-import { seedanceSettingsStatus, validateSeedanceConfiguration } from "../providers/seedance";
+import { seedanceSettingsStatus } from "../providers/seedance";
+import { testProviderConnection } from "../providers/connection-tests";
 
 type PricingCatalog = {
   provider: string;
@@ -37,12 +38,6 @@ app.get("/api/providers/links", async (request, reply) => {
 });
 
 app.get("/api/providers/experiential/status", async () => ({ experiential: { configured: experientialConfigured() } }));
-app.post("/api/providers/experiential/test", async (_request, reply) => {
-  try {
-    const models = await createExperientialClient().getModels();
-    return { ok: true, status: "connected", modelCount: models.length };
-  } catch (error) { return reply.code(400).send({ ok: false, error: errorMessage(error) }); }
-});
 app.get("/api/providers/experiential/models", async (_request, reply) => {
   if (!experientialConfigured()) return { ok: true, configured: false, models: [] };
   try {
@@ -55,32 +50,16 @@ app.get("/api/providers/openrouter/status", async () => ({ openrouter: await ope
 app.get("/api/providers/seedance/status", async () => ({ seedance: seedanceSettingsStatus() }));
 app.get("/api/providers/kie/status", async () => ({ kie: { configured: isKieEnabled(), modelCount: listDocumentedKieModels().length, discoverySource: "official-documentation" } }));
 
-app.post("/api/providers/kie/test", async (_request, reply) => {
-  try {
-    if (!isKieEnabled()) return reply.code(400).send({ ok: false, error: "KIE_API_KEY is not set" });
-    const credits = await createKieClient().getCredits();
-    return { ok: true, status: "connected", credits, modelCount: listDocumentedKieModels().length };
-  } catch (error) {
-    return reply.code(400).send({ ok: false, error: errorMessage(error) });
-  }
-});
-
 app.get("/api/providers/kie/models", async () => ({ ok: true, configured: isKieEnabled(), source: "official-documentation", modelCount: listDocumentedKieModels().length, models: listDocumentedKieModels() }));
 
-app.post("/api/providers/seedance/test", async (request, reply) => {
-  const result = validateSeedanceConfiguration();
-  if (!result.ok) return reply.code(400).send({ ok: false, error: result.error, seedance: result.status });
-  return { ok: true, status: "configured", message: "Seedance configuration has the required local settings.", seedance: result.status };
-});
-
-app.post("/api/providers/openrouter/test", async (request, reply) => {
-  try {
-    if (!isOpenRouterEnabled()) return reply.code(400).send({ ok: false, error: "OpenRouter API key is not set" });
-    const result = await createOpenRouterClient().testConnection();
-    return { ok: true, status: "connected", message: "Connected", modelCount: result.modelCount };
-  } catch (error) {
-    return reply.code(400).send({ ok: false, error: openRouterPublicError(error) });
-  }
+app.post<{ Params: { provider: string } }>("/api/providers/:provider/test", async (request, reply) => {
+  const result = await testProviderConnection(request.params.provider);
+  const details = result.details && typeof result.details === "object" && !Array.isArray(result.details)
+    ? result.details as Record<string, unknown>
+    : {};
+  const compatibility = Object.fromEntries(Object.entries(details).filter(([key]) => ["credits", "modelCount", "seedance"].includes(key)));
+  const payload = { ...result, ...compatibility, ...(result.status === "failed" ? { error: result.message } : {}) };
+  return result.status === "failed" ? reply.code(400).send(payload) : payload;
 });
 
 app.post("/api/providers/openrouter/refresh-model-catalog", async (request, reply) => {

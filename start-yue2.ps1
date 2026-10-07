@@ -7,6 +7,17 @@ function Get-Yue2Health {
   catch { return $null }
 }
 
+function Invoke-Yue2Wsl {
+  param([Parameter(Mandatory=$true)][string[]]$Arguments)
+  $output = (& wsl.exe @Arguments 2>&1 | Out-String).Trim()
+  $exit = $LASTEXITCODE
+  if ($exit -ne 0) {
+    $detail = if ($output) { "`nWSL output:`n$output" } else { '' }
+    throw "WSL command failed with exit code $exit.$detail"
+  }
+  return $output
+}
+
 $health = Get-Yue2Health
 if (-not $health) {
   $serviceWindows = Join-Path $PSScriptRoot 'integrations\yue2\service.py'
@@ -14,18 +25,29 @@ if (-not $health) {
   $drive = [IO.Path]::GetPathRoot($serviceWindows).Substring(0, 1).ToLowerInvariant()
   $serviceLinux = '/mnt/' + $drive + $serviceWindows.Substring(2).Replace('\', '/')
   $launcherLinux = '/mnt/' + $drive + $launcherWindows.Substring(2).Replace('\', '/')
-  & wsl.exe -d $cfg.wslDistro -u $cfg.linuxUser -- bash $launcherLinux $cfg.yuePath $cfg.python ([string][int]$cfg.port) $serviceLinux | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'WSL could not launch the YuE2 service.' }
+  $args = @('-d', $cfg.wslDistro, '-u', $cfg.linuxUser, '--', 'bash', $launcherLinux, $cfg.yuePath, $cfg.python, ([string][int]$cfg.port), $serviceLinux)
+  [void](Invoke-Yue2Wsl -Arguments $args)
 }
 
-$deadline = (Get-Date).AddMinutes(3)
+$deadline = (Get-Date).AddSeconds(60)
 do {
   Start-Sleep -Milliseconds 500
   $health = Get-Yue2Health
-  if ($health -and ($health.status -eq 'ready' -or $health.status -eq 'generating')) { break }
+  if ($health -and ($health.status -eq 'loading' -or $health.status -eq 'ready' -or $health.status -eq 'generating')) { break }
   if ($health -and $health.status -eq 'error') { throw ('YuE2 failed to load: ' + $health.error) }
 } while ((Get-Date) -lt $deadline)
-if (-not $health -or ($health.status -ne 'ready' -and $health.status -ne 'generating')) {
-  throw 'YuE2 did not become ready. See ~/YuE/outputs/yue2-service.log.'
+
+if (-not $health -or ($health.status -ne 'loading' -and $health.status -ne 'ready' -and $health.status -ne 'generating')) {
+  $tail = ''
+  try {
+    $logPath = ($cfg.yuePath.TrimEnd('/') + '/outputs/yue2-service.log')
+    $tailArgs = @('-d', $cfg.wslDistro, '-u', $cfg.linuxUser, '--', 'tail', '-n', '60', $logPath)
+    $tail = Invoke-Yue2Wsl -Arguments $tailArgs
+  } catch {
+    $tail = 'Could not read YuE2 service log: ' + $_.Exception.Message
+  }
+  $detail = if ($tail) { "`nLast YuE2 service log lines:`n$tail" } else { '' }
+  throw "YuE2 service did not appear within 60 seconds.$detail"
 }
+
 if (-not $NoOpen) { Start-Process $cfg.url }

@@ -3,22 +3,36 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join } from "node:path";
-import { ensurePersonaBridge } from "./persona-bridge.mjs";
+import { ensurePersonaBridge, startPersonaBridgeSupervisor } from "./persona-bridge.mjs";
+import { startLauncherControl } from "./launcher-control.mjs";
+
+try { process.loadEnvFile(join(process.cwd(), ".env")); } catch (error) { if (error.code !== "ENOENT") throw error; }
 
 await ensurePersonaBridge();
+if (process.env.PERSONA_BRIDGE_AUTO_START !== "0") startPersonaBridgeSupervisor();
 
 const apiPort = Number(process.env.API_PORT ?? 4317);
 const launcherPort = Number(process.env.LAUNCHER_PORT ?? 5172);
 const apiUrl = `http://127.0.0.1:${apiPort}/api/health`;
 const launcherUrl = `http://127.0.0.1:${launcherPort}`;
+const controlPort = Number(process.env.SNARKROUTE_LAUNCHER_CONTROL_PORT ?? 5176);
 
-if (!await portOpen(apiPort)) {
+const owner = await startLauncherControl({ apiPort, controlPort });
+if (!owner.existing) {
+  let shuttingDown = false;
+  const shutdown = () => {
+    if (shuttingDown) return; shuttingDown = true;
+    void owner.close().then(() => process.exit(0)).catch(error => { console.error(error.message); process.exitCode = 1; });
+  };
+  process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown);
+}
+if (!owner.existing && !await portOpen(apiPort)) {
   await runPackageBuild("@snarkroute/server...", { API_PORT: String(apiPort) });
-  startPackage("@snarkroute/server", "start", { API_PORT: String(apiPort) });
+  await owner.control.initialize();
 }
 if (!await portOpen(launcherPort)) {
-  await runPackageBuild("@snarkroute/launcher", { LAUNCHER_PORT: String(launcherPort), VITE_API_BASE_URL: `http://127.0.0.1:${apiPort}` });
-  startPackage("@snarkroute/launcher", "preview", { LAUNCHER_PORT: String(launcherPort), VITE_API_BASE_URL: `http://127.0.0.1:${apiPort}` }, ["--host", "127.0.0.1", "--port", String(launcherPort), "--strictPort"]);
+  await runPackageBuild("@snarkroute/launcher", { LAUNCHER_PORT: String(launcherPort), VITE_API_BASE_URL: `http://127.0.0.1:${apiPort}`, VITE_LAUNCHER_CONTROL_PORT: String(controlPort) });
+  startPackage("@snarkroute/launcher", "preview", { LAUNCHER_PORT: String(launcherPort), VITE_API_BASE_URL: `http://127.0.0.1:${apiPort}`, VITE_LAUNCHER_CONTROL_PORT: String(controlPort) }, ["--host", "127.0.0.1", "--port", String(launcherPort), "--strictPort"]);
 }
 
 const [apiReady, launcherReady] = await Promise.all([waitForUrl(apiUrl), waitForUrl(launcherUrl)]);
@@ -26,7 +40,7 @@ if (!apiReady || !launcherReady) {
   console.error("Не удалось запустить мастерскую. Проверьте, не заняты ли порты 4317 и 5172.");
   process.exitCode = 1;
 } else {
-  openUrl(launcherUrl);
+  if (!process.argv.includes("--no-browser")) openUrl(launcherUrl);
 }
 
 function startPackage(packageName, script, extraEnv, scriptArgs = []) {

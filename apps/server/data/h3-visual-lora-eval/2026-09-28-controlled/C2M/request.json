@@ -1,0 +1,17 @@
+{
+  "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+  "duration": 5,
+  "aspectRatio": "16:9",
+  "seed": 5242017,
+  "variants": 1,
+  "renderMode": "preview",
+  "modelVariant": "h3_base",
+  "inferenceSteps": 4,
+  "quality": "lossless",
+  "visualModifier": {
+    "id": "authentic_cinematic_texture",
+    "enabled": true,
+    "strength": 0.5,
+    "includeTrigger": false
+  }
+}

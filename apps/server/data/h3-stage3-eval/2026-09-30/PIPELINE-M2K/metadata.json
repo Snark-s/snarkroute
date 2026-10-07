@@ -1,0 +1,52 @@
+{
+  "id": "PIPELINE-M2K",
+  "status": "blocked",
+  "localHosted": "hybrid_requested",
+  "source": {
+    "provider": "fal",
+    "model": "fal/minimax-h3-max",
+    "jobId": "01a0e48c-d255-7df2-a10e-9fcbb4e5ac7d",
+    "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+    "sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+    "media": {
+      "durationSeconds": 5.184,
+      "sizeBytes": 4826842,
+      "video": {
+        "codec": "h264",
+        "width": 1344,
+        "height": 768,
+        "frameRate": "24/1"
+      },
+      "audio": {
+        "present": true,
+        "codec": "aac",
+        "channels": 2,
+        "channelLayout": "stereo",
+        "sampleRate": 32000,
+        "durationSeconds": 5.184
+      }
+    }
+  },
+  "requestedFinalization": {
+    "provider": "local",
+    "model": "h3_base",
+    "operation": "regenerate",
+    "resolution": "2K",
+    "worker": "matlow_int8"
+  },
+  "reason": "Current MATLOW local worker declares resample unavailable. Existing video_regeneration adapter uses the hosted MiniMax API, not a local Base Regenerate checkpoint.",
+  "acceptanceTest": "not_run_no_local_regenerate_backend",
+  "outputPath": null,
+  "media": null,
+  "timings": null,
+  "peakVramGiB": null,
+  "contentPreservation": null,
+  "motionPreservation": null,
+  "detailImprovement": null,
+  "artifacts": null,
+  "practicalCost": {
+    "hostedSourceListEstimateUsd": 0.4,
+    "localFinalizationSeconds": null,
+    "note": "Source invoice unverified; original metadata used a stale launch-promotion estimate. No new Max call."
+  }
+}

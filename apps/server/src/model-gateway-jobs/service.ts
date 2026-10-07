@@ -23,9 +23,9 @@ export const generationJobStatuses = [
 
 export type GenerationJobStatus = (typeof generationJobStatuses)[number] | "running";
 
-export type GenerationMediaKind = "image" | "video" | "audio";
+export type GenerationMediaKind = "image" | "video" | "audio" | "model";
 export type GenerationJobRequest = {
-  capability: "image.generate" | "image.edit" | "image.reference" | "image.upscale" | "video.generate" | "video.upscale";
+  capability: "image.generate" | "image.edit" | "image.reference" | "image.upscale" | "video.generate" | "video.upscale" | "model.generate" | "model.retopology" | "model.segment" | "model.texture" | "model.rig";
   nodeType: string;
   outputMediaType?: GenerationMediaKind;
   modelId: string;
@@ -33,7 +33,7 @@ export type GenerationJobRequest = {
   provider: string;
   prompt?: string;
   parameters?: Record<string, unknown>;
-  inputs?: Array<{ kind: "image" | "video" | "audio"; role?: string; index?: number; assetId: string; path: string }>;
+  inputs?: Array<{ kind: "image" | "video" | "audio" | "model"; role?: string; index?: number; assetId: string; path: string }>;
   toolId?: string;
   schemaVersion?: string;
   hostType?: "boojumroute" | "after_effects" | "photoshop" | "api";
@@ -303,7 +303,8 @@ export function generationRouteFromJob(job: GenerationJob): OpenRoute {
         ...(job.request.prompt ? { prompt: job.request.prompt } : {}),
         images: normalizedRouteInputs(job.request.inputs, "image"),
         audios: normalizedRouteInputs(job.request.inputs, "audio"),
-        videos: normalizedRouteInputs(job.request.inputs, "video")
+        videos: normalizedRouteInputs(job.request.inputs, "video"),
+        models: normalizedRouteInputs(job.request.inputs, "model")
       }
     }],
     edges: []
@@ -316,6 +317,11 @@ function validateRequest(request: GenerationJobRequest): void {
     "polza.video.generate": { media: "video", capabilities: ["video.generate"] },
     "polza.image.generate": { media: "image", capabilities: ["image.generate", "image.edit", "image.reference"] },
     "ai.image.generate": { media: "image", capabilities: ["image.generate", "image.edit", "image.reference"] },
+    "ai.3d.generate": { media: "model", capabilities: ["model.generate"] },
+    "ai.model.retopology": { media: "model", capabilities: ["model.retopology"] },
+    "ai.model.segment": { media: "model", capabilities: ["model.segment"] },
+    "ai.model.texture": { media: "model", capabilities: ["model.texture"] },
+    "ai.model.rig": { media: "model", capabilities: ["model.rig"] },
     "replicate.clarity-upscaler": { media: "image", capabilities: ["image.upscale"] },
     "local_upscale": { media: "image", capabilities: ["image.upscale"] },
     "local_video_upscale": { media: "video", capabilities: ["video.upscale"] }
@@ -395,8 +401,19 @@ function resultsFromRun(run: RunResult, job: GenerationJob): { result: NonNullab
   }, outputs };
 }
 
-function defaultMimeType(kind: GenerationMediaKind): string { return kind === "image" ? "image/png" : kind === "video" ? "video/mp4" : "audio/mpeg"; }
-function requestMediaKind(request: GenerationJobRequest): GenerationMediaKind { return request.outputMediaType ?? (request.capability.startsWith("image.") ? "image" : request.capability.startsWith("audio.") ? "audio" : "video"); }
+function defaultMimeType(kind: GenerationMediaKind): string {
+  return kind === "image" ? "image/png"
+    : kind === "video" ? "video/mp4"
+    : kind === "model" ? "model/gltf-binary"
+    : "audio/mpeg";
+}
+function requestMediaKind(request: GenerationJobRequest): GenerationMediaKind {
+  return request.outputMediaType
+    ?? (request.capability.startsWith("image.") ? "image"
+      : request.capability.startsWith("audio.") ? "audio"
+      : request.capability.startsWith("model.") ? "model"
+      : "video");
+}
 function optionalNumber(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
 
 function publicJob(job: GenerationJob): GenerationJob {

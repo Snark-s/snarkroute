@@ -6,11 +6,19 @@ const WORLDS_API_BASE = "https://api.worldlabs.ai/marble/v1";
 const MARBLE_PANORAMA_WIDTH = 3000;
 const MARBLE_PANORAMA_HEIGHT = 1500;
 
-export type MarbleModel = "marble-1.0-draft" | "marble-1.0" | "marble-1.1" | "marble-1.1-plus";
+export const WORLD_LABS_MARBLE_MODELS = [
+  "marble-1.0-draft",
+  "marble-1.0",
+  "marble-1.1",
+  "marble-1.1-plus"
+] as const;
+
+export type MarbleModel = (typeof WORLD_LABS_MARBLE_MODELS)[number];
 
 export interface GenerateMarbleWorldInput {
   imageUrl?: string;
   imagePath?: string;
+  textPrompt?: string;
   isPano?: boolean;
   model?: MarbleModel | string;
   displayName?: string;
@@ -26,19 +34,31 @@ export function worldLabsApiKey(): string {
 export async function generateMarbleWorld(input: GenerateMarbleWorldInput) {
   const apiKey = worldLabsApiKey();
   const model = normalizeMarbleModel(input.model);
-  const imagePrompt = input.imagePath
-    ? await uploadLocalImageAsMediaAsset(input.imagePath, apiKey)
-    : await uploadImageUrlAsMediaAsset(requiredString(input.imageUrl, "Generate Marble world requires imageUrl or imagePath."), apiKey);
-
-  const payload = {
-    display_name: input.displayName?.trim() || "SnarkRoute camera point draft",
-    model,
-    world_prompt: {
+  const textPrompt = input.textPrompt?.trim() || "";
+  let worldPrompt: Record<string, unknown>;
+  if (input.imagePath || input.imageUrl) {
+    const imagePrompt = input.imagePath
+      ? await uploadLocalImageAsMediaAsset(input.imagePath, apiKey)
+      : await uploadImageUrlAsMediaAsset(requiredString(input.imageUrl, "imageUrl is required."), apiKey);
+    worldPrompt = {
       type: "image",
       image_prompt: imagePrompt,
       is_pano: input.isPano !== false,
-      text_prompt: "Reconstruct a navigable draft world from this 360 equirectangular panorama."
-    },
+      text_prompt: textPrompt || "Reconstruct a navigable world from this image."
+    };
+  } else if (textPrompt) {
+    worldPrompt = {
+      type: "text",
+      text_prompt: textPrompt
+    };
+  } else {
+    throw new Error("Generate Marble world requires textPrompt, imageUrl, or imagePath.");
+  }
+
+  const payload = {
+    display_name: input.displayName?.trim() || "SnarkRoute generated world",
+    model,
+    world_prompt: worldPrompt,
     permission: {
       allow_id_access: false,
       allowed_readers: [],
@@ -74,7 +94,7 @@ export async function getMarbleWorld(worldId: string) {
 
 function normalizeMarbleModel(model: unknown): MarbleModel {
   const value = String(model ?? "marble-1.0-draft");
-  if (["marble-1.0-draft", "marble-1.0", "marble-1.1", "marble-1.1-plus"].includes(value)) return value as MarbleModel;
+  if ((WORLD_LABS_MARBLE_MODELS as readonly string[]).includes(value)) return value as MarbleModel;
   return "marble-1.0-draft";
 }
 

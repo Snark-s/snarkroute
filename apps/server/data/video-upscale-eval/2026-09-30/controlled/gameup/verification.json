@@ -1,0 +1,15 @@
+{
+  "status": "BLOCKED",
+  "error": "Blocked by current GPU usage. Current GPU: NVIDIA GeForce RTX 3080 Laptop GPU; Used: 11716 MiB; Free: 4460 MiB; Required safety threshold: 8192 MiB",
+  "shutdown": null,
+  "audio": null,
+  "native_metadata": null,
+  "normalized_metadata": null,
+  "owned_process_exit_verified": null,
+  "final_port_state": {
+    "open": false,
+    "scope": "No owned session started; precheck only"
+  },
+  "gpu_approximately_returned": null,
+  "final_cleanup_snapshot": null
+}

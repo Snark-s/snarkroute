@@ -1,10 +1,10 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { extname, join } from "node:path";
-import { ModelGateway, type ModelInvokeResult, type ProviderAdapter } from "@snarkroute/core";
+import { basename, extname, join } from "node:path";
+import { failedProviderConnection, ModelGateway, verifiedProviderConnection, type ModelInvokeResult, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 const API_BASE = "https://api.replicate.com/v1";
-const LOCAL_FILE_DATA_URI_LIMIT_BYTES = 10 * 1024 * 1024;
+const LOCAL_FILE_DATA_URI_LIMIT_BYTES = 256 * 1024;
 const CLARITY_MODEL = "philz1337x/clarity-upscaler";
 const MISSING_TOKEN_MESSAGE = "REPLICATE_API_TOKEN is not configured.\nOpen Settings \u2192 Secrets \u2192 Replicate and paste your token.";
 
@@ -17,6 +17,8 @@ export interface ReplicateClientOptions {
 export interface RunPredictionOptions {
   pollingIntervalMs?: number;
   timeoutMs?: number;
+  signal?: AbortSignal;
+  onStatus?: (prediction: { id: string; status: string }) => void | Promise<void>;
 }
 
 export interface ReplicatePredictionResult {
@@ -41,6 +43,17 @@ export interface DownloadedImageAsset {
   predictionId: string;
 }
 
+export interface DownloadedModelAsset {
+  originalUrl: string;
+  localPath: string;
+  path: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  sourceNodeId: string;
+  predictionId: string;
+}
+
 export function createReplicateClient(options: ReplicateClientOptions = {}) {
   const fetcher = options.fetchImpl ?? fetch;
 
@@ -52,7 +65,7 @@ export function createReplicateClient(options: ReplicateClientOptions = {}) {
       response = await fetcher(`${API_BASE}${path}`, {
         ...init,
         headers: {
-          Authorization: `Token ${token.trim()}`,
+          Authorization: `Bearer ${token.trim()}`,
           "Content-Type": "application/json",
           ...(init.headers ?? {})
         }
@@ -69,6 +82,13 @@ export function createReplicateClient(options: ReplicateClientOptions = {}) {
   }
 
   return {
+    async testConnection(): Promise<{ ok: true }> {
+      const account = await request("/account", { signal: AbortSignal.timeout(10_000) });
+      if (!account || typeof account !== "object" || typeof (account as Record<string, unknown>).username !== "string") {
+        throw new Error("Replicate returned a malformed account response.");
+      }
+      return { ok: true };
+    },
     async getModelSchema(model: string) {
       const [owner, name] = parseModel(model);
       return request(`/models/${owner}/${name}`);
@@ -90,8 +110,44 @@ export function createReplicateClient(options: ReplicateClientOptions = {}) {
       return version;
     },
 
+    async uploadFile(path: string) {
+      const token = options.token ?? process.env.REPLICATE_API_TOKEN;
+      if (!token?.trim()) throw new Error(MISSING_TOKEN_MESSAGE);
+      const buffer = await readFile(path);
+      const mimeType = mimeFromPath(path);
+      const form = new FormData();
+      form.append("content", new Blob([buffer], { type: mimeType }), basename(path));
+      form.append("filename", basename(path));
+      form.append("type", mimeType);
+      form.append("metadata", JSON.stringify({ source: "snarkroute" }));
+      let response: Response;
+      try {
+        response = await fetcher(`${API_BASE}/files`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token.trim()}` },
+          body: form
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Replicate file upload failed: ${message}.`);
+      }
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Replicate file upload failed (${response.status}): ${body}`);
+      }
+      const file = await response.json() as Record<string, unknown>;
+      const urls = file.urls && typeof file.urls === "object" ? file.urls as Record<string, unknown> : {};
+      const url = typeof urls.get === "string" ? urls.get : undefined;
+      if (!url) throw new Error("Replicate file upload returned no file URL.");
+      return url;
+    },
+
     async getPrediction(predictionId: string) {
       return request(`/predictions/${predictionId}`);
+    },
+
+    async cancelPrediction(predictionId: string) {
+      return request(`/predictions/${predictionId}/cancel`, { method: "POST" });
     },
 
     async runPrediction(model: string, input: object, runOptions: RunPredictionOptions = {}): Promise<ReplicatePredictionResult> {
@@ -100,13 +156,24 @@ export function createReplicateClient(options: ReplicateClientOptions = {}) {
       const started = Date.now();
       const created = await this.createPrediction(model, input);
       let prediction = created;
+      await runOptions.onStatus?.({ id: String(prediction.id ?? ""), status: String(prediction.status ?? "starting") });
 
       while (!["succeeded", "failed", "canceled"].includes(prediction.status)) {
+        if (runOptions.signal?.aborted) {
+          if (prediction.id) {
+            try { await this.cancelPrediction(prediction.id); } catch {}
+          }
+          throw new Error(`Replicate prediction cancelled${prediction.id ? ` (predictionId: ${prediction.id})` : ""}`);
+        }
         if (Date.now() - started > timeoutMs) {
+          if (prediction.id) {
+            try { await this.cancelPrediction(prediction.id); } catch {}
+          }
           throw new Error(`Replicate prediction timed out for model "${model}" after ${timeoutMs}ms${prediction.id ? ` (predictionId: ${prediction.id})` : ""}`);
         }
         await delay(pollingIntervalMs);
         prediction = await this.getPrediction(prediction.id);
+        await runOptions.onStatus?.({ id: String(prediction.id ?? ""), status: String(prediction.status ?? "processing") });
       }
 
       return {
@@ -160,12 +227,105 @@ export function createReplicateNodeRunner(options: ReplicateClientOptions = {}):
   };
 }
 
+export function createReplicate3DNodeRunner(options: ReplicateClientOptions = {}): NodeRunner {
+  return async ({ node, params, context }) => {
+    const client = createReplicateClient(options);
+    const model = String(params.providerModelId ?? params.model ?? "tencent/hunyuan-3d-3.1").trim();
+    if (!model) throw new Error("ai.3d.generate requires a Replicate model id.");
+
+    const prompt = typeof params.prompt === "string" ? params.prompt.trim() : "";
+    const images = Array.isArray(params.images) ? params.images : [];
+    const firstImage = images[0];
+    const input: Record<string, unknown> = {};
+    const isTrellis = /(?:^|\/)trellis(?:$|[-_.])/i.test(model) || /firtoz\/trellis/i.test(model);
+
+    if (isTrellis) {
+      if (!firstImage) throw new Error("TRELLIS 3D generation requires an image input.");
+      const prepared = await prepareImageValue(firstImage, client);
+      input.images = [prepared];
+      input.generate_model = true;
+      input.generate_color = false;
+      input.generate_normal = Boolean(params.generate_normal ?? params.generateNormal ?? false);
+      input.save_gaussian_ply = Boolean(params.save_gaussian_ply ?? params.saveGaussianPly ?? false);
+      input.return_no_background = false;
+      const textureSize = Number(params.texture_size ?? params.textureSize ?? 1024);
+      input.texture_size = Math.max(512, Math.min(2048, Math.round(Number.isFinite(textureSize) ? textureSize : 1024)));
+      const simplify = Number(params.mesh_simplify ?? params.meshSimplify ?? 0.95);
+      input.mesh_simplify = Math.max(0.9, Math.min(0.98, Number.isFinite(simplify) ? simplify : 0.95));
+    } else {
+      if (firstImage) input.image = await prepareImageValue(firstImage, client);
+      else if (prompt) input.prompt = prompt;
+      else throw new Error("3D generation requires either a prompt or one image.");
+
+      if (firstImage && prompt) {
+        // Hunyuan 3D 3.1 accepts either prompt OR image. The image is the
+        // stronger geometric constraint, so keep it and omit prompt.
+      }
+
+      const faceCount = Number(params.face_count ?? params.faceCount ?? 500000);
+      if (Number.isFinite(faceCount)) input.face_count = Math.max(40000, Math.min(1500000, Math.round(faceCount)));
+      input.enable_pbr = Boolean(params.enable_pbr ?? params.enablePbr ?? true);
+      input.generate_type = String(params.generate_type ?? params.generateType ?? "Normal");
+    }
+
+    const result = await client.runPrediction(model, input, {
+      pollingIntervalMs: Number(params.pollingIntervalMs ?? 1000),
+      timeoutMs: Number(params.timeoutMs ?? 900000),
+      signal: context.signal,
+      onStatus: async (prediction) => {
+        const progress = prediction.status === "succeeded" ? 1
+          : prediction.status === "processing" ? 0.55
+          : prediction.status === "starting" ? 0.1
+          : 0.2;
+        await context.reportProgress?.(progress, prediction.id ? `provider_job:${prediction.id}` : prediction.status);
+      }
+    });
+    if (result.status !== "succeeded") {
+      throw new Error(`Replicate 3D prediction ${result.status}: ${result.error ?? "unknown error"}`);
+    }
+
+    const originalUrl = firstModelUrl(result.output);
+    if (!originalUrl) throw new Error("Replicate 3D generation succeeded but returned no downloadable model URL.");
+    const modelAsset = await downloadPredictionModel(originalUrl, {
+      outputDirectory: context.outputDirectory,
+      sourceNodeId: node.id,
+      predictionId: result.predictionId,
+      fetchImpl: options.fetchImpl
+    });
+    const cost = estimateReplicateCost(result.metrics, params.estimated_usd_per_second);
+    return {
+      output: {
+        model: modelAsset,
+        models: [modelAsset],
+        predictionId: result.predictionId,
+        status: result.status,
+        metrics: result.metrics,
+        cost,
+        provider: "replicate",
+        providerModelId: model
+      },
+      logs: [`Downloaded Replicate 3D output to ${modelAsset.localPath}`],
+      metrics: result.metrics,
+      provenance: { provider: "replicate", model },
+      providerUsage: replicateProviderUsage(result, node.id, node.type)
+    };
+  };
+}
+
 export function createReplicateProviderAdapter(options: ReplicateClientOptions = {}): ProviderAdapter {
   const client = createReplicateClient(options);
   return {
     id: "replicate",
     title: "Replicate",
     capabilities: ["image.generate", "image.upscale"],
+    async testConnection() {
+      try {
+        await client.testConnection();
+        return verifiedProviderConnection("Replicate credentials verified.");
+      } catch (error) {
+        return failedProviderConnection("Replicate", error);
+      }
+    },
     async invoke(request) {
       const input = asObject(request.input);
       const result = await client.runPrediction(request.model.id, input, {
@@ -341,15 +501,17 @@ export async function prepareReplicateInputs(input: unknown): Promise<unknown> {
   return input;
 }
 
-export async function prepareImageValue(value: unknown): Promise<string> {
+type ReplicateFileUploader = { uploadFile(path: string): Promise<string> };
+
+export async function prepareImageValue(value: unknown, uploader?: ReplicateFileUploader): Promise<string> {
   if (typeof value === "string") {
     if (/^https?:\/\//i.test(value) || value.startsWith("data:")) return value;
-    return localFileToDataUri(value);
+    return localFileToReplicateInput(value, uploader);
   }
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
     const candidate = record.localPath ?? record.path ?? record.url ?? record.originalUrl;
-    if (typeof candidate === "string") return prepareImageValue(candidate);
+    if (typeof candidate === "string") return prepareImageValue(candidate, uploader);
   }
   throw new Error("Expected image input to be an image object, local path string, data URI, or remote URL.");
 }
@@ -388,6 +550,43 @@ export async function downloadPredictionImage(
   return metadata;
 }
 
+export async function downloadPredictionModel(
+  url: string,
+  options: { outputDirectory: string; sourceNodeId: string; predictionId: string; fetchImpl?: typeof fetch }
+): Promise<DownloadedModelAsset> {
+  const fetcher = options.fetchImpl ?? fetch;
+  let response: Response;
+  try {
+    response = await fetcher(url);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not download Replicate 3D output from ${url}: ${message}.`);
+  }
+  if (!response.ok) throw new Error(`Could not download Replicate 3D output (${response.status}).`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const contentType = response.headers.get("content-type")?.split(";")[0]?.trim() || "model/gltf-binary";
+  const urlPath = new URL(url).pathname;
+  const rawExt = extname(urlPath).toLowerCase();
+  const ext = rawExt === ".glb" || rawExt === ".gltf" ? rawExt : ".glb";
+  const assetsDirectory = join(options.outputDirectory, "assets");
+  await mkdir(assetsDirectory, { recursive: true });
+  const filename = `${options.sourceNodeId}-${options.predictionId}${ext}`;
+  const localPath = join(assetsDirectory, filename);
+  await writeFile(localPath, buffer);
+  const metadata: DownloadedModelAsset = {
+    originalUrl: url,
+    localPath,
+    path: localPath,
+    filename,
+    mimeType: contentType === "application/octet-stream" ? "model/gltf-binary" : contentType,
+    sizeBytes: buffer.byteLength,
+    sourceNodeId: options.sourceNodeId,
+    predictionId: options.predictionId
+  };
+  await writeFile(join(assetsDirectory, `${filename}.json`), JSON.stringify(metadata, null, 2), "utf8");
+  return metadata;
+}
+
 function parseModel(model: string): [string, string] {
   const [owner, name] = model.split("/");
   if (!owner || !name) throw new Error(`Invalid Replicate model "${model}". Expected owner/name.`);
@@ -406,10 +605,13 @@ function replicateRequestLabel(path: string): string {
   return "calling Replicate";
 }
 
-async function localFileToDataUri(path: string): Promise<string> {
+async function localFileToReplicateInput(path: string, uploader?: ReplicateFileUploader): Promise<string> {
   const buffer = await readFile(path);
   if (buffer.byteLength > LOCAL_FILE_DATA_URI_LIMIT_BYTES) {
-    throw new Error(`Local image is too large for data URI upload (${buffer.byteLength} bytes). Limit is ${LOCAL_FILE_DATA_URI_LIMIT_BYTES} bytes.`);
+    if (!uploader) {
+      throw new Error(`Local image is too large for data URI upload (${buffer.byteLength} bytes). No Replicate file uploader is available.`);
+    }
+    return uploader.uploadFile(path);
   }
   return `data:${mimeFromPath(path)};base64,${buffer.toString("base64")}`;
 }
@@ -441,6 +643,28 @@ function firstImageUrl(output: unknown): string | undefined {
     const record = output as Record<string, unknown>;
     for (const key of ["image", "url", "output"]) {
       const url = firstImageUrl(record[key]);
+      if (url) return url;
+    }
+  }
+  return undefined;
+}
+
+function firstModelUrl(output: unknown): string | undefined {
+  if (typeof output === "string") {
+    return /\.glb(?:$|[?#])/i.test(output) || /\.gltf(?:$|[?#])/i.test(output) ? output : undefined;
+  }
+  if (Array.isArray(output)) {
+    for (const item of output) {
+      const url=firstModelUrl(item);
+      if (url) return url;
+    }
+    return undefined;
+  }
+  if (output && typeof output === "object") {
+    const record=output as Record<string, unknown>;
+    // Provider-specific model fields first. TRELLIS returns model_file.
+    for (const key of ["model_file","modelFile","glb","gltf","model","url","output"]) {
+      const url=firstModelUrl(record[key]);
       if (url) return url;
     }
   }

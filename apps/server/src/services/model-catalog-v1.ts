@@ -54,6 +54,7 @@ export type RawProviderModelV1 = Record<string, unknown> & {
 };
 
 export type AssembleModelCatalogV1Input = {
+  localOpenAiModels?: ProviderModelInfoV1[];
   experientialModels?: RawProviderModelV1[];
   rutronixModels?: RawProviderModelV1[];
   polzaModels?: RawProviderModelV1[];
@@ -74,6 +75,7 @@ const textOnlyProviderModelIds = new Set([
 
 export function assembleModelCatalogV1(input: AssembleModelCatalogV1Input): ModelCatalogEntryV1[] {
   return assembleProviderModelsV1(mergeProviderModelDefaultsV1([
+    ...(input.localOpenAiModels ?? []),
     ...(input.experientialModels ?? []).flatMap((model) => normalizeRawProviderModel("experiential", { ...model, type: "chat", inputTypes: ["text"], outputTypes: ["text"], capabilities: ["text.generate"] })),
     ...normalizeRuTronixModelsForCatalogV1(input.rutronixModels ?? []),
     ...normalizePolzaModelsForCatalogV1(input.polzaModels ?? []),
@@ -275,6 +277,154 @@ export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
       metadata: { fallback: "polza-default-video-model", providerEndpoint: "media" }
     }),
     normalizeProviderModelToV1Input({
+      provider: "replicate",
+      providerModelId: "tencent/hunyuan-3d-3.1",
+      canonicalModelId: "tencent/hunyuan-3d-3.1",
+      displayName: "Tencent Hunyuan 3D 3.1",
+      inputTypes: ["text", "image"],
+      outputTypes: ["model"],
+      capabilities: ["model.generate"],
+      roles: ["generator"],
+      availability: {
+        status: process.env.REPLICATE_API_TOKEN?.trim() ? "available" : "unavailable",
+        source: "fallback",
+        configured: Boolean(process.env.REPLICATE_API_TOKEN?.trim()),
+        reason: process.env.REPLICATE_API_TOKEN?.trim() ? undefined : "REPLICATE_API_TOKEN is not configured."
+      },
+      metadata: {
+        fallback: "replicate-hunyuan-3d",
+        family: "hunyuan-3d",
+        providerEndpoint: "predictions",
+        outputFormat: "glb",
+        providerParameterDefinitions: [
+          { id: "face_count", label: "Face count", type: "number", default: 40000, min: 1000, max: 150000, step: 1000 },
+          { id: "enable_pbr", label: "PBR materials", type: "boolean", default: true },
+          { id: "generate_type", label: "Generate type", type: "select", default: "Normal", options: [{ value: "Normal" }] }
+        ]
+      }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "replicate",
+      providerModelId: "firtoz/trellis",
+      canonicalModelId: "firtoz/trellis",
+      displayName: "TRELLIS",
+      inputTypes: ["image"],
+      outputTypes: ["model"],
+      capabilities: ["model.generate"],
+      roles: ["generator"],
+      availability: {
+        status: process.env.REPLICATE_API_TOKEN?.trim() ? "available" : "unavailable",
+        source: "fallback",
+        configured: Boolean(process.env.REPLICATE_API_TOKEN?.trim()),
+        reason: process.env.REPLICATE_API_TOKEN?.trim() ? undefined : "REPLICATE_API_TOKEN is not configured."
+      },
+      metadata: {
+        fallback: "replicate-trellis-3d",
+        family: "trellis",
+        providerEndpoint: "predictions",
+        outputFormat: "glb",
+        maxImageInputs: 1,
+        providerParameterDefinitions: [
+          { id: "texture_size", label: "Texture size", type: "number", default: 1024, min: 512, max: 2048, step: 256 },
+          { id: "mesh_simplify", label: "Mesh simplify", type: "number", default: 0.95, min: 0.9, max: 0.98, step: 0.01 },
+          { id: "generate_normal", label: "Generate normal", type: "boolean", default: false },
+          { id: "save_gaussian_ply", label: "Save Gaussian PLY", type: "boolean", default: false }
+        ]
+      }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "tripo",
+      providerModelId: "retopology-v2",
+      canonicalModelId: "tripo/retopology-v2",
+      displayName: "Tripo Retopology v2",
+      inputTypes: ["file"],
+      outputTypes: ["model"],
+      capabilities: ["model.retopology"],
+      roles: ["editor"],
+      availability: {
+        status: (process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()) ? "available" : "unavailable",
+        source: "fallback",
+        configured: Boolean(process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()),
+        reason: (process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()) ? undefined : "TRIPO_API_KEY is not configured."
+      },
+      metadata: {
+        fallback: "tripo-retopology-v2",
+        providerEndpoint: "/mesh/decimate",
+        outputFormat: "glb",
+        providerParameterDefinitions: [
+          { id: "face_limit", label: "Face limit", type: "number", default: 10000, min: 500, max: 20000, step: 500 },
+          { id: "quad", label: "Quads", type: "boolean", default: false },
+          { id: "bake", label: "Bake textures", type: "boolean", default: true }
+        ]
+      }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "tripo",
+      providerModelId: "segment-v2",
+      canonicalModelId: "tripo/segment-v2",
+      displayName: "Tripo Mesh Segment v2",
+      inputTypes: ["file"],
+      outputTypes: ["model"],
+      capabilities: ["model.segment"],
+      roles: ["editor"],
+      availability: {
+        status: (process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()) ? "available" : "unavailable",
+        source: "fallback",
+        configured: Boolean(process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()),
+        reason: (process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()) ? undefined : "TRIPO_API_KEY is not configured."
+      },
+      metadata: {
+        fallback: "tripo-segment-v2",
+        providerEndpoint: "/mesh/segment",
+        outputFormat: "glb",
+        providerParameterDefinitions: [
+          { id: "segmentation_granularity", label: "Granularity", type: "select", default: "balanced", options: [{ value: "coarse" }, { value: "balanced" }, { value: "fine" }] }
+        ]
+      }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "tripo",
+      providerModelId: "texture-v3",
+      canonicalModelId: "tripo/texture-v3",
+      displayName: "Tripo Texture v3",
+      inputTypes: ["file", "text", "image"],
+      outputTypes: ["model"],
+      capabilities: ["model.texture"],
+      roles: ["editor"],
+      availability: {
+        status: (process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()) ? "available" : "unavailable",
+        source: "fallback",
+        configured: Boolean(process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()),
+        reason: (process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()) ? undefined : "TRIPO_API_KEY is not configured."
+      },
+      metadata: { fallback: "tripo-texture-v3", providerEndpoint: "/models/texture", outputFormat: "glb" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "tripo",
+      providerModelId: "rig-v2.5",
+      canonicalModelId: "tripo/rig-v2.5",
+      displayName: "Tripo Auto Rig",
+      inputTypes: ["file"],
+      outputTypes: ["model"],
+      capabilities: ["model.rig"],
+      roles: ["editor"],
+      availability: {
+        status: (process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()) ? "available" : "unavailable",
+        source: "fallback",
+        configured: Boolean(process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()),
+        reason: (process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim()) ? undefined : "TRIPO_API_KEY is not configured."
+      },
+      metadata: {
+        fallback: "tripo-rig",
+        providerEndpoint: "/animations/rig",
+        outputFormat: "glb",
+        providerParameterDefinitions: [
+          { id: "rig_type", label: "Rig type", type: "select", default: "biped", options: [{ value: "biped" }, { value: "quadruped" }, { value: "hexapod" }, { value: "octopod" }, { value: "avian" }, { value: "serpentine" }, { value: "aquatic" }] },
+          { id: "spec", label: "Skeleton", type: "select", default: "tripo", options: [{ value: "tripo" }, { value: "mixamo" }] }
+        ]
+      }
+    }),
+    normalizeProviderModelToV1Input({
       provider: "polza",
       providerModelId: "suno/generate",
       displayName: "Suno Music Generate",
@@ -344,8 +494,28 @@ export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
 }
 
 export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEntryV1[], suppliedInputs?: SuppliedModelInputsV1): ModelOptionForNodeV1[] {
-  const options = catalog
-    .filter((entry) => isModelCompatibleWithNodeV1(nodeType, entry) && (!suppliedInputs || modelRunnableWithSuppliedInputsV1(entry, suppliedInputs)))
+  return projectModelOptionsForNodeV1(
+    nodeType,
+    catalog.filter((entry) => isModelCompatibleWithNodeV1(nodeType, entry)),
+    suppliedInputs
+  );
+}
+
+/** Keeps explicitly configured local routes visible for setup and diagnostics
+ * without making them candidates for semantic/automatic selection. */
+export function configuredUnavailableModelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEntryV1[], suppliedInputs?: SuppliedModelInputsV1): ModelOptionForNodeV1[] {
+  return projectModelOptionsForNodeV1(
+    nodeType,
+    catalog.filter((entry) => entry.availability.status === "unavailable"
+      && entry.availability.configured === true
+      && isModelStructurallyCompatibleWithNodeV1(nodeType, entry)),
+    suppliedInputs
+  );
+}
+
+function projectModelOptionsForNodeV1(nodeType: string, entries: ModelCatalogEntryV1[], suppliedInputs?: SuppliedModelInputsV1): ModelOptionForNodeV1[] {
+  const options = entries
+    .filter((entry) => !suppliedInputs || modelRunnableWithSuppliedInputsV1(entry, suppliedInputs))
     .map((entry) => ({
       ...toModelOptionForNodeV1(nodeType, entry),
       inputContract: entry.ioContract,
@@ -362,6 +532,10 @@ export function modelOptionsForNodeV1(nodeType: string, catalog: ModelCatalogEnt
 
 export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalogEntryV1): boolean {
   if (entry.availability.status !== "available") return false;
+  return isModelStructurallyCompatibleWithNodeV1(nodeType, entry);
+}
+
+function isModelStructurallyCompatibleWithNodeV1(nodeType: string, entry: ModelCatalogEntryV1): boolean {
   if (nodeType === "polza.image.generate") {
     return entry.provider === "polza"
       && hasOutputType(entry, "image")
@@ -384,8 +558,33 @@ export function isModelCompatibleWithNodeV1(nodeType: string, entry: ModelCatalo
       && hasOutputType(entry, "video")
       && !isUpscaleOnlyModel(entry, "video");
   }
+  if (nodeType === "ai.3d.generate") {
+    return entry.provider === "replicate"
+      && hasOutputType(entry, "model")
+      && entry.capabilities.includes("model.generate");
+  }
+  if (nodeType === "ai.model.retopology") {
+    return entry.provider === "tripo"
+      && hasOutputType(entry, "model")
+      && entry.capabilities.includes("model.retopology");
+  }
+  if (nodeType === "ai.model.segment") {
+    return entry.provider === "tripo"
+      && hasOutputType(entry, "model")
+      && entry.capabilities.includes("model.segment");
+  }
+  if (nodeType === "ai.model.texture") {
+    return entry.provider === "tripo"
+      && hasOutputType(entry, "model")
+      && entry.capabilities.includes("model.texture");
+  }
+  if (nodeType === "ai.model.rig") {
+    return entry.provider === "tripo"
+      && hasOutputType(entry, "model")
+      && entry.capabilities.includes("model.rig");
+  }
   if (nodeType === "ai.text") {
-    return (entry.provider === "experiential" || entry.provider === "openrouter" || entry.provider === "rutronix" || entry.provider === "kie" || entry.provider === "polza" || entry.provider === "gemini") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
+    return (entry.provider === "experiential" || entry.provider === "local_openai" || entry.provider === "openrouter" || entry.provider === "rutronix" || entry.provider === "kie" || entry.provider === "polza" || entry.provider === "gemini") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
   }
   if (nodeType === "ai.audio.generate") {
     return hasOutputType(entry, "audio") && !entry.roles.includes("upscaler");

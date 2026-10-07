@@ -1,0 +1,53 @@
+{
+  "status": "succeeded",
+  "id": "MAX-MR1",
+  "purpose": "two-image semantic appearance sanity",
+  "startedAt": "2026-09-27T20:27:47.047Z",
+  "completedAt": "2026-09-27T20:27:58.549Z",
+  "requestId": "01a0e48d-67c4-7c33-86d5-6c24ba7fe309",
+  "endpoint": "minimax/h3-max/reference-to-video",
+  "provider": "fal",
+  "model": "fal/minimax-h3-max",
+  "upstream": "MiniMaxAI/MiniMax-H3",
+  "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-MR1\\output.mp4",
+  "expandedPrompt": null,
+  "seed": 5242017,
+  "providerTimings": {
+    "inference": 3.4056147299706936
+  },
+  "latencyMs": {
+    "acceptedMs": 699,
+    "generationMs": 7410,
+    "totalMs": 8109,
+    "download": 3001,
+    "totalWithDownload": 11110
+  },
+  "cost": {
+    "amountUsd": 0.4,
+    "rateUsdPerSecond": 0.08,
+    "currency": "USD",
+    "confidence": "exact-output-only",
+    "promotion": null,
+    "excludesReferenceTokenCharges": true,
+    "source": "https://fal.ai/models/minimax/h3-max/reference-to-video",
+    "referenceInputChargeUsd": 0
+  },
+  "media": {
+    "durationSeconds": 5.184,
+    "sizeBytes": 4778031,
+    "video": {
+      "codec": "h264",
+      "width": 1344,
+      "height": 768,
+      "frameRate": "24/1"
+    },
+    "audio": {
+      "present": true,
+      "codec": "aac",
+      "channels": 2,
+      "channelLayout": "stereo",
+      "sampleRate": 32000,
+      "durationSeconds": 5.184
+    }
+  }
+}

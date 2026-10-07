@@ -1,0 +1,16 @@
+{
+  "normalized": {
+    "requestId": "01a0e901-df3c-70c0-a484-c65e116c240b",
+    "endpoint": "minimax/h3-max-turbo/text-to-video",
+    "video": {
+      "url": "[provider URL omitted from report]",
+      "content_type": "video/mp4",
+      "file_name": "SkLcdIAWIonKeLoTq5LG0_minimax-h3.mp4",
+      "file_size": 3390372
+    },
+    "expandedPrompt": null,
+    "timings": {
+      "inference": 1.4046351360157132
+    }
+  }
+}

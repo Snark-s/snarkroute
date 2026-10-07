@@ -7,6 +7,7 @@ from typing import Any
 
 from app.errors import WorkerError
 from app.registry import ModelRegistry, ModelResource
+from app.video_production import model_labels
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,7 @@ class VideoUpscaleModel:
         weights = self.weights_path(model_dir)
         image_weights = image_model_dir / self.resource.filename if self.framewise_model_id and self.resource else None
         return {
+            **model_labels(self.id),
             "id": self.id,
             "display_name": self.display_name,
             "architecture": self.architecture,

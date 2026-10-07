@@ -44,12 +44,57 @@ def test_reference_inputs_keep_image_and_video_order(monkeypatch, tmp_path):
     video.write_bytes(b"video")
     monkeypatch.setattr("app.backends.matlow_runtime._load_image", lambda *_: "image tensor")
     monkeypatch.setattr("app.backends.matlow_runtime._load_reference_video", lambda *args: ("video tensor", args[-2], args[-1]))
-    refs, size = _reference_inputs([
+    refs, size, diagnostics = _reference_inputs([
         {"type": "video", "uri": video.as_uri(), "start_time_seconds": 2, "visual_mode": "motion"},
-        {"type": "image", "uri": image.as_uri()},
+        {"type": "image", "uri": image.as_uri(), "purpose": "appearance"},
     ], None)
     assert refs == {"ref_images": {"ref_image_1": "image tensor"}, "ref_videos": {"ref_video_1": ("video tensor", 2, "motion")}}
     assert size == 10
+    assert diagnostics == {
+        "counts": {"image": 1, "video": 1, "audio": 0},
+        "encoder": "MiniMaxH3ReferenceToVideo",
+        "conditioning_slot": "minimax_refs",
+        "model_mode": "ref2va",
+        "reference_weights": None,
+        "references": [
+            {
+                "source_id": "video.mp4",
+                "tag": "Video 1",
+                "kind": "video",
+                "purpose": None,
+                "visual_mode": "motion",
+                "preprocessed_shape": None,
+            },
+            {
+                "source_id": "image.png",
+                "tag": "Picture 1",
+                "kind": "image",
+                "purpose": "appearance",
+                "visual_mode": None,
+                "preprocessed_shape": None,
+            },
+        ],
+    }
+
+
+def test_reference_diagnostics_record_tensor_shapes_without_values(monkeypatch, tmp_path):
+    image = tmp_path / "face.png"
+    video = tmp_path / "motion.mp4"
+    image.write_bytes(b"image")
+    video.write_bytes(b"video")
+    tensor = SimpleNamespace(shape=(1, 640, 832, 3))
+    frames = SimpleNamespace(shape=(120, 288, 512, 3))
+    monkeypatch.setattr("app.backends.matlow_runtime._load_image", lambda *_: tensor)
+    monkeypatch.setattr("app.backends.matlow_runtime._load_reference_video", lambda *_: frames)
+
+    _refs, _size, diagnostics = _reference_inputs([
+        {"type": "image", "uri": image.as_uri(), "purpose": "identity"},
+        {"type": "video", "uri": video.as_uri(), "visual_mode": "full"},
+    ], None)
+
+    assert diagnostics["references"][0]["preprocessed_shape"] == [1, 640, 832, 3]
+    assert diagnostics["references"][1]["preprocessed_shape"] == [120, 288, 512, 3]
+    assert "tensor" not in repr(diagnostics).lower()
 
 
 def test_motion_video_reference_strips_appearance_and_reduces_resolution(monkeypatch, tmp_path):

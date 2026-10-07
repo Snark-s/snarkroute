@@ -1,0 +1,829 @@
+{
+  "status": "SUCCEEDED",
+  "neural_runs_this_phase": 0,
+  "available": [
+    "original",
+    "vimeo"
+  ],
+  "winner": null,
+  "assumption": "SDR BT.709 limited source; test assumption, not recovered source fact",
+  "continuation": "2026-10-04",
+  "policy": {
+    "enabled": true,
+    "candidate": "vimeo",
+    "threads": 2,
+    "min_free_mib": 8192,
+    "runtime_min_free_mib": 512,
+    "process_cpu_limit": 200.0,
+    "total_cpu_limit": 85.0,
+    "sustained_seconds": 10.0,
+    "min_available_ram_mib": 4096
+  },
+  "previous_verification": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\comparison\\verification.json",
+  "precheck_gpu": {
+    "index": 0,
+    "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+    "total_mib": 16384,
+    "used_mib": 2082,
+    "free_mib": 14094,
+    "utilization_percent": 8
+  },
+  "source_sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+  "native_vimeo_sha256": "a5cae1aa824ddd3ddf69fd3d1eb626f1cc874742597c808043edf3e7b9e55b60",
+  "normalization": {
+    "original": {
+      "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\normalized\\original.mp4",
+      "metadata": {
+        "width": 2560,
+        "height": 1440,
+        "codec_name": "h264",
+        "pix_fmt": "yuv420p",
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_transfer": "bt709",
+        "color_primaries": "bt709",
+        "sample_aspect_ratio": "1:1",
+        "avg_frame_rate": "24/1",
+        "nb_frames": "124",
+        "audio": {
+          "codec_name": "aac",
+          "sample_rate": "32000",
+          "channels": 2,
+          "duration": "5.184000",
+          "nb_frames": "163"
+        }
+      },
+      "audio": {
+        "packets": 163,
+        "encoded_packet_sequence_sha256": "05779dbc6e656cb2b6a246dc13e4fef030d9b37dbf4a74936b189036ed098802"
+      },
+      "seconds": 0.15722210000058112,
+      "command": [
+        "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe",
+        "-y",
+        "-nostdin",
+        "-v",
+        "error",
+        "-filter_threads",
+        "2",
+        "-filter_complex_threads",
+        "2",
+        "-threads:v",
+        "2",
+        "-i",
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+        "-threads",
+        "2",
+        "-i",
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:a",
+        "copy",
+        "-vf",
+        "scale=in_color_matrix=bt709:in_range=tv:out_range=full,format=rgb24,scale=2520:1440:flags=lanczos:in_range=full:out_range=full,format=rgb24,pad=2560:1440:20:0:color=black,format=rgb24,setsar=1,scale=in_range=full:out_range=tv:out_color_matrix=bt709,format=yuv420p,setsar=1,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
+        "-threads:v",
+        "2",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        "24",
+        "-g",
+        "48",
+        "-keyint_min",
+        "48",
+        "-sc_threshold",
+        "0",
+        "-color_range",
+        "tv",
+        "-colorspace",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-color_primaries",
+        "bt709",
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\normalized\\original.mp4"
+      ],
+      "sha256": "da7d07ce11946d5103ccd38010ee6141f2f24ba2cacf8073372bd32c3bbbeffb",
+      "reused": true
+    },
+    "vimeo": {
+      "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\normalized\\vimeo.mp4",
+      "metadata": {
+        "width": 2560,
+        "height": 1440,
+        "codec_name": "h264",
+        "pix_fmt": "yuv420p",
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_transfer": "bt709",
+        "color_primaries": "bt709",
+        "sample_aspect_ratio": "1:1",
+        "avg_frame_rate": "24/1",
+        "nb_frames": "124",
+        "audio": {
+          "codec_name": "aac",
+          "sample_rate": "32000",
+          "channels": 2,
+          "duration": "5.184000",
+          "nb_frames": "163"
+        }
+      },
+      "audio": {
+        "packets": 163,
+        "encoded_packet_sequence_sha256": "05779dbc6e656cb2b6a246dc13e4fef030d9b37dbf4a74936b189036ed098802"
+      },
+      "seconds": 22.841933800000334,
+      "command": [
+        "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe",
+        "-y",
+        "-nostdin",
+        "-v",
+        "error",
+        "-filter_threads",
+        "2",
+        "-filter_complex_threads",
+        "2",
+        "-threads:v",
+        "2",
+        "-i",
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\vimeo\\native.mp4",
+        "-threads",
+        "2",
+        "-i",
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:a",
+        "copy",
+        "-vf",
+        "scale=in_color_matrix=bt709:in_range=tv:out_range=full,format=rgb24,scale=2520:1440:flags=lanczos:in_range=full:out_range=full,format=rgb24,pad=2560:1440:20:0:color=black,format=rgb24,setsar=1,scale=in_range=full:out_range=tv:out_color_matrix=bt709,format=yuv420p,setsar=1,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
+        "-threads:v",
+        "2",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        "24",
+        "-g",
+        "48",
+        "-keyint_min",
+        "48",
+        "-sc_threshold",
+        "0",
+        "-color_range",
+        "tv",
+        "-colorspace",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-color_primaries",
+        "bt709",
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\normalized\\vimeo.mp4"
+      ],
+      "sha256": "41e502b62940eb51b210a3050ce37672f8b667bc6d95228964edc7a15a0d6c44",
+      "reused": false
+    }
+  },
+  "final_cleanup_snapshot": {
+    "timestamp": "2026-10-03T21:03:15.038949+00:00",
+    "active_processes": 0,
+    "active_pids": [],
+    "processes": [
+      {
+        "pid": 4776,
+        "start_time": "2026-10-03T21:01:50.700130+00:00",
+        "exit_time": "2026-10-03T21:02:13.369143+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 46972,
+        "start_time": "2026-10-03T21:01:50.709421+00:00",
+        "exit_time": "2026-10-03T21:02:13.370924+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 9032,
+        "start_time": "2026-10-03T21:02:13.549809+00:00",
+        "exit_time": "2026-10-03T21:02:14.703129+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 38424,
+        "start_time": "2026-10-03T21:02:13.559624+00:00",
+        "exit_time": "2026-10-03T21:02:14.706310+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 3320,
+        "start_time": "2026-10-03T21:02:14.710783+00:00",
+        "exit_time": "2026-10-03T21:02:15.925854+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 29528,
+        "start_time": "2026-10-03T21:02:15.982241+00:00",
+        "exit_time": "2026-10-03T21:02:16.245579+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 46304,
+        "start_time": "2026-10-03T21:02:16.251184+00:00",
+        "exit_time": "2026-10-03T21:02:17.645582+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 3004,
+        "start_time": "2026-10-03T21:02:16.261131+00:00",
+        "exit_time": "2026-10-03T21:02:17.647535+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 49972,
+        "start_time": "2026-10-03T21:02:19.128443+00:00",
+        "exit_time": "2026-10-03T21:02:21.315304+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 46560,
+        "start_time": "2026-10-03T21:02:19.139053+00:00",
+        "exit_time": "2026-10-03T21:02:21.317179+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 49804,
+        "start_time": "2026-10-03T21:02:21.407579+00:00",
+        "exit_time": "2026-10-03T21:02:23.622652+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 43248,
+        "start_time": "2026-10-03T21:02:21.417635+00:00",
+        "exit_time": "2026-10-03T21:02:23.624643+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 26832,
+        "start_time": "2026-10-03T21:02:23.715649+00:00",
+        "exit_time": "2026-10-03T21:02:24.869839+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 50068,
+        "start_time": "2026-10-03T21:02:24.880453+00:00",
+        "exit_time": "2026-10-03T21:02:26.106537+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 9788,
+        "start_time": "2026-10-03T21:02:24.892054+00:00",
+        "exit_time": "2026-10-03T21:02:26.108484+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 20604,
+        "start_time": "2026-10-03T21:02:26.119116+00:00",
+        "exit_time": "2026-10-03T21:02:27.329678+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 29280,
+        "start_time": "2026-10-03T21:02:27.341881+00:00",
+        "exit_time": "2026-10-03T21:02:28.560301+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 8416,
+        "start_time": "2026-10-03T21:02:27.352077+00:00",
+        "exit_time": "2026-10-03T21:02:28.563156+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 28596,
+        "start_time": "2026-10-03T21:02:28.572430+00:00",
+        "exit_time": "2026-10-03T21:02:29.734627+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 49632,
+        "start_time": "2026-10-03T21:02:29.746080+00:00",
+        "exit_time": "2026-10-03T21:02:30.941393+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 48784,
+        "start_time": "2026-10-03T21:02:29.755753+00:00",
+        "exit_time": "2026-10-03T21:02:30.942944+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 24012,
+        "start_time": "2026-10-03T21:02:30.953800+00:00",
+        "exit_time": "2026-10-03T21:02:32.111660+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 38560,
+        "start_time": "2026-10-03T21:02:30.963406+00:00",
+        "exit_time": "2026-10-03T21:02:32.131638+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 34320,
+        "start_time": "2026-10-03T21:02:32.131235+00:00",
+        "exit_time": "2026-10-03T21:02:33.294163+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 5836,
+        "start_time": "2026-10-03T21:02:33.306442+00:00",
+        "exit_time": "2026-10-03T21:02:34.493048+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 27204,
+        "start_time": "2026-10-03T21:02:33.316710+00:00",
+        "exit_time": "2026-10-03T21:02:34.495361+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 32688,
+        "start_time": "2026-10-03T21:02:34.505888+00:00",
+        "exit_time": "2026-10-03T21:02:35.662317+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 26584,
+        "start_time": "2026-10-03T21:02:35.675047+00:00",
+        "exit_time": "2026-10-03T21:02:36.873724+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 45144,
+        "start_time": "2026-10-03T21:02:35.684357+00:00",
+        "exit_time": "2026-10-03T21:02:36.876633+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 49996,
+        "start_time": "2026-10-03T21:02:36.888746+00:00",
+        "exit_time": "2026-10-03T21:02:38.096350+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 49624,
+        "start_time": "2026-10-03T21:02:38.108498+00:00",
+        "exit_time": "2026-10-03T21:02:39.327711+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 37736,
+        "start_time": "2026-10-03T21:02:38.119379+00:00",
+        "exit_time": "2026-10-03T21:02:39.329824+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 48744,
+        "start_time": "2026-10-03T21:02:39.340340+00:00",
+        "exit_time": "2026-10-03T21:02:40.505390+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 49520,
+        "start_time": "2026-10-03T21:02:40.518559+00:00",
+        "exit_time": "2026-10-03T21:02:41.724106+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 48500,
+        "start_time": "2026-10-03T21:02:40.528372+00:00",
+        "exit_time": "2026-10-03T21:02:41.725872+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 26060,
+        "start_time": "2026-10-03T21:02:41.735954+00:00",
+        "exit_time": "2026-10-03T21:02:42.899534+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 41116,
+        "start_time": "2026-10-03T21:02:42.912661+00:00",
+        "exit_time": "2026-10-03T21:02:44.121401+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 5768,
+        "start_time": "2026-10-03T21:02:42.923317+00:00",
+        "exit_time": "2026-10-03T21:02:44.123199+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 6336,
+        "start_time": "2026-10-03T21:02:44.133701+00:00",
+        "exit_time": "2026-10-03T21:02:45.287447+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 26496,
+        "start_time": "2026-10-03T21:02:45.299757+00:00",
+        "exit_time": "2026-10-03T21:02:46.507795+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 46432,
+        "start_time": "2026-10-03T21:02:45.309010+00:00",
+        "exit_time": "2026-10-03T21:02:46.509449+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 43184,
+        "start_time": "2026-10-03T21:02:46.519785+00:00",
+        "exit_time": "2026-10-03T21:02:47.668694+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 38012,
+        "start_time": "2026-10-03T21:02:47.680212+00:00",
+        "exit_time": "2026-10-03T21:02:48.867121+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 49816,
+        "start_time": "2026-10-03T21:02:47.690022+00:00",
+        "exit_time": "2026-10-03T21:02:48.868803+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 43400,
+        "start_time": "2026-10-03T21:02:48.879097+00:00",
+        "exit_time": "2026-10-03T21:02:50.028532+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 50004,
+        "start_time": "2026-10-03T21:02:50.040232+00:00",
+        "exit_time": "2026-10-03T21:02:51.231871+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 11412,
+        "start_time": "2026-10-03T21:02:50.050356+00:00",
+        "exit_time": "2026-10-03T21:02:51.233671+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 27788,
+        "start_time": "2026-10-03T21:02:51.243790+00:00",
+        "exit_time": "2026-10-03T21:02:52.401140+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 21852,
+        "start_time": "2026-10-03T21:02:52.413376+00:00",
+        "exit_time": "2026-10-03T21:02:53.620903+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 10488,
+        "start_time": "2026-10-03T21:02:52.423040+00:00",
+        "exit_time": "2026-10-03T21:02:53.622746+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 45848,
+        "start_time": "2026-10-03T21:02:53.632870+00:00",
+        "exit_time": "2026-10-03T21:02:54.796255+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 47956,
+        "start_time": "2026-10-03T21:02:54.809296+00:00",
+        "exit_time": "2026-10-03T21:02:56.007998+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 49156,
+        "start_time": "2026-10-03T21:02:54.819712+00:00",
+        "exit_time": "2026-10-03T21:02:56.010202+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 44832,
+        "start_time": "2026-10-03T21:02:56.021194+00:00",
+        "exit_time": "2026-10-03T21:02:57.163830+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 42056,
+        "start_time": "2026-10-03T21:02:57.176247+00:00",
+        "exit_time": "2026-10-03T21:02:58.369162+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 19328,
+        "start_time": "2026-10-03T21:02:57.185987+00:00",
+        "exit_time": "2026-10-03T21:02:58.370930+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 39148,
+        "start_time": "2026-10-03T21:02:58.381386+00:00",
+        "exit_time": "2026-10-03T21:02:59.534840+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 300,
+        "start_time": "2026-10-03T21:02:59.547964+00:00",
+        "exit_time": "2026-10-03T21:03:00.740889+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 47144,
+        "start_time": "2026-10-03T21:02:59.557449+00:00",
+        "exit_time": "2026-10-03T21:03:00.742916+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 27596,
+        "start_time": "2026-10-03T21:03:00.754181+00:00",
+        "exit_time": "2026-10-03T21:03:01.904966+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 26184,
+        "start_time": "2026-10-03T21:03:01.917542+00:00",
+        "exit_time": "2026-10-03T21:03:03.110895+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 10880,
+        "start_time": "2026-10-03T21:03:01.927483+00:00",
+        "exit_time": "2026-10-03T21:03:03.112688+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 49184,
+        "start_time": "2026-10-03T21:03:03.122770+00:00",
+        "exit_time": "2026-10-03T21:03:04.263523+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 43272,
+        "start_time": "2026-10-03T21:03:04.275459+00:00",
+        "exit_time": "2026-10-03T21:03:05.472149+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 46888,
+        "start_time": "2026-10-03T21:03:04.285732+00:00",
+        "exit_time": "2026-10-03T21:03:05.473822+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 47720,
+        "start_time": "2026-10-03T21:03:05.484972+00:00",
+        "exit_time": "2026-10-03T21:03:06.639742+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 50164,
+        "start_time": "2026-10-03T21:03:06.652250+00:00",
+        "exit_time": "2026-10-03T21:03:07.840630+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 47600,
+        "start_time": "2026-10-03T21:03:06.663185+00:00",
+        "exit_time": "2026-10-03T21:03:07.842655+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 49284,
+        "start_time": "2026-10-03T21:03:07.852783+00:00",
+        "exit_time": "2026-10-03T21:03:09.029781+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 47512,
+        "start_time": "2026-10-03T21:03:07.863665+00:00",
+        "exit_time": "2026-10-03T21:03:09.048107+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 16732,
+        "start_time": "2026-10-03T21:03:09.047325+00:00",
+        "exit_time": "2026-10-03T21:03:10.239508+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 6272,
+        "start_time": "2026-10-03T21:03:10.252632+00:00",
+        "exit_time": "2026-10-03T21:03:11.443459+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 41152,
+        "start_time": "2026-10-03T21:03:10.262726+00:00",
+        "exit_time": "2026-10-03T21:03:11.444933+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 49372,
+        "start_time": "2026-10-03T21:03:11.455830+00:00",
+        "exit_time": "2026-10-03T21:03:12.645082+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 50124,
+        "start_time": "2026-10-03T21:03:12.658110+00:00",
+        "exit_time": "2026-10-03T21:03:13.874197+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 11596,
+        "start_time": "2026-10-03T21:03:12.668810+00:00",
+        "exit_time": "2026-10-03T21:03:13.876112+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 47712,
+        "start_time": "2026-10-03T21:03:13.884693+00:00",
+        "exit_time": "2026-10-03T21:03:15.027246+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      }
+    ],
+    "identity_errors": [],
+    "affinity_mask": 3
+  },
+  "total_wall_seconds": 84.61819899999864
+}

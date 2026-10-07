@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Check, ChevronDown, Cpu, ExternalLink, KeyRound, Link, LoaderCircle, Plug, RefreshCw, Server, Settings2, ShieldAlert, Unplug, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, Cpu, ExternalLink, Link, LoaderCircle, Plug, RefreshCw, Server, Settings2, ShieldAlert, Unplug, X } from "lucide-react";
 import { apiBase } from "../../studioConfig";
 import { apiFetch } from "../../shared/apiClient";
 import { navigate } from "../../shared/navigation";
 import { H3QueuePanel } from "./H3QueuePanel";
+import { H3RegenerationStatus } from "./H3RegenerationStatus";
 import "./H3Studio.css";
 
 type CapabilityStatus = {
@@ -55,13 +56,14 @@ const vastH3Filters = [
 
 const tools = [
   { id: "text", title: "Текст → видео и звук", description: "Создание ролика по описанию.", capability: "fl2va", badge: "проверено на GPU" },
-  { id: "frames", title: "Первый / последний кадр", description: "Оживить кадр или построить переход между двумя кадрами.", capability: "fl2va", badge: "нужна GPU-проверка" },
+  { id: "frames", title: "Первый / последний кадр", description: "Оживить кадр или построить переход между двумя кадрами.", capability: "fl2va", badge: "проверено локально" },
   { id: "motion", title: "Движение из видео", description: "Ref2VA использует действие, камеру и ритм исходного видео как смысловой референс.", capability: "ref2va", badge: "эксперимент" },
   { id: "references", title: "Персонажи и смысловые референсы", description: "Ref2VA связывает изображения и видео с субъектами и содержанием сцены; аудиореференсы локально не включены.", capability: "ref2va", badge: "эксперимент" },
   { id: "style", title: "Устойчивый перенос стиля", description: "Не объявляется доступным, пока нейтральный A/B не подтвердит отличие по всей длине ролика.", capability: "style_transfer", badge: "не подтверждено" },
+  { id: "identity", title: "Диагностика идентичности FaceSwap", description: "Опциональный LoRA только для H3 Base Ref2VA: референс-видео + явно назначенное identity-изображение.", capability: "identity_transfer", badge: "community LoRA" },
+  { id: "camera", title: "CameraPath", description: "Нативная орбита на hosted H3 Max; для локального H3 и Turbo — проверяемый prompt fallback.", capability: "camera_prompt_control", badge: "schema 1.0" },
   { id: "replace", title: "Замена области или объекта", description: "Маска, стабильный crop и masked sampling.", capability: "video_inpaint", badge: "лаборатория" },
-  { id: "tracking", title: "Автотрекинг объекта", description: "Автоматическое распространение выделения по кадрам.", capability: "automatic_tracking", badge: "ещё не подключено" },
-  { id: "resample", title: "Перегенерация 2K", description: "Отдельный hosted H3 Regenerate этап.", capability: "resample", badge: "отдельный сервис" }
+  { id: "tracking", title: "Автотрекинг объекта", description: "Автоматическое распространение выделения по кадрам.", capability: "automatic_tracking", badge: "ещё не подключено" }
 ] as const;
 
 export function H3Studio() {
@@ -230,38 +232,13 @@ export function H3Studio() {
         </div>
       </header>
 
-      <section className="h3StudioHero">
-        <div>
-          <span className="h3Eyebrow">AUDIO · VIDEO · REFERENCES</span>
-          <p>Подключи GPU-worker, выбери задачу и работай с кадрами, видео, звуком и масками. Любую операцию позже можно раскрыть как переносимый маршрут SnarkRoute.</p>
-        </div>
-        <ConnectionBadge status={status} loading={loading} />
-      </section>
-
-      <div className="h3StudioGrid">
-        <section className="h3ConnectionPanel">
-          <header>
-            <div>
-              <span className="h3PanelIcon"><Plug size={18} /></span>
-              <div><h2>Подключение H3</h2><p>Сохранённые настройки проверяются автоматически при открытии Studio.</p></div>
-            </div>
-            <button className="h3IconButton" type="button" onClick={() => void refresh(true)} disabled={loading || busy} title="Проверить снова"><RefreshCw size={16} /></button>
-          </header>
-
-          <div className={`h3SavedConnection ${status.ready ? "ready" : ""}`}>
-            <span className="h3SavedConnectionIcon">{status.ready ? <Check size={19} /> : <KeyRound size={19} />}</span>
-            <div>
-              <strong>{status.ready ? "H3 подключён" : status.configured ? "Подключение сохранено" : "H3 ещё не настроен"}</strong>
-              <span>{status.configured ? `${status.workerUrl} · сервисный токен сохранён на локальном сервере` : "Первичная настройка выполняется один раз"}</span>
-            </div>
-          </div>
-
+      <details className={`h3ConnectionPanel h3CompactConnection ${status.ready ? "ready" : "error"}`} open={!status.ready || advancedOpen}>
+        <summary><ConnectionBadge status={status} loading={loading} /><span>{status.backend ?? "backend unknown"}</span><span>{status.local?.running ? "Local worker" : status.workerUrl || "No worker"}</span><span>{status.activeJobs ?? 0} active</span><strong>Details</strong></summary>
+        <div className="h3ConnectionDetails">
           <div className="h3ConnectionActions">
-            <button className="h3Primary" type="button" onClick={() => void activateH3()} disabled={busy || loading}>
-              {busy || loading ? <LoaderCircle className="h3Spin" size={16} /> : status.configured ? <RefreshCw size={16} /> : <Plug size={16} />}
-              {status.ready ? "Проверить H3" : status.local?.supported && (!status.configured || status.workerUrl === status.local.workerUrl) ? "Запустить локальный H3" : status.configured ? "Подключить сохранённый H3" : "Подключить H3"}
-            </button>
-            {status.local?.running ? <button type="button" onClick={() => void stopLocal()} disabled={busy || loading}><Unplug size={16} /> Остановить локальный H3</button> : null}
+            <button className="h3Primary" type="button" onClick={() => void activateH3()} disabled={busy || loading}>{busy || loading ? <LoaderCircle className="h3Spin" size={16} /> : status.configured ? <RefreshCw size={16} /> : <Plug size={16} />}{status.ready ? "Reconnect / verify" : status.local?.supported && (!status.configured || status.workerUrl === status.local.workerUrl) ? "Start local H3" : status.configured ? "Connect saved H3" : "Connect H3"}</button>
+            {status.local?.running ? <button type="button" onClick={() => void stopLocal()} disabled={busy || loading}><Unplug size={16} /> Stop local H3</button> : null}
+            <button className="h3IconButton" type="button" onClick={() => void refresh(true)} disabled={loading || busy} title="Refresh"><RefreshCw size={16} /></button>
           </div>
 
           {!status.configured ? (
@@ -285,7 +262,7 @@ export function H3Studio() {
           {message ? <p className={status.ready ? "h3Message" : "h3Message warning"}>{message}</p> : null}
 
           <button className={`h3AdvancedToggle ${advancedOpen ? "open" : ""}`} type="button" onClick={() => setAdvancedOpen((value) => !value)}>
-            <Settings2 size={15} /> Ручное подключение <ChevronDown size={15} />
+            <Settings2 size={15} /> Manual connection <ChevronDown size={15} />
           </button>
 
           {advancedOpen ? (
@@ -322,14 +299,14 @@ export function H3Studio() {
               <span>Сообщение worker</span><strong>{status.error ?? status.reason ?? "готов"}</strong>
             </div>
           ) : null}
-        </section>
-
-      </div>
+        </div>
+      </details>
 
       <H3QueuePanel finalAvailable={capabilityMap.get("final")?.available === true} />
+      <H3RegenerationStatus />
 
-      <section className="h3ToolsSection">
-        <header><div><h2>Возможности</h2><p>Карточка активна только когда worker честно объявил соответствующую capability.</p></div><Cpu size={20} /></header>
+      <details className="h3ToolsSection h3CapabilitiesSection">
+        <summary><div><h2>Capabilities / Diagnostics</h2><p>{capabilitySummary(status.capabilities)} · statuses come from the existing registry</p></div><Cpu size={20} /></summary>
         <div className="h3ToolGrid">
           {tools.map((tool) => {
             const capability = capabilityMap.get(tool.capability);
@@ -344,7 +321,7 @@ export function H3Studio() {
             );
           })}
         </div>
-      </section>
+      </details>
     </main>
   );
 }
@@ -353,4 +330,10 @@ function ConnectionBadge({ status, loading }: { status: ConnectionStatus; loadin
   if (loading) return <div className="h3ConnectionBadge"><LoaderCircle className="h3Spin" size={18} /><div><strong>Проверка</strong><span>читаю состояние worker</span></div></div>;
   if (status.ready) return <div className="h3ConnectionBadge ready"><Check size={18} /><div><strong>H3 готов</strong><span>{status.backend ?? "worker подключён"}</span></div></div>;
   return <div className="h3ConnectionBadge"><Unplug size={18} /><div><strong>Не подключён</strong><span>{status.error ?? status.reason ?? "нужен GPU-worker"}</span></div></div>;
+}
+
+function capabilitySummary(capabilities: CapabilityStatus[]): string {
+  const available = capabilities.filter((capability) => capability.available).length;
+  const experimental = capabilities.filter((capability) => capability.experimental).length;
+  return `${available}/${capabilities.length || 0} available${experimental ? ` · ${experimental} experimental` : ""}`;
 }

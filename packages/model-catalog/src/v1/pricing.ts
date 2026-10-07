@@ -130,6 +130,54 @@ const seededProviderOfferings: ProviderModelOfferingV1[] = [
 ];
 
 const seededProviderPricing: ProviderModelPricingV1[] = [
+  ...(["480P", "768P", "1080P"] as const).map((resolution) => seededPrice({
+    id: `minimax-h3:h3_max:video.generate:resolution=${resolution}`,
+    provider: "minimax-h3",
+    providerModelId: "h3_max",
+    providerNativeModelId: "minimax/h3-max",
+    operation: "video.generate",
+    priceUnit: "second",
+    providerCostMicrousd: { "480P": 50000, "768P": 80000, "1080P": 160000 }[resolution],
+    priceParams: { resolution, endpointMode: "standard" },
+    pricingSource: "manual_catalog",
+    pricingConfidence: "high",
+    effectiveFrom: "2026-09-15",
+    fetchedAt: "2026-09-28",
+    notes: "fal list output-video rate after the launch promotion ended on 2026-09-14. Reference-to-video input tokens are billed separately.",
+    rawProviderPricing: { sourceUrl: "https://fal.ai/models/minimax/h3-max/text-to-video" }
+  })),
+  ...(["480P", "768P", "1080P"] as const).map((resolution) => seededPrice({
+    id: `minimax-h3:h3_max_turbo:video.generate:resolution=${resolution}`,
+    provider: "minimax-h3",
+    providerModelId: "h3_max_turbo",
+    providerNativeModelId: "minimax/h3-max-turbo",
+    operation: "video.generate",
+    priceUnit: "second",
+    providerCostMicrousd: { "480P": 25000, "768P": 40000, "1080P": 80000 }[resolution],
+    priceParams: { resolution, endpointMode: "standard" },
+    pricingSource: "manual_catalog",
+    pricingConfidence: "high",
+    effectiveFrom: "2026-09-15",
+    fetchedAt: "2026-09-28",
+    notes: "fal H3 Max Turbo list output-video rate after the launch promotion ended on 2026-09-14.",
+    rawProviderPricing: { sourceUrl: "https://fal.ai/models/minimax/h3-max-turbo/text-to-video" }
+  })),
+  ...(["480P", "768P", "1080P"] as const).map((resolution) => seededPrice({
+    id: `minimax-h3:h3_max:video.reference:resolution=${resolution}`,
+    provider: "minimax-h3",
+    providerModelId: "h3_max",
+    providerNativeModelId: "minimax/h3-max/reference-to-video",
+    operation: "video.generate",
+    priceUnit: "second",
+    providerCostMicrousd: { "480P": 50000, "768P": 80000, "1080P": 160000 }[resolution],
+    priceParams: { resolution, endpointMode: "reference-to-video" },
+    pricingSource: "manual_catalog",
+    pricingConfidence: "high",
+    effectiveFrom: "2026-09-27",
+    fetchedAt: "2026-09-27",
+    notes: "fal reference-to-video output rate. First 4096 reference tokens are included; additional reference tokens cost $0.02/1K.",
+    rawProviderPricing: { sourceUrl: "https://fal.ai/models/minimax/h3-max/reference-to-video", includedReferenceTokens: 4096, referenceMicrousdPer1000Tokens: 20000 }
+  })),
   seededPrice({
     id: "rutronix:*:text.generate",
     provider: "rutronix",
@@ -264,6 +312,9 @@ function seededPrice(input: {
   priceParams?: Record<string, unknown>;
   notes?: string;
   rawProviderPricing?: Record<string, unknown>;
+  effectiveFrom?: string;
+  fetchedAt?: string;
+  staleAfter?: string;
 }): ProviderModelPricingV1 {
   return {
     ...input,
@@ -272,9 +323,9 @@ function seededPrice(input: {
     baseCredits: creditsFromMicrousd(input.providerCostMicrousd),
     pricingSource: input.pricingSource ?? "manual_initial_estimate",
     pricingConfidence: input.pricingConfidence ?? "medium",
-    effectiveFrom: "2026-01-01",
-    fetchedAt: "2026-01-01",
-    staleAfter: undefined
+    effectiveFrom: input.effectiveFrom ?? "2026-01-01",
+    fetchedAt: input.fetchedAt ?? "2026-01-01",
+    staleAfter: input.staleAfter
   };
 }
 

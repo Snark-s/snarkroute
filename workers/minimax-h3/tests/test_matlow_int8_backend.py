@@ -24,6 +24,10 @@ def configured_settings(monkeypatch, tmp_path: Path) -> Settings:
         path.write_bytes(b"fixture")
     monkeypatch.setenv("H3_BACKEND", "matlow_int8")
     monkeypatch.setenv("H3_MATLOW_COMFYUI_DIR", str(comfyui))
+    monkeypatch.setenv("H3_MATLOW_10EROS_MAX_FILE", str(tmp_path / "10eros-max.safetensors"))
+    monkeypatch.setenv("H3_MATLOW_10EROS_MAX_TURBO_FILE", str(tmp_path / "10eros-max-turbo.safetensors"))
+    monkeypatch.setenv("H3_MATLOW_FACESWAP_LORA_FILE", str(tmp_path / "faceswap.safetensors"))
+    monkeypatch.setenv("H3_MATLOW_AUTHENTIC_CINEMATIC_LORA_FILE", str(tmp_path / "authentic-cinematic.safetensors"))
     for name, path in files.items():
         monkeypatch.setenv(name, str(path))
     return Settings.from_env()
@@ -55,14 +59,109 @@ def test_matlow_capabilities_are_mvp_scoped(monkeypatch, tmp_path):
     assert capabilities["kitchen_int8"].available is True
     assert capabilities["ref2va"].available is True
     assert capabilities["final"].available is False
+    assert capabilities["resample"].available is False
+    assert "No compatible local H3 regeneration backend" in capabilities["resample"].reason
+    assert capabilities["visual_lora"].available is False
 
 
-def test_matlow_native_audio_is_enabled_by_default_and_can_be_disabled(monkeypatch):
-    monkeypatch.delenv("H3_MATLOW_NATIVE_AUDIO", raising=False)
-    assert Settings.from_env().matlow_native_audio is True
+@pytest.mark.asyncio
+async def test_resample_is_rejected_before_runtime_or_model_loading(monkeypatch, tmp_path):
+    def forbidden_runtime(_settings):
+        pytest.fail("Unavailable regeneration must never construct a model runtime")
 
-    monkeypatch.setenv("H3_MATLOW_NATIVE_AUDIO", "0")
-    assert Settings.from_env().matlow_native_audio is False
+    backend = MatlowInt8Backend(
+        configured_settings(monkeypatch, tmp_path), runtime_factory=forbidden_runtime
+    )
+    request = GenerateRequest(
+        operation="video.resample.h3",
+        task="resample",
+        resample={
+            "source_video": {"uri": "file:///data/MAX-I1/output.mp4"},
+            "prompt": "Original context",
+            "target_resolution": "2k",
+        },
+    )
+    with pytest.raises(CapabilityUnavailable) as failure:
+        await backend.execute(request, tmp_path, lambda *_args: None)
+    assert failure.value.capability == "resample"
+    assert backend._runtime_instance is None
+
+
+def test_visual_lora_capability_is_separate_from_picture_style_transfer(monkeypatch, tmp_path):
+    settings = configured_settings(monkeypatch, tmp_path)
+    settings.matlow_authentic_cinematic_lora_file.write_bytes(b"fixture")
+    backend = MatlowInt8Backend(settings, runtime_factory=lambda _settings: ReadyRuntime())
+    capabilities = {item.name: item for item in backend.capabilities()}
+    assert capabilities["visual_lora"].available is True
+    assert "Limited" in capabilities["visual_lora"].reason
+    assert capabilities["style_transfer"].available is False
+
+
+def test_ref2va_capability_status_is_honest_and_faceswap_is_a_modifier(monkeypatch, tmp_path):
+    settings = configured_settings(monkeypatch, tmp_path)
+    settings.matlow_faceswap_lora_file.write_bytes(b"fixture")
+    backend = MatlowInt8Backend(settings, runtime_factory=lambda _settings: ReadyRuntime())
+    capabilities = {item.name: item for item in backend.capabilities()}
+
+    assert capabilities["ref2va"].available is True
+    assert "GPU-verified" in (capabilities["ref2va"].reason or "")
+    assert capabilities["style_transfer"].available is False
+    assert "did not transfer" in (capabilities["style_transfer"].reason or "")
+    assert capabilities["identity_transfer"].available is True
+    assert "profile consistency is limited" in (capabilities["identity_transfer"].reason or "")
+
+
+def test_faceswap_patch_is_per_call_and_runtime_keeps_no_lora_state(monkeypatch, tmp_path):
+    settings = configured_settings(monkeypatch, tmp_path)
+    runtime = MatlowRuntime(settings)
+    base_model = object()
+    patched_model = object()
+    seen = []
+    runtime._modules = {
+        "comfy": type("Comfy", (), {
+            "utils": type("Utils", (), {"load_torch_file": staticmethod(lambda path: {"path": path})}),
+            "sd": type("SD", (), {"load_lora_for_models": staticmethod(
+                lambda model, clip, state, model_strength, clip_strength:
+                (seen.append((model, clip, state, model_strength, clip_strength)) or (patched_model, None))
+            )}),
+        }),
+    }
+
+    result, metadata = runtime._apply_lora(
+        base_model, settings.matlow_faceswap_lora_file, 1.0, {"kind": "identity_transfer"}
+    )
+
+    assert result is patched_model
+    assert seen == [(base_model, None, {"path": str(settings.matlow_faceswap_lora_file)}, 1.0, 0.0)]
+    assert metadata == {"enabled": True, "strength": 1.0, "kind": "identity_transfer"}
+    assert runtime._models is None
+
+
+def test_visual_modifier_patch_is_per_call_and_runtime_keeps_no_lora_state(monkeypatch, tmp_path):
+    settings = configured_settings(monkeypatch, tmp_path)
+    runtime = MatlowRuntime(settings)
+    base_model = object()
+    patched_model = object()
+    seen = []
+    runtime._modules = {
+        "comfy": type("Comfy", (), {
+            "utils": type("Utils", (), {"load_torch_file": staticmethod(lambda path: {"path": path})}),
+            "sd": type("SD", (), {"load_lora_for_models": staticmethod(
+                lambda model, clip, state, model_strength, clip_strength:
+                (seen.append((model, clip, state, model_strength, clip_strength)) or (patched_model, None))
+            )}),
+        }),
+    }
+
+    result, metadata = runtime._apply_lora(
+        base_model, settings.matlow_authentic_cinematic_lora_file, 0.7,
+        {"kind": "visual_modifier", "id": "authentic_cinematic_texture"},
+    )
+
+    assert result is patched_model
+    assert seen == [(base_model, None, {"path": str(settings.matlow_authentic_cinematic_lora_file)}, 0.7, 0.0)]
+    assert metadata == {"enabled": True, "strength": 0.7, "kind": "visual_modifier", "id": "authentic_cinematic_texture"}
+    assert runtime._models is None
 
 
 def test_matlow_native_audio_is_enabled_by_default_and_can_be_disabled(monkeypatch):

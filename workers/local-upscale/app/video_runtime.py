@@ -8,6 +8,7 @@ https://github.com/mansum6/BasicSR/blob/master/codes/models/modules/architecture
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 from typing import Protocol
 
@@ -16,6 +17,7 @@ import numpy as np
 from app.errors import WorkerError
 from app.nanovsr import load_nanovsr
 from app.video_registry import VideoUpscaleModel
+from app.video_benchmark import Policy, configure_torch, ort_session, phase
 
 
 class TemporalVideoRuntime(Protocol):
@@ -81,8 +83,11 @@ class TSCUNetOnnxRuntime:
         use_cuda = wants_cuda and "CUDAExecutionProvider" in available
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if use_cuda else ["CPUExecutionProvider"]
         try:
-            self.session = ort.InferenceSession(str(path), providers=providers)
+            self.session = ort_session(ort,path,device) if Policy.from_env().enabled or os.getenv("LOCAL_VIDEO_PRODUCTION") == "1" else ort.InferenceSession(str(path), providers=providers)
         except Exception as exc:
+            if Policy.from_env().enabled or os.getenv("LOCAL_VIDEO_PRODUCTION") == "1":
+                raise WorkerError("runtime_unavailable",f"CUDA-only TSCUNet session refused: {str(exc)[:2000]}",
+                    details={"requested_providers":["CUDAExecutionProvider"],"cpu_ep_fallback_disabled":True}) from exc
             raise WorkerError("runtime_unavailable", "TSCUNet ONNX session could not be initialized.") from exc
         if use_cuda and "CUDAExecutionProvider" not in self.session.get_providers():
             raise WorkerError("runtime_unavailable", "ONNX Runtime silently fell back from CUDAExecutionProvider.")
@@ -102,13 +107,16 @@ class TSCUNetOnnxRuntime:
     def infer(self, frames: list[np.ndarray]) -> list[np.ndarray]:
         if len(frames) != self.context_frames:
             raise WorkerError("runtime_output_invalid", "TSCUNet received the wrong temporal context size.")
-        value, (height, width) = prepare_tscunet_input(frames)
-        output = self.session.run(None, {self.input_name: value})[0]
-        if output.ndim != 4 or output.shape[0] != 1 or output.shape[1] != 3:
-            raise WorkerError("runtime_output_invalid", "TSCUNet output must be one NCHW RGB frame.")
-        output = output[0, :, : height * self.scale, : width * self.scale]
-        frame = np.clip(output.transpose(1, 2, 0) * 255.0 + 0.5, 0, 255).astype(np.uint8)
-        return [np.ascontiguousarray(frame)]
+        with phase(self,"preprocessing_seconds"):
+            value, (height, width) = prepare_tscunet_input(frames)
+        with phase(self,"model_forward_seconds"):
+            output = self.session.run(None, {self.input_name: value})[0]
+        with phase(self,"postprocessing_seconds"):
+            if output.ndim != 4 or output.shape[0] != 1 or output.shape[1] != 3:
+                raise WorkerError("runtime_output_invalid", "TSCUNet output must be one NCHW RGB frame.")
+            output = output[0, :, : height * self.scale, : width * self.scale]
+            frame = np.clip(output.transpose(1, 2, 0) * 255.0 + 0.5, 0, 255).astype(np.uint8)
+            return [np.ascontiguousarray(frame)]
 
 
 def prepare_tscunet_input(frames: list[np.ndarray]) -> tuple[np.ndarray, tuple[int, int]]:
@@ -135,6 +143,9 @@ class SOFVSRRuntime:
             from spandrel import ModelLoader
         except ImportError as exc:
             raise WorkerError("runtime_unavailable", "Install the worker gpu extra to use SOFVSR.") from exc
+        configure_torch(torch)
+        if device.startswith("cuda") and not torch.cuda.is_available():
+            raise WorkerError("cuda_unavailable", "CUDA is unavailable. Video Upscale cannot fall back to CPU.")
         state = torch.load(path, map_location="cpu", weights_only=True)
         if isinstance(state, dict):
             state = state.get("params_ema", state.get("params", state))
@@ -144,6 +155,8 @@ class SOFVSRRuntime:
         channels = int(state["OFR.RNN1.0.weight"].shape[0])
         is_rrdb = "SR.model.0.weight" in state
         image_channels = 3 if is_rrdb else 1
+        if Policy.from_env().enabled and image_channels != 3:
+            raise WorkerError("runtime_output_invalid","Benchmark requires an RGB SOFVSR checkpoint.")
         inferred_context = _infer_sofvsr_context(state, scale, image_channels, is_rrdb)
         if inferred_context != context_frames:
             raise WorkerError(
@@ -176,15 +189,16 @@ class SOFVSRRuntime:
     def infer(self, frames: list[np.ndarray]) -> list[np.ndarray]:
         if len(frames) != self.context_frames:
             raise WorkerError("runtime_output_invalid", "SOFVSR received the wrong temporal context size.")
-        rgb = np.stack(frames).astype(np.float32) / 255.0
-        if self.image_channels == 1:
-            network_input = _rgb_to_ycbcr(rgb)[..., :1]
-        else:
-            network_input = rgb
-        tensor = self.torch.from_numpy(network_input.transpose(0, 3, 1, 2)).unsqueeze(0).to(self.torch_device)
-        if self.device_type == "cuda":
-            tensor = tensor.half()
-        with self.torch.inference_mode():
+        with phase(self,"preprocessing_seconds"):
+            rgb = np.stack(frames).astype(np.float32) / 255.0
+            if self.image_channels == 1:
+                network_input = _rgb_to_ycbcr(rgb)[..., :1]
+            else:
+                network_input = rgb
+            tensor = self.torch.from_numpy(network_input.transpose(0, 3, 1, 2)).unsqueeze(0).to(self.torch_device)
+            if self.device_type == "cuda":
+                tensor = tensor.half()
+        with phase(self,"model_forward_seconds"), self.torch.inference_mode():
             output = _run_sofvsr(self.ofr, self.sr, tensor, self.scale).float()[0]
         if self.image_channels == 1:
             center = self.torch.from_numpy(_rgb_to_ycbcr(rgb[self.context_frames // 2]).transpose(2, 0, 1))
@@ -198,7 +212,10 @@ class SOFVSRRuntime:
             chroma[0] = output[0]
             result = _ycbcr_to_rgb(chroma.permute(1, 2, 0).cpu().numpy())
         else:
-            result = output.permute(1, 2, 0).cpu().numpy()
+            with phase(self,"postprocessing_seconds"):
+                result = output.permute(1, 2, 0).cpu().numpy()
+                frame = np.clip(result * 255.0 + 0.5, 0, 255).astype(np.uint8)
+                return [np.ascontiguousarray(frame)]
         frame = np.clip(result * 255.0 + 0.5, 0, 255).astype(np.uint8)
         return [np.ascontiguousarray(frame)]
 

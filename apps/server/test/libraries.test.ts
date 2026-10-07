@@ -1399,6 +1399,43 @@ describe("SnarkRoute libraries", () => {
     }
   });
 
+  it("routes local OpenAI-compatible text generation from the canvas", async () => {
+    const app = await testServer();
+    try {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/libraries/current/nodes",
+        payload: { type: "text", x: 100, y: 100, width: 320, height: 180 }
+      });
+      const node = created.json().nodes.find((entry: { manifest: { type: string } }) => entry.manifest.type === "text");
+      executeRouteMock.mockResolvedValue({
+        status: "succeeded",
+        nodeResults: { generate: { status: "succeeded", output: { text: "Local canvas answer" } } }
+      });
+
+      const generated = await app.inject({
+        method: "POST",
+        url: `/api/libraries/current/text-nodes/${node.manifest.id}/generate`,
+        payload: {
+          modelId: "bonsai-2-27b",
+          prompt: "Hello from the canvas",
+          executionProvider: "local_openai"
+        }
+      });
+
+      expect(generated.statusCode).toBe(200);
+      expect(generated.json().nodes.find((entry: { manifest: { id: string } }) => entry.manifest.id === node.manifest.id).activeStackItem.text).toBe("Local canvas answer");
+      expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({
+        nodes: [expect.objectContaining({
+          type: "ai.text",
+          params: expect.objectContaining({ executionProvider: "local_openai", providerMode: "auto" })
+        })]
+      }));
+    } finally {
+      await app.close();
+    }
+  });
+
   it("does not send connected images to text generation unless the prompt references them", async () => {
     const app = await testServer();
     try {

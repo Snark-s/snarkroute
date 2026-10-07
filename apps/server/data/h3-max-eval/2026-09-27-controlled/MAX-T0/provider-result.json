@@ -1,0 +1,26 @@
+{
+  "video": {
+    "url": "https://v3b.fal.media/files/b/0aac25f7/8UwNbVKgrqf6bGL8Yr8s8_minimax-h3.mp4",
+    "content_type": "video/mp4",
+    "file_name": "8UwNbVKgrqf6bGL8Yr8s8_minimax-h3.mp4",
+    "file_size": 3372120
+  },
+  "expanded_prompt": null,
+  "timings": {
+    "inference": 2.677080389999901
+  },
+  "normalized": {
+    "requestId": "01a0e48b-1078-7750-943b-23107ccc1567",
+    "endpoint": "minimax/h3-max/text-to-video",
+    "video": {
+      "url": "[provider URL omitted from report]",
+      "content_type": "video/mp4",
+      "file_name": "8UwNbVKgrqf6bGL8Yr8s8_minimax-h3.mp4",
+      "file_size": 3372120
+    },
+    "expandedPrompt": null,
+    "timings": {
+      "inference": 2.677080389999901
+    }
+  }
+}

@@ -118,6 +118,7 @@ class MatlowRuntime:
         model_management.soft_empty_cache(force=True)
         modules["torch"].cuda.empty_cache()
         model_management.interrupt_current_processing(False)
+        self._log_vram(modules["torch"], "after full unload", "none")
 
     def _imports(self) -> dict[str, Any]:
         if self._modules is not None:
@@ -176,7 +177,11 @@ class MatlowRuntime:
             RandomNoise,
             SamplerCustomAdvanced,
         )
-        from comfy_extras.nodes_minimax_h3 import MiniMaxH3ImageToVideo, MiniMaxH3ReferenceToVideo, MiniMaxH3SigmaShift
+        from comfy_extras.nodes_minimax_h3 import (
+            MiniMaxH3ImageToVideo,
+            MiniMaxH3ReferenceToVideo,
+            MiniMaxH3SigmaShift,
+        )
         from comfy_extras.nodes_video import CreateVideo
         from nodes import VAEDecode
 
@@ -230,6 +235,9 @@ class MatlowRuntime:
                     f"comfy-kitchen version mismatch: expected {COMFY_KITCHEN_VERSION}, got {kitchen_version}"
                 )
             self._run_kernel_selftest(torch)
+            from .veda_attention import probe_veda_attention
+
+            veda_status = probe_veda_attention(self.settings, torch)
             properties = torch.cuda.get_device_properties(0)
             self._probe_status = {
                 "ready": True,
@@ -247,6 +255,7 @@ class MatlowRuntime:
                 "vram_gib": properties.total_memory / GIB,
                 "native_audio": self.settings.matlow_native_audio,
                 "profile": self.settings.matlow_profile,
+                "attention": veda_status,
             }
             logging.info("H3 MATLOW runtime: %s", json.dumps(self._probe_status, sort_keys=True))
         except Exception as exc:
@@ -334,6 +343,12 @@ class MatlowRuntime:
         model_spec = MODEL_SPECS[request.model_variant]
         transformer_path = self.model_path(request.model_variant)
         steps = request.effective_steps
+        from .veda_attention import actual_attention_backend
+
+        reference_diagnostics = None
+        conditioning_diagnostics = None
+        attention_mode = request.attention_mode or self.settings.matlow_attention_mode
+        attention_metadata = {"mode": attention_mode, "active": False, "reason": "not configured"}
         self._log_vram(torch, "before component loading", "none")
 
         with _ResourceMonitor(self.settings.matlow_max_swap_gib, self.cancel) as resources:
@@ -352,7 +367,13 @@ class MatlowRuntime:
                 reference_inputs = None
                 if request.task == "ref2va":
                     _report(stage_callback, 0.21, "loading_references")
-                    reference_inputs, input_bytes = _reference_inputs(request.conditions, torch)
+                    reference_inputs, input_bytes, reference_diagnostics = _reference_inputs(
+                        request.conditions, torch
+                    )
+                    logging.info(
+                        "H3 Ref2VA references: %s",
+                        json.dumps(reference_diagnostics, sort_keys=True),
+                    )
                 for condition in ([] if reference_inputs is not None else request.conditions):
                     if condition.get("type") != "image" or condition.get("role") != "keyframe":
                         raise RuntimeError("matlow_int8 FL2VA accepts keyframe images only")
@@ -379,20 +400,32 @@ class MatlowRuntime:
                         if reference_inputs is not None:
                             conditioning, latent = modules["MiniMaxH3ReferenceToVideo"].execute(
                                 clip, models["video_vae"], models["audio_vae"],
-                                request.prompt.strip(), width, height, frames,
+                                request.effective_prompt, width, height, frames,
                                 ref_image_size="match", **reference_inputs,
                             ).result
                         else:
                             conditioning, latent = modules["MiniMaxH3ImageToVideo"].execute(
                                 clip,
                                 models["video_vae"],
-                                request.prompt.strip(),
+                                request.effective_prompt,
                                 width,
                                 height,
                                 frames,
                                 first_frame=first_frame,
                                 last_frame=last_frame,
                             ).result
+                        conditioning_diagnostics = {
+                            "encoder": "MiniMaxH3ReferenceToVideo"
+                            if reference_inputs is not None
+                            else "MiniMaxH3ImageToVideo",
+                            "slot": "minimax_refs" if reference_inputs is not None else "keyframes",
+                            "conditioning_shapes": _shape_summary(conditioning),
+                            "latent_shapes": _shape_summary(latent),
+                        }
+                        logging.info(
+                            "H3 conditioning: %s",
+                            json.dumps(conditioning_diagnostics, sort_keys=True),
+                        )
                         # Raw video frames are no longer needed after conditioning.
                         reference_inputs = None
                 finally:
@@ -417,6 +450,41 @@ class MatlowRuntime:
 
                 diffusion_model_started = time.perf_counter()
                 model = modules["comfy"].sd.load_diffusion_model(str(transformer_path))
+                lora_metadata = None
+                if request.identity_transfer:
+                    model, lora_metadata = self._apply_lora(
+                        model,
+                        self.settings.matlow_faceswap_lora_file,
+                        request.identity_transfer.strength,
+                        {
+                            "kind": "identity_transfer",
+                            "artifact": "UntMods/FaceSwap_MiniMaxH3_REF2VA",
+                            "revision": "b2a5823ca64bc78d91725fbfcc576095bfceb764",
+                            "sha256": "1e032cf519cc143f434e67516d8ad0aacf4c6e146315b2dcc3b1c2800470326d",
+                            "trigger": "Faceswap",
+                        },
+                    )
+                    self._log_vram(torch, "after identity LoRA apply", "transformer,faceswap_ref2va")
+                elif request.visual_modifier:
+                    model, lora_metadata = self._apply_lora(
+                        model,
+                        self.settings.matlow_authentic_cinematic_lora_file,
+                        request.visual_modifier.strength,
+                        {
+                            "kind": "visual_modifier",
+                            "id": "authentic_cinematic_texture",
+                            "artifact": "civitai:2890588/version:3267949",
+                            "mirror": "Alex995647/loras-minimax-h3",
+                            "revision": "1517498210f571b0ed956f40df2765078daa749d",
+                            "sha256": "51dda79218ea126cbb2e08f3a6d9cc595e2224f4977d7618061954043a8bafcf",
+                            "trigger": "DY" if request.visual_modifier.include_trigger else None,
+                            "trigger_metadata_conflict": True,
+                        },
+                    )
+                    self._log_vram(torch, "after visual LoRA apply", "transformer,authentic_cinematic_texture")
+                from .veda_attention import apply_veda_attention
+
+                model, attention_metadata = apply_veda_attention(model, self.settings, torch, attention_mode)
                 model_load_seconds += time.perf_counter() - diffusion_model_started
                 self._log_vram(torch, "after transformer loading", request.model_variant)
                 shifted = modules["MiniMaxH3SigmaShift"].execute(model, shift_video=12.0, shift_audio=3.0)[0]
@@ -427,6 +495,15 @@ class MatlowRuntime:
                 diffusion_started = time.perf_counter()
                 sampled = modules["SamplerCustomAdvanced"].execute(noise, guider, sampler, sigmas, latent)[0]
                 torch.cuda.synchronize()
+                diagnostics = attention_metadata.get("diagnostics", {})
+                if attention_metadata.get("active") and not diagnostics.get("completed"):
+                    logging.warning("H3 Veda hook attached, but cleanup telemetry was not reported")
+                if attention_mode == "veda" and (
+                    not diagnostics.get("completed")
+                    or diagnostics.get("sparse_calls", 0) <= 0
+                    or diagnostics.get("fallback_reason")
+                ):
+                    raise RuntimeError(f"Strict Veda requested, but sparse sampling was not verified: {diagnostics}")
                 diffusion_seconds = time.perf_counter() - diffusion_started
                 _report(stage_callback, 0.75, "diffusion_complete")
 
@@ -485,6 +562,7 @@ class MatlowRuntime:
                     f"CUDA out of memory in {request.model_variant}; all H3 components were unloaded and the worker is ready for another job"
                 ) from exc
             except Exception as exc:
+                self.unload()
                 if resources.abort_reason:
                     raise RuntimeError(resources.abort_reason) from exc
                 raise
@@ -509,9 +587,15 @@ class MatlowRuntime:
             "quantization": model_spec["quantization"],
             "sampler": model_spec["sampler"],
             "scheduler": model_spec["scheduler"],
+            "flow_parameters": {"shift_video": 12.0, "shift_audio": 3.0},
+            "guidance": {"type": "basic", "cfg": None},
             "steps": steps,
             "fused_turbo": model_spec["fused_turbo"],
-            "attention_backend": "dense",
+            "lora": lora_metadata,
+            "references": reference_diagnostics,
+            "conditioning": conditioning_diagnostics,
+            "attention_backend": actual_attention_backend(attention_metadata),
+            "attention": attention_metadata,
             "vae_tile_size": self.settings.matlow_vae_tile_size,
             "model_load_seconds": model_load_seconds,
             "text_encoder_seconds": text_encoder_seconds,
@@ -532,11 +616,34 @@ class MatlowRuntime:
         logging.info("H3 MATLOW benchmark: %s", json.dumps(result, sort_keys=True))
         return result
 
+    def _apply_lora(
+        self,
+        model,
+        path: Path,
+        strength: float,
+        metadata: dict[str, Any],
+    ):
+        """Apply one allow-listed LoRA to the per-job model patcher.
+
+        Transformers are loaded fresh for every generation and fully unloaded before
+        VAE decode, so patches cannot contaminate a later job or model switch.
+        """
+        modules = self._imports()
+        lora_state = modules["comfy"].utils.load_torch_file(str(path))
+        patched_model, _ = modules["comfy"].sd.load_lora_for_models(
+            model, None, lora_state, strength, 0.0
+        )
+        del lora_state
+        return patched_model, {"enabled": True, "strength": strength, **metadata}
+
     @staticmethod
     def _log_vram(torch, stage: str, resident: str) -> None:
+        free_bytes, total_bytes = torch.cuda.mem_get_info()
         logging.info(
-            "H3 VRAM %s: allocated=%.2f GiB reserved=%.2f GiB peak=%.2f GiB resident=%s",
+            "H3 VRAM %s: total=%.2f GiB free=%.2f GiB allocated=%.2f GiB reserved=%.2f GiB peak=%.2f GiB resident=%s",
             stage,
+            total_bytes / GIB,
+            free_bytes / GIB,
             torch.cuda.memory_allocated() / GIB,
             torch.cuda.memory_reserved() / GIB,
             torch.cuda.max_memory_reserved() / GIB,
@@ -575,26 +682,77 @@ def _load_image(path: Path, torch):
 def _reference_inputs(conditions, torch):
     refs = {"ref_images": {}, "ref_videos": {}}
     input_bytes = 0
+    diagnostics = {
+        "counts": {"image": 0, "video": 0, "audio": 0},
+        "encoder": "MiniMaxH3ReferenceToVideo",
+        "conditioning_slot": "minimax_refs",
+        "model_mode": "ref2va",
+        "reference_weights": None,
+        "references": [],
+    }
     for condition in conditions:
         kind = condition.get("type")
         if kind not in {"image", "video"}:
             raise ValueError("Local Ref2VA supports image and video references only")
         path = _file_uri_path(str(condition["uri"]))
         input_bytes += path.stat().st_size
+        diagnostics["counts"][kind] += 1
         if kind == "image":
-            refs["ref_images"][f"ref_image_{len(refs['ref_images']) + 1}"] = _load_image(path, torch)
+            index = len(refs["ref_images"]) + 1
+            value = _load_image(path, torch)
+            refs["ref_images"][f"ref_image_{index}"] = value
+            tag = f"Picture {index}"
         else:
-            refs["ref_videos"][f"ref_video_{len(refs['ref_videos']) + 1}"] = _load_reference_video(
+            index = len(refs["ref_videos"]) + 1
+            value = _load_reference_video(
                 path,
                 torch,
                 condition.get("start_time_seconds", 0),
                 condition.get("visual_mode", "full"),
             )
-    return refs, input_bytes
+            refs["ref_videos"][f"ref_video_{index}"] = value
+            tag = f"Video {index}"
+        diagnostics["references"].append({
+            "source_id": path.name,
+            "tag": tag,
+            "kind": kind,
+            "purpose": condition.get("purpose"),
+            "visual_mode": condition.get("visual_mode") if kind == "video" else None,
+            "preprocessed_shape": _shape(value),
+        })
+    return refs, input_bytes, diagnostics
+
+
+def _shape(value):
+    shape = getattr(value, "shape", None)
+    if shape is None:
+        return None
+    return [int(dimension) for dimension in shape]
+
+
+def _shape_summary(value, path="root", depth=0):
+    """Return bounded tensor paths/shapes without serializing tensor values."""
+    direct = _shape(value)
+    if direct is not None:
+        return [{"path": path, "shape": direct}]
+    if depth >= 4:
+        return []
+    if isinstance(value, dict):
+        found = []
+        for key, child in list(value.items())[:24]:
+            found.extend(_shape_summary(child, f"{path}.{key}", depth + 1))
+        return found
+    if isinstance(value, list | tuple):
+        found = []
+        for index, child in enumerate(value[:24]):
+            found.extend(_shape_summary(child, f"{path}[{index}]", depth + 1))
+        return found
+    return []
 
 
 def _load_reference_video(path: Path, torch, start_time=0, visual_mode="full"):
     import math
+
     import numpy as np
 
     start_time = float(start_time)

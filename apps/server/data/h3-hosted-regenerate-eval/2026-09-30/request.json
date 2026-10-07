@@ -1,0 +1,67 @@
+{
+  "testId": "HOSTED-REGEN-MAX-I1-2K",
+  "method": "POST",
+  "endpoint": "https://api.minimax.io/v2/video_regeneration",
+  "body": {
+    "model": "MiniMax-H3",
+    "content": [
+      {
+        "type": "text",
+        "text": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles."
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "[inline image/jpeg; representation recorded separately]"
+        },
+        "role": "first_frame"
+      },
+      {
+        "type": "video_url",
+        "video_url": {
+          "url": "[inline video/mp4; representation recorded separately]"
+        },
+        "role": "base_video"
+      }
+    ],
+    "resolution": "2K"
+  },
+  "bodyMediaRedacted": true,
+  "actualBodySha256": "3ac2c13cf7aec8e062d8fb3d006797866833105e0dd121b9bb5f485ec0234e41",
+  "actualBodyBytes": 6474206,
+  "baseVideoRepresentation": {
+    "kind": "existing_client_inline_data_url",
+    "mimeType": "video/mp4",
+    "sourceAssetId": "sha256:ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+    "sourceSha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+    "encodedCharacters": 6435814
+  },
+  "references": [
+    {
+      "kind": "image",
+      "role": "first_frame",
+      "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg",
+      "bytes": 28093,
+      "sha256": "8e4ebdcfd28e987cc154605fdbaf51a9dd52c60bc030f67bbddc26efdba898ab",
+      "dimensions": {
+        "index": 0,
+        "codec_name": "mjpeg",
+        "codec_type": "video",
+        "width": 960,
+        "height": 544,
+        "r_frame_rate": "25/1",
+        "avg_frame_rate": "25/1",
+        "duration": "0.040000",
+        "nb_read_packets": "1"
+      },
+      "historicalBytesHashAvailable": false
+    }
+  ],
+  "upload": {
+    "separateUploadPerformed": false,
+    "uploadResult": null,
+    "mechanism": "Existing createH3RegenerationClient videoDataUrl; first-frame JPEG inline per official schema"
+  },
+  "authPersisted": false,
+  "source_task_id": "not sent; fal job ID is provenance only"
+}

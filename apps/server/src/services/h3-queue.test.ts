@@ -17,6 +17,70 @@ async function queueDirectory() {
 }
 
 describe("H3QueueService", () => {
+  it("persists per-render attention mode and defaults old jobs to auto", async () => {
+    const directory = await queueDirectory();
+    const runtime: H3QueueRuntime = { acquire: async () => ({ workerUrl: "", serviceToken: "" }), render: async () => ({ workerJobId: "unused", resultPaths: [] }), cleanup: async () => undefined };
+    const service = new H3QueueService({ directory, runtime });
+    const dense = await service.create({ title: "Dense A/B", operation: "text_to_video", prompt: "Scene", attentionMode: "dense" });
+    const automatic = await service.create({ title: "Auto", operation: "text_to_video", prompt: "Scene" });
+    expect(dense.attentionMode).toBe("dense");
+    expect(automatic.attentionMode).toBe("auto");
+    expect((await new H3QueueService({ directory, runtime }).getState()).items.map((item) => item.attentionMode)).toEqual(["dense", "auto"]);
+  });
+
+  it("persists visual modifiers, clears them, and rejects non-Base combinations", async () => {
+    const directory = await queueDirectory();
+    const runtime: H3QueueRuntime = { acquire: async () => ({ workerUrl: "", serviceToken: "" }), render: async () => ({ workerJobId: "unused", resultPaths: [] }), cleanup: async () => undefined };
+    const service = new H3QueueService({ directory, runtime });
+    const visualModifier = { id: "authentic_cinematic_texture" as const, enabled: true as const, strength: 0.5, includeTrigger: false };
+    const item = await service.create({ title: "Texture", operation: "text_to_video", prompt: "Scene", modelVariant: "h3_base", visualModifier });
+    expect((await new H3QueueService({ directory, runtime }).getState()).items[0].visualModifier).toEqual(visualModifier);
+    await expect(service.create({ title: "Hosted", operation: "text_to_video", prompt: "Scene", modelVariant: "h3_max_turbo", visualModifier })).rejects.toThrow("requires h3_base");
+    await expect(service.create({ title: "Combined", operation: "text_to_video", prompt: "Scene", visualModifier, identityTransfer: { enabled: true, strength: 1 } })).rejects.toThrow("cannot be combined");
+    const cleared = await service.update(item.id, { visualModifier: undefined });
+    expect(cleared?.visualModifier).toBeUndefined();
+  });
+  it("keeps hosted H3 Max as a model profile and stores provider result metadata", async () => {
+    const events: string[] = [];
+    const runtime: H3QueueRuntime = {
+      acquire: async (mode, _onLease, items) => {
+        events.push(`acquire:${mode}:${items.map((item) => item.modelVariant).join(",")}`);
+        return { workerUrl: "", serviceToken: "", provider: "fal" };
+      },
+      render: async (item) => ({ workerJobId: `fal-${item.id}`, resultPaths: [`/results/${item.id}.mp4`], metadata: { provider: "fal", model: "fal/minimax-h3-max", estimatedCostUsd: 0.2, latencyMs: { total: 2500 } } }),
+      cleanup: async () => undefined
+    };
+    const service = new H3QueueService({ directory: await queueDirectory(), runtime });
+    const item = await service.create({ title: "Hosted scene", operation: "text_to_video", prompt: "Scene", duration: 5, modelVariant: "h3_max", variants: 1 });
+
+    await service.start("provider");
+    const settled = await service.waitForSettled();
+
+    expect(item.modelVariant).toBe("h3_max");
+    expect(item.inferenceSteps).toBeUndefined();
+    expect(events).toEqual(["acquire:provider:h3_max"]);
+    expect(settled.items[0]).toMatchObject({ status: "succeeded", resultMetadata: { provider: "fal", model: "fal/minimax-h3-max", estimatedCostUsd: 0.2 } });
+  });
+
+  it("keeps hosted H3 Max Turbo as a provider-only profile", async () => {
+    const events: string[] = [];
+    const runtime: H3QueueRuntime = {
+      acquire: async (mode, _onLease, items) => { events.push(`acquire:${mode}:${items.map((item) => item.modelVariant).join(",")}`); return { workerUrl: "", serviceToken: "", provider: "fal" }; },
+      render: async (item) => ({ workerJobId: `fal-${item.id}`, resultPaths: [`/results/${item.id}.mp4`], metadata: { provider: "fal", model: "fal/minimax-h3-max-turbo", estimatedCostUsd: 0.2 } }),
+      cleanup: async () => undefined
+    };
+    const service = new H3QueueService({ directory: await queueDirectory(), runtime });
+    const item = await service.create({ title: "Turbo preview", operation: "text_to_video", prompt: "Scene", duration: 5, modelVariant: "h3_max_turbo", variants: 1 });
+
+    await service.start("provider");
+    const settled = await service.waitForSettled();
+
+    expect(item.modelVariant).toBe("h3_max_turbo");
+    expect(item.inferenceSteps).toBeUndefined();
+    expect(events).toEqual(["acquire:provider:h3_max_turbo"]);
+    expect(settled.items[0]).toMatchObject({ status: "succeeded", resultMetadata: { model: "fal/minimax-h3-max-turbo", estimatedCostUsd: 0.2 } });
+  });
+
   it("persists local jobs and renders them sequentially before cleaning the managed instance", async () => {
     const events: string[] = [];
     let concurrent = 0;
@@ -97,6 +161,59 @@ describe("H3QueueService", () => {
 
     const reloaded = new H3QueueService({ directory: service.directory, runtime });
     expect((await reloaded.getState()).items[0]).toMatchObject({ id: item.id, operation: "style_transfer" });
+  });
+
+  it("persists an imported Ref2VA job with materialized TrainScene references", async () => {
+    const runtime: H3QueueRuntime = {
+      acquire: async () => ({ workerUrl: "https://worker.example", serviceToken: "secret" }),
+      render: async (item) => ({ workerJobId: item.id, resultPaths: [] }),
+      cleanup: async () => undefined
+    };
+    const service = new H3QueueService({ directory: await queueDirectory(), runtime });
+    const assets = [
+      ...Array.from({ length: 5 }, (_, index) => ({ slot: "referenceImage" as const, kind: "image" as const, path: `/inputs/picture-${index + 1}.png`, filename: `picture-${index + 1}.png`, mimeType: "image/png" })),
+      { slot: "referenceVideo" as const, kind: "video" as const, path: "/inputs/motion.mp4", filename: "motion.mp4", mimeType: "video/mp4" }
+    ];
+    const item = await service.create({ title: "Imported TrainScene", operation: "reference_mix", prompt: "Use <Video 1> and <Picture 1>–<Picture 5>.", duration: 15, aspectRatio: "adaptive", assets });
+
+    const state = await service.getState();
+    expect(state.items[0]).toMatchObject({ id: item.id, status: "ready", operation: "reference_mix", assets });
+  });
+
+  it("persists optional identity and provider-neutral camera controls", async () => {
+    const runtime: H3QueueRuntime = {
+      acquire: async () => ({ workerUrl: "https://worker.example", serviceToken: "secret" }),
+      render: async (item) => ({ workerJobId: item.id, resultPaths: [] }),
+      cleanup: async () => undefined
+    };
+    const service = new H3QueueService({ directory: await queueDirectory(), runtime });
+    const item = await service.create({
+      title: "Identity orbit",
+      operation: "reference_mix",
+      prompt: "Preserve the performance",
+      identityTransfer: { enabled: true, strength: 0.85 },
+      cameraControlMode: "prompt",
+      cameraPath: {
+        schemaVersion: "1.0",
+        interpolation: "smooth",
+        loopClosure: "auto",
+        startHold: 0.1,
+        endHold: 0.2,
+        subjectBox: { x: 0.2, y: 0.1, width: 0.5, height: 0.7 },
+        keyframes: [
+          { time: 0, orbit: { azimuth: 0, elevation: 0, distance: 1 } },
+          { time: 1, orbit: { azimuth: 360, elevation: 0, distance: 1 } }
+        ]
+      }
+    });
+
+    const reloaded = new H3QueueService({ directory: service.directory, runtime });
+    expect((await reloaded.getState()).items[0]).toMatchObject({
+      id: item.id,
+      identityTransfer: { enabled: true, strength: 0.85 },
+      cameraControlMode: "prompt",
+      cameraPath: { schemaVersion: "1.0", startHold: 0.1, endHold: 0.2, subjectBox: { width: 0.5 } }
+    });
   });
 
   it("persists and cleans the exact instance when startup fails after Vast creation", async () => {

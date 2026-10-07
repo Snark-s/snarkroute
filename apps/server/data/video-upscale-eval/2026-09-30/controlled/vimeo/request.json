@@ -1,0 +1,19 @@
+{
+  "action": "REUSE_EXISTING_SUCCESSFUL_CUDA_OUTPUT",
+  "approved_neural_rerun": false,
+  "original_job": "vup_ed035e79-9c5a-46f4-976e-65e4529111c8",
+  "original_submitted_request": {
+    "model": "openmodeldb/vimeoscale-unet-x2",
+    "scale": 2,
+    "chunk_size": 3,
+    "overlap_frames": 1,
+    "tile_size": 256,
+    "tile_overlap": 32,
+    "input_asset": "video_asset_3869224e-04b2-4ab0-afef-4bf301396e1f",
+    "device": "cuda",
+    "output_codec": "libx264",
+    "output_container": "mp4",
+    "crf": 18,
+    "audio_handling": "copy"
+  }
+}

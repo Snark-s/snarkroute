@@ -1,0 +1,10 @@
+{
+  "status": "INFERENCE_SUCCEEDED_NATIVE_REUSED_COMPARISON_INCOMPLETE",
+  "original_harness_status": "FAILED",
+  "original_shutdown_classification": "UNKNOWN",
+  "native_pixels_preserved": true,
+  "native_hash_unchanged": true,
+  "native_metadata_profile": "INCOMPLETE: transfer and primaries absent; original preserved",
+  "normalized_output": null,
+  "audio_packet_identity": true
+}

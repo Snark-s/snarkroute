@@ -320,13 +320,19 @@ dd {
   text-transform: uppercase;
 }
 
-.providerStatus.is-connected {
+.providerStatus.is-connected,
+.providerStatus.is-verified {
   color: var(--accent);
 }
 
 .providerStatus.is-error,
-.providerStatus.is-offline {
+.providerStatus.is-offline,
+.providerStatus.is-failed {
   color: #e99b9b;
+}
+
+.providerStatus.is-testing {
+  color: #e2b86b;
 }
 
 .providerCard p,

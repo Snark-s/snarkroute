@@ -1,0 +1,37 @@
+{
+  "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\normalized\\original.mp4",
+  "status": "VALIDATED_EXISTING_BASELINE",
+  "metadata": {
+    "width": 2560,
+    "height": 1440,
+    "codec_name": "h264",
+    "pix_fmt": "yuv420p",
+    "color_range": "tv",
+    "color_space": "bt709",
+    "color_transfer": "bt709",
+    "color_primaries": "bt709",
+    "sample_aspect_ratio": "1:1",
+    "avg_frame_rate": "24/1",
+    "nb_frames": "124",
+    "audio": {
+      "codec_name": "aac",
+      "sample_rate": "32000",
+      "channels": 2,
+      "duration": "5.184000",
+      "nb_frames": "163"
+    }
+  },
+  "audio": {
+    "packets": 163,
+    "encoded_packet_sequence_sha256": "05779dbc6e656cb2b6a246dc13e4fef030d9b37dbf4a74936b189036ed098802"
+  },
+  "aac_packet_identity": true,
+  "final_cleanup_snapshot": {
+    "timestamp": "2026-09-30T22:26:16.073685+00:00",
+    "active_processes": 0,
+    "active_pids": [],
+    "processes": [],
+    "identity_errors": [],
+    "affinity_mask": 3
+  }
+}

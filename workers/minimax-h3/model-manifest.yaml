@@ -1,5 +1,5 @@
 schema_version: 1
-verified_at: "2026-09-09"
+verified_at: "2026-09-21"
 policy:
   production_runtime: "ComfyUI GUI, HTTP server, workflow engine and custom-node packages are prohibited; the local MATLOW adapter may import only the pinned ComfyUI core checkout as a headless Python model library"
   model_volume: /models
@@ -35,7 +35,7 @@ frameworks:
     profile: local_fast
     memory_mode: dynamic
     vae_tile: "256 with 64 overlap"
-    status: "T2VA and first-frame FL2VA preview verified end-to-end on RTX 3080 Laptop; last-frame, Ref2VA, native audio and final remain disabled"
+    status: "T2VA, 10-second FL2VA, first/last frame and visual Ref2VA with native generated audio verified end-to-end on RTX 3080 Laptop; audio-reference conditioning and local final remain disabled"
   diffusers:
     version: unresolved
     commit: "f53d552036a0d1bd5570782a39cd40cfabf112bc"
@@ -48,6 +48,44 @@ model:
   gated: false
   manual_license_acceptance_required: true
 components:
+  - id: authentic-cinematic-texture-v1
+    repository: Alex995647/loras-minimax-h3
+    source_model: "civitai:2890588"
+    source_version: "civitai:3267949"
+    revision: "1517498210f571b0ed956f40df2765078daa749d"
+    allow_patterns: ["Minimax H3真实电影质感.safetensors"]
+    remote_filename: "minimax-h3-authentic-cinematic-texture/Minimax H3真实电影质感.safetensors"
+    filename: "Minimax H3真实电影质感.safetensors"
+    expected_bytes: 309965208
+    checksum_sha256: "51dda79218ea126cbb2e08f3a6d9cc595e2224f4977d7618061954043a8bafcf"
+    format: SafeTensor
+    dtype: BF16
+    rank: 16
+    purpose: "Optional visual modifier for natural cinematic texture; never selected as a model variant"
+    variant: authentic_cinematic_texture
+    path: Alex995647/loras-minimax-h3
+    base_model: MiniMax H3
+    compatible_runtime: "MATLOW fused Turbo INT8 rev 8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3; controlled T2VA GPU influence verified, baseline reset byte-identical"
+    capability_status: limited
+    license: "Civitai custom permissions: no credit required; commercial Image/RentCivit/Rent; derivatives and different license allowed"
+    trigger: "DY (author description); structured trainedWords is empty, so trigger/no-trigger A/B is required"
+    default_strength: 0.7
+    motion_strength: 0.5
+    download: true
+  - id: faceswap-ref2va-lora
+    repository: UntMods/FaceSwap_MiniMaxH3_REF2VA
+    revision: "b2a5823ca64bc78d91725fbfcc576095bfceb764"
+    allow_patterns: ["SS_FaceSwap_MiniMax_H3_REF2VA.safetensors"]
+    filename: SS_FaceSwap_MiniMax_H3_REF2VA.safetensors
+    expected_bytes: 65623904
+    checksum_sha256: "1e032cf519cc143f434e67516d8ad0aacf4c6e146315b2dcc3b1c2800470326d"
+    purpose: "Optional identity-transfer diagnostic for MiniMax H3 Base Ref2VA; not a model variant and not a style adapter"
+    variant: faceswap_ref2va
+    path: UntMods/FaceSwap_MiniMaxH3_REF2VA
+    license: Apache-2.0
+    trigger: Faceswap
+    default_strength: 1.0
+    download: true
   - id: 10eros-max-beta5-w4a8
     repository: TenStrip/10Eros-Max
     revision: "8a198588c8870ab0d613b3492a3150d091c8c2dd"

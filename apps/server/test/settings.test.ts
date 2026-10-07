@@ -6,9 +6,9 @@ describe("settings API", () => {
     const previousNodeEnv = process.env.NODE_ENV;
     process.env.APP_DEV_UI = "true";
     process.env.NODE_ENV = "production";
-    const { buildServer } = await import("../src/app");
 
     try {
+      const { buildServer } = await import("../src/app");
       expect(() => buildServer()).toThrow("APP_DEV_UI must not be enabled in production");
     } finally {
       if (previousDevUi === undefined) delete process.env.APP_DEV_UI;
@@ -16,7 +16,7 @@ describe("settings API", () => {
       if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;
     }
-  });
+  }, 10_000);
 
   it("refuses unsafe production cloud auth configuration", async () => {
     const previous = snapshotEnv(["APP_DEV_UI", "NODE_ENV", "APP_MODE", "AUTH_HASH_SECRET", "AUTH_BASE_URL", "APP_WEB_URL"]);

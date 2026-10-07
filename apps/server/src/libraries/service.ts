@@ -1577,9 +1577,6 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
 }
 
 async function runTextModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[] }) {
-  if (!["auto", "polza", "openrouter", "gemini", "kie"].includes(input.executionProvider)) {
-    throw new Error(`Execution provider "${input.executionProvider}" is not available for text generation.`);
-  }
   const autoOnlyPolza = input.executionProvider === "auto" && input.availableExecutionProviders?.length === 1 && input.availableExecutionProviders[0] === "polza";
   const directPolza = input.executionProvider === "polza" || autoOnlyPolza;
   const canFallbackFromPolza = input.executionProvider === "polza"

@@ -1,0 +1,135 @@
+{
+  "status": "FAILED",
+  "neural_runs_this_phase": 0,
+  "available": [
+    "original",
+    "vimeo"
+  ],
+  "winner": null,
+  "assumption": "SDR BT.709 limited source; test assumption, not recovered source fact",
+  "continuation": "2026-10-03",
+  "previous_verification": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\comparison\\verification.json",
+  "precheck_gpu": {
+    "index": 0,
+    "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+    "total_mib": 16384,
+    "used_mib": 2050,
+    "free_mib": 14126,
+    "utilization_percent": 1
+  },
+  "source_sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+  "native_vimeo_sha256": "a5cae1aa824ddd3ddf69fd3d1eb626f1cc874742597c808043edf3e7b9e55b60",
+  "normalization": {
+    "original": {
+      "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\normalized\\original.mp4",
+      "metadata": {
+        "width": 2560,
+        "height": 1440,
+        "codec_name": "h264",
+        "pix_fmt": "yuv420p",
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_transfer": "bt709",
+        "color_primaries": "bt709",
+        "sample_aspect_ratio": "1:1",
+        "avg_frame_rate": "24/1",
+        "nb_frames": "124",
+        "audio": {
+          "codec_name": "aac",
+          "sample_rate": "32000",
+          "channels": 2,
+          "duration": "5.184000",
+          "nb_frames": "163"
+        }
+      },
+      "audio": {
+        "packets": 163,
+        "encoded_packet_sequence_sha256": "05779dbc6e656cb2b6a246dc13e4fef030d9b37dbf4a74936b189036ed098802"
+      },
+      "seconds": 0.1565761999991082,
+      "command": [
+        "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe",
+        "-y",
+        "-nostdin",
+        "-v",
+        "error",
+        "-filter_threads",
+        "2",
+        "-filter_complex_threads",
+        "2",
+        "-threads:v",
+        "2",
+        "-i",
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+        "-threads",
+        "2",
+        "-i",
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:a",
+        "copy",
+        "-vf",
+        "scale=in_color_matrix=bt709:in_range=tv:out_range=full,format=rgb24,scale=2520:1440:flags=lanczos:in_range=full:out_range=full,format=rgb24,pad=2560:1440:20:0:color=black,format=rgb24,setsar=1,scale=in_range=full:out_range=tv:out_color_matrix=bt709,format=yuv420p,setsar=1,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "18",
+        "-threads:v",
+        "2",
+        "-pix_fmt",
+        "yuv420p",
+        "-r",
+        "24",
+        "-g",
+        "48",
+        "-keyint_min",
+        "48",
+        "-sc_threshold",
+        "0",
+        "-color_range",
+        "tv",
+        "-colorspace",
+        "bt709",
+        "-color_trc",
+        "bt709",
+        "-color_primaries",
+        "bt709",
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\normalized\\original.mp4"
+      ],
+      "sha256": "da7d07ce11946d5103ccd38010ee6141f2f24ba2cacf8073372bd32c3bbbeffb",
+      "reused": true
+    }
+  },
+  "error": "Sustained CPU usage above safety threshold",
+  "final_cleanup_snapshot": {
+    "timestamp": "2026-10-03T20:57:51.444583+00:00",
+    "active_processes": 0,
+    "active_pids": [],
+    "processes": [
+      {
+        "pid": 35308,
+        "start_time": "2026-10-03T20:57:36.584459+00:00",
+        "exit_time": "2026-10-03T20:57:51.404366+00:00",
+        "exit_status": 1,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 7008,
+        "start_time": "2026-10-03T20:57:36.594278+00:00",
+        "exit_time": "2026-10-03T20:57:51.405853+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      }
+    ],
+    "identity_errors": [],
+    "affinity_mask": 3
+  },
+  "total_wall_seconds": 15.52977970000029
+}

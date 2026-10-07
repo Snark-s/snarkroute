@@ -15,9 +15,26 @@ CapabilityName = Literal[
     "automatic_tracking",
     "kitchen_int8",
     "style_transfer",
+    "identity_transfer",
+    "visual_lora",
+    "camera_prompt_control",
 ]
 
 H3ModelVariant = Literal["h3_base", "10eros_max", "10eros_max_turbo"]
+
+
+class IdentityTransfer(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: Literal[True] = True
+    strength: float = Field(default=1.0, ge=0, le=2)
+
+
+class VisualModifier(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: Literal["authentic_cinematic_texture"]
+    enabled: Literal[True] = True
+    strength: float = Field(default=0.7, ge=0, le=2)
+    include_trigger: bool = False
 
 
 class Target(BaseModel):
@@ -102,6 +119,11 @@ class GenerateRequest(BaseModel):
     turbo_lora: bool = False
     lora_scale: float = Field(default=1.0, ge=0, le=2)
     model_variant: H3ModelVariant = "h3_base"
+    attention_mode: Literal["auto", "veda", "dense"] | None = None
+    identity_transfer: IdentityTransfer | None = None
+    visual_modifier: VisualModifier | None = None
+    camera_path: dict[str, Any] | None = None
+    camera_control_mode: Literal["prompt"] | None = None
     idempotency_key: str | None = Field(
         default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
     )
@@ -137,13 +159,27 @@ class GenerateRequest(BaseModel):
         if self.task == "t2va" and self.conditions:
             raise ValueError("t2va does not accept conditions")
         if self.task == "fl2va":
-            frames = sorted(item.get("frame_index") for item in self.conditions)
             if any(item.get("type") != "image" or item.get("role") != "keyframe" for item in self.conditions):
                 raise ValueError("fl2va accepts keyframe images only")
+            frames = sorted(item.get("frame_index") for item in self.conditions)
             if frames not in ([], [-1], [0], [-1, 0]):
                 raise ValueError("fl2va frame_index must be 0, -1, or both")
         if self.task == "ref2va" and not self.conditions:
             raise ValueError("ref2va requires at least one reference")
+        if self.identity_transfer:
+            if self.model_variant != "h3_base" or self.task != "ref2va":
+                raise ValueError("identity_transfer requires h3_base Ref2VA")
+            if not any(item.get("type") == "video" for item in self.conditions):
+                raise ValueError("identity_transfer requires a reference video")
+            if not any(item.get("type") == "image" and item.get("purpose") == "identity" for item in self.conditions):
+                raise ValueError("identity_transfer requires an image marked purpose=identity")
+        if self.visual_modifier:
+            if self.model_variant != "h3_base":
+                raise ValueError("visual_modifier requires h3_base")
+            if self.identity_transfer:
+                raise ValueError("visual_modifier cannot be combined with identity_transfer until controlled-tested")
+        if self.camera_path is not None and self.camera_control_mode != "prompt":
+            raise ValueError("local H3 accepts CameraPath only through camera_control_mode=prompt")
         if self.model_variant == "10eros_max" and self.quality_mode != "final":
             raise ValueError("10eros_max is the quality/final profile")
         if self.model_variant == "10eros_max_turbo" and self.quality_mode != "preview":
@@ -184,7 +220,20 @@ class GenerateRequest(BaseModel):
             )
         if self.operation == "video.resample.h3" or self.task == "resample":
             return "resample"
+        if self.identity_transfer:
+            return "identity_transfer"
         return "ref2va" if self.task == "ref2va" else "fl2va"
+
+    @property
+    def effective_prompt(self) -> str:
+        prompt = self.prompt.strip()
+        if self.identity_transfer and "faceswap" not in prompt.lower():
+            prompt = f"Faceswap, {prompt}"
+        if self.visual_modifier and self.visual_modifier.include_trigger:
+            tokens = {token.strip(" ,.").lower() for token in prompt.split()}
+            if "dy" not in tokens:
+                prompt = f"DY, {prompt}"
+        return prompt
 
 
 class StructuredError(BaseModel):
@@ -199,6 +248,7 @@ class ResultMetadata(BaseModel):
     backend_version: str
     model_revision: str
     variant: str
+    model_variant: str | None = None
     gpu: str | None = None
     vram_gib: float | None = None
     resolution: str | None = None
@@ -207,9 +257,16 @@ class ResultMetadata(BaseModel):
     steps: int | None = None
     seed: int | None = None
     quantization: str | None = None
+    sampler: str | None = None
+    scheduler: str | None = None
+    flow_parameters: dict[str, Any] | None = None
+    guidance: dict[str, Any] | None = None
     attention_backend: str | None = None
+    attention: dict[str, Any] | None = None
     vae_tile_size: int | None = None
     lora: dict[str, Any] | None = None
+    references: dict[str, Any] | None = None
+    conditioning: dict[str, Any] | None = None
     render_time_seconds: float
     peak_vram_gib: float | None = None
     peak_ram_gib: float | None = None

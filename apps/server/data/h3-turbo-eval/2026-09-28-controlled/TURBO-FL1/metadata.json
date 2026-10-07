@@ -1,0 +1,87 @@
+{
+  "status": "succeeded",
+  "id": "TURBO-FL1",
+  "purpose": "first-plus-last controlled match",
+  "startedAt": "2026-09-28T17:13:46.783Z",
+  "completedAt": "2026-09-28T17:13:56.189Z",
+  "requestId": "01a0e902-2509-7591-b12a-056abc96134a",
+  "endpoint": "minimax/h3-max-turbo/image-to-video",
+  "provider": "fal",
+  "model": "fal/minimax-h3-max-turbo",
+  "upstream": "MiniMaxAI/MiniMax-H3",
+  "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-FL1\\output.mp4",
+  "expandedPrompt": null,
+  "providerTimings": {
+    "inference": 1.5253627789934399
+  },
+  "latencyMs": {
+    "acceptedMs": 424,
+    "generationMs": 4965,
+    "totalMs": 5389,
+    "download": 3744,
+    "totalWithDownload": 9133
+  },
+  "cost": {
+    "amountUsd": 0.2,
+    "rateUsdPerSecond": 0.04,
+    "currency": "USD",
+    "confidence": "exact-output-only",
+    "promotion": null,
+    "excludesReferenceTokenCharges": true,
+    "source": "https://fal.ai/models/minimax/h3-max-turbo/text-to-video"
+  },
+  "media": {
+    "durationSeconds": 5.184,
+    "sizeBytes": 4632947,
+    "video": {
+      "codec": "h264",
+      "width": 1344,
+      "height": 768,
+      "frameRate": "24/1"
+    },
+    "audio": {
+      "present": true,
+      "codec": "aac",
+      "channels": 2,
+      "sampleRate": 32000,
+      "durationSeconds": 5.184
+    }
+  },
+  "timeline": [
+    {
+      "event": "price_quoted",
+      "at": "2026-09-28T17:13:46.783Z",
+      "amountUsd": 0.2
+    },
+    {
+      "event": "submit_started",
+      "at": "2026-09-28T17:13:46.783Z"
+    },
+    {
+      "event": "accepted",
+      "at": "2026-09-28T17:13:47.207Z",
+      "requestId": "01a0e902-2509-7591-b12a-056abc96134a"
+    },
+    {
+      "event": "provider_in_progress",
+      "at": "2026-09-28T17:13:47.368Z"
+    },
+    {
+      "event": "provider_in_progress",
+      "at": "2026-09-28T17:13:49.540Z"
+    },
+    {
+      "event": "provider_completed",
+      "at": "2026-09-28T17:13:51.710Z"
+    },
+    {
+      "event": "provider_complete",
+      "at": "2026-09-28T17:13:52.172Z"
+    },
+    {
+      "event": "local_ready",
+      "at": "2026-09-28T17:13:55.916Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-FL1\\output.mp4"
+    }
+  ]
+}

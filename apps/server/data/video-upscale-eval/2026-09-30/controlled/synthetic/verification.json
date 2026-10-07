@@ -1,0 +1,413 @@
+{
+  "status": "SUCCEEDED",
+  "neural_jobs": 0,
+  "model_loads": 0,
+  "decode_filter": "scale=in_color_matrix=bt709:in_range=tv:out_range=full,format=rgb24",
+  "encode_filter": "scale=in_range=full:out_range=tv:out_color_matrix=bt709,format=yuv420p,setsar=1,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+  "identity_rgb_sha256": "66d85de019c6d27f7be8699e09c491d3b200a615b18a380f8039b34aa679f390",
+  "old_video_metadata": {
+    "width": 168,
+    "height": 96,
+    "nb_frames": "12",
+    "avg_frame_rate": "24/1",
+    "color_range": "tv",
+    "color_space": "bt709",
+    "color_transfer": null,
+    "color_primaries": null
+  },
+  "old_decoded_yuv_sha256": "852e10a8208d57f6889cd854fa8ef79b37ac72f69b943d37bd0e834d0262205d",
+  "fixed_video_metadata": {
+    "width": 168,
+    "height": 96,
+    "nb_frames": "12",
+    "avg_frame_rate": "24/1",
+    "color_range": "tv",
+    "color_space": "bt709",
+    "color_transfer": "bt709",
+    "color_primaries": "bt709"
+  },
+  "fixed_decoded_yuv_sha256": "852e10a8208d57f6889cd854fa8ef79b37ac72f69b943d37bd0e834d0262205d",
+  "fixed_metadata": {
+    "width": 168,
+    "height": 96,
+    "codec_name": "h264",
+    "pix_fmt": "yuv420p",
+    "color_range": "tv",
+    "color_space": "bt709",
+    "color_transfer": "bt709",
+    "color_primaries": "bt709",
+    "sample_aspect_ratio": "1:1",
+    "avg_frame_rate": "24/1",
+    "nb_frames": "12",
+    "audio": {
+      "codec_name": "aac",
+      "sample_rate": "32000",
+      "channels": 2,
+      "duration": "0.500000",
+      "nb_frames": "17"
+    }
+  },
+  "audio": {
+    "source": {
+      "packets": 17,
+      "encoded_packet_sequence_sha256": "bcfef534a2b90fcdaab9846c8489bfb8b4f11b0ef6d1d63fe2d6c949f2bf4fc0"
+    },
+    "output": {
+      "packets": 17,
+      "encoded_packet_sequence_sha256": "bcfef534a2b90fcdaab9846c8489bfb8b4f11b0ef6d1d63fe2d6c949f2bf4fc0"
+    }
+  },
+  "actual_encode_pixels_unchanged": true,
+  "source_rgb_conversion_unchanged": true,
+  "MAX_I1_shared_input_rgb_sha256": "bd7634c38d334199fef87f1e6960d92fa1ca7e92ed249d1b8dc224856840e1eb",
+  "MAX_I1_shared_input_rgb_bytes": 383975424,
+  "shutdown": {
+    "worker_pid": 33668,
+    "shutdown_requested_at": "2026-09-30T22:14:53.128789+00:00",
+    "grace_seconds": 15,
+    "termination_signal": "authenticated Uvicorn should_exit; no OS signal",
+    "response": {
+      "shutdown_requested": true
+    },
+    "immediately_after_request": {
+      "timestamp": "2026-09-30T22:14:53.131787+00:00",
+      "active_processes": 3,
+      "active_pids": [
+        33668,
+        46260,
+        40908
+      ],
+      "processes": [
+        {
+          "pid": 49204,
+          "start_time": "2026-09-30T22:14:49.180082+00:00",
+          "exit_time": "2026-09-30T22:14:49.350718+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 20756,
+          "start_time": "2026-09-30T22:14:49.358549+00:00",
+          "exit_time": "2026-09-30T22:14:49.444651+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 35888,
+          "start_time": "2026-09-30T22:14:49.455402+00:00",
+          "exit_time": "2026-09-30T22:14:49.651157+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 46356,
+          "start_time": "2026-09-30T22:14:49.468758+00:00",
+          "exit_time": "2026-09-30T22:14:49.661198+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 51644,
+          "start_time": "2026-09-30T22:14:49.665415+00:00",
+          "exit_time": "2026-09-30T22:14:49.731289+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 23508,
+          "start_time": "2026-09-30T22:14:49.839849+00:00",
+          "exit_time": "2026-09-30T22:14:49.908669+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 14416,
+          "start_time": "2026-09-30T22:14:49.915550+00:00",
+          "exit_time": "2026-09-30T22:14:49.998650+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 34360,
+          "start_time": "2026-09-30T22:14:50.004889+00:00",
+          "exit_time": "2026-09-30T22:14:50.074171+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 32316,
+          "start_time": "2026-09-30T22:14:50.178862+00:00",
+          "exit_time": "2026-09-30T22:14:50.251438+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 33668,
+          "start_time": "2026-09-30T22:14:51.472893+00:00",
+          "exit_time": null,
+          "exit_status": 259,
+          "active": true,
+          "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Scripts\\python.exe"
+        },
+        {
+          "pid": 46260,
+          "start_time": "2026-09-30T22:14:51.486673+00:00",
+          "exit_time": null,
+          "exit_status": 259,
+          "active": true,
+          "image": "C:\\Windows\\System32\\conhost.exe"
+        },
+        {
+          "pid": 40908,
+          "start_time": "2026-09-30T22:14:51.526787+00:00",
+          "exit_time": null,
+          "exit_status": 259,
+          "active": true,
+          "image": "C:\\Users\\serge\\AppData\\Roaming\\uv\\python\\cpython-3.12.9-windows-x86_64-none\\python.exe"
+        }
+      ],
+      "identity_errors": [],
+      "affinity_mask": 3
+    },
+    "port_immediately_after_request": {
+      "open": true,
+      "listeners": [
+        "TCP    127.0.0.1:8092         0.0.0.0:0              LISTENING       40908"
+      ],
+      "probe_returncode": 0
+    },
+    "after_grace": {
+      "timestamp": "2026-09-30T22:14:53.491912+00:00",
+      "active_processes": 0,
+      "active_pids": [],
+      "processes": [
+        {
+          "pid": 49204,
+          "start_time": "2026-09-30T22:14:49.180082+00:00",
+          "exit_time": "2026-09-30T22:14:49.350718+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 20756,
+          "start_time": "2026-09-30T22:14:49.358549+00:00",
+          "exit_time": "2026-09-30T22:14:49.444651+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 35888,
+          "start_time": "2026-09-30T22:14:49.455402+00:00",
+          "exit_time": "2026-09-30T22:14:49.651157+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 46356,
+          "start_time": "2026-09-30T22:14:49.468758+00:00",
+          "exit_time": "2026-09-30T22:14:49.661198+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 51644,
+          "start_time": "2026-09-30T22:14:49.665415+00:00",
+          "exit_time": "2026-09-30T22:14:49.731289+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 23508,
+          "start_time": "2026-09-30T22:14:49.839849+00:00",
+          "exit_time": "2026-09-30T22:14:49.908669+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 14416,
+          "start_time": "2026-09-30T22:14:49.915550+00:00",
+          "exit_time": "2026-09-30T22:14:49.998650+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 34360,
+          "start_time": "2026-09-30T22:14:50.004889+00:00",
+          "exit_time": "2026-09-30T22:14:50.074171+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 32316,
+          "start_time": "2026-09-30T22:14:50.178862+00:00",
+          "exit_time": "2026-09-30T22:14:50.251438+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 33668,
+          "start_time": "2026-09-30T22:14:51.472893+00:00",
+          "exit_time": "2026-09-30T22:14:53.419085+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 46260,
+          "start_time": "2026-09-30T22:14:51.486673+00:00",
+          "exit_time": "2026-09-30T22:14:53.422258+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        },
+        {
+          "pid": 40908,
+          "start_time": "2026-09-30T22:14:51.526787+00:00",
+          "exit_time": "2026-09-30T22:14:53.412455+00:00",
+          "exit_status": 0,
+          "active": false,
+          "image": null
+        }
+      ],
+      "identity_errors": [],
+      "affinity_mask": 3
+    },
+    "elapsed_seconds": 0.3025370999966981,
+    "worker_returncode": 0,
+    "port_after_grace": {
+      "open": false,
+      "listeners": [],
+      "probe_returncode": 0
+    },
+    "classification": "DELAYED_CLEAN",
+    "stdout_stderr_tail": ""
+  },
+  "final_cleanup_snapshot": {
+    "timestamp": "2026-09-30T22:14:56.586076+00:00",
+    "active_processes": 0,
+    "active_pids": [],
+    "processes": [
+      {
+        "pid": 49204,
+        "start_time": "2026-09-30T22:14:49.180082+00:00",
+        "exit_time": "2026-09-30T22:14:49.350718+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 20756,
+        "start_time": "2026-09-30T22:14:49.358549+00:00",
+        "exit_time": "2026-09-30T22:14:49.444651+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 35888,
+        "start_time": "2026-09-30T22:14:49.455402+00:00",
+        "exit_time": "2026-09-30T22:14:49.651157+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 46356,
+        "start_time": "2026-09-30T22:14:49.468758+00:00",
+        "exit_time": "2026-09-30T22:14:49.661198+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 51644,
+        "start_time": "2026-09-30T22:14:49.665415+00:00",
+        "exit_time": "2026-09-30T22:14:49.731289+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 23508,
+        "start_time": "2026-09-30T22:14:49.839849+00:00",
+        "exit_time": "2026-09-30T22:14:49.908669+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 14416,
+        "start_time": "2026-09-30T22:14:49.915550+00:00",
+        "exit_time": "2026-09-30T22:14:49.998650+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 34360,
+        "start_time": "2026-09-30T22:14:50.004889+00:00",
+        "exit_time": "2026-09-30T22:14:50.074171+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 32316,
+        "start_time": "2026-09-30T22:14:50.178862+00:00",
+        "exit_time": "2026-09-30T22:14:50.251438+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 33668,
+        "start_time": "2026-09-30T22:14:51.472893+00:00",
+        "exit_time": "2026-09-30T22:14:53.419085+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 46260,
+        "start_time": "2026-09-30T22:14:51.486673+00:00",
+        "exit_time": "2026-09-30T22:14:53.422258+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      },
+      {
+        "pid": 40908,
+        "start_time": "2026-09-30T22:14:51.526787+00:00",
+        "exit_time": "2026-09-30T22:14:53.412455+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      }
+    ],
+    "identity_errors": [],
+    "affinity_mask": 3
+  },
+  "final_port_state": {
+    "open": false,
+    "listeners": [],
+    "probe_returncode": 0
+  }
+}

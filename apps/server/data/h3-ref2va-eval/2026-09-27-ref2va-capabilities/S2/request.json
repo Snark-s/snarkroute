@@ -1,0 +1,24 @@
+{
+  "operation": "video.generate.h3",
+  "task": "ref2va",
+  "prompt": "Use <Picture 1> as the visual/style reference for rendering.\n\nA woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+  "conditions": [
+    {
+      "type": "image",
+      "uri": "file:///home/serge/h3/outputs/inputs/436001bb-ea7e-40f2-b6bd-d65a7b55b3b6/input.png",
+      "role": "reference",
+      "purpose": "style"
+    }
+  ],
+  "target": {
+    "short_edge": 768,
+    "aspect_ratio": "16:9",
+    "duration_seconds": 5
+  },
+  "seed": 424242,
+  "num_outputs_per_prompt": 1,
+  "num_inference_steps": 4,
+  "quality_mode": "preview",
+  "quality": "lossless",
+  "turbo_lora": false
+}

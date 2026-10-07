@@ -2,7 +2,7 @@
 
 Versioned, authenticated, backend-neutral worker for MiniMax H3. The normal API and SGLang images have no ComfyUI runtime, custom nodes, or ComfyUI container. The optional local `matlow_int8` backend imports a pinned ComfyUI core checkout strictly as a headless Python model-loading/sampling library for the checkpoint's native `comfy_quant` format. It does not start ComfyUI's GUI, HTTP server, or workflow engine.
 
-The stable facade owns validation, asynchronous jobs, idempotency, cancellation, metadata and result storage. Select the runtime with `H3_BACKEND=mock|sglang|matlow_int8|diffusers|vdn`. `matlow_int8` exposes the GPU-verified `local_fast` T2VA, FL2VA and visual Ref2VA preview paths with native generated audio; audio references and final-quality mode remain fail-closed. `diffusers` and `vdn` remain unavailable boundaries.
+The stable facade owns validation, asynchronous jobs, idempotency, cancellation, metadata and result storage. Select the runtime with `H3_BACKEND=mock|sglang|matlow_int8|diffusers|vdn`. `matlow_int8` exposes the GPU-verified `local_fast` T2VA, FL2VA and visual Ref2VA preview paths with native generated audio; audio references and final-quality mode remain fail-closed. Its attention mode is `H3_MATLOW_ATTENTION=auto|veda|dense`: `auto` uses the vendored Veda learned sparse-attention runtime when the predictor and Triton self-test pass, otherwise it keeps dense attention; `veda` fails closed instead of falling back. `diffusers` and `vdn` remain unavailable boundaries.
 
 ## Local no-GPU verification
 

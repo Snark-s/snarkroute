@@ -11,13 +11,21 @@ export type ModelCapability =
   | (string & {});
 
 export type ModelProviderId = string;
+export type EngineKind = "text" | "image" | "video" | "audio" | "upscale" | "transform" | "utility" | "decision" | (string & {});
+export type EngineAvailability = "available" | "unavailable" | "degraded" | "unknown";
 import type { ModelIOContract, ModelIOItem, ModelMediaKind } from "@snarkroute/protocol";
 
 export interface ModelInfo {
   id: string;
   providerId: ModelProviderId;
   title: string;
+  kind?: EngineKind;
+  protocols?: string[];
   capabilities: ModelCapability[];
+  availability?: EngineAvailability;
+  priority?: number;
+  adapterId?: string;
+  limits?: Record<string, unknown>;
   inputTypes?: string[];
   outputTypes?: string[];
   contextWindow?: number;
@@ -40,6 +48,44 @@ export interface ProviderConnection {
   secretRef?: string;
   baseUrl?: string;
   metadata?: Record<string, unknown>;
+}
+
+export type ProviderConnectionTestStatus = "verified" | "failed" | "unsupported";
+
+export type ProviderConnectionFailureReason = "credentials" | "network" | "malformed_response" | "provider_error";
+
+export interface ProviderConnectionTest {
+  status: ProviderConnectionTestStatus;
+  ok: boolean | null;
+  message?: string;
+  details?: unknown;
+}
+
+export function verifiedProviderConnection(message: string, details?: unknown): ProviderConnectionTest {
+  return { status: "verified", ok: true, message, ...(details === undefined ? {} : { details }) };
+}
+
+export function unsupportedProviderConnection(message: string): ProviderConnectionTest {
+  return { status: "unsupported", ok: null, message };
+}
+
+export function failedProviderConnection(provider: string, error: unknown): ProviderConnectionTest {
+  const raw = error instanceof Error ? error.message : String(error);
+  const reason: ProviderConnectionFailureReason = /\b(?:401|403)\b|api key|credentials?|token.*(?:missing|invalid)|not configured/i.test(raw)
+    ? "credentials"
+    : /unreachable|network|fetch failed|timed?\s*out|timeout|econn|enotfound|dns/i.test(raw)
+      ? "network"
+      : /malformed|invalid (?:response|model catalog)|did not return valid/i.test(raw)
+        ? "malformed_response"
+        : "provider_error";
+  const message = reason === "credentials"
+    ? `${provider} credentials are missing or were rejected.`
+    : reason === "network"
+      ? `${provider} is unreachable. Check network, proxy, firewall, and provider availability.`
+      : reason === "malformed_response"
+        ? `${provider} returned a malformed response.`
+        : `${provider} connection test failed.`;
+  return { status: "failed", ok: false, message, details: { reason } };
 }
 
 export interface ModelSelectionPreferences {
@@ -75,6 +121,7 @@ export interface ProviderAdapter {
   id: ModelProviderId;
   title: string;
   capabilities: ModelCapability[];
+  testConnection?(): Promise<ProviderConnectionTest>;
   listModels?(connection?: ProviderConnection): Promise<ModelInfo[]>;
   pricingResolver?: PricingResolver;
   invoke(request: ModelInvokeRequest & { model: ModelInfo }, connection?: ProviderConnection): Promise<ModelInvokeResult>;
@@ -94,7 +141,13 @@ export class ModelRegistry {
   }
 
   register(model: ModelInfo): void {
-    this.#models.set(model.id, { ...model, capabilities: [...model.capabilities] });
+    this.#models.set(model.id, {
+      ...model,
+      capabilities: [...model.capabilities],
+      protocols: model.protocols ? [...model.protocols] : undefined,
+      limits: model.limits ? { ...model.limits } : undefined,
+      metadata: model.metadata ? { ...model.metadata } : undefined
+    });
   }
 
   findByModelRef(modelRef: string): ModelInfo | undefined {
@@ -104,6 +157,14 @@ export class ModelRegistry {
 
   findByCapability(capability: ModelCapability, providerId?: ModelProviderId): ModelInfo[] {
     return this.listModels().filter((model) => model.capabilities.includes(capability) && (!providerId || model.providerId === providerId));
+  }
+
+  findByProtocol(protocol: string, capability?: ModelCapability): ModelInfo[] {
+    return this.listModels().filter((model) => model.protocols?.includes(protocol) && (!capability || model.capabilities.includes(capability)));
+  }
+
+  listEngines(providerId?: ModelProviderId): ModelInfo[] {
+    return this.listModels(providerId);
   }
 
   listModels(providerId?: ModelProviderId): ModelInfo[] {
@@ -143,6 +204,18 @@ export class GatewayModelResolver {
       .filter((model) => this.getConnection(model.providerId)?.enabled)
       .filter((model) => modelSatisfiesIOContract(getModelIOContract(model), request.requiredIOContract));
     return sortByPreferences(candidates, request.preferences);
+  }
+
+  selectCandidate(candidates: ModelInfo[], preferences?: ModelSelectionPreferences, semanticScores: Record<string, number> = {}): ModelInfo {
+    const available = candidates
+      .filter((model) => model.availability !== "unavailable")
+      .filter((model) => this.getConnection(model.providerId)?.enabled);
+    if (available.length === 0) throw new Error("Model Gateway policy could not find an enabled eligible engine.");
+    return [...available].sort((a, b) =>
+      (semanticScores[b.id] ?? 0) - (semanticScores[a.id] ?? 0)
+      || preferenceScore(b, preferences ?? {}) - preferenceScore(a, preferences ?? {})
+      || (b.priority ?? 0) - (a.priority ?? 0)
+    )[0];
   }
 
   private assertEnabled(providerId: ModelProviderId): void {

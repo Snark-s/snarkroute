@@ -1,0 +1,459 @@
+{
+  "testId": "HOSTED-REGEN-MAX-I1-2K",
+  "createCalls": 1,
+  "responses": [
+    {
+      "method": "POST",
+      "endpoint": "https://api.minimax.io/v2/video_regeneration",
+      "receivedAt": "2026-09-30T14:42:31.187Z",
+      "httpStatus": 200,
+      "body": {
+        "task_id": "447391378309467"
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:42:36.835Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779350,
+          "resolution": "2K",
+          "duration": 0,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:42:42.424Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779350,
+          "resolution": "2K",
+          "duration": 0,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:42:48.126Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779350,
+          "resolution": "2K",
+          "duration": 0,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:42:53.687Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779350,
+          "resolution": "2K",
+          "duration": 0,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:42:59.319Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779350,
+          "resolution": "2K",
+          "duration": 0,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:43:05.102Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:43:10.984Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:43:16.741Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:43:22.499Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:43:28.630Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:43:34.561Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:43:40.326Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:43:46.101Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:43:51.866Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:43:57.744Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:44:03.523Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:44:09.256Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:44:15.004Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:44:20.912Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:44:26.661Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "running",
+          "created_at": 1790779350,
+          "updated_at": 1790779381,
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {},
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    },
+    {
+      "method": "GET",
+      "endpoint": "https://api.minimax.io/v2/query/video_generation/447391378309467",
+      "receivedAt": "2026-09-30T14:44:42.073Z",
+      "httpStatus": 200,
+      "body": {
+        "task": {
+          "id": "447391378309467",
+          "model": "MiniMax-H3",
+          "status": "succeeded",
+          "created_at": 1790779350,
+          "updated_at": 1790779479,
+          "content": {
+            "url": "https://video-product.cdn.minimax.io/inference_output/rollout/2026-09-30/bb6af2ca-28be-45b2-9c85-784e8c1fe2ef/output_aigc.mp4"
+          },
+          "resolution": "2K",
+          "duration": 5,
+          "usage": {
+            "total_seconds": 5,
+            "input_seconds": 0,
+            "output_seconds": 5,
+            "input_image_count": 1
+          },
+          "ratio": "",
+          "task_type": "regeneration",
+          "modality": "video"
+        }
+      }
+    }
+  ]
+}

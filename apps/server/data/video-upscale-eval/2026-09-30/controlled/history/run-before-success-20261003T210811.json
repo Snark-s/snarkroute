@@ -1,0 +1,840 @@
+{
+  "schemaVersion": 1,
+  "stage": "HARNESS_RECOVERY_CONTROLLED_BAKEOFF",
+  "updated_at": "2026-10-03T21:00:30.811497+00:00",
+  "timezone": "Europe/Moscow",
+  "status": "STOPPED_CPU_GUARD",
+  "completion": "PARTIAL: memory prechecks passed; normalization stopped on sustained process CPU >180%; explicit approval required before another attempt",
+  "source": {
+    "path": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+    "sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+    "color_assumption": "SDR BT.709 limited range; not recovered source metadata"
+  },
+  "safety": {
+    "one_active_job": true,
+    "new_neural_jobs": 0,
+    "downloads": 0,
+    "retries": 0,
+    "cpu_affinity_mask": 3,
+    "threads": 2,
+    "min_free_vram_mib": 8192,
+    "min_available_system_ram_mib": 4096,
+    "active_lock_present": false
+  },
+  "infrastructure": {
+    "synthetic_status": "SUCCEEDED",
+    "synthetic_path": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\synthetic\\verification.json",
+    "synthetic_shutdown": "DELAYED_CLEAN",
+    "synthetic_shutdown_seconds": 0.3025370999966981,
+    "synthetic_worker_returncode": 0,
+    "old_vimeo_shutdown_cause": "UNKNOWN: old raw return code and process snapshots absent; timing race is plausible, not established",
+    "model_input_rgb_changed": false,
+    "vimeo_rerun_required": false,
+    "rerun_decision": "CASE_A: only frame output tags changed; decode command unchanged; synthetic old/fixed decoded YUV hash identical",
+    "decode_filter": "scale=in_color_matrix=bt709:in_range=tv:out_range=full,format=rgb24",
+    "encode_filter": "scale=in_range=full:out_range=tv:out_color_matrix=bt709,format=yuv420p,setsar=1,setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709",
+    "actual_source_rgb_sha256": "bd7634c38d334199fef87f1e6960d92fa1ca7e92ed249d1b8dc224856840e1eb",
+    "old_fixture_yuv_sha256": "852e10a8208d57f6889cd854fa8ef79b37ac72f69b943d37bd0e834d0262205d",
+    "fixed_fixture_yuv_sha256": "852e10a8208d57f6889cd854fa8ef79b37ac72f69b943d37bd0e834d0262205d",
+    "focused_tests_passed": 33,
+    "process_leak_detection": "bounded job accounting + retained PID/start/exit handles + port state + forced cleanup classification",
+    "graphify_update": "COMPLETED_AST_ONLY; SQL parser absent; no installation or API calls"
+  },
+  "candidates": {
+    "span": {
+      "status": "BLOCKED",
+      "reason": "Blocked by current GPU usage. Current GPU: NVIDIA GeForce RTX 3080 Laptop GPU; Used: 11716 MiB; Free: 4460 MiB; Required safety threshold: 8192 MiB",
+      "gpu_precheck": {
+        "index": 0,
+        "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "total_mib": 16384,
+        "used_mib": 11716,
+        "free_mib": 4460,
+        "utilization_percent": 95
+      },
+      "neural_jobs": 0,
+      "model_loads": 0,
+      "startup_seconds": null,
+      "inference_seconds": null,
+      "total_precheck_wall_seconds": 2.117334499998833,
+      "native_resolution_expected": [
+        5376,
+        3072
+      ],
+      "native_output": null,
+      "normalized_output": null,
+      "validation": "NOT_RUN",
+      "shutdown": "NOT_APPLICABLE_NO_WORKER",
+      "cuda_cpu_fallback": "NOT_RUN",
+      "license": "CC-BY-SA-4.0",
+      "resource_metrics": null,
+      "result_path": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\span\\result.json"
+    },
+    "gameup": {
+      "status": "BLOCKED",
+      "reason": "Blocked by current GPU usage. Current GPU: NVIDIA GeForce RTX 3080 Laptop GPU; Used: 11716 MiB; Free: 4460 MiB; Required safety threshold: 8192 MiB",
+      "gpu_precheck": {
+        "index": 0,
+        "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "total_mib": 16384,
+        "used_mib": 11716,
+        "free_mib": 4460,
+        "utilization_percent": 93
+      },
+      "neural_jobs": 0,
+      "model_loads": 0,
+      "startup_seconds": null,
+      "inference_seconds": null,
+      "total_precheck_wall_seconds": 2.114709999994375,
+      "native_resolution_expected": [
+        2688,
+        1536
+      ],
+      "native_output": null,
+      "normalized_output": null,
+      "validation": "NOT_RUN",
+      "shutdown": "NOT_APPLICABLE_NO_WORKER",
+      "cuda_cpu_fallback": "NOT_RUN",
+      "license": "CC-BY-NC-SA-4.0",
+      "resource_metrics": null,
+      "result_path": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\gameup\\result.json"
+    },
+    "vimeo": {
+      "status": "REUSED_PRIOR_INFERENCE_SUCCEEDED",
+      "neural_jobs_this_phase": 0,
+      "rerun": false,
+      "prior_job_id": "vup_ed035e79-9c5a-46f4-976e-65e4529111c8",
+      "native_output": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\vimeo\\native.mp4",
+      "native_resolution": [
+        2688,
+        1536
+      ],
+      "native_bytes": 6517030,
+      "native_sha256": "a5cae1aa824ddd3ddf69fd3d1eb626f1cc874742597c808043edf3e7b9e55b60",
+      "normalized_output": null,
+      "processing_seconds": 227.95917719999852,
+      "prior_total_wall_seconds": 234.68371179999667,
+      "worker_startup_seconds": 1.6228547000064282,
+      "model_loading_seconds": 12.250939000005019,
+      "inference_wrapper_seconds": 207.07664250001835,
+      "runtime_phases": {
+        "preprocessing_seconds": 3.9646543999697315,
+        "model_forward_seconds": 194.32541660005518,
+        "postprocessing_seconds": 8.324516299937386
+      },
+      "benchmark": {
+        "enabled": true,
+        "decode_read_wait_seconds": 1.219693900027778,
+        "encode_pipe_wait_seconds": 1.5120303000148851,
+        "encoder_finalization_wait_seconds": 5.497358700013137,
+        "mux_seconds": 0.08043019998876844,
+        "runtime_phases": {
+          "preprocessing_seconds": 3.9646543999697315,
+          "model_forward_seconds": 194.32541660005518,
+          "postprocessing_seconds": 8.324516299937386
+        },
+        "torch_peak_allocated_mib": 5217.02734375,
+        "torch_peak_reserved_mib": 9616.0,
+        "ort_profile": null,
+        "chunk_boundaries": [
+          {
+            "output_first": 0,
+            "output_last": 2,
+            "window_first": 0,
+            "window_last": 3,
+            "left_context_frames": 0,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 3,
+            "output_last": 5,
+            "window_first": 2,
+            "window_last": 6,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 6,
+            "output_last": 8,
+            "window_first": 5,
+            "window_last": 9,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 9,
+            "output_last": 11,
+            "window_first": 8,
+            "window_last": 12,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 12,
+            "output_last": 14,
+            "window_first": 11,
+            "window_last": 15,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 15,
+            "output_last": 17,
+            "window_first": 14,
+            "window_last": 18,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 18,
+            "output_last": 20,
+            "window_first": 17,
+            "window_last": 21,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 21,
+            "output_last": 23,
+            "window_first": 20,
+            "window_last": 24,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 24,
+            "output_last": 26,
+            "window_first": 23,
+            "window_last": 27,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 27,
+            "output_last": 29,
+            "window_first": 26,
+            "window_last": 30,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 30,
+            "output_last": 32,
+            "window_first": 29,
+            "window_last": 33,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 33,
+            "output_last": 35,
+            "window_first": 32,
+            "window_last": 36,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 36,
+            "output_last": 38,
+            "window_first": 35,
+            "window_last": 39,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 39,
+            "output_last": 41,
+            "window_first": 38,
+            "window_last": 42,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 42,
+            "output_last": 44,
+            "window_first": 41,
+            "window_last": 45,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 45,
+            "output_last": 47,
+            "window_first": 44,
+            "window_last": 48,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 48,
+            "output_last": 50,
+            "window_first": 47,
+            "window_last": 51,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 51,
+            "output_last": 53,
+            "window_first": 50,
+            "window_last": 54,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 54,
+            "output_last": 56,
+            "window_first": 53,
+            "window_last": 57,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 57,
+            "output_last": 59,
+            "window_first": 56,
+            "window_last": 60,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 60,
+            "output_last": 62,
+            "window_first": 59,
+            "window_last": 63,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 63,
+            "output_last": 65,
+            "window_first": 62,
+            "window_last": 66,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 66,
+            "output_last": 68,
+            "window_first": 65,
+            "window_last": 69,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 69,
+            "output_last": 71,
+            "window_first": 68,
+            "window_last": 72,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 72,
+            "output_last": 74,
+            "window_first": 71,
+            "window_last": 75,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 75,
+            "output_last": 77,
+            "window_first": 74,
+            "window_last": 78,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 78,
+            "output_last": 80,
+            "window_first": 77,
+            "window_last": 81,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 81,
+            "output_last": 83,
+            "window_first": 80,
+            "window_last": 84,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 84,
+            "output_last": 86,
+            "window_first": 83,
+            "window_last": 87,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 87,
+            "output_last": 89,
+            "window_first": 86,
+            "window_last": 90,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 90,
+            "output_last": 92,
+            "window_first": 89,
+            "window_last": 93,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 93,
+            "output_last": 95,
+            "window_first": 92,
+            "window_last": 96,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 96,
+            "output_last": 98,
+            "window_first": 95,
+            "window_last": 99,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 99,
+            "output_last": 101,
+            "window_first": 98,
+            "window_last": 102,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 102,
+            "output_last": 104,
+            "window_first": 101,
+            "window_last": 105,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 105,
+            "output_last": 107,
+            "window_first": 104,
+            "window_last": 108,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 108,
+            "output_last": 110,
+            "window_first": 107,
+            "window_last": 111,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 111,
+            "output_last": 113,
+            "window_first": 110,
+            "window_last": 114,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 114,
+            "output_last": 116,
+            "window_first": 113,
+            "window_last": 117,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 117,
+            "output_last": 119,
+            "window_first": 116,
+            "window_last": 120,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 120,
+            "output_last": 122,
+            "window_first": 119,
+            "window_last": 123,
+            "left_context_frames": 1,
+            "right_context_frames": 1,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          },
+          {
+            "output_first": 123,
+            "output_last": 123,
+            "window_first": 122,
+            "window_last": 123,
+            "left_context_frames": 1,
+            "right_context_frames": 0,
+            "model_context_frames": 3,
+            "clip_edge_policy": "repeat nearest frame",
+            "temporal_meaning": true
+          }
+        ],
+        "timing_convention": "Piped decode/encode overlap inference; wait durations are not codec compute time. Forward timing synchronizes CUDA; ORT session.run includes copies."
+      },
+      "resource_summary": {
+        "sampling": "~2 seconds; sampled observations, not instantaneous exhaustive peaks",
+        "samples": 112,
+        "system_gpu_used_peak_mib": 11643,
+        "system_gpu_free_minimum_mib": 4533,
+        "gpu_utilization_sample_range": [
+          4,
+          100
+        ],
+        "owned_cpu_peak_percent_one_core": 177.6482598174855,
+        "total_cpu_peak_percent": 69.25925925925927,
+        "owned_rss_peak_bytes": 2357325824,
+        "available_ram_minimum_bytes": 13643120640
+      },
+      "torch_peak_allocated_mib": 5217.02734375,
+      "torch_peak_reserved_mib": 9616.0,
+      "audio_packet_identity": true,
+      "original_shutdown": "UNKNOWN",
+      "prior_final_cleanup_verified": true,
+      "prior_gpu_before_mib": 1857,
+      "prior_gpu_after_mib": 1802,
+      "license": "CC-BY-SA-4.0",
+      "validation": "Native geometry/fps/frames/audio valid; native tags incomplete; normalized comparison unavailable"
+    }
+  },
+  "comparison": {
+    "status": "STOPPED_CPU_GUARD",
+    "error": "Sustained CPU usage above safety threshold",
+    "resource_summary": {
+      "samples": 8,
+      "owned_cpu_peak_percent_one_core": 192.36281332111253,
+      "total_cpu_peak_percent": 21.590909090909093,
+      "owned_rss_peak_bytes": 885968896,
+      "available_ram_minimum_bytes": 15749177344,
+      "system_gpu_used_peak_mib": 2055,
+      "system_gpu_free_minimum_mib": 14121
+    },
+    "common_canvas": [
+      2560,
+      1440
+    ],
+    "content": [
+      2520,
+      1440
+    ],
+    "padding_left_right": [
+      20,
+      20
+    ],
+    "sar": "1:1",
+    "baseline": {
+      "path": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\normalized\\original.mp4",
+      "status": "VALIDATED_EXISTING_BASELINE",
+      "metadata": {
+        "width": 2560,
+        "height": 1440,
+        "codec_name": "h264",
+        "pix_fmt": "yuv420p",
+        "color_range": "tv",
+        "color_space": "bt709",
+        "color_transfer": "bt709",
+        "color_primaries": "bt709",
+        "sample_aspect_ratio": "1:1",
+        "avg_frame_rate": "24/1",
+        "nb_frames": "124",
+        "audio": {
+          "codec_name": "aac",
+          "sample_rate": "32000",
+          "channels": 2,
+          "duration": "5.184000",
+          "nb_frames": "163"
+        }
+      },
+      "audio": {
+        "packets": 163,
+        "encoded_packet_sequence_sha256": "05779dbc6e656cb2b6a246dc13e4fef030d9b37dbf4a74936b189036ed098802"
+      },
+      "aac_packet_identity": true,
+      "final_cleanup_snapshot": {
+        "timestamp": "2026-09-30T22:26:16.073685+00:00",
+        "active_processes": 0,
+        "active_pids": [],
+        "processes": [],
+        "identity_errors": [],
+        "affinity_mask": 3
+      }
+    },
+    "vimeo_normalized": null,
+    "contact_sheet": null,
+    "native_crops": null,
+    "temporal_review": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\comparison\\index.html",
+    "chunk_metadata": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\comparison\\vimeo-chunk-boundaries.json",
+    "boundary_strips": null,
+    "observations": {
+      "identity": "NOT_EVALUATED",
+      "temporal": "NOT_EVALUATED",
+      "detail": "NOT_EVALUATED",
+      "artifacts": "NOT_EVALUATED",
+      "reason": "No complete matched normalized comparison; no visual winner claimed"
+    },
+    "latest_verification": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\comparison-2026-10-03\\verification.json",
+    "interrupted_output": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\normalized\\vimeo.mp4"
+  },
+  "final": {
+    "owned_processes_synthetic": 0,
+    "owned_processes_review": 0,
+    "owned_processes_baseline_audit": 0,
+    "port_state": {
+      "open": false,
+      "listeners": [],
+      "probe_returncode": 0
+    },
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "total_mib": 16384,
+      "used_mib": 2082,
+      "free_mib": 14094,
+      "utilization_percent": 7
+    },
+    "visible_compute_processes": {
+      "returncode": 0,
+      "output": "2124, [Insufficient Permissions], [N/A]\n13492, C:\\Windows\\System32\\ShellHost.exe, [N/A]\n13708, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\CrossDeviceResume.exe, [N/A]\n13392, C:\\Windows\\explorer.exe, [N/A]\n15588, C:\\Windows\\SystemApps\\Microsoft.Windows.StartMenuExperienceHost_cw5n1h2txyewy\\StartMenuExperienceHost.exe, [N/A]\n15560, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\SearchHost.exe, [N/A]\n17788, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.37\\msedgewebview2.exe, [N/A]\n17836, C:\\Windows\\SystemApps\\Microsoft.LockApp_cw5n1h2txyewy\\LockApp.exe, [N/A]\n11992, [Insufficient Permissions], [N/A]\n19996, C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\CEF\\NVIDIA Overlay.exe, [N/A]\n24460, C:\\Windows\\SystemApps\\MicrosoftWindows.Client.CBS_cw5n1h2txyewy\\TextInputHost.exe, [N/A]\n24744, C:\\Windows\\SystemApps\\ShellExperienceHost_cw5n1h2txyewy\\ShellExperienceHost.exe, [N/A]\n22880, C:\\Users\\serge\\AppData\\Local\\Programs\\Notion\\Notion.exe, [N/A]\n27640, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.37\\msedgewebview2.exe, [N/A]\n28944, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.37\\msedgewebview2.exe, [N/A]\n28372, C:\\Program Files\\Insta360 Studio\\insta360-quick-look.exe, [N/A]\n32940, C:\\Windows\\System32\\Kinect\\KinectService.exe, [N/A]\n31112, C:\\Program Files\\WindowsApps\\5319275A.WhatsAppDesktop_2.2637.100.0_x64__cv1g1gvanyjgm\\WhatsApp.Root.exe, [N/A]\n17772, C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\154.0.4258.37\\msedgewebview2.exe, [N/A]\n15812, C:\\Program Files\\WindowsApps\\MicrosoftWindows.Client.WebExperience_526.21100.40.0_x64__cw5n1h2txyewy\\WidgetBoard.exe, [N/A]\n23340, C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26072.257.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe, [N/A]\n35724, C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.928.1915.0_x64__2p2nqsd0c76g0\\app\\ChatGPT.exe, [N/A]\n12420, C:\\Users\\serge\\AppData\\Local\\OpenAI\\Codex\\runtimes\\cua_node\\1b30f7d4d73226ca\\bin\\node_modules\\@oai\\sky\\bin\\windows\\swift\\x64\\codex-computer-use-swift.exe, [N/A]\n42512, C:\\Program Files\\Adobe\\Adobe Creative Cloud\\ACC\\Creative Cloud UI Helper.exe, [N/A]\n23196, C:\\Program Files\\Common Files\\Adobe\\Adobe OS Extension\\AdobeNotificationClient.exe, [N/A]\n4, [Insufficient Permissions], [N/A]\n28176, C:\\Users\\serge\\AppData\\Local\\singularityapp\\app-14.1.0\\SingularityApp.exe, [N/A]\n43716, C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe, [N/A]\n44716, C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe, [N/A]\n13136, C:\\Program Files\\FlyFrogLLC\\Happ\\Happ.exe, [N/A]\n47460, C:\\Users\\serge\\AppData\\Roaming\\Telegram Desktop\\Telegram.exe, [N/A]\n31460, C:\\Windows\\System32\\ApplicationFrameHost.exe, [N/A]\n49724, C:\\Program Files\\WindowsApps\\A025C540.Yandex.Music_4.54.8517.0_x64__vfvw9svesycw6\\Y.Music.exe, [N/A]\n25452, C:\\Program Files (x86)\\Microsoft\\Copilot\\Application\\copilotapp.exe, [N/A]\n51224, C:\\Program Files (x86)\\Microsoft\\Copilot\\Application\\undocked_copilot\\copilotapphost.exe, [N/A]\n18584, C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\CEF\\NVIDIA Overlay.exe, [N/A]\n54660, C:\\Program Files\\WindowsApps\\Microsoft.WindowsTerminal_1.24.11911.0_x64__8wekyb3d8bbwe\\WindowsTerminal.exe, [N/A]\n7680, I:\\AI\\Bonsai-demo\\bin\\cuda\\llama-server.exe, [N/A]\n55232, C:\\Program Files (x86)\\Dropbox\\Client\\Dropbox.exe, [N/A]",
+      "note": "WDDM reports per-process memory N/A; no process memory attribution and no external processes killed"
+    }
+  },
+  "continuations": [
+    {
+      "timestamp": "2026-10-01T12:07:14.625856+00:00",
+      "status": "BLOCKED_RESOURCE_PRECHECK",
+      "precheck_path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\history\\continuation-precheck-final-20261001T120714.json",
+      "previous_run_snapshot": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\history\\run-before-continuation-20261001T120714.json",
+      "gates": {
+        "vram": false,
+        "ram": false,
+        "no_stale_owned_worker": true,
+        "port_free": true,
+        "active_lock_absent": true,
+        "source_hash": true,
+        "model_hashes": true
+      },
+      "gpu": {
+        "index": 0,
+        "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "total_mib": 16384,
+        "used_mib": 11549,
+        "free_mib": 4627,
+        "utilization_percent": 12
+      },
+      "available_system_ram_bytes": 3970408448,
+      "new_neural_jobs": 0,
+      "synthetic_repeated": false,
+      "attempts_reset": false,
+      "history_preserved": true,
+      "code_config_sha256": {
+        "app/video_benchmark.py": "a3c3668e5c3cc6c9721a47bb4c363aa5932c5187710babe38f5f6f2516558c1a",
+        "app/benchmark_resources.py": "9b4903c1bb97cbcba055f067b4cb232e4585c34b04762bffd33467c2b361c1a8",
+        "app/benchmark_worker.py": "fe83287ebbef92cf69571f0420a596d140d664be971c1405fb164a46899ef2a3",
+        "app/video_pipeline.py": "08cc7f9d5d5b2bef6ae381e117fff97eb916c5f3574c4b2c14b178a89669cc33",
+        "app/video_runtime.py": "228c71b74568f87150b963f9655d54e44e237386986a31a88ff839704fdc2f19",
+        "app/runtime.py": "fbf95f19fe272e581e57ae8bca13430d25539b9e0732e3c1c222ab3b54033301",
+        "app/video_service.py": "06b59d2229a77c4c8e50095b4a0607e619160a41941bf1bdc62c73faa56266f9",
+        "scripts/run_video_bakeoff.py": "fe54eea954e91a5b69f742223d8444688f4d7756881910599fc379dc06d20818",
+        "scripts/verify_bakeoff_infrastructure.py": "3e79d8ab3ffcec871e33a2d5919dea9fbe7011505bd84f03b62392403477c7ad",
+        "model-registry.json": "242bce5aa1e1fd62ca693f82d92ed6d3e0428e9601bbd96c4b10d21378a9e85b",
+        "video-model-registry.json": "0f5d643c7795f53ba34af92115844b111ad70d2c2aae9a9c709e7e56afa4ef88"
+      }
+    },
+    {
+      "timestamp": "2026-10-03T21:00:30.811497+00:00",
+      "status": "STOPPED_CPU_GUARD",
+      "verification_path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\comparison-2026-10-03\\verification.json",
+      "previous_run_snapshot": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\history\\run-before-continuation-20261003T210030.json",
+      "resource_summary": {
+        "samples": 8,
+        "owned_cpu_peak_percent_one_core": 192.36281332111253,
+        "total_cpu_peak_percent": 21.590909090909093,
+        "owned_rss_peak_bytes": 885968896,
+        "available_ram_minimum_bytes": 15749177344,
+        "system_gpu_used_peak_mib": 2055,
+        "system_gpu_free_minimum_mib": 14121
+      },
+      "precheck_gpu": {
+        "index": 0,
+        "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "total_mib": 16384,
+        "used_mib": 2050,
+        "free_mib": 14126,
+        "utilization_percent": 1
+      },
+      "process_cpu_limit_percent_one_core": 180,
+      "sustained_seconds": 10,
+      "threads": 2,
+      "affinity_mask": 3,
+      "new_neural_jobs": 0,
+      "downloads": 0,
+      "retries": 0,
+      "attempts_reset": false,
+      "history_preserved": true,
+      "total_wall_seconds": 15.52977970000029,
+      "interrupted_output_audit": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\comparison-2026-10-03\\interrupted-output-audit.json",
+      "final_cleanup_snapshot": {
+        "timestamp": "2026-10-03T20:57:51.444583+00:00",
+        "active_processes": 0,
+        "active_pids": [],
+        "processes": [
+          {
+            "pid": 35308,
+            "start_time": "2026-10-03T20:57:36.584459+00:00",
+            "exit_time": "2026-10-03T20:57:51.404366+00:00",
+            "exit_status": 1,
+            "active": false,
+            "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+          },
+          {
+            "pid": 7008,
+            "start_time": "2026-10-03T20:57:36.594278+00:00",
+            "exit_time": "2026-10-03T20:57:51.405853+00:00",
+            "exit_status": 0,
+            "active": false,
+            "image": "C:\\Windows\\System32\\conhost.exe"
+          }
+        ],
+        "identity_errors": [],
+        "affinity_mask": 3
+      },
+      "active_lock_present": false,
+      "port_state": {
+        "open": false,
+        "listeners": [],
+        "probe_returncode": 0
+      }
+    }
+  ],
+  "latest_resource_precheck": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\history\\continuation-precheck-final-20261001T120714.json"
+}

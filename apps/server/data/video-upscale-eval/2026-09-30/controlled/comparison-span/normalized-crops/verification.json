@@ -1,0 +1,75 @@
+{
+  "status": "SUCCEEDED",
+  "neural_jobs": 0,
+  "frame": 62,
+  "note": "Matching normalized geometry; PNG crops at 1:1, no resampling",
+  "crops": {
+    "eyes-lashes-brows": {
+      "normalized_roi": [
+        1033,
+        384,
+        450,
+        188
+      ],
+      "files": [
+        "eyes-lashes-brows-original-frame-62.png",
+        "eyes-lashes-brows-vimeo-frame-62.png",
+        "eyes-lashes-brows-span-frame-62.png"
+      ]
+    },
+    "hair-strands": {
+      "normalized_roi": [
+        1408,
+        806,
+        319,
+        459
+      ],
+      "files": [
+        "hair-strands-original-frame-62.png",
+        "hair-strands-vimeo-frame-62.png",
+        "hair-strands-span-frame-62.png"
+      ]
+    }
+  },
+  "final_cleanup_snapshot": {
+    "timestamp": "2026-10-03T22:46:56.329054+00:00",
+    "active_processes": 0,
+    "active_pids": [],
+    "processes": [
+      {
+        "pid": 1228,
+        "start_time": "2026-10-03T22:46:53.189833+00:00",
+        "exit_time": "2026-10-03T22:46:53.839994+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 10916,
+        "start_time": "2026-10-03T22:46:53.198851+00:00",
+        "exit_time": "2026-10-03T22:46:53.841652+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      },
+      {
+        "pid": 45052,
+        "start_time": "2026-10-03T22:46:55.554491+00:00",
+        "exit_time": "2026-10-03T22:46:56.255495+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\.venv\\Lib\\site-packages\\imageio_ffmpeg\\binaries\\ffmpeg-win-x86_64-v7.1.exe"
+      },
+      {
+        "pid": 15152,
+        "start_time": "2026-10-03T22:46:55.563463+00:00",
+        "exit_time": "2026-10-03T22:46:56.257093+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": "C:\\Windows\\System32\\conhost.exe"
+      }
+    ],
+    "identity_errors": [],
+    "affinity_mask": 3
+  }
+}

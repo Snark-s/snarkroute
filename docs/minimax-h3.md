@@ -1,5 +1,7 @@
 # MiniMax H3 first deployment
 
+For the current production-line design, provenance matrix, hosted H3 Max routing, CameraPath schema, FaceSwap modifier and verification status, see [MiniMax H3 production architecture](./minimax-h3-production.md).
+
 Status: `kitchen_int8` startup and a 20-step 1344×768 end-to-end T2VA functional benchmark were verified on a rented modified RTX 4090 48 GB on 2026-08-30. The test confirms CUDA kernels, online weight quantization, API readiness, MP4 creation, and audio/video streams on that machine; it is not a blind quality benchmark and does not validate an ordinary 24 GB RTX 4090 or TP2.
 
 ## Decision and boundaries

@@ -1,0 +1,44 @@
+{
+  "testId": "V1",
+  "sourcePlanPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\plan.json",
+  "prompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+  "contextInstruction": "Use <Video 1> only for motion, timing, framing and camera movement.",
+  "finalPrompt": "Use <Video 1> only for motion, timing, framing and camera movement.\n\nA woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+  "referenceOrdering": [
+    {
+      "tag": "Video 1",
+      "kind": "video",
+      "filename": "output.mp4",
+      "purpose": "motion",
+      "visualMode": "motion"
+    }
+  ],
+  "references": [
+    {
+      "tag": "Video 1",
+      "kind": "video",
+      "purpose": "motion",
+      "visualMode": "motion",
+      "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\A0\\output.mp4",
+      "filename": "output.mp4",
+      "bytes": 658931,
+      "sha256": "94e7c57eeebbcf90fa504aa76b2309427e0b631125100ebc68660f74d8d7ff01",
+      "preview": "reference-1.jpg"
+    }
+  ],
+  "parameters": {
+    "modelVariant": "h3_base",
+    "seed": 424242,
+    "steps": 4,
+    "durationSeconds": 5,
+    "aspectRatio": "16:9",
+    "scheduler": "simple",
+    "sampler": "res_multistep",
+    "guidance": "basic/no CFG scale",
+    "flowParameters": {
+      "shiftVideo": 12,
+      "shiftAudio": 3
+    },
+    "identityTransfer": null
+  }
+}

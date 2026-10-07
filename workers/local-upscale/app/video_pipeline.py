@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import subprocess
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from fractions import Fraction
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +18,8 @@ from app.runtime import RuntimeFactory
 from app.tiling import tiled_inference
 from app.video_registry import VideoUpscaleModel
 from app.video_runtime import TemporalRuntimeFactory
+from app.video_benchmark import Policy, query_gpu, decoder_command, encoder_command, mux_command, validate_ort_profile
+from app.video_production import delivery_geometry, production_encoder_command, ffprobe_streams, source_color, source_fps, verify_output_metadata, file_sha
 
 
 @dataclass(frozen=True)
@@ -49,7 +53,7 @@ def ffmpeg_executable() -> str:
 def probe_video(path: Path) -> VideoProbe:
     try:
         result = subprocess.run(
-            [ffmpeg_executable(), "-hide_banner", "-i", str(path)],
+            [ffmpeg_executable(), "-hide_banner", *(["-threads","2"] if Policy.from_env().enabled else []), "-i", str(path)],
             capture_output=True,
             text=True,
             timeout=30,
@@ -115,16 +119,37 @@ def process_video(
     max_input_pixels: int,
     progress: Callable[[float, str], None],
     cancelled: Callable[[], bool],
+    delivery: list[int] | None = None,
+    preset: str = "medium",
+    gop: int = 48,
 ) -> dict[str, object]:
     started = time.perf_counter()
+    benchmark = Policy.from_env()
     progress(0.01, "probing")
     probe = probe_video(input_path)
+    production = os.getenv("LOCAL_VIDEO_PRODUCTION") == "1"
+    color = None
+    source_streams = None
+    if production:
+        if device != "cuda":
+            raise WorkerError("cuda_required", "Production Video Upscale requires CUDA; CPU fallback is disabled.")
+        source_streams = ffprobe_streams(input_path)
+        source_stream = next(s for s in source_streams if s["codec_type"] == "video")
+        color = source_color(source_stream)
+        probe = replace(probe,fps=source_fps(source_stream))
+        if audio_handling == "copy" and any(s.get("codec_name") not in {"aac","mp3","ac3","eac3","alac"} for s in source_streams if s["codec_type"] == "audio"):
+            raise WorkerError("audio_copy_unavailable", "Original audio cannot be copied into MP4 with this profile. Select explicit AAC re-encode in Advanced.")
     if probe.width * probe.height > max_input_pixels:
         raise WorkerError("invalid_input", f"Video frames exceed the {max_input_pixels}-pixel safety limit.")
     if probe.pixel_format.lower().startswith(("yuv420p10", "yuv422p10", "yuv444p10", "p010")):
         raise WorkerError("unsupported_pixel_format", "10-bit input is not supported by the 8-bit RGB24 MVP pipeline.")
     if cancelled():
         raise WorkerError("cancelled", "Video upscale job was cancelled.")
+    if benchmark.enabled:
+        if device != "cuda" or (probe.width,probe.height,probe.fps) != (1344,768,24.0) or probe.audio_codec != "aac":
+            raise WorkerError("invalid_input","Prepared benchmark requires MAX-I1 1344x768 24fps with AAC and explicit CUDA.")
+        try: benchmark.check_gpu(query_gpu())
+        except Exception as exc: raise WorkerError("resource_blocked",str(exc)) from exc
 
     temporal_runtime = None
     image_runtime = None
@@ -137,6 +162,7 @@ def process_video(
         try:
             temporal_runtime = temporal_runtimes.create(model, weights, device)
         except Exception as exc:
+            if (benchmark.enabled or production) and isinstance(exc,WorkerError): raise
             if "out of memory" in str(exc).lower():
                 raise WorkerError("gpu_oom", "GPU ran out of memory while loading the temporal model.", True) from exc
             raise WorkerError("runtime_failed", f"Temporal model failed to load: {type(exc).__name__}") from exc
@@ -144,14 +170,25 @@ def process_video(
         image_model = image_registry.get(model.framewise_model_id or "")
         image_runtime = runtimes.create(image_model, image_model.weights_path(model_dir), device, "auto")
     model_loading_seconds = time.perf_counter() - model_load_started
+    active_runtime = temporal_runtime if model.temporal else image_runtime
+    if (benchmark.enabled or production) and getattr(active_runtime,"device_type",None) != "cuda":
+        raise WorkerError("runtime_failed","Benchmark runtime did not bind to CUDA.")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    decoder = _start_decoder(input_path)
-    encoder = _start_encoder(output_path, input_path, probe, model.native_scale, crf, audio_handling)
+    decoder = _start_decoder(input_path, color["decode_filter"] if color else None)
+    encode_path = output_path.with_suffix(".video-only.mp4") if benchmark.enabled else output_path
+    try:
+        encoder = _start_encoder(encode_path, input_path, probe, model.native_scale, crf, audio_handling, delivery, preset, gop)
+    except BaseException:
+        _terminate_process(decoder)
+        raise
     decoded_frames = 0
     encoded_frames = 0
     peak_vram_mb = 0.0
     inference_seconds = 0.0
+    decode_read_seconds = encode_write_seconds = encoder_finalization_seconds = mux_seconds = 0.0
+    peak_reserved_mb = 0.0
+    chunk_boundaries = []
     left_context: list[np.ndarray] = []
     pending: list[np.ndarray] = []
     eof = False
@@ -161,7 +198,9 @@ def process_video(
             while not eof and len(pending) < target:
                 if cancelled():
                     raise WorkerError("cancelled", "Video upscale job was cancelled.")
+                phase_started = time.perf_counter()
                 frame = _read_frame(decoder, probe.width, probe.height)
+                decode_read_seconds += time.perf_counter() - phase_started
                 if frame is None:
                     eof = True
                     break
@@ -175,6 +214,12 @@ def process_video(
             right = pending[core_count : core_count + overlap_frames] if model.temporal else []
             window = [*left_context, *core, *right]
             keep_start = len(left_context)
+            if benchmark.enabled:
+                chunk_boundaries.append({"output_first":encoded_frames,"output_last":encoded_frames+core_count-1,
+                    "window_first":encoded_frames-keep_start,"window_last":encoded_frames+core_count+len(right)-1,
+                    "left_context_frames":keep_start,"right_context_frames":len(right),
+                    "model_context_frames":model.context_frames if model.temporal else None,
+                    "clip_edge_policy":"repeat nearest frame","temporal_meaning":model.temporal})
             progress(_frame_progress(encoded_frames, probe.frame_count, 0.15, 0.75), "inference")
             if model.temporal:
                 _reset_cuda_peak(temporal_runtime)
@@ -191,10 +236,14 @@ def process_video(
                 ]
                 inference_seconds += time.perf_counter() - inference_started
                 peak_vram_mb = max(peak_vram_mb, _cuda_peak_vram_mb(image_runtime))
+            if benchmark.enabled:
+                peak_reserved_mb = max(peak_reserved_mb,_cuda_peak_reserved_mb(active_runtime))
             for frame in enhanced:
                 if cancelled():
                     raise WorkerError("cancelled", "Video upscale job was cancelled.")
+                phase_started = time.perf_counter()
                 _write_frame(encoder, frame)
+                encode_write_seconds += time.perf_counter() - phase_started
                 encoded_frames += 1
                 progress(_frame_progress(encoded_frames, probe.frame_count, 0.2, 0.72), "encoding")
             left_context = core[-overlap_frames:] if model.temporal and overlap_frames else []
@@ -202,14 +251,44 @@ def process_video(
         if decoded_frames == 0 or encoded_frames != decoded_frames:
             raise WorkerError("decode_failed", "Decoded and encoded frame counts do not match.", details={"decoded": decoded_frames, "encoded": encoded_frames})
         _close_process(decoder, "decode_failed", "FFmpeg decoder failed")
+        phase_started = time.perf_counter()
         _close_encoder(encoder)
+        encoder_finalization_seconds = time.perf_counter() - phase_started
+        if production and model.runtime == "onnxruntime":
+            profile_path = active_runtime.session.end_profiling()
+            try: validate_ort_profile(json.loads(Path(profile_path).read_text(encoding="utf-8")))
+            except Exception as exc: raise WorkerError("runtime_failed",f"CUDA-only profile verification failed: {exc}") from exc
+        if benchmark.enabled:
+            if model.runtime == "onnxruntime":
+                profile_path = active_runtime.session.end_profiling()
+                try:
+                    profile_check = validate_ort_profile(json.loads(Path(profile_path).read_text(encoding="utf-8")))
+                except Exception as exc:
+                    raise WorkerError("runtime_failed",f"CUDA-only profiling validation failed: {exc}",details={"profile_path":profile_path}) from exc
+                active_runtime.benchmark_profile = dict(profile_check,path=profile_path)
+            phase_started = time.perf_counter()
+            subprocess.run(mux_command(ffmpeg_executable(),encode_path,input_path,output_path,benchmark.threads),
+                capture_output=True,check=True,timeout=60,creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+            mux_seconds = time.perf_counter()-phase_started
+            encode_path.unlink(missing_ok=True)
     except Exception:
         _terminate_process(decoder)
         _terminate_process(encoder)
         output_path.unlink(missing_ok=True)
+        if benchmark.enabled: encode_path.unlink(missing_ok=True)
         raise
     progress(0.98, "finalizing")
     output_probe = probe_video(output_path)
+    geometry = delivery_geometry(probe.width*model.native_scale,probe.height*model.native_scale,delivery)
+    verified = None
+    if production:
+        streams = ffprobe_streams(output_path)
+        verified = verify_output_metadata(next(s for s in streams if s["codec_type"] == "video"),geometry["width"],geometry["height"],encoded_frames,probe.fps)
+        output_probe = replace(output_probe,fps=float(Fraction(verified["avg_frame_rate"])))
+        if audio_handling == "copy":
+            before = [(s.get("codec_name"),s.get("sample_rate"),s.get("channels")) for s in source_streams if s["codec_type"] == "audio"]
+            after = [(s.get("codec_name"),s.get("sample_rate"),s.get("channels")) for s in streams if s["codec_type"] == "audio"]
+            if before != after: raise WorkerError("output_verification_failed","Original audio streams changed during mux.")
     elapsed = time.perf_counter() - started
     return {
         "filename": output_path.name,
@@ -235,15 +314,45 @@ def process_video(
         ),
         "runtime_device": getattr(temporal_runtime if model.temporal else image_runtime, "device_type", device),
         "input": probe.__dict__,
+        "provenance": {
+            "source_sha256": file_sha(input_path), "model_id": model.id,
+            "model_sha256": file_sha(model.weights_path(model_dir)) if model.weights_path(model_dir) and model.weights_path(model_dir).is_file() else None,
+            "model_scale": model.native_scale, "temporal_context": model.context_frames,
+            "backend": model.runtime, "device": getattr(active_runtime,"device_type",device),
+            "settings": dict(scale=model.native_scale,chunk_size=chunk_size,overlap_frames=overlap_frames,device=device,audio_handling=audio_handling,delivery=delivery,preset=preset,crf=crf,gop=gop,output_codec="libx264"),
+            "native_resolution": [probe.width*model.native_scale,probe.height*model.native_scale],
+            "delivery_resolution": [geometry["width"],geometry["height"]], "geometry": geometry,
+            "frames": encoded_frames, "fps": output_probe.fps, "audio_handling": audio_handling,
+            "audio_reencoded": audio_handling == "aac", "color_handling": color, "output_verification": verified,
+            "runtime_seconds": elapsed, "output_sha256": file_sha(output_path),
+        },
+        "benchmark": {
+            "enabled":benchmark.enabled,
+            "decode_read_wait_seconds":decode_read_seconds,
+            "encode_pipe_wait_seconds":encode_write_seconds,
+            "encoder_finalization_wait_seconds":encoder_finalization_seconds,
+            "mux_seconds":mux_seconds,
+            "runtime_phases":getattr(active_runtime,"benchmark_timings",{}),
+            "torch_peak_allocated_mib":peak_vram_mb or None,
+            "torch_peak_reserved_mib":peak_reserved_mb or None,
+            "ort_profile":getattr(active_runtime,"benchmark_profile",None),
+            "chunk_boundaries":chunk_boundaries,
+            "timing_convention":"Piped decode/encode overlap inference; wait durations are not codec compute time. Forward timing synchronizes CUDA; ORT session.run includes copies.",
+        } if benchmark.enabled else None,
     }
 
 
-def _start_decoder(path: Path) -> subprocess.Popen[bytes]:
+def _start_decoder(path: Path, color_filter: str | None = None) -> subprocess.Popen[bytes]:
     command = [ffmpeg_executable(), "-nostdin", "-v", "error", "-i", str(path), "-map", "0:v:0", "-vsync", "0", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"]
+    policy = Policy.from_env()
+    if policy.enabled: command = decoder_command(ffmpeg_executable(),path,policy.threads)
+    if color_filter:
+        command = decoder_command(ffmpeg_executable(),path,2)
+        command[command.index("-vf")+1] = color_filter
     return subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
 
-def _start_encoder(path: Path, source: Path, probe: VideoProbe, scale: int, crf: int, audio_handling: str) -> subprocess.Popen[bytes]:
+def _start_encoder(path: Path, source: Path, probe: VideoProbe, scale: int, crf: int, audio_handling: str, delivery=None, preset="medium", gop=48) -> subprocess.Popen[bytes]:
     command = [
         ffmpeg_executable(), "-y", "-nostdin", "-v", "error",
         "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{probe.width * scale}x{probe.height * scale}",
@@ -257,6 +366,11 @@ def _start_encoder(path: Path, source: Path, probe: VideoProbe, scale: int, crf:
         "-pix_fmt", "yuv420p", "-color_range", "tv", "-colorspace", "bt709",
         "-color_trc", "bt709", "-color_primaries", "bt709", str(path),
     ]
+    policy = Policy.from_env()
+    if policy.enabled:
+        command = encoder_command(ffmpeg_executable(),path,source,probe.width*scale,probe.height*scale,probe.fps,policy.threads,video_only=True)
+    if os.getenv("LOCAL_VIDEO_PRODUCTION") == "1":
+        command = production_encoder_command(ffmpeg_executable(),path,source,probe.width*scale,probe.height*scale,probe.fps,probe.has_audio,audio_handling,delivery,crf,preset,gop)
     return subprocess.Popen(command, stdin=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
 
 
@@ -336,6 +450,12 @@ def _cuda_peak_vram_mb(runtime) -> float:
     import torch
 
     return torch.cuda.max_memory_allocated(device) / (1024 * 1024)
+
+
+def _cuda_peak_reserved_mb(runtime) -> float:
+    device = getattr(runtime,"torch_device",None)
+    if device is None or device.type != "cuda": return 0.0
+    return runtime.torch.cuda.max_memory_reserved(device) / (1024 * 1024)
 
 
 def _close_encoder(process: subprocess.Popen[bytes]) -> None:

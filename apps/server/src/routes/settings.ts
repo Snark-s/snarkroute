@@ -2,12 +2,12 @@ import { experientialConfigured } from "../providers/experiential";
 import type { FastifyInstance } from "fastify";
 import { createHash } from "node:crypto";
 import { requireAdmin } from "../auth/adapters";
-import { appCapabilities, appMode, deleteEnvValue, isElevenLabsEnabled, isGeminiEnabled, isKieEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isSeedanceEnabled, isWorldLabsEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
+import { appCapabilities, appMode, deleteEnvValue, isElevenLabsEnabled, isGeminiEnabled, isKieEnabled, isOpenAiEnabled, isOpenRouterEnabled, isPolzaEnabled, isReplicateEnabled, isTripoEnabled, isSeedanceEnabled, isWorldLabsEnabled, maskSecret, stringValue, writeEnvValue } from "../services/env";
 import { errorMessage } from "../services/errors";
 import { openRouterSettingsStatus } from "../providers/openrouter";
 import { normalizeSeedanceBackend, seedanceSettingsStatus, SEEDANCE_BACKENDS } from "../providers/seedance";
 export async function registerSettingsRoutes(app: FastifyInstance) {
-const health = async () => ({ ok: true, app: "snarkroute", service: "snarkroute-server", replicateEnabled: isReplicateEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), openrouterEnabled: isOpenRouterEnabled(), polzaEnabled: isPolzaEnabled(), kieEnabled: isKieEnabled(), elevenlabsEnabled: isElevenLabsEnabled(), seedanceEnabled: isSeedanceEnabled(), worldLabsEnabled: isWorldLabsEnabled() });
+const health = async () => ({ ok: true, app: "snarkroute", service: "snarkroute-server", replicateEnabled: isReplicateEnabled(), tripoEnabled: isTripoEnabled(), geminiEnabled: isGeminiEnabled(), openaiEnabled: isOpenAiEnabled(), openrouterEnabled: isOpenRouterEnabled(), polzaEnabled: isPolzaEnabled(), kieEnabled: isKieEnabled(), elevenlabsEnabled: isElevenLabsEnabled(), seedanceEnabled: isSeedanceEnabled(), worldLabsEnabled: isWorldLabsEnabled() });
 app.get("/api/health", health);
 app.get("/health", health);
 
@@ -16,6 +16,7 @@ app.get("/api/capabilities", async () => appCapabilities());
 app.get("/api/settings", async () => ({
   experiential: { configured: experientialConfigured(), maskedApiKey: experientialConfigured() ? maskSecret(process.env.EXPLABS_API_KEY) : "" },
   replicate: { configured: isReplicateEnabled() },
+  tripo: { configured: isTripoEnabled(), maskedApiKey: isTripoEnabled() ? maskSecret(process.env.TRIPO_API_KEY || process.env.TRIPO_API_TOKEN) : "" },
   gemini: { configured: isGeminiEnabled() },
   polza: {
     configured: isPolzaEnabled(),
@@ -161,6 +162,30 @@ app.post<{ Body: { replicateApiToken?: string } }>("/api/settings/replicate-toke
     await writeEnvValue("REPLICATE_API_TOKEN", token);
     process.env.REPLICATE_API_TOKEN = token;
     return { ok: true, replicate: { configured: true } };
+  } catch (error) {
+    return reply.code(500).send({ error: errorMessage(error) });
+  }
+});
+
+app.post<{ Body: { tripoApiKey?: string } }>("/api/settings/tripo-token", async (request, reply) => {
+  const token = request.body?.tripoApiKey?.trim();
+  if (!token || !/^[\x21-\x7E]+$/.test(token)) return reply.code(400).send({ error: "TRIPO_API_KEY cannot be empty or contain whitespace." });
+  try {
+    await writeEnvValue("TRIPO_API_KEY", token);
+    process.env.TRIPO_API_KEY = token;
+    return { ok: true, tripo: { configured: true, maskedApiKey: maskSecret(token) } };
+  } catch (error) {
+    return reply.code(500).send({ error: errorMessage(error) });
+  }
+});
+
+app.delete("/api/settings/tripo-token", async (_request, reply) => {
+  try {
+    await deleteEnvValue("TRIPO_API_KEY");
+    await deleteEnvValue("TRIPO_API_TOKEN");
+    delete process.env.TRIPO_API_KEY;
+    delete process.env.TRIPO_API_TOKEN;
+    return { ok: true, tripo: { configured: false, maskedApiKey: "" } };
   } catch (error) {
     return reply.code(500).send({ error: errorMessage(error) });
   }

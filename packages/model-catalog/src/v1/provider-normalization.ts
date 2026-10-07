@@ -4,6 +4,7 @@ import type {
   ModelInputTypeV1,
   ModelOriginVendorV1,
   ModelOutputTypeV1,
+  ModelPricingInfoV1,
   ModelProviderIdV1,
   ModelRoleV1,
   ProviderModelInfoV1
@@ -15,11 +16,13 @@ export type ProviderModelToV1Input = {
   providerModelId: string;
   canonicalModelId?: string;
   displayName?: string;
+  originVendor?: ModelOriginVendorV1;
   inputTypes?: ModelInputTypeV1[];
   outputTypes?: ModelOutputTypeV1[];
   capabilities?: ModelCapabilityV1[];
   roles?: ModelRoleV1[];
   availability?: Partial<ModelAvailabilityV1>;
+  pricing?: ModelPricingInfoV1;
   metadata?: Record<string, unknown>;
   ioContract?: ModelIOContract;
 };
@@ -32,13 +35,14 @@ export function normalizeProviderModelToV1Input(input: ProviderModelToV1Input): 
     providerModelId,
     canonicalModelId: input.canonicalModelId,
     id: createUnifiedModelId(input.provider, providerModelId),
-    originVendor: inferOriginVendorFromProviderModelId(providerModelId),
+    originVendor: input.originVendor ?? inferOriginVendorFromProviderModelId(providerModelId),
     displayName: input.displayName?.trim() || providerModelId,
     inputTypes: input.inputTypes ?? [],
     outputTypes: input.outputTypes ?? ["unknown"],
     capabilities: input.capabilities ?? [],
     roles: input.roles ?? [],
     availability: normalizeProviderAvailability(input.availability),
+    pricing: input.pricing,
     metadata: input.metadata,
     ioContract: input.ioContract
   };

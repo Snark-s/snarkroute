@@ -60,6 +60,12 @@ When a node calls an external API, handle the connection before packaging the no
 5. If the task is only to create a portable `.snarknode` package and the app cannot be edited, declare the required env key in `permissions.env`, include the network host in `permissions.networkHosts`, and mention the required connection in the README. Do not embed secrets in the package.
 6. For OpenAI direct API nodes, use the direct OpenAI connection when it exists. Use OpenRouter only when the requested model/endpoint is actually available through OpenRouter; otherwise require/add a direct `OPENAI_API_KEY` connection for `api.openai.com`.
 
+### Local provider auto-registration
+
+When a provider or model runs on a loopback endpoint, expose that fact in normalized model metadata instead of adding another hardcoded launcher entry. Set `local: true` and `baseUrl`. If resource requirements are known, also provide `localRuntime: { id, label, endpoint, demand, claimsOnStart, recommendedFreeVramMiB }`. The SnarkRoute local-runtime registry discovers these entries automatically and the Workshop/plugin UI renders them from the shared registry.
+
+If the adapter owns safe start/stop functions, register them with `registerLocalRuntimeController(runtimeId, { start, stop })`. If it does not, leave lifecycle control absent. The process will still appear in runtime status and conflict warnings, but SnarkRoute will not invent a shell command or kill an unknown process.
+
 ## Workflow
 
 1. Convert the user's description into a `CreateBoojumNodeSpec`.

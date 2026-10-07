@@ -54,6 +54,10 @@ describe("@snarkroute/model-registry resolver", () => {
     expect(() => resolveModelProvider({ task: "image", modelId: "image.unsupported", providerMode: "auto", mappings })).toThrow("This model is not available for image generation.");
   });
 
+  it("reports the actual task when a text model cannot be resolved", () => {
+    expect(() => resolveModelProvider({ task: "text", modelId: "missing-text-model", providerMode: "auto", mappings })).toThrow("This model is not available for text generation.");
+  });
+
   it("returns expected resolution metadata", () => {
     const resolution = resolveModelProvider({ task: "text", modelId: "text.default", providerMode: "auto", mappings });
     expect(resolutionMetadata(resolution, { estimatedCostStatus: "unknown" })).toMatchObject({

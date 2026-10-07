@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import signal
+import threading
+
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
@@ -8,6 +12,7 @@ from app.config import Settings
 from app.errors import WorkerError
 from app.service import UpscaleService
 from app.video_service import VideoUpscaleService
+from app.video_benchmark import Policy
 
 
 class JobRequest(BaseModel):
@@ -35,6 +40,9 @@ class VideoJobRequest(BaseModel):
     audio_handling: str | None = None
     tile_size: int | None = None
     tile_overlap: int | None = None
+    delivery: list[int] | None = None
+    preset: str | None = None
+    gop: int | None = None
 
 
 def create_app(
@@ -75,6 +83,34 @@ def create_app(
     async def ready():
         return {"ok": True, "runtime": configured.runtime_override, "model_dir": str(configured.model_dir)}
 
+    @app.get("/runtime", dependencies=[Depends(authorize)])
+    async def runtime_status():
+        image_jobs = sum(job.status in {"queued", "running"} for job in worker.jobs.values())
+        video_jobs = sum(job.status in {"queued", "running"} for job in video_worker.jobs.values())
+        active_jobs = image_jobs + video_jobs
+        return {
+            "ok": True,
+            "service": "snarkroute-local-upscale-worker",
+            "state": "busy" if active_jobs else "ready",
+            "active_jobs": active_jobs,
+            "image_jobs": image_jobs,
+            "video_jobs": video_jobs,
+        }
+
+    @app.post("/shutdown", dependencies=[Depends(authorize)])
+    async def shutdown():
+        image_jobs = sum(job.status in {"queued", "running"} for job in worker.jobs.values())
+        video_jobs = sum(job.status in {"queued", "running"} for job in video_worker.jobs.values())
+        if image_jobs + video_jobs:
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "Local Upscale has active jobs; cancel or finish them before shutdown."},
+            )
+        timer = threading.Timer(0.2, lambda: os.kill(os.getpid(), signal.SIGTERM))
+        timer.daemon = True
+        timer.start()
+        return {"ok": True, "stopping": True}
+
     @app.get("/v1/capabilities", dependencies=[Depends(authorize)])
     async def capabilities():
         return worker.capabilities()
@@ -86,6 +122,8 @@ def create_app(
 
     @app.post("/v1/jobs", dependencies=[Depends(authorize)])
     async def create_job(request: JobRequest):
+        if Policy.from_env().enabled or os.getenv("LOCAL_VIDEO_PRODUCTION") == "1":
+            raise WorkerError("benchmark_locked","Image jobs are disabled in the isolated video benchmark worker.")
         return (await worker.create_job(request.model_dump(exclude_none=True))).public()
 
     @app.get("/v1/jobs/{job_id}", dependencies=[Depends(authorize)])

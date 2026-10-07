@@ -1,20 +1,30 @@
 import type { SnarkNodeManifest } from "@snarkroute/nodes";
 
 export * from "./living-canvas";
+export * from "./decision-layer";
+export * from "./decision-layer/example";
+export * from "./decision-shadow";
+export * from "./semantic-selection";
+export * from "./semantic-selection/examples";
 export {
   GatewayModelResolver,
   ModelGateway,
   ModelRegistry,
   estimateCatalogPricingQuote,
   estimatePricingCatalogQuote,
+  failedProviderConnection,
   isPricingCatalogFresh,
   providerModelRef,
   sanitizePricingQuote,
+  unsupportedProviderConnection,
+  verifiedProviderConnection,
   unknownPricingQuote
 } from "./model-gateway";
 export type {
   ModelGatewayQuoteResult,
   ModelCapability,
+  EngineAvailability,
+  EngineKind,
   ModelInfo,
   ModelIOContract,
   ModelIOItem,
@@ -27,6 +37,9 @@ export type {
   ModelSelectionPreferences,
   ProviderAdapter,
   ProviderConnection,
+  ProviderConnectionFailureReason,
+  ProviderConnectionTest,
+  ProviderConnectionTestStatus,
   PricingConfidence,
   PricingCatalog,
   PricingCatalogModel,

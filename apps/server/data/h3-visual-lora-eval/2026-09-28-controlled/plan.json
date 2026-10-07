@@ -1,0 +1,52 @@
+{
+  "createdAt": "2026-09-29T21:53:47.342Z",
+  "provider": "local",
+  "model": "MATLOW fused Turbo INT8",
+  "modelRevision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+  "modifier": {
+    "source": "civitai:2890588/version:3267949",
+    "sha256": "51dda79218ea126cbb2e08f3a6d9cc595e2224f4977d7618061954043a8bafcf"
+  },
+  "prompt": "A cinematic medium close-up of a woman in a black blouse standing in a neutral photography studio. She turns slowly from left profile to direct eye contact while the camera performs a gentle push-in. Natural skin texture, restrained contrast, soft window-like key light, subtle warm rim light, realistic lens depth of field, no cuts, no subtitles, no music.",
+  "seed": 5242017,
+  "cases": [
+    {
+      "id": "C0",
+      "purpose": "base control before LoRA"
+    },
+    {
+      "id": "C1",
+      "purpose": "Authentic Cinematic Texture 0.7 without trigger",
+      "visualModifier": {
+        "id": "authentic_cinematic_texture",
+        "enabled": true,
+        "strength": 0.7,
+        "includeTrigger": false
+      }
+    },
+    {
+      "id": "C2",
+      "purpose": "Authentic Cinematic Texture 0.7 with disputed DY trigger",
+      "visualModifier": {
+        "id": "authentic_cinematic_texture",
+        "enabled": true,
+        "strength": 0.7,
+        "includeTrigger": true
+      }
+    },
+    {
+      "id": "C2M",
+      "purpose": "Authentic Cinematic Texture documented high-motion strength 0.5 without trigger",
+      "visualModifier": {
+        "id": "authentic_cinematic_texture",
+        "enabled": true,
+        "strength": 0.5,
+        "includeTrigger": false
+      }
+    },
+    {
+      "id": "C0R",
+      "purpose": "base control after LoRA for contamination check"
+    }
+  ]
+}

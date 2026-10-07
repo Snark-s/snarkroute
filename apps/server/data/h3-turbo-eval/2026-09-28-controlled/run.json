@@ -1,0 +1,306 @@
+{
+  "createdAt": "2026-09-28T17:13:28.764Z",
+  "provider": "fal",
+  "model": "fal/minimax-h3-max-turbo",
+  "resolution": "768P",
+  "duration": 5,
+  "seed": 5242017,
+  "promptExpansionMode": "disabled",
+  "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+  "maxPaidCalls": 3,
+  "cases": [
+    {
+      "id": "TURBO-T0",
+      "purpose": "text-only controlled match",
+      "references": []
+    },
+    {
+      "id": "TURBO-I1",
+      "purpose": "first-frame controlled match",
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        }
+      ]
+    },
+    {
+      "id": "TURBO-FL1",
+      "purpose": "first-plus-last controlled match",
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        },
+        {
+          "kind": "image",
+          "role": "lastFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+        }
+      ]
+    }
+  ],
+  "completedAt": "2026-09-28T17:13:56.194Z",
+  "paidCalls": 3,
+  "results": [
+    {
+      "status": "succeeded",
+      "id": "TURBO-T0",
+      "purpose": "text-only controlled match",
+      "startedAt": "2026-09-28T17:13:28.771Z",
+      "completedAt": "2026-09-28T17:13:40.156Z",
+      "requestId": "01a0e901-df3c-70c0-a484-c65e116c240b",
+      "endpoint": "minimax/h3-max-turbo/text-to-video",
+      "provider": "fal",
+      "model": "fal/minimax-h3-max-turbo",
+      "upstream": "MiniMaxAI/MiniMax-H3",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-T0\\output.mp4",
+      "expandedPrompt": null,
+      "providerTimings": {
+        "inference": 1.4046351360157132
+      },
+      "latencyMs": {
+        "acceptedMs": 564,
+        "generationMs": 5277,
+        "totalMs": 5841,
+        "download": 4656,
+        "totalWithDownload": 10497
+      },
+      "cost": {
+        "amountUsd": 0.2,
+        "rateUsdPerSecond": 0.04,
+        "currency": "USD",
+        "confidence": "exact-output-only",
+        "promotion": null,
+        "excludesReferenceTokenCharges": true,
+        "source": "https://fal.ai/models/minimax/h3-max-turbo/text-to-video"
+      },
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 3390372,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      },
+      "timeline": [
+        {
+          "event": "price_quoted",
+          "at": "2026-09-28T17:13:28.771Z",
+          "amountUsd": 0.2
+        },
+        {
+          "event": "submit_started",
+          "at": "2026-09-28T17:13:28.771Z"
+        },
+        {
+          "event": "accepted",
+          "at": "2026-09-28T17:13:29.335Z",
+          "requestId": "01a0e901-df3c-70c0-a484-c65e116c240b"
+        },
+        {
+          "event": "provider_in_progress",
+          "at": "2026-09-28T17:13:29.797Z"
+        },
+        {
+          "event": "provider_in_progress",
+          "at": "2026-09-28T17:13:31.976Z"
+        },
+        {
+          "event": "provider_completed",
+          "at": "2026-09-28T17:13:34.152Z"
+        },
+        {
+          "event": "provider_complete",
+          "at": "2026-09-28T17:13:34.612Z"
+        },
+        {
+          "event": "local_ready",
+          "at": "2026-09-28T17:13:39.268Z",
+          "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-T0\\output.mp4"
+        }
+      ]
+    },
+    {
+      "status": "succeeded",
+      "id": "TURBO-I1",
+      "purpose": "first-frame controlled match",
+      "startedAt": "2026-09-28T17:13:40.162Z",
+      "completedAt": "2026-09-28T17:13:46.778Z",
+      "requestId": "01a0e902-0bdd-7531-8317-58102f72ad45",
+      "endpoint": "minimax/h3-max-turbo/image-to-video",
+      "provider": "fal",
+      "model": "fal/minimax-h3-max-turbo",
+      "upstream": "MiniMaxAI/MiniMax-H3",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-I1\\output.mp4",
+      "expandedPrompt": null,
+      "providerTimings": {
+        "inference": 1.5550016130000586
+      },
+      "latencyMs": {
+        "acceptedMs": 609,
+        "generationMs": 2802,
+        "totalMs": 3411,
+        "download": 2932,
+        "totalWithDownload": 6343
+      },
+      "cost": {
+        "amountUsd": 0.2,
+        "rateUsdPerSecond": 0.04,
+        "currency": "USD",
+        "confidence": "exact-output-only",
+        "promotion": null,
+        "excludesReferenceTokenCharges": true,
+        "source": "https://fal.ai/models/minimax/h3-max-turbo/text-to-video"
+      },
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 4887802,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      },
+      "timeline": [
+        {
+          "event": "price_quoted",
+          "at": "2026-09-28T17:13:40.162Z",
+          "amountUsd": 0.2
+        },
+        {
+          "event": "submit_started",
+          "at": "2026-09-28T17:13:40.162Z"
+        },
+        {
+          "event": "accepted",
+          "at": "2026-09-28T17:13:40.771Z",
+          "requestId": "01a0e902-0bdd-7531-8317-58102f72ad45"
+        },
+        {
+          "event": "provider_in_progress",
+          "at": "2026-09-28T17:13:41.235Z"
+        },
+        {
+          "event": "provider_completed",
+          "at": "2026-09-28T17:13:43.412Z"
+        },
+        {
+          "event": "provider_complete",
+          "at": "2026-09-28T17:13:43.573Z"
+        },
+        {
+          "event": "local_ready",
+          "at": "2026-09-28T17:13:46.505Z",
+          "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-I1\\output.mp4"
+        }
+      ]
+    },
+    {
+      "status": "succeeded",
+      "id": "TURBO-FL1",
+      "purpose": "first-plus-last controlled match",
+      "startedAt": "2026-09-28T17:13:46.783Z",
+      "completedAt": "2026-09-28T17:13:56.189Z",
+      "requestId": "01a0e902-2509-7591-b12a-056abc96134a",
+      "endpoint": "minimax/h3-max-turbo/image-to-video",
+      "provider": "fal",
+      "model": "fal/minimax-h3-max-turbo",
+      "upstream": "MiniMaxAI/MiniMax-H3",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-FL1\\output.mp4",
+      "expandedPrompt": null,
+      "providerTimings": {
+        "inference": 1.5253627789934399
+      },
+      "latencyMs": {
+        "acceptedMs": 424,
+        "generationMs": 4965,
+        "totalMs": 5389,
+        "download": 3744,
+        "totalWithDownload": 9133
+      },
+      "cost": {
+        "amountUsd": 0.2,
+        "rateUsdPerSecond": 0.04,
+        "currency": "USD",
+        "confidence": "exact-output-only",
+        "promotion": null,
+        "excludesReferenceTokenCharges": true,
+        "source": "https://fal.ai/models/minimax/h3-max-turbo/text-to-video"
+      },
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 4632947,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      },
+      "timeline": [
+        {
+          "event": "price_quoted",
+          "at": "2026-09-28T17:13:46.783Z",
+          "amountUsd": 0.2
+        },
+        {
+          "event": "submit_started",
+          "at": "2026-09-28T17:13:46.783Z"
+        },
+        {
+          "event": "accepted",
+          "at": "2026-09-28T17:13:47.207Z",
+          "requestId": "01a0e902-2509-7591-b12a-056abc96134a"
+        },
+        {
+          "event": "provider_in_progress",
+          "at": "2026-09-28T17:13:47.368Z"
+        },
+        {
+          "event": "provider_in_progress",
+          "at": "2026-09-28T17:13:49.540Z"
+        },
+        {
+          "event": "provider_completed",
+          "at": "2026-09-28T17:13:51.710Z"
+        },
+        {
+          "event": "provider_complete",
+          "at": "2026-09-28T17:13:52.172Z"
+        },
+        {
+          "event": "local_ready",
+          "at": "2026-09-28T17:13:55.916Z",
+          "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-turbo-eval\\2026-09-28-controlled\\TURBO-FL1\\output.mp4"
+        }
+      ]
+    }
+  ]
+}

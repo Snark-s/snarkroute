@@ -22,15 +22,15 @@ export function mergeProviderModelWithCuratedMetadata(
     originModelId: curated?.originModelId,
     displayName: curated?.displayName ?? providerModel.displayName,
     description: curated?.description,
-    iconKey: selectIconKey(providerModel.provider, curated?.originVendor ?? providerModel.originVendor, curated),
-    iconPath: selectIconPath(providerModel.provider, curated?.originVendor ?? providerModel.originVendor, curated),
+    iconKey: selectIconKey(providerModel.provider, providerModel.providerModelId, curated?.originVendor ?? providerModel.originVendor, curated),
+    iconPath: selectIconPath(providerModel.provider, providerModel.providerModelId, curated?.originVendor ?? providerModel.originVendor, curated),
     inputTypes: curated?.inputTypes ?? providerModel.inputTypes,
     outputTypes: curated?.outputTypes ?? providerModel.outputTypes,
     capabilities: curated?.capabilities ?? providerModel.capabilities,
     roles: curated?.roles ?? providerModel.roles,
     availability: providerModel.availability,
     parameters: curated?.parameters ?? [],
-    pricing: curated?.pricing,
+    pricing: providerModel.pricing ?? curated?.pricing,
     catalogStatus: curated ? "known" : "unknown",
     aliases: curated?.aliases,
     metadata: mergeMetadata(providerModel.metadata, curated?.metadata),
@@ -69,18 +69,30 @@ function curatedMetadataMatchesProviderModel(
     && (curated.providerModelId === providerModel.providerModelId || Boolean(curated.aliases?.includes(providerModel.providerModelId)));
 }
 
-function selectIconKey(_provider: ModelProviderIdV1, originVendor: ModelOriginVendorV1, curated?: CuratedModelMetadataV1): string {
+function selectIconKey(
+  provider: ModelProviderIdV1,
+  providerModelId: string,
+  originVendor: ModelOriginVendorV1,
+  curated?: CuratedModelMetadataV1
+): string {
   if (curated?.iconKey) return curated.iconKey;
+  const normalizedModelId = providerModelId.trim().toLowerCase();
+  if (/^google\/gemini-.+-image-preview$/.test(normalizedModelId)) return "nano-banana";
   const vendorIcon = iconKeyForVendor(originVendor);
   if (vendorIcon) return vendorIcon;
-  const providerIcon = iconKeyForVendor(_provider);
+  const providerIcon = iconKeyForVendor(provider);
   if (providerIcon) return providerIcon;
   return "unknown";
 }
 
-function selectIconPath(provider: ModelProviderIdV1, originVendor: ModelOriginVendorV1, curated?: CuratedModelMetadataV1): string {
+function selectIconPath(
+  provider: ModelProviderIdV1,
+  providerModelId: string,
+  originVendor: ModelOriginVendorV1,
+  curated?: CuratedModelMetadataV1
+): string {
   if (curated?.iconPath) return curated.iconPath;
-  return `/api/model-icons/${iconFilenameForKey(selectIconKey(provider, originVendor, curated))}`;
+  return `/api/model-icons/${iconFilenameForKey(selectIconKey(provider, providerModelId, originVendor, curated))}`;
 }
 
 function iconKeyForVendor(originVendor: ModelOriginVendorV1): string | undefined {

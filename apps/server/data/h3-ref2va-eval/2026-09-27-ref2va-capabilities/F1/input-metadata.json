@@ -1,0 +1,65 @@
+{
+  "testId": "F1",
+  "sourcePlanPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\plan.json",
+  "prompt": "Preserve the source performance, pose, timing, framing and camera. The person slowly turns toward the camera in a plain studio.",
+  "contextInstruction": "Use <Video 1> for the performance. Use <Picture 1> as the facial identity reference.",
+  "finalPrompt": "Use <Video 1> for the performance. Use <Picture 1> as the facial identity reference.\n\nPreserve the source performance, pose, timing, framing and camera. The person slowly turns toward the camera in a plain studio.",
+  "referenceOrdering": [
+    {
+      "tag": "Video 1",
+      "kind": "video",
+      "filename": "output.mp4",
+      "purpose": "motion",
+      "visualMode": "full"
+    },
+    {
+      "tag": "Picture 1",
+      "kind": "image",
+      "filename": "face-b.png",
+      "purpose": "identity",
+      "visualMode": null
+    }
+  ],
+  "references": [
+    {
+      "tag": "Video 1",
+      "kind": "video",
+      "purpose": "motion",
+      "visualMode": "full",
+      "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\A0\\output.mp4",
+      "filename": "output.mp4",
+      "bytes": 658931,
+      "sha256": "94e7c57eeebbcf90fa504aa76b2309427e0b631125100ebc68660f74d8d7ff01",
+      "preview": "reference-1.jpg"
+    },
+    {
+      "tag": "Picture 1",
+      "kind": "image",
+      "purpose": "identity",
+      "visualMode": null,
+      "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\inputs\\face-b.png",
+      "filename": "face-b.png",
+      "bytes": 305520,
+      "sha256": "bb618fdcb3f4f5f1fb8d98bc5acafa5b06242e35748352559f6d8920b1a4e6f0",
+      "preview": "reference-2.jpg"
+    }
+  ],
+  "parameters": {
+    "modelVariant": "h3_base",
+    "seed": 424242,
+    "steps": 4,
+    "durationSeconds": 5,
+    "aspectRatio": "16:9",
+    "scheduler": "simple",
+    "sampler": "res_multistep",
+    "guidance": "basic/no CFG scale",
+    "flowParameters": {
+      "shiftVideo": 12,
+      "shiftAudio": 3
+    },
+    "identityTransfer": {
+      "enabled": true,
+      "strength": 1
+    }
+  }
+}

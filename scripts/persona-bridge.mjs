@@ -26,7 +26,10 @@ export async function ensurePersonaBridge({
       env.USERPROFILE ? join(env.USERPROFILE, "PersonaCore") : undefined]
       .find((candidate) => candidate && exists(join(candidate, "scripts", "start_extension_bridge.py")));
     if (!home) return;
-    const python = env.PERSONA_PYTHON ?? join(home, ".venv", platform === "win32" ? "Scripts" : "bin", platform === "win32" ? "python.exe" : "python");
+    const configuredPython = env.PERSONA_PYTHON?.trim();
+    const consolePython = join(home, ".venv", platform === "win32" ? "Scripts" : "bin", platform === "win32" ? "python.exe" : "python");
+    const windowlessPython = platform === "win32" ? join(home, ".venv", "Scripts", "pythonw.exe") : undefined;
+    const python = configuredPython || (windowlessPython && exists(windowlessPython) ? windowlessPython : consolePython);
     if (!exists(python)) { log.warn("Persona Bridge: Python not found; set PERSONA_PYTHON."); return; }
     const child = launch(python, [join(home, "scripts", "start_extension_bridge.py"), "--port", String(port)], {
       cwd: home, env: { ...env, PERSONA_HOME: home, PYTHONUTF8: "1" },
@@ -42,4 +45,24 @@ export async function ensurePersonaBridge({
   } catch {
     log.warn("Persona Bridge unavailable; SnarkRoute will continue starting.");
   }
+}
+
+// Keep the optional bridge available after the one-shot launcher has opened the UI.
+// A serialized check prevents duplicate bridge processes when startup is slow.
+export function startPersonaBridgeSupervisor({
+  ensure = ensurePersonaBridge,
+  intervalMs = 10_000,
+  schedule = setInterval,
+} = {}) {
+  let checking = false;
+  const check = async () => {
+    if (checking) return;
+    checking = true;
+    try {
+      await ensure();
+    } finally {
+      checking = false;
+    }
+  };
+  return schedule(check, intervalMs);
 }

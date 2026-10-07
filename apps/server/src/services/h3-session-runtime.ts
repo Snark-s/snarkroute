@@ -1,15 +1,17 @@
 import { createHash } from "node:crypto";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { createH3WorkerClient, type H3GenerationInput, type H3Reference, type H3WorkerJob } from "@snarkroute/h3";
+import { createH3HostedClient, createH3WorkerClient, estimateH3HostedCost, serializeH3HostedRequest, type H3GenerationInput, type H3HostedEndpoint, type H3Reference, type H3WorkerJob } from "@snarkroute/h3";
 import { h3StudioDirectory } from "../server-paths";
 import { inspectH3Connection, normalizeH3WorkerUrl } from "./h3-connection";
 import { H3ManagedInstanceError, H3QueueBlockedError, type H3QueueItem, type H3QueueLease, type H3QueueRuntime, type H3SessionMode } from "./h3-queue";
 import { openH3SshTunnel, resolveH3SshPrivateKeyPath, type H3SshTunnel } from "./h3-ssh-tunnel";
 import { H3_VAST_IMAGE, H3_VAST_IMAGE_TAG, H3_VAST_SOURCE_REVISION } from "./h3-vast-template";
 import { DEFAULT_EXCLUDED_H3_COUNTRIES, selectH3VastOffer, VastClient, type VastInstance } from "./vast-client";
+import { renderVideoUpscale, cancelVideoUpscale } from "./video-upscale";
 
 const activeVastTunnels = new Map<number, H3SshTunnel>();
+const activeHostedJobs = new Map<string, { endpoint: H3HostedEndpoint; requestId: string }>();
 
 export type H3VastConfigStatus = {
   configured: boolean;
@@ -69,14 +71,29 @@ export function createDefaultH3QueueRuntime(options: { fetchImpl?: typeof fetch;
   const fetchImpl = options.fetchImpl ?? fetch;
   const resultsDirectory = options.resultsDirectory ?? join(h3StudioDirectory, "results");
   return {
-    acquire: (mode, onLease) => acquire(mode, onLease, fetchImpl),
+    acquire: (mode, onLease, items) => acquire(mode, onLease, items, fetchImpl),
     render: (item, lease, onProgress, onJobCreated) => render(item, lease, onProgress, onJobCreated, resultsDirectory, fetchImpl),
     cancel: (item, lease) => cancel(item, lease, fetchImpl),
     cleanup: (lease) => cleanup(lease, fetchImpl)
   };
 }
 
-async function acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Promise<void>, fetchImpl: typeof fetch): Promise<H3QueueLease> {
+async function acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Promise<void>, items: H3QueueItem[], fetchImpl: typeof fetch): Promise<H3QueueLease> {
+  const generationItems = items.filter(item => item.operation !== "video_upscale");
+  if (!generationItems.length && items.some(item => item.operation === "video_upscale")) {
+    const lease = { workerUrl: "", serviceToken: "" };
+    await onLease(lease);
+    return lease;
+  }
+  items = generationItems;
+  const needsLocalWorker = items.some((item) => !isHostedH3Variant(item.modelVariant));
+  if (!needsLocalWorker) {
+    if (!process.env.FAL_KEY?.trim()) throw new Error("FAL_KEY is not configured on the server.");
+    const lease = { workerUrl: "", serviceToken: "", provider: "fal" as const };
+    await onLease(lease);
+    return lease;
+  }
+  if (mode === "provider") throw new Error("Hosted provider mode can run only H3 Max jobs. Deselect local Base/10Eros jobs or use the saved worker/Vast mode.");
   if (mode === "saved_worker") {
     const status = await inspectH3Connection({ fetchImpl, timeoutMs: 10_000 });
     if (!status.ready) throw new Error(status.error ?? status.reason ?? "The saved H3 worker is not ready.");
@@ -145,12 +162,19 @@ async function acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Pr
 }
 
 async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progress: number, stage?: string) => Promise<void>, onJobCreated: ((workerJobId: string) => Promise<void>) | undefined, resultsDirectory: string, fetchImpl: typeof fetch) {
+  if (item.operation === "video_upscale") return renderVideoUpscale(item,resultsDirectory,onProgress,onJobCreated);
+  if (isHostedH3Variant(item.modelVariant)) return renderHosted(item, onProgress, onJobCreated, resultsDirectory, fetchImpl);
+  if (item.cameraPath && item.cameraControlMode === "native") throw new H3QueueBlockedError("Native CameraPath requires the hosted H3 Max Model Gateway route; this queue targets a local H3 worker. Choose Auto or Prompt fallback.");
   const requiredCapability = capabilityFor(item.operation);
   if (!requiredCapability) throw new H3QueueBlockedError(blockedReason(item.operation));
   const client = createH3WorkerClient({ baseUrl: lease.workerUrl, serviceToken: lease.serviceToken, fetchImpl, pollingIntervalMs: 2_000, timeoutMs: 60 * 60_000 });
   const capabilities = await client.capabilities() as { backend?: string; capabilities?: Array<{ name?: string; available?: boolean; reason?: string }> };
   const capability = capabilities.capabilities?.find((entry) => entry.name === requiredCapability);
   if (!capability?.available) throw new H3QueueBlockedError(capability?.reason ?? `H3 worker does not provide ${requiredCapability}.`);
+  if (item.identityTransfer?.enabled) {
+    const identityCapability = capabilities.capabilities?.find((entry) => entry.name === "identity_transfer");
+    if (!identityCapability?.available) throw new H3QueueBlockedError(identityCapability?.reason ?? "H3 worker does not provide identity_transfer.");
+  }
 
   const references: H3Reference[] = [];
   for (const asset of item.assets) {
@@ -160,6 +184,7 @@ async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progr
       kind: asset.kind,
       uri: uploaded.uri,
       role: asset.slot === "firstFrame" ? "firstFrame" : asset.slot === "lastFrame" ? "lastFrame" : "reference",
+      ...(asset.slot === "identityImage" ? { purpose: "identity" as const } : {}),
       ...(item.operation === "style_transfer" && asset.kind === "video" ? { visualMode: "motion" as const } : {})
     });
   }
@@ -188,11 +213,11 @@ async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progr
     await writeFile(path, bytes);
     resultPaths.push(path);
   }
-  return { workerJobId: job.id, resultPaths };
+  return { workerJobId: job.id, resultPaths, metadata: { provider: "local" as const, model: item.modelVariant, provenance: job.metadata ?? {} } };
 }
 
 export function generationInputForH3QueueItem(
-  item: Pick<H3QueueItem, "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode"> & Partial<Pick<H3QueueItem, "modelVariant">>,
+  item: Pick<H3QueueItem, "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode"> & Partial<Pick<H3QueueItem, "modelVariant" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode">>,
   references: H3Reference[],
   inferenceSteps?: number
 ): H3GenerationInput {
@@ -204,15 +229,26 @@ export function generationInputForH3QueueItem(
     variants: item.variants,
     renderMode: item.renderMode,
     modelVariant: item.modelVariant ?? "h3_base",
+    attentionMode: item.attentionMode ?? "auto",
     ...(inferenceSteps === undefined ? {} : { inferenceSteps }),
     quality: "lossless",
     turboLora: false,
+    ...(item.identityTransfer ? { identityTransfer: item.identityTransfer } : {}),
+    ...(item.visualModifier ? { visualModifier: item.visualModifier } : {}),
+    ...(item.cameraPath ? { cameraPath: item.cameraPath, cameraControlMode: "prompt" as const } : {}),
     references
   };
 }
 
 async function cancel(item: H3QueueItem, lease: H3QueueLease, fetchImpl: typeof fetch): Promise<void> {
+  if (item.operation === "video_upscale") return cancelVideoUpscale(item);
   if (!item.workerJobId) throw new Error("The active H3 worker job id is not available yet.");
+  const hosted = activeHostedJobs.get(item.id);
+  if (hosted || isHostedH3Variant(item.modelVariant)) {
+    if (!hosted) throw new Error("The active fal H3 Max endpoint is not available for cancellation.");
+    await createH3HostedClient({ fetchImpl }).cancel(hosted.endpoint, hosted.requestId);
+    return;
+  }
   const client = createH3WorkerClient({
     baseUrl: lease.workerUrl,
     serviceToken: lease.serviceToken,
@@ -223,6 +259,7 @@ async function cancel(item: H3QueueItem, lease: H3QueueLease, fetchImpl: typeof 
 }
 
 async function cleanup(lease: H3QueueLease, fetchImpl: typeof fetch): Promise<void> {
+  if (lease.provider === "fal") return;
   if (!lease.managedInstanceId) return;
   const client = new VastClient({ apiKey: requiredEnv("VAST_API_KEY"), fetchImpl });
   try {
@@ -232,8 +269,75 @@ async function cleanup(lease: H3QueueLease, fetchImpl: typeof fetch): Promise<vo
   }
 }
 
+async function renderHosted(item: H3QueueItem, onProgress: (progress: number, stage?: string) => Promise<void>, onJobCreated: ((workerJobId: string) => Promise<void>) | undefined, resultsDirectory: string, fetchImpl: typeof fetch) {
+  if (item.variants !== 1) throw new H3QueueBlockedError("H3 Max hosted requests generate one output per job. Set Output count to 1.");
+  if (item.identityTransfer?.enabled) throw new H3QueueBlockedError("The local FaceSwap Ref2VA LoRA cannot be applied to hosted H3 Max.");
+  if (item.visualModifier?.enabled) throw new H3QueueBlockedError("Local visual LoRA modifiers cannot be applied to hosted H3 profiles.");
+  const references: H3Reference[] = [];
+  for (const asset of item.assets) {
+    if (["sourceVideo", "mask"].includes(asset.slot)) continue;
+    references.push({
+      kind: asset.kind,
+      uri: `data:${asset.mimeType};base64,${(await readFile(asset.path)).toString("base64")}`,
+      role: asset.slot === "firstFrame" ? "firstFrame" : asset.slot === "lastFrame" ? "lastFrame" : "reference",
+      ...(asset.slot === "identityImage" ? { purpose: "identity" as const } : {})
+    });
+  }
+  validateAssets(item, references);
+  const input = generationInputForH3QueueItem(item, references);
+  const variant = item.modelVariant === "h3_max_turbo" ? "h3_max_turbo" : "h3_max";
+  const request = serializeH3HostedRequest({ ...input, modelVariant: variant, resolution: "768P", promptExpansionMode: "disabled" });
+  const quote = estimateH3HostedCost({ variant, duration: item.duration, resolution: "768P", endpoint: request.endpoint });
+  const client = createH3HostedClient({ fetchImpl, pollingIntervalMs: 2_000, timeoutMs: positiveInteger(process.env.H3_QUEUE_ITEM_TIMEOUT_MS, 60 * 60_000) });
+  await onProgress(0.03, "submitting to fal");
+  try {
+    const result = await client.run(request, undefined, {
+      onSubmitted: async (requestId) => {
+        activeHostedJobs.set(item.id, { endpoint: request.endpoint, requestId });
+        await onJobCreated?.(requestId);
+        await onProgress(0.08, "accepted by fal");
+      },
+      onStatus: async (status) => {
+        const state = String(status.status ?? "queued").toLowerCase();
+        await onProgress(state === "in_progress" ? 0.55 : 0.15, `fal ${state.replaceAll("_", " ")}`);
+      }
+    });
+    const downloadStarted = Date.now();
+    await onProgress(0.92, "downloading result");
+    const bytes = Buffer.from(await client.download(result.video.url));
+    const downloadMs = Date.now() - downloadStarted;
+    validateMp4(bytes);
+    const itemDirectory = join(resultsDirectory, item.id);
+    await mkdir(itemDirectory, { recursive: true });
+    const path = join(itemDirectory, `${item.id}-0.mp4`);
+    await writeFile(path, bytes);
+    return {
+      workerJobId: result.requestId,
+      resultPaths: [path],
+      metadata: {
+        provider: "fal" as const,
+        model: variant === "h3_max_turbo" ? "fal/minimax-h3-max-turbo" : "fal/minimax-h3-max",
+        endpoint: result.endpoint,
+        estimatedCostUsd: quote.amountUsd,
+        actualCostUsd: null,
+        pricingNote: `${quote.rateUsdPerSecond.toFixed(4)} USD/s; reference token charges are not included`,
+        latencyMs: { accepted: result.latency.acceptedMs, generation: result.latency.generationMs, download: downloadMs, total: result.latency.totalMs + downloadMs },
+        seed: result.seed,
+        expandedPrompt: result.expanded_prompt,
+        provenance: { owner: "fal", upstream: "MiniMaxAI/MiniMax-H3", variant, endpoint: result.endpoint }
+      }
+    };
+  } finally {
+    activeHostedJobs.delete(item.id);
+  }
+}
+
+function isHostedH3Variant(value: H3QueueItem["modelVariant"]): value is "h3_max" | "h3_max_turbo" {
+  return value === "h3_max" || value === "h3_max_turbo";
+}
+
 export function idempotencyKeyForQueueItem(
-  item: Pick<H3QueueItem, "id" | "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "inferenceSteps" | "assets" | "startedAt"> & Partial<Pick<H3QueueItem, "modelVariant">>
+  item: Pick<H3QueueItem, "id" | "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "inferenceSteps" | "assets" | "startedAt"> & Partial<Pick<H3QueueItem, "modelVariant" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode">>
 ): string {
   const renderRevision = JSON.stringify({
     attemptStartedAt: item.startedAt,
@@ -246,6 +350,11 @@ export function idempotencyKeyForQueueItem(
     renderMode: item.renderMode,
     modelVariant: item.modelVariant,
     inferenceSteps: item.inferenceSteps,
+    attentionMode: item.attentionMode,
+    identityTransfer: item.identityTransfer,
+    visualModifier: item.visualModifier,
+    cameraPath: item.cameraPath,
+    cameraControlMode: item.cameraControlMode,
     assets: item.assets.map(({ slot, kind, path, filename, mimeType }) => ({
       slot,
       kind,
@@ -386,6 +495,7 @@ function validateAssets(item: H3QueueItem, references: H3Reference[]): void {
   if (item.operation === "first_last_frame" && !references.some((reference) => reference.role === "firstFrame" || reference.role === "lastFrame")) throw new H3QueueBlockedError("First/last-frame generation requires at least one endpoint image.");
   if (item.operation === "style_transfer" && (!references.some((reference) => reference.kind === "video") || !references.some((reference) => reference.kind === "image"))) throw new H3QueueBlockedError("Video style transfer requires both a source video and a style reference image.");
   if ((item.operation === "motion_transfer" || item.operation === "reference_mix") && !references.some((reference) => reference.role === "reference")) throw new H3QueueBlockedError("Reference generation requires at least one image, video, or audio reference.");
+  if (item.identityTransfer?.enabled && (!references.some((reference) => reference.kind === "video") || !references.some((reference) => reference.kind === "image" && reference.purpose === "identity"))) throw new H3QueueBlockedError("Identity transfer requires a reference video and an image in the identity slot.");
 }
 
 function validateMp4(bytes: Buffer): void { if (bytes.length < 12 || bytes.toString("ascii", 4, 8) !== "ftyp") throw new Error("H3 worker returned a result that is not a valid MP4 file."); }

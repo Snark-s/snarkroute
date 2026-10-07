@@ -1,0 +1,130 @@
+[
+  {
+    "monotonic_seconds": 13280.6839524,
+    "process_cpu_percent_one_core": null,
+    "total_cpu_percent": null,
+    "rss_bytes": 0,
+    "available_ram_bytes": 16604962816,
+    "owned_active_processes": 0,
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "total_mib": 16384,
+      "used_mib": 2050,
+      "free_mib": 14126,
+      "utilization_percent": 0
+    }
+  },
+  {
+    "monotonic_seconds": 13282.7895273,
+    "process_cpu_percent_one_core": 166.13893701099164,
+    "total_cpu_percent": 17.905405405405407,
+    "rss_bytes": 360239104,
+    "available_ram_bytes": 16275075072,
+    "owned_active_processes": 2,
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "total_mib": 16384,
+      "used_mib": 2050,
+      "free_mib": 14126,
+      "utilization_percent": 1
+    }
+  },
+  {
+    "monotonic_seconds": 13285.0468105,
+    "process_cpu_percent_one_core": 182.04959838442232,
+    "total_cpu_percent": 21.05948762483717,
+    "rss_bytes": 683687936,
+    "available_ram_bytes": 15953563648,
+    "owned_active_processes": 2,
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "total_mib": 16384,
+      "used_mib": 2050,
+      "free_mib": 14126,
+      "utilization_percent": 0
+    }
+  },
+  {
+    "monotonic_seconds": 13287.1930536,
+    "process_cpu_percent_one_core": 182.73209591215524,
+    "total_cpu_percent": 17.790855590765055,
+    "rss_bytes": 866787328,
+    "available_ram_bytes": 15751925760,
+    "owned_active_processes": 2,
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "total_mib": 16384,
+      "used_mib": 2050,
+      "free_mib": 14126,
+      "utilization_percent": 1
+    }
+  },
+  {
+    "monotonic_seconds": 13289.3536843,
+    "process_cpu_percent_one_core": 192.36281332111253,
+    "total_cpu_percent": 21.590909090909093,
+    "rss_bytes": 883941376,
+    "available_ram_bytes": 15762378752,
+    "owned_active_processes": 2,
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "total_mib": 16384,
+      "used_mib": 2050,
+      "free_mib": 14126,
+      "utilization_percent": 5
+    }
+  },
+  {
+    "monotonic_seconds": 13291.487359,
+    "process_cpu_percent_one_core": 189.66691595485867,
+    "total_cpu_percent": 20.556061987237918,
+    "rss_bytes": 884740096,
+    "available_ram_bytes": 15749177344,
+    "owned_active_processes": 2,
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "total_mib": 16384,
+      "used_mib": 2050,
+      "free_mib": 14126,
+      "utilization_percent": 4
+    }
+  },
+  {
+    "monotonic_seconds": 13293.6922538,
+    "process_cpu_percent_one_core": 184.9578038825893,
+    "total_cpu_percent": 19.218819351975146,
+    "rss_bytes": 885280768,
+    "available_ram_bytes": 15774740480,
+    "owned_active_processes": 2,
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "total_mib": 16384,
+      "used_mib": 2055,
+      "free_mib": 14121,
+      "utilization_percent": 3
+    }
+  },
+  {
+    "monotonic_seconds": 13295.8567737,
+    "process_cpu_percent_one_core": 181.91100945761235,
+    "total_cpu_percent": 18.017202354006333,
+    "rss_bytes": 885968896,
+    "available_ram_bytes": 15761956864,
+    "owned_active_processes": 2,
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "total_mib": 16384,
+      "used_mib": 2054,
+      "free_mib": 14122,
+      "utilization_percent": 5
+    }
+  }
+]

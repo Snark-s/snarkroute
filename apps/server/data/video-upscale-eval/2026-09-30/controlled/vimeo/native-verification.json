@@ -1,0 +1,52 @@
+{
+  "scope": "Existing native output metadata and encoded AAC packets only; no inference, normalization or retry",
+  "verifiedAt": "2026-10-01T01:03:27.738076+03:00",
+  "status": "FAILED",
+  "nativeMetadata": {
+    "width": 2688,
+    "height": 1536,
+    "codec_name": "h264",
+    "pix_fmt": "yuv420p",
+    "color_range": "tv",
+    "color_space": "bt709",
+    "color_transfer": null,
+    "color_primaries": null,
+    "sample_aspect_ratio": "1:1",
+    "avg_frame_rate": "24/1",
+    "nb_frames": "124"
+  },
+  "metadataErrors": [
+    {
+      "field": "color_transfer",
+      "expected": "bt709",
+      "actual": null
+    },
+    {
+      "field": "color_primaries",
+      "expected": "bt709",
+      "actual": null
+    }
+  ],
+  "aacFormat": {
+    "codec_name": "aac",
+    "sample_rate": "32000",
+    "channels": 2
+  },
+  "audio": {
+    "source": {
+      "packets": 163,
+      "encoded_packet_sequence_sha256": "05779dbc6e656cb2b6a246dc13e4fef030d9b37dbf4a74936b189036ed098802"
+    },
+    "native": {
+      "packets": 163,
+      "encoded_packet_sequence_sha256": "05779dbc6e656cb2b6a246dc13e4fef030d9b37dbf4a74936b189036ed098802"
+    }
+  },
+  "aacPacketIdentity": true,
+  "nativeSha256": "a5cae1aa824ddd3ddf69fd3d1eb626f1cc874742597c808043edf3e7b9e55b60",
+  "nativeBytes": 6517030,
+  "sourceSha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+  "sourceIntegrityMatches": true,
+  "error": "Native output metadata does not match the approved profile",
+  "verificationProcessesExited": true
+}

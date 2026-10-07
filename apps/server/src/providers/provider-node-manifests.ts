@@ -1,5 +1,5 @@
 import { builtInNodeManifests, type SnarkNodeManifest } from "@snarkroute/nodes";
-import { isGeminiEnabled, isReplicateEnabled } from "../services/env";
+import { isGeminiEnabled, isReplicateEnabled, isTripoEnabled } from "../services/env";
 export function providerNodeManifests(): SnarkNodeManifest[] {
   return [
     {
@@ -30,21 +30,22 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
       kind: "snarkroute.node",
       schemaVersion: "0.1",
       id: "minimax.h3.generate",
-      title: "MiniMax H3 768p",
+      title: "MiniMax H3 production line",
       version: "0.1.0",
       author: { name: "SnarkRoute maintainers" },
       license: "AGPL-3.0-or-later",
       origin: "bundled",
       source: "snarkroute-core",
       category: "Video Generation",
-      description: "Generates synchronized audio-video through an authenticated standalone H3-Base worker.",
-      enabled: Boolean(process.env.H3_WORKER_URL && process.env.H3_WORKER_SERVICE_TOKEN),
-      permissions: { network: true, networkHosts: ["127.0.0.1", "localhost"], readFiles: true, writeOutputs: true, shell: false, env: ["H3_WORKER_URL", "H3_WORKER_SERVICE_TOKEN"] },
+      description: "Routes fast previews, motion checks, open Ref2VA and final renders across provenance-labelled H3 variants.",
+      enabled: Boolean(process.env.FAL_KEY || process.env.H3_WORKER_URL && process.env.H3_WORKER_SERVICE_TOKEN),
+      permissions: { network: true, networkHosts: ["127.0.0.1", "localhost", "queue.fal.run", "fal.media"], readFiles: true, writeOutputs: true, shell: false, env: ["FAL_KEY", "H3_WORKER_URL", "H3_WORKER_SERVICE_TOKEN"] },
       executor: { type: "builtin", runtime: "builtin", builtinRunner: "minimax.h3.generate" },
       inputs: [
         { id: "firstFrame", type: "image", required: false, label: "First frame" },
         { id: "lastFrame", type: "image", required: false, label: "Last frame" },
         { id: "referenceImage", type: "image", required: false, label: "Reference image" },
+        { id: "identityImage", type: "image", required: false, label: "Identity image (FaceSwap diagnostic)" },
         { id: "referenceVideo", type: "video", required: false, label: "Reference video" },
         { id: "referenceAudio", type: "audio", required: false, label: "Reference audio" }
       ],
@@ -56,38 +57,45 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
         { id: "aspectRatio", type: "text", label: "Aspect ratio", default: "auto" },
         { id: "seed", type: "number", label: "Seed", default: 0, min: 0, max: 2147483647, step: 1 },
         { id: "variants", type: "number", label: "Variants", default: 1, min: 1, max: 10, step: 1 },
-        { id: "inferenceSteps", type: "number", label: "Steps", default: 6, min: 4, max: 8, step: 1 }
+        { id: "inferenceSteps", type: "number", label: "Steps", default: 6, min: 4, max: 8, step: 1 },
+        { id: "identityTransfer", type: "boolean", label: "Identity transfer", default: false },
+        { id: "identityStrength", type: "number", label: "Identity strength", default: 1, min: 0, max: 2, step: 0.05 },
+        { id: "cameraPath", type: "json", label: "CameraPath", default: null }
       ],
       tool: {
         schemaVersion: "1.0",
         id: "minimax.h3.generate",
-        title: "MiniMax H3 768p",
-        description: "Generate a 768p video with synchronized stereo audio using a standalone H3 worker.",
+        title: "MiniMax H3 production line",
+        description: "Generate H3 video through a provenance-labelled local or hosted production variant.",
         version: "0.1.0",
         action: { kind: "node", value: "minimax.h3.generate" },
         inputs: [
           { id: "firstFrame", type: "image", label: "First frame", required: false, source: "upload", hostSources: { after_effects: "host_first_frame" }, acceptedMimes: ["image/png", "image/jpeg"] },
           { id: "lastFrame", type: "image", label: "Last frame", required: false, source: "upload", hostSources: { after_effects: "host_last_frame" }, acceptedMimes: ["image/png", "image/jpeg"] },
           { id: "referenceImage", type: "image", label: "Reference image", required: false, source: "host_selection", hostSources: { after_effects: "host_current_frame" }, acceptedMimes: ["image/*"] },
+          { id: "identityImage", type: "image", label: "Identity image", required: false, source: "upload", acceptedMimes: ["image/*"] },
           { id: "referenceVideo", type: "video", label: "Reference video", required: false, source: "upload", acceptedMimes: ["video/mp4", "video/quicktime"] },
           { id: "referenceAudio", type: "audio", label: "Reference audio", required: false, source: "upload", acceptedMimes: ["audio/*"] }
         ],
         outputs: [{ id: "video", type: "video", label: "768p audio-video", placement: "new_artifact", hostPlacements: { after_effects: "replace_placeholder" }, allowSelection: true }],
         params: [
-          { id: "modelVariant", type: "select", label: "Model", default: "10eros_max_turbo", options: [{ value: "10eros_max_turbo", label: "H3 · 10Eros Max Turbo" }, { value: "10eros_max", label: "H3 · 10Eros Max" }, { value: "h3_base", label: "MiniMax H3 (legacy)" }] },
+          { id: "modelVariant", type: "select", label: "Model", default: "h3_max_turbo", options: [{ value: "h3_max_turbo", label: "H3 Max Turbo · fast preview (fal)" }, { value: "h3_max", label: "H3 Max · motion/camera check (fal)" }, { value: "h3_base", label: "H3 Base / Ref2VA · worker-reported build" }, { value: "10eros_max_turbo", label: "10Eros Max Turbo · community local preview" }, { value: "10eros_max", label: "10Eros Max · community local quality" }] },
           { id: "prompt", type: "multiline_text", label: "Prompt", required: true, default: "" },
           { id: "duration", type: "duration", label: "Duration", default: 5, min: 4, max: 15, step: 1 },
           { id: "aspectRatio", type: "select", label: "Aspect ratio", default: "auto", options: [{ value: "auto" }, { value: "16:9" }, { value: "9:16" }, { value: "1:1" }, { value: "4:3" }, { value: "3:4" }, { value: "21:9" }] },
           { id: "seed", type: "seed", label: "Seed", default: 0, min: 0, max: 2147483647 },
           { id: "variants", type: "integer", label: "Variants", default: 1, min: 1, max: 10 },
-          { id: "inferenceSteps", type: "integer", label: "Steps", default: 6, min: 4, max: 8 }
+          { id: "inferenceSteps", type: "integer", label: "Steps", default: 6, min: 4, max: 8 },
+          { id: "identityTransfer", type: "boolean", label: "FaceSwap identity diagnostic", default: false },
+          { id: "identityStrength", type: "number", label: "Identity strength", default: 1, min: 0, max: 2, step: 0.05 },
+          { id: "cameraPath", type: "multiline_text", label: "CameraPath JSON", default: "" }
         ],
         hosts: [
           { host: "boojumroute", sources: ["manual", "upload", "host_selection"], placements: ["new_artifact", "next_stage"], capabilities: ["video", "audio", "multiple_results"] },
           { host: "after_effects", sources: ["manual", "upload", "host_current_frame", "host_first_frame", "host_last_frame"], placements: ["replace_placeholder", "project_item"], capabilities: ["current_frame", "first_frame", "last_frame", "video", "audio"] }
         ],
         job: { states: ["queued", "starting_provider", "loading_model", "generating_768p", "downloading", "completed", "failed", "cancelled"], cancellable: true, retryable: true, selectableResults: true },
-        metadata: { model: "h3", variants: ["10eros_max", "10eros_max_turbo", "h3_base"], resolution: "768p", audio: "32kHz stereo", styleTransferVerified: false, comfyUiRequired: false }
+        metadata: { model: "h3", variants: ["h3_max_turbo", "h3_max", "h3_base", "10eros_max_turbo", "10eros_max"], resolution: "480p-2K", audio: true, styleTransferVerified: false, identityTransfer: "optional_ref2va_lora", cameraPathSchema: "1.0", comfyUiRequired: false }
       }
     },
     {
@@ -142,48 +150,48 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
       kind: "snarkroute.node",
       schemaVersion: "0.1",
       id: "local_video_upscale",
-      title: "Local Video Upscale / Restoration",
+      title: "Video Upscale",
       version: "0.1.0",
       author: { name: "SnarkRoute maintainers" },
       license: "AGPL-3.0-or-later",
       origin: "bundled",
       source: "snarkroute-core",
       category: "Video Processing",
-      description: "Upscales one video on the authenticated local NVIDIA worker with framewise or genuine temporal models.",
-      enabled: Boolean(process.env.LOCAL_UPSCALE_WORKER_URL && process.env.LOCAL_UPSCALE_WORKER_TOKEN),
+      description: "Conservative temporal Video Upscale on an isolated local CUDA worker with resource guards.",
+      enabled: process.platform === "win32",
       permissions: { network: true, networkHosts: ["127.0.0.1", "localhost"], readFiles: true, writeOutputs: true, shell: false, env: ["LOCAL_UPSCALE_WORKER_URL", "LOCAL_UPSCALE_WORKER_TOKEN"] },
       executor: { type: "builtin", runtime: "builtin", builtinRunner: "local_video_upscale" },
       inputs: [{ id: "video", type: "video", required: true, label: "Source video" }],
       outputs: [{ id: "video", type: "video", label: "Upscaled MP4" }],
       params: [
-        { id: "model", type: "text", label: "Model", default: "nanovsr-644k-x4" },
-        { id: "scale", type: "number", label: "Scale", default: 4, min: 1, max: 8, step: 1 },
-        { id: "device", type: "text", label: "Device", default: "auto" },
+        { id: "model", type: "text", label: "Model", default: "openmodeldb/vimeoscale-unet-x2" },
+        { id: "scale", type: "number", label: "Model scale", default: 2, min: 1, max: 8, step: 1 },
+        { id: "device", type: "text", label: "Device", default: "cuda" },
         { id: "output_codec", type: "text", label: "Output codec", default: "libx264" },
         { id: "output_container", type: "text", label: "Output container", default: "mp4" },
         { id: "crf", type: "number", label: "CRF", default: 18, min: 0, max: 51, step: 1 },
-        { id: "chunk_size", type: "number", label: "Chunk size", default: 15, min: 1, max: 120, step: 1 },
-        { id: "overlap_frames", type: "number", label: "Overlap frames", default: 2, min: 0, max: 16, step: 1 },
+        { id: "chunk_size", type: "number", label: "Chunk size", default: 3, min: 1, max: 120, step: 1 },
+        { id: "overlap_frames", type: "number", label: "Overlap frames", default: 1, min: 0, max: 16, step: 1 },
         { id: "audio_handling", type: "text", label: "Audio", default: "copy", options: [{ value: "copy", label: "Copy" }, { value: "drop", label: "Drop" }] }
       ],
       tool: {
         schemaVersion: "1.0",
         id: "local_video_upscale",
-        title: "Local Video Upscale / Restoration",
-        description: "Upscale or restore one video locally with a catalog-selected framewise or temporal CUDA model.",
+        title: "Video Upscale",
+        description: "Conservative temporal enlargement with VimeoScale 2× by default. Experimental models are manual.",
         version: "0.1.0",
         action: { kind: "node", value: "local_video_upscale" },
         inputs: [{ id: "video", type: "video", label: "Source video", required: true, source: "host_selection", acceptedMimes: ["video/mp4", "video/quicktime", "video/webm", "video/x-matroska"] }],
         outputs: [{ id: "video", type: "video", label: "Upscaled MP4", placement: "new_artifact", hostPlacements: { after_effects: "project_item" } }],
         params: [
-          { id: "model", type: "text", label: "Model", required: true, default: "nanovsr-644k-x4" },
-          { id: "scale", type: "integer", label: "Scale", default: 4, min: 1, max: 8, step: 1 },
-          { id: "device", type: "select", label: "Device", default: "auto", options: [{ value: "auto" }, { value: "cuda" }, { value: "cpu" }] },
+          { id: "model", type: "text", label: "Model", required: true, default: "openmodeldb/vimeoscale-unet-x2" },
+          { id: "scale", type: "integer", label: "Model scale", default: 2, min: 1, max: 8, step: 1 },
+          { id: "device", type: "select", label: "Device", default: "cuda", options: [{ value: "cuda" }] },
           { id: "output_codec", type: "select", label: "Output codec", default: "libx264", options: [{ value: "libx264" }] },
           { id: "output_container", type: "select", label: "Output container", default: "mp4", options: [{ value: "mp4" }] },
           { id: "crf", type: "integer", label: "CRF", default: 18, min: 0, max: 51, step: 1 },
-          { id: "chunk_size", type: "integer", label: "Chunk size", default: 15, min: 1, max: 120, step: 1 },
-          { id: "overlap_frames", type: "integer", label: "Overlap frames", default: 2, min: 0, max: 16, step: 1 },
+          { id: "chunk_size", type: "integer", label: "Chunk size", default: 3, min: 1, max: 120, step: 1 },
+          { id: "overlap_frames", type: "integer", label: "Overlap frames", default: 1, min: 0, max: 16, step: 1 },
           { id: "audio_handling", type: "select", label: "Audio", default: "copy", options: [{ value: "copy", label: "Copy" }, { value: "drop", label: "Drop" }] }
         ],
         hosts: [
@@ -232,9 +240,9 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
       category: "Video Generation",
       description: "Runs video generation models through the selected Model Gateway provider.",
       enabled: true,
-      permissions: { network: true, networkHosts: ["openrouter.ai", "api.kie.ai", "kieai.redpandaai.co", "127.0.0.1", "localhost"], readFiles: true, writeOutputs: true, shell: false, env: ["OPENROUTER_API_KEY", "OPENROUTER_PROXY_URL", "POLZA_AI_API_KEY", "KIE_API_KEY"] },
+      permissions: { network: true, networkHosts: ["openrouter.ai", "api.kie.ai", "kieai.redpandaai.co", "queue.fal.run", "fal.media", "127.0.0.1", "localhost"], readFiles: true, writeOutputs: true, shell: false, env: ["OPENROUTER_API_KEY", "OPENROUTER_PROXY_URL", "POLZA_AI_API_KEY", "KIE_API_KEY", "FAL_KEY", "H3_WORKER_URL", "H3_WORKER_SERVICE_TOKEN"] },
       executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.video.generate" },
-      inputs: [{ id: "images", type: "image", required: false, label: "Images" }, { id: "prompt", type: "text", required: false, label: "Prompt" }],
+      inputs: [{ id: "images", type: "image", required: false, label: "Images / first frame" }, { id: "firstFrame", type: "image", required: false, label: "First frame" }, { id: "lastFrame", type: "image", required: false, label: "Last frame" }, { id: "referenceImage", type: "image", required: false, label: "Subject / appearance reference" }, { id: "identityImage", type: "image", required: false, label: "Identity reference" }, { id: "referenceVideo", type: "video", required: false, label: "Motion reference" }, { id: "referenceAudio", type: "audio", required: false, label: "Audio reference" }, { id: "prompt", type: "text", required: false, label: "Prompt" }],
       outputs: [{ id: "video", type: "video", label: "Video" }, { id: "output", type: "json", label: "JSON" }],
       params: [
         { id: "model", type: "text", label: "Model", default: "google/veo-3.1-fast" },
@@ -242,6 +250,118 @@ export function providerNodeManifests(): SnarkNodeManifest[] {
         { id: "aspectRatio", type: "text", label: "Aspect Ratio", default: "16:9" },
         { id: "resolution", type: "text", label: "Resolution", default: "720p" },
         { id: "duration", type: "text", label: "Duration", default: "5" }
+      ]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "ai.3d.generate",
+      title: "3D Generation",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "3D Generation",
+      description: "Provider-neutral 3D model generation routed through the Model Gateway.",
+      enabled: isReplicateEnabled(),
+      permissions: { network: true, networkHosts: ["api.replicate.com"], readFiles: true, writeOutputs: true, shell: false, env: ["REPLICATE_API_TOKEN"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.3d.generate" },
+      inputs: [
+        { id: "image", type: "image", required: false, label: "Reference image" },
+        { id: "prompt", type: "text", required: false, label: "Prompt" }
+      ],
+      outputs: [{ id: "model", type: "model", label: "3D Model" }, { id: "output", type: "json", label: "JSON" }],
+      params: [
+        { id: "model", type: "text", label: "Model", default: "tencent/hunyuan-3d-3.1" },
+        { id: "prompt", type: "text", label: "Prompt", default: "Create a clean 3D model." },
+        { id: "face_count", type: "number", label: "Face count", default: 40000, min: 1000, max: 150000, step: 1000 },
+        { id: "enable_pbr", type: "boolean", label: "PBR materials", default: true }
+      ]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "ai.model.retopology",
+      title: "3D Retopology",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "3D Processing",
+      description: "Retopologizes an existing 3D model through Tripo v3.",
+      enabled: isTripoEnabled(),
+      permissions: { network: true, networkHosts: ["openapi.tripo3d.ai", "cdn.tripo3d.ai"], readFiles: true, writeOutputs: true, shell: false, env: ["TRIPO_API_KEY", "TRIPO_API_TOKEN"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.model.retopology" },
+      inputs: [{ id: "model", type: "model", required: true, label: "3D Model" }],
+      outputs: [{ id: "model", type: "model", label: "Retopologized Model" }],
+      params: [
+        { id: "face_limit", type: "number", label: "Face limit", default: 10000, min: 500, max: 20000, step: 500 },
+        { id: "quad", type: "boolean", label: "Quads", default: false },
+        { id: "bake", type: "boolean", label: "Bake textures", default: true }
+      ]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "ai.model.segment",
+      title: "3D Mesh Segmentation",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "3D Processing",
+      description: "Segments an existing 3D model into parts through Tripo v3.",
+      enabled: isTripoEnabled(),
+      permissions: { network: true, networkHosts: ["openapi.tripo3d.ai", "cdn.tripo3d.ai"], readFiles: true, writeOutputs: true, shell: false, env: ["TRIPO_API_KEY", "TRIPO_API_TOKEN"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.model.segment" },
+      inputs: [{ id: "model", type: "model", required: true, label: "3D Model" }],
+      outputs: [{ id: "model", type: "model", label: "Segmented Model" }],
+      params: [
+        { id: "segmentation_granularity", type: "text", label: "Granularity", default: "balanced" }
+      ]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "ai.model.texture",
+      title: "3D Texture",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "3D Processing",
+      description: "Applies or regenerates textures on a 3D model through Tripo v3.",
+      enabled: isTripoEnabled(),
+      permissions: { network: true, networkHosts: ["openapi.tripo3d.ai", "cdn.tripo3d.ai"], readFiles: true, writeOutputs: true, shell: false, env: ["TRIPO_API_KEY", "TRIPO_API_TOKEN"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.model.texture" },
+      inputs: [{ id: "model", type: "model", required: true, label: "3D Model" }],
+      outputs: [{ id: "model", type: "model", label: "Textured Model" }],
+      params: [{ id: "prompt", type: "text", label: "Texture guidance", default: "" }]
+    },
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "ai.model.rig",
+      title: "3D Auto Rig",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "3D Processing",
+      description: "Adds a skeleton rig to a 3D model through Tripo v3.",
+      enabled: isTripoEnabled(),
+      permissions: { network: true, networkHosts: ["openapi.tripo3d.ai", "cdn.tripo3d.ai"], readFiles: true, writeOutputs: true, shell: false, env: ["TRIPO_API_KEY", "TRIPO_API_TOKEN"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "ai.model.rig" },
+      inputs: [{ id: "model", type: "model", required: true, label: "3D Model" }],
+      outputs: [{ id: "model", type: "model", label: "Rigged Model" }],
+      params: [
+        { id: "rig_type", type: "text", label: "Rig type", default: "biped" },
+        { id: "spec", type: "text", label: "Skeleton convention", default: "tripo" }
       ]
     },
     {

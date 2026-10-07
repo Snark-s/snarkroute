@@ -1,0 +1,17 @@
+{
+  "status": "failed",
+  "id": "MAX-A1",
+  "purpose": "native dialogue, Foley, ambience, and lip-sync audit",
+  "startedAt": "2026-09-27T21:28:27.995Z",
+  "completedAt": "2026-09-27T21:28:28.781Z",
+  "error": {
+    "name": "H3HostedError",
+    "message": "User is locked. Reason: Exhausted balance. Top up your balance at fal.ai/dashboard/billing.",
+    "code": "insufficient_credits",
+    "status": 403,
+    "retryable": false,
+    "details": {
+      "detail": "User is locked. Reason: Exhausted balance. Top up your balance at fal.ai/dashboard/billing."
+    }
+  }
+}

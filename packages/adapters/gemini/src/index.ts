@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { ModelGateway, unknownPricingQuote, type ModelInvokeResult, type ModelPricingInput, type PricingQuote, type PricingUnit, type ProviderAdapter } from "@snarkroute/core";
+import { failedProviderConnection, ModelGateway, unknownPricingQuote, verifiedProviderConnection, type ModelInvokeResult, type ModelPricingInput, type PricingQuote, type PricingUnit, type ProviderAdapter } from "@snarkroute/core";
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 
 const API_BASE = "https://generativelanguage.googleapis.com/v1beta";
@@ -75,10 +75,11 @@ export function createGeminiClient(options: GeminiClientOptions = {}) {
   async function request(path: string, init: RequestInit = {}) {
     const token = options.token ?? process.env.GEMINI_API_KEY;
     if (!token?.trim()) throw new Error(MISSING_TOKEN_MESSAGE);
-    const response = await fetcher(`${API_BASE}${path}${path.includes("?") ? "&" : "?"}key=${encodeURIComponent(token.trim())}`, {
+    const response = await fetcher(`${API_BASE}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
+        "x-goog-api-key": token.trim(),
         ...(init.headers ?? {})
       }
     });
@@ -90,6 +91,13 @@ export function createGeminiClient(options: GeminiClientOptions = {}) {
   }
 
   return {
+    async testConnection(): Promise<{ ok: true; modelCount: number }> {
+      const output = await request("/models?pageSize=1", { signal: AbortSignal.timeout(10_000) });
+      if (!output || typeof output !== "object" || !Array.isArray((output as Record<string, unknown>).models)) {
+        throw new Error("Gemini returned a malformed models response.");
+      }
+      return { ok: true, modelCount: ((output as Record<string, unknown>).models as unknown[]).length };
+    },
     async generateContent(model: string, parts: unknown[], imageConfig: GeminiImageConfig = {}, signal?: AbortSignal): Promise<GeminiGenerateResult> {
       const output = await request(`/models/${encodeURIComponent(model)}:generateContent`, {
         method: "POST",
@@ -279,6 +287,14 @@ export function createGeminiProviderAdapter(options: GeminiClientOptions = {}): 
     id: "gemini",
     title: "Gemini",
     capabilities: ["text.generate", "image.generate"],
+    async testConnection() {
+      try {
+        const result = await client.testConnection();
+        return verifiedProviderConnection("Gemini credentials verified.", { modelCount: result.modelCount });
+      } catch (error) {
+        return failedProviderConnection("Gemini", error);
+      }
+    },
     pricingResolver: {
       estimate: estimateGeminiPricingQuote
     },

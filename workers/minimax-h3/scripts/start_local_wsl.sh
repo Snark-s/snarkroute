@@ -89,12 +89,14 @@ if [[ "$LOCAL_BACKEND" == "matlow_int8" ]]; then
     H3_MATLOW_PROFILE=local_fast \
     H3_MATLOW_COMFYUI_DIR="$COMFYUI_DIR" \
     H3_MATLOW_MODEL_ROOT="$MATLOW_ROOT" \
+    H3_MATLOW_ATTENTION="${H3_MATLOW_ATTENTION:-auto}" \
+    H3_MATLOW_VEDA_PREDICTOR_FILE="${H3_MATLOW_VEDA_PREDICTOR_FILE:-${MATLOW_ROOT}/Veda-Sparse/Minimax-H3-T2VA-Veda-8NFE-600Step-Preview/minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors}" \
     H3_MATLOW_NATIVE_AUDIO="${H3_MATLOW_NATIVE_AUDIO:-1}" \
     PYTHONPATH="$APP_DIR" \
     "${SGLANG_VENV}/bin/python" "${APP_DIR}/scripts/matlow_selftest.py"
 
   stage "starting authenticated MATLOWAI H3 worker on localhost:${API_PORT}"
-  env \
+  nohup env \
     PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
     CUDA_MODULE_LOADING=LAZY \
     H3_WORKER_SERVICE_TOKEN="$SERVICE_TOKEN" \
@@ -104,6 +106,11 @@ if [[ "$LOCAL_BACKEND" == "matlow_int8" ]]; then
     H3_MATLOW_PROFILE=local_fast \
     H3_MATLOW_COMFYUI_DIR="$COMFYUI_DIR" \
     H3_MATLOW_MODEL_ROOT="$MATLOW_ROOT" \
+    H3_MATLOW_ATTENTION="${H3_MATLOW_ATTENTION:-auto}" \
+    H3_MATLOW_VEDA_PREDICTOR_FILE="${H3_MATLOW_VEDA_PREDICTOR_FILE:-${MATLOW_ROOT}/Veda-Sparse/Minimax-H3-T2VA-Veda-8NFE-600Step-Preview/minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors}" \
+    H3_MATLOW_VEDA_GENERATED_SPARSITY="${H3_MATLOW_VEDA_GENERATED_SPARSITY:-90%}" \
+    H3_MATLOW_VEDA_REFERENCE_SPARSITY="${H3_MATLOW_VEDA_REFERENCE_SPARSITY:-90%}" \
+    H3_MATLOW_VEDA_VERBOSE="${H3_MATLOW_VEDA_VERBOSE:-0}" \
     H3_MATLOW_NATIVE_AUDIO="${H3_MATLOW_NATIVE_AUDIO:-1}" \
     H3_MATLOW_MAX_SWAP_GIB="${H3_MATLOW_MAX_SWAP_GIB:-12}" \
     H3_RESULT_DIR="${DATA_DIR}/outputs" \

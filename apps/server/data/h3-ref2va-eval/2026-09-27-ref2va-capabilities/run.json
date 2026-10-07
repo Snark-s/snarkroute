@@ -1,0 +1,1459 @@
+{
+  "total": 10,
+  "succeeded": 10,
+  "failed": 0,
+  "pending": 0,
+  "completedAt": "2026-09-27T19:43:48.118Z",
+  "items": [
+    {
+      "id": "A0",
+      "status": "succeeded",
+      "jobId": "e9aa994b-3f1b-4058-a52f-a6b1bb2dc03d",
+      "startedAt": "2026-09-27T15:22:39.613Z",
+      "completedAt": "2026-09-27T15:32:43.757Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\A0\\output.mp4",
+      "outputBytes": 658931,
+      "references": [],
+      "metadata": {
+        "backend": "matlow_int8",
+        "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+        "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "variant": "t2va",
+        "model_variant": "h3_base",
+        "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "vram_gib": 15.99951171875,
+        "resolution": "960x544",
+        "frames": 124,
+        "duration_seconds": 5,
+        "steps": 4,
+        "seed": 424242,
+        "quantization": "comfy_quant:int8_convrot",
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "flow_parameters": {
+          "shift_video": 12,
+          "shift_audio": 3
+        },
+        "guidance": {
+          "type": "basic",
+          "cfg": null
+        },
+        "attention_backend": "dense",
+        "vae_tile_size": 256,
+        "lora": {
+          "enabled": true,
+          "kind": "fused_turbo"
+        },
+        "references": null,
+        "conditioning": {
+          "encoder": "MiniMaxH3ImageToVideo",
+          "slot": "keyframes",
+          "conditioning_shapes": [
+            {
+              "path": "root[0][0]",
+              "shape": [
+                1,
+                43,
+                5120
+              ]
+            },
+            {
+              "path": "root[0][1].minimax_token_tags",
+              "shape": [
+                43
+              ]
+            }
+          ],
+          "latent_shapes": [
+            {
+              "path": "root.samples",
+              "shape": [
+                1,
+                24,
+                37,
+                34,
+                60
+              ]
+            }
+          ]
+        },
+        "render_time_seconds": 589.7936027769999,
+        "peak_vram_gib": 2.369140625,
+        "peak_ram_gib": 24.355037689208984,
+        "peak_system_ram_gib": 23.260379791259766,
+        "peak_swap_gib": 0,
+        "peak_swap_growth_gib": 0,
+        "model_load_seconds": 5.185423467999982,
+        "text_encoder_seconds": 301.66304247799997,
+        "diffusion_seconds": 198.60042181099993,
+        "vae_decode_seconds": 76.92100266199998,
+        "audio_seconds": 1.526605045999986,
+        "kernel": "comfy_kitchen.int8_linear.cuda",
+        "input_bytes": 0,
+        "output_bytes": 658931,
+        "verified_gpu_inference": true
+      },
+      "observationPrompts": [
+        "Baseline identity",
+        "Motion and framing",
+        "Default rendering language"
+      ]
+    },
+    {
+      "id": "S1",
+      "status": "succeeded",
+      "jobId": "ca08bf73-79df-4c1c-909c-77715ba386b1",
+      "startedAt": "2026-09-27T15:32:43.762Z",
+      "completedAt": "2026-09-27T15:45:00.751Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\S1\\output.mp4",
+      "outputBytes": 627978,
+      "references": [
+        {
+          "tag": "Picture 1",
+          "kind": "image",
+          "purpose": "style",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+          "filename": "1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+          "bytes": 2360895,
+          "sha256": "90b315850d1f1b8e3f491b076ac2bd0f90dabf48eb8d3133fa6a5c29461512cb",
+          "preview": "reference-1.jpg"
+        }
+      ],
+      "metadata": {
+        "backend": "matlow_int8",
+        "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+        "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "variant": "ref2va",
+        "model_variant": "h3_base",
+        "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "vram_gib": 15.99951171875,
+        "resolution": "960x544",
+        "frames": 124,
+        "duration_seconds": 5,
+        "steps": 4,
+        "seed": 424242,
+        "quantization": "comfy_quant:int8_convrot",
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "flow_parameters": {
+          "shift_video": 12,
+          "shift_audio": 3
+        },
+        "guidance": {
+          "type": "basic",
+          "cfg": null
+        },
+        "attention_backend": "dense",
+        "vae_tile_size": 256,
+        "lora": {
+          "enabled": true,
+          "kind": "fused_turbo"
+        },
+        "references": {
+          "counts": {
+            "image": 1,
+            "video": 0,
+            "audio": 0
+          },
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "conditioning_slot": "minimax_refs",
+          "model_mode": "ref2va",
+          "reference_weights": null,
+          "references": [
+            {
+              "source_id": "input.png",
+              "tag": "Picture 1",
+              "kind": "image",
+              "purpose": "style",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                1344,
+                896,
+                3
+              ]
+            }
+          ]
+        },
+        "conditioning": {
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "slot": "minimax_refs",
+          "conditioning_shapes": [
+            {
+              "path": "root[0][0]",
+              "shape": [
+                1,
+                569,
+                5120
+              ]
+            },
+            {
+              "path": "root[0][1].minimax_token_tags",
+              "shape": [
+                569
+              ]
+            }
+          ],
+          "latent_shapes": [
+            {
+              "path": "root.samples",
+              "shape": [
+                1,
+                24,
+                37,
+                34,
+                60
+              ]
+            }
+          ]
+        },
+        "render_time_seconds": 718.8503098460001,
+        "peak_vram_gib": 2.50390625,
+        "peak_ram_gib": 25.079566955566406,
+        "peak_system_ram_gib": 24.797260284423828,
+        "peak_swap_gib": 0.001953125,
+        "peak_swap_growth_gib": 0.001953125,
+        "model_load_seconds": 15.409165233999943,
+        "text_encoder_seconds": 45.09392112199998,
+        "diffusion_seconds": 567.845010924,
+        "vae_decode_seconds": 75.1629961860001,
+        "audio_seconds": 1.2927991399999428,
+        "kernel": "comfy_kitchen.int8_linear.cuda",
+        "input_bytes": 2360895,
+        "output_bytes": 627978,
+        "verified_gpu_inference": true
+      },
+      "observationPrompts": [
+        "Palette and contrast",
+        "Hard leaded-glass edges",
+        "Glass texture/material",
+        "Subject/composition leakage"
+      ]
+    },
+    {
+      "id": "S2",
+      "status": "succeeded",
+      "jobId": "7502aa94-138e-4fc5-b8e9-a7ecb8f32c6c",
+      "startedAt": "2026-09-27T15:45:00.754Z",
+      "completedAt": "2026-09-27T15:56:55.218Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\S2\\output.mp4",
+      "outputBytes": 547829,
+      "references": [
+        {
+          "tag": "Picture 1",
+          "kind": "image",
+          "purpose": "style",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\inputs\\face-b.png",
+          "filename": "face-b.png",
+          "bytes": 305520,
+          "sha256": "bb618fdcb3f4f5f1fb8d98bc5acafa5b06242e35748352559f6d8920b1a4e6f0",
+          "preview": "reference-1.jpg"
+        }
+      ],
+      "metadata": {
+        "backend": "matlow_int8",
+        "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+        "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "variant": "ref2va",
+        "model_variant": "h3_base",
+        "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "vram_gib": 15.99951171875,
+        "resolution": "960x544",
+        "frames": 124,
+        "duration_seconds": 5,
+        "steps": 4,
+        "seed": 424242,
+        "quantization": "comfy_quant:int8_convrot",
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "flow_parameters": {
+          "shift_video": 12,
+          "shift_audio": 3
+        },
+        "guidance": {
+          "type": "basic",
+          "cfg": null
+        },
+        "attention_backend": "dense",
+        "vae_tile_size": 256,
+        "lora": {
+          "enabled": true,
+          "kind": "fused_turbo"
+        },
+        "references": {
+          "counts": {
+            "image": 1,
+            "video": 0,
+            "audio": 0
+          },
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "conditioning_slot": "minimax_refs",
+          "model_mode": "ref2va",
+          "reference_weights": null,
+          "references": [
+            {
+              "source_id": "input.png",
+              "tag": "Picture 1",
+              "kind": "image",
+              "purpose": "style",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                784,
+                756,
+                3
+              ]
+            }
+          ]
+        },
+        "conditioning": {
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "slot": "minimax_refs",
+          "conditioning_shapes": [
+            {
+              "path": "root[0][0]",
+              "shape": [
+                1,
+                571,
+                5120
+              ]
+            },
+            {
+              "path": "root[0][1].minimax_token_tags",
+              "shape": [
+                571
+              ]
+            }
+          ],
+          "latent_shapes": [
+            {
+              "path": "root.samples",
+              "shape": [
+                1,
+                24,
+                37,
+                34,
+                60
+              ]
+            }
+          ]
+        },
+        "render_time_seconds": 702.165156882,
+        "peak_vram_gib": 2.50390625,
+        "peak_ram_gib": 24.200794219970703,
+        "peak_system_ram_gib": 23.132667541503906,
+        "peak_swap_gib": 4.029075622558594,
+        "peak_swap_growth_gib": 4.027122497558594,
+        "model_load_seconds": 1.95231281700012,
+        "text_encoder_seconds": 46.284358500999815,
+        "diffusion_seconds": 616.1011707739999,
+        "vae_decode_seconds": 23.096977942000194,
+        "audio_seconds": 1.2637447479996808,
+        "kernel": "comfy_kitchen.int8_linear.cuda",
+        "input_bytes": 305520,
+        "output_bytes": 547829,
+        "verified_gpu_inference": true
+      },
+      "observationPrompts": [
+        "Photoreal material rendering",
+        "Identity leakage",
+        "Lighting and texture",
+        "Difference from S1 at fixed seed"
+      ]
+    },
+    {
+      "id": "R2",
+      "status": "succeeded",
+      "jobId": "c49b02a4-3a01-4f55-b019-a0b473bad901",
+      "startedAt": "2026-09-27T15:56:55.226Z",
+      "completedAt": "2026-09-27T16:09:23.059Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\R2\\output.mp4",
+      "outputBytes": 536739,
+      "references": [
+        {
+          "tag": "Picture 1",
+          "kind": "image",
+          "purpose": "subject",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\inputs\\face-b.png",
+          "filename": "face-b.png",
+          "bytes": 305520,
+          "sha256": "bb618fdcb3f4f5f1fb8d98bc5acafa5b06242e35748352559f6d8920b1a4e6f0",
+          "preview": "reference-1.jpg"
+        },
+        {
+          "tag": "Picture 2",
+          "kind": "image",
+          "purpose": "style",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+          "filename": "1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+          "bytes": 2360895,
+          "sha256": "90b315850d1f1b8e3f491b076ac2bd0f90dabf48eb8d3133fa6a5c29461512cb",
+          "preview": "reference-2.jpg"
+        }
+      ],
+      "metadata": {
+        "backend": "matlow_int8",
+        "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+        "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "variant": "ref2va",
+        "model_variant": "h3_base",
+        "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "vram_gib": 15.99951171875,
+        "resolution": "960x544",
+        "frames": 124,
+        "duration_seconds": 5,
+        "steps": 4,
+        "seed": 424242,
+        "quantization": "comfy_quant:int8_convrot",
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "flow_parameters": {
+          "shift_video": 12,
+          "shift_audio": 3
+        },
+        "guidance": {
+          "type": "basic",
+          "cfg": null
+        },
+        "attention_backend": "dense",
+        "vae_tile_size": 256,
+        "lora": {
+          "enabled": true,
+          "kind": "fused_turbo"
+        },
+        "references": {
+          "counts": {
+            "image": 2,
+            "video": 0,
+            "audio": 0
+          },
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "conditioning_slot": "minimax_refs",
+          "model_mode": "ref2va",
+          "reference_weights": null,
+          "references": [
+            {
+              "source_id": "input.png",
+              "tag": "Picture 1",
+              "kind": "image",
+              "purpose": "subject",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                784,
+                756,
+                3
+              ]
+            },
+            {
+              "source_id": "input.png",
+              "tag": "Picture 2",
+              "kind": "image",
+              "purpose": "style",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                1344,
+                896,
+                3
+              ]
+            }
+          ]
+        },
+        "conditioning": {
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "slot": "minimax_refs",
+          "conditioning_shapes": [
+            {
+              "path": "root[0][0]",
+              "shape": [
+                1,
+                1094,
+                5120
+              ]
+            },
+            {
+              "path": "root[0][1].minimax_token_tags",
+              "shape": [
+                1094
+              ]
+            }
+          ],
+          "latent_shapes": [
+            {
+              "path": "root.samples",
+              "shape": [
+                1,
+                24,
+                37,
+                34,
+                60
+              ]
+            }
+          ]
+        },
+        "render_time_seconds": 728.3716171420001,
+        "peak_vram_gib": 2.640625,
+        "peak_ram_gib": 21.448848724365234,
+        "peak_system_ram_gib": 20.891582489013672,
+        "peak_swap_gib": 5.234870910644531,
+        "peak_swap_growth_gib": 1.4824066162109375,
+        "model_load_seconds": 4.016424680999535,
+        "text_encoder_seconds": 238.87378290499964,
+        "diffusion_seconds": 443.66992628499975,
+        "vae_decode_seconds": 22.84963595199997,
+        "audio_seconds": 1.447567704999983,
+        "kernel": "comfy_kitchen.int8_linear.cuda",
+        "input_bytes": 2666415,
+        "output_bytes": 536739,
+        "verified_gpu_inference": true
+      },
+      "observationPrompts": [
+        "Picture 1 identity",
+        "Picture 2 rendering language",
+        "Role separation versus blending"
+      ]
+    },
+    {
+      "id": "R3",
+      "status": "succeeded",
+      "jobId": "eb505e52-3b0b-4340-aa1c-2ef228e6c4ca",
+      "startedAt": "2026-09-27T16:09:23.064Z",
+      "completedAt": "2026-09-27T16:19:54.031Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\R3\\output.mp4",
+      "outputBytes": 494745,
+      "references": [
+        {
+          "tag": "Picture 1",
+          "kind": "image",
+          "purpose": "subject",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\inputs\\face-b.png",
+          "filename": "face-b.png",
+          "bytes": 305520,
+          "sha256": "bb618fdcb3f4f5f1fb8d98bc5acafa5b06242e35748352559f6d8920b1a4e6f0",
+          "preview": "reference-1.jpg"
+        },
+        {
+          "tag": "Picture 2",
+          "kind": "image",
+          "purpose": "style",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+          "filename": "1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+          "bytes": 2360895,
+          "sha256": "90b315850d1f1b8e3f491b076ac2bd0f90dabf48eb8d3133fa6a5c29461512cb",
+          "preview": "reference-2.jpg"
+        },
+        {
+          "tag": "Picture 3",
+          "kind": "image",
+          "purpose": "appearance",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_1ea02108-df70-4669-9b7b-79d5041b4b10-Snark_gerl_--sref_httpss.mj.runyJ3T-54P9FQ_httpss.mj.runXOJ3Z_6df70551-4e92-42b2-abbc-bff7fd455c29_2.png",
+          "filename": "asset_1ea02108-df70-4669-9b7b-79d5041b4b10-Snark_gerl_--sref_httpss.mj.runyJ3T-54P9FQ_httpss.mj.runXOJ3Z_6df70551-4e92-42b2-abbc-bff7fd455c29_2.png",
+          "bytes": 1221882,
+          "sha256": "b3f00b787c69308a1dfb464c1e7587b5fd8e81abb5b47edcefd98f6db1913def",
+          "preview": "reference-3.jpg"
+        }
+      ],
+      "metadata": {
+        "backend": "matlow_int8",
+        "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+        "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "variant": "ref2va",
+        "model_variant": "h3_base",
+        "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "vram_gib": 15.99951171875,
+        "resolution": "960x544",
+        "frames": 124,
+        "duration_seconds": 5,
+        "steps": 4,
+        "seed": 424242,
+        "quantization": "comfy_quant:int8_convrot",
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "flow_parameters": {
+          "shift_video": 12,
+          "shift_audio": 3
+        },
+        "guidance": {
+          "type": "basic",
+          "cfg": null
+        },
+        "attention_backend": "dense",
+        "vae_tile_size": 256,
+        "lora": {
+          "enabled": true,
+          "kind": "fused_turbo"
+        },
+        "references": {
+          "counts": {
+            "image": 3,
+            "video": 0,
+            "audio": 0
+          },
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "conditioning_slot": "minimax_refs",
+          "model_mode": "ref2va",
+          "reference_weights": null,
+          "references": [
+            {
+              "source_id": "input.png",
+              "tag": "Picture 1",
+              "kind": "image",
+              "purpose": "subject",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                784,
+                756,
+                3
+              ]
+            },
+            {
+              "source_id": "input.png",
+              "tag": "Picture 2",
+              "kind": "image",
+              "purpose": "style",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                1344,
+                896,
+                3
+              ]
+            },
+            {
+              "source_id": "input.png",
+              "tag": "Picture 3",
+              "kind": "image",
+              "purpose": "appearance",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                1024,
+                1024,
+                3
+              ]
+            }
+          ]
+        },
+        "conditioning": {
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "slot": "minimax_refs",
+          "conditioning_shapes": [
+            {
+              "path": "root[0][0]",
+              "shape": [
+                1,
+                1645,
+                5120
+              ]
+            },
+            {
+              "path": "root[0][1].minimax_token_tags",
+              "shape": [
+                1645
+              ]
+            }
+          ],
+          "latent_shapes": [
+            {
+              "path": "root.samples",
+              "shape": [
+                1,
+                24,
+                37,
+                34,
+                60
+              ]
+            }
+          ]
+        },
+        "render_time_seconds": 616.2251742380004,
+        "peak_vram_gib": 2.7578125,
+        "peak_ram_gib": 22.750736236572266,
+        "peak_system_ram_gib": 22.638179779052734,
+        "peak_swap_gib": 3.972736358642578,
+        "peak_swap_growth_gib": 0,
+        "model_load_seconds": 3.732859535999978,
+        "text_encoder_seconds": 67.42596906399967,
+        "diffusion_seconds": 510.487150338,
+        "vae_decode_seconds": 23.964002146999974,
+        "audio_seconds": 1.140183683000032,
+        "kernel": "comfy_kitchen.int8_linear.cuda",
+        "input_bytes": 3888297,
+        "output_bytes": 494745,
+        "verified_gpu_inference": true
+      },
+      "observationPrompts": [
+        "Three references reached conditioning",
+        "Stable Picture numbering",
+        "Evidence of each requested role"
+      ]
+    },
+    {
+      "id": "V1",
+      "status": "succeeded",
+      "jobId": "f077fd08-997b-43e8-9bf3-098d724e2dbd",
+      "startedAt": "2026-09-27T16:19:54.035Z",
+      "completedAt": "2026-09-27T16:28:06.134Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\V1\\output.mp4",
+      "outputBytes": 671800,
+      "references": [
+        {
+          "tag": "Video 1",
+          "kind": "video",
+          "purpose": "motion",
+          "visualMode": "motion",
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\A0\\output.mp4",
+          "filename": "output.mp4",
+          "bytes": 658931,
+          "sha256": "94e7c57eeebbcf90fa504aa76b2309427e0b631125100ebc68660f74d8d7ff01",
+          "preview": "reference-1.jpg"
+        }
+      ],
+      "metadata": {
+        "backend": "matlow_int8",
+        "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+        "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "variant": "ref2va",
+        "model_variant": "h3_base",
+        "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "vram_gib": 15.99951171875,
+        "resolution": "960x544",
+        "frames": 124,
+        "duration_seconds": 5,
+        "steps": 4,
+        "seed": 424242,
+        "quantization": "comfy_quant:int8_convrot",
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "flow_parameters": {
+          "shift_video": 12,
+          "shift_audio": 3
+        },
+        "guidance": {
+          "type": "basic",
+          "cfg": null
+        },
+        "attention_backend": "dense",
+        "vae_tile_size": 256,
+        "lora": {
+          "enabled": true,
+          "kind": "fused_turbo"
+        },
+        "references": {
+          "counts": {
+            "image": 0,
+            "video": 1,
+            "audio": 0
+          },
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "conditioning_slot": "minimax_refs",
+          "model_mode": "ref2va",
+          "reference_weights": null,
+          "references": [
+            {
+              "source_id": "input.mp4",
+              "tag": "Video 1",
+              "kind": "video",
+              "purpose": "motion",
+              "visual_mode": "motion",
+              "preprocessed_shape": [
+                124,
+                96,
+                192,
+                3
+              ]
+            }
+          ]
+        },
+        "conditioning": {
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "slot": "minimax_refs",
+          "conditioning_shapes": [
+            {
+              "path": "root[0][0]",
+              "shape": [
+                1,
+                222,
+                5120
+              ]
+            },
+            {
+              "path": "root[0][1].minimax_token_tags",
+              "shape": [
+                222
+              ]
+            }
+          ],
+          "latent_shapes": [
+            {
+              "path": "root.samples",
+              "shape": [
+                1,
+                24,
+                37,
+                34,
+                60
+              ]
+            }
+          ]
+        },
+        "render_time_seconds": 480.53895863000025,
+        "peak_vram_gib": 2.46484375,
+        "peak_ram_gib": 21.773479461669922,
+        "peak_system_ram_gib": 21.52545928955078,
+        "peak_swap_gib": 3.3697471618652344,
+        "peak_swap_growth_gib": 0.8603897094726562,
+        "model_load_seconds": 1.3742073050002546,
+        "text_encoder_seconds": 34.02464539799985,
+        "diffusion_seconds": 405.6808154170003,
+        "vae_decode_seconds": 23.45080158799965,
+        "audio_seconds": 1.234666930000003,
+        "kernel": "comfy_kitchen.int8_linear.cuda",
+        "input_bytes": 658931,
+        "output_bytes": 671800,
+        "verified_gpu_inference": true
+      },
+      "observationPrompts": [
+        "Head-turn timing",
+        "Pose trajectory",
+        "Framing and camera",
+        "Appearance leakage from grayscale motion guide"
+      ]
+    },
+    {
+      "id": "PV1",
+      "status": "succeeded",
+      "jobId": "1dce9912-e169-476d-868f-bc0ea7cdda66",
+      "startedAt": "2026-09-27T16:28:06.136Z",
+      "completedAt": "2026-09-27T16:47:00.221Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\PV1\\output.mp4",
+      "outputBytes": 569656,
+      "references": [
+        {
+          "tag": "Picture 1",
+          "kind": "image",
+          "purpose": "appearance",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\inputs\\face-b.png",
+          "filename": "face-b.png",
+          "bytes": 305520,
+          "sha256": "bb618fdcb3f4f5f1fb8d98bc5acafa5b06242e35748352559f6d8920b1a4e6f0",
+          "preview": "reference-1.jpg"
+        },
+        {
+          "tag": "Video 1",
+          "kind": "video",
+          "purpose": "motion",
+          "visualMode": "motion",
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\A0\\output.mp4",
+          "filename": "output.mp4",
+          "bytes": 658931,
+          "sha256": "94e7c57eeebbcf90fa504aa76b2309427e0b631125100ebc68660f74d8d7ff01",
+          "preview": "reference-2.jpg"
+        }
+      ],
+      "metadata": {
+        "backend": "matlow_int8",
+        "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+        "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "variant": "ref2va",
+        "model_variant": "h3_base",
+        "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "vram_gib": 15.99951171875,
+        "resolution": "960x544",
+        "frames": 124,
+        "duration_seconds": 5,
+        "steps": 4,
+        "seed": 424242,
+        "quantization": "comfy_quant:int8_convrot",
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "flow_parameters": {
+          "shift_video": 12,
+          "shift_audio": 3
+        },
+        "guidance": {
+          "type": "basic",
+          "cfg": null
+        },
+        "attention_backend": "dense",
+        "vae_tile_size": 256,
+        "lora": {
+          "enabled": true,
+          "kind": "fused_turbo"
+        },
+        "references": {
+          "counts": {
+            "image": 1,
+            "video": 1,
+            "audio": 0
+          },
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "conditioning_slot": "minimax_refs",
+          "model_mode": "ref2va",
+          "reference_weights": null,
+          "references": [
+            {
+              "source_id": "input.png",
+              "tag": "Picture 1",
+              "kind": "image",
+              "purpose": "appearance",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                784,
+                756,
+                3
+              ]
+            },
+            {
+              "source_id": "input.mp4",
+              "tag": "Video 1",
+              "kind": "video",
+              "purpose": "motion",
+              "visual_mode": "motion",
+              "preprocessed_shape": [
+                124,
+                96,
+                192,
+                3
+              ]
+            }
+          ]
+        },
+        "conditioning": {
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "slot": "minimax_refs",
+          "conditioning_shapes": [
+            {
+              "path": "root[0][0]",
+              "shape": [
+                1,
+                743,
+                5120
+              ]
+            },
+            {
+              "path": "root[0][1].minimax_token_tags",
+              "shape": [
+                743
+              ]
+            }
+          ],
+          "latent_shapes": [
+            {
+              "path": "root.samples",
+              "shape": [
+                1,
+                24,
+                37,
+                34,
+                60
+              ]
+            }
+          ]
+        },
+        "render_time_seconds": 1111.7085653729996,
+        "peak_vram_gib": 2.6015625,
+        "peak_ram_gib": 21.46240997314453,
+        "peak_system_ram_gib": 21.114429473876953,
+        "peak_swap_gib": 7.268321990966797,
+        "peak_swap_growth_gib": 4.0008697509765625,
+        "model_load_seconds": 3.3786471389994404,
+        "text_encoder_seconds": 274.3186680169997,
+        "diffusion_seconds": 791.3213537359998,
+        "vae_decode_seconds": 22.64397681599985,
+        "audio_seconds": 1.393772512000396,
+        "kernel": "comfy_kitchen.int8_linear.cuda",
+        "input_bytes": 964451,
+        "output_bytes": 569656,
+        "verified_gpu_inference": true
+      },
+      "observationPrompts": [
+        "Picture appearance influence",
+        "Video motion retention",
+        "Whether either reference is ignored"
+      ]
+    },
+    {
+      "id": "F0",
+      "status": "succeeded",
+      "jobId": "57b11295-3d6b-4161-bc66-03b92e86b530",
+      "startedAt": "2026-09-27T16:47:00.226Z",
+      "completedAt": "2026-09-27T16:53:11.198Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\F0\\output.mp4",
+      "outputBytes": 598778,
+      "references": [
+        {
+          "tag": "Video 1",
+          "kind": "video",
+          "purpose": "motion",
+          "visualMode": "full",
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\A0\\output.mp4",
+          "filename": "output.mp4",
+          "bytes": 658931,
+          "sha256": "94e7c57eeebbcf90fa504aa76b2309427e0b631125100ebc68660f74d8d7ff01",
+          "preview": "reference-1.jpg"
+        },
+        {
+          "tag": "Picture 1",
+          "kind": "image",
+          "purpose": "identity",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\inputs\\face-b.png",
+          "filename": "face-b.png",
+          "bytes": 305520,
+          "sha256": "bb618fdcb3f4f5f1fb8d98bc5acafa5b06242e35748352559f6d8920b1a4e6f0",
+          "preview": "reference-2.jpg"
+        }
+      ],
+      "metadata": {
+        "backend": "matlow_int8",
+        "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+        "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "variant": "ref2va",
+        "model_variant": "h3_base",
+        "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "vram_gib": 15.99951171875,
+        "resolution": "960x544",
+        "frames": 124,
+        "duration_seconds": 5,
+        "steps": 4,
+        "seed": 424242,
+        "quantization": "comfy_quant:int8_convrot",
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "flow_parameters": {
+          "shift_video": 12,
+          "shift_audio": 3
+        },
+        "guidance": {
+          "type": "basic",
+          "cfg": null
+        },
+        "attention_backend": "dense",
+        "vae_tile_size": 256,
+        "lora": {
+          "enabled": true,
+          "kind": "fused_turbo"
+        },
+        "references": {
+          "counts": {
+            "image": 1,
+            "video": 1,
+            "audio": 0
+          },
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "conditioning_slot": "minimax_refs",
+          "model_mode": "ref2va",
+          "reference_weights": null,
+          "references": [
+            {
+              "source_id": "input.mp4",
+              "tag": "Video 1",
+              "kind": "video",
+              "purpose": "motion",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                124,
+                288,
+                512,
+                3
+              ]
+            },
+            {
+              "source_id": "input.png",
+              "tag": "Picture 1",
+              "kind": "image",
+              "purpose": "identity",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                784,
+                756,
+                3
+              ]
+            }
+          ]
+        },
+        "conditioning": {
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "slot": "minimax_refs",
+          "conditioning_shapes": [
+            {
+              "path": "root[0][0]",
+              "shape": [
+                1,
+                1480,
+                5120
+              ]
+            },
+            {
+              "path": "root[0][1].minimax_token_tags",
+              "shape": [
+                1480
+              ]
+            }
+          ],
+          "latent_shapes": [
+            {
+              "path": "root.samples",
+              "shape": [
+                1,
+                24,
+                37,
+                34,
+                60
+              ]
+            }
+          ]
+        },
+        "render_time_seconds": 362.4254996569998,
+        "peak_vram_gib": 3.24609375,
+        "peak_ram_gib": 23.743698120117188,
+        "peak_system_ram_gib": 22.946136474609375,
+        "peak_swap_gib": 3.9918479919433594,
+        "peak_swap_growth_gib": 0,
+        "model_load_seconds": 1.6284371500014458,
+        "text_encoder_seconds": 65.52624001599997,
+        "diffusion_seconds": 262.14936401700015,
+        "vae_decode_seconds": 23.477216643000247,
+        "audio_seconds": 1.3397607920005612,
+        "kernel": "comfy_kitchen.int8_linear.cuda",
+        "input_bytes": 964451,
+        "output_bytes": 598778,
+        "verified_gpu_inference": true
+      },
+      "observationPrompts": [
+        "Control identity without LoRA",
+        "Motion/pose retention",
+        "Temporal face stability"
+      ]
+    },
+    {
+      "id": "F1",
+      "status": "succeeded",
+      "jobId": "36b7dac5-77a8-4971-baa7-64a665e73337",
+      "startedAt": "2026-09-27T16:53:11.203Z",
+      "completedAt": "2026-09-27T17:13:11.845Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\F1\\output.mp4",
+      "outputBytes": 619669,
+      "references": [
+        {
+          "tag": "Video 1",
+          "kind": "video",
+          "purpose": "motion",
+          "visualMode": "full",
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\A0\\output.mp4",
+          "filename": "output.mp4",
+          "bytes": 658931,
+          "sha256": "94e7c57eeebbcf90fa504aa76b2309427e0b631125100ebc68660f74d8d7ff01",
+          "preview": "reference-1.jpg"
+        },
+        {
+          "tag": "Picture 1",
+          "kind": "image",
+          "purpose": "identity",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\inputs\\face-b.png",
+          "filename": "face-b.png",
+          "bytes": 305520,
+          "sha256": "bb618fdcb3f4f5f1fb8d98bc5acafa5b06242e35748352559f6d8920b1a4e6f0",
+          "preview": "reference-2.jpg"
+        }
+      ],
+      "metadata": {
+        "backend": "matlow_int8",
+        "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+        "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "variant": "ref2va",
+        "model_variant": "h3_base",
+        "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "vram_gib": 15.99951171875,
+        "resolution": "960x544",
+        "frames": 124,
+        "duration_seconds": 5,
+        "steps": 4,
+        "seed": 424242,
+        "quantization": "comfy_quant:int8_convrot",
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "flow_parameters": {
+          "shift_video": 12,
+          "shift_audio": 3
+        },
+        "guidance": {
+          "type": "basic",
+          "cfg": null
+        },
+        "attention_backend": "dense",
+        "vae_tile_size": 256,
+        "lora": {
+          "enabled": true,
+          "strength": 1,
+          "kind": "identity_transfer",
+          "artifact": "UntMods/FaceSwap_MiniMaxH3_REF2VA",
+          "revision": "b2a5823ca64bc78d91725fbfcc576095bfceb764",
+          "sha256": "1e032cf519cc143f434e67516d8ad0aacf4c6e146315b2dcc3b1c2800470326d",
+          "trigger": "Faceswap"
+        },
+        "references": {
+          "counts": {
+            "image": 1,
+            "video": 1,
+            "audio": 0
+          },
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "conditioning_slot": "minimax_refs",
+          "model_mode": "ref2va",
+          "reference_weights": null,
+          "references": [
+            {
+              "source_id": "input.mp4",
+              "tag": "Video 1",
+              "kind": "video",
+              "purpose": "motion",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                124,
+                288,
+                512,
+                3
+              ]
+            },
+            {
+              "source_id": "input.png",
+              "tag": "Picture 1",
+              "kind": "image",
+              "purpose": "identity",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                784,
+                756,
+                3
+              ]
+            }
+          ]
+        },
+        "conditioning": {
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "slot": "minimax_refs",
+          "conditioning_shapes": [
+            {
+              "path": "root[0][0]",
+              "shape": [
+                1,
+                1483,
+                5120
+              ]
+            },
+            {
+              "path": "root[0][1].minimax_token_tags",
+              "shape": [
+                1483
+              ]
+            }
+          ],
+          "latent_shapes": [
+            {
+              "path": "root.samples",
+              "shape": [
+                1,
+                24,
+                37,
+                34,
+                60
+              ]
+            }
+          ]
+        },
+        "render_time_seconds": 1171.8015799620007,
+        "peak_vram_gib": 3.48046875,
+        "peak_ram_gib": 22.575420379638672,
+        "peak_system_ram_gib": 21.774124145507812,
+        "peak_swap_gib": 7.967231750488281,
+        "peak_swap_growth_gib": 5.708049774169922,
+        "model_load_seconds": 2.2760731719999967,
+        "text_encoder_seconds": 190.26953189699998,
+        "diffusion_seconds": 935.744087561,
+        "vae_decode_seconds": 22.30068737900001,
+        "audio_seconds": 1.3187622199993712,
+        "kernel": "comfy_kitchen.int8_linear.cuda",
+        "input_bytes": 964451,
+        "output_bytes": 619669,
+        "verified_gpu_inference": true
+      },
+      "observationPrompts": [
+        "Identity change versus F0",
+        "Motion/pose retention",
+        "Artifacts",
+        "Temporal face consistency"
+      ]
+    },
+    {
+      "id": "F2",
+      "status": "succeeded",
+      "jobId": "f6d91321-7feb-4599-a467-097d20263d15",
+      "startedAt": "2026-09-27T17:13:11.849Z",
+      "completedAt": "2026-09-27T17:30:51.873Z",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\F2\\output.mp4",
+      "outputBytes": 598778,
+      "references": [
+        {
+          "tag": "Video 1",
+          "kind": "video",
+          "purpose": "motion",
+          "visualMode": "full",
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\A0\\output.mp4",
+          "filename": "output.mp4",
+          "bytes": 658931,
+          "sha256": "94e7c57eeebbcf90fa504aa76b2309427e0b631125100ebc68660f74d8d7ff01",
+          "preview": "reference-1.jpg"
+        },
+        {
+          "tag": "Picture 1",
+          "kind": "image",
+          "purpose": "identity",
+          "visualMode": null,
+          "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\inputs\\face-b.png",
+          "filename": "face-b.png",
+          "bytes": 305520,
+          "sha256": "bb618fdcb3f4f5f1fb8d98bc5acafa5b06242e35748352559f6d8920b1a4e6f0",
+          "preview": "reference-2.jpg"
+        }
+      ],
+      "metadata": {
+        "backend": "matlow_int8",
+        "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+        "model_revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "variant": "ref2va",
+        "model_variant": "h3_base",
+        "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "vram_gib": 15.99951171875,
+        "resolution": "960x544",
+        "frames": 124,
+        "duration_seconds": 5,
+        "steps": 4,
+        "seed": 424242,
+        "quantization": "comfy_quant:int8_convrot",
+        "sampler": "res_multistep",
+        "scheduler": "simple",
+        "flow_parameters": {
+          "shift_video": 12,
+          "shift_audio": 3
+        },
+        "guidance": {
+          "type": "basic",
+          "cfg": null
+        },
+        "attention_backend": "dense",
+        "vae_tile_size": 256,
+        "lora": {
+          "enabled": true,
+          "kind": "fused_turbo"
+        },
+        "references": {
+          "counts": {
+            "image": 1,
+            "video": 1,
+            "audio": 0
+          },
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "conditioning_slot": "minimax_refs",
+          "model_mode": "ref2va",
+          "reference_weights": null,
+          "references": [
+            {
+              "source_id": "input.mp4",
+              "tag": "Video 1",
+              "kind": "video",
+              "purpose": "motion",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                124,
+                288,
+                512,
+                3
+              ]
+            },
+            {
+              "source_id": "input.png",
+              "tag": "Picture 1",
+              "kind": "image",
+              "purpose": "identity",
+              "visual_mode": null,
+              "preprocessed_shape": [
+                1,
+                784,
+                756,
+                3
+              ]
+            }
+          ]
+        },
+        "conditioning": {
+          "encoder": "MiniMaxH3ReferenceToVideo",
+          "slot": "minimax_refs",
+          "conditioning_shapes": [
+            {
+              "path": "root[0][0]",
+              "shape": [
+                1,
+                1480,
+                5120
+              ]
+            },
+            {
+              "path": "root[0][1].minimax_token_tags",
+              "shape": [
+                1480
+              ]
+            }
+          ],
+          "latent_shapes": [
+            {
+              "path": "root.samples",
+              "shape": [
+                1,
+                24,
+                37,
+                34,
+                60
+              ]
+            }
+          ]
+        },
+        "render_time_seconds": 1038.5571542850003,
+        "peak_vram_gib": 3.24609375,
+        "peak_ram_gib": 19.663360595703125,
+        "peak_system_ram_gib": 20.38823699951172,
+        "peak_swap_gib": 6.717693328857422,
+        "peak_swap_growth_gib": 2.7113990783691406,
+        "model_load_seconds": 3.29888834600024,
+        "text_encoder_seconds": 478.0458761629998,
+        "diffusion_seconds": 514.4204683999997,
+        "vae_decode_seconds": 22.555958989999453,
+        "audio_seconds": 1.2450164510000832,
+        "kernel": "comfy_kitchen.int8_linear.cuda",
+        "input_bytes": 964451,
+        "output_bytes": 598778,
+        "verified_gpu_inference": true
+      },
+      "observationPrompts": [
+        "Match F0 control",
+        "No residual FaceSwap behavior",
+        "Worker stayed up between F1 and F2"
+      ]
+    }
+  ]
+}

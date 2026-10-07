@@ -1,0 +1,52 @@
+{
+  "status": "succeeded",
+  "id": "MAX-T0",
+  "purpose": "text-only production prompt",
+  "startedAt": "2026-09-27T20:27:05.277Z",
+  "completedAt": "2026-09-27T20:27:09.157Z",
+  "requestId": "01a0e48b-1078-7750-943b-23107ccc1567",
+  "endpoint": "minimax/h3-max/text-to-video",
+  "provider": "fal",
+  "model": "fal/minimax-h3-max",
+  "upstream": "MiniMaxAI/MiniMax-H3",
+  "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-T0\\output.mp4",
+  "expandedPrompt": null,
+  "providerTimings": {
+    "inference": 2.677080389999901
+  },
+  "latencyMs": {
+    "acceptedMs": 0,
+    "generationMs": 1055,
+    "totalMs": 1055,
+    "download": 2357,
+    "totalWithDownload": 3412
+  },
+  "cost": {
+    "amountUsd": 0.2,
+    "rateUsdPerSecond": 0.04,
+    "currency": "USD",
+    "confidence": "exact-output-only",
+    "promotion": "fal launch promotion through 2026-09-30",
+    "excludesReferenceTokenCharges": true,
+    "source": "https://fal.ai/models/minimax/h3-max/text-to-video",
+    "referenceInputChargeUsd": 0
+  },
+  "media": {
+    "durationSeconds": 5.184,
+    "sizeBytes": 3372120,
+    "video": {
+      "codec": "h264",
+      "width": 1344,
+      "height": 768,
+      "frameRate": "24/1"
+    },
+    "audio": {
+      "present": true,
+      "codec": "aac",
+      "channels": 2,
+      "channelLayout": "stereo",
+      "sampleRate": 32000,
+      "durationSeconds": 5.184
+    }
+  }
+}

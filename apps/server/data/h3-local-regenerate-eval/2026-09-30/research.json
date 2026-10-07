@@ -1,0 +1,1639 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-30",
+  "timezone": "Europe/Moscow",
+  "outcome": "C",
+  "localCapability": {
+    "name": "resample",
+    "before": {
+      "available": false
+    },
+    "after": {
+      "available": false
+    },
+    "status": "unavailable",
+    "publicationStatus": "not_published_not_found_in_inspected_sources",
+    "reason": "No compatible local H3 regeneration backend is known/installed; official H3-Regenerate-2K is not published.",
+    "checkpoint": null,
+    "revision": null,
+    "license": null,
+    "requiredDownloads": [],
+    "architecture": "Official concept: Base output plus original multimodal context, in-context high-resolution regeneration; runnable local recipe not published",
+    "dtype": null,
+    "diskBytes": null,
+    "expectedVramGiB": null,
+    "minimumVramGiB": null,
+    "expectedRamGiB": null,
+    "expectedCpuLoad": null,
+    "expectedGpuLoad": null,
+    "cpuOffloadRequired": null,
+    "runtimeSecondsForFiveSecondVideo": null,
+    "supportedResolutions": null,
+    "maximumDurationSeconds": null,
+    "fpsLimitations": null,
+    "audioBehavior": "unknown",
+    "nullReason": "No native downloadable backend found; estimates are not measured and cannot be substantiated"
+  },
+  "scope": {
+    "inferenceExecuted": false,
+    "weightsDownloaded": false,
+    "modelConversionExecuted": false,
+    "quantizationExecuted": false,
+    "checkpointLoaded": false,
+    "offloadExperimentExecuted": false,
+    "gpuProbeExecuted": false,
+    "ffmpegExecuted": false,
+    "paidProviderCalls": 0,
+    "customNodesInstalled": false,
+    "thirdPartyPythonExecuted": false,
+    "renderAssetsCreated": false,
+    "sourceVideoSha256Checked": true
+  },
+  "sources": [
+    {
+      "id": "official_code",
+      "ownership": "official",
+      "repository": "MiniMax-AI/MiniMax-H3",
+      "revision": "d21241f0a4b3acbb34c97dae47fa417b7065e438",
+      "url": "https://github.com/MiniMax-AI/MiniMax-H3/tree/d21241f0a4b3acbb34c97dae47fa417b7065e438"
+    },
+    {
+      "id": "official_weights",
+      "ownership": "official",
+      "repository": "MiniMaxAI/MiniMax-H3",
+      "revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+      "url": "https://huggingface.co/MiniMaxAI/MiniMax-H3/tree/42ed227ee7df40d41602854ae760620d6eb651fe",
+      "license": "minimax-h3-community-license-agreement"
+    },
+    {
+      "id": "comfy_weights",
+      "ownership": "first_party_comfy",
+      "repository": "Comfy-Org/MiniMax-H3",
+      "revision": "e5eb578a89295337b8ff433a035929ce0279e0b6",
+      "url": "https://huggingface.co/Comfy-Org/MiniMax-H3/tree/e5eb578a89295337b8ff433a035929ce0279e0b6"
+    },
+    {
+      "id": "comfy_api_node",
+      "ownership": "first_party_comfy",
+      "repository": "Comfy-Org/ComfyUI",
+      "revision": "8cfe5e1ecb97512dea8deaac15e1228d7e6feeb1",
+      "url": "https://github.com/Comfy-Org/ComfyUI/blob/8cfe5e1ecb97512dea8deaac15e1228d7e6feeb1/comfy_api_nodes/nodes_minimax.py"
+    },
+    {
+      "id": "hosted_schema",
+      "ownership": "official",
+      "revision": null,
+      "retrievedAt": "2026-09-30",
+      "url": "https://platform.minimax.io/docs/api-reference/video-generation-v2-regeneration.md"
+    },
+    {
+      "id": "hosted_pricing",
+      "ownership": "official",
+      "revision": null,
+      "retrievedAt": "2026-09-30",
+      "url": "https://platform.minimax.io/docs/pricing/overview"
+    },
+    {
+      "id": "comfy_native_latest",
+      "ownership": "first_party_comfy",
+      "repository": "Comfy-Org/ComfyUI",
+      "revision": "8cfe5e1ecb97512dea8deaac15e1228d7e6feeb1",
+      "url": "https://github.com/Comfy-Org/ComfyUI/blob/8cfe5e1ecb97512dea8deaac15e1228d7e6feeb1/comfy_extras/nodes_minimax_h3.py",
+      "finding": "No native regeneration class; extra Fun ControlNet code is distinct and excluded"
+    }
+  ],
+  "currentWorker": {
+    "backend": "matlow_int8",
+    "comfyCoreRevision": "f938505952476e48a12687eac696cdc94d48a3fe",
+    "supportedTasks": [
+      "t2va",
+      "fl2va",
+      "ref2va"
+    ],
+    "reservedSchemaIsImplementedBackend": false,
+    "resampleRejectedBeforeRuntime": true,
+    "rootCause": "No published native regeneration recipe/component and no implemented runtime path; not an established INT8 failure",
+    "loaderOnlyFixJustified": false,
+    "manifestComponents": [
+      {
+        "role": "generation_transformer_not_regeneration",
+        "repository": "MATLOWAI/minimax-h3-fused-turbo-int8-convrot",
+        "revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "file": "diffusion_models/minimax_h3_fused_refdelta_r1024_turbo8_mystic07_int8_convrot.safetensors",
+        "bytes": 20980178976,
+        "sha256": "4262e4e9963c553fa00016bbe83961407a4fc0a888be95fd836c8d4f2304e48b"
+      },
+      {
+        "role": "encoder",
+        "repository": "Comfy-Org/MiniMax-H3",
+        "revision": "a98869194787969724c7425d95d0ed73ce9202af",
+        "file": "text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
+        "bytes": 15687142551,
+        "sha256": "35a88d51044231fe332301d7a62aa81e3f2cba62febeb446e2c1e3e0ef76f2c6"
+      },
+      {
+        "role": "video_vae",
+        "repository": "Kijai/MiniMax-H3-experimental",
+        "revision": "f4cac997f880e93cf6940af61ee8d58ef31ff7f3",
+        "file": "minimax_h3_video_vae_int8_convrot.safetensors",
+        "bytes": 3171670912,
+        "sha256": "9bb2d96f218c76babd85e0611b85ca8fb330a90546c01a0005e8a58a59593410"
+      },
+      {
+        "role": "audio_vae",
+        "repository": "Comfy-Org/MiniMax-H3",
+        "revision": "a98869194787969724c7425d95d0ed73ce9202af",
+        "file": "vae/minimax_h3_audio_vae_fp32.safetensors",
+        "bytes": 605254808,
+        "sha256": "8e505d95dd1561d47abd43d4238fd40d9bb1ae9e147ed0a4cba778d76ae4db48"
+      }
+    ],
+    "memoryStrategyObservedInCode": [
+      "staged_encoder_loading",
+      "encoder_unload_after_conditioning",
+      "vae_release_before_diffusion",
+      "transformer_unload_before_decode",
+      "dynamic_memory",
+      "vae_tiles_256_overlap_64"
+    ]
+  },
+  "communityCandidates": [
+    {
+      "repository": "xmarre/MiniMax-H3-Flow-Aligned-Regenerate",
+      "author": "xmarre",
+      "ownership": "community",
+      "revision": "a6249b8343becc1458a4555d2bb25cd523983c90",
+      "codeLicense": "Apache-2.0",
+      "url": "https://github.com/xmarre/MiniMax-H3-Flow-Aligned-Regenerate/tree/a6249b8343becc1458a4555d2bb25cd523983c90",
+      "inspectedCode": [
+        "h3_flow_regenerate/nodes.py",
+        "h3_flow_regenerate/handoff.py"
+      ],
+      "nativeRegenerate2K": false,
+      "classification": "training_free_trajectory_guided_generation_and_latent_upscale_refine",
+      "requiresOriginalDenoisingTrajectory": true,
+      "companionCheckpointExample": "minimax_h3_latent_upscaler_3d_bf16.safetensors",
+      "integrationDecision": "excluded_from_native_capability; separate experimental route would require user decision and further review",
+      "installed": false,
+      "executed": false
+    }
+  ],
+  "hostedCapability": {
+    "separateFromLocal": true,
+    "availabilitySemantics": "credentials_configured_only",
+    "accountConfigurationInspected": false,
+    "providerAccessVerified": false,
+    "auth": "Bearer MINIMAX_API_KEY",
+    "model": "MiniMax-H3",
+    "createEndpoint": "POST /v2/video_regeneration",
+    "queryEndpoint": "GET /v2/query/video_generation/{task_id}",
+    "sourceModes": [
+      "source_task_id",
+      "content_with_one_base_video"
+    ],
+    "taskIdConstraints": [
+      "whitelist",
+      "same_account",
+      "succeeded",
+      "queryable_within_7_days"
+    ],
+    "videoConstraints": {
+      "audioRequired": true,
+      "fps": 24,
+      "widthHeightMultiple": 32,
+      "minimumArea": 589824,
+      "maximumArea": 1032192,
+      "minimumFrames": 107,
+      "maximumFrames": 362,
+      "frameIncrement": 17,
+      "originalFinalPromptRequired": true,
+      "matchingOriginalReferencesRequired": true
+    },
+    "output": {
+      "resolution": "2K",
+      "exactDimensions": null,
+      "resultTransport": "task.content.url",
+      "audioBehavior": "preservation_vs_regeneration_unspecified"
+    },
+    "arbitraryMp4Supported": false,
+    "falMp4Acceptance": "unverified; base_video transport does not guarantee acceptance",
+    "outputRateUsdPerSecond": 0.05,
+    "fiveSecondOutputOnlyUsd": 0.25,
+    "additionalOriginalInputChargesPossible": true,
+    "localServiceLimits": {
+      "toolId": "minimax.h3.generate",
+      "completedPortableToolJobRequired": true,
+      "localServerDataMp4Required": true,
+      "defaultMaximumInputBytes": 104857600,
+      "forwardsOriginalReferences": false
+    },
+    "paidCallExecuted": false
+  },
+  "sourceVideo": {
+    "label": "MAX-I1",
+    "provider": "fal",
+    "model": "fal/minimax-h3-max",
+    "jobId": "01a0e48c-d255-7df2-a10e-9fcbb4e5ac7d",
+    "path": "Y:/Процесс/SnarkRoute/apps/server/data/h3-max-eval/2026-09-27-controlled/MAX-I1/output.mp4",
+    "bytes": 4826842,
+    "sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+    "sha256Verified": true,
+    "userProvidedMetadata": {
+      "width": 1344,
+      "height": 768,
+      "fps": 24,
+      "approximateDurationSeconds": 5.184
+    },
+    "mediaDecodedOrProbed": false,
+    "exactFrameCount": null,
+    "audioPresenceChecked": false,
+    "finalPromptAndReferencesChecked": false
+  },
+  "nextExperiment": {
+    "id": "LOCAL-M2K-01",
+    "status": "blocked_no_native_backend",
+    "readyForHeavyTest": false,
+    "requiresSeparateApproval": true,
+    "exactCommand": null,
+    "jobQueued": false,
+    "downloadsBeforeApproval": [],
+    "nextAllowedAction": "Review metadata/code when a genuine native regeneration implementation is published",
+    "approvalPrerequisites": [
+      "pinned_code_and_weights",
+      "license_provenance_sizes_sha256",
+      "security_review",
+      "native_source_contract_and_settings",
+      "vram_ram_cpu_gpu_offload_runtime_disclosure",
+      "one_exact_command_for_review"
+    ],
+    "workerIsolation": "explicit_unload_swap; no_two_large_transformers_resident",
+    "reviewPlan": {
+      "comparisonRows": [
+        "MAX-I1 original",
+        "LOCAL-M2K-01"
+      ],
+      "samplePercentages": [
+        0,
+        25,
+        50,
+        75,
+        100
+      ],
+      "optionalCrops": "100_percent_face_and_details",
+      "content": [
+        "face",
+        "hair",
+        "clothing",
+        "pose",
+        "composition",
+        "camera",
+        "background",
+        "motion",
+        "timing",
+        "lighting",
+        "objects",
+        "identity",
+        "small_features"
+      ],
+      "detail": [
+        "texture",
+        "edges",
+        "fabric",
+        "aliasing",
+        "compression",
+        "oversharpening",
+        "invented_detail"
+      ],
+      "temporal": [
+        "flicker",
+        "crawling",
+        "face_instability",
+        "hair_mutation",
+        "texture_boiling",
+        "object_mutation",
+        "detail_stability",
+        "motion_smoothness"
+      ],
+      "audio": "inspect_without_assuming_preservation",
+      "metrics": [
+        "wall_time",
+        "model_load",
+        "encode",
+        "diffusion",
+        "decode",
+        "peak_vram",
+        "system_ram",
+        "swap",
+        "output_bytes",
+        "input_output_sha256",
+        "revision_settings_lineage"
+      ],
+      "recovery": [
+        "worker_liveness",
+        "model_unload",
+        "gpu_memory_release",
+        "dangling_tensors",
+        "separately_authorized_base_recovery_job"
+      ]
+    }
+  },
+  "ui": {
+    "localLabel": "Local Regenerate 2K",
+    "localStatus": "Local unavailable",
+    "localActionDisabled": true,
+    "hostedLabel": "Hosted MiniMax Regeneration",
+    "configuredHostedLabel": "Configured · unverified",
+    "hostedLookup": "GET internal /api/h3-regeneration/availability",
+    "hostedPaidActionAdded": false,
+    "genericUpscaleSubstituted": false
+  },
+  "verification": {
+    "studioTests": {
+      "passed": 31,
+      "files": [
+        "H3RegenerationStatus.test.ts",
+        "H3QueuePanel.test.ts"
+      ]
+    },
+    "workerTests": {
+      "passed": 16,
+      "files": [
+        "test_matlow_int8_backend.py"
+      ],
+      "runtimeConstructedForResample": false
+    },
+    "studioBuild": "passed: tsc and vite; existing bundle-size warning",
+    "graphUpdate": "passed: graphify update . AST-only; 9632 nodes, 20254 edges, 519 communities; optional SQL parser missing; no semantic LLM extraction",
+    "workerSyntaxCompile": "passed: py_compile touched Python files, no runtime import",
+    "diffCheck": "passed: touched tracked files"
+  },
+  "report": "docs/research/h3-local-regenerate-2k-2026-09-30.md",
+  "publishedBaseEvidence": {
+    "configs": [
+      {
+        "file": "model_index.json",
+        "config": {
+          "_class_name": "MiniMaxH3ModularPipeline",
+          "_diffusers_version": "0.36.0.dev0",
+          "_blocks_class_name": "MiniMaxH3Blocks",
+          "text_encoder": [
+            "transformers",
+            "Qwen3VLForConditionalGeneration",
+            {
+              "type_hint": [
+                "transformers",
+                "Qwen3VLForConditionalGeneration"
+              ],
+              "pretrained_model_name_or_path": "MiniMaxAI/MiniMax-H3",
+              "subfolder": "text_encoder",
+              "variant": null,
+              "revision": null
+            }
+          ],
+          "tokenizer": [
+            "transformers",
+            "Qwen2TokenizerFast",
+            {
+              "type_hint": [
+                "transformers",
+                "Qwen2TokenizerFast"
+              ],
+              "pretrained_model_name_or_path": "MiniMaxAI/MiniMax-H3",
+              "subfolder": "tokenizer",
+              "variant": null,
+              "revision": null
+            }
+          ],
+          "processor": [
+            "transformers",
+            "Qwen3VLProcessor",
+            {
+              "type_hint": [
+                "transformers",
+                "Qwen3VLProcessor"
+              ],
+              "pretrained_model_name_or_path": "MiniMaxAI/MiniMax-H3",
+              "subfolder": "processor",
+              "variant": null,
+              "revision": null
+            }
+          ],
+          "vae": [
+            "diffusers",
+            "AutoencoderKLMiniMaxH3",
+            {
+              "type_hint": [
+                "diffusers",
+                "AutoencoderKLMiniMaxH3"
+              ],
+              "pretrained_model_name_or_path": "MiniMaxAI/MiniMax-H3",
+              "subfolder": "vae",
+              "variant": null,
+              "revision": null
+            }
+          ],
+          "audio_vae": [
+            "diffusers",
+            "AutoencoderKLMiniMaxH3Audio",
+            {
+              "type_hint": [
+                "diffusers",
+                "AutoencoderKLMiniMaxH3Audio"
+              ],
+              "pretrained_model_name_or_path": "MiniMaxAI/MiniMax-H3",
+              "subfolder": "audio_vae",
+              "variant": null,
+              "revision": null
+            }
+          ],
+          "transformer": [
+            "diffusers",
+            "MiniMaxH3Transformer3DModel",
+            {
+              "type_hint": [
+                "diffusers",
+                "MiniMaxH3Transformer3DModel"
+              ],
+              "pretrained_model_name_or_path": "MiniMaxAI/MiniMax-H3",
+              "subfolder": "transformer",
+              "variant": null,
+              "revision": null
+            }
+          ],
+          "transformer_ref": [
+            "diffusers",
+            "MiniMaxH3Transformer3DModel",
+            {
+              "type_hint": [
+                "diffusers",
+                "MiniMaxH3Transformer3DModel"
+              ],
+              "pretrained_model_name_or_path": "MiniMaxAI/MiniMax-H3",
+              "subfolder": "transformer_ref",
+              "variant": null,
+              "revision": null
+            }
+          ],
+          "scheduler": [
+            "diffusers",
+            "MiniMaxH3Scheduler",
+            {
+              "type_hint": [
+                "diffusers",
+                "MiniMaxH3Scheduler"
+              ],
+              "pretrained_model_name_or_path": "MiniMaxAI/MiniMax-H3",
+              "subfolder": "scheduler",
+              "variant": null,
+              "revision": null
+            }
+          ],
+          "audio_scheduler": [
+            "diffusers",
+            "MiniMaxH3Scheduler",
+            {
+              "type_hint": [
+                "diffusers",
+                "MiniMaxH3Scheduler"
+              ],
+              "pretrained_model_name_or_path": "MiniMaxAI/MiniMax-H3",
+              "subfolder": "audio_scheduler",
+              "variant": null,
+              "revision": null
+            }
+          ]
+        }
+      },
+      {
+        "file": "FL2VA/model_index.json",
+        "config": {
+          "_class_name": "MiniMaxH3Pipeline",
+          "_diffusers_version": "0.32.2",
+          "text_encoder": [
+            "transformers",
+            "MiniMaxH3Qwen3VLHFEncoder"
+          ],
+          "tokenizer": [
+            "transformers",
+            "Qwen2TokenizerFast"
+          ],
+          "video_vae": [
+            "diffusers",
+            "MiniMaxH3VideoVAE"
+          ],
+          "audio_vae": [
+            "diffusers",
+            "MiniMaxH3AudioVAE"
+          ],
+          "scheduler": null,
+          "transformer": [
+            "diffusers",
+            "MiniMaxH3DiTModel"
+          ],
+          "processor": [
+            "transformers",
+            "Qwen3VLProcessor"
+          ],
+          "_minimax_h3": {
+            "schema_version": 1,
+            "partition": "fl2va",
+            "tasks": [
+              "t2va",
+              "fl2va"
+            ],
+            "task_aliases": {},
+            "sigma_shift_scales": {
+              "video": 12.0,
+              "audio": 3.0
+            }
+          }
+        }
+      },
+      {
+        "file": "Ref2VA/model_index.json",
+        "config": {
+          "_class_name": "MiniMaxH3Pipeline",
+          "_diffusers_version": "0.32.2",
+          "text_encoder": [
+            "transformers",
+            "MiniMaxH3Qwen3VLHFEncoder"
+          ],
+          "tokenizer": [
+            "transformers",
+            "Qwen2TokenizerFast"
+          ],
+          "video_vae": [
+            "diffusers",
+            "MiniMaxH3VideoVAE"
+          ],
+          "audio_vae": [
+            "diffusers",
+            "MiniMaxH3AudioVAE"
+          ],
+          "scheduler": null,
+          "transformer": [
+            "diffusers",
+            "MiniMaxH3DiTModel"
+          ],
+          "processor": [
+            "transformers",
+            "Qwen3VLProcessor"
+          ],
+          "_minimax_h3": {
+            "schema_version": 1,
+            "partition": "ref2va",
+            "tasks": [
+              "ref2va"
+            ],
+            "task_aliases": {},
+            "sigma_shift_scales": {
+              "video": 12.0,
+              "audio": 3.0
+            }
+          }
+        }
+      },
+      {
+        "file": "transformer/config.json",
+        "config": {
+          "_class_name": "MiniMaxH3Transformer3DModel",
+          "_diffusers_version": "0.36.0.dev0",
+          "num_attention_heads": 56,
+          "attention_head_dim": 128,
+          "hidden_size": 5376,
+          "num_layers": 50,
+          "num_refiner_layers": 2,
+          "ffn_dim": 14336,
+          "in_channels": 24,
+          "audio_in_channels": 32,
+          "patch_size": [
+            1,
+            2,
+            2
+          ],
+          "text_dim": 5120,
+          "freq_dim": 256,
+          "time_embed_hidden_dim": 5376,
+          "time_embed_dim": 2688,
+          "rope_freq_dim": 16,
+          "rope_theta": 10000.0,
+          "norm_eps": 1E-05,
+          "qk_norm_eps": 1E-05,
+          "final_norm_eps": 1E-05
+        }
+      },
+      {
+        "file": "transformer_ref/config.json",
+        "config": {
+          "_class_name": "MiniMaxH3Transformer3DModel",
+          "_diffusers_version": "0.36.0.dev0",
+          "num_attention_heads": 56,
+          "attention_head_dim": 128,
+          "hidden_size": 5376,
+          "num_layers": 50,
+          "num_refiner_layers": 2,
+          "ffn_dim": 14336,
+          "in_channels": 24,
+          "audio_in_channels": 32,
+          "patch_size": [
+            1,
+            2,
+            2
+          ],
+          "text_dim": 5120,
+          "freq_dim": 256,
+          "time_embed_hidden_dim": 5376,
+          "time_embed_dim": 2688,
+          "rope_freq_dim": 16,
+          "rope_theta": 10000.0,
+          "norm_eps": 1E-05,
+          "qk_norm_eps": 1E-05,
+          "final_norm_eps": 1E-05
+        }
+      },
+      {
+        "file": "vae/config.json",
+        "config": {
+          "_class_name": "AutoencoderKLMiniMaxH3",
+          "_diffusers_version": "0.36.0.dev0",
+          "in_channels": 3,
+          "out_channels": 3,
+          "latent_channels": 24,
+          "block_out_channels": [
+            128,
+            256,
+            256,
+            512,
+            512,
+            1024
+          ],
+          "layers_per_block": 2,
+          "spatial_downsample_factors": [
+            2,
+            2,
+            2,
+            2,
+            1,
+            1
+          ],
+          "temporal_downsample_factors": [
+            1,
+            2,
+            2,
+            1,
+            1,
+            1
+          ],
+          "norm_num_groups": 32,
+          "norm_eps": 1E-06,
+          "spatial_padding_mode": "reflect",
+          "decoder_num_layers": 36,
+          "decoder_num_attention_heads": 32,
+          "decoder_attention_head_dim": 64,
+          "decoder_num_register_tokens": 4,
+          "decoder_ffn_mult": 4,
+          "decoder_rope_theta": 100.0,
+          "decoder_rope_dim_ratio": 0.75,
+          "decoder_norm_eps": 1E-05,
+          "clip_length": 17,
+          "token_drop": 3,
+          "latents_mean": [
+            0.858090341091156,
+            -0.9606591463088989,
+            1.0661640167236328,
+            -0.5090325474739075,
+            -0.2727581858634949,
+            -1.3675414323806763,
+            -0.2553254961967468,
+            -0.26907554268836975,
+            -0.5376840829849243,
+            -0.0464097298681736,
+            0.6657370328903198,
+            0.19690127670764923,
+            -0.5460608005523682,
+            -0.4035342037677765,
+            -0.23683024942874908,
+            0.25928452610969543,
+            -0.30133944749832153,
+            0.211341992020607,
+            -1.1206848621368408,
+            0.3581933379173279,
+            -0.04225143790245056,
+            0.2604829967021942,
+            0.22864092886447906,
+            0.7056031823158264
+          ],
+          "latents_std": [
+            1.2223774194717407,
+            1.2767263650894165,
+            1.6831774711608887,
+            1.7549455165863037,
+            1.5636216402053833,
+            2.194143533706665,
+            0.9653137922286987,
+            1.0569885969161987,
+            0.841948926448822,
+            0.7729952931404114,
+            1.8955937623977661,
+            0.946841835975647,
+            0.7996809482574463,
+            0.44988900423049927,
+            0.7197399735450745,
+            0.6936293244361877,
+            2.961095094680786,
+            2.7694199085235596,
+            3.0496184825897217,
+            2.1088054180145264,
+            3.276226282119751,
+            3.1627357006073,
+            2.2816812992095947,
+            2.6127843856811523
+          ]
+        }
+      },
+      {
+        "file": "audio_vae/config.json",
+        "config": {
+          "_class_name": "AutoencoderKLMiniMaxH3Audio",
+          "_diffusers_version": "0.36.0.dev0",
+          "encoder_dim": 64,
+          "encoder_rates": [
+            2,
+            4,
+            4,
+            5,
+            5
+          ],
+          "latent_dim": 2048,
+          "latent_channels": 32,
+          "decoder_dim": 1024,
+          "decoder_rates": [
+            5,
+            5,
+            2,
+            2,
+            2,
+            2,
+            2
+          ],
+          "decoder_kernel_sizes": [
+            9,
+            9,
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "num_attention_heads": 8,
+          "resblock_kernel_sizes": [
+            3,
+            7,
+            11
+          ],
+          "resblock_dilation_sizes": [
+            [
+              1,
+              3,
+              5
+            ],
+            [
+              1,
+              3,
+              5
+            ],
+            [
+              1,
+              3,
+              5
+            ]
+          ],
+          "sampling_rate": 32000,
+          "latents_mean": [
+            -0.020211687488382354,
+            0.3876466479950502,
+            -0.04398279799186767,
+            -0.28591514936373,
+            0.08179686214561671,
+            -0.35782641352446604,
+            0.040623809960919084,
+            -0.01552534501956604,
+            -0.223362481667332,
+            0.1821006842509091,
+            0.2941778783780663,
+            -0.07901167601970885,
+            -0.056815072777201,
+            -0.3699028221860095,
+            -0.31616315591624855,
+            0.5905951377425391,
+            -0.052139568068853864,
+            0.013673160263486295,
+            -0.03691647864630577,
+            0.09732660653298163,
+            -0.3394662328788498,
+            -0.30685677538541667,
+            -0.24504598907458763,
+            -0.034698524462007344,
+            0.02868032184767538,
+            -0.21217779266454084,
+            -0.1678263169941987,
+            0.3221287889040614,
+            -0.1223055851554907,
+            0.4356604928128464,
+            -0.0502599202236253,
+            0.3979258376211797
+          ],
+          "latents_std": [
+            1.6895524230479284,
+            2.76263727217653,
+            1.7945344281264435,
+            1.6801681847309828,
+            1.6390226546605453,
+            2.7788298348882177,
+            1.7659090095747236,
+            1.6199757612137327,
+            2.6336525640336896,
+            1.8539356672817833,
+            2.5056497896915633,
+            1.811019237886178,
+            1.9579657790720237,
+            1.6685498243529284,
+            1.4922469314453364,
+            3.298670198067373,
+            1.9491804496832168,
+            1.8720003270431442,
+            1.8334080103291832,
+            1.6488070416529093,
+            1.6176957696319716,
+            1.9131449234774398,
+            1.5695245398428617,
+            1.6943659940415912,
+            1.8318420762504692,
+            1.5540637421583379,
+            1.9344930328968526,
+            1.599198216109855,
+            1.718045989838149,
+            1.6307219190837705,
+            1.8661226051202384,
+            1.5613768203168363
+          ]
+        }
+      }
+    ],
+    "revision": "42ed227ee7df40d41602854ae760620d6eb651fe",
+    "regenerationCheckpointFound": false,
+    "files": [
+      {
+        "blobId": "bc2a8dc3bfe9037e1f0e82e97f309019b6a398e6",
+        "file": "FL2VA/audio_vae/config.json",
+        "bytes": 1973,
+        "sha256": null
+      },
+      {
+        "blobId": "122a6864b663b50ddc7e48c06cf35fbff1233012",
+        "file": "FL2VA/audio_vae/model.safetensors",
+        "bytes": 605429308,
+        "sha256": "37dddc2f3e6d5d5139d823d5ea283bbf304dadcb885b1ccda818aa13dade5ea2"
+      },
+      {
+        "blobId": "ed4dfb751d8417e5ab8cf58a6915214bda6ba676",
+        "file": "FL2VA/model_index.json",
+        "bytes": 719,
+        "sha256": null
+      },
+      {
+        "blobId": "29e925092dee9f14278c53e7e7d876cea8a997bc",
+        "file": "FL2VA/text_encoder/config.json",
+        "bytes": 1474,
+        "sha256": null
+      },
+      {
+        "blobId": "614247ef75d01ea40af9ef31e07103221340214d",
+        "file": "FL2VA/text_encoder/model-00001-of-00014.safetensors",
+        "bytes": 4932328944,
+        "sha256": "6b9dfbc930e505402ae9d7e5091a9d7d656cda5f34614f01cfe70bfb0cca27cb"
+      },
+      {
+        "blobId": "0ee7c24d1c85e72bc46fd07821a1cfb4af8efd76",
+        "file": "FL2VA/text_encoder/model-00002-of-00014.safetensors",
+        "bytes": 4875990528,
+        "sha256": "d8bb44b4ff303fe76fe9e894022fb3dc71b15a2e716592790fe0e3c3e60478fa"
+      },
+      {
+        "blobId": "cabcc450fe74db21934f8d99d1bc103942f721ba",
+        "file": "FL2VA/text_encoder/model-00003-of-00014.safetensors",
+        "bytes": 4875990552,
+        "sha256": "54f22e8b3168f8dc962fac0d313607ebf52a12b433d4cf3098a0d82d9f042940"
+      },
+      {
+        "blobId": "da3ca77f0ee7d9bdbe0696750c094f0dc6ad3c68",
+        "file": "FL2VA/text_encoder/model-00004-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "ad09c74d3c13ee29b5d0d84548fd8a3424a651564eaccd519946c296e59c557f"
+      },
+      {
+        "blobId": "abb15edfb6d8c352e87914ce6a0d96a98e927e04",
+        "file": "FL2VA/text_encoder/model-00005-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "fc993c8a0e2a5b0570f383e1a95dc3a1281d1b224b6f3ee908f4827941e1dfc2"
+      },
+      {
+        "blobId": "66ace514a9c58011ac2bd4c796c21654b49443b2",
+        "file": "FL2VA/text_encoder/model-00006-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "82f05620d1f718a90c362b221d6a184ff1a0f53301d706882d3df49695fa1974"
+      },
+      {
+        "blobId": "71e871eb7cda8e711788e283e0fb512998a952be",
+        "file": "FL2VA/text_encoder/model-00007-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "fb91da8cb01ff4de3eef0eab1c3e769a734b3a1aafc61734068638a0d6c86934"
+      },
+      {
+        "blobId": "bf1d7c575e6d7cb1117cb8fe06c102193ced09a8",
+        "file": "FL2VA/text_encoder/model-00008-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "431ca56535c8781944ce3801f5eb61c45531e853ecc5846d936ebaf4761b764f"
+      },
+      {
+        "blobId": "9dfb35899c209de09e18aa4bf8346efed8269d76",
+        "file": "FL2VA/text_encoder/model-00009-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "3825e3f4302f4d2f7d76aa7430d2ce0864fde6b9e540a5806bf0d8e38e4d9f47"
+      },
+      {
+        "blobId": "4d94038272e1f5c0368639babad1f7b595a3690b",
+        "file": "FL2VA/text_encoder/model-00010-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "aded5a4d1d5e22dbd8b6f79266b6eb88c840411b09527c53917a1419ace22e2f"
+      },
+      {
+        "blobId": "826ba879b38cc6566b5aea1c3c04741a3087ba20",
+        "file": "FL2VA/text_encoder/model-00011-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "3820ffe8d8d6477f6fe8d614ef3c87abb264ee39accebf43a1507b970d80946f"
+      },
+      {
+        "blobId": "c19df94cbd35798336f17365b1115200f1eec91f",
+        "file": "FL2VA/text_encoder/model-00012-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "05ad2d08ce71963121c9b03f1d9ec5d7641052f4b23c6c12b80d71065eb8e98e"
+      },
+      {
+        "blobId": "39fab9be2b33a5527cbb5131e13c387544a695a9",
+        "file": "FL2VA/text_encoder/model-00013-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "b64f2289871261fdd1abbd3b78bcd66011b341de3dc8eeb2ed1a473ee7c8d95c"
+      },
+      {
+        "blobId": "055162e6edd9914d2652ccf99f2371c000b613fe",
+        "file": "FL2VA/text_encoder/model-00014-of-00014.safetensors",
+        "bytes": 3270697008,
+        "sha256": "e45b6c9998c77ee5a6577f9f47bc76416c1d4d387169e50c4c9d3134ea51b13b"
+      },
+      {
+        "blobId": "94cc6ca1254d9d04b3f7cc06a8c9fc05d0ded065",
+        "file": "FL2VA/transformer/config.json",
+        "bytes": 604,
+        "sha256": null
+      },
+      {
+        "blobId": "513241f2b5fc05ae4c1ba19d4fd84abe4c6013cc",
+        "file": "FL2VA/transformer/model-00001-of-00013.safetensors",
+        "bytes": 5227812968,
+        "sha256": "0b3386565e476bfdea287e9ea9f269d036e5c649ed14bb9b4afac1dc4661bd2a"
+      },
+      {
+        "blobId": "7793de07ceb51b49bdb3884967310d3fe1678ee3",
+        "file": "FL2VA/transformer/model-00002-of-00013.safetensors",
+        "bytes": 5164578856,
+        "sha256": "9c98fd4579c9bc96d1b1bbf65c1243f9256df60bccd229570cecc61897773003"
+      },
+      {
+        "blobId": "62aecfbe9a858299e61ce00c11f9c708fff708a6",
+        "file": "FL2VA/transformer/model-00003-of-00013.safetensors",
+        "bytes": 5164578872,
+        "sha256": "fa484c940d4170199fb69f5016739df2daf6ecd1150631b12a297e06e3964730"
+      },
+      {
+        "blobId": "f59e9950d10f7d4b8ba1efa8d98272071604461d",
+        "file": "FL2VA/transformer/model-00004-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "4a851df37cce2d14b39cb58df41def7b591b1f11b8520a32b421a5fa3e997c9f"
+      },
+      {
+        "blobId": "4f6952c0c7c973eabc4bdf20ae18fc5f6db68351",
+        "file": "FL2VA/transformer/model-00005-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "3fe6ff94dc9d3107c6776a25277d2b72b5443f88cf0f4ed835fd5b65a94ea5d4"
+      },
+      {
+        "blobId": "d71684218adddaa38121a7f18675d084bc7c0ac0",
+        "file": "FL2VA/transformer/model-00006-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "79b47e1b9ff03a2c6f06dd15a28972acf32c0867172ee34e5aa6e96b99494127"
+      },
+      {
+        "blobId": "003c8d5d3c99fb9ee5adfe3397518515debf9adf",
+        "file": "FL2VA/transformer/model-00007-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "6ac4d6ce639786b722a8dd99843ed56dcab48a0d174a4b0f9b8cdcbe5160fb0f"
+      },
+      {
+        "blobId": "8475056b4301fefe0e2ccb3161cb576d94883965",
+        "file": "FL2VA/transformer/model-00008-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "03531812243fb0a333e01efa7e3d39750580bca8cbf2ba0529da419278eab736"
+      },
+      {
+        "blobId": "645a8b2038cfc60d43b7ba5417463ca3812072bc",
+        "file": "FL2VA/transformer/model-00009-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "7e82a80b0d0d267026eb841b81523069cc7b956c1ebd8a18c07e462ffb262487"
+      },
+      {
+        "blobId": "01919aedf83ef64923df3fc7aff5f1c8079fd3af",
+        "file": "FL2VA/transformer/model-00010-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "ef0a1f6b65145232543dd2232d58d91a4d31f44b0da5084acf22cea123255481"
+      },
+      {
+        "blobId": "cff9ae71bdbe60801777f8e5d7d9c0c4e08cf65e",
+        "file": "FL2VA/transformer/model-00011-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "bf885b8f2f078c5499b75fded21094a26bfe0e6e00bee276e499443ecd2f298d"
+      },
+      {
+        "blobId": "57843db09194e8b1465ba54cd3d33f2c8927edb4",
+        "file": "FL2VA/transformer/model-00012-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "dc717572d014ebf8527e35af815d10eb2f5a6bc87253b8a7d2f456965192db69"
+      },
+      {
+        "blobId": "ad8450684951494e4f6b1f8e7392bcb8d95bdfc0",
+        "file": "FL2VA/transformer/model-00013-of-00013.safetensors",
+        "bytes": 4242305176,
+        "sha256": "8bfd852d5817e9836de1d3ec8dbac1c5446b167568b717371f08282b22291aa2"
+      },
+      {
+        "blobId": "20f91e40ea9bc24c21a0e757715f93acf49eb841",
+        "file": "FL2VA/video_vae/config.json",
+        "bytes": 1807,
+        "sha256": null
+      },
+      {
+        "blobId": "fb5105116e094aface836f5182b126bb4fbdc699",
+        "file": "FL2VA/video_vae/source/config.json",
+        "bytes": 1164,
+        "sha256": null
+      },
+      {
+        "blobId": "cc1fe048902a2d790834962551620c2c6dbb2b31",
+        "file": "FL2VA/video_vae/source/model.safetensors",
+        "bytes": 10415548320,
+        "sha256": "5f0c2e161d895a9fee7645ca32d4a7e3a22b90cacfcbeba62ec999cdbbefe0d3"
+      },
+      {
+        "blobId": "c389b45855337ccec8ddeb389f4fe902abcd0b19",
+        "file": "LICENSE",
+        "bytes": 17604,
+        "sha256": null
+      },
+      {
+        "blobId": "bc2a8dc3bfe9037e1f0e82e97f309019b6a398e6",
+        "file": "Ref2VA/audio_vae/config.json",
+        "bytes": 1973,
+        "sha256": null
+      },
+      {
+        "blobId": "122a6864b663b50ddc7e48c06cf35fbff1233012",
+        "file": "Ref2VA/audio_vae/model.safetensors",
+        "bytes": 605429308,
+        "sha256": "37dddc2f3e6d5d5139d823d5ea283bbf304dadcb885b1ccda818aa13dade5ea2"
+      },
+      {
+        "blobId": "b6dd080b974d63e301a049cd09ffe45cbec5b58e",
+        "file": "Ref2VA/model_index.json",
+        "bytes": 707,
+        "sha256": null
+      },
+      {
+        "blobId": "29e925092dee9f14278c53e7e7d876cea8a997bc",
+        "file": "Ref2VA/text_encoder/config.json",
+        "bytes": 1474,
+        "sha256": null
+      },
+      {
+        "blobId": "614247ef75d01ea40af9ef31e07103221340214d",
+        "file": "Ref2VA/text_encoder/model-00001-of-00014.safetensors",
+        "bytes": 4932328944,
+        "sha256": "6b9dfbc930e505402ae9d7e5091a9d7d656cda5f34614f01cfe70bfb0cca27cb"
+      },
+      {
+        "blobId": "0ee7c24d1c85e72bc46fd07821a1cfb4af8efd76",
+        "file": "Ref2VA/text_encoder/model-00002-of-00014.safetensors",
+        "bytes": 4875990528,
+        "sha256": "d8bb44b4ff303fe76fe9e894022fb3dc71b15a2e716592790fe0e3c3e60478fa"
+      },
+      {
+        "blobId": "cabcc450fe74db21934f8d99d1bc103942f721ba",
+        "file": "Ref2VA/text_encoder/model-00003-of-00014.safetensors",
+        "bytes": 4875990552,
+        "sha256": "54f22e8b3168f8dc962fac0d313607ebf52a12b433d4cf3098a0d82d9f042940"
+      },
+      {
+        "blobId": "da3ca77f0ee7d9bdbe0696750c094f0dc6ad3c68",
+        "file": "Ref2VA/text_encoder/model-00004-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "ad09c74d3c13ee29b5d0d84548fd8a3424a651564eaccd519946c296e59c557f"
+      },
+      {
+        "blobId": "abb15edfb6d8c352e87914ce6a0d96a98e927e04",
+        "file": "Ref2VA/text_encoder/model-00005-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "fc993c8a0e2a5b0570f383e1a95dc3a1281d1b224b6f3ee908f4827941e1dfc2"
+      },
+      {
+        "blobId": "66ace514a9c58011ac2bd4c796c21654b49443b2",
+        "file": "Ref2VA/text_encoder/model-00006-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "82f05620d1f718a90c362b221d6a184ff1a0f53301d706882d3df49695fa1974"
+      },
+      {
+        "blobId": "71e871eb7cda8e711788e283e0fb512998a952be",
+        "file": "Ref2VA/text_encoder/model-00007-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "fb91da8cb01ff4de3eef0eab1c3e769a734b3a1aafc61734068638a0d6c86934"
+      },
+      {
+        "blobId": "bf1d7c575e6d7cb1117cb8fe06c102193ced09a8",
+        "file": "Ref2VA/text_encoder/model-00008-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "431ca56535c8781944ce3801f5eb61c45531e853ecc5846d936ebaf4761b764f"
+      },
+      {
+        "blobId": "9dfb35899c209de09e18aa4bf8346efed8269d76",
+        "file": "Ref2VA/text_encoder/model-00009-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "3825e3f4302f4d2f7d76aa7430d2ce0864fde6b9e540a5806bf0d8e38e4d9f47"
+      },
+      {
+        "blobId": "4d94038272e1f5c0368639babad1f7b595a3690b",
+        "file": "Ref2VA/text_encoder/model-00010-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "aded5a4d1d5e22dbd8b6f79266b6eb88c840411b09527c53917a1419ace22e2f"
+      },
+      {
+        "blobId": "826ba879b38cc6566b5aea1c3c04741a3087ba20",
+        "file": "Ref2VA/text_encoder/model-00011-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "3820ffe8d8d6477f6fe8d614ef3c87abb264ee39accebf43a1507b970d80946f"
+      },
+      {
+        "blobId": "c19df94cbd35798336f17365b1115200f1eec91f",
+        "file": "Ref2VA/text_encoder/model-00012-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "05ad2d08ce71963121c9b03f1d9ec5d7641052f4b23c6c12b80d71065eb8e98e"
+      },
+      {
+        "blobId": "39fab9be2b33a5527cbb5131e13c387544a695a9",
+        "file": "Ref2VA/text_encoder/model-00013-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "b64f2289871261fdd1abbd3b78bcd66011b341de3dc8eeb2ed1a473ee7c8d95c"
+      },
+      {
+        "blobId": "055162e6edd9914d2652ccf99f2371c000b613fe",
+        "file": "Ref2VA/text_encoder/model-00014-of-00014.safetensors",
+        "bytes": 3270697008,
+        "sha256": "e45b6c9998c77ee5a6577f9f47bc76416c1d4d387169e50c4c9d3134ea51b13b"
+      },
+      {
+        "blobId": "94cc6ca1254d9d04b3f7cc06a8c9fc05d0ded065",
+        "file": "Ref2VA/transformer/config.json",
+        "bytes": 604,
+        "sha256": null
+      },
+      {
+        "blobId": "f48c7fcbbe943ff177671ceb3c202f19e3d8449b",
+        "file": "Ref2VA/transformer/model-00001-of-00013.safetensors",
+        "bytes": 5227812968,
+        "sha256": "902d6ae787f6d394d0104c1ef3ce19528209715fd5b0292f09d4ef7ca19c8504"
+      },
+      {
+        "blobId": "542e6fae21dedab37c5cd37b8e58b9fab72951f0",
+        "file": "Ref2VA/transformer/model-00002-of-00013.safetensors",
+        "bytes": 5164578856,
+        "sha256": "97b907e4d9b3ba533c820827ab4a03ec0d6be2a5cb8925a7e570de849ea8b183"
+      },
+      {
+        "blobId": "d491a1813aa3deb2a4d0cec04197d7a1efd87bbc",
+        "file": "Ref2VA/transformer/model-00003-of-00013.safetensors",
+        "bytes": 5164578872,
+        "sha256": "fbdf425e351622103419d8f1ddf50f2515917235588849afb365967615141f55"
+      },
+      {
+        "blobId": "29b59b83328586a890808084181f2c56ae3ba5b2",
+        "file": "Ref2VA/transformer/model-00004-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "3831e9ff2640a93e3601d957c81640cc6ba7aa317dc7eae1d6ac3e2428767db3"
+      },
+      {
+        "blobId": "99bbc0f6b4ce6f0b74f7cdd0c8b23c130d064e04",
+        "file": "Ref2VA/transformer/model-00005-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "ec7c6bdd26985a7ac6c83a563d5d4ad6fd961c51a2e5eeabeaaa3b45b6053e1a"
+      },
+      {
+        "blobId": "973f1d5e9da5fc2d3f63ed3945198a2ad12aeffe",
+        "file": "Ref2VA/transformer/model-00006-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "536c4fe01ffdeaca8f28d8df8c53cd7deb62942ec630aa1f058d0423db4438a7"
+      },
+      {
+        "blobId": "855dcf9066129b72aa9e8f5d6649c5132a9208d3",
+        "file": "Ref2VA/transformer/model-00007-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "c7b80189722b211af43bf04066ea98ef5ca5bc4f1f13d3b06444d4c30aafead7"
+      },
+      {
+        "blobId": "4bd259c78558aef907ec0547f435c358ba065be3",
+        "file": "Ref2VA/transformer/model-00008-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "1a7da8bb7477d27cfcc03bd7ff81b3be015411e74006da6e542ce4ce32f7ecb4"
+      },
+      {
+        "blobId": "6848e69e79fdbab390e97bf665fa8163b7c8da5f",
+        "file": "Ref2VA/transformer/model-00009-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "33f44f03128b6d47e3c17a12d3d6f9c67a06b2facdb18a7f2b2121312ba43909"
+      },
+      {
+        "blobId": "c440c39f7697f3675f39bc39b413cd6bccc42c94",
+        "file": "Ref2VA/transformer/model-00010-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "adb8df74dcffebed919e15ca1e99f6a21f738ac3dbcb111f27168d9b1f03a304"
+      },
+      {
+        "blobId": "1f02d0bc15715b2f6af6bd3e1d56891e3ac39bec",
+        "file": "Ref2VA/transformer/model-00011-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "7175cdde6953c234ba0f518e81628ae4ed97790e1eaadabaf1783bddba030c90"
+      },
+      {
+        "blobId": "56803a7f185f1a41f30adf649de5ae383b71cd0a",
+        "file": "Ref2VA/transformer/model-00012-of-00013.safetensors",
+        "bytes": 5164578896,
+        "sha256": "1c5c0bf33ab63e018e5923afaa8ce0dbb0feb07dbda1671605b11b99192450b6"
+      },
+      {
+        "blobId": "7d48095e28a37271e8df4b761caae961fb973e15",
+        "file": "Ref2VA/transformer/model-00013-of-00013.safetensors",
+        "bytes": 4242305176,
+        "sha256": "572e060b9b727bba6ee6c639e988d74978adfbf94f8bac9aa8e7f5bde88c1ec7"
+      },
+      {
+        "blobId": "20f91e40ea9bc24c21a0e757715f93acf49eb841",
+        "file": "Ref2VA/video_vae/config.json",
+        "bytes": 1807,
+        "sha256": null
+      },
+      {
+        "blobId": "fb5105116e094aface836f5182b126bb4fbdc699",
+        "file": "Ref2VA/video_vae/source/config.json",
+        "bytes": 1164,
+        "sha256": null
+      },
+      {
+        "blobId": "cc1fe048902a2d790834962551620c2c6dbb2b31",
+        "file": "Ref2VA/video_vae/source/model.safetensors",
+        "bytes": 10415548320,
+        "sha256": "5f0c2e161d895a9fee7645ca32d4a7e3a22b90cacfcbeba62ec999cdbbefe0d3"
+      },
+      {
+        "blobId": "15df6fe0b288b260dca0f2aebf1cd81334d77e96",
+        "file": "audio_vae/config.json",
+        "bytes": 2271,
+        "sha256": null
+      },
+      {
+        "blobId": "4a381c6f4b9a67db97c25d250f9d00942d17a49e",
+        "file": "audio_vae/diffusion_pytorch_model.safetensors",
+        "bytes": 605429340,
+        "sha256": "52c59e67ba8de5477c81bfbced0327aabf500f1bfdeefd5ee754529241cb26cb"
+      },
+      {
+        "blobId": "454be19164878173a962c39c81633e4377880fca",
+        "file": "model_index.json",
+        "bytes": 2936,
+        "sha256": null
+      },
+      {
+        "blobId": "5b69f1e801bd0a7e9733c48704c732339f2002fe",
+        "file": "modular_model_index.json",
+        "bytes": 2935,
+        "sha256": null
+      },
+      {
+        "blobId": "29e925092dee9f14278c53e7e7d876cea8a997bc",
+        "file": "text_encoder/config.json",
+        "bytes": 1474,
+        "sha256": null
+      },
+      {
+        "blobId": "614247ef75d01ea40af9ef31e07103221340214d",
+        "file": "text_encoder/model-00001-of-00014.safetensors",
+        "bytes": 4932328944,
+        "sha256": "6b9dfbc930e505402ae9d7e5091a9d7d656cda5f34614f01cfe70bfb0cca27cb"
+      },
+      {
+        "blobId": "0ee7c24d1c85e72bc46fd07821a1cfb4af8efd76",
+        "file": "text_encoder/model-00002-of-00014.safetensors",
+        "bytes": 4875990528,
+        "sha256": "d8bb44b4ff303fe76fe9e894022fb3dc71b15a2e716592790fe0e3c3e60478fa"
+      },
+      {
+        "blobId": "cabcc450fe74db21934f8d99d1bc103942f721ba",
+        "file": "text_encoder/model-00003-of-00014.safetensors",
+        "bytes": 4875990552,
+        "sha256": "54f22e8b3168f8dc962fac0d313607ebf52a12b433d4cf3098a0d82d9f042940"
+      },
+      {
+        "blobId": "da3ca77f0ee7d9bdbe0696750c094f0dc6ad3c68",
+        "file": "text_encoder/model-00004-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "ad09c74d3c13ee29b5d0d84548fd8a3424a651564eaccd519946c296e59c557f"
+      },
+      {
+        "blobId": "abb15edfb6d8c352e87914ce6a0d96a98e927e04",
+        "file": "text_encoder/model-00005-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "fc993c8a0e2a5b0570f383e1a95dc3a1281d1b224b6f3ee908f4827941e1dfc2"
+      },
+      {
+        "blobId": "66ace514a9c58011ac2bd4c796c21654b49443b2",
+        "file": "text_encoder/model-00006-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "82f05620d1f718a90c362b221d6a184ff1a0f53301d706882d3df49695fa1974"
+      },
+      {
+        "blobId": "71e871eb7cda8e711788e283e0fb512998a952be",
+        "file": "text_encoder/model-00007-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "fb91da8cb01ff4de3eef0eab1c3e769a734b3a1aafc61734068638a0d6c86934"
+      },
+      {
+        "blobId": "bf1d7c575e6d7cb1117cb8fe06c102193ced09a8",
+        "file": "text_encoder/model-00008-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "431ca56535c8781944ce3801f5eb61c45531e853ecc5846d936ebaf4761b764f"
+      },
+      {
+        "blobId": "9dfb35899c209de09e18aa4bf8346efed8269d76",
+        "file": "text_encoder/model-00009-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "3825e3f4302f4d2f7d76aa7430d2ce0864fde6b9e540a5806bf0d8e38e4d9f47"
+      },
+      {
+        "blobId": "4d94038272e1f5c0368639babad1f7b595a3690b",
+        "file": "text_encoder/model-00010-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "aded5a4d1d5e22dbd8b6f79266b6eb88c840411b09527c53917a1419ace22e2f"
+      },
+      {
+        "blobId": "826ba879b38cc6566b5aea1c3c04741a3087ba20",
+        "file": "text_encoder/model-00011-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "3820ffe8d8d6477f6fe8d614ef3c87abb264ee39accebf43a1507b970d80946f"
+      },
+      {
+        "blobId": "c19df94cbd35798336f17365b1115200f1eec91f",
+        "file": "text_encoder/model-00012-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "05ad2d08ce71963121c9b03f1d9ec5d7641052f4b23c6c12b80d71065eb8e98e"
+      },
+      {
+        "blobId": "39fab9be2b33a5527cbb5131e13c387544a695a9",
+        "file": "text_encoder/model-00013-of-00014.safetensors",
+        "bytes": 4875990584,
+        "sha256": "b64f2289871261fdd1abbd3b78bcd66011b341de3dc8eeb2ed1a473ee7c8d95c"
+      },
+      {
+        "blobId": "055162e6edd9914d2652ccf99f2371c000b613fe",
+        "file": "text_encoder/model-00014-of-00014.safetensors",
+        "bytes": 3270697008,
+        "sha256": "e45b6c9998c77ee5a6577f9f47bc76416c1d4d387169e50c4c9d3134ea51b13b"
+      },
+      {
+        "blobId": "c251a4133c81852a150c6668a570e142dc776b6e",
+        "file": "transformer/config.json",
+        "bytes": 546,
+        "sha256": null
+      },
+      {
+        "blobId": "78e7c04f1246f7fd29127ba802f4c1fd65776404",
+        "file": "transformer/diffusion_pytorch_model-00001-of-00014.safetensors",
+        "bytes": 4825958704,
+        "sha256": "2d847200c45c09dd7f973c1b096663068408ef851ee0b3711d059b6dc5dcd028"
+      },
+      {
+        "blobId": "4a79d68cef731db07fafbe78d9d5c6d5ddf9f395",
+        "file": "transformer/diffusion_pytorch_model-00002-of-00014.safetensors",
+        "bytes": 4702158032,
+        "sha256": "2c4d362eddd2802180ac9c744849eb9ba8d9c8b984bdf9822cb02ed004b29184"
+      },
+      {
+        "blobId": "f69102656be6332afea3376b76a81a2190b2aa89",
+        "file": "transformer/diffusion_pytorch_model-00003-of-00014.safetensors",
+        "bytes": 4933368192,
+        "sha256": "949c5aafbbfa5654da730a6a7fafd75adb164d0857b095a30e8bb6d390887d69"
+      },
+      {
+        "blobId": "663bd8d4ca0dfa722c99ca01d54049dd7efa0515",
+        "file": "transformer/diffusion_pytorch_model-00004-of-00014.safetensors",
+        "bytes": 4567069608,
+        "sha256": "eef7616790105ee839766bb2027203bf2c0d87c6aa038dca84145a8675f5ce28"
+      },
+      {
+        "blobId": "338b0e9ce0fadd8aa27a253e50a3dbd565ded8ec",
+        "file": "transformer/diffusion_pytorch_model-00005-of-00014.safetensors",
+        "bytes": 4702158080,
+        "sha256": "43fdf42d638e8bc6745f713fae80c93bb301807a1a5ae7249344ce28e202a494"
+      },
+      {
+        "blobId": "aff5d426da7d9972f3adb29f02cffaf62f94f9c1",
+        "file": "transformer/diffusion_pytorch_model-00006-of-00014.safetensors",
+        "bytes": 4933368232,
+        "sha256": "6442510b34d173653f0cce5c964b935395a8f7accf0b9cc0aa31aec59805239d"
+      },
+      {
+        "blobId": "e23672b7490bcd26fcb50976b89903acd85fc6ff",
+        "file": "transformer/diffusion_pytorch_model-00007-of-00014.safetensors",
+        "bytes": 4567069608,
+        "sha256": "29f48f535c91dac76496ca821eeb16ca24bc4caf3f0cae8b920a89b1f966da6d"
+      },
+      {
+        "blobId": "a7c89c8303ae2cace7518f9d995522e00872788e",
+        "file": "transformer/diffusion_pytorch_model-00008-of-00014.safetensors",
+        "bytes": 4702158080,
+        "sha256": "c711b096c764bd60f0b8b6ad49518bfab6d614fb788c725add8741c0674a4cd8"
+      },
+      {
+        "blobId": "a63bcdf9be4d78b32124fcc032fbc1245f39ec05",
+        "file": "transformer/diffusion_pytorch_model-00009-of-00014.safetensors",
+        "bytes": 4933368232,
+        "sha256": "44428defe3976cbb87635ad200b958199e739986697cd29fdf27aeb7294b5944"
+      },
+      {
+        "blobId": "e3b94e045a76f7cc87b17add5983165a800214a5",
+        "file": "transformer/diffusion_pytorch_model-00010-of-00014.safetensors",
+        "bytes": 4567069608,
+        "sha256": "3d44939c374c9da382e9c6877e1946adf7b84e08c7a881c068f228d6849411c9"
+      },
+      {
+        "blobId": "72a25189806a418d770b37ae8efc9b0d53fc312b",
+        "file": "transformer/diffusion_pytorch_model-00011-of-00014.safetensors",
+        "bytes": 4702158080,
+        "sha256": "224d24430b58127a5577721084e0e704a0e74ec96dd7c35bc6fc0994ebd87c33"
+      },
+      {
+        "blobId": "9545750c42b012ae13089df388d1569d10ad2a72",
+        "file": "transformer/diffusion_pytorch_model-00012-of-00014.safetensors",
+        "bytes": 4933368232,
+        "sha256": "48fa2bd8fe134eef565ab2464f1c2589a6657cba0d14283dfc06b532f8961f3c"
+      },
+      {
+        "blobId": "5827d7644a1ebc1ce9fcf40607857257f14f5659",
+        "file": "transformer/diffusion_pytorch_model-00013-of-00014.safetensors",
+        "bytes": 4567069608,
+        "sha256": "be5b4b1809f9d546ffd4b3fcf41e5c1e02b819125caa6bc105c109b04c051bd3"
+      },
+      {
+        "blobId": "5c97657ddfa2a1cf31bb6460a25c1caeccfe5a0c",
+        "file": "transformer/diffusion_pytorch_model-00014-of-00014.safetensors",
+        "bytes": 4644161920,
+        "sha256": "8fbd5e6c1fb1df7ce988ca90f3d59e7610e465c7517e4b344eda4a214ba4b97d"
+      },
+      {
+        "blobId": "c251a4133c81852a150c6668a570e142dc776b6e",
+        "file": "transformer_ref/config.json",
+        "bytes": 546,
+        "sha256": null
+      },
+      {
+        "blobId": "9b0c05d22cf4683ecb0d959abf91b0ecd8cd1e4c",
+        "file": "transformer_ref/diffusion_pytorch_model-00001-of-00014.safetensors",
+        "bytes": 4825958704,
+        "sha256": "7a3fcad885f51560e550b2e84c9a8d8b35e62996cfd9076937e992bd23478df9"
+      },
+      {
+        "blobId": "51e0598afcf143178f49a45b326de0947588d51d",
+        "file": "transformer_ref/diffusion_pytorch_model-00002-of-00014.safetensors",
+        "bytes": 4702158032,
+        "sha256": "1638ae1dc8ae26c4ba43ad28a6d851ad8983847324bb2b468719c7c81f219706"
+      },
+      {
+        "blobId": "b30b53bc2e884978e8aa857dc3f941c3ea7ac816",
+        "file": "transformer_ref/diffusion_pytorch_model-00003-of-00014.safetensors",
+        "bytes": 4933368192,
+        "sha256": "1ef3c4954ffe5a664c2e3028e2a3241190d9c159dce6ba1136002c6af1db5353"
+      },
+      {
+        "blobId": "0d13668925c5f8d8441b6d10db7cf868dcb4598d",
+        "file": "transformer_ref/diffusion_pytorch_model-00004-of-00014.safetensors",
+        "bytes": 4567069608,
+        "sha256": "12d92f2975cfd5c5b786126385c52e5bf64884d4b4d6e60c3ef5d857c3f7469f"
+      },
+      {
+        "blobId": "aa394e3cfcf04c26e949cfb3db37de989ea71a79",
+        "file": "transformer_ref/diffusion_pytorch_model-00005-of-00014.safetensors",
+        "bytes": 4702158080,
+        "sha256": "304d41ce03d59ac94bceb055935bf4e034df0badf8b0df4ded327c08a288a4cc"
+      },
+      {
+        "blobId": "7f8fcc49f1b389332e3171e3f6aad4a6feb2d768",
+        "file": "transformer_ref/diffusion_pytorch_model-00006-of-00014.safetensors",
+        "bytes": 4933368232,
+        "sha256": "12a134b7c76d86edbe8fa2dc315f6cdaf4e1aca1b6ea4dfe4cad92df03d42eeb"
+      },
+      {
+        "blobId": "94bb031935b29cb39e5831635b46e1c1191e7668",
+        "file": "transformer_ref/diffusion_pytorch_model-00007-of-00014.safetensors",
+        "bytes": 4567069608,
+        "sha256": "b96395261359937c00fb42f4eb29306dc59b1a3368eeba52af4fb66e3e142c69"
+      },
+      {
+        "blobId": "0bb15268c4dee8a62b7c15ece7f0ded6aaff7654",
+        "file": "transformer_ref/diffusion_pytorch_model-00008-of-00014.safetensors",
+        "bytes": 4702158080,
+        "sha256": "1897a6bf3b4fc834bb82d73ca02a7afc7d38c07f50ec5382cd54cd2f91b604d1"
+      },
+      {
+        "blobId": "2f6e04bfeba92b1916c5b960c125cd0d55c85801",
+        "file": "transformer_ref/diffusion_pytorch_model-00009-of-00014.safetensors",
+        "bytes": 4933368232,
+        "sha256": "edfb38235adc96b99f55a401849befce59075a745e99c2d8c63ff358dd36443d"
+      },
+      {
+        "blobId": "23aa8735c6a03426bd681a44ae0704f5c8a81d08",
+        "file": "transformer_ref/diffusion_pytorch_model-00010-of-00014.safetensors",
+        "bytes": 4567069608,
+        "sha256": "f8710775cf3413670edd7e23861b650a3431a71a6cc14cb1080623ab6b052385"
+      },
+      {
+        "blobId": "0082cfd7c050bf55c405d67d026514012dd259a6",
+        "file": "transformer_ref/diffusion_pytorch_model-00011-of-00014.safetensors",
+        "bytes": 4702158080,
+        "sha256": "9e18acc09f84edb5b34df9628efa15cfcab8bb76e8e20c1c2e979a107a0f7215"
+      },
+      {
+        "blobId": "f60fcc3c5e79e132ffadf06e5e98dcbf9c7b6401",
+        "file": "transformer_ref/diffusion_pytorch_model-00012-of-00014.safetensors",
+        "bytes": 4933368232,
+        "sha256": "ea2e18228f8bdba1a4e0f32b155e4586df055997c45356213d05b971ba13e2f4"
+      },
+      {
+        "blobId": "d9ac20a69b58fcd4dabe8bfef78d29640bc291a2",
+        "file": "transformer_ref/diffusion_pytorch_model-00013-of-00014.safetensors",
+        "bytes": 4567069608,
+        "sha256": "1e12083b1875678f7414ff55b09cd8bb1c30b861243f9bb7ff1e75b6ad3f1bdc"
+      },
+      {
+        "blobId": "b1dfd11195ff1b5cd520cb7e83730f092d4ea0ff",
+        "file": "transformer_ref/diffusion_pytorch_model-00014-of-00014.safetensors",
+        "bytes": 4644161920,
+        "sha256": "b340f44b5690cc745d48ae399381ec15b26a4fe25d483f677ccb4960dadb50d4"
+      },
+      {
+        "blobId": "ed4874a5886972f4029fcd99cbbe72de0177b2c9",
+        "file": "vae/config.json",
+        "bytes": 2011,
+        "sha256": null
+      },
+      {
+        "blobId": "73f63f98715bce2897a36685ee6e3338f1a43416",
+        "file": "vae/diffusion_pytorch_model-00001-of-00003.safetensors",
+        "bytes": 5061033024,
+        "sha256": "72f4c6be84ac0674f27398cde991dd9d719762f3952c4921aa66b2ce542f6374"
+      },
+      {
+        "blobId": "d8083e40d1b26ed6ed02afd3bd4390fff32f6af5",
+        "file": "vae/diffusion_pytorch_model-00002-of-00003.safetensors",
+        "bytes": 4955986528,
+        "sha256": "2e05e8bc23fa4071043e17fd242be8acd0685e781a43987432b2eae925be4198"
+      },
+      {
+        "blobId": "1c31fd275aa880a3fb6ac88ae62ac02e79d9a61f",
+        "file": "vae/diffusion_pytorch_model-00003-of-00003.safetensors",
+        "bytes": 398539336,
+        "sha256": "c05d6ac4b1a33de372799d708531da6320f6a3ce6d1ce6d895e770988e004a39"
+      }
+    ],
+    "fileCount": 280,
+    "taskFamilies": [
+      "t2va",
+      "fl2va",
+      "ref2va"
+    ],
+    "metadataOnly": true
+  }
+}

@@ -1,0 +1,364 @@
+{
+  "createdAt": "2026-09-28T08:00:53.959Z",
+  "provider": "fal",
+  "model": "fal/minimax-h3-max",
+  "resolution": "768P",
+  "duration": 5,
+  "seed": 5242017,
+  "promptExpansionMode": "disabled",
+  "productionPrompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+  "cases": [
+    {
+      "id": "MAX-T0",
+      "purpose": "text-only production prompt",
+      "references": []
+    },
+    {
+      "id": "MAX-I1",
+      "purpose": "first-frame image-to-video",
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        }
+      ]
+    },
+    {
+      "id": "MAX-FL1",
+      "purpose": "first-plus-last keyframes",
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        },
+        {
+          "kind": "image",
+          "role": "lastFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+        }
+      ]
+    },
+    {
+      "id": "MAX-V1",
+      "purpose": "semantic video motion/identity reference",
+      "references": [
+        {
+          "kind": "video",
+          "role": "reference",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\base-reference.mp4"
+        }
+      ]
+    },
+    {
+      "id": "MAX-MR1",
+      "purpose": "two-image semantic appearance sanity",
+      "references": [
+        {
+          "kind": "image",
+          "role": "reference",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        },
+        {
+          "kind": "image",
+          "role": "reference",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+        }
+      ]
+    },
+    {
+      "id": "MAX-A1",
+      "purpose": "native dialogue, Foley, ambience, and lip-sync audit",
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        }
+      ]
+    }
+  ],
+  "completedAt": "2026-09-28T08:00:53.970Z",
+  "results": [
+    {
+      "status": "succeeded",
+      "id": "MAX-T0",
+      "purpose": "text-only production prompt",
+      "startedAt": "2026-09-27T20:27:05.277Z",
+      "completedAt": "2026-09-27T20:27:09.157Z",
+      "requestId": "01a0e48b-1078-7750-943b-23107ccc1567",
+      "endpoint": "minimax/h3-max/text-to-video",
+      "provider": "fal",
+      "model": "fal/minimax-h3-max",
+      "upstream": "MiniMaxAI/MiniMax-H3",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-T0\\output.mp4",
+      "expandedPrompt": null,
+      "providerTimings": {
+        "inference": 2.677080389999901
+      },
+      "latencyMs": {
+        "acceptedMs": 0,
+        "generationMs": 1055,
+        "totalMs": 1055,
+        "download": 2357,
+        "totalWithDownload": 3412
+      },
+      "cost": {
+        "amountUsd": 0.2,
+        "rateUsdPerSecond": 0.04,
+        "currency": "USD",
+        "confidence": "exact-output-only",
+        "promotion": "fal launch promotion through 2026-09-30",
+        "excludesReferenceTokenCharges": true,
+        "source": "https://fal.ai/models/minimax/h3-max/text-to-video",
+        "referenceInputChargeUsd": 0
+      },
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 3372120,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      }
+    },
+    {
+      "status": "succeeded",
+      "id": "MAX-I1",
+      "purpose": "first-frame image-to-video",
+      "startedAt": "2026-09-27T20:27:09.161Z",
+      "completedAt": "2026-09-27T20:27:18.738Z",
+      "requestId": "01a0e48c-d255-7df2-a10e-9fcbb4e5ac7d",
+      "endpoint": "minimax/h3-max/image-to-video",
+      "provider": "fal",
+      "model": "fal/minimax-h3-max",
+      "upstream": "MiniMaxAI/MiniMax-H3",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+      "expandedPrompt": null,
+      "providerTimings": {
+        "inference": 2.9903433179970307
+      },
+      "latencyMs": {
+        "acceptedMs": 331,
+        "generationMs": 5073,
+        "totalMs": 5404,
+        "download": 3740,
+        "totalWithDownload": 9144
+      },
+      "cost": {
+        "amountUsd": 0.2,
+        "rateUsdPerSecond": 0.04,
+        "currency": "USD",
+        "confidence": "exact-output-only",
+        "promotion": "fal launch promotion through 2026-09-30",
+        "excludesReferenceTokenCharges": true,
+        "source": "https://fal.ai/models/minimax/h3-max/text-to-video",
+        "referenceInputChargeUsd": 0
+      },
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 4826842,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      }
+    },
+    {
+      "status": "succeeded",
+      "id": "MAX-FL1",
+      "purpose": "first-plus-last keyframes",
+      "startedAt": "2026-09-27T20:27:18.743Z",
+      "completedAt": "2026-09-27T20:27:28.047Z",
+      "requestId": "01a0e48c-f938-7f32-b561-cc8ba151c7e8",
+      "endpoint": "minimax/h3-max/image-to-video",
+      "provider": "fal",
+      "model": "fal/minimax-h3-max",
+      "upstream": "MiniMaxAI/MiniMax-H3",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-FL1\\output.mp4",
+      "expandedPrompt": null,
+      "providerTimings": {
+        "inference": 2.924997129943222
+      },
+      "latencyMs": {
+        "acceptedMs": 710,
+        "generationMs": 5766,
+        "totalMs": 6476,
+        "download": 2435,
+        "totalWithDownload": 8911
+      },
+      "cost": {
+        "amountUsd": 0.2,
+        "rateUsdPerSecond": 0.04,
+        "currency": "USD",
+        "confidence": "exact-output-only",
+        "promotion": "fal launch promotion through 2026-09-30",
+        "excludesReferenceTokenCharges": true,
+        "source": "https://fal.ai/models/minimax/h3-max/text-to-video",
+        "referenceInputChargeUsd": 0
+      },
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 4749735,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      }
+    },
+    {
+      "status": "succeeded",
+      "id": "MAX-V1",
+      "purpose": "semantic video motion/identity reference",
+      "startedAt": "2026-09-27T20:27:28.052Z",
+      "completedAt": "2026-09-27T20:27:47.041Z",
+      "requestId": "01a0e48d-1dd5-7611-9b31-b8eaaed86f67",
+      "endpoint": "minimax/h3-max/reference-to-video",
+      "provider": "fal",
+      "model": "fal/minimax-h3-max",
+      "upstream": "MiniMaxAI/MiniMax-H3",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-V1\\output.mp4",
+      "expandedPrompt": null,
+      "seed": 5242017,
+      "providerTimings": {
+        "inference": 7.650163989999783
+      },
+      "latencyMs": {
+        "acceptedMs": 783,
+        "generationMs": 13611,
+        "totalMs": 14394,
+        "download": 4184,
+        "totalWithDownload": 18578
+      },
+      "cost": {
+        "amountUsd": 0.4,
+        "rateUsdPerSecond": 0.08,
+        "currency": "USD",
+        "confidence": "exact-output-only",
+        "promotion": null,
+        "excludesReferenceTokenCharges": true,
+        "source": "https://fal.ai/models/minimax/h3-max/reference-to-video",
+        "referenceInputChargeUsd": "approximately 0.69 USD from a 5.17-second 768P video reference; provider response did not return actual billing"
+      },
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 5017505,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      }
+    },
+    {
+      "status": "succeeded",
+      "id": "MAX-MR1",
+      "purpose": "two-image semantic appearance sanity",
+      "startedAt": "2026-09-27T20:27:47.047Z",
+      "completedAt": "2026-09-27T20:27:58.549Z",
+      "requestId": "01a0e48d-67c4-7c33-86d5-6c24ba7fe309",
+      "endpoint": "minimax/h3-max/reference-to-video",
+      "provider": "fal",
+      "model": "fal/minimax-h3-max",
+      "upstream": "MiniMaxAI/MiniMax-H3",
+      "outputPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-MR1\\output.mp4",
+      "expandedPrompt": null,
+      "seed": 5242017,
+      "providerTimings": {
+        "inference": 3.4056147299706936
+      },
+      "latencyMs": {
+        "acceptedMs": 699,
+        "generationMs": 7410,
+        "totalMs": 8109,
+        "download": 3001,
+        "totalWithDownload": 11110
+      },
+      "cost": {
+        "amountUsd": 0.4,
+        "rateUsdPerSecond": 0.08,
+        "currency": "USD",
+        "confidence": "exact-output-only",
+        "promotion": null,
+        "excludesReferenceTokenCharges": true,
+        "source": "https://fal.ai/models/minimax/h3-max/reference-to-video",
+        "referenceInputChargeUsd": 0
+      },
+      "media": {
+        "durationSeconds": 5.184,
+        "sizeBytes": 4778031,
+        "video": {
+          "codec": "h264",
+          "width": 1344,
+          "height": 768,
+          "frameRate": "24/1"
+        },
+        "audio": {
+          "present": true,
+          "codec": "aac",
+          "channels": 2,
+          "channelLayout": "stereo",
+          "sampleRate": 32000,
+          "durationSeconds": 5.184
+        }
+      }
+    },
+    {
+      "status": "failed",
+      "id": "MAX-A1",
+      "purpose": "native dialogue, Foley, ambience, and lip-sync audit",
+      "startedAt": "2026-09-27T21:28:27.995Z",
+      "completedAt": "2026-09-27T21:28:28.781Z",
+      "error": {
+        "name": "H3HostedError",
+        "message": "User is locked. Reason: Exhausted balance. Top up your balance at fal.ai/dashboard/billing.",
+        "code": "insufficient_credits",
+        "status": 403,
+        "retryable": false,
+        "details": {
+          "detail": "User is locked. Reason: Exhausted balance. Top up your balance at fal.ai/dashboard/billing."
+        }
+      }
+    }
+  ]
+}

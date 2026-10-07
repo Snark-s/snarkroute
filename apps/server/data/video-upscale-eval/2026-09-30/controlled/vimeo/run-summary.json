@@ -1,0 +1,74 @@
+{
+  "approvedCandidate": "vimeo",
+  "approval": "User: Запускай Vimeo",
+  "executionDateLocal": "2026-10-01",
+  "timezone": "Europe/Moscow",
+  "benchmarkStatus": "FAILED",
+  "benchmarkError": "Worker/children did not exit cleanly",
+  "jobId": "vup_ed035e79-9c5a-46f4-976e-65e4529111c8",
+  "workerJobStatus": "succeeded",
+  "upscaleJobSubmissions": 1,
+  "retryCount": 0,
+  "otherCandidatesStarted": [],
+  "nativePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\vimeo\\native.mp4",
+  "nativeVerification": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\vimeo\\native-verification.json",
+  "nativeValidationStatus": "FAILED",
+  "normalizedCreated": false,
+  "baselineCreated": false,
+  "reviewMediaCreated": false,
+  "workerStartupSeconds": 1.6228547000064282,
+  "processingSeconds": 227.95917719999852,
+  "modelLoadSeconds": 12.250939000005019,
+  "inferenceWrapperSeconds": 207.07664250001835,
+  "phaseTimings": {
+    "preprocessing_seconds": 3.9646543999697315,
+    "model_forward_seconds": 194.32541660005518,
+    "postprocessing_seconds": 8.324516299937386
+  },
+  "totalHarnessWallSeconds": 234.68371179999667,
+  "torchPeakAllocatedMiB": 5217.02734375,
+  "torchPeakReservedMiB": 9616.0,
+  "processCpuPeakPercentOneCore": 177.6482598174855,
+  "totalCpuPeakPercent": 69.25925925925927,
+  "rssPeakBytes": 2357325824,
+  "availableRamMinimumBytes": 13643120640,
+  "gpuUsedPeakMiB": 11643,
+  "gpuFreeMinimumMiB": 4533,
+  "resourceSamples": 112,
+  "gpuBefore": {
+    "index": 0,
+    "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+    "total_mib": 16384,
+    "used_mib": 1857,
+    "free_mib": 14319,
+    "utilization_percent": 14
+  },
+  "gpuAfterCleanup": {
+    "index": 0,
+    "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+    "total_mib": 16384,
+    "used_mib": 1802,
+    "free_mib": 14374,
+    "utilization_percent": 21
+  },
+  "ownedProcessExitVerified": true,
+  "activeLockRemaining": false,
+  "attemptMarkerRetained": true,
+  "shutdownCause": "Undetermined: harness does not persist the return code/active-process snapshot that triggered the check; worker.log is empty. Final owned-process exit verified.",
+  "license": "CC-BY-SA-4.0",
+  "color": "TEST ASSUMPTION: MAX-I1 SDR BT.709 limited, not measured source color fact",
+  "nativeMetadataErrors": [
+    {
+      "field": "color_transfer",
+      "expected": "bt709",
+      "actual": null
+    },
+    {
+      "field": "color_primaries",
+      "expected": "bt709",
+      "actual": null
+    }
+  ],
+  "aacPacketIdentity": true,
+  "qualityVerdict": "Not assessed; no normalized baseline or other candidates, no quality winner"
+}

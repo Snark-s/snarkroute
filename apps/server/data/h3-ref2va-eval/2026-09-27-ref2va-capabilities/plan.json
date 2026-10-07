@@ -1,0 +1,143 @@
+{
+  "title": "H3 Base Ref2VA capability, style and FaceSwap controls",
+  "defaults": {
+    "seed": 424242,
+    "steps": 4,
+    "durationSeconds": 5,
+    "aspectRatio": "16:9",
+    "modelVariant": "h3_base"
+  },
+  "tests": [
+    {
+      "id": "A0",
+      "variable": "text-only baseline",
+      "assessment": "Valid neutral control: photoreal woman, clear left-to-right head turn, stable medium close-up and studio background.",
+      "prompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+      "references": [],
+      "observationPrompts": ["Baseline identity", "Motion and framing", "Default rendering language"]
+    },
+    {
+      "id": "S1",
+      "variable": "one Picture: stained-glass visual/style reference",
+      "assessment": "Picture reached Ref2VA, but stained glass, leaded edges and glass material did not transfer. Output stayed photoreal; only incidental subject/background details changed.",
+      "prompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+      "contextInstruction": "Use <Picture 1> as the visual/style reference for rendering.",
+      "references": [
+        {
+          "kind": "image",
+          "path": "../../assets/1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+          "purpose": "style"
+        }
+      ],
+      "observationPrompts": ["Palette and contrast", "Hard leaded-glass edges", "Glass texture/material", "Subject/composition leakage"]
+    },
+    {
+      "id": "S2",
+      "variable": "one Picture: photoreal face/appearance reference",
+      "assessment": "Strong transfer of the reference woman's short black hair, facial structure and makeup. This verifies identity/appearance conditioning, not a distinct style mechanism.",
+      "prompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+      "contextInstruction": "Use <Picture 1> as the visual/style reference for rendering.",
+      "references": [
+        { "kind": "image", "path": "inputs/face-b.png", "purpose": "style" }
+      ],
+      "observationPrompts": ["Photoreal material rendering", "Identity leakage", "Lighting and texture", "Difference from S1 at fixed seed"]
+    },
+    {
+      "id": "R2",
+      "variable": "two Pictures with separated subject/style roles",
+      "assessment": "Picture 1 identity dominates. Picture 2 stained-glass rendering is not visible, so subject/style role separation is limited and style remains unverified.",
+      "prompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+      "contextInstruction": "Use <Picture 1> for subject identity and appearance. Use <Picture 2> only for artistic style and rendering.",
+      "references": [
+        { "kind": "image", "path": "inputs/face-b.png", "purpose": "subject" },
+        {
+          "kind": "image",
+          "path": "../../assets/1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+          "purpose": "style"
+        }
+      ],
+      "observationPrompts": ["Picture 1 identity", "Picture 2 rendering language", "Role separation versus blending"]
+    },
+    {
+      "id": "R3",
+      "variable": "three Pictures / order and multi-image conditioning",
+      "assessment": "All three image tensors reached conditioning in numbered order. Output remains dominated by Picture 1 identity; weak palette shifts are not proof that each requested semantic role was separated.",
+      "prompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+      "contextInstruction": "Use <Picture 1> for subject identity. Use <Picture 2> for stained-glass rendering. Use <Picture 3> only for the restrained warm-gray palette and background treatment.",
+      "references": [
+        { "kind": "image", "path": "inputs/face-b.png", "purpose": "subject" },
+        {
+          "kind": "image",
+          "path": "../../assets/1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+          "purpose": "style"
+        },
+        {
+          "kind": "image",
+          "path": "../../assets/asset_1ea02108-df70-4669-9b7b-79d5041b4b10-Snark_gerl_--sref_httpss.mj.runyJ3T-54P9FQ_httpss.mj.runXOJ3Z_6df70551-4e92-42b2-abbc-bff7fd455c29_2.png",
+          "purpose": "appearance"
+        }
+      ],
+      "observationPrompts": ["Three references reached conditioning", "Stable Picture numbering", "Evidence of each requested role"]
+    },
+    {
+      "id": "V1",
+      "variable": "Video 1 motion/camera reference",
+      "assessment": "Head-turn timing, framing, pose progression and static camera closely track A0. Video motion conditioning is verified.",
+      "prompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+      "contextInstruction": "Use <Video 1> only for motion, timing, framing and camera movement.",
+      "references": [
+        { "kind": "video", "path": "A0/output.mp4", "purpose": "motion", "visualMode": "motion" }
+      ],
+      "observationPrompts": ["Head-turn timing", "Pose trajectory", "Framing and camera", "Appearance leakage from grayscale motion guide"]
+    },
+    {
+      "id": "PV1",
+      "variable": "Picture appearance plus Video motion",
+      "assessment": "Video motion/framing is preserved. Picture influence is weak compared with video identity, so mixed Picture+Video works technically but role balance is limited.",
+      "prompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+      "contextInstruction": "Use <Picture 1> for subject appearance. Use <Video 1> for motion, timing and camera movement.",
+      "references": [
+        { "kind": "image", "path": "inputs/face-b.png", "purpose": "appearance" },
+        { "kind": "video", "path": "A0/output.mp4", "purpose": "motion", "visualMode": "motion" }
+      ],
+      "observationPrompts": ["Picture appearance influence", "Video motion retention", "Whether either reference is ignored"]
+    },
+    {
+      "id": "F0",
+      "variable": "FaceSwap control OFF",
+      "assessment": "Plain Ref2VA control preserves source identity and performance despite the identity Picture being present.",
+      "prompt": "Preserve the source performance, pose, timing, framing and camera. The person slowly turns toward the camera in a plain studio.",
+      "contextInstruction": "Use <Video 1> for the performance. Use <Picture 1> as the facial identity reference.",
+      "references": [
+        { "kind": "video", "path": "A0/output.mp4", "purpose": "motion", "visualMode": "full" },
+        { "kind": "image", "path": "inputs/face-b.png", "purpose": "identity" }
+      ],
+      "observationPrompts": ["Control identity without LoRA", "Motion/pose retention", "Temporal face stability"]
+    },
+    {
+      "id": "F1",
+      "variable": "FaceSwap modifier ON at upstream strength 1",
+      "assessment": "FaceSwap visibly replaces identity as the face turns toward camera while preserving motion/framing. Frontal result is strong; profile and transition frames are temporally inconsistent, so capability is verified but limited.",
+      "prompt": "Preserve the source performance, pose, timing, framing and camera. The person slowly turns toward the camera in a plain studio.",
+      "contextInstruction": "Use <Video 1> for the performance. Use <Picture 1> as the facial identity reference.",
+      "identityTransfer": { "enabled": true, "strength": 1 },
+      "references": [
+        { "kind": "video", "path": "A0/output.mp4", "purpose": "motion", "visualMode": "full" },
+        { "kind": "image", "path": "inputs/face-b.png", "purpose": "identity" }
+      ],
+      "observationPrompts": ["Identity change versus F0", "Motion/pose retention", "Artifacts", "Temporal face consistency"]
+    },
+    {
+      "id": "F2",
+      "variable": "FaceSwap OFF immediately after ON / contamination control",
+      "assessment": "Byte-identical to F0 (same SHA-256 and SSIM 1.0) without worker restart. No dynamic LoRA contamination.",
+      "prompt": "Preserve the source performance, pose, timing, framing and camera. The person slowly turns toward the camera in a plain studio.",
+      "contextInstruction": "Use <Video 1> for the performance. Use <Picture 1> as the facial identity reference.",
+      "references": [
+        { "kind": "video", "path": "A0/output.mp4", "purpose": "motion", "visualMode": "full" },
+        { "kind": "image", "path": "inputs/face-b.png", "purpose": "identity" }
+      ],
+      "observationPrompts": ["Match F0 control", "No residual FaceSwap behavior", "Worker stayed up between F1 and F2"]
+    }
+  ]
+}

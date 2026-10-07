@@ -1,18 +1,22 @@
 import { createExperientialClient, experientialConfigured } from "../providers/experiential";
+import { discoverLocalOpenAiModels } from "../providers/local-openai";
 import type { FastifyInstance } from "fastify";
 import { readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
 import { listDocumentedKieModels } from "@snarkroute/kie";
 import { documentedRuTronixModels } from "@snarkroute/rutronix";
 import { createLocalUpscaleWorkerClient } from "@snarkroute/local-upscale";
-import { createLocalVideoUpscaleWorkerClient } from "@snarkroute/local-video-upscale";
+import { videoUpscaleCatalog } from "../services/video-upscale";
 import { createH3WorkerClient } from "@snarkroute/h3";
 import type { ModelOptionForNodeV1, ModelOutputTypeV1, ModelProviderRouteV1, ModelRoleV1, SuppliedModelInputsV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { normalizeProviderModelToV1Input } from "@snarkroute/model-catalog/dist/v1/index.js";
 import { openRouterCatalogCachePath } from "../server-paths";
 import { isPolzaEnabled } from "../services/env";
 import { providerNodeManifests } from "../providers/provider-node-manifests";
-import { assembleModelCatalogV1, canonicalModelCatalogV1, fallbackProviderModelsForCatalogV1, modelCompatibilityDebugForNodeV1, modelFamily, modelOptionsForNodeV1, type RawProviderModelV1 } from "../services/model-catalog-v1";
+import { assembleModelCatalogV1, canonicalModelCatalogV1, configuredUnavailableModelOptionsForNodeV1, fallbackProviderModelsForCatalogV1, modelCompatibilityDebugForNodeV1, modelFamily, modelOptionsForNodeV1, type RawProviderModelV1 } from "../services/model-catalog-v1";
+import { selectSemanticModelOptionV1, type SemanticModelSelectionInputV1 } from "../services/semantic-model-selection";
+import type { DecisionExecutor } from "@snarkroute/core";
+import { registerLocalRuntimesFromModels } from "../services/local-runtime-registry";
 
 interface ModelCatalogQuery {
   provider?: string;
@@ -24,7 +28,7 @@ interface ModelCatalogQuery {
 type PolzaCatalogModelType = "chat" | "image" | "video" | "audio" | "embedding";
 const defaultCatalogRequestTimeoutMs = 5_000;
 
-export async function registerModelRoutes(app: FastifyInstance) {
+export async function registerModelRoutes(app: FastifyInstance, decisionExecutor?: DecisionExecutor) {
 app.addHook("onRequest", async (request, reply) => {
   if (request.method !== "GET") return;
   const url = new URL(request.url, "http://localhost");
@@ -43,7 +47,7 @@ app.addHook("onRequest", async (request, reply) => {
 
   if (url.pathname === "/api/models/executable-generation") {
     const nodeTypes = providerNodeManifests()
-      .filter((manifest) => manifest.enabled !== false && manifest.executor?.type === "builtin" && manifest.outputs.some((output) => output.type === "image" || output.type === "video"))
+      .filter((manifest) => manifest.enabled !== false && manifest.executor?.type === "builtin" && manifest.outputs.some((output) => output.type === "image" || output.type === "video" || output.type === "model"))
       .map((manifest) => manifest.id);
     const catalog = await loadLiveModelCatalogV1();
     const groups = nodeTypes.map((nodeType) => modelOptionsForNodeV1(nodeType, catalog));
@@ -60,12 +64,18 @@ app.addHook("onRequest", async (request, reply) => {
 
   const nodeType = nodeTypeFromForNodePath(url.pathname);
   if (nodeType) {
-    // Node-compatible endpoint: executor-safe selectable models for a specific nodeType.
-    // Provider-native selectors must use storedModelId, not the unified catalog id.
+    // Available options remain the only semantic/automatic candidates. Explicitly
+    // configured offline routes are appended for manual setup and diagnostics.
     const suppliedInputs = suppliedInputsFromSearchParams(url.searchParams);
-    const models = modelOptionsForNodeV1(nodeType, await loadLiveModelCatalogV1(nodeType), suppliedInputs);
+    const catalog = await loadLiveModelCatalogV1(nodeType);
+    const compatibleModels = modelOptionsForNodeV1(nodeType, catalog, suppliedInputs);
+    const configuredUnavailableModels = configuredUnavailableModelOptionsForNodeV1(nodeType, catalog, suppliedInputs);
+    const semantic = await selectSemanticModelOptionV1(compatibleModels, semanticSelectionInput(nodeType, url.searchParams, suppliedInputs), decisionExecutor);
+    const { models: selectedModels, ...semanticSelection } = semantic;
+    const availableIds = new Set(selectedModels.map((model) => model.id));
+    const models = [...selectedModels, ...configuredUnavailableModels.filter((model) => !availableIds.has(model.id))];
     const query = suppliedInputs ? `?image=${suppliedInputs.image ?? 0}&video=${suppliedInputs.video ?? 0}&audio=${suppliedInputs.audio ?? 0}` : "";
-    return reply.send({ ok: true, nodeType, suppliedInputs, modelCount: models.length, familyCount: new Set(models.map((model) => modelFamily(model.providerModelId))).size, diagnosticsUrl: `/api/models/for-node/${encodeURIComponent(nodeType)}/debug${query}`, models });
+    return reply.send({ ok: true, nodeType, suppliedInputs, modelCount: models.length, familyCount: new Set(models.map((model) => modelFamily(model.providerModelId))).size, diagnosticsUrl: `/api/models/for-node/${encodeURIComponent(nodeType)}/debug${query}`, semanticSelection, models });
   }
 
   if (url.pathname !== "/api/models") return;
@@ -166,7 +176,7 @@ function itemMinimum(item: { minItems?: number; required?: boolean } | undefined
 }
 
 function isProviderNeutralNode(nodeType: string): boolean {
-  return nodeType === "ai.image.generate" || nodeType === "ai.video.generate";
+  return nodeType === "ai.image.generate" || nodeType === "ai.video.generate" || nodeType === "ai.3d.generate";
 }
 
 function legacyModelFromV1(model: ReturnType<typeof assembleModelCatalogV1>[number], requestedOutputType?: ModelOutputTypeV1) {
@@ -191,9 +201,10 @@ function legacyModelFromV1(model: ReturnType<typeof assembleModelCatalogV1>[numb
   }];
 }
 
-async function loadLiveModelCatalogV1(nodeType?: string) {
+export async function loadLiveModelCatalogV1(nodeType?: string) {
   const polzaTypes = polzaTypesForCatalogV1(nodeType);
-  const [experientialModels, openRouterModels, polzaModels, localUpscaleModels, localVideoUpscaleModels, h3Models] = await Promise.all([
+  const [localOpenAiModels, experientialModels, openRouterModels, polzaModels, localUpscaleModels, localVideoUpscaleModels, h3Models] = await Promise.all([
+    nodeType === undefined || nodeType === "ai.text" ? discoverLocalOpenAiModels() : Promise.resolve([]),
     experientialConfigured() && (nodeType === undefined || nodeType === "ai.text") ? createExperientialClient().getModels().catch(() => []) : Promise.resolve([]),
     nodeType?.startsWith("polza.") ? Promise.resolve([]) : loadOpenRouterModelsForCatalogV1(),
     isPolzaEnabled() && polzaTypes.length > 0 ? loadPolzaModelsForCatalogV1(polzaTypes).catch(() => []) : Promise.resolve([]),
@@ -204,7 +215,8 @@ async function loadLiveModelCatalogV1(nodeType?: string) {
   const kieModels = nodeType === undefined || nodeType === "ai.text" || nodeType === "ai.image.generate" || nodeType === "ai.video.generate"
     ? documentedKieModelsForCatalogV1()
     : [];
-  return assembleModelCatalogV1({
+  const catalog = assembleModelCatalogV1({
+    localOpenAiModels,
     experientialModels,
     openRouterModels,
     polzaModels,
@@ -214,12 +226,40 @@ async function loadLiveModelCatalogV1(nodeType?: string) {
     rutronixModels: nodeType === undefined || nodeType === "ai.text" ? documentedRuTronixModels() : [],
     fallbackModels: [...fallbackProviderModelsForCatalogV1(), ...h3Models]
   });
+  registerLocalRuntimesFromModels(catalog);
+  return catalog;
 }
 
 async function loadH3ModelsForCatalogV1(): Promise<import("@snarkroute/model-catalog/dist/v1/index.js").ProviderModelInfoV1[]> {
-  if (!process.env.H3_WORKER_URL?.trim() || !process.env.H3_WORKER_SERVICE_TOKEN?.trim()) return [];
-  const response = await withTimeout(createH3WorkerClient({ timeoutMs: modelCatalogRequestTimeoutMs() }).models(), modelCatalogRequestTimeoutMs());
-  return response.models.map((model) => normalizeProviderModelToV1Input({
+  const hosted = process.env.FAL_KEY?.trim() ? [
+    normalizeProviderModelToV1Input({
+      provider: "minimax-h3",
+      providerModelId: "h3_max_turbo",
+      displayName: "H3 Max Turbo · fast preview (fal)",
+      canonicalModelId: "h3:h3_max_turbo",
+      inputTypes: ["text", "image", "audio"],
+      outputTypes: ["video"],
+      capabilities: ["video.generate"],
+      roles: ["generator"],
+      availability: { status: "available", source: "live", configured: true },
+      metadata: hostedH3Metadata("h3_max_turbo", "preview", false)
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "minimax-h3",
+      providerModelId: "h3_max",
+      displayName: "H3 Max · motion and camera check (fal)",
+      canonicalModelId: "h3:h3_max",
+      inputTypes: ["text", "image", "video", "audio"],
+      outputTypes: ["video"],
+      capabilities: ["video.generate", "video.reference"],
+      roles: ["generator"],
+      availability: { status: "available", source: "live", configured: true },
+      metadata: hostedH3Metadata("h3_max", "motion-check", true)
+    })
+  ] : [];
+  if (!process.env.H3_WORKER_URL?.trim() || !process.env.H3_WORKER_SERVICE_TOKEN?.trim()) return hosted;
+  const response = await withTimeout(createH3WorkerClient({ timeoutMs: modelCatalogRequestTimeoutMs() }).models(), modelCatalogRequestTimeoutMs()).catch(() => ({ models: [] }));
+  return [...hosted, ...response.models.map((model) => normalizeProviderModelToV1Input({
     provider: "minimax-h3",
     providerModelId: model.id,
     displayName: model.display_name,
@@ -242,7 +282,26 @@ async function loadH3ModelsForCatalogV1(): Promise<import("@snarkroute/model-cat
         { id: "inferenceSteps", label: "Steps", type: "number", default: model.default_steps, min: model.minimum_steps, max: model.maximum_steps },
       ]
     }
-  }));
+  }))];
+}
+
+function hostedH3Metadata(variant: "h3_max" | "h3_max_turbo", productionRole: string, nativeCamera: boolean) {
+  return {
+    family: "h3",
+    variant,
+    provenanceOwner: "fal",
+    upstreamModel: "MiniMaxAI/MiniMax-H3",
+    officialMiniMaxWeights: false,
+    productionRole,
+    nativeCamera,
+    style: false,
+    audio: true,
+    providerParameterDefinitions: [
+      { id: "duration", label: "Duration", type: "number", default: 5, min: 4, max: 15, step: 1 },
+      { id: "aspectRatio", label: "Aspect ratio", type: "select", default: "16:9", options: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"].map((value) => ({ value })) },
+      { id: "resolution", label: "Resolution", type: "select", default: variant === "h3_max_turbo" ? "480P" : "768P", options: ["480P", "768P", "1080P"].map((value) => ({ value })) }
+    ]
+  };
 }
 
 function documentedKieModelsForCatalogV1(): RawProviderModelV1[] {
@@ -299,9 +358,7 @@ async function loadLocalUpscaleModelsForCatalogV1(): Promise<RawProviderModelV1[
 }
 
 async function loadLocalVideoUpscaleModelsForCatalogV1(): Promise<RawProviderModelV1[]> {
-  const client = createLocalVideoUpscaleWorkerClient();
-  if (!client.configured) return [];
-  const capabilities = await withTimeout(client.capabilities(), modelCatalogRequestTimeoutMs());
+  const capabilities = await videoUpscaleCatalog();
   return capabilities.models.map((model) => ({
     id: model.id,
     name: model.display_name,
@@ -309,19 +366,19 @@ async function loadLocalVideoUpscaleModelsForCatalogV1(): Promise<RawProviderMod
     inputTypes: ["video"],
     outputTypes: ["video"],
     capabilities: ["video.upscale"],
-    availability: model.weights_installed
+    availability: model.weights_installed && capabilities.runtimeInstalled && process.platform === "win32"
       ? { status: "available", source: "live", configured: true }
-      : { status: "unavailable", source: "live", configured: true, reason: "Model weights are not installed in the local worker." },
+      : { status: "unavailable", source: "live", configured: true, reason: "Local Windows CUDA runtime or model weights are not installed." },
     top_provider: {
       parameters: {
         video: { type: "string", required: true, min: 1, max: 1, description: "Source video" },
         scale: { type: "integer", default: model.native_scale, enum: [model.native_scale], required: true },
-        device: { type: "string", default: "auto", enum: ["auto", "cuda", "cpu"] },
-        output_codec: { type: "string", default: "libx264", enum: model.supported_output_codecs },
-        output_container: { type: "string", default: "mp4", enum: model.supported_output_containers },
+        device: { type: "string", default: "cuda", enum: ["cuda"] },
+        output_codec: { type: "string", default: "libx264", enum: ["libx264"] },
+        output_container: { type: "string", default: "mp4", enum: ["mp4"] },
         crf: { type: "integer", default: 18, min: 0, max: 51 },
         chunk_size: { type: "integer", default: model.recommended_chunk_size, min: 1, max: 120 },
-        overlap_frames: { type: "integer", default: model.temporal ? 2 : 0, min: 0, max: model.temporal ? 16 : 0 },
+        overlap_frames: { type: "integer", default: model.recommended_overlap_frames, min: 0, max: model.context_frames > 1 ? 16 : 0 },
         audio_handling: { type: "string", default: "copy", enum: ["copy", "drop"] },
         ...(model.spatial_tiling_supported ? {
           tile_size: { type: "integer", default: model.recommended_tile_size ?? 256, min: 64, max: 2048, step: 16 },
@@ -420,6 +477,57 @@ function suppliedInputsFromSearchParams(searchParams: URLSearchParams): Supplied
   };
 }
 
+function semanticSelectionInput(
+  nodeType: string,
+  searchParams: URLSearchParams,
+  suppliedInputs: SuppliedModelInputsV1 | undefined
+): SemanticModelSelectionInputV1 {
+  const prompt = normalizeQueryValue(searchParams.get("prompt"));
+  const operation = engineOperations.has(searchParams.get("operation") ?? "")
+    ? searchParams.get("operation") as SemanticModelSelectionInputV1["operation"]
+    : undefined;
+  const imageRoles = (searchParams.get("imageRoles") ?? "")
+    .split(",")
+    .map((role) => role.trim())
+    .filter(Boolean);
+  const quality = enumQueryValue(searchParams.get("quality"), ["draft", "balanced", "high"]);
+  const latency = enumQueryValue(searchParams.get("latency"), ["low", "normal"]);
+  const cost = enumQueryValue(searchParams.get("cost"), ["low", "normal"]);
+  const durationSeconds = positiveQueryNumber(searchParams.get("durationSeconds"));
+  const scale = positiveQueryNumber(searchParams.get("scale"));
+  const referenceCount = nonnegativeQueryInteger(searchParams.get("referenceCount"));
+  const resolution = normalizeQueryValue(searchParams.get("resolution"));
+  return {
+    nodeType,
+    prompt,
+    operation,
+    manualModelRef: normalizeQueryValue(searchParams.get("manualModelRef") ?? searchParams.get("model")),
+    inputs: suppliedInputs || prompt || imageRoles.length
+      ? { ...(suppliedInputs ?? {}), text: Boolean(prompt), imageRoles: imageRoles.length ? imageRoles : undefined }
+      : undefined,
+    preferences: quality || latency || cost ? { quality, latency, cost } : undefined,
+    constraints: durationSeconds !== undefined || scale !== undefined || referenceCount !== undefined || resolution
+      ? { durationSeconds, scale, referenceCount, resolution }
+      : undefined
+  };
+}
+
+const engineOperations = new Set(["generate", "edit", "upscale", "classify", "rank", "extract", "tool_call"]);
+
+function enumQueryValue<const T extends string>(value: string | null, values: readonly T[]): T | undefined {
+  return values.includes(value as T) ? value as T : undefined;
+}
+
+function positiveQueryNumber(value: string | null): number | undefined {
+  const numeric = Number(value);
+  return value !== null && Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
+}
+
+function nonnegativeQueryInteger(value: string | null): number | undefined {
+  const numeric = Number(value);
+  return value !== null && Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : undefined;
+}
+
 function inputCount(value: string | null): number {
   const numeric = Number(value ?? 0);
   return Number.isFinite(numeric) && numeric >= 0 ? Math.floor(numeric) : 0;
@@ -439,7 +547,7 @@ function normalizeQueryValue(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-const modelOutputTypesV1 = new Set<string>(["text", "image", "video", "audio", "embedding", "json", "unknown"]);
+const modelOutputTypesV1 = new Set<string>(["text", "image", "video", "audio", "model", "embedding", "json", "unknown"]);
 
 function isModelOutputTypeV1(value: string | undefined): value is ModelOutputTypeV1 {
   return typeof value === "string" && modelOutputTypesV1.has(value);

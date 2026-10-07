@@ -1,0 +1,29 @@
+{
+  "status": "FAILED",
+  "neural_runs_this_phase": 0,
+  "available": [
+    "original",
+    "vimeo"
+  ],
+  "winner": null,
+  "assumption": "SDR BT.709 limited source; test assumption, not recovered source fact",
+  "normalization": {},
+  "error": "Available RAM below safety threshold",
+  "final_cleanup_snapshot": {
+    "timestamp": "2026-09-30T22:19:50.277045+00:00",
+    "active_processes": 0,
+    "active_pids": [],
+    "processes": [
+      {
+        "pid": 47304,
+        "start_time": "2026-09-30T22:19:22.081289+00:00",
+        "exit_time": "2026-09-30T22:19:50.260229+00:00",
+        "exit_status": 0,
+        "active": false,
+        "image": null
+      }
+    ],
+    "identity_errors": [],
+    "affinity_mask": 3
+  }
+}

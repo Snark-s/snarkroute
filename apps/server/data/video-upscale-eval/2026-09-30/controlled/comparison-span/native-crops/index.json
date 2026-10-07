@@ -1,0 +1,245 @@
+{
+  "eyes-lashes-brows": {
+    "source_roi": [
+      540,
+      205,
+      240,
+      100
+    ],
+    "fixed_coordinates": true,
+    "native_pixel_display": "1:1; no resampling",
+    "files": [
+      "eyes-lashes-brows-original-frame-0.png",
+      "eyes-lashes-brows-original-frame-31.png",
+      "eyes-lashes-brows-original-frame-62.png",
+      "eyes-lashes-brows-original-frame-92.png",
+      "eyes-lashes-brows-original-frame-123.png",
+      "eyes-lashes-brows-vimeo-frame-0.png",
+      "eyes-lashes-brows-vimeo-frame-31.png",
+      "eyes-lashes-brows-vimeo-frame-62.png",
+      "eyes-lashes-brows-vimeo-frame-92.png",
+      "eyes-lashes-brows-vimeo-frame-123.png",
+      "eyes-lashes-brows-span-frame-0.png",
+      "eyes-lashes-brows-span-frame-31.png",
+      "eyes-lashes-brows-span-frame-62.png",
+      "eyes-lashes-brows-span-frame-92.png",
+      "eyes-lashes-brows-span-frame-123.png"
+    ]
+  },
+  "hairline": {
+    "source_roi": [
+      525,
+      45,
+      280,
+      155
+    ],
+    "fixed_coordinates": true,
+    "native_pixel_display": "1:1; no resampling",
+    "files": [
+      "hairline-original-frame-0.png",
+      "hairline-original-frame-31.png",
+      "hairline-original-frame-62.png",
+      "hairline-original-frame-92.png",
+      "hairline-original-frame-123.png",
+      "hairline-vimeo-frame-0.png",
+      "hairline-vimeo-frame-31.png",
+      "hairline-vimeo-frame-62.png",
+      "hairline-vimeo-frame-92.png",
+      "hairline-vimeo-frame-123.png",
+      "hairline-span-frame-0.png",
+      "hairline-span-frame-31.png",
+      "hairline-span-frame-62.png",
+      "hairline-span-frame-92.png",
+      "hairline-span-frame-123.png"
+    ]
+  },
+  "hair-strands": {
+    "source_roi": [
+      740,
+      430,
+      170,
+      245
+    ],
+    "fixed_coordinates": true,
+    "native_pixel_display": "1:1; no resampling",
+    "files": [
+      "hair-strands-original-frame-0.png",
+      "hair-strands-original-frame-31.png",
+      "hair-strands-original-frame-62.png",
+      "hair-strands-original-frame-92.png",
+      "hair-strands-original-frame-123.png",
+      "hair-strands-vimeo-frame-0.png",
+      "hair-strands-vimeo-frame-31.png",
+      "hair-strands-vimeo-frame-62.png",
+      "hair-strands-vimeo-frame-92.png",
+      "hair-strands-vimeo-frame-123.png",
+      "hair-strands-span-frame-0.png",
+      "hair-strands-span-frame-31.png",
+      "hair-strands-span-frame-62.png",
+      "hair-strands-span-frame-92.png",
+      "hair-strands-span-frame-123.png"
+    ]
+  },
+  "earring-left": {
+    "source_roi": [
+      493,
+      320,
+      80,
+      90
+    ],
+    "fixed_coordinates": true,
+    "native_pixel_display": "1:1; no resampling",
+    "files": [
+      "earring-left-original-frame-0.png",
+      "earring-left-original-frame-31.png",
+      "earring-left-original-frame-62.png",
+      "earring-left-original-frame-92.png",
+      "earring-left-original-frame-123.png",
+      "earring-left-vimeo-frame-0.png",
+      "earring-left-vimeo-frame-31.png",
+      "earring-left-vimeo-frame-62.png",
+      "earring-left-vimeo-frame-92.png",
+      "earring-left-vimeo-frame-123.png",
+      "earring-left-span-frame-0.png",
+      "earring-left-span-frame-31.png",
+      "earring-left-span-frame-62.png",
+      "earring-left-span-frame-92.png",
+      "earring-left-span-frame-123.png"
+    ]
+  },
+  "pendant": {
+    "source_roi": [
+      605,
+      690,
+      110,
+      78
+    ],
+    "fixed_coordinates": true,
+    "native_pixel_display": "1:1; no resampling",
+    "files": [
+      "pendant-original-frame-0.png",
+      "pendant-original-frame-31.png",
+      "pendant-original-frame-62.png",
+      "pendant-original-frame-92.png",
+      "pendant-original-frame-123.png",
+      "pendant-vimeo-frame-0.png",
+      "pendant-vimeo-frame-31.png",
+      "pendant-vimeo-frame-62.png",
+      "pendant-vimeo-frame-92.png",
+      "pendant-vimeo-frame-123.png",
+      "pendant-span-frame-0.png",
+      "pendant-span-frame-31.png",
+      "pendant-span-frame-62.png",
+      "pendant-span-frame-92.png",
+      "pendant-span-frame-123.png"
+    ]
+  },
+  "blouse-edge": {
+    "source_roi": [
+      900,
+      640,
+      195,
+      115
+    ],
+    "fixed_coordinates": true,
+    "native_pixel_display": "1:1; no resampling",
+    "files": [
+      "blouse-edge-original-frame-0.png",
+      "blouse-edge-original-frame-31.png",
+      "blouse-edge-original-frame-62.png",
+      "blouse-edge-original-frame-92.png",
+      "blouse-edge-original-frame-123.png",
+      "blouse-edge-vimeo-frame-0.png",
+      "blouse-edge-vimeo-frame-31.png",
+      "blouse-edge-vimeo-frame-62.png",
+      "blouse-edge-vimeo-frame-92.png",
+      "blouse-edge-vimeo-frame-123.png",
+      "blouse-edge-span-frame-0.png",
+      "blouse-edge-span-frame-31.png",
+      "blouse-edge-span-frame-62.png",
+      "blouse-edge-span-frame-92.png",
+      "blouse-edge-span-frame-123.png"
+    ]
+  },
+  "background-stand": {
+    "source_roi": [
+      12,
+      500,
+      110,
+      240
+    ],
+    "fixed_coordinates": true,
+    "native_pixel_display": "1:1; no resampling",
+    "files": [
+      "background-stand-original-frame-0.png",
+      "background-stand-original-frame-31.png",
+      "background-stand-original-frame-62.png",
+      "background-stand-original-frame-92.png",
+      "background-stand-original-frame-123.png",
+      "background-stand-vimeo-frame-0.png",
+      "background-stand-vimeo-frame-31.png",
+      "background-stand-vimeo-frame-62.png",
+      "background-stand-vimeo-frame-92.png",
+      "background-stand-vimeo-frame-123.png",
+      "background-stand-span-frame-0.png",
+      "background-stand-span-frame-31.png",
+      "background-stand-span-frame-62.png",
+      "background-stand-span-frame-92.png",
+      "background-stand-span-frame-123.png"
+    ]
+  },
+  "nose-lips": {
+    "source_roi": [
+      550,
+      295,
+      225,
+      125
+    ],
+    "fixed_coordinates": true,
+    "native_pixel_display": "1:1; no resampling",
+    "files": [
+      "nose-lips-original-frame-0.png",
+      "nose-lips-original-frame-31.png",
+      "nose-lips-original-frame-62.png",
+      "nose-lips-original-frame-92.png",
+      "nose-lips-original-frame-123.png",
+      "nose-lips-vimeo-frame-0.png",
+      "nose-lips-vimeo-frame-31.png",
+      "nose-lips-vimeo-frame-62.png",
+      "nose-lips-vimeo-frame-92.png",
+      "nose-lips-vimeo-frame-123.png",
+      "nose-lips-span-frame-0.png",
+      "nose-lips-span-frame-31.png",
+      "nose-lips-span-frame-62.png",
+      "nose-lips-span-frame-92.png",
+      "nose-lips-span-frame-123.png"
+    ]
+  },
+  "jaw-skin-edge": {
+    "source_roi": [
+      520,
+      410,
+      265,
+      110
+    ],
+    "fixed_coordinates": true,
+    "native_pixel_display": "1:1; no resampling",
+    "files": [
+      "jaw-skin-edge-original-frame-0.png",
+      "jaw-skin-edge-original-frame-31.png",
+      "jaw-skin-edge-original-frame-62.png",
+      "jaw-skin-edge-original-frame-92.png",
+      "jaw-skin-edge-original-frame-123.png",
+      "jaw-skin-edge-vimeo-frame-0.png",
+      "jaw-skin-edge-vimeo-frame-31.png",
+      "jaw-skin-edge-vimeo-frame-62.png",
+      "jaw-skin-edge-vimeo-frame-92.png",
+      "jaw-skin-edge-vimeo-frame-123.png",
+      "jaw-skin-edge-span-frame-0.png",
+      "jaw-skin-edge-span-frame-31.png",
+      "jaw-skin-edge-span-frame-62.png",
+      "jaw-skin-edge-span-frame-92.png",
+      "jaw-skin-edge-span-frame-123.png"
+    ]
+  }
+}

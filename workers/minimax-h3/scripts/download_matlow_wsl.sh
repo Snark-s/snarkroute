@@ -7,10 +7,11 @@ umask 077
 readonly H3_HOME="${H3_HOME:-${HOME}/h3}"
 readonly ROOT="${H3_MATLOW_MODEL_ROOT:-${H3_HOME}/models}"
 readonly HF_BIN="${H3_HF_BIN:-${HOME}/.local/bin/hf}"
-readonly REQUIRED_BYTES=40444247247
+readonly REQUIRED_BYTES=40719662895
 readonly MATLOW_REVISION="8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3"
 readonly COMFY_REVISION="a98869194787969724c7425d95d0ed73ce9202af"
 readonly KIJAI_REVISION="f4cac997f880e93cf6940af61ee8d58ef31ff7f3"
+readonly VEDA_REVISION="76f202874608115408d73280be9531c4ab888242"
 
 [[ "${H3_ACCEPT_MODEL_LICENSE:-}" == "1" ]] || {
   printf 'fatal: review the MiniMax H3 community license, then set H3_ACCEPT_MODEL_LICENSE=1\n' >&2
@@ -33,6 +34,9 @@ available="$(df -PB1 "$ROOT" | awk 'NR==2 {print $4}')"
 "$HF_BIN" download Kijai/MiniMax-H3-experimental \
   minimax_h3_video_vae_int8_convrot.safetensors \
   --revision "$KIJAI_REVISION" --local-dir "$ROOT/Kijai/MiniMax-H3-experimental"
+"$HF_BIN" download Veda-Sparse/Minimax-H3-T2VA-Veda-8NFE-600Step-Preview \
+  minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors \
+  --revision "$VEDA_REVISION" --local-dir "$ROOT/Veda-Sparse/Minimax-H3-T2VA-Veda-8NFE-600Step-Preview"
 
 printf '%s  %s\n' \
   4262e4e9963c553fa00016bbe83961407a4fc0a888be95fd836c8d4f2304e48b \
@@ -43,4 +47,6 @@ printf '%s  %s\n' \
   "$ROOT/Comfy-Org/MiniMax-H3/vae/minimax_h3_audio_vae_fp32.safetensors" \
   9bb2d96f218c76babd85e0611b85ca8fb330a90546c01a0005e8a58a59593410 \
   "$ROOT/Kijai/MiniMax-H3-experimental/minimax_h3_video_vae_int8_convrot.safetensors" \
+  2a8d8845c5342756a2781e8e69563940e4bb573c9a40ebb534915ff8fd76573a \
+  "$ROOT/Veda-Sparse/Minimax-H3-T2VA-Veda-8NFE-600Step-Preview/minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors" \
   | sha256sum --check --strict

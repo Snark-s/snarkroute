@@ -1,0 +1,45 @@
+{
+  "createdAt": "2026-09-28T17:13:28.764Z",
+  "provider": "fal",
+  "model": "fal/minimax-h3-max-turbo",
+  "resolution": "768P",
+  "duration": 5,
+  "seed": 5242017,
+  "promptExpansionMode": "disabled",
+  "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+  "maxPaidCalls": 3,
+  "cases": [
+    {
+      "id": "TURBO-T0",
+      "purpose": "text-only controlled match",
+      "references": []
+    },
+    {
+      "id": "TURBO-I1",
+      "purpose": "first-frame controlled match",
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        }
+      ]
+    },
+    {
+      "id": "TURBO-FL1",
+      "purpose": "first-plus-last controlled match",
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        },
+        {
+          "kind": "image",
+          "role": "lastFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+        }
+      ]
+    }
+  ]
+}

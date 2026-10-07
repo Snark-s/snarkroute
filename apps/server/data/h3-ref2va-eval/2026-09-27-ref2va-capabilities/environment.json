@@ -1,0 +1,254 @@
+{
+  "createdAt": "2026-09-27T19:43:48.084Z",
+  "planPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\plan.json",
+  "workerUrl": "http://127.0.0.1:18080",
+  "capabilities": {
+    "backend": "matlow_int8",
+    "backendVersion": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+    "mock": false,
+    "capabilities": [
+      {
+        "name": "fl2va",
+        "available": true,
+        "experimental": true,
+        "reason": "T2VA, 10-second FL2VA and first/last frames passed local GPU generation"
+      },
+      {
+        "name": "ref2va",
+        "available": true,
+        "experimental": true,
+        "reason": "GPU-verified visual Ref2VA: image appearance/identity, multi-image conditioning, video motion, and mixed image+video; audio references remain unavailable"
+      },
+      {
+        "name": "preview",
+        "available": true,
+        "experimental": true,
+        "reason": "local_fast: fused Turbo INT8, res_multistep/simple, 4 steps, 960x544"
+      },
+      {
+        "name": "final",
+        "available": true,
+        "experimental": true,
+        "reason": null
+      },
+      {
+        "name": "kitchen_int8",
+        "available": true,
+        "experimental": true,
+        "reason": "comfy-kitchen CUDA self-test is mandatory; there is no automatic BF16 fallback"
+      },
+      {
+        "name": "video_inpaint",
+        "available": false,
+        "experimental": false,
+        "reason": "Not supported by this MVP"
+      },
+      {
+        "name": "automatic_tracking",
+        "available": false,
+        "experimental": false,
+        "reason": "No tracking adapter is configured"
+      },
+      {
+        "name": "resample",
+        "available": false,
+        "experimental": false,
+        "reason": "H3-Regenerate-2K is outside this local checkpoint"
+      },
+      {
+        "name": "style_transfer",
+        "available": false,
+        "experimental": true,
+        "reason": "Fixed-seed S0/S1/S2 and multi-reference GPU controls changed subject appearance but did not transfer stained-glass material, edges, or rendering language"
+      },
+      {
+        "name": "identity_transfer",
+        "available": true,
+        "experimental": true,
+        "reason": "GPU-verified UntMods FaceSwap Ref2VA LoRA at strength 1; frontal identity transfer works, profile consistency is limited; requires a reference video plus identity image"
+      },
+      {
+        "name": "camera_prompt_control",
+        "available": true,
+        "experimental": true,
+        "reason": "Provider-neutral CameraPath is compiled to prompt guidance locally; native camera trajectories are hosted H3 Max only"
+      }
+    ],
+    "models": [
+      {
+        "id": "h3_base",
+        "family": "h3",
+        "variant": "h3_base",
+        "display_name": "MiniMax H3 (legacy local fast)",
+        "purpose": "preview",
+        "default_steps": 4,
+        "minimum_steps": 4,
+        "maximum_steps": 4,
+        "revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "weights_installed": true,
+        "recommended_for_16gb": false,
+        "reference_modes": [
+          "t2va",
+          "fl2va",
+          "ref2va"
+        ],
+        "style_transfer_verified": false
+      },
+      {
+        "id": "10eros_max",
+        "family": "h3",
+        "variant": "10eros_max",
+        "display_name": "H3 · 10Eros Max",
+        "purpose": "final",
+        "default_steps": 8,
+        "minimum_steps": 4,
+        "maximum_steps": 8,
+        "revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+        "weights_installed": true,
+        "recommended_for_16gb": false,
+        "reference_modes": [
+          "t2va",
+          "fl2va",
+          "ref2va"
+        ],
+        "style_transfer_verified": false,
+        "repository": "TenStrip/10Eros-Max",
+        "filename": "10Eros_Max_h3_hybrid_beta5_w4a8_14gb_optimized.safetensors",
+        "path": "/home/serge/h3/models/TenStrip/10Eros-Max/10Eros_Max_h3_hybrid_beta5_w4a8_14gb_optimized.safetensors",
+        "expected_bytes": 13997668758,
+        "downloaded_bytes": 13997668758,
+        "progress": 1,
+        "downloading": false
+      },
+      {
+        "id": "10eros_max_turbo",
+        "family": "h3",
+        "variant": "10eros_max_turbo",
+        "display_name": "H3 · 10Eros Max Turbo",
+        "purpose": "preview",
+        "default_steps": 6,
+        "minimum_steps": 4,
+        "maximum_steps": 8,
+        "revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+        "weights_installed": true,
+        "recommended_for_16gb": true,
+        "reference_modes": [
+          "t2va",
+          "fl2va",
+          "ref2va"
+        ],
+        "style_transfer_verified": false,
+        "repository": "TenStrip/10Eros-Max",
+        "filename": "10Eros_Max_h3_TURBO-hybrid_beta5_w4a8_14gb_optimized.safetensors",
+        "path": "/home/serge/h3/models/TenStrip/10Eros-Max/10Eros_Max_h3_TURBO-hybrid_beta5_w4a8_14gb_optimized.safetensors",
+        "expected_bytes": 13997668774,
+        "downloaded_bytes": 13997668774,
+        "progress": 1,
+        "downloading": false
+      }
+    ],
+    "modifiers": [
+      {
+        "id": "faceswap_ref2va",
+        "repository": "UntMods/FaceSwap_MiniMaxH3_REF2VA",
+        "revision": "b2a5823ca64bc78d91725fbfcc576095bfceb764",
+        "filename": "SS_FaceSwap_MiniMax_H3_REF2VA.safetensors",
+        "path": "/home/serge/h3/models/UntMods/FaceSwap_MiniMaxH3_REF2VA/SS_FaceSwap_MiniMax_H3_REF2VA.safetensors",
+        "expected_bytes": 65623904,
+        "downloaded_bytes": 65623904,
+        "progress": 1,
+        "weights_installed": true,
+        "downloading": false
+      }
+    ]
+  },
+  "models": {
+    "models": [
+      {
+        "id": "h3_base",
+        "family": "h3",
+        "variant": "h3_base",
+        "display_name": "MiniMax H3 (legacy local fast)",
+        "purpose": "preview",
+        "default_steps": 4,
+        "minimum_steps": 4,
+        "maximum_steps": 4,
+        "revision": "8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3",
+        "weights_installed": true,
+        "recommended_for_16gb": false,
+        "reference_modes": [
+          "t2va",
+          "fl2va",
+          "ref2va"
+        ],
+        "style_transfer_verified": false
+      },
+      {
+        "id": "10eros_max",
+        "family": "h3",
+        "variant": "10eros_max",
+        "display_name": "H3 · 10Eros Max",
+        "purpose": "final",
+        "default_steps": 8,
+        "minimum_steps": 4,
+        "maximum_steps": 8,
+        "revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+        "weights_installed": true,
+        "recommended_for_16gb": false,
+        "reference_modes": [
+          "t2va",
+          "fl2va",
+          "ref2va"
+        ],
+        "style_transfer_verified": false,
+        "repository": "TenStrip/10Eros-Max",
+        "filename": "10Eros_Max_h3_hybrid_beta5_w4a8_14gb_optimized.safetensors",
+        "path": "/home/serge/h3/models/TenStrip/10Eros-Max/10Eros_Max_h3_hybrid_beta5_w4a8_14gb_optimized.safetensors",
+        "expected_bytes": 13997668758,
+        "downloaded_bytes": 13997668758,
+        "progress": 1,
+        "downloading": false
+      },
+      {
+        "id": "10eros_max_turbo",
+        "family": "h3",
+        "variant": "10eros_max_turbo",
+        "display_name": "H3 · 10Eros Max Turbo",
+        "purpose": "preview",
+        "default_steps": 6,
+        "minimum_steps": 4,
+        "maximum_steps": 8,
+        "revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+        "weights_installed": true,
+        "recommended_for_16gb": true,
+        "reference_modes": [
+          "t2va",
+          "fl2va",
+          "ref2va"
+        ],
+        "style_transfer_verified": false,
+        "repository": "TenStrip/10Eros-Max",
+        "filename": "10Eros_Max_h3_TURBO-hybrid_beta5_w4a8_14gb_optimized.safetensors",
+        "path": "/home/serge/h3/models/TenStrip/10Eros-Max/10Eros_Max_h3_TURBO-hybrid_beta5_w4a8_14gb_optimized.safetensors",
+        "expected_bytes": 13997668774,
+        "downloaded_bytes": 13997668774,
+        "progress": 1,
+        "downloading": false
+      }
+    ],
+    "modifiers": [
+      {
+        "id": "faceswap_ref2va",
+        "repository": "UntMods/FaceSwap_MiniMaxH3_REF2VA",
+        "revision": "b2a5823ca64bc78d91725fbfcc576095bfceb764",
+        "filename": "SS_FaceSwap_MiniMax_H3_REF2VA.safetensors",
+        "path": "/home/serge/h3/models/UntMods/FaceSwap_MiniMaxH3_REF2VA/SS_FaceSwap_MiniMax_H3_REF2VA.safetensors",
+        "expected_bytes": 65623904,
+        "downloaded_bytes": 65623904,
+        "progress": 1,
+        "weights_installed": true,
+        "downloading": false
+      }
+    ]
+  }
+}

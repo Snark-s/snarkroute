@@ -1,0 +1,44 @@
+{
+  "testId": "S1",
+  "sourcePlanPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\plan.json",
+  "prompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+  "contextInstruction": "Use <Picture 1> as the visual/style reference for rendering.",
+  "finalPrompt": "Use <Picture 1> as the visual/style reference for rendering.\n\nA woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+  "referenceOrdering": [
+    {
+      "tag": "Picture 1",
+      "kind": "image",
+      "filename": "1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+      "purpose": "style",
+      "visualMode": null
+    }
+  ],
+  "references": [
+    {
+      "tag": "Picture 1",
+      "kind": "image",
+      "purpose": "style",
+      "visualMode": null,
+      "sourcePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+      "filename": "1779114952491-snark23_a_shining_girl_stained_glass_--ar_23_--personalize_z1_50612bd9-e688-4309-a986-4c420023f0f7_0.png",
+      "bytes": 2360895,
+      "sha256": "90b315850d1f1b8e3f491b076ac2bd0f90dabf48eb8d3133fa6a5c29461512cb",
+      "preview": "reference-1.jpg"
+    }
+  ],
+  "parameters": {
+    "modelVariant": "h3_base",
+    "seed": 424242,
+    "steps": 4,
+    "durationSeconds": 5,
+    "aspectRatio": "16:9",
+    "scheduler": "simple",
+    "sampler": "res_multistep",
+    "guidance": "basic/no CFG scale",
+    "flowParameters": {
+      "shiftVideo": 12,
+      "shiftAudio": 3
+    },
+    "identityTransfer": null
+  }
+}

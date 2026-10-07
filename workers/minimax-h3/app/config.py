@@ -30,6 +30,13 @@ class Settings:
     matlow_text_encoder_file: Path
     matlow_video_vae_file: Path
     matlow_audio_vae_file: Path
+    matlow_faceswap_lora_file: Path
+    matlow_authentic_cinematic_lora_file: Path
+    matlow_attention_mode: str
+    matlow_veda_predictor_file: Path
+    matlow_veda_generated_sparsity: str
+    matlow_veda_reference_sparsity: str
+    matlow_veda_verbose: bool
     matlow_native_audio: bool
     matlow_max_swap_gib: float
     matlow_vae_tile_size: int
@@ -78,6 +85,9 @@ class Settings:
         matlow_memory_mode = os.getenv("H3_MATLOW_MEMORY_MODE", "dynamic").strip().lower()
         if matlow_memory_mode not in {"normal", "novram", "dynamic"}:
             raise RuntimeError("H3_MATLOW_MEMORY_MODE must be normal, novram, or dynamic")
+        matlow_attention_mode = os.getenv("H3_MATLOW_ATTENTION", "auto").strip().lower()
+        if matlow_attention_mode not in {"auto", "veda", "dense"}:
+            raise RuntimeError("H3_MATLOW_ATTENTION must be auto, veda, or dense")
         matlow_vae_tile_size = int(_positive_number("H3_MATLOW_VAE_TILE_SIZE", "256", integer=True))
         matlow_vae_tile_overlap = int(_positive_number("H3_MATLOW_VAE_TILE_OVERLAP", "64", integer=True))
         if matlow_vae_tile_size % 16 or matlow_vae_tile_overlap % 16:
@@ -157,6 +167,41 @@ class Settings:
                     str(matlow_root / "Comfy-Org/MiniMax-H3/vae" / "minimax_h3_audio_vae_fp32.safetensors"),
                 )
             ).resolve(),
+            matlow_faceswap_lora_file=Path(
+                os.getenv(
+                    "H3_MATLOW_FACESWAP_LORA_FILE",
+                    str(
+                        matlow_root
+                        / "UntMods/FaceSwap_MiniMaxH3_REF2VA"
+                        / "SS_FaceSwap_MiniMax_H3_REF2VA.safetensors"
+                    ),
+                )
+            ).resolve(),
+            matlow_authentic_cinematic_lora_file=Path(
+                os.getenv(
+                    "H3_MATLOW_AUTHENTIC_CINEMATIC_LORA_FILE",
+                    str(
+                        matlow_root
+                        / "Alex995647/loras-minimax-h3"
+                        / "Minimax H3真实电影质感.safetensors"
+                    ),
+                )
+            ).resolve(),
+            matlow_attention_mode=matlow_attention_mode,
+            matlow_veda_predictor_file=Path(
+                os.getenv(
+                    "H3_MATLOW_VEDA_PREDICTOR_FILE",
+                    str(
+                        matlow_root
+                        / "Veda-Sparse/Minimax-H3-T2VA-Veda-8NFE-600Step-Preview"
+                        / "minimax_h3_t2va_veda_8nfe_600step_preview_fp8.safetensors"
+                    ),
+                )
+            ).resolve(),
+            matlow_veda_generated_sparsity=os.getenv("H3_MATLOW_VEDA_GENERATED_SPARSITY", "90%").strip(),
+            matlow_veda_reference_sparsity=os.getenv("H3_MATLOW_VEDA_REFERENCE_SPARSITY", "90%").strip(),
+            matlow_veda_verbose=os.getenv("H3_MATLOW_VEDA_VERBOSE", "0").strip().lower()
+            in {"1", "true", "yes", "on"},
             matlow_native_audio=os.getenv("H3_MATLOW_NATIVE_AUDIO", "1").strip().lower()
             in {"1", "true", "yes", "on"},
             matlow_max_swap_gib=float(_positive_number("H3_MATLOW_MAX_SWAP_GIB", "12")),

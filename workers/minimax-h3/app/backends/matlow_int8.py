@@ -103,7 +103,7 @@ class MatlowInt8Backend:
                 name="ref2va",
                 available=configured,
                 experimental=True,
-                reason=missing_reason or "Experimental visual Ref2VA with native generated audio: image and video references up to 15 seconds at 24 fps; audio references remain unavailable",
+                reason=missing_reason or "GPU-verified visual Ref2VA: image appearance/identity, multi-image conditioning, video motion, and mixed image+video; audio references remain unavailable",
             ),
             CapabilityView(
                 name="preview",
@@ -130,13 +130,35 @@ class MatlowInt8Backend:
             CapabilityView(
                 name="resample",
                 available=False,
-                reason="H3-Regenerate-2K is outside this local checkpoint",
+                reason="No compatible local H3 regeneration backend is known/installed; official H3-Regenerate-2K is not published. Hosted MiniMax regeneration is a separate API.",
             ),
             CapabilityView(
                 name="style_transfer",
                 available=False,
                 experimental=True,
-                reason="H3 Ref2VA is a semantic/subject reference mechanism; neutral full-clip A/B has not validated reliable style transfer",
+                reason="Fixed-seed S0/S1/S2 and multi-reference GPU controls changed subject appearance but did not transfer stained-glass material, edges, or rendering language",
+            ),
+            CapabilityView(
+                name="identity_transfer",
+                available=configured and self.settings.matlow_faceswap_lora_file.is_file(),
+                experimental=True,
+                reason=(
+                    "GPU-verified UntMods FaceSwap Ref2VA LoRA at strength 1; frontal identity transfer works, profile consistency is limited; requires a reference video plus identity image"
+                    if self.settings.matlow_faceswap_lora_file.is_file()
+                    else f"FaceSwap Ref2VA LoRA is not installed: {self.settings.matlow_faceswap_lora_file}"
+                ),
+            ),
+            CapabilityView(
+                name="camera_prompt_control",
+                available=configured,
+                experimental=True,
+                reason="Provider-neutral CameraPath is compiled to prompt guidance locally; native camera trajectories are hosted H3 Max only",
+            ),
+            CapabilityView(
+                name="visual_lora",
+                available=configured and self.settings.matlow_authentic_cinematic_lora_file.is_file(),
+                experimental=True,
+                reason="Limited: Authentic Cinematic Texture changes global rendering and subject appearance; fixed-seed T2VA and baseline reset verified. FL2VA/Ref2VA modifier combinations remain unverified.",
             ),
         ]
 
@@ -166,7 +188,17 @@ class MatlowInt8Backend:
                 "ref2va",
                 "Local Ref2VA accepts image and video references only; audio references are not enabled",
             )
-        if not self._model_path(request.model_variant).is_file():
+        if request.identity_transfer and not self.settings.matlow_faceswap_lora_file.is_file():
+            raise CapabilityUnavailable(
+                "identity_transfer",
+                f"FaceSwap Ref2VA LoRA is not installed: {self.settings.matlow_faceswap_lora_file}",
+            )
+        if request.visual_modifier and not self.settings.matlow_authentic_cinematic_lora_file.is_file():
+            raise CapabilityUnavailable(
+                request.requested_capability,
+                f"Authentic Cinematic Texture LoRA is not installed: {self.settings.matlow_authentic_cinematic_lora_file}",
+            )
+        if self._runtime_factory is None and not self._model_path(request.model_variant).is_file():
             raise CapabilityUnavailable(
                 request.requested_capability,
                 f"H3 model weights are not installed for {request.model_variant}",
@@ -214,7 +246,8 @@ class MatlowInt8Backend:
                             backend=self.name,
                             backend_version=self.version,
                             model_revision=result.get("model_revision", MODEL_REVISION),
-                            variant=request.model_variant,
+                            variant=request.task,
+                            model_variant=request.model_variant,
                             gpu=result.get("gpu"),
                             vram_gib=result.get("vram_gib"),
                             resolution=result.get("resolution"),
@@ -223,9 +256,16 @@ class MatlowInt8Backend:
                             steps=result.get("steps", request.effective_steps),
                             seed=result.get("seed"),
                             quantization=f"comfy_quant:{result.get('quantization', 'int8_convrot')}",
+                            sampler=result.get("sampler"),
+                            scheduler=result.get("scheduler"),
+                            flow_parameters=result.get("flow_parameters"),
+                            guidance=result.get("guidance"),
                             attention_backend=result.get("attention_backend", "dense"),
+                            attention=result.get("attention"),
                             vae_tile_size=result.get("vae_tile_size"),
-                            lora={"enabled": bool(result.get("fused_turbo")), "kind": "fused_turbo" if result.get("fused_turbo") else "none"},
+                            lora=result.get("lora") or {"enabled": bool(result.get("fused_turbo")), "kind": "fused_turbo" if result.get("fused_turbo") else "none"},
+                            references=result.get("references"),
+                            conditioning=result.get("conditioning"),
                             render_time_seconds=result["render_time_seconds"],
                             peak_vram_gib=result.get("peak_vram_gib"),
                             peak_ram_gib=result.get("peak_ram_gib"),

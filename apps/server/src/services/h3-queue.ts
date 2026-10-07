@@ -1,6 +1,8 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
+import { normalizeCameraPath, type CameraPath } from "@snarkroute/h3";
+import { normalizeVideoUpscale, type VideoUpscaleSettings } from "./video-upscale";
 
 export const H3_QUEUE_OPERATIONS = [
   "text_to_video",
@@ -10,16 +12,17 @@ export const H3_QUEUE_OPERATIONS = [
   "reference_mix",
   "replace_object",
   "automatic_tracking",
-  "regenerate_2k"
+  "regenerate_2k",
+  "video_upscale"
 ] as const;
 
 export type H3QueueOperation = typeof H3_QUEUE_OPERATIONS[number];
 export type H3QueueItemStatus = "ready" | "running" | "succeeded" | "failed" | "blocked" | "cancelled";
-export type H3SessionMode = "saved_worker" | "vast";
+export type H3SessionMode = "saved_worker" | "vast" | "provider";
 export type H3SessionStatus = "idle" | "connecting" | "rendering" | "cancelling" | "cleaning" | "completed" | "completed_with_errors" | "cancelled" | "failed" | "cleanup_failed";
 
 export type H3QueueAsset = {
-  slot: "firstFrame" | "lastFrame" | "referenceImage" | "referenceVideo" | "referenceAudio" | "sourceVideo" | "mask";
+  slot: "firstFrame" | "lastFrame" | "referenceImage" | "identityImage" | "referenceVideo" | "referenceAudio" | "sourceVideo" | "mask";
   kind: "image" | "video" | "audio";
   path: string;
   filename: string;
@@ -31,20 +34,27 @@ export type H3QueueItem = {
   title: string;
   operation: H3QueueOperation;
   prompt: string;
+  videoUpscale?: VideoUpscaleSettings;
   promptJson?: Record<string, unknown>;
   duration: number;
   aspectRatio: string;
   seed?: number;
   variants: number;
   renderMode: "preview" | "final";
-  modelVariant: "h3_base" | "10eros_max" | "10eros_max_turbo";
+  modelVariant: "h3_base" | "10eros_max" | "10eros_max_turbo" | "h3_max" | "h3_max_turbo";
   inferenceSteps?: number;
+  attentionMode?: "auto" | "veda" | "dense";
+  identityTransfer?: { enabled: true; strength: number };
+  visualModifier?: { id: "authentic_cinematic_texture"; enabled: true; strength: number; includeTrigger: boolean };
+  cameraPath?: CameraPath;
+  cameraControlMode?: "auto" | "native" | "prompt";
   assets: H3QueueAsset[];
   status: H3QueueItemStatus;
   progress: number;
   stage?: string;
   workerJobId?: string;
   resultPaths?: string[];
+  resultMetadata?: H3RenderMetadata;
   error?: string;
   createdAt: string;
   updatedAt: string;
@@ -81,15 +91,30 @@ export type H3QueueLease = {
   managedInstanceId?: number;
   offerId?: number;
   hourlyPriceUsd?: number;
+  provider?: "fal";
+};
+
+export type H3RenderMetadata = {
+  provider: "local" | "fal";
+  model: string;
+  endpoint?: string;
+  estimatedCostUsd?: number | null;
+  actualCostUsd?: number | null;
+  pricingNote?: string;
+  latencyMs?: { accepted?: number; generation?: number; download?: number; total?: number };
+  seed?: number;
+  expandedPrompt?: string | null;
+  provenance?: Record<string, unknown>;
 };
 
 export type H3RenderResult = {
   workerJobId: string;
   resultPaths: string[];
+  metadata?: H3RenderMetadata;
 };
 
 export type H3QueueRuntime = {
-  acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Promise<void>): Promise<H3QueueLease>;
+  acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Promise<void>, items: H3QueueItem[]): Promise<H3QueueLease>;
   render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progress: number, stage?: string) => Promise<void>, onJobCreated?: (workerJobId: string) => Promise<void>): Promise<H3RenderResult>;
   cancel?(item: H3QueueItem, lease: H3QueueLease): Promise<void>;
   cleanup(lease: H3QueueLease): Promise<void>;
@@ -104,7 +129,7 @@ export class H3ManagedInstanceError extends Error {
   constructor(message: string, readonly managedInstanceId: number) { super(message); }
 }
 
-type CreateH3QueueItem = Pick<H3QueueItem, "title" | "operation" | "prompt"> & Partial<Pick<H3QueueItem, "promptJson" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "modelVariant" | "inferenceSteps" | "assets">>;
+type CreateH3QueueItem = Pick<H3QueueItem, "title" | "operation" | "prompt"> & Partial<Pick<H3QueueItem, "promptJson" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "modelVariant" | "inferenceSteps" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode" | "assets">> & { videoUpscale?: Record<string, unknown> };
 
 const IDLE_SESSION: H3QueueSession = {
   id: "session_idle",
@@ -166,6 +191,7 @@ export class H3QueueService {
       progress: 0,
       workerJobId: undefined,
       resultPaths: undefined,
+      resultMetadata: undefined,
       error: undefined,
       startedAt: undefined,
       completedAt: undefined,
@@ -397,6 +423,7 @@ export class H3QueueService {
     let lease: H3QueueLease | undefined;
     let finalStatus: H3SessionStatus = "completed";
     try {
+      const runnableItems = this.state.items.filter((item) => isRunnable(item));
       lease = await this.runtime.acquire(mode, async (acquiredLease) => {
         this.activeLease = acquiredLease;
         this.state.session.managedInstanceId = acquiredLease.managedInstanceId;
@@ -404,7 +431,7 @@ export class H3QueueService {
         this.state.session.hourlyPriceUsd = acquiredLease.hourlyPriceUsd;
         this.state.session.updatedAt = new Date().toISOString();
         await this.persist();
-      });
+      }, runnableItems);
       const renderLease = lease;
       this.activeLease = lease;
       this.state.session.managedInstanceId = lease.managedInstanceId;
@@ -452,6 +479,7 @@ export class H3QueueService {
           item.stage = "complete";
           item.workerJobId = result.workerJobId;
           item.resultPaths = result.resultPaths;
+          item.resultMetadata = result.metadata;
           delete item.error;
         } catch (error) {
           item.status = this.stopRequested ? "cancelled" : error instanceof H3QueueBlockedError ? "blocked" : "failed";
@@ -490,7 +518,7 @@ export class H3QueueService {
           this.state.session.error = errorMessage(cleanupError);
         }
       } else {
-        this.state.session.cleanupConfirmed = finalStatus === "cleanup_failed" ? false : mode === "saved_worker" ? true : false;
+        this.state.session.cleanupConfirmed = finalStatus === "cleanup_failed" ? false : mode === "saved_worker" || mode === "provider" ? true : false;
         this.state.session.status = finalStatus;
       }
       this.state.session.completedAt = this.state.session.updatedAt = new Date().toISOString();
@@ -568,25 +596,42 @@ export class H3QueueService {
   private path(): string { return join(this.directory, "queue.json"); }
 }
 
-function normalizeItem(value: Partial<H3QueueItem> & Pick<H3QueueItem, "id" | "title" | "operation" | "prompt" | "status" | "progress" | "createdAt" | "updatedAt">): H3QueueItem {
+function normalizeItem(value: Omit<Partial<H3QueueItem>, "videoUpscale"> & { videoUpscale?: Record<string, unknown> } & Pick<H3QueueItem, "id" | "title" | "operation" | "prompt" | "status" | "progress" | "createdAt" | "updatedAt">): H3QueueItem {
   const title = String(value.title ?? "").trim();
   const prompt = String(value.prompt ?? "").trim();
   if (!title || title.length > 160) throw new Error("H3 queue title must be between 1 and 160 characters.");
   if (!H3_QUEUE_OPERATIONS.includes(value.operation)) throw new Error("Unsupported H3 queue operation.");
-  if (!prompt || prompt.length > 20_000) throw new Error("H3 queue prompt must be between 1 and 20000 characters.");
+  if (value.operation !== "video_upscale" && (!prompt || prompt.length > 20_000)) throw new Error("H3 queue prompt must be between 1 and 20000 characters.");
   const duration = integer(value.duration ?? 5, 4, 15, "duration");
   const variants = integer(value.variants ?? 1, 1, 10, "variants");
-  const modelVariant = value.modelVariant === "10eros_max" || value.modelVariant === "10eros_max_turbo" ? value.modelVariant : "h3_base";
+  const modelVariant = value.modelVariant === "10eros_max" || value.modelVariant === "10eros_max_turbo" || value.modelVariant === "h3_max" || value.modelVariant === "h3_max_turbo" ? value.modelVariant : "h3_base";
   const renderMode = value.renderMode === "preview" || value.renderMode === "final" ? value.renderMode : modelVariant === "10eros_max" ? "final" : "preview";
-  const inferenceSteps = value.inferenceSteps === undefined ? undefined : integer(value.inferenceSteps, modelVariant.startsWith("10eros_") ? 4 : renderMode === "preview" ? 4 : 20, modelVariant.startsWith("10eros_") ? 8 : renderMode === "preview" ? 10 : 40, "inferenceSteps");
+  const inferenceSteps = modelVariant.startsWith("h3_max") || value.inferenceSteps === undefined ? undefined : integer(value.inferenceSteps, modelVariant.startsWith("10eros_") ? 4 : renderMode === "preview" ? 4 : 20, modelVariant.startsWith("10eros_") ? 8 : renderMode === "preview" ? 10 : 40, "inferenceSteps");
+  const attentionMode = value.attentionMode === "veda" || value.attentionMode === "dense" ? value.attentionMode : "auto";
   const seed = value.seed === undefined ? randomInt(0, 2_147_483_648) : integer(value.seed, 0, 2_147_483_647, "seed");
   const promptJson = value.promptJson && typeof value.promptJson === "object" && !Array.isArray(value.promptJson) ? value.promptJson : undefined;
   const assets = Array.isArray(value.assets) ? value.assets.map(normalizeAsset) : [];
+  const videoUpscale = value.operation === "video_upscale" ? normalizeVideoUpscale(value.videoUpscale) : undefined;
+  if (videoUpscale && (assets.length !== 1 || assets[0]?.slot !== "sourceVideo" || assets[0]?.kind !== "video")) throw new Error("Video Upscale requires exactly one source video.");
+  if (videoUpscale && (variants !== 1 || value.cameraPath || value.identityTransfer || value.visualModifier)) throw new Error("Video Upscale cannot use H3 generation modifiers or multiple variants.");
+  const identityTransfer = value.identityTransfer?.enabled ? { enabled: true as const, strength: finiteRange(value.identityTransfer.strength ?? 1, 0, 2, "identity strength") } : undefined;
+  const visualModifier = value.visualModifier?.enabled ? {
+    id: "authentic_cinematic_texture" as const,
+    enabled: true as const,
+    strength: finiteRange(value.visualModifier.strength ?? 0.7, 0, 2, "visual modifier strength"),
+    includeTrigger: value.visualModifier.includeTrigger === true,
+  } : undefined;
+  if (visualModifier && value.visualModifier?.id !== "authentic_cinematic_texture") throw new Error("Unsupported H3 visual modifier.");
+  if (visualModifier && modelVariant !== "h3_base") throw new Error("Authentic Cinematic Texture requires h3_base.");
+  if (visualModifier && identityTransfer) throw new Error("Authentic Cinematic Texture cannot be combined with FaceSwap until controlled-tested.");
+  const cameraPath = value.cameraPath ? normalizeCameraPath(value.cameraPath) : undefined;
+  const cameraControlMode = value.cameraControlMode === "native" || value.cameraControlMode === "prompt" ? value.cameraControlMode : "auto";
   return {
     ...value,
     id: value.id,
     title,
     operation: value.operation,
+    videoUpscale,
     prompt,
     ...(promptJson ? { promptJson } : {}),
     duration,
@@ -596,6 +641,10 @@ function normalizeItem(value: Partial<H3QueueItem> & Pick<H3QueueItem, "id" | "t
     renderMode,
     modelVariant,
     ...(inferenceSteps === undefined ? {} : { inferenceSteps }),
+    attentionMode,
+    ...(identityTransfer ? { identityTransfer } : {}),
+    ...(visualModifier ? { visualModifier } : {}),
+    ...(cameraPath ? { cameraPath, cameraControlMode } : {}),
     assets,
     status: value.status,
     progress: value.progress,
@@ -607,7 +656,7 @@ function normalizeItem(value: Partial<H3QueueItem> & Pick<H3QueueItem, "id" | "t
 }
 
 function normalizeAsset(value: H3QueueAsset): H3QueueAsset {
-  if (!value || !["firstFrame", "lastFrame", "referenceImage", "referenceVideo", "referenceAudio", "sourceVideo", "mask"].includes(value.slot)) throw new Error("Unsupported H3 asset slot.");
+  if (!value || !["firstFrame", "lastFrame", "referenceImage", "identityImage", "referenceVideo", "referenceAudio", "sourceVideo", "mask"].includes(value.slot)) throw new Error("Unsupported H3 asset slot.");
   if (!["image", "video", "audio"].includes(value.kind)) throw new Error("Unsupported H3 asset kind.");
   const path = String(value.path ?? "").trim();
   const filename = String(value.filename ?? "").trim();
@@ -620,6 +669,7 @@ function integer(value: number, min: number, max: number, name: string): number 
   if (!Number.isInteger(value) || value < min || value > max) throw new Error(`${name} must be an integer between ${min} and ${max}.`);
   return value;
 }
+function finiteRange(value: number, min: number, max: number, name: string): number { if (!Number.isFinite(value) || value < min || value > max) throw new Error(`${name} must be between ${min} and ${max}.`); return value; }
 
 function isRunnable(item: H3QueueItem): boolean {
   return !item.archivedAt && item.selectedForRun !== false && ["ready", "failed", "blocked", "cancelled"].includes(item.status);

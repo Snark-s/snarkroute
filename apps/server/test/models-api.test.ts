@@ -159,6 +159,52 @@ describe("model catalog API", () => {
     }
   });
 
+  it("applies semantic requirements inside the existing for-node Auto-select response", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: "/api/models/for-node/ai.text?prompt=Fix%20a%20TypeScript%20API%20handler"
+      });
+      const body = response.json();
+
+      expect(response.statusCode).toBe(200);
+      expect(body.ok).toBe(true);
+      expect(body.semanticSelection).toMatchObject({
+        status: "ok",
+        selection: { modelId: body.models[0].id },
+        requirements: { domain: "text", operation: "generate", requiredCapabilities: ["text.generate"] },
+        trace: { selectionReason: "policy", decision: { invoked: true, backend: "semantic-rules" } }
+      });
+      expect(body.semanticSelection.trace).not.toHaveProperty("prompt");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("preserves manual model selection through the semantic capability validation path", async () => {
+    const app = buildServer();
+    try {
+      const catalogResponse = await app.inject({ method: "GET", url: "/api/models/for-node/ai.text" });
+      const manualModelId = catalogResponse.json().models[1]?.id ?? catalogResponse.json().models[0].id;
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/models/for-node/ai.text?manualModelRef=${encodeURIComponent(manualModelId)}&prompt=ignored`
+      });
+      const body = response.json();
+
+      expect(response.statusCode).toBe(200);
+      expect(body.models[0].id).toBe(manualModelId);
+      expect(body.semanticSelection).toMatchObject({
+        status: "ok",
+        selection: { modelId: manualModelId },
+        trace: { selectionReason: "manual_override", decision: { invoked: false } }
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns one executable generation catalog for CEP consumers", async () => {
     const app = buildServer();
     try {

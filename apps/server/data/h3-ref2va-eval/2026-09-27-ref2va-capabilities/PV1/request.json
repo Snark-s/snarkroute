@@ -1,0 +1,31 @@
+{
+  "operation": "video.generate.h3",
+  "task": "ref2va",
+  "prompt": "Use <Picture 1> for subject appearance. Use <Video 1> for motion, timing and camera movement.\n\nA woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+  "conditions": [
+    {
+      "type": "image",
+      "uri": "file:///home/serge/h3/outputs/inputs/ef8cdd5e-e35d-45db-9e4a-05109a14bbfb/input.png",
+      "role": "reference",
+      "purpose": "appearance"
+    },
+    {
+      "type": "video",
+      "uri": "file:///home/serge/h3/outputs/inputs/473b4725-936f-42ae-a980-63ea0d2e5144/input.mp4",
+      "role": "reference",
+      "purpose": "motion",
+      "visual_mode": "motion"
+    }
+  ],
+  "target": {
+    "short_edge": 768,
+    "aspect_ratio": "16:9",
+    "duration_seconds": 5
+  },
+  "seed": 424242,
+  "num_outputs_per_prompt": 1,
+  "num_inference_steps": 4,
+  "quality_mode": "preview",
+  "quality": "lossless",
+  "turbo_lora": false
+}

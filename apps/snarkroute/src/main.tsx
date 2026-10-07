@@ -41,6 +41,7 @@ import {
 } from "./modelCatalog";
 import { modelLogoForCatalogOption, unknownModelLogoSrc, type ModelLogo } from "./modelLogos";
 import { activeProviderFunds, clearProviderFundsOnSuccess, DEFAULT_PROVIDER_FUNDS_TTL_MS, markProviderFundsError, providerFundsWarning, resolveProviderRoute, type ProviderFunds } from "./providerFunds";
+import { isProviderConnectionTest, providerConnectionViewStatus, type ProviderConnectionTest, type ProviderConnectionTestState } from "./providerConnections";
 
 const providerFundsTtlMs = (() => {
   const hours = Number(import.meta.env.VITE_PROVIDER_FUNDS_TTL_HOURS ?? 6);
@@ -658,7 +659,6 @@ interface ProviderDefinition {
   capabilityText: string;
   settingsEndpoint: string;
   keyField: string;
-  testEndpoint?: string;
   refreshModels?: boolean;
 }
 
@@ -673,14 +673,14 @@ interface LocalProviderConnection {
 }
 
 const providerDefinitions: ProviderDefinition[] = [
-  { id: "experiential", title: "Experiential Labs", capabilityText: "Text models via Experiential gateway", settingsEndpoint: "/api/settings/experiential-token", keyField: "experientialApiKey", testEndpoint: "/api/providers/experiential/test", refreshModels: true },
+  { id: "experiential", title: "Experiential Labs", capabilityText: "Text models via Experiential gateway", settingsEndpoint: "/api/settings/experiential-token", keyField: "experientialApiKey", refreshModels: true },
   { id: "polza", title: "Polza", capabilityText: "Image generation catalog", settingsEndpoint: "/api/settings/polza-token", keyField: "polzaAiApiKey", refreshModels: true },
-  { id: "kie", title: "KIE.ai", capabilityText: "Image, video, and text models", settingsEndpoint: "/api/settings/kie-token", keyField: "kieApiKey", testEndpoint: "/api/providers/kie/test" },
+  { id: "kie", title: "KIE.ai", capabilityText: "Image, video, and text models", settingsEndpoint: "/api/settings/kie-token", keyField: "kieApiKey" },
   { id: "rutronix", title: "RuTronix", capabilityText: "Text models with RUB token billing", settingsEndpoint: "/api/settings/rutronix-token", keyField: "rutronixApiKey", refreshModels: true },
-  { id: "openrouter", title: "OpenRouter", capabilityText: "Text and multimodal routed models", settingsEndpoint: "/api/settings/openrouter", keyField: "openRouterApiKey", testEndpoint: "/api/providers/openrouter/test", refreshModels: true },
+  { id: "openrouter", title: "OpenRouter", capabilityText: "Text and multimodal routed models", settingsEndpoint: "/api/settings/openrouter", keyField: "openRouterApiKey", refreshModels: true },
   { id: "gemini", title: "Gemini", capabilityText: "Image generation / multimodal", settingsEndpoint: "/api/settings/gemini-token", keyField: "geminiApiKey" },
   { id: "replicate", title: "Replicate", capabilityText: "Hosted model endpoints", settingsEndpoint: "/api/settings/replicate-token", keyField: "replicateApiToken" },
-  { id: "seedance", title: "Seedance", capabilityText: "Video generation endpoints", settingsEndpoint: "/api/settings/seedance-token", keyField: "seedanceApiKey", testEndpoint: "/api/providers/seedance/test" },
+  { id: "seedance", title: "Seedance", capabilityText: "Video generation endpoints", settingsEndpoint: "/api/settings/seedance-token", keyField: "seedanceApiKey" },
   { id: "openai", title: "OpenAI", capabilityText: "Model API connection", settingsEndpoint: "/api/settings/openai-token", keyField: "openAiApiKey" }
 ];
 
@@ -799,6 +799,7 @@ function App() {
   const [providerSettings, setProviderSettings] = useState<ProviderSettings | null>(null);
   const [providerErrors, setProviderErrors] = useState<Partial<Record<string, string>>>({});
   const [providerNotice, setProviderNotice] = useState<Partial<Record<string, string>>>({});
+  const [providerConnectionTests, setProviderConnectionTests] = useState<Partial<Record<ProviderId, ProviderConnectionTestState>>>({});
   const [orphanCleanupBusy, setOrphanCleanupBusy] = useState(false);
   const [orphanCleanupMessage, setOrphanCleanupMessage] = useState("");
   const [customModels, setCustomModels] = useStoredJsonSetting<ModelOption[]>("snarkroute.customModels", []);
@@ -1260,6 +1261,7 @@ function App() {
   async function saveProviderToken(providerId: ProviderId, key: string, extras?: Record<string, string>) {
     const config = providerDefinitions.find((provider) => provider.id === providerId);
     if (!config || !key.trim()) return;
+    setProviderConnectionTests((current) => ({ ...current, [providerId]: undefined }));
     try {
       await apiPost(config.settingsEndpoint, { [config.keyField]: key.trim(), ...(extras ?? {}) });
       let refreshWarning = "";
@@ -1278,17 +1280,28 @@ function App() {
   }
 
   async function testProvider(providerId: ProviderId) {
-    const config = providerDefinitions.find((provider) => provider.id === providerId);
-    if (!config?.testEndpoint) {
-      setProviderNotice((current) => ({ ...current, [providerId]: "Live connection test is not exposed by the server yet." }));
-      return;
-    }
+    setProviderConnectionTests((current) => ({ ...current, [providerId]: { loading: true, result: current[providerId]?.result } }));
+    setProviderErrors((current) => ({ ...current, [providerId]: undefined }));
     try {
-      await apiPost(config.testEndpoint, {});
-      setProviderNotice((current) => ({ ...current, [providerId]: "Connection test passed." }));
-      setProviderErrors((current) => ({ ...current, [providerId]: undefined }));
+      const response = await fetchApi(`/api/providers/${encodeURIComponent(providerId)}/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        signal: AbortSignal.timeout(15_000)
+      });
+      const body: unknown = await response.json();
+      if (!isProviderConnectionTest(body)) throw new Error("Server returned an invalid connection-test response.");
+      setProviderConnectionTests((current) => ({ ...current, [providerId]: { loading: false, result: body } }));
+      setProviderNotice((current) => ({ ...current, [providerId]: body.message }));
     } catch (error) {
-      setProviderErrors((current) => ({ ...current, [providerId]: error instanceof Error ? error.message : "Test failed." }));
+      const result: ProviderConnectionTest = {
+        status: "failed",
+        ok: false,
+        message: error instanceof Error && error.name === "TimeoutError" ? "Connection test timed out." : error instanceof Error ? error.message : "Connection test failed.",
+        details: { reason: "network" }
+      };
+      setProviderConnectionTests((current) => ({ ...current, [providerId]: { loading: false, result } }));
+      setProviderNotice((current) => ({ ...current, [providerId]: result.message }));
     }
   }
 
@@ -4416,6 +4429,7 @@ function App() {
             settings={providerSettings}
             errors={providerErrors}
             notices={providerNotice}
+            connectionTests={providerConnectionTests}
             models={availableCatalogModels}
             localProviders={localProviders}
             onConnect={saveProviderToken}
@@ -4826,6 +4840,7 @@ function ModelsPanel({
   settings,
   errors,
   notices,
+  connectionTests,
   models,
   localProviders,
   onConnect,
@@ -4837,6 +4852,7 @@ function ModelsPanel({
   settings: ProviderSettings | null;
   errors: Partial<Record<string, string>>;
   notices: Partial<Record<string, string>>;
+  connectionTests: Partial<Record<ProviderId, ProviderConnectionTestState>>;
   models: ModelOption[];
   localProviders: LocalProviderConnection[];
   onConnect: (providerId: ProviderId, key: string, extras?: Record<string, string>) => Promise<void>;
@@ -4861,6 +4877,7 @@ function ModelsPanel({
             offline={Boolean(errors.settings)}
             error={errors[definition.id]}
             notice={notices[definition.id]}
+            testState={connectionTests[definition.id]}
             modelCounts={providerModelCounts(models, definition.id)}
             onConnect={onConnect}
             onTest={onTest}
@@ -4891,6 +4908,7 @@ function ProviderConnectionCard({
   offline,
   error,
   notice,
+  testState,
   modelCounts,
   onConnect,
   onTest,
@@ -4901,6 +4919,7 @@ function ProviderConnectionCard({
   offline: boolean;
   error?: string;
   notice?: string;
+  testState?: ProviderConnectionTestState;
   modelCounts: string[];
   onConnect: (providerId: ProviderId, key: string, extras?: Record<string, string>) => Promise<void>;
   onTest: (providerId: ProviderId) => Promise<void>;
@@ -4909,7 +4928,9 @@ function ProviderConnectionCard({
   const [editing, setEditing] = useState(false);
   const [key, setKey] = useState("");
   const [seedanceBackend, setSeedanceBackend] = useState("seedance-compatible");
-  const status = offline ? "offline" : error ? "error" : configured ? "connected" : "missing key";
+  const status = providerConnectionViewStatus({ configured, offline, testState });
+  const testMessage = testState?.result?.message ?? notice;
+  const testFailed = testState?.result?.status === "failed";
 
   async function connect() {
     if (!key.trim()) return;
@@ -4926,7 +4947,8 @@ function ProviderConnectionCard({
       </div>
       <p>{definition.capabilityText}</p>
       {modelCounts.length > 0 ? <small>{modelCounts.join(" / ")}</small> : null}
-      {error ? <small className="providerMessage isError">{error}</small> : notice ? <small className="providerMessage">{notice}</small> : null}
+      {testMessage ? <small className={`providerMessage ${testFailed ? "isError" : ""}`}>{testMessage}</small> : null}
+      {error ? <small className="providerMessage isError">{error}</small> : null}
       {editing && (
         <div className="providerConnectForm">
           <input
@@ -4948,7 +4970,7 @@ function ProviderConnectionCard({
       )}
       <div className="providerActions">
         <button type="button" onClick={() => setEditing((value) => !value)}>{configured ? "Edit" : "Подключить"}</button>
-        <button type="button" onClick={() => void onTest(definition.id)}>Test</button>
+        <button type="button" disabled={!configured || testState?.loading} onClick={() => void onTest(definition.id)}>{testState?.loading ? "Testing…" : "Test"}</button>
         {definition.refreshModels ? <button type="button" onClick={() => void onRefresh(definition.id)}>Refresh models</button> : null}
       </div>
     </article>

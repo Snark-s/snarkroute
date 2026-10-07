@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildNanoBanana2Parts, createGeminiClient, createGeminiLlmNodeRunner, createNanoBanana2NodeRunner, estimateGeminiPricingQuote, prepareImageInlineData } from "../src/index";
+import { buildNanoBanana2Parts, createGeminiClient, createGeminiLlmNodeRunner, createGeminiProviderAdapter, createNanoBanana2NodeRunner, estimateGeminiPricingQuote, prepareImageInlineData } from "../src/index";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return {
@@ -14,6 +14,32 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
 }
 
 describe("Gemini adapter", () => {
+  it("verifies credentials with the lightweight models endpoint", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ models: [{ name: "models/gemini-test" }] }));
+    const result = await createGeminiProviderAdapter({ token: "gemini-test-key", fetchImpl }).testConnection?.();
+    expect(result).toMatchObject({ status: "verified", ok: true, details: { modelCount: 1 } });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1",
+      expect.objectContaining({ headers: expect.objectContaining({ "x-goog-api-key": "gemini-test-key" }) })
+    );
+  });
+
+  it("normalizes rejected credentials without exposing the provider response", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ error: { message: "secret-key-was-rejected" } }, false, 401));
+    const result = await createGeminiProviderAdapter({ token: "gemini-test-key", fetchImpl }).testConnection?.();
+    expect(result).toMatchObject({ status: "failed", ok: false, details: { reason: "credentials" } });
+    expect(JSON.stringify(result)).not.toContain("secret-key-was-rejected");
+  });
+
+  it("normalizes a malformed models response", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ unexpected: true }));
+    await expect(createGeminiProviderAdapter({ token: "gemini-test-key", fetchImpl }).testConnection?.()).resolves.toMatchObject({
+      status: "failed",
+      ok: false,
+      details: { reason: "malformed_response" }
+    });
+  });
+
   it("fails clearly without a token", async () => {
     const client = createGeminiClient({ token: "" });
     await expect(client.generateContent("gemini-test", [{ text: "hi" }])).rejects.toThrow("GEMINI_API_KEY is not configured.\nOpen Settings \u2192 Secrets \u2192 Gemini and paste your token.");

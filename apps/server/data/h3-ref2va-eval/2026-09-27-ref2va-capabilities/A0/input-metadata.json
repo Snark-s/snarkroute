@@ -1,0 +1,24 @@
+{
+  "testId": "A0",
+  "sourcePlanPath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-ref2va-eval\\2026-09-27-ref2va-capabilities\\plan.json",
+  "prompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+  "contextInstruction": "",
+  "finalPrompt": "A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.",
+  "referenceOrdering": [],
+  "references": [],
+  "parameters": {
+    "modelVariant": "h3_base",
+    "seed": 424242,
+    "steps": 4,
+    "durationSeconds": 5,
+    "aspectRatio": "16:9",
+    "scheduler": "simple",
+    "sampler": "res_multistep",
+    "guidance": "basic/no CFG scale",
+    "flowParameters": {
+      "shiftVideo": 12,
+      "shiftAudio": 3
+    },
+    "identityTransfer": null
+  }
+}

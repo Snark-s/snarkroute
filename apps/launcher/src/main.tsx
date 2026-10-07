@@ -1,18 +1,28 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { ArrowLeft, ArrowRight, ArrowUpRight, Brain, CheckCircle2, Circle, Clock3, FolderOpen, Hexagon, LoaderCircle, Music, Paperclip, Plus, Route, Send, Sparkles, Square, Trash2, Wand2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, Brain, CheckCircle2, Circle, Clock3, FolderOpen, Hexagon, LoaderCircle, Music, Paperclip, Play, Plus, Route, Send, Sparkles, Square, Trash2, Wand2, X } from "lucide-react";
+import { ApiRequestError, codexRetryFromError, confirmedCodexNotice, type CodexHandoffRetry, type CodexHandoffSuccess } from "./codexHandoff";
+import { parsePersonaModelPreferences, type AutoStrategy } from "./personaModelPreferences";
 import "./styles.css";
+import { RestartSnarkRoute } from "./RestartSnarkRoute";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 
 type AppCard = { id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string };
 type ProviderRoute = { provider: string; providerModelId: string; storedModelId?: string; inputTypes?: string[]; availability?: { status?: string; configured?: boolean } };
 type Model = { id: string; canonicalModelId?: string; displayName: string; inputTypes?: string[]; providerRoutes?: ProviderRoute[] };
-type Task = { task_id: string; objective: string; display_title?: string; status: string; phase: string; updated_at: string; last_response?: string; pending_action?: unknown; last_codex_handoff?: unknown; step: number };
+type AutoAttempt = { role: string; display_name?: string; model: string; provider: string; estimated_cost?: number | null; actual_cost?: number | null; result_status: string };
+type AutoTrace = { auto_mode: true; strategy: AutoStrategy; attempts: AutoAttempt[]; escalations: Array<{ from?: { display_name?: string; model?: string }; to?: { display_name?: string; model?: string }; reason: string }>; total_cost: number; total_tokens: number; final_model?: { display_name?: string; model: string; provider: string; reason: string; estimated_cost?: number | null }; stop_reason?: string };
+type Task = { task_id: string; objective: string; display_title?: string; status: string; phase: string; updated_at: string; last_response?: string; pending_action?: unknown; last_codex_handoff?: unknown; auto_trace?: AutoTrace; step: number };
 type Project = { project_id: string; name: string; available: boolean; resources: Array<{ role: string; available: boolean; resolved_path?: string }> };
 type ImageAttachment = { id: string; name: string; mimeType: string; dataBase64: string };
 type ProgressEvent = { at: string; kind: string; message: string };
 type RunJob = { jobId: string; taskId: string; status: "running" | "complete" | "failed" | "cancelled"; events: ProgressEvent[]; updatedAt: string; startedAt?: string; result?: { state?: Task }; error?: string };
+type BonsaiStatus = { service: "Bonsai 2 27B"; status: "stopped" | "starting" | "loading" | "ready" | "error"; model_loaded: boolean; endpoint: string; model_id?: string; error?: string };
+type LocalRuntime = { id: string; label: string; state: "stopped" | "starting" | "loading" | "ready" | "busy" | "error"; online: boolean; busy: boolean; resourceClaim: "none" | "resident" | "active" | "unknown"; control: { canStart: boolean; canStop: boolean }; detail?: string; discovered?: boolean };
+type LocalRuntimeSnapshot = { capturedAt: string; gpu?: { name: string; totalMiB: number; usedMiB: number; freeMiB: number; utilizationPercent: number }; memory: { totalMiB: number; usedMiB: number; freeMiB: number }; runtimes: LocalRuntime[]; pressure: { level: "idle" | "busy" | "critical"; summary: string } };
+type LocalRuntimeDecision = { allowed: boolean; requiresConfirmation: boolean; blockers: string[]; warnings: string[]; summary: string };
+type RuntimeCatalogSummary = { total: number; available: number };
 
 const iconMap = { sparkles: Sparkles, route: Route, wand: Wand2, hexagon: Hexagon, brain: Brain, music: Music };
 
@@ -54,7 +64,7 @@ function Launcher() {
   return <main className="launcherPage">
     <header className="hero">
       <div className="launcherBrand"><img src="/launcher-icon.png" alt="" /><div><span className="eyebrow">Локальная мастерская</span><p>Один вход во все инструменты. SnarkRoute уже держит модели и плагины на связи.</p></div></div>
-      <div className="runtimePill"><span className="pulse" /> SnarkRoute работает</div>
+      <div className="heroRuntimes"><div className="runtimePill"><span className="pulse" /> SnarkRoute работает</div><RestartSnarkRoute apiPort={Number(new URL(apiBase).port||80)} onHealthy={()=>void refresh().catch(reason=>setError(message(reason)))}/><LocalRuntimeControl /></div>
     </header>
     {error ? <div className="errorBanner">{error}</div> : null}
     <section className="appGrid">
@@ -77,12 +87,163 @@ function yueStatus(app: AppCard) {
   return ({ stopped: "остановлен", starting: "запускается", loading: "загружается", ready: "готов", generating: "генерирует", error: "ошибка" } as Record<string, string>)[app.status ?? "stopped"] ?? app.status;
 }
 
+function LocalRuntimeControl() {
+  const [snapshot, setSnapshot] = useState<LocalRuntimeSnapshot>();
+  const [catalogs, setCatalogs] = useState<Record<string, RuntimeCatalogSummary>>({});
+  const [action, setAction] = useState("");
+  const [localError, setLocalError] = useState("");
+
+  async function refresh() {
+    const next = await api<LocalRuntimeSnapshot & { ok: boolean }>("/api/system/local-runtimes");
+    setSnapshot(next);
+    setLocalError("");
+  }
+
+  useEffect(() => {
+    let disposed = false;
+    const poll = async () => {
+      try { if (!disposed) await refresh(); }
+      catch (reason) { if (!disposed) setLocalError(message(reason)); }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    const pollCatalogs = async () => {
+      try {
+        const videoUpscale = await api<{ modelCount?: number; models?: Array<{ availability?: { status?: string } }> }>("/api/models/for-node/local_video_upscale");
+        if (disposed) return;
+        const models = videoUpscale.models ?? [];
+        setCatalogs(current => ({
+          ...current,
+          upscale: {
+            total: videoUpscale.modelCount ?? models.length,
+            available: models.filter(model => model.availability?.status === "available").length
+          }
+        }));
+      } catch {
+        if (!disposed) setCatalogs(current => ({ ...current, upscale: { total: 0, available: 0 } }));
+      }
+    };
+    void pollCatalogs();
+    const timer = window.setInterval(() => void pollCatalogs(), 30_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
+
+  async function change(runtime: LocalRuntime, nextAction: "start" | "stop") {
+    setAction(`${runtime.id}:${nextAction}`); setLocalError("");
+    try {
+      if (nextAction === "start") {
+        const preflight = await api<{ decision: LocalRuntimeDecision }>(`/api/system/local-runtimes/${runtime.id}/admission?intent=start`);
+        if (!preflight.decision.allowed) throw new Error(preflight.decision.summary);
+        let force = false;
+        if (preflight.decision.requiresConfirmation) {
+          force = window.confirm(`${preflight.decision.summary}\n\nВсё равно запустить ${runtime.label}?`);
+          if (!force) return;
+        }
+        await api(`/api/system/local-runtimes/${runtime.id}/start`, { method: "POST", headers: jsonHeaders, body: JSON.stringify({ force }) });
+      } else {
+        await api(`/api/system/local-runtimes/${runtime.id}/stop`, { method: "POST", headers: jsonHeaders, body: "{}" });
+      }
+      await refresh();
+    } catch (reason) {
+      setLocalError(message(reason));
+      await refresh().catch(() => undefined);
+    } finally {
+      setAction("");
+    }
+  }
+
+  const gpu = snapshot?.gpu;
+  const gpuLabel = gpu ? `GPU ${(gpu.usedMiB / 1024).toFixed(1)}/${(gpu.totalMiB / 1024).toFixed(0)} ГБ` : "GPU ?";
+  return <div className={`runtimeDeck ${snapshot?.pressure.level ?? "idle"}`} title={localError || snapshot?.pressure.summary || "Локальные процессы"}>
+    <span className="runtimeDeckSummary">{gpuLabel}</span>
+    <span className="runtimeDeckItems">
+      {(snapshot?.runtimes ?? []).map((runtime) => {
+        const working = action.startsWith(`${runtime.id}:`);
+        const catalog = catalogs[runtime.id];
+        const catalogText = catalog?.total ? `${catalog.available}/${catalog.total}` : "";
+        const detail = [runtime.detail || runtime.state, catalog?.total ? `${catalog.available} из ${catalog.total} моделей готовы` : ""].filter(Boolean).join(" · ");
+        return <span className={`runtimeMini ${runtime.state}`} key={runtime.id} title={detail}>
+          <span className="runtimeMiniDot" />
+          <span>{runtime.label}{runtime.discovered ? " · auto" : ""}</span>
+          {catalogText ? <span className="runtimeMiniCatalog">{catalogText}</span> : null}
+          {runtime.control.canStart ? <button type="button" aria-label={`Запустить ${runtime.label}`} title={`Запустить ${runtime.label}`} onClick={() => void change(runtime, "start")} disabled={working}>{working ? <LoaderCircle className="spin" /> : <Play />}</button> : null}
+          {runtime.control.canStop ? <button type="button" aria-label={`Остановить ${runtime.label}`} title={`Остановить ${runtime.label}`} onClick={() => void change(runtime, "stop")} disabled={working}>{working ? <LoaderCircle className="spin" /> : <Square />}</button> : null}
+        </span>;
+      })}
+    </span>
+    {localError ? <span className="runtimeDeckError">{localError}</span> : null}
+  </div>;
+}
+
+function BonsaiRuntimeControl({ onStatusChange }: { onStatusChange?: (status: BonsaiStatus["status"]) => void }) {
+  const [runtime, setRuntime] = useState<BonsaiStatus>();
+  const [action, setAction] = useState<"start" | "stop" | "">("");
+  const [localError, setLocalError] = useState("");
+  const previousStatus = useRef<BonsaiStatus["status"]>();
+  const statusCallback = useRef(onStatusChange);
+  statusCallback.current = onStatusChange;
+
+  async function refresh() {
+    const next = await api<BonsaiStatus & { ok: boolean }>("/api/system/bonsai");
+    setRuntime(next);
+    setLocalError("");
+    if (previousStatus.current && previousStatus.current !== next.status) statusCallback.current?.(next.status);
+    previousStatus.current = next.status;
+  }
+
+  useEffect(() => {
+    let disposed = false;
+    const poll = async () => {
+      try { if (!disposed) await refresh(); }
+      catch (reason) { if (!disposed) setLocalError(message(reason)); }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 2_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
+
+  async function change(nextAction: "start" | "stop") {
+    setAction(nextAction); setLocalError("");
+    try {
+      if (nextAction === "start") {
+        const next = await api<BonsaiStatus & { ok: boolean }>("/api/system/bonsai/start", { method: "POST" });
+        setRuntime(next); previousStatus.current = next.status;
+      } else {
+        const result = await api<{ status: BonsaiStatus }>("/api/system/bonsai/stop", { method: "POST" });
+        setRuntime(result.status); previousStatus.current = result.status.status; statusCallback.current?.(result.status.status);
+      }
+      await refresh();
+    } catch (reason) {
+      setLocalError(message(reason));
+      await refresh().catch(() => undefined);
+    } finally { setAction(""); }
+  }
+
+  const state = runtime?.status ?? "starting";
+  const label = ({ stopped: "остановлен", starting: "запускается", loading: "загружается", ready: "готов", error: "ошибка" } as const)[state];
+  const detail = localError || runtime?.error || `Bonsai 2 27B: ${label}`;
+  return <div className={`bonsaiRuntime ${state}`} title={detail}>
+    <span className="bonsaiState"><span className="bonsaiDot" /> Bonsai · {label}</span>
+    <button type="button" onClick={() => void change("start")} disabled={Boolean(action) || state !== "stopped"} title="Запустить Bonsai 2 27B">{action === "start" ? <LoaderCircle className="spin" /> : <Play />}<span>Запустить</span></button>
+    <button type="button" onClick={() => void change("stop")} disabled={Boolean(action) || !["starting", "loading", "ready"].includes(state)} title="Остановить Bonsai и освободить видеокарту">{action === "stop" ? <LoaderCircle className="spin" /> : <Square />}<span>Остановить</span></button>
+  </div>;
+}
+
 function PersonaAgent() {
+  const initialModelPreferences = useRef(parsePersonaModelPreferences(window.localStorage.getItem("jabberwock:model-preferences"))).current;
   const [tasks, setTasks] = useState<Task[]>([]);
   const [activeId, setActiveId] = useState("");
   const [models, setModels] = useState<Model[]>([]);
-  const [modelId, setModelId] = useState("");
-  const [routeKey, setRouteKey] = useState("");
+  const [modelId, setModelId] = useState(initialModelPreferences.manualModelId);
+  const [routeKey, setRouteKey] = useState(initialModelPreferences.manualRouteKey);
+  const [autoMode, setAutoMode] = useState(initialModelPreferences.autoMode);
+  const [autoStrategy, setAutoStrategy] = useState<AutoStrategy>(initialModelPreferences.autoStrategy);
+  const [autoTrace, setAutoTrace] = useState<AutoTrace | undefined>();
   const [projects, setProjects] = useState<Project[]>([]);
   const [workspace, setWorkspace] = useState("");
   const [objective, setObjective] = useState("");
@@ -95,6 +256,7 @@ function PersonaAgent() {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [codexRetry, setCodexRetry] = useState<CodexHandoffRetry>();
   const [activity, setActivity] = useState<ProgressEvent[]>([]);
   const [activityTaskId, setActivityTaskId] = useState("");
   const [jobId, setJobId] = useState("");
@@ -109,6 +271,20 @@ function PersonaAgent() {
   }), [model, attachments.length]);
   const routeSignature = routes.map((route) => `${route.provider}\u0000${route.providerModelId}`).join("\u0001");
   const selectedRoute = routes.find((route) => `${route.provider}\u0000${route.providerModelId}` === routeKey);
+  const autoFallback = useMemo(() => {
+    if (!autoMode || selectedRoute) return undefined;
+    for (const item of models) {
+      const route = (item.providerRoutes ?? []).find((candidate) => {
+        const available = candidate.availability?.status !== "unavailable" && candidate.availability?.configured !== false;
+        return available && (!attachments.length || acceptsImages(candidate.inputTypes ?? item.inputTypes));
+      });
+      if (route) return { model: item, route };
+    }
+    return undefined;
+  }, [autoMode, selectedRoute, models, attachments.length]);
+  const executionSelection = selectedRoute && model ? { model, route: selectedRoute } : autoFallback;
+  const displayedAutoTrace = autoTrace ?? active?.auto_trace;
+  const currentAutoEvent = activityTaskId === active?.task_id ? [...activity].reverse().find((event) => event.kind === "auto_model") : undefined;
 
   async function load() {
     const [taskData, modelData, projectData] = await Promise.all([
@@ -118,7 +294,7 @@ function PersonaAgent() {
     ]);
     setTasks(taskData.tasks); setModels(modelData.models); setProjects(projectData);
     setActiveId((value) => value || taskData.tasks[0]?.task_id || "");
-    setModelId((value) => value || modelData.models.find((item) => item.providerRoutes?.some((route) => route.availability?.configured !== false))?.id || modelData.models[0]?.id || "");
+    setModelId((value) => modelData.models.some((item) => item.id === value) ? value : modelData.models.find((item) => item.providerRoutes?.some((route) => route.availability?.configured !== false))?.id || modelData.models[0]?.id || "");
     setWorkspace((value) => value || projectData.flatMap((project) => project.resources).find((resource) => resource.available)?.resolved_path || "");
   }
   useEffect(() => {
@@ -132,6 +308,11 @@ function PersonaAgent() {
     })().catch((reason) => { if (!disposed) setError(message(reason)); });
     return () => { disposed = true; };
   }, []);
+  useEffect(() => {
+    window.localStorage.setItem("jabberwock:model-preferences", JSON.stringify({
+      autoMode, autoStrategy, manualModelId: modelId, manualRouteKey: routeKey
+    }));
+  }, [autoMode, autoStrategy, modelId, routeKey]);
   useEffect(() => {
     const link = ensureFavicon();
     if (busy !== "run") {
@@ -148,9 +329,11 @@ function PersonaAgent() {
     return () => window.clearInterval(timer);
   }, [busy]);
   useEffect(() => {
+    if (autoMode) return;
     if (routes.some((route) => `${route.provider}\u0000${route.providerModelId}` === routeKey)) return;
     const first = routes[0]; setRouteKey(first ? `${first.provider}\u0000${first.providerModelId}` : "");
-  }, [modelId, routeSignature]);
+  }, [autoMode, modelId, routeSignature]);
+  useEffect(() => { setAutoTrace(active?.auto_trace); }, [activeId, active?.auto_trace]);
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
       conversation.current?.scrollTo({ top: conversation.current.scrollHeight, behavior: "smooth" });
@@ -176,12 +359,24 @@ function PersonaAgent() {
     if (!active || !workspace) return;
     setBusy("codex"); setError(""); setNotice("");
     try {
-      await api(`/api/persona/tasks/${encodeURIComponent(active.task_id)}/continue-in-codex`, {
-        method: "POST", headers: jsonHeaders, body: JSON.stringify({ workspace })
+      const retry = codexRetry?.taskId === active.task_id && codexRetry.workspace === workspace ? codexRetry : undefined;
+      const result = await api<CodexHandoffSuccess>(`/api/persona/tasks/${encodeURIComponent(active.task_id)}/continue-in-codex`, {
+        method: "POST", headers: jsonHeaders, body: JSON.stringify({
+          workspace,
+          handoffPath: retry?.handoffPath,
+          existingThreadId: retry?.existingThreadId
+        })
       });
-      setNotice("Задача передана. Codex Desktop открывает новую задачу с этим контекстом.");
+      setNotice(confirmedCodexNotice(result));
+      setCodexRetry(undefined);
       await load(); setActiveId(active.task_id);
-    } catch (reason) { setError(message(reason)); } finally { setBusy(""); }
+    } catch (reason) {
+      const retry = codexRetryFromError(reason, active.task_id, workspace);
+      setCodexRetry(retry);
+      setError(message(reason));
+      await load().catch(() => undefined);
+      setActiveId(active.task_id);
+    } finally { setBusy(""); }
   }
 
   async function returnFromCodex() {
@@ -208,13 +403,14 @@ function PersonaAgent() {
   }
 
   async function run() {
-    if (!active || !model || !selectedRoute) return;
-    setBusy("run"); setError(""); setActivityTaskId(active.task_id); setActivity([{ at: new Date().toISOString(), kind: "start", message: "Передаю текущий запрос модели…" }]);
+    if (!active || !executionSelection) return;
+    setBusy("run"); setError(""); setAutoTrace(undefined); setActivityTaskId(active.task_id); setActivity([{ at: new Date().toISOString(), kind: "start", message: autoMode ? "Передаю задачу Auto Router…" : "Передаю текущий запрос модели…" }]);
     try {
       const started = await api<{ jobId: string }>(`/api/persona/tasks/${encodeURIComponent(active.task_id)}/run/start`, {
         method: "POST", headers: jsonHeaders, body: JSON.stringify({
-          prompt, model: model.canonicalModelId ?? model.id,
-          executionProvider: selectedRoute.provider, providerModelId: selectedRoute.providerModelId,
+          prompt, model: executionSelection.model.canonicalModelId ?? executionSelection.model.id,
+          executionProvider: executionSelection.route.provider, providerModelId: executionSelection.route.providerModelId,
+          autoMode, autoStrategy,
           workspace, allowWrite, allowShell, maxSteps: 32,
           attachments: attachments.map(({ name, mimeType, dataBase64 }) => ({ name, mimeType, dataBase64 }))
         })
@@ -251,6 +447,7 @@ function PersonaAgent() {
       if (job.status === "cancelled") return;
       if (job.status === "failed") throw new Error(job.error || "Jabberwock завершил задачу с ошибкой.");
       if (!job.result?.state) throw new Error("Jabberwock не вернул состояние задачи.");
+      setAutoTrace(job.result.state.auto_trace);
       setPrompt(""); setAttachments([]); await load(); setActiveId(job.result.state.task_id);
     } finally {
       monitoringJob.current = "";
@@ -293,21 +490,23 @@ function PersonaAgent() {
       <a className="backLink" href="/"><ArrowLeft /> Мастерская</a>
       <div className="personaMark"><img src="/jabberwock-icon.png" alt="" /><div><strong>Jabberwock</strong><small>общая память · любой маршрут</small></div></div>
       <button className="handoffButton" onClick={() => void handoff()} disabled={Boolean(busy)}><Sparkles /> Подхватить этот Codex</button>
-      <button className="continueCodexButton" onClick={() => void continueInCodex()} disabled={!active || !workspace || Boolean(busy)}>{busy === "codex" ? <LoaderCircle className="spin" /> : <ArrowRight />} Продолжить в Codex</button>
+      <button className="continueCodexButton" onClick={() => void continueInCodex()} disabled={!active || !workspace || Boolean(busy)}>{busy === "codex" ? <LoaderCircle className="spin" /> : <ArrowRight />} {codexRetry && codexRetry.taskId === active?.task_id && codexRetry.workspace === workspace ? "Повторить передачу в Codex" : "Продолжить в Codex"}</button>
       {active?.last_codex_handoff ? <button className="returnCodexButton" onClick={() => void returnFromCodex()} disabled={Boolean(busy)}>{busy === "return-codex" ? <LoaderCircle className="spin" /> : <ArrowLeft />} Забрать из Codex</button> : null}
       <div className="newTask"><textarea value={objective} onChange={(event) => setObjective(event.target.value)} placeholder="Новая задача…" /><button onClick={() => void createTask()} disabled={!objective.trim() || Boolean(busy)}><Plus /> Создать</button></div>
       <div className="taskList">{tasks.map((task) => <div className={`taskListItem ${task.task_id === activeId ? "active" : ""}`} key={task.task_id}><button className="taskSelect" onClick={() => setActiveId(task.task_id)} title={cleanTaskText(task.objective)}><strong>{taskTitle(task, 64)}</strong><small><Clock3 /> {task.phase} · шаг {task.step}</small></button><button className="taskDelete" onClick={() => void deleteTask(task)} disabled={Boolean(busy)} title="Удалить задачу" aria-label={`Удалить задачу ${taskTitle(task, 40)}`}>{busy === `delete:${task.task_id}` ? <LoaderCircle className="spin" /> : <Trash2 />}</button></div>)}</div>
     </aside>
     <main className="agentWorkspace">
-      <header><div><span className="eyebrow">Независимый локальный агент</span><h1 title={active ? cleanTaskText(active.objective) : undefined}>{active ? taskTitle(active, 150) : "Выберите или создайте задачу"}</h1></div><span className={`taskState ${active?.status === "complete" ? "complete" : ""}`}>{active?.status ?? "нет задачи"}</span></header>
+      <header><div><span className="eyebrow">Независимый локальный агент</span><h1 title={active ? cleanTaskText(active.objective) : undefined}>{active ? taskTitle(active, 150) : "Выберите или создайте задачу"}</h1></div><div className="agentHeaderStatus"><BonsaiRuntimeControl onStatusChange={(status) => { if (status === "ready" || status === "stopped") void load(); }} /><span className={`taskState ${active?.status === "complete" ? "complete" : ""}`}>{active?.status ?? "нет задачи"}</span></div></header>
       {error ? <div className="errorBanner">{error}</div> : null}
       {notice ? <div className="successBanner">{notice}</div> : null}
       <section className="controlPanel">
-        <label><span>Модель</span><select value={modelId} onChange={(event) => setModelId(event.target.value)}>{models.map((item) => <option key={item.id} value={item.id}>{item.displayName}</option>)}</select></label>
-        <label><span>Маршрут SnarkRoute</span><select value={routeKey} onChange={(event) => setRouteKey(event.target.value)}>{routes.map((route) => <option key={`${route.provider}:${route.providerModelId}`} value={`${route.provider}\u0000${route.providerModelId}`}>{route.provider}</option>)}</select></label>
+        <label className={autoMode ? "manualSelector muted" : "manualSelector"}><span>Модель</span><select value={modelId} disabled={autoMode} onChange={(event) => setModelId(event.target.value)}>{models.map((item) => <option key={item.id} value={item.id}>{item.displayName}{modelIsOffline(item) ? " · offline" : ""}</option>)}</select></label>
+        <label className={autoMode ? "manualSelector muted" : "manualSelector"}><span>Маршрут SnarkRoute</span><select value={routeKey} disabled={autoMode} onChange={(event) => setRouteKey(event.target.value)}>{routes.length ? routes.map((route) => <option key={`${route.provider}:${route.providerModelId}`} value={`${route.provider}\u0000${route.providerModelId}`}>{route.provider}</option>) : <option value="">runtime offline</option>}</select></label>
         <label><span>Проект</span><select value={workspace} onChange={(event) => setWorkspace(event.target.value)}>{projects.flatMap((project) => project.resources.filter((resource) => resource.available && resource.resolved_path).map((resource) => <option key={`${project.project_id}:${resource.role}`} value={resource.resolved_path}>{project.name} · {resource.role}</option>))}</select></label>
+        <div className="autoControls"><label><input type="checkbox" checked={autoMode} onChange={(event) => setAutoMode(event.target.checked)} /> Автовыбор модели</label>{autoMode ? <select aria-label="Стратегия автовыбора" value={autoStrategy} onChange={(event) => setAutoStrategy(event.target.value as AutoStrategy)}><option value="economy">Экономная</option><option value="balanced">Сбалансированная</option><option value="quality">Максимум качества</option></select> : null}</div>
         <div className="permissions"><label><input type="checkbox" checked={allowWrite} onChange={(event) => setAllowWrite(event.target.checked)} /> изменять файлы</label><label><input type="checkbox" checked={allowShell} onChange={(event) => setAllowShell(event.target.checked)} /> запускать инструменты</label></div>
       </section>
+      {autoMode && (currentAutoEvent || displayedAutoTrace) ? <aside className="autoStatus"><strong>Автовыбор ✓</strong><span>{currentAutoEvent?.message ?? autoModelSummary(displayedAutoTrace)}</span>{displayedAutoTrace ? <small>{autoCostSummary(displayedAutoTrace)}</small> : null}</aside> : null}
       <section className="conversation" ref={conversation}>
         {activityTaskId === active?.task_id && (jobStatus || activity.length) ? <aside className={`activityPanel ${jobStatus}`}><div className="activityHeader">{jobStatus === "running" ? <LoaderCircle className="spin" /> : jobStatus === "cancelled" || jobStatus === "failed" ? <X /> : <CheckCircle2 />}<strong>{jobStatus === "running" ? "Jabberwock работает" : jobStatus === "cancelled" ? "Остановлено" : jobStatus === "failed" ? "Завершено с ошибкой" : "Последний запуск завершён"}</strong><small>{activity.at(-1) ? `сигнал ${formatActivityTime(activity.at(-1)!.at)}` : ""}</small></div><div className="activityList">{activity.map((event, index) => <div key={`${event.at}-${index}`} className={`activityEvent ${event.kind}`}><span /> <p>{event.message}</p></div>)}</div></aside> : null}
         {active?.last_response ? <article className="agentReply"><span><Brain /> Jabberwock</span><p>{active.last_response}</p></article> : <div className="emptyAgent"><img src="/jabberwock-icon.png" alt="" /><h2>Контекст готов</h2><p>PersonaCore передаст память и состояние задачи выбранной модели через SnarkRoute.</p></div>}
@@ -317,8 +516,8 @@ function PersonaAgent() {
         <input ref={attachmentInput} className="fileInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { if (event.target.files) void addImages(event.target.files); event.target.value = ""; }} />
         <button className="attachButton" type="button" title="Прикрепить изображение" aria-label="Прикрепить изображение" onClick={() => attachmentInput.current?.click()} disabled={!active || busy === "run"}><Paperclip /></button>
         <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} onPaste={pasteImages} placeholder="Что делаем дальше? Вставьте картинку через Ctrl+V" disabled={!active || busy === "run"} />
-        {jobStatus === "running" ? <button className="stopButton" onClick={() => void stopRun()} disabled={stopping}>{stopping ? <LoaderCircle className="spin" /> : <X />} {stopping ? "Останавливаю…" : "Остановить"}</button> : <button className="runButton" onClick={() => void run()} disabled={!active || !selectedRoute || Boolean(busy)}><Send /> Выполнить</button>}
-        {attachments.length && !selectedRoute ? <div className="imageRouteWarning">У выбранной модели нет доступного маршрута с поддержкой изображений.</div> : null}
+        {jobStatus === "running" ? <button className="stopButton" onClick={() => void stopRun()} disabled={stopping}>{stopping ? <LoaderCircle className="spin" /> : <X />} {stopping ? "Останавливаю…" : "Остановить"}</button> : <button className="runButton" onClick={() => void run()} disabled={!active || !executionSelection || Boolean(busy)}><Send /> Выполнить</button>}
+        {!autoMode && model && !routes.length ? <div className="imageRouteWarning">Модель видна в каталоге, но её runtime сейчас offline.</div> : attachments.length && !executionSelection ? <div className="imageRouteWarning">Нет доступного маршрута с поддержкой изображений.</div> : null}
       </footer>
     </main>
   </div>;
@@ -328,14 +527,24 @@ const jsonHeaders = { "Content-Type": "application/json" };
 async function api<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBase}${path}`, init);
   const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+  if (!response.ok) throw new ApiRequestError(response.status, body);
   return body as T;
 }
 function message(value: unknown) { return value instanceof Error ? value.message : String(value); }
 function acceptsImages(inputTypes?: string[]) { return (inputTypes ?? []).some((type) => type.toLowerCase().includes("image")); }
+function modelIsOffline(model: Model) { return Boolean(model.providerRoutes?.length) && model.providerRoutes!.every((route) => route.availability?.status === "unavailable" || route.availability?.configured === false); }
 function readDataUrl(file: File): Promise<string> { return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error ?? new Error("Не удалось прочитать изображение.")); reader.readAsDataURL(file); }); }
 function delay(milliseconds: number) { return new Promise((resolve) => window.setTimeout(resolve, milliseconds)); }
 function formatActivityTime(value: string) { const date = new Date(value); return Number.isNaN(date.valueOf()) ? "только что" : date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
+function autoModelSummary(trace?: AutoTrace) {
+  if (!trace?.final_model) return "Модель будет выбрана по возможностям, цене и ожидаемому числу попыток.";
+  return `Текущая модель: ${trace.final_model.display_name ?? trace.final_model.model} → ${trace.final_model.provider}. ${trace.final_model.reason}`;
+}
+function autoCostSummary(trace: AutoTrace) {
+  const calls = trace.attempts.filter((attempt) => attempt.result_status === "succeeded").length;
+  const path = trace.escalations.map((item) => `${item.from?.display_name ?? item.from?.model ?? "?"} → ${item.to?.display_name ?? item.to?.model ?? "?"}`).join(" · ");
+  return `Потрачено: ~$${trace.total_cost.toFixed(6)} · ${calls} выз. · ${trace.total_tokens.toLocaleString("ru-RU")} токенов${path ? ` · ${path}` : ""}`;
+}
 function ensureFavicon() { let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]'); if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.append(link); } return link; }
 function busyFavicon(frame: number) { const angle = (frame % 8) * 45; return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#16101c"/><circle cx="32" cy="32" r="21" fill="none" stroke="#553820" stroke-width="7"/><path d="M32 11a21 21 0 0 1 19 12" fill="none" stroke="#ffc04d" stroke-width="7" stroke-linecap="round" transform="rotate(${angle} 32 32)"/><circle cx="32" cy="32" r="6" fill="#ffb52f"/></svg>`)}`; }
 function cleanTaskText(value: string) {

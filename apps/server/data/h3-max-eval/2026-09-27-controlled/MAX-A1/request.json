@@ -1,0 +1,26 @@
+{
+  "endpoint": "minimax/h3-max/image-to-video",
+  "body": {
+    "prompt": "Use the first frame exactly for the same woman, black blouse, and neutral photo studio. She turns smoothly from left profile toward the lens. As her face reaches a three-quarter angle she says clearly in English, \"Ready. Rolling.\" with natural precise lip synchronization. She then faces the lens, becomes still, takes one soft breath, and a single camera-shutter click sounds at the end. Quiet stereo studio room tone and one subtle fabric rustle; no music, no subtitles. One continuous slow camera push-in, no cuts.",
+    "duration": 5,
+    "resolution": "768P",
+    "enable_safety_checker": true,
+    "prompt_expansion_mode": "disabled",
+    "seed": 5242017,
+    "image_url": "[data URI image/jpeg]"
+  },
+  "warnings": [],
+  "provenance": {
+    "owner": "fal",
+    "upstream": "MiniMaxAI/MiniMax-H3",
+    "variant": "h3_max",
+    "nativeCameraAdapter": false
+  },
+  "assets": [
+    {
+      "kind": "image",
+      "role": "firstFrame",
+      "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+    }
+  ]
+}

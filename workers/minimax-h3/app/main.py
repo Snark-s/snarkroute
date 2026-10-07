@@ -290,6 +290,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 {**model, **download_status.get(model.get("id"), {})}
                 for model in backend_models
             ],
+            "modifiers": [download_status["faceswap_ref2va"], download_status["authentic_cinematic_texture"]],
         }
 
     @application.get("/v1/models", dependencies=[Depends(authorize)])
@@ -300,7 +301,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "models": [
                 {**model, **download_status.get(model.get("id"), {})}
                 for model in backend_models
-            ]
+            ],
+            "modifiers": [download_status["faceswap_ref2va"], download_status["authentic_cinematic_texture"]],
         }
 
     @application.post("/v1/models/{variant}/download", dependencies=[Depends(authorize)], status_code=202)
@@ -368,6 +370,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail={"code": "idempotency_conflict", "message": "header and body idempotency keys differ"},
             )
         capability = generation.requested_capability
+        if generation.visual_modifier:
+            visual_capability = next((item for item in backend.capabilities() if item.name == "visual_lora"), None)
+            if not visual_capability or not visual_capability.available:
+                raise HTTPException(status_code=409, detail={
+                    "code": "capability_not_available",
+                    "message": visual_capability.reason if visual_capability else "Backend does not support visual LoRA modifiers",
+                    "retryable": False,
+                })
         capability_view = next((item for item in backend.capabilities() if item.name == capability), None)
         if not capability_view or not capability_view.available:
             reason = capability_view.reason if capability_view else "capability is unknown"

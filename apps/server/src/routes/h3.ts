@@ -3,7 +3,8 @@ import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
-import { createH3WorkerClient, type H3ModelVariant } from "@snarkroute/h3";
+import { createH3WorkerClient } from "@snarkroute/h3";
+import type { CameraPath } from "@snarkroute/h3";
 import { h3StudioDirectory } from "../server-paths";
 import { deleteEnvValue, writeEnvValue } from "../services/env";
 import { errorMessage } from "../services/errors";
@@ -12,6 +13,7 @@ import { h3LocalWslStatus, startH3LocalWsl, stopH3LocalWsl } from "../services/h
 import { H3QueueService, H3_QUEUE_OPERATIONS, type H3QueueAsset, type H3QueueOperation, type H3SessionMode } from "../services/h3-queue";
 import { createDefaultH3QueueRuntime, h3VastConfigStatus } from "../services/h3-session-runtime";
 import { createH3VastTemplate } from "../services/h3-vast-template";
+import { videoUpscaleCatalog } from "../services/video-upscale";
 
 const h3QueueService = new H3QueueService({ directory: h3StudioDirectory, runtime: createDefaultH3QueueRuntime() });
 
@@ -45,18 +47,21 @@ export async function registerH3Routes(app: FastifyInstance) {
   });
 
   app.get("/api/h3/queue", async () => ({ ...(await h3QueueService.getState()), vast: h3VastConfigStatus() }));
+  app.get("/api/h3/video-upscale", async () => videoUpscaleCatalog());
 
   app.get("/api/h3/models", async (_request, reply) => {
     try {
-      return await h3Client().models();
+      const local = await h3Client().models();
+      return { ...local, models: [...local.models, ...hostedH3StudioModels()] };
     } catch (error) {
-      return reply.code(503).send({ error: errorMessage(error), models: [] });
+      return { models: hostedH3StudioModels(), modifiers: [], localError: errorMessage(error) };
     }
   });
 
-  app.post<{ Params: { variant: H3ModelVariant } }>("/api/h3/models/:variant/download", async (request, reply) => {
+  app.post<{ Params: { variant: string } }>("/api/h3/models/:variant/download", async (request, reply) => {
     try {
-      return reply.code(202).send(await h3Client().downloadModel(request.params.variant));
+      if (!["h3_base", "10eros_max", "10eros_max_turbo", "faceswap_ref2va", "authentic_cinematic_texture"].includes(request.params.variant)) throw new Error("Unknown H3 model or modifier.");
+      return reply.code(202).send(await h3Client().downloadArtifact(request.params.variant as "h3_base" | "10eros_max" | "10eros_max_turbo" | "faceswap_ref2va" | "authentic_cinematic_texture"));
     } catch (error) {
       return reply.code(409).send({ error: errorMessage(error) });
     }
@@ -68,6 +73,7 @@ export async function registerH3Routes(app: FastifyInstance) {
       return reply.code(201).send(await h3QueueService.create({
         title: request.body?.title ?? "",
         operation,
+        videoUpscale: request.body?.videoUpscale,
         prompt: promptText(request.body),
         ...(promptJson(request.body?.promptJson) ? { promptJson: promptJson(request.body?.promptJson)! } : {}),
         duration: request.body?.duration,
@@ -77,6 +83,11 @@ export async function registerH3Routes(app: FastifyInstance) {
         renderMode: request.body?.renderMode,
         modelVariant: request.body?.modelVariant,
         inferenceSteps: request.body?.inferenceSteps,
+        attentionMode: request.body?.attentionMode,
+        identityTransfer: request.body?.identityTransfer,
+        visualModifier: request.body?.visualModifier ?? undefined,
+        cameraPath: request.body?.cameraPath,
+        cameraControlMode: request.body?.cameraControlMode,
         assets: Array.isArray(request.body?.assets) ? request.body.assets : []
       }));
     } catch (error) {
@@ -90,6 +101,7 @@ export async function registerH3Routes(app: FastifyInstance) {
       const updated = await h3QueueService.update(request.params.id, {
         ...(body.title === undefined ? {} : { title: body.title }),
         ...(body.operation === undefined ? {} : { operation: operationValue(body.operation) }),
+        ...(body.videoUpscale === undefined ? {} : { videoUpscale: body.videoUpscale }),
         ...(body.prompt === undefined && body.promptJson === undefined ? {} : { prompt: promptText(body as H3QueueItemBody) }),
         ...(body.promptJson === undefined ? {} : { promptJson: promptJson(body.promptJson) }),
         ...(body.duration === undefined ? {} : { duration: body.duration }),
@@ -99,6 +111,11 @@ export async function registerH3Routes(app: FastifyInstance) {
         ...(body.renderMode === undefined ? {} : { renderMode: body.renderMode }),
         ...(body.modelVariant === undefined ? {} : { modelVariant: body.modelVariant }),
         ...(body.inferenceSteps === undefined ? {} : { inferenceSteps: body.inferenceSteps }),
+        ...(body.attentionMode === undefined ? {} : { attentionMode: body.attentionMode }),
+        ...(body.identityTransfer === undefined ? {} : { identityTransfer: body.identityTransfer }),
+        ...(body.visualModifier === undefined ? {} : { visualModifier: body.visualModifier ?? undefined }),
+        ...(body.cameraPath === undefined ? {} : { cameraPath: body.cameraPath }),
+        ...(body.cameraControlMode === undefined ? {} : { cameraControlMode: body.cameraControlMode }),
         ...(body.assets === undefined ? {} : { assets: body.assets })
       });
       if (!updated) return reply.code(404).send({ error: "H3 queue item not found." });
@@ -149,7 +166,7 @@ export async function registerH3Routes(app: FastifyInstance) {
 
   app.post<{ Body: { mode?: H3SessionMode } }>("/api/h3/queue/session", async (request, reply) => {
     try {
-      const mode = request.body?.mode === "vast" ? "vast" : "saved_worker";
+      const mode = request.body?.mode === "vast" ? "vast" : request.body?.mode === "provider" ? "provider" : "saved_worker";
       return reply.code(202).send({ session: await h3QueueService.start(mode) });
     } catch (error) {
       return reply.code(409).send({ error: errorMessage(error) });
@@ -283,6 +300,7 @@ export async function registerH3Routes(app: FastifyInstance) {
 }
 
 type H3QueueItemBody = {
+  videoUpscale?: Record<string, unknown>;
   title?: string;
   operation?: H3QueueOperation;
   prompt?: string;
@@ -292,8 +310,13 @@ type H3QueueItemBody = {
   seed?: number;
   variants?: number;
   renderMode?: "preview" | "final";
-  modelVariant?: "h3_base" | "10eros_max" | "10eros_max_turbo";
+  modelVariant?: "h3_base" | "10eros_max" | "10eros_max_turbo" | "h3_max" | "h3_max_turbo";
   inferenceSteps?: number;
+  attentionMode?: "auto" | "veda" | "dense";
+  identityTransfer?: { enabled: true; strength: number };
+  visualModifier?: { id: "authentic_cinematic_texture"; enabled: true; strength: number; includeTrigger: boolean } | null;
+  cameraPath?: CameraPath;
+  cameraControlMode?: "auto" | "native" | "prompt";
   assets?: H3QueueAsset[];
 };
 
@@ -358,4 +381,45 @@ async function h3ResultPath(value: string | undefined): Promise<string> {
 }
 function validateLocalPath(value: string): void {
   if (value.includes("\0") || value.length > 1_024) throw new Error("SSH private key path is invalid.");
+}
+
+function hostedH3StudioModels() {
+  const configured = Boolean(process.env.FAL_KEY?.trim());
+  return [
+    {
+      id: "h3_max",
+      family: "h3",
+      variant: "fal-h3-max",
+      display_name: "H3 Max · Hosted (fal) · 768p $0.08/s",
+      purpose: "final",
+      default_steps: 0,
+      minimum_steps: 0,
+      maximum_steps: 0,
+      revision: "fal/minimax-h3-max",
+      weights_installed: configured,
+      hosted: true,
+      provider: "fal",
+      selectable: configured,
+      cost: { currency: "USD", unit: "second", rates: { "480P": 0.05, "768P": 0.08, "1080P": 0.16 }, referenceRates: { "480P": 0.05, "768P": 0.08, "1080P": 0.16 }, referenceInputsExtra: true },
+      capabilities: { textToVideo: "verified", firstFrame: "verified", lastFrame: "verified", semanticImage: "verified", semanticVideo: "verified", semanticAudio: "verified", faceSwapLora: "unsupported" }
+    },
+    {
+      id: "h3_max_turbo",
+      family: "h3",
+      variant: "fal-h3-max-turbo",
+      display_name: "H3 Max Turbo · Hosted (fal) · 768p $0.04/s",
+      purpose: "preview",
+      default_steps: 0,
+      minimum_steps: 0,
+      maximum_steps: 0,
+      revision: "fal/minimax-h3-max-turbo",
+      weights_installed: configured,
+      hosted: true,
+      provider: "fal",
+      selectable: configured,
+      experimental: true,
+      cost: { currency: "USD", unit: "second", rates: { "480P": 0.025, "768P": 0.04, "1080P": 0.08 } },
+      capabilities: { textToVideo: "documented", firstFrame: "documented", lastFrame: "documented", firstAndLastFrame: "documented", targetAudio: "documented", seed: "documented", promptExpansion: "documented", semanticReferences: "unsupported" }
+    }
+  ];
 }

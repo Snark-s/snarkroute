@@ -1,0 +1,14 @@
+{
+  "model": "framewise/4x-purephoto-span",
+  "scale": 4,
+  "chunk_size": 1,
+  "overlap_frames": 0,
+  "tile_size": 256,
+  "tile_overlap": 32,
+  "input_asset": "video_asset_f7a98cd6-8c0c-430f-b110-ec9ae8edc3cc",
+  "device": "cuda",
+  "output_codec": "libx264",
+  "output_container": "mp4",
+  "crf": 18,
+  "audio_handling": "copy"
+}

@@ -1,0 +1,2261 @@
+{
+  "schemaVersion": 2,
+  "stage": "RESOURCE_CONTROL_PREPARATION_ONLY",
+  "createdAt": "2026-09-30T19:36:44.89354+03:00",
+  "timezone": "Europe/Moscow",
+  "executionApproved": false,
+  "inferenceRunsThisStage": 0,
+  "modelLoadsThisStage": 0,
+  "downloadsThisStage": 0,
+  "framesExtractedThisStage": 0,
+  "outputVideosCreatedThisStage": 0,
+  "readyForUpscaleTest": false,
+  "readinessReasons": [
+    "Vimeo native CUDA job completed; full harness FAILED at worker shutdown check before normalization",
+    "Native output metadata verification failed; see native-verification.json for exact missing fields",
+    "Raw shutdown return code/active-process snapshot not recorded; cause not proven",
+    "Final owned process exit confirmed; original AAC packet identity verified independently",
+    "No retry or next candidate without separate user instruction"
+  ],
+  "source": {
+    "label": "MAX-I1",
+    "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+    "sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+    "provider": "fal",
+    "model": "fal/minimax-h3-max",
+    "jobId": "01a0e48c-d255-7df2-a10e-9fcbb4e5ac7d",
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "index": 0,
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 1344,
+          "height": 768,
+          "pix_fmt": "yuv420p",
+          "avg_frame_rate": "24/1",
+          "start_time": "0.000000",
+          "duration": "5.166667",
+          "bits_per_raw_sample": "8",
+          "nb_frames": "124"
+        },
+        {
+          "index": 1,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "32000",
+          "channels": 2,
+          "avg_frame_rate": "0/0",
+          "start_time": "0.000000",
+          "duration": "5.184000",
+          "nb_frames": "163"
+        }
+      ],
+      "format": {
+        "duration": "5.184000",
+        "size": "4826842"
+      }
+    },
+    "probeMethod": "ffprobe headers only, no decoding/count_frames/frame extraction"
+  },
+  "environment": {
+    "workerUrl": "http://127.0.0.1:8091",
+    "configured": true,
+    "workerOnline": false,
+    "modelDir": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models",
+    "modelDirResolution": "LOCAL_UPSCALE_MODEL_DIR=./models relative to worker process cwd; server root .env is not the Python worker env loader",
+    "dependencyVersionsFromDistMetadataOnly": {
+      "torch": "2.7.1+cu128",
+      "torchvision": "0.22.1+cu128",
+      "spandrel": "0.4.1",
+      "onnxruntime-gpu": "1.22.0",
+      "numpy": "2.2.6",
+      "pytest": "8.4.1",
+      "imageio-ffmpeg": "0.6.0"
+    },
+    "gpuSnapshot": {
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "totalMiB": 16384,
+      "usedMiB": 12091,
+      "nominalFreeMiB": 4293,
+      "utilizationPercent": 9,
+      "note": "Earlier read-only nvidia-smi snapshot in this stage, not a peak or budget guarantee"
+    },
+    "systemRamBytes": 34204610560
+  },
+  "inventory": [
+    {
+      "id": "nanovsr-644k-x4",
+      "display_name": "NanoVSR 644k — Fast Temporal General",
+      "architecture": "NanoVSR-644k bidirectional recurrent",
+      "architecture_family": "NanoVSR",
+      "runtime": "pytorch",
+      "runtime_adapter": "nanovsr-pytorch",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": true,
+      "context_frames": 15,
+      "recurrent": "bidirectional",
+      "inference_mode": "sequence",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "MIT",
+      "license_url": "https://github.com/filippawlicki/nanovsr/blob/main/LICENSE",
+      "license_restrictions": [],
+      "commercial_use": true,
+      "source": "Official GitHub release",
+      "openmodeldb_url": null,
+      "source_url": "https://github.com/filippawlicki/nanovsr",
+      "checkpoint_source": "https://github.com/filippawlicki/nanovsr/releases/tag/v1.0",
+      "download_url": "https://github.com/filippawlicki/nanovsr/releases/download/v1.0/nanovsr_644k.pth",
+      "checkpoint_size_bytes": 3001663,
+      "sha256": "515eec20ff589986fc0e0da18b363962b931008ebd848d0c8fb7e256ce200cf7",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 15,
+      "recommended_overlap_frames": 2,
+      "recommended_tile_size": null,
+      "spatial_tiling_supported": false,
+      "framewise_model_id": null,
+      "notes": "Official ECCV 2026 checkpoint. Designed for genuinely low-resolution inputs; no custom CUDA operators. Output is x4 and 8-bit H.264/MP4 in this MVP.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\nanovsr_644k.pth",
+      "actualBytes": 3001663,
+      "actualSha256": "515eec20ff589986fc0e0da18b363962b931008ebd848d0c8fb7e256ce200cf7",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": null,
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + custom temporal adapter",
+      "classification": "B: temporal video super-resolution",
+      "restorationOverlap": false,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "CUDA FP16 / CPU FP32",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "sequence",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": false,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "openmodeldb/gameup-v2-tscunet-small-x2",
+      "display_name": "GameUpV2 TSCUNet Small — Compressed Game Video",
+      "architecture": "TSCUNet Small, five-frame Swin-Conv-UNet",
+      "architecture_family": "TSCUNet",
+      "runtime": "onnxruntime",
+      "runtime_adapter": "tscunet-onnx",
+      "file_format": "onnx",
+      "native_scale": 2,
+      "temporal": true,
+      "context_frames": 5,
+      "recurrent": "none",
+      "inference_mode": "center-frame",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-NC-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+      "license_restrictions": [
+        "NC",
+        "SA"
+      ],
+      "commercial_use": false,
+      "source": "OpenModelDB",
+      "openmodeldb_url": "https://openmodeldb.info/models/2x-GameUpV2-TSCUNet-Small",
+      "source_url": "https://github.com/Kim2091/TSCUNet",
+      "checkpoint_source": "https://github.com/Kim2091/Kim2091-Models/releases/tag/2x-GameUpV2_TSCUNet",
+      "download_url": "https://github.com/Kim2091/Kim2091-Models/releases/download/2x-GameUpV2_TSCUNet/2x-GameUpV2_TSCUNet_Small_op17_fp16.onnx",
+      "checkpoint_size_bytes": 43760071,
+      "sha256": "e2377e0179452a66c771489039784c8e32c3820b752fc1e6af06eb6bb2b3c3f3",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 12,
+      "recommended_overlap_frames": 2,
+      "recommended_tile_size": null,
+      "spatial_tiling_supported": false,
+      "framewise_model_id": null,
+      "notes": "OpenModelDB checkpoint for temporally restoring H.264/H.265/AV1-degraded game footage. Five RGB frames are flattened into the ONNX input and the center frame is emitted. Non-commercial ShareAlike license; input dimensions are reflection-padded to multiples of 64.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\2x-GameUpV2_TSCUNet_Small_op17_fp16.onnx",
+      "actualBytes": 43760071,
+      "actualSha256": "e2377e0179452a66c771489039784c8e32c3820b752fc1e6af06eb6bb2b3c3f3",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": {
+        "input_width": 640,
+        "input_height": 360,
+        "frame_count": 6,
+        "runtime_device": "cuda",
+        "processing_seconds": 11.210810499993386,
+        "model_loading_seconds": 5.485249799996382,
+        "inference_seconds": 3.995446600019932,
+        "peak_vram_mb": null,
+        "vram_measurement": "unavailable_for_onnxruntime_under_wddm"
+      },
+      "architectureSupportedByCode": true,
+      "framework": "ONNX Runtime CUDA",
+      "classification": "B: temporal video super-resolution",
+      "restorationOverlap": true,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "Benchmark TEST ASSUMPTION: BT.709 limited -> full RGB float [0,1]",
+      "modelColor": "RGB",
+      "precision": "FP32 input/output, checkpoint advertises fp16 internals; graph dtype not independently parsed",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "center-frame",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 2688,
+        "height": 1536
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Pool cap 2 threads and aggregate affinity two logical CPUs; actual peaks/performance unknown",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": false,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false,
+        "proposedTileSize": null,
+        "proposedSpatialOverlap": null,
+        "chunkSize": 4,
+        "overlapFrames": 2,
+        "reason": "Use existing recommended spatial tile; temporal full-frame has no tiling. Smaller chunks cap CPU output accumulation, not per-window GPU activations."
+      },
+      "selectedForFutureTest": true,
+      "knownRisks": [
+        "Game/compression-restoration domain differs from natural portrait",
+        "NC/SA checkpoint labels; not a commercial-ready default",
+        "No spatial tiling; ORT/WDDM peak VRAM unavailable in worker telemetry",
+        "Pinned older ONNX should use existing adapter; latest upstream wrapper changed in April 2025"
+      ],
+      "proposedJob": {
+        "method": "POST",
+        "endpoint": "http://127.0.0.1:8092/v1/video/jobs",
+        "status": "NOT SUBMITTED; approved isolated harness only",
+        "body": {
+          "model": "openmodeldb/gameup-v2-tscunet-small-x2",
+          "scale": 2,
+          "chunk_size": 4,
+          "overlap_frames": 2,
+          "tile_size": 256,
+          "tile_overlap": 32,
+          "input_asset": "<uploaded MAX-I1 asset>",
+          "device": "cuda",
+          "output_codec": "libx264",
+          "output_container": "mp4",
+          "crf": 18,
+          "audio_handling": "copy"
+        }
+      },
+      "benchmarkPlan": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\gameup-prepared.json"
+    },
+    {
+      "id": "openmodeldb/vimeoscale-unet-x2",
+      "display_name": "VimeoScale Unet — Natural / CGI Video",
+      "architecture": "Three-frame SOFVSR optical flow with 32nf/12nb RRDB reconstruction",
+      "architecture_family": "SOFVSR",
+      "runtime": "pytorch",
+      "runtime_adapter": "sofvsr-pytorch",
+      "file_format": "pth",
+      "native_scale": 2,
+      "temporal": true,
+      "context_frames": 3,
+      "recurrent": "none",
+      "inference_mode": "center-frame",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+      "license_restrictions": [
+        "SA"
+      ],
+      "commercial_use": true,
+      "source": "OpenModelDB",
+      "openmodeldb_url": "https://openmodeldb.info/models/2x-VimeoScale-Unet",
+      "source_url": "https://github.com/JoeyBallentine/Video-Inference",
+      "checkpoint_source": "https://objectstorage.us-phoenix-1.oraclecloud.com/n/ax6ygfvpvzka/b/open-modeldb-files/o/2x-VimeoScale-Unet.pth",
+      "download_url": "https://objectstorage.us-phoenix-1.oraclecloud.com/n/ax6ygfvpvzka/b/open-modeldb-files/o/2x-VimeoScale-Unet.pth",
+      "checkpoint_size_bytes": 21938817,
+      "sha256": "d83d246f10c93057047abab15dab113075b3595eae41c6cc539e9e8f5ca5181c",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 15,
+      "recommended_overlap_frames": 1,
+      "recommended_tile_size": null,
+      "spatial_tiling_supported": false,
+      "framewise_model_id": null,
+      "notes": "Three-frame SOFVSR model for natural, CGI and motion-graphics video. The OpenModelDB card describes multiframe extraction and no strong decompression behavior. ShareAlike license.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\2x-VimeoScale-Unet.pth",
+      "actualBytes": 21938817,
+      "actualSha256": "d83d246f10c93057047abab15dab113075b3595eae41c6cc539e9e8f5ca5181c",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": {
+        "input_width": 640,
+        "input_height": 360,
+        "frame_count": 6,
+        "runtime_device": "cuda",
+        "processing_seconds": 20.74173390000942,
+        "model_loading_seconds": 8.886111599975266,
+        "inference_seconds": 11.237095899996348,
+        "peak_vram_mb": 1175.41015625,
+        "vram_measurement": "torch_peak_allocated"
+      },
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + custom temporal adapter + Spandrel RRDB reconstruction",
+      "classification": "B: temporal video super-resolution",
+      "restorationOverlap": false,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "Benchmark TEST ASSUMPTION: BT.709 limited -> full RGB float [0,1]",
+      "modelColor": "RGB",
+      "precision": "CUDA FP16 / CPU FP32",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "center-frame",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 2688,
+        "height": 1536
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Pool cap 2 threads and aggregate affinity two logical CPUs; actual peaks/performance unknown",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": false,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false,
+        "proposedTileSize": null,
+        "proposedSpatialOverlap": null,
+        "chunkSize": 3,
+        "overlapFrames": 1,
+        "reason": "Use existing recommended spatial tile; temporal full-frame has no tiling. Smaller chunks cap CPU output accumulation, not per-window GPU activations."
+      },
+      "selectedForFutureTest": true,
+      "knownRisks": [
+        "Full-frame temporal inference; spatial tiling absent; MAX-I1 VRAM unknown",
+        "Optical-flow motion/occlusion artifacts and fp16 grid precision",
+        "Natural-video suitability is candidate rationale, not verified identity preservation"
+      ],
+      "proposedJob": {
+        "method": "POST",
+        "endpoint": "http://127.0.0.1:8092/v1/video/jobs",
+        "status": "NOT SUBMITTED; approved isolated harness only",
+        "body": {
+          "model": "openmodeldb/vimeoscale-unet-x2",
+          "scale": 2,
+          "chunk_size": 3,
+          "overlap_frames": 1,
+          "tile_size": 256,
+          "tile_overlap": 32,
+          "input_asset": "<uploaded MAX-I1 asset>",
+          "device": "cuda",
+          "output_codec": "libx264",
+          "output_container": "mp4",
+          "crf": 18,
+          "audio_handling": "copy"
+        }
+      },
+      "benchmarkPlan": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\vimeo-prepared.json"
+    },
+    {
+      "id": "openmodeldb/redsval-7f-rrdb-lite-x4",
+      "display_name": "REDSVAL 7f RRDB Lite — Clean General Video",
+      "architecture": "Seven-frame SOFVSR optical flow with 32nf/12nb RRDB reconstruction",
+      "architecture_family": "SOFVSR",
+      "runtime": "pytorch",
+      "runtime_adapter": "sofvsr-pytorch",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": true,
+      "context_frames": 7,
+      "recurrent": "none",
+      "inference_mode": "center-frame",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-NC-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+      "license_restrictions": [
+        "NC",
+        "SA"
+      ],
+      "commercial_use": false,
+      "source": "OpenModelDB",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-REDSVAL-7f-RRDB-Lite",
+      "source_url": "https://github.com/JoeyBallentine/Video-Inference",
+      "checkpoint_source": "https://objectstorage.us-phoenix-1.oraclecloud.com/n/ax6ygfvpvzka/b/open-modeldb-files/o/4x-REDSVAL-7f-RRDB-Lite.pth",
+      "download_url": "https://objectstorage.us-phoenix-1.oraclecloud.com/n/ax6ygfvpvzka/b/open-modeldb-files/o/4x-REDSVAL-7f-RRDB-Lite.pth",
+      "checkpoint_size_bytes": 22343759,
+      "sha256": "2d65f1f6733437e1870c0d147279b07494d7ed538bf1bda0ed2e1257e4ed8c4c",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 12,
+      "recommended_overlap_frames": 3,
+      "recommended_tile_size": null,
+      "spatial_tiling_supported": false,
+      "framewise_model_id": null,
+      "notes": "Seven-frame SOFVSR model trained on the REDS validation set with varied downscaling and occasional JPEG degradation. Non-commercial ShareAlike license.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\4x-REDSVAL-7f-RRDB-Lite.pth",
+      "actualBytes": 22343759,
+      "actualSha256": "2d65f1f6733437e1870c0d147279b07494d7ed538bf1bda0ed2e1257e4ed8c4c",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": {
+        "input_width": 320,
+        "input_height": 180,
+        "frame_count": 6,
+        "runtime_device": "cuda",
+        "processing_seconds": 14.362398099998245,
+        "model_loading_seconds": 1.2599413999996614,
+        "inference_seconds": 12.555695199989714,
+        "peak_vram_mb": 1732.10546875,
+        "vram_measurement": "torch_peak_allocated"
+      },
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + custom temporal adapter + Spandrel RRDB reconstruction",
+      "classification": "B: temporal video super-resolution",
+      "restorationOverlap": false,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "CUDA FP16 / CPU FP32",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "center-frame",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": false,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "openmodeldb/video-tssm-x3",
+      "display_name": "Video TSSM — Animation / Cartoon",
+      "architecture": "SOFVSR optical flow with original luminance SRNet",
+      "architecture_family": "SOFVSR",
+      "runtime": "pytorch",
+      "runtime_adapter": "sofvsr-pytorch",
+      "file_format": "pth",
+      "native_scale": 3,
+      "temporal": true,
+      "context_frames": 3,
+      "recurrent": "none",
+      "inference_mode": "center-frame",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24; temporal inference on luminance"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-NC-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+      "license_restrictions": [
+        "NC",
+        "SA"
+      ],
+      "commercial_use": false,
+      "source": "OpenModelDB",
+      "openmodeldb_url": "https://openmodeldb.info/models/3x-Video-TSSM",
+      "source_url": "https://github.com/JoeyBallentine/Video-Inference",
+      "checkpoint_source": "https://objectstorage.us-phoenix-1.oraclecloud.com/n/ax6ygfvpvzka/b/open-modeldb-files/o/3x-Video-TSSM.pth",
+      "download_url": "https://objectstorage.us-phoenix-1.oraclecloud.com/n/ax6ygfvpvzka/b/open-modeldb-files/o/3x-Video-TSSM.pth",
+      "checkpoint_size_bytes": 4730412,
+      "sha256": "3ed58c98012ee903fcda6c26fd28f27bd2e3560a10d4904fb384b3de6f7c52fb",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 18,
+      "recommended_overlap_frames": 1,
+      "recommended_tile_size": null,
+      "spatial_tiling_supported": false,
+      "framewise_model_id": null,
+      "notes": "Three-frame luminance SOFVSR checkpoint trained from SpongeBob DVD/Blu-ray scene pairs. Chroma comes from bicubic upscaling of the center frame. Non-commercial ShareAlike license.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\3x-Video-TSSM.pth",
+      "actualBytes": 4730412,
+      "actualSha256": "3ed58c98012ee903fcda6c26fd28f27bd2e3560a10d4904fb384b3de6f7c52fb",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": {
+        "input_width": 426,
+        "input_height": 240,
+        "frame_count": 6,
+        "runtime_device": "cuda",
+        "processing_seconds": 2.342148499999894,
+        "model_loading_seconds": 0.21743340001557954,
+        "inference_seconds": 1.5698187000234611,
+        "peak_vram_mb": 616.65771484375,
+        "vram_measurement": "torch_peak_allocated"
+      },
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + custom temporal adapter",
+      "classification": "B: temporal video super-resolution",
+      "restorationOverlap": false,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "limited BT.601-like luminance with center-frame bicubic chroma",
+      "precision": "CUDA FP16 / CPU FP32",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "center-frame",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 4032,
+        "height": 2304
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": false,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "framewise/4x-realesrgan-x4plus",
+      "display_name": "Framewise — RealESRGAN x4Plus — Photo / General",
+      "architecture": "Framewise RRDBNet-23",
+      "architecture_family": "RRDBNet-23",
+      "runtime": "pytorch",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "BSD-3-Clause",
+      "license_url": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-realesrgan-x4plus",
+      "source_url": "https://openmodeldb.info/models/4x-realesrgan-x4plus",
+      "checkpoint_source": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+      "download_url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
+      "checkpoint_size_bytes": 67040989,
+      "sha256": "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 256,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-realesrgan-x4plus",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\RealESRGAN_x4plus.pth",
+      "actualBytes": 67040989,
+      "actualSha256": "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": null,
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + Spandrel",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": true,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, full-frame tile blending, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "framewise/4x-realesrgan-x4plus-anime-6b",
+      "display_name": "Framewise — RealESRGAN x4Plus Anime 6B — CGI / Illustration",
+      "architecture": "Framewise RRDBNet-6",
+      "architecture_family": "RRDBNet-6",
+      "runtime": "pytorch",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "BSD-3-Clause",
+      "license_url": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-realesrgan-x4plus-anime-6b",
+      "source_url": "https://openmodeldb.info/models/4x-realesrgan-x4plus-anime-6b",
+      "checkpoint_source": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
+      "download_url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.4/RealESRGAN_x4plus_anime_6B.pth",
+      "checkpoint_size_bytes": 17938799,
+      "sha256": "f872d837d3c90ed2e05227bed711af5671a6fd1c9f7d7e91c911a61f155e99da",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 384,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-realesrgan-x4plus-anime-6b",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": false,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\RealESRGAN_x4plus_anime_6B.pth",
+      "actualBytes": null,
+      "actualSha256": null,
+      "weightIntegrityMatches": false,
+      "installed": false,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "missing_weights",
+      "historicalCudaEvidence": null,
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + Spandrel",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": false,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, full-frame tile blending, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "framewise/4x-realesr-general-x4v3",
+      "display_name": "Framewise — RealESR General x4v3 — Fast General",
+      "architecture": "Framewise SRVGGNetCompact-32",
+      "architecture_family": "SRVGGNetCompact-32",
+      "runtime": "pytorch",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "BSD-3-Clause",
+      "license_url": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-realesr-general-x4v3",
+      "source_url": "https://openmodeldb.info/models/4x-realesr-general-x4v3",
+      "checkpoint_source": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
+      "download_url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth",
+      "checkpoint_size_bytes": 4885111,
+      "sha256": "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 512,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-realesr-general-x4v3",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": false,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\realesr-general-x4v3.pth",
+      "actualBytes": null,
+      "actualSha256": null,
+      "weightIntegrityMatches": false,
+      "installed": false,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "missing_weights",
+      "historicalCudaEvidence": null,
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + Spandrel",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": true,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, full-frame tile blending, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "framewise/4x-realesr-general-wdn-x4v3",
+      "display_name": "Framewise — RealESR General WDN x4v3 — Denoise / Restoration",
+      "architecture": "Framewise SRVGGNetCompact-32",
+      "architecture_family": "SRVGGNetCompact-32",
+      "runtime": "pytorch",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "BSD-3-Clause",
+      "license_url": "https://github.com/xinntao/Real-ESRGAN/blob/master/LICENSE",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-realesr-general-wdn-x4v3",
+      "source_url": "https://openmodeldb.info/models/4x-realesr-general-wdn-x4v3",
+      "checkpoint_source": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-wdn-x4v3.pth",
+      "download_url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-wdn-x4v3.pth",
+      "checkpoint_size_bytes": 4885111,
+      "sha256": "1641f8c4464b9f097c9fdda5589273713f67cf59f3d909e0bd688f0cee269dca",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 512,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-realesr-general-wdn-x4v3",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": false,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\realesr-general-wdn-x4v3.pth",
+      "actualBytes": null,
+      "actualSha256": null,
+      "weightIntegrityMatches": false,
+      "installed": false,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "missing_weights",
+      "historicalCudaEvidence": null,
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + Spandrel",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": true,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, full-frame tile blending, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "framewise/4x-purephoto-span",
+      "display_name": "Framewise — PurePhoto SPAN — Clean Photography",
+      "architecture": "Framewise SPAN-48",
+      "architecture_family": "SPAN-48",
+      "runtime": "pytorch",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0/legalcode",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-PurePhoto-span",
+      "source_url": "https://openmodeldb.info/models/4x-PurePhoto-span",
+      "checkpoint_source": "https://github.com/starinspace/StarinspaceUpscale/releases/download/Models/4xPurePhoto-Span.pth",
+      "download_url": "https://github.com/starinspace/StarinspaceUpscale/releases/download/Models/4xPurePhoto-Span.pth",
+      "checkpoint_size_bytes": 9016490,
+      "sha256": "c689eec59771ed3eaffc10eea933c44fdb9131f83251c51c5bab4cae7c4d3bf2",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 384,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-purephoto-span",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\4xPurePhoto-Span.pth",
+      "actualBytes": 9016490,
+      "actualSha256": "c689eec59771ed3eaffc10eea933c44fdb9131f83251c51c5bab4cae7c4d3bf2",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": {
+        "input_width": 320,
+        "input_height": 180,
+        "frame_count": 6,
+        "runtime_device": "cuda",
+        "processing_seconds": 2.9380833999894094,
+        "model_loading_seconds": 0.6011781000124756,
+        "inference_seconds": 1.9242139000270981,
+        "peak_vram_mb": 93.88330078125,
+        "vram_measurement": "torch_peak_allocated"
+      },
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + Spandrel",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": false,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "Benchmark TEST ASSUMPTION: BT.709 limited -> full RGB float [0,1]",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Pool cap 2 threads and aggregate affinity two logical CPUs; actual peaks/performance unknown",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false,
+        "proposedTileSize": 256,
+        "proposedSpatialOverlap": 32,
+        "chunkSize": 1,
+        "overlapFrames": 0,
+        "reason": "Use existing recommended spatial tile; temporal full-frame has no tiling. Smaller chunks cap CPU output accumulation, not per-window GPU activations."
+      },
+      "selectedForFutureTest": true,
+      "knownRisks": [
+        "Frame-independent: flicker and invented fine detail possible",
+        "4x native pixels cost more than 2x; selected to provide a mature tiled photo spatial baseline",
+        "CPU full-size blend arrays and 4x encode; tile seams possible"
+      ],
+      "proposedJob": {
+        "method": "POST",
+        "endpoint": "http://127.0.0.1:8092/v1/video/jobs",
+        "status": "NOT SUBMITTED; approved isolated harness only",
+        "body": {
+          "model": "framewise/4x-purephoto-span",
+          "scale": 4,
+          "chunk_size": 1,
+          "overlap_frames": 0,
+          "tile_size": 256,
+          "tile_overlap": 32,
+          "input_asset": "<uploaded MAX-I1 asset>",
+          "device": "cuda",
+          "output_codec": "libx264",
+          "output_container": "mp4",
+          "crf": 18,
+          "audio_handling": "copy"
+        }
+      },
+      "benchmarkPlan": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\span-prepared.json"
+    },
+    {
+      "id": "framewise/4x-nomoswebphoto-realplksr",
+      "display_name": "Framewise — NomosWebPhoto RealPLKSR — Web Photo Restoration",
+      "architecture": "Framewise RealPLKSR-64x28",
+      "architecture_family": "RealPLKSR-64x28",
+      "runtime": "pytorch",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/legalcode",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-NomosWebPhoto-RealPLKSR",
+      "source_url": "https://openmodeldb.info/models/4x-NomosWebPhoto-RealPLKSR",
+      "checkpoint_source": "https://github.com/Phhofm/models/releases/download/4xNomosWebPhoto_RealPLKSR/4xNomosWebPhoto_RealPLKSR.pth",
+      "download_url": "https://github.com/Phhofm/models/releases/download/4xNomosWebPhoto_RealPLKSR/4xNomosWebPhoto_RealPLKSR.pth",
+      "checkpoint_size_bytes": 29683482,
+      "sha256": "a9db66c9b674c6a5025b6ef3bee71a57c33b8605d8a2de0980470f89002efbbe",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 256,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-nomoswebphoto-realplksr",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\4xNomosWebPhoto_RealPLKSR.pth",
+      "actualBytes": 29683482,
+      "actualSha256": "a9db66c9b674c6a5025b6ef3bee71a57c33b8605d8a2de0980470f89002efbbe",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": null,
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + Spandrel",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": true,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, full-frame tile blending, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "framewise/4x-ultrasharp-v2-dat2-onnx",
+      "display_name": "Framewise — UltraSharpV2 DAT2 — AI / Illustration / Text",
+      "architecture": "Framewise DAT2-ONNX",
+      "architecture_family": "DAT2-ONNX",
+      "runtime": "onnxruntime",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "onnx",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-NC-SA-4.0",
+      "license_url": "https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-UltraSharpV2",
+      "source_url": "https://openmodeldb.info/models/4x-UltraSharpV2",
+      "checkpoint_source": "https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2_fp32_op17.onnx?download=true",
+      "download_url": "https://huggingface.co/Kim2091/UltraSharpV2/resolve/main/4x-UltraSharpV2_fp32_op17.onnx?download=true",
+      "checkpoint_size_bytes": 51800517,
+      "sha256": "6c0201e3403745f39a9aa5273c50ed084cf6c4af5a71a4654c30252cf19bf0a5",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 128,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-ultrasharp-v2-dat2-onnx",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\4x-UltraSharpV2_fp32_op17.onnx",
+      "actualBytes": 51800517,
+      "actualSha256": "6c0201e3403745f39a9aa5273c50ed084cf6c4af5a71a4654c30252cf19bf0a5",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": null,
+      "architectureSupportedByCode": true,
+      "framework": "ONNX Runtime CUDA",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": true,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, full-frame tile blending, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "framewise/4x-lexica-hat",
+      "display_name": "Framewise — Lexica HAT — AI-Generated Imagery",
+      "architecture": "Framewise HAT",
+      "architecture_family": "HAT",
+      "runtime": "pytorch",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/legalcode",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-LexicaHAT",
+      "source_url": "https://openmodeldb.info/models/4x-LexicaHAT",
+      "checkpoint_source": "https://raw.githubusercontent.com/Phhofm/models/main/4xLexicaHAT/4xLexicaHAT.pth",
+      "download_url": "https://raw.githubusercontent.com/Phhofm/models/main/4xLexicaHAT/4xLexicaHAT.pth",
+      "checkpoint_size_bytes": 85149569,
+      "sha256": "f3441f602f221ae111253b72ccb561e9f7a1a3dc84ab27923edea0a9581ea1dd",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 128,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-lexica-hat",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\4xLexicaHAT.pth",
+      "actualBytes": 85149569,
+      "actualSha256": "f3441f602f221ae111253b72ccb561e9f7a1a3dc84ab27923edea0a9581ea1dd",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": null,
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + Spandrel",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": false,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, full-frame tile blending, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "framewise/4x-hfa2k-ludvae-grl-small",
+      "display_name": "Framewise — HFA2k LUDVAE GRL Small — Anime Video Frames",
+      "architecture": "Framewise GRL-small",
+      "architecture_family": "GRL-small",
+      "runtime": "pytorch",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/legalcode",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-HFA2kLUDVAEGRL-small",
+      "source_url": "https://openmodeldb.info/models/4x-HFA2kLUDVAEGRL-small",
+      "checkpoint_source": "https://raw.githubusercontent.com/Phhofm/models/main/4xHFA2kLUDVAEGRL_small/4xHFA2kLUDVAEGRL_small.pth",
+      "download_url": "https://raw.githubusercontent.com/Phhofm/models/main/4xHFA2kLUDVAEGRL_small/4xHFA2kLUDVAEGRL_small.pth",
+      "checkpoint_size_bytes": 31569449,
+      "sha256": "7c26193ced52e4814c447a75ad6c40d4bdb123185151a6fd03037c97661f9d3b",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 128,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-hfa2k-ludvae-grl-small",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\4xHFA2kLUDVAEGRL_small.pth",
+      "actualBytes": 31569449,
+      "actualSha256": "7c26193ced52e4814c447a75ad6c40d4bdb123185151a6fd03037c97661f9d3b",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": {
+        "input_width": 320,
+        "input_height": 180,
+        "frame_count": 6,
+        "runtime_device": "cuda",
+        "processing_seconds": 9.524208599992562,
+        "model_loading_seconds": 2.223018599994248,
+        "inference_seconds": 6.745605000003707,
+        "peak_vram_mb": 188.7197265625,
+        "vram_measurement": "torch_peak_allocated"
+      },
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + Spandrel",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": true,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, full-frame tile blending, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "framewise/4x-hfa2k-ludvae-swinir-light",
+      "display_name": "Framewise — HFA2k LUDVAE SwinIR Light — Compressed Video Frames",
+      "architecture": "Framewise SwinIR-light",
+      "architecture_family": "SwinIR-light",
+      "runtime": "pytorch",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/legalcode",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-HFA2kLUDVAESwinIR-light",
+      "source_url": "https://openmodeldb.info/models/4x-HFA2kLUDVAESwinIR-light",
+      "checkpoint_source": "https://raw.githubusercontent.com/Phhofm/models/main/4xHFA2kLUDVAESwinIR_light/4xHFA2kLUDVAESwinIR_light.pth",
+      "download_url": "https://raw.githubusercontent.com/Phhofm/models/main/4xHFA2kLUDVAESwinIR_light/4xHFA2kLUDVAESwinIR_light.pth",
+      "checkpoint_size_bytes": 17225509,
+      "sha256": "6563dd659ef2bf15cd594de243d4eee6cb41e66c43ab3df58c5be8fd2e3b5735",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 192,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-hfa2k-ludvae-swinir-light",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\4xHFA2kLUDVAESwinIR_light.pth",
+      "actualBytes": 17225509,
+      "actualSha256": "6563dd659ef2bf15cd594de243d4eee6cb41e66c43ab3df58c5be8fd2e3b5735",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": null,
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + Spandrel",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": true,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, full-frame tile blending, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    },
+    {
+      "id": "framewise/4x-realwebphoto-v2-rgt-s",
+      "display_name": "Framewise — RealWebPhoto v2 RGT-S — Web Compression Restoration",
+      "architecture": "Framewise RGT-S",
+      "architecture_family": "RGT-S",
+      "runtime": "pytorch",
+      "runtime_adapter": "framewise-image-runtime",
+      "file_format": "pth",
+      "native_scale": 4,
+      "temporal": false,
+      "context_frames": 1,
+      "recurrent": "none",
+      "inference_mode": "framewise",
+      "supported_pixel_formats": [
+        "8-bit YUV/RGB decoded to RGB24"
+      ],
+      "supported_content_types": [
+        "video/mp4",
+        "video/quicktime",
+        "video/webm",
+        "video/x-matroska"
+      ],
+      "supported_output_codecs": [
+        "libx264"
+      ],
+      "supported_output_containers": [
+        "mp4"
+      ],
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/legalcode",
+      "license_restrictions": [],
+      "commercial_use": null,
+      "source": "local_upscale registry",
+      "openmodeldb_url": "https://openmodeldb.info/models/4x-RealWebPhoto-v2-rgt-s",
+      "source_url": "https://openmodeldb.info/models/4x-RealWebPhoto-v2-rgt-s",
+      "checkpoint_source": "https://github.com/Phhofm/models/releases/download/4xRealWebPhoto_v2_rgt_s/4xRealWebPhoto_v2_rtg_s.pth",
+      "download_url": "https://github.com/Phhofm/models/releases/download/4xRealWebPhoto_v2_rgt_s/4xRealWebPhoto_v2_rtg_s.pth",
+      "checkpoint_size_bytes": 135976722,
+      "sha256": "fdfacefe9e6d98df0423703ba373439fc257ab2f74035b3972ff3863eb207165",
+      "estimated_vram_mb": null,
+      "recommended_chunk_size": 1,
+      "recommended_overlap_frames": 0,
+      "recommended_tile_size": 128,
+      "spatial_tiling_supported": true,
+      "framewise_model_id": "4x-realwebphoto-v2-rgt-s",
+      "notes": "Framewise baseline using the existing local_upscale runtime; temporal context is not used.",
+      "weights_installed": true,
+      "modelFile": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\models\\4xRealWebPhoto_v2_rgt_s.pth",
+      "actualBytes": 135976722,
+      "actualSha256": "fdfacefe9e6d98df0423703ba373439fc257ab2f74035b3972ff3863eb207165",
+      "weightIntegrityMatches": true,
+      "installed": true,
+      "configured": "Server worker URL/token configured; worker offline; cwd/env launch still required",
+      "workerOnline": false,
+      "verificationStatus": "installed / MAX-I1 unverified",
+      "historicalCudaEvidence": null,
+      "architectureSupportedByCode": true,
+      "framework": "PyTorch + Spandrel",
+      "classification": "A: frame-independent image upscale exposed as video",
+      "restorationOverlap": true,
+      "videoBitDepth": 8,
+      "videoAlphaSupport": false,
+      "inputColor": "RGB full-range float [0,1] after RGB24 decode; input primaries/range assumptions unresolved",
+      "modelColor": "RGB",
+      "precision": "Current image path FP32; no half() or autocast",
+      "cudaSupport": "Implemented, packages installed; current execution not checked",
+      "batch": {
+        "batchSize": 1,
+        "mode": "one image/tile at a time",
+        "chunkIsNotParallelBatch": true
+      },
+      "nativeOutput": {
+        "width": 5376,
+        "height": 3072
+      },
+      "comparisonOutput": {
+        "width": 2560,
+        "height": 1440,
+        "contentWidth": 2520,
+        "contentHeight": 1440,
+        "padLeft": 20,
+        "padRight": 20
+      },
+      "expectedVramMiB": null,
+      "expectedRamMiB": null,
+      "expectedRuntimeSeconds124Frames": null,
+      "expectedCpuLoad": "Potentially high: CPU decode, numpy preprocessing, full-frame tile blending, and unbounded libx264 native encode; no current thread cap",
+      "expectedGpuLoad": "Compute-intensive CUDA inference; utilization and contention unknown",
+      "tiling": {
+        "supported": true,
+        "overlapUnits": "input pixels for spatial, frames for temporal",
+        "automaticOomRetry": false
+      },
+      "selectedForFutureTest": false,
+      "knownRisks": []
+    }
+  ],
+  "inventorySummary": {
+    "registeredVideoModels": 16,
+    "temporalModels": 5,
+    "framewiseModels": 11,
+    "installedWeights": 13,
+    "missingWeights": [
+      "framewise/4x-realesrgan-x4plus-anime-6b",
+      "framewise/4x-realesr-general-x4v3",
+      "framewise/4x-realesr-general-wdn-x4v3"
+    ],
+    "allInstalledSizesAndHashesMatch": true
+  },
+  "historicalEvidence": {
+    "path": "reports/local-video-upscale/openmodeldb-2026-08-24/performance-report.json",
+    "generatedAt": "2026-08-24T18:40:39Z",
+    "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU, 610.88, 16384 MiB",
+    "limitation": "Only six frames at tiny inputs, not MAX-I1; no extrapolated peak/runtime guarantee; no current source revision hashes in old evidence"
+  },
+  "candidateOrder": [
+    "openmodeldb/vimeoscale-unet-x2",
+    "framewise/4x-purephoto-span",
+    "openmodeldb/gameup-v2-tscunet-small-x2"
+  ],
+  "reserveCandidate": {
+    "id": "openmodeldb/redsval-7f-rrdb-lite-x4",
+    "reason": "7-frame full-frame 4x output; unavailable tiling, greater activation/output costs and NC; postpone until 2x resource/quality results"
+  },
+  "excludedFromFirstComparison": [
+    {
+      "id": "nanovsr-644k-x4",
+      "reason": "Genuinely low-resolution input design, 4x/chunked recurrence, no spatial tiling; source HD increases cost"
+    },
+    {
+      "id": "openmodeldb/video-tssm-x3",
+      "reason": "Cartoon training and luminance-only inference/bicubic chroma; mismatched natural portrait"
+    },
+    {
+      "id": "framewise/4x-hfa2k-ludvae-grl-small",
+      "reason": "Installed alternative, but slower historical fixture and overlaps spatial baseline; no need to expand zoo"
+    }
+  ],
+  "comparisonPlan": {
+    "target": [
+      2560,
+      1440
+    ],
+    "content": [
+      2520,
+      1440
+    ],
+    "method": "fit to 7:4 at 1440 tall, Lanczos downsample, pad 20 px each side, SAR1; never stretch/crop",
+    "nativeOutputs": {
+      "2x": [
+        2688,
+        1536
+      ],
+      "3x": [
+        4032,
+        2304
+      ],
+      "4x": [
+        5376,
+        3072
+      ]
+    },
+    "baseline": "Original uses same assumed color transform, Lanczos geometry and final codec for display; retain original MP4 too",
+    "currentWorker": "Benchmark-only native streaming path plus isolated-harness normalization; ordinary worker defaults preserved",
+    "encodePlan": "Native existing libx264 CRF18; normalized delivery CRF18 same preset/thread cap for all; document second-encode bias, use native crops for model detail and optionally lossless native CRF0 only with separate CPU/disk budget approval",
+    "contactSheet": {
+      "rows": [
+        "Original normalized baseline",
+        "openmodeldb/vimeoscale-unet-x2",
+        "framewise/4x-purephoto-span",
+        "openmodeldb/gameup-v2-tscunet-small-x2"
+      ],
+      "columnsPercent": [
+        0,
+        25,
+        50,
+        75,
+        100
+      ],
+      "sampleFrames": [
+        0,
+        31,
+        62,
+        92,
+        123
+      ]
+    },
+    "nativeCrops": [
+      "eyes",
+      "hair",
+      "lips",
+      "necklace",
+      "clothing edge",
+      "background stand/edge"
+    ],
+    "identityReview": [
+      "eyelashes",
+      "eyebrows",
+      "nose",
+      "jawline",
+      "hairline",
+      "earrings",
+      "pendant"
+    ],
+    "temporalReview": [
+      "Normal-speed review first, slow playback second; no still-frame-only winner",
+      "entire real-time and slow playback",
+      "flicker",
+      "crawling",
+      "shimmer",
+      "edge wobble",
+      "texture boiling",
+      "eye/jewelry/hair/background instability",
+      "chunk boundaries"
+    ],
+    "detailReview": [
+      "recovered edges",
+      "halos/ringing",
+      "fake pores/eyelashes/hair",
+      "plastic/denoise smearing",
+      "compression amplification"
+    ],
+    "metricRule": "No HR ground truth; SSIM/LPIPS/frame-differences/frequency only support human review; learned metrics also need resource approval",
+    "runs": "One approved run/candidate, no prompt, no regeneration, no warmup or automatic retry; OOM/failure final unless user approves a change"
+  },
+  "audio": {
+    "currentCommand": [
+      "-map",
+      "1:a:0?",
+      "-c:a",
+      "copy"
+    ],
+    "planned": "Copy source AAC into native and normalized outputs; no generation/re-encode, do not use -shortest because original audio is 17ms longer",
+    "verificationLater": [
+      "encoded AAC packet SHA compare",
+      "timestamps/duration",
+      "cue/sync listening"
+    ],
+    "currentAudioPreservedFlag": "Stream existence plus copy mode only, not byte-level proof"
+  },
+  "color": {
+    "sourceMetadata": {
+      "color_range": null,
+      "color_space": null,
+      "color_transfer": null,
+      "color_primaries": null
+    },
+    "currentDecode": "Implicit ffmpeg YUV -> RGB24; no explicit input matrix/range/transfer",
+    "currentEncode": "RGB full -> limited BT.709 YUV420P, tags bt709",
+    "proposal": "Choose/log common SDR BT.709 limited input assumption for this untagged H264; explicit decode to RGB full [0,1], explicit final limited BT709 encode; no gamma/contrast/denoise changes",
+    "assumptionNotMeasurement": true,
+    "hdr10bitAlpha": "Not supported by current 8bit video pipeline"
+  },
+  "resourcePlan": {
+    "parallelJobs": 1,
+    "freshWorkerPerCandidate": true,
+    "cpuThreadProposal": {
+      "decoder": 2,
+      "encoder": 2,
+      "ffmpegFilter": 2,
+      "ompMkl": 2,
+      "torchCpu": 2,
+      "currentlySupportedJobFields": false,
+      "implementedBenchmarkOnly": true
+    },
+    "gpuFallback": "Explicit CUDA requested; CPU EP may be registered implicitly by ORT but CPU graph assignment prohibited; fallback disabled before first constructor load and at runtime; completed provider profile must be exclusively CUDA",
+    "telemetryLater": [
+      "cold model load",
+      "inference",
+      "decode",
+      "preprocess",
+      "resize",
+      "encode",
+      "mux",
+      "wall time",
+      "torch allocated/reserved",
+      "ORT external GPU polling with WDDM limits",
+      "peak RSS RAM",
+      "CPU process tree",
+      "video bytes/SHA",
+      "wall seconds/source video second"
+    ],
+    "knownBufferSizesMiB": {
+      "oneSourceRgb24Frame": 2.953125,
+      "one2xRgb24Frame": 11.8125,
+      "one4xRgb24Frame": 47.25,
+      "full4xSpatialFloatAccumulator": 189.0,
+      "full4xSpatialFloatWeightMap": 63.0
+    },
+    "expectedPeaks": "unknown; buffers/weight size do not establish activation peak or encoder total RSS",
+    "recovery": "Stop on OOM; no tile retry, CPU fallback or second model without approved plan"
+  },
+  "uiArchitecture": {
+    "path": "Model Gateway -> local_video_upscale adapter -> shared worker /v1/video -> registry/runtime/pipeline",
+    "ui": "NodeParamsController generic manifest parameter panel with model catalog",
+    "availability": "Live weights presence is availability, not execution verification; mock marks installed without real weights",
+    "observations": [
+      "README still describes image-only MVP despite implemented video API",
+      "catalog default overlap2 is invalid for 7f RRDB minimum3; selected templates override explicitly",
+      "offline worker catalog load returns no live candidates; disk inventory distinct"
+    ],
+    "changesThisStage": "No UI/backend/runtime/capability modifications; report distinguishes installed/unverified/missing"
+  },
+  "checks": {
+    "pythonNonInferenceTests": 6,
+    "adapterMockTests": 2,
+    "adapterBuild": "passed"
+  },
+  "sourcesReviewed": [
+    "https://openmodeldb.info/models/2x-GameUpV2-TSCUNet-Small",
+    "https://openmodeldb.info/models/2x-VimeoScale-Unet",
+    "https://openmodeldb.info/models/4x-REDSVAL-7f-RRDB-Lite",
+    "https://openmodeldb.info/models/3x-Video-TSSM",
+    "https://openmodeldb.info/models/4x-PurePhoto-span",
+    "https://github.com/filippawlicki/nanovsr",
+    "https://github.com/Kim2091/TSCUNet",
+    "https://github.com/JoeyBallentine/Video-Inference"
+  ],
+  "updatedAt": "2026-09-30T21:48:23.010663+03:00",
+  "readinessMeaning": "Implementation preparation ready; execution requires separate candidate approval and fresh live prechecks. No present CUDA/model execution verification.",
+  "resourceControlPreparation": {
+    "title": "RESOURCE-CONTROL PREPARATION",
+    "preparedAt": "2026-09-30T21:48:23.010663+03:00",
+    "readyForUpscaleTest": true,
+    "executionApproved": false,
+    "executionCounts": {
+      "workerStarts": 0,
+      "modelLoads": 0,
+      "cudaContexts": 0,
+      "inferenceRuns": 0,
+      "warmups": 0,
+      "downloads": 0,
+      "videoRenders": 0,
+      "baselineRenders": 0,
+      "contactSheets": 0
+    },
+    "candidateOrder": [
+      "vimeo",
+      "span",
+      "gameup"
+    ],
+    "entrypoint": "Y:\\Процесс\\SnarkRoute\\workers\\local-upscale\\scripts\\run_video_bakeoff.py",
+    "launchPolicy": "Default plan-only. --execute requires matching --approve-candidate after separate human authorization. Never loop over candidates with --execute.",
+    "workerUrl": "http://127.0.0.1:8092",
+    "environmentPolicy": "Settings reads process environment, not dotenv; existing model directory explicit, session data isolated, no new env file or root hosted-provider env loading",
+    "cpu": {
+      "poolThreadsMax": 2,
+      "aggregateAffinityLogicalCpus": 2,
+      "ffmpegDecode": 2,
+      "ffmpegEncode": 2,
+      "ffmpegFilter": 2,
+      "ffmpegComplexFilter": 2,
+      "resize": "Lanczos under filter cap and job affinity",
+      "omp": 2,
+      "mkl": 2,
+      "openblas": 2,
+      "numexpr": 2,
+      "torchIntraOp": 2,
+      "torchInterOp": 1,
+      "ortIntraOp": 2,
+      "ortInterOp": 1,
+      "ortExecution": "sequential; spinning disabled"
+    },
+    "locks": {
+      "global": "controlled/active.lock exclusive create; no automatic stale recovery",
+      "attempt": "controlled/<candidate>.attempt.json persistent exclusive create; no retry even after BLOCKED/FAILED",
+      "worker": "exactly one pinned job/lifetime including failures; image jobs disabled",
+      "cleanupFailure": "retain active.lock if owned process exit cannot be verified"
+    },
+    "isolation": "Fresh private-token localhost one-worker process/candidate; Windows Job Object affinity/kill-on-close; caches discarded by process exit before normalization; no foreign process termination",
+    "gpu": {
+      "device": "cuda",
+      "selectedPhysicalGpu": 0,
+      "preModelFreeMiB": 8192,
+      "runtimeFreeMiB": 512,
+      "query": "read-only nvidia-smi before startup/submission/model load",
+      "allocationCaveat": "System use/free is not model allocation; torch peaks do not represent ORT; process/context exit checked, system VRAM delta not attributable under WDDM",
+      "ortConstructorNoRetry": "Reviewed ORT 1.22.0 subclass disables fallback before first session load; other versions fail closed; implicitly registered CPU EP permitted, CPU graph execution prohibited"
+    },
+    "guards": {
+      "processCpuPercentOneCore": 180,
+      "totalCpuPercent": 85,
+      "sustainedSeconds": 10,
+      "samplingSeconds": 2,
+      "minAvailableRamMiB": 4096,
+      "configuration": "LOCAL_VIDEO_BENCHMARK_* env; finite positive thresholds; no automatic reductions"
+    },
+    "color": {
+      "label": "TEST ASSUMPTION",
+      "source": "MAX-I1 treated as SDR BT.709 limited-range YUV; tags absent, not a measured fact",
+      "decode": "Explicit in_color_matrix=bt709:in_range=tv:out_range=full -> RGB24 -> model float [0,1]",
+      "model": "RGB, no gamma/contrast/saturation changes",
+      "encode": "RGB full -> limited BT.709 YUV420P, explicit bt709 primaries/trc/space, tv range"
+    },
+    "normalization": {
+      "content": [
+        2520,
+        1440
+      ],
+      "canvas": [
+        2560,
+        1440
+      ],
+      "padLeft": 20,
+      "padRight": 20,
+      "sar": 1,
+      "method": "Lanczos in pinned full RGB, pad RGB, explicit BT.709 encode; no crop/stretch",
+      "nativeSeparate": true,
+      "baseline": "command plan only; later use identical OwnedSession/CPU environment",
+      "encodeGenerationCaveat": "Candidates native CRF18 then final CRF18; source baseline one generation. Residual compression bias reported; native crops necessary."
+    },
+    "encode": {
+      "codec": "libx264",
+      "crf": 18,
+      "preset": "medium",
+      "pixelFormat": "yuv420p",
+      "fps": 24,
+      "gop": 48,
+      "keyintMin": 48,
+      "sceneCut": 0,
+      "threadCap": 2
+    },
+    "audio": {
+      "mode": "Original AAC stream copy/remux; no -shortest",
+      "verification": "ffprobe ordered encoded packet size+SHA256 signature must match source/native/normalized; format, nb_frames, tags checked"
+    },
+    "timings": [
+      "worker startup",
+      "model load",
+      "decode pipe-read wait",
+      "runtime preprocessing",
+      "synchronized CUDA forward (ORT run includes copies)",
+      "runtime postprocessing",
+      "encode pipe-write wait",
+      "encoder finalization wait",
+      "native audio mux",
+      "combined final resize/normalization/encode wall",
+      "total wall"
+    ],
+    "timingCaveat": "Streaming codec processes overlap inference; waits are not isolated codec compute time or additive to wall. Final FFmpeg resize/encode stage reported together.",
+    "telemetry": [
+      "GPU utilization/system used/free",
+      "PyTorch peak allocated/reserved",
+      "ORT provider profile",
+      "owned process-tree CPU including exited children",
+      "total CPU",
+      "summed active RSS",
+      "available RAM",
+      "output sizes",
+      "AAC packet signatures",
+      "actual chunk/context ranges"
+    ],
+    "comparisonPlan": {
+      "rows": [
+        "Source normalized baseline",
+        "Vimeo",
+        "SPAN",
+        "GameUp"
+      ],
+      "frames": [
+        0,
+        31,
+        62,
+        92,
+        123
+      ],
+      "nativeCrops": [
+        "eyes/brows/lashes",
+        "nose/lips/jaw",
+        "hair",
+        "pendant/earring",
+        "black blouse edge",
+        "background stand"
+      ],
+      "playback": "normal speed first, then slow; identity/temporal/motion/artifacts/useful detail, sharpness secondary",
+      "generatedThisStage": false,
+      "spanBoundaryMeaning": "framewise chunk boundaries have no temporal model meaning"
+    },
+    "licenses": {
+      "vimeo": "CC-BY-SA-4.0",
+      "span": "CC-BY-SA-4.0",
+      "gameup": "CC-BY-NC-SA-4.0; NON-COMMERCIAL restriction retained"
+    },
+    "plans": {
+      "vimeo": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\vimeo-prepared.json",
+      "span": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\span-prepared.json",
+      "gameup": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\gameup-prepared.json"
+    },
+    "checks": {
+      "workerPureAndMockTests": 30,
+      "adapterMockTests": 2,
+      "adapterBuild": "passed",
+      "realMlLibraryImport": "no torch or onnxruntime import during preparation tests",
+      "pythonSyntaxFiles": 10,
+      "graphUpdate": "AST-only completed, no API cost"
+    }
+  },
+  "approvedRuns": {
+    "vimeo": {
+      "approvedCandidate": "vimeo",
+      "approval": "User: Запускай Vimeo",
+      "executionDateLocal": "2026-10-01",
+      "timezone": "Europe/Moscow",
+      "benchmarkStatus": "FAILED",
+      "benchmarkError": "Worker/children did not exit cleanly",
+      "jobId": "vup_ed035e79-9c5a-46f4-976e-65e4529111c8",
+      "workerJobStatus": "succeeded",
+      "upscaleJobSubmissions": 1,
+      "retryCount": 0,
+      "otherCandidatesStarted": [],
+      "nativePath": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\vimeo\\native.mp4",
+      "nativeVerification": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\vimeo\\native-verification.json",
+      "nativeValidationStatus": "FAILED",
+      "normalizedCreated": false,
+      "baselineCreated": false,
+      "reviewMediaCreated": false,
+      "workerStartupSeconds": 1.6228547000064282,
+      "processingSeconds": 227.95917719999852,
+      "modelLoadSeconds": 12.250939000005019,
+      "inferenceWrapperSeconds": 207.07664250001835,
+      "phaseTimings": {
+        "preprocessing_seconds": 3.9646543999697315,
+        "model_forward_seconds": 194.32541660005518,
+        "postprocessing_seconds": 8.324516299937386
+      },
+      "totalHarnessWallSeconds": 234.68371179999667,
+      "torchPeakAllocatedMiB": 5217.02734375,
+      "torchPeakReservedMiB": 9616.0,
+      "processCpuPeakPercentOneCore": 177.6482598174855,
+      "totalCpuPeakPercent": 69.25925925925927,
+      "rssPeakBytes": 2357325824,
+      "availableRamMinimumBytes": 13643120640,
+      "gpuUsedPeakMiB": 11643,
+      "gpuFreeMinimumMiB": 4533,
+      "resourceSamples": 112,
+      "gpuBefore": {
+        "index": 0,
+        "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "total_mib": 16384,
+        "used_mib": 1857,
+        "free_mib": 14319,
+        "utilization_percent": 14
+      },
+      "gpuAfterCleanup": {
+        "index": 0,
+        "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+        "total_mib": 16384,
+        "used_mib": 1802,
+        "free_mib": 14374,
+        "utilization_percent": 21
+      },
+      "ownedProcessExitVerified": true,
+      "activeLockRemaining": false,
+      "attemptMarkerRetained": true,
+      "shutdownCause": "Undetermined: harness does not persist the return code/active-process snapshot that triggered the check; worker.log is empty. Final owned-process exit verified.",
+      "license": "CC-BY-SA-4.0",
+      "color": "TEST ASSUMPTION: MAX-I1 SDR BT.709 limited, not measured source color fact",
+      "nativeMetadataErrors": [
+        {
+          "field": "color_transfer",
+          "expected": "bt709",
+          "actual": null
+        },
+        {
+          "field": "color_primaries",
+          "expected": "bt709",
+          "actual": null
+        }
+      ],
+      "aacPacketIdentity": true,
+      "qualityVerdict": "Not assessed; no normalized baseline or other candidates, no quality winner"
+    }
+  }
+}

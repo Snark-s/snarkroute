@@ -1,0 +1,437 @@
+{
+  "testId": "HOSTED-REGEN-MAX-I1-2K",
+  "status": "completed_technical_validation_review_limited",
+  "preparedAt": "2026-09-30T14:42:25.570Z",
+  "maximumCreateCalls": 1,
+  "createCalls": 1,
+  "automaticRetry": false,
+  "endpoint": "https://api.minimax.io/v2/video_regeneration",
+  "model": "MiniMax-H3",
+  "sourceMode": "base_video",
+  "resolution": "2K",
+  "preflight": {
+    "passed": true,
+    "checks": {
+      "sourceShaMatches": true,
+      "sourceReadableAndWithinVideoLimit": true,
+      "dimensionsDivisibleBy32": true,
+      "areaInRange": true,
+      "fps24": true,
+      "exactFrameCount": true,
+      "frameCountInRange": true,
+      "frameCadence17": true,
+      "audioStreamExists": true,
+      "durationInRange": true,
+      "mp4Container": true,
+      "originalImageWithinLimits": true,
+      "requestWithin64MB": true
+    },
+    "failures": [],
+    "video": {
+      "index": 0,
+      "codec_name": "h264",
+      "codec_type": "video",
+      "width": 1344,
+      "height": 768,
+      "r_frame_rate": "24/1",
+      "avg_frame_rate": "24/1",
+      "duration": "5.166667",
+      "bit_rate": "7266870",
+      "nb_frames": "124",
+      "nb_read_packets": "124"
+    },
+    "audio": {
+      "index": 1,
+      "codec_name": "aac",
+      "codec_type": "audio",
+      "sample_rate": "32000",
+      "channels": 2,
+      "channel_layout": "stereo",
+      "r_frame_rate": "0/0",
+      "avg_frame_rate": "0/0",
+      "duration": "5.184000",
+      "bit_rate": "178780",
+      "nb_frames": "163",
+      "nb_read_packets": "163"
+    },
+    "frameCount": 124,
+    "pixelArea": 1032192
+  },
+  "source": {
+    "label": "MAX-I1",
+    "assetId": "sha256:ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+    "assetIdKind": "evaluation_content_address_not_new_server_upload",
+    "path": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\output.mp4",
+    "sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+    "bytes": 4826842,
+    "provider": "fal",
+    "model": "fal/minimax-h3-max",
+    "jobId": "01a0e48c-d255-7df2-a10e-9fcbb4e5ac7d",
+    "media": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "index": 0,
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 1344,
+          "height": 768,
+          "r_frame_rate": "24/1",
+          "avg_frame_rate": "24/1",
+          "duration": "5.166667",
+          "bit_rate": "7266870",
+          "nb_frames": "124",
+          "nb_read_packets": "124"
+        },
+        {
+          "index": 1,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "32000",
+          "channels": 2,
+          "channel_layout": "stereo",
+          "r_frame_rate": "0/0",
+          "avg_frame_rate": "0/0",
+          "duration": "5.184000",
+          "bit_rate": "178780",
+          "nb_frames": "163",
+          "nb_read_packets": "163"
+        }
+      ],
+      "format": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration": "5.184000",
+        "size": "4826842",
+        "bit_rate": "7448830"
+      }
+    }
+  },
+  "conditioning": {
+    "prompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+    "promptSource": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\MAX-I1\\request.json",
+    "expansion": "disabled",
+    "references": [
+      {
+        "kind": "image",
+        "role": "first_frame",
+        "path": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg",
+        "bytes": 28093,
+        "sha256": "8e4ebdcfd28e987cc154605fdbaf51a9dd52c60bc030f67bbddc26efdba898ab",
+        "dimensions": {
+          "index": 0,
+          "codec_name": "mjpeg",
+          "codec_type": "video",
+          "width": 960,
+          "height": 544,
+          "r_frame_rate": "25/1",
+          "avg_frame_rate": "25/1",
+          "duration": "0.040000",
+          "nb_read_packets": "1"
+        },
+        "historicalBytesHashAvailable": false
+      }
+    ],
+    "limitation": "Original request records the first-frame path, but no historical image SHA was saved; current bytes are hashed and used without transformation."
+  },
+  "estimate": {
+    "output": {
+      "durationSeconds": 5.184,
+      "rateUsdPerSecond": 0.05,
+      "providerUsd": 0.2592,
+      "baseCredits": 26,
+      "markupCredits": 0,
+      "finalCredits": 26,
+      "currency": "USD",
+      "source": "https://platform.minimax.io/docs/pricing/overview",
+      "effectiveDate": "2026-09-30"
+    },
+    "inputMaterialsUsd": 0,
+    "totalEstimatedUsd": 0.2592,
+    "actualBillingUsd": null,
+    "billingStatus": "estimated / invoice unverified",
+    "note": "Container duration used; provider billable duration/rounding may differ. base_video is not an original reference_video; any additional provider charges remain invoice unverified.",
+    "postflight": {
+      "basis": "provider reported usage, not invoice",
+      "outputDurationSeconds": 5,
+      "outputChargeEstimateUsd": 0.25,
+      "inputMaterialEstimateUsd": 0,
+      "totalEstimatedUsd": 0.25,
+      "measuredOutputDurationEstimateUsd": 0.25835,
+      "actualBillingUsd": null,
+      "billingStatus": "estimated / invoice unverified"
+    }
+  },
+  "environment": {
+    "loader": "apps/server/src/services/env-loader.ts:loadRootEnv",
+    "envPath": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\.env",
+    "override": false,
+    "minimaxKeyConfigured": true,
+    "userReadyRequired": true
+  },
+  "officialSchema": {
+    "url": "https://platform.minimax.io/docs/api-reference/video-generation-v2-regeneration.md",
+    "retrievedAt": "2026-09-30T14:42:25.570Z",
+    "sha256": "acd7789fbd3f2521aa4f5fe703cd455e560365e8baee6dc1b7dbbade574e730f",
+    "reviewedBodyModes": [
+      "source_task_id",
+      "base_video"
+    ],
+    "requiredBaseVideoFields": [
+      "model",
+      "content",
+      "resolution"
+    ],
+    "optionalFields": [
+      "callback_url",
+      "aigc_watermark"
+    ],
+    "promptMaximumCharacters": 40000,
+    "originalInputsMustMatch": true,
+    "audioRequired": true,
+    "fps": 24,
+    "dimensionsMultiple": 32,
+    "areaRange": [
+      589824,
+      1032192
+    ],
+    "frameRange": [
+      107,
+      362
+    ],
+    "cadence": 17,
+    "durationApproxSeconds": [
+      4,
+      15
+    ],
+    "maximumRequestBodyBytesConservative": 64000000,
+    "referenceRequirements": "image first/last or reference_image; reference_video and reference_audio only when used originally; original final prompt required"
+  },
+  "pricing": {
+    "url": "https://platform.minimax.io/docs/pricing/overview.md",
+    "retrievedAt": "2026-09-30T14:42:25.570Z",
+    "sha256": "6e7854afb844dee860a2d19d02cee415d3f2d78b1be9e1c6a840520cda83e909",
+    "outputUsdPerSecond": 0.05,
+    "firstFiveImagesFree": true,
+    "additionalImageUsd": 0.025,
+    "originalReferenceVideoUsdPerSecond": 0.05,
+    "originalReferenceAudioUsd": 0
+  },
+  "timings": {
+    "submissionTime": "2026-09-30T14:42:25.620Z",
+    "providerAcceptedTime": "2026-09-30T14:42:31.187Z",
+    "providerCompletionObservedTime": "2026-09-30T14:44:42.073Z",
+    "downloadStartedAt": "2026-09-30T14:44:42.074Z",
+    "downloadCompletedAt": "2026-09-30T14:44:46.699Z",
+    "finishedAt": "2026-09-30T14:44:46.797Z",
+    "generationObservedMs": 130886,
+    "endToEndMs": 141177
+  },
+  "capability": {
+    "before": "Configured / unverified (after root env key configured)",
+    "after": "Verified technical render: this external fal MAX-I1 base_video + original prompt + first_frame to 2K; production audiovisual finalizer unverified",
+    "verificationScope": {
+      "testId": "HOSTED-REGEN-MAX-I1-2K",
+      "sourceSha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+      "model": "MiniMax-H3",
+      "conditioning": [
+        "original final prompt",
+        "original first_frame at recorded path; no historical image hash"
+      ],
+      "sourceMode": "base_video",
+      "output": "2560x1440,24fps,124frames,H264,AAC",
+      "otherReferences": "unverified",
+      "productionReadiness": "unverified"
+    },
+    "uiPromoted": false,
+    "uiReason": "Do not imply full audiovisual or arbitrary input verification; scoped evidence is persisted in the experiment report."
+  },
+  "output": {
+    "path": "Y:\\РџСЂРѕС†РµСЃСЃ\\SnarkRoute\\apps\\server\\data\\h3-hosted-regenerate-eval\\2026-09-30\\output.mp4",
+    "bytes": 1862280,
+    "sha256": "837a7b7b3185c0340096657f4a760f895bf1e71941816351c37f64d4851a8f70",
+    "media": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "index": 0,
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 2560,
+          "height": 1440,
+          "r_frame_rate": "24/1",
+          "avg_frame_rate": "24/1",
+          "duration": "5.166667",
+          "bit_rate": "2739928",
+          "nb_frames": "124",
+          "nb_read_packets": "124"
+        },
+        {
+          "index": 1,
+          "codec_name": "aac",
+          "codec_type": "audio",
+          "sample_rate": "32000",
+          "channels": 2,
+          "channel_layout": "stereo",
+          "r_frame_rate": "0/0",
+          "avg_frame_rate": "0/0",
+          "duration": "5.167000",
+          "bit_rate": "132326",
+          "nb_frames": "163",
+          "nb_read_packets": "163"
+        }
+      ],
+      "format": {
+        "format_name": "mov,mp4,m4a,3gp,3g2,mj2",
+        "duration": "5.167000",
+        "size": "1862280",
+        "bit_rate": "2883344"
+      }
+    }
+  },
+  "actualBilling": {
+    "amountUsd": null,
+    "status": "invoice_unverified"
+  },
+  "taskId": "447391378309467",
+  "resultUrl": "https://video-product.cdn.minimax.io/inference_output/rollout/2026-09-30/bb6af2ca-28be-45b2-9c85-784e8c1fe2ef/output_aigc.mp4",
+  "providerUsage": {
+    "total_seconds": 5,
+    "input_seconds": 0,
+    "output_seconds": 5,
+    "input_image_count": 1
+  },
+  "reviewedAt": "2026-09-30T14:58:13.161951+00:00",
+  "regenerationProvider": "minimax",
+  "review": {
+    "method": {
+      "allFramePairsVisuallyInspected": 124,
+      "atlasCount": 8,
+      "inspectionResolution": [
+        448,
+        256
+      ],
+      "nativePixelCropFrame": 62,
+      "continuousPlaybackVerified": false,
+      "audioListeningVerified": false,
+      "limitation": "Browser security policy blocked local file: HTML preview; do not claim continuous perceptual playback or listening. Offline all-frame and waveform review completed; user playback/listening remains required."
+    },
+    "content": {
+      "assessment": "Same clip preserved in all inspected frame pairs, rather than a new scene variation",
+      "preserved": [
+        "face appearance",
+        "hair layout/color",
+        "black blouse",
+        "earrings and necklace",
+        "head turn and blink timing",
+        "push-in progression",
+        "studio stands/background",
+        "broad lighting"
+      ],
+      "framing": "Source aspect 1.75 becomes output 1.7777778 (+1.5873%); exact geometry not identical",
+      "smallObjects": "Visible earrings, pendant and studio stands remain present; microtexture fidelity not established"
+    },
+    "identity": {
+      "assessment": "Visually consistent face across 124 pairs and native frame62 crops",
+      "limit": "No biometric score or broad identity guarantee"
+    },
+    "motion": {
+      "assessment": "Matching profile-to-front turn, blink, then gradual push-in; no obvious discontinuity in inspected frame sequence",
+      "frameCountAndRateIdentical": true,
+      "successiveFrameDifferenceCorrelation": 0.9942269634768557,
+      "limit": "Metric is supporting evidence, not a perceptual smoothness score; real-time viewing not verified"
+    },
+    "detail": {
+      "assessment": "Sharper-looking eye/lip/hair boundaries at native resolution, but smoother skin; natural skin/fabric/background microdetail improvement not established",
+      "oversharpening": "No prominent halos in inspected frame62 face crops",
+      "compression": "Video bitrate falls from 7266870 to 2739928 bit/s; higher output resolution alone is not proof of higher detail",
+      "inventedTexture": "No conspicuous new objects or textures at review scale; cannot rule out subtle invented detail"
+    },
+    "temporal": {
+      "assessment": "No conspicuous face/hair/object mutation or background jump among all 124 small frame pairs",
+      "flickerTextureCrawling": "No obvious coarse instability in atlases; subtle flicker/crawling at full resolution remains unverified",
+      "fullClipDecode": true,
+      "realTimePlaybackReview": false
+    },
+    "audio": {
+      "decodedSamplesPerChannel": {
+        "original": 165888,
+        "regenerated": 165333
+      },
+      "comparisonSampleRate": 32000,
+      "encodedPacketSha256": {
+        "original": "446e7fe4e495e62637afaa2b2ed24d47426de8a40329891c04281167fbd0687a",
+        "regenerated": "3a082fdf88670841fb2297b85042543d721be711f1292648637011ded7a6cc10"
+      },
+      "encodedPacketIdentical": false,
+      "decodedBitIdenticalOverCommonLength": false,
+      "channelCorrelation": [
+        0.8189633117766005,
+        0.7068954240513793
+      ],
+      "rmsEnvelopeCorrelation20ms": 0.9987641853098104,
+      "dominantTransientWindowCentersSeconds": {
+        "original": [
+          4.67,
+          4.77,
+          4.87
+        ],
+        "regenerated": [
+          4.67,
+          4.77,
+          4.87
+        ]
+      },
+      "differenceSnrDb": 3.052386846512312,
+      "durationDifferenceFromStreamsSeconds": -0.017,
+      "interpretation": "Measurements alone do not prove room-tone/cue/sync preservation or regeneration; listening/visual sync review still required",
+      "assessment": "Present, altered by bytes/samples, timing closely preserved; consistent with re-encoding, pipeline not disclosed",
+      "reencoded": "Likely; differing AAC packet hash and bitrate, not provider-confirmed",
+      "regenerated": "Not established",
+      "dropped": false,
+      "generalTiming": "Dominant transients match 4.67/4.77/4.87 seconds in 20ms windows; source video timing preserved",
+      "roomToneSoundCueSemanticPreservation": "Unverified without listening",
+      "synchronization": "Coarse waveform timing and identical video cadence align; perceptual sound-to-action sync unverified"
+    }
+  },
+  "lineage": [
+    {
+      "provider": "fal",
+      "model": "fal/minimax-h3-max",
+      "jobId": "01a0e48c-d255-7df2-a10e-9fcbb4e5ac7d",
+      "label": "MAX-I1",
+      "sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9"
+    },
+    {
+      "provider": "minimax",
+      "model": "MiniMax-H3",
+      "taskId": "447391378309467",
+      "sourceMode": "base_video",
+      "outputSha256": "837a7b7b3185c0340096657f4a760f895bf1e71941816351c37f64d4851a8f70",
+      "resolution": "2560x1440"
+    }
+  ],
+  "reviewArtifacts": {
+    "contactSheet": "contact-sheet.jpg",
+    "reviewStrip": "review-strip.jpg",
+    "temporalAtlases": [
+      "temporal-review-01.jpg",
+      "temporal-review-02.jpg",
+      "temporal-review-03.jpg",
+      "temporal-review-04.jpg",
+      "temporal-review-05.jpg",
+      "temporal-review-06.jpg",
+      "temporal-review-07.jpg",
+      "temporal-review-08.jpg"
+    ],
+    "nativePixelCrops": [
+      "face-crop-original-frame62.png",
+      "face-crop-regenerated-frame62.png"
+    ],
+    "audioWaveform": "audio-waveform.jpg",
+    "comparison": "comparison.html",
+    "thumbnail": "thumbnail.jpg",
+    "measurements": "review-measurements.json"
+  }
+}

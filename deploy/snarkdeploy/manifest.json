@@ -137,7 +137,7 @@
       "endpoint": "http://127.0.0.1:4317",
       "probe": {
         "type": "http",
-        "path": "/capabilities"
+        "path": "/api/capabilities"
       },
       "component": "snarkroute",
       "start": "{{SNARKROUTE_ROOT}}\\start-server.bat",

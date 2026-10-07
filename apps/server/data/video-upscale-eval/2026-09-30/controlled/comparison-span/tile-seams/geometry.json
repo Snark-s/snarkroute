@@ -1,0 +1,58 @@
+{
+  "tile_size": 256,
+  "tile_overlap": 32,
+  "tile_starts_x": [
+    0,
+    224,
+    448,
+    672,
+    896,
+    1088
+  ],
+  "tile_starts_y": [
+    0,
+    224,
+    448,
+    512
+  ],
+  "source_overlap_bands": {
+    "x": [
+      [
+        224,
+        256
+      ],
+      [
+        448,
+        480
+      ],
+      [
+        672,
+        704
+      ],
+      [
+        896,
+        928
+      ],
+      [
+        1088,
+        1152
+      ]
+    ],
+    "y": [
+      [
+        224,
+        256
+      ],
+      [
+        448,
+        480
+      ],
+      [
+        512,
+        704
+      ]
+    ]
+  },
+  "scale": 4,
+  "meaning": "Actual blend bands; overlays mark inspection locations, not detected seams. Final edge overlaps can exceed 32 pixels."
+}

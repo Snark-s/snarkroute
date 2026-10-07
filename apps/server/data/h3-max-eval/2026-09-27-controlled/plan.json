@@ -1,0 +1,82 @@
+{
+  "createdAt": "2026-09-28T08:00:53.959Z",
+  "provider": "fal",
+  "model": "fal/minimax-h3-max",
+  "resolution": "768P",
+  "duration": 5,
+  "seed": 5242017,
+  "promptExpansionMode": "disabled",
+  "productionPrompt": "A photorealistic studio portrait of the same woman in a black blouse. She begins in left profile, pauses, then turns her head smoothly toward the lens and settles into direct eye contact. The camera performs one slow, steady push-in from a medium close-up to a tighter close-up; no cuts, no reframing jumps. Soft neutral key light remains stable while a subtle warm rim light grows along her hair. End state: she faces the camera squarely, completely still, with a calm focused expression. Natural synchronized sound: quiet studio room tone, a soft fabric rustle during the turn, one gentle breath, and a single camera-shutter click exactly after she becomes still. No dialogue, no music, no subtitles.",
+  "cases": [
+    {
+      "id": "MAX-T0",
+      "purpose": "text-only production prompt",
+      "references": []
+    },
+    {
+      "id": "MAX-I1",
+      "purpose": "first-frame image-to-video",
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        }
+      ]
+    },
+    {
+      "id": "MAX-FL1",
+      "purpose": "first-plus-last keyframes",
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        },
+        {
+          "kind": "image",
+          "role": "lastFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+        }
+      ]
+    },
+    {
+      "id": "MAX-V1",
+      "purpose": "semantic video motion/identity reference",
+      "references": [
+        {
+          "kind": "video",
+          "role": "reference",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\base-reference.mp4"
+        }
+      ]
+    },
+    {
+      "id": "MAX-MR1",
+      "purpose": "two-image semantic appearance sanity",
+      "references": [
+        {
+          "kind": "image",
+          "role": "reference",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        },
+        {
+          "kind": "image",
+          "role": "reference",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\last.jpg"
+        }
+      ]
+    },
+    {
+      "id": "MAX-A1",
+      "purpose": "native dialogue, Foley, ambience, and lip-sync audit",
+      "references": [
+        {
+          "kind": "image",
+          "role": "firstFrame",
+          "source": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-max-eval\\2026-09-27-controlled\\inputs\\first.jpg"
+        }
+      ]
+    }
+  ]
+}

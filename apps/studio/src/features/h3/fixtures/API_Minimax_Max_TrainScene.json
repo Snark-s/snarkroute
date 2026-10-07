@@ -1,0 +1,44 @@
+{
+  "2": { "inputs": { "filename_prefix": "video/Minimax_h3_max", "format": "auto", "format.codec": "auto", "codec": "auto", "video": ["4", 0] }, "class_type": "SaveVideo", "_meta": { "title": "Сохранить видео" } },
+  "4": {
+    "inputs": {
+      "model": "MiniMax H3 Max",
+      "model.prompt": ["12", 0],
+      "model.resolution": "768P",
+      "model.ratio": "adaptive",
+      "model.duration": 15,
+      "model.prompt_expansion_mode": "balanced",
+      "model.reference_detail": "high",
+      "seed": 2719868943,
+      "watermark": false,
+      "model.reference_images.image_1": ["23", 0],
+      "model.reference_images.image_2": ["24", 0],
+      "model.reference_images.image_3": ["28", 0],
+      "model.reference_images.image_4": ["25", 0],
+      "model.reference_images.image_5": ["26", 0]
+    },
+    "class_type": "MinimaxHailuo03ReferenceNode",
+    "_meta": { "title": "MiniMax H3: Референс в видео" }
+  },
+  "7": { "inputs": { "model": "MiniMax H3", "model.prompt": ["14", 0], "model.duration": 12, "model.ratio": "adaptive" }, "class_type": "MinimaxHailuo03ContextIRNode", "_meta": { "title": "MiniMax H3 Context IR (Улучшение промпта)" } },
+  "8": { "inputs": { "filename_prefix": "H3_prompt", "format": "txt", "text": ["12", 0] }, "class_type": "SaveText", "_meta": { "title": "Сохранить текст" } },
+  "10": { "inputs": { "model": "MiniMax H3", "model.prompt": ["8", 0], "model.resolution": "2K", "watermark": false, "video": ["2", 0] }, "class_type": "MinimaxHailuo03RegenerateNode", "_meta": { "title": "MiniMax H3: перерендеринг в 2K" } },
+  "11": { "inputs": { "filename_prefix": "video/Minimax_h3_max", "format": "auto", "format.codec": "auto", "codec": "auto", "video": ["13", 0] }, "class_type": "SaveVideo", "_meta": { "title": "Сохранить видео" } },
+  "12": { "inputs": { "switch": ["18", 0], "on_false": ["14", 0], "on_true": ["7", 0] }, "class_type": "ComfySwitchNode", "_meta": { "title": "Переключатель" } },
+  "13": { "inputs": { "switch": ["19", 0], "on_false": ["4", 0], "on_true": ["10", 0] }, "class_type": "ComfySwitchNode", "_meta": { "title": "Переключатель" } },
+  "14": {
+    "inputs": {
+      "value": "<Video 1> is an untextured basic-shape 3D blockout. Follow its exact camera movement, framing, timing, object placement, and animation while transforming the basic shapes into the illustrated world from the reference images.\n\n<Picture 1> is the exterior location viewed from above. Use it as the reference for the environment, train exterior, colors, and cartoon art style. Preserve the “comfy” lettering on the train’s front sign.\n\n<Picture 2> and <Picture 3> are the character references. Use these designs for the people in the scene, matching them to the blockout figures by position and action. The blockout figures are uncolored, so do not use color to identify them. Preserve their faces, outfits, proportions, and accessories. Do not display the character-sheet labels.\n\n<Picture 4> is the train interior reference. Use it for the seating, windows, overhead hand straps, and interior details, keeping everything consistent with the exterior.\n\n<Picture 5> is the main character’s cap and C-logo reference. Match the cap and reproduce the specific C emblem clearly on its front. Keep its shape, color, and placement consistent throughout.\n\nThe train is ALREADY MOVING at a steady cruising speed from the very first frame. No stationary opening or gradual startup. Follow the camera path and sequence from <Video 1>, with the scenery passing naturally outside the train.\n\nStanding passengers hold the overhead hanging hand straps with natural, secure grips. Their bodies and the straps sway subtly with the train’s movement.\n\nWhen the camera reveals the main character, He remains asleep until the train stops during the final moments.\n\nThe train decelerates, and the scenery outside slows consistently until it stops. The final stopping motion gives him a small, sudden jolt that wakes him. He opens his eyes, takes the headphones off his ears and lowers them around his neck, then looks around with a subtle, amused smirk. His cap stays on throughout. Fit this reaction into the ending without changing the camera path or adding a cut.\n\nMaintain the references’ cohesive anime-inspired cartoon style, soft pastel colors, delicate ink outlines, watercolor textures, and gentle shading throughout. Keep all characters and environments visually consistent.\n\nPreserve the blockout’s camera movement and all other actions, with the specified passenger behavior and final waking reaction. Do not introduce additional characters, camera moves, cuts, or unrelated actions."
+    },
+    "class_type": "PrimitiveStringMultiline",
+    "_meta": { "title": "Text (Prompt)" }
+  },
+  "18": { "inputs": { "value": false }, "class_type": "PrimitiveBoolean", "_meta": { "title": "Boolean (Prompt Enhance)" } },
+  "19": { "inputs": { "value": false }, "class_type": "PrimitiveBoolean", "_meta": { "title": "Boolean (Upscale to 2K)" } },
+  "23": { "inputs": { "image": "0b416917a2288d6947429819b4eece092c65fab81c2b72bb5bc9515645ccd1d0.png" }, "class_type": "LoadImage", "_meta": { "title": "Загрузить изображение" } },
+  "24": { "inputs": { "image": "02e06907a55f84976f174c9765cad4de380cab737ca1887eb4a75bcd18358081.png" }, "class_type": "LoadImage", "_meta": { "title": "Загрузить изображение" } },
+  "25": { "inputs": { "image": "6ad1fe93fb4a91b8a9a363bd6914cbb79741121765a368e207bff6da5da4e14d.png" }, "class_type": "LoadImage", "_meta": { "title": "Загрузить изображение" } },
+  "26": { "inputs": { "image": "5856c6169821582ea0aa062723a98a33229a4cc356fde902377b128faa03c33d.png" }, "class_type": "LoadImage", "_meta": { "title": "Загрузить изображение" } },
+  "27": { "inputs": { "file": "f6733c19ae8384ea8ef0584fae92f70600d581d44d2883623a19c63e73102887.mp4", "video-preview": "" }, "class_type": "LoadVideo", "_meta": { "title": "Загрузить видео" } },
+  "28": { "inputs": { "image": "92af1f33f0c2b146d0c9383ef8e025b81687b910b175798286e8c2d33e5decf9.png" }, "class_type": "LoadImage", "_meta": { "title": "Загрузить изображение" } }
+}

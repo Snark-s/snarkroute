@@ -6,6 +6,12 @@ import { repoRoot } from "../server-paths";
 import { errorMessage } from "../services/errors";
 import { readSystemUpdateStatus, updateFromGitHub } from "../services/system-update";
 import { openYue2Outputs, readYue2Status, startYue2, stopYue2, yue2Config } from "../services/yue2-local";
+import { readBonsaiStatus, startBonsai, stopBonsai } from "../services/bonsai-local";
+import { launcherControlRequest } from "../services/launcher-restart";
+import { isLoopbackAddress, isLoopbackHost } from "./after-effects";
+import { timingSafeEqual } from "node:crypto";
+import { appMode } from "../services/env";
+import { admissionForLocalRuntime, isLocalRuntimeId, LocalRuntimeAdmissionError, readLocalRuntimeSnapshot, startLocalRuntime, stopLocalRuntime } from "../services/local-runtime-supervisor";
 
 type SystemAppDefinition = {
   id: string;
@@ -35,6 +41,99 @@ export const systemAppCatalog: readonly SystemAppDefinition[] = [
 const launcherApp: SystemAppDefinition = { id: "launcher", name: "Мастерская", description: "Общий лаунчер", url: `http://127.0.0.1:${launcherPort}`, port: launcherPort, packageName: "@snarkroute/launcher", accent: "violet", icon: "sparkles" };
 
 export async function registerSystemRoutes(app: FastifyInstance) {
+  const local = (request: { ip: string; hostname: string; headers: { origin?: string } }) => {
+    if (appMode() !== "local" || !isLoopbackAddress(request.ip) || !isLoopbackHost(request.hostname)) return false;
+    if (!request.headers.origin) return true;
+    try { const origin = new URL(request.headers.origin); return origin.protocol === "http:" && isLoopbackHost(origin.hostname); } catch { return false; }
+  };
+  const ownerAuthorized = (authorization: string | undefined) => {
+    const token = process.env.SNARKROUTE_LAUNCHER_TOKEN;
+    if (!token || !authorization) return false;
+    const expected = Buffer.from(`Bearer ${token}`), supplied = Buffer.from(authorization);
+    return expected.length === supplied.length && timingSafeEqual(expected, supplied);
+  };
+  app.get("/api/system/restart/ownership", async (request, reply) => {
+    if (!local(request) || !ownerAuthorized(request.headers.authorization)) return reply.code(403).send({ ok: false });
+    return { ok: true, pid: process.pid };
+  });
+  app.get("/api/system/restart", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+    try { return await launcherControlRequest("status"); }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
+  });
+  app.post("/api/system/restart", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+    try { return reply.code(202).send(await launcherControlRequest("restart", "POST")); }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
+  });
+  app.post("/api/system/restart/shutdown", async (request, reply) => {
+    if (!local(request) || !ownerAuthorized(request.headers.authorization)) return reply.code(403).send({ ok: false });
+    try {
+      const owner = await launcherControlRequest("status");
+      if (!owner.managed || owner.serverPid !== process.pid || owner.operation?.state !== "stopping"
+        || !["restart", "shutdown"].includes(owner.operation.action ?? "")) return reply.code(409).send({ ok: false, error: "Active external launcher stop command not confirmed" });
+      // The owning launcher remains alive and is waiting for this exact process.
+      // Fastify closes jobs, route ownership and memory before the process exits.
+      const timer = setTimeout(() => { void app.close().then(() => process.exit(0)).catch(error => app.log.error(error)); }, 100);
+      timer.unref(); return reply.code(202).send({ ok: true });
+    } catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
+  });
+  app.get("/api/system/bonsai", async (_request, reply) => {
+    const state = await readBonsaiStatus();
+    return reply.send({ ok: state.status !== "error", ...state });
+  });
+
+  app.post("/api/system/bonsai/start", async (_request, reply) => {
+    try {
+      return reply.code(202).send({ ok: true, ...await startBonsai() });
+    } catch (error) {
+      return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readBonsaiStatus() });
+    }
+  });
+
+  app.post("/api/system/bonsai/stop", async (_request, reply) => {
+    try {
+      return await stopBonsai();
+    } catch (error) {
+      return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readBonsaiStatus() });
+    }
+  });
+
+  app.get("/api/system/local-runtimes", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
+    return { ok: true, ...await readLocalRuntimeSnapshot() };
+  });
+
+  app.get<{ Params: { runtimeId: string }; Querystring: { intent?: string } }>("/api/system/local-runtimes/:runtimeId/admission", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
+    if (!isLocalRuntimeId(request.params.runtimeId)) return reply.code(404).send({ ok: false, error: "Unknown local runtime." });
+    const intent = request.query.intent === "start" ? "start" : "workload";
+    return { ok: true, ...await admissionForLocalRuntime(request.params.runtimeId, intent) };
+  });
+
+  app.post<{ Params: { runtimeId: string }; Body: { force?: boolean } }>("/api/system/local-runtimes/:runtimeId/start", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
+    if (!isLocalRuntimeId(request.params.runtimeId)) return reply.code(404).send({ ok: false, error: "Unknown local runtime." });
+    try {
+      return { ok: true, ...await startLocalRuntime(request.params.runtimeId, { force: request.body?.force === true }) };
+    } catch (error) {
+      if (error instanceof LocalRuntimeAdmissionError) {
+        return reply.code(409).send({ ok: false, error: error.message, decision: error.decision, snapshot: await readLocalRuntimeSnapshot() });
+      }
+      return reply.code(503).send({ ok: false, error: errorMessage(error), snapshot: await readLocalRuntimeSnapshot() });
+    }
+  });
+
+  app.post<{ Params: { runtimeId: string } }>("/api/system/local-runtimes/:runtimeId/stop", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
+    if (!isLocalRuntimeId(request.params.runtimeId)) return reply.code(404).send({ ok: false, error: "Unknown local runtime." });
+    try {
+      return { ok: true, ...await stopLocalRuntime(request.params.runtimeId) };
+    } catch (error) {
+      return reply.code(503).send({ ok: false, error: errorMessage(error), snapshot: await readLocalRuntimeSnapshot() });
+    }
+  });
+
   app.get("/api/system/update/status", async (request, reply) => {
     try {
       return await readSystemUpdateStatus();

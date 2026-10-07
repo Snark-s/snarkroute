@@ -1,5 +1,7 @@
 # Local upscale provider
 
+For production **Video Upscale**, see [Video Upscale production profile and Queue flow](video-upscale-production.md). It uses an isolated local CUDA worker, VimeoScale 2× by default, original audio and the existing Queue / Model Gateway. H3 Regenerate 2K is a separate hosted capability. The image-provider setup below remains specific to `local_upscale`.
+
 `local_upscale` is the image-only local provider behind the existing SnarkRoute Model Gateway. BoojumRoute, After Effects, Snark Director and API clients use the same async path:
 
 ```text

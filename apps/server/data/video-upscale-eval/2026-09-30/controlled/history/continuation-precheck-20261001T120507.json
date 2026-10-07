@@ -1,0 +1,64 @@
+{
+  "timestamp": "2026-10-01T12:05:06.281622+00:00",
+  "gpu": {
+    "index": 0,
+    "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+    "total_mib": 16384,
+    "used_mib": 11556,
+    "free_mib": 4620,
+    "utilization_percent": 6
+  },
+  "available_system_ram_bytes": 3404161024,
+  "required_free_vram_mib": 8192,
+  "required_available_ram_mib": 4096,
+  "port": {
+    "open": false,
+    "listeners": [],
+    "probe_returncode": 0
+  },
+  "active_lock_present": false,
+  "stale_worker_process_query": {
+    "returncode": 0,
+    "processes": "{\"ProcessId\":47776,\"ParentProcessId\":27468,\"CreationDate\":\"\\/Date(1790856304988)\\/\",\"Name\":\"python.exe\",\"CommandLine\":\"\\\"Y:\\\\�����\\\\SnarkRoute\\\\workers\\\\local-upscale\\\\.venv\\\\Scripts\\\\python.exe\\\" -\"}",
+    "stderr": ""
+  },
+  "code_config_sha256": {
+    "app/video_benchmark.py": "a3c3668e5c3cc6c9721a47bb4c363aa5932c5187710babe38f5f6f2516558c1a",
+    "app/benchmark_resources.py": "9b4903c1bb97cbcba055f067b4cb232e4585c34b04762bffd33467c2b361c1a8",
+    "app/benchmark_worker.py": "fe83287ebbef92cf69571f0420a596d140d664be971c1405fb164a46899ef2a3",
+    "app/video_pipeline.py": "08cc7f9d5d5b2bef6ae381e117fff97eb916c5f3574c4b2c14b178a89669cc33",
+    "app/video_runtime.py": "228c71b74568f87150b963f9655d54e44e237386986a31a88ff839704fdc2f19",
+    "app/runtime.py": "fbf95f19fe272e581e57ae8bca13430d25539b9e0732e3c1c222ab3b54033301",
+    "app/video_service.py": "06b59d2229a77c4c8e50095b4a0607e619160a41941bf1bdc62c73faa56266f9",
+    "scripts/run_video_bakeoff.py": "fe54eea954e91a5b69f742223d8444688f4d7756881910599fc379dc06d20818",
+    "scripts/verify_bakeoff_infrastructure.py": "3e79d8ab3ffcec871e33a2d5919dea9fbe7011505bd84f03b62392403477c7ad",
+    "model-registry.json": "242bce5aa1e1fd62ca693f82d92ed6d3e0428e9601bbd96c4b10d21378a9e85b",
+    "video-model-registry.json": "0f5d643c7795f53ba34af92115844b111ad70d2c2aae9a9c709e7e56afa4ef88"
+  },
+  "source_and_models": {
+    "span": {
+      "model_sha256": "c689eec59771ed3eaffc10eea933c44fdb9131f83251c51c5bab4cae7c4d3bf2",
+      "expected_model_sha256": "c689eec59771ed3eaffc10eea933c44fdb9131f83251c51c5bab4cae7c4d3bf2",
+      "matches": true
+    },
+    "gameup": {
+      "model_sha256": "e2377e0179452a66c771489039784c8e32c3820b752fc1e6af06eb6bb2b3c3f3",
+      "expected_model_sha256": "e2377e0179452a66c771489039784c8e32c3820b752fc1e6af06eb6bb2b3c3f3",
+      "matches": true
+    },
+    "vimeo": {
+      "model_sha256": "d83d246f10c93057047abab15dab113075b3595eae41c6cc539e9e8f5ca5181c",
+      "expected_model_sha256": "d83d246f10c93057047abab15dab113075b3595eae41c6cc539e9e8f5ca5181c",
+      "matches": true
+    }
+  },
+  "source_sha256": "ed5dc65e35c27707655cf025b2e9a6cf36fdabdb8ebe9708adf7875db467e8f9",
+  "source_matches": true,
+  "synthetic_saved_proof": {
+    "status": "SUCCEEDED",
+    "decode_filter_unchanged": true,
+    "encode_filter_unchanged": true,
+    "repeated": false
+  },
+  "resources_pass": false
+}

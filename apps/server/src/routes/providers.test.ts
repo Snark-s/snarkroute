@@ -115,6 +115,26 @@ describe("RuTronix model catalog endpoint semantics", () => {
     }
   });
 
+  it("exposes the semantic selection explicitly so callers do not depend on models[0]", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "GET", url: "/api/models/for-node/ai.text?prompt=typescript%20api%20handler" });
+      const body = response.json() as {
+        models: Array<{ id: string }>;
+        semanticSelection: { selectedModelId?: string; selectedRouteId?: string; selectedProvider?: string; selectedProviderModelId?: string };
+      };
+      const reordered = [...body.models].reverse();
+      expect(response.statusCode).toBe(200);
+      expect(body.semanticSelection.selectedModelId).toBeTruthy();
+      expect(body.semanticSelection.selectedRouteId).toBeTruthy();
+      expect(body.semanticSelection.selectedProvider).toBeTruthy();
+      expect(body.semanticSelection.selectedProviderModelId).toBeTruthy();
+      expect(reordered.find((model) => model.id === body.semanticSelection.selectedModelId)).toBeTruthy();
+    } finally {
+      await app.close();
+    }
+  });
+
   it("returns available models when an optional Polza catalog request stalls", async () => {
     vi.stubEnv("POLZA_AI_API_KEY", "test-polza-key");
     vi.stubEnv("MODEL_CATALOG_REQUEST_TIMEOUT_MS", "20");
@@ -135,6 +155,80 @@ describe("RuTronix model catalog endpoint semantics", () => {
 
       expect(response.statusCode).toBe(200);
       expect(body.models.some((model) => model.provider === "rutronix")).toBe(true);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("normalized provider connection tests", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("verifies Gemini through the shared provider endpoint", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "gemini-test-key");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ models: [{ name: "models/gemini-test" }] }), { status: 200 })));
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "POST", url: "/api/providers/gemini/test" });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ status: "verified", ok: true, modelCount: 1 });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("verifies Replicate through the shared provider endpoint", async () => {
+    vi.stubEnv("REPLICATE_API_TOKEN", "replicate-test-key");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ type: "user", username: "snarkroute-test" }), { status: 200 })));
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "POST", url: "/api/providers/replicate/test" });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ status: "verified", ok: true });
+      expect(response.body).not.toContain("snarkroute-test");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("normalizes invalid credentials without leaking the provider response", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "gemini-test-key");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "secret-upstream-response" } }), { status: 401 })));
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "POST", url: "/api/providers/gemini/test" });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ status: "failed", ok: false, details: { reason: "credentials" } });
+      expect(response.body).not.toContain("secret-upstream-response");
+      expect(response.body).not.toContain("gemini-test-key");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns unsupported without reporting a connection error", async () => {
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "POST", url: "/api/providers/openai/test" });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ status: "unsupported", ok: null });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("normalizes malformed provider responses", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "gemini-test-key");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ unexpected: true }), { status: 200 })));
+    const app = buildServer();
+    try {
+      const response = await app.inject({ method: "POST", url: "/api/providers/gemini/test" });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ status: "failed", ok: false, details: { reason: "malformed_response" } });
     } finally {
       await app.close();
     }

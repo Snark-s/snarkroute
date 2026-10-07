@@ -1,0 +1,42 @@
+{
+  "timestamp": "2026-10-03T21:08:11.087961+00:00",
+  "status": "VIMEO_COMPARISON_SUCCEEDED",
+  "user_approval": "process CPU guard 200%, maximum two CPUs; normalization/comparison only",
+  "previous_run_snapshot": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\history\\run-before-success-20261003T210811.json",
+  "review_verification": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\comparison-2026-10-04\\verification.json",
+  "full_speed_verification": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\video-upscale-eval\\2026-09-30\\controlled\\comparison-2026-10-04\\full-speed-verification.json",
+  "resource_summary": {
+    "samples": 37,
+    "owned_cpu_peak_percent_one_core": 189.47938357791958,
+    "total_cpu_peak_percent": 38.625,
+    "owned_rss_peak_bytes": 875167744,
+    "available_ram_minimum_bytes": 16137502720,
+    "system_gpu_used_peak_mib": 2082,
+    "system_gpu_free_minimum_mib": 14094
+  },
+  "full_speed_resource_summary": {
+    "samples": 8,
+    "owned_cpu_peak_percent_one_core": 190.83532340086919,
+    "total_cpu_peak_percent": 91.03208349439505,
+    "owned_rss_peak_bytes": 688238592,
+    "available_ram_minimum_bytes": 15458631680,
+    "system_gpu_used_peak_mib": 2079,
+    "system_gpu_free_minimum_mib": 14097
+  },
+  "neural_jobs": 0,
+  "worker_model_starts": 0,
+  "downloads": 0,
+  "automatic_retries": 0,
+  "explicitly_approved_postprocess_continuation": true,
+  "attempts_reset": false,
+  "history_preserved": true,
+  "process_cpu_limit_percent_one_core": 200,
+  "threads": 2,
+  "affinity_mask": 3,
+  "port_state": {
+    "open": false,
+    "listeners": [],
+    "probe_returncode": 0
+  },
+  "active_lock_present": false
+}

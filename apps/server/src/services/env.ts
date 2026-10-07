@@ -103,6 +103,10 @@ export function isReplicateEnabled(): boolean {
   return Boolean(process.env.REPLICATE_API_TOKEN?.trim());
 }
 
+export function isTripoEnabled(): boolean {
+  return Boolean(process.env.TRIPO_API_KEY?.trim() || process.env.TRIPO_API_TOKEN?.trim());
+}
+
 export function isGeminiEnabled(): boolean {
   return Boolean(process.env.GEMINI_API_KEY?.trim());
 }

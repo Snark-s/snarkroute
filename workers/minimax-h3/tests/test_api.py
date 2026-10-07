@@ -17,6 +17,15 @@ def generation_payload() -> dict:
     }
 
 
+def test_visual_modifier_fails_closed_on_backend_without_lora(configured_app, auth_headers):
+    with TestClient(configured_app) as client:
+        payload = generation_payload()
+        payload["visual_modifier"] = {"id": "authentic_cinematic_texture", "enabled": True, "strength": 0.7}
+        response = client.post("/v1/jobs", headers=auth_headers, json=payload)
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "capability_not_available"
+
+
 def wait_for_terminal(client: TestClient, job_id: str, headers: dict[str, str]) -> dict:
     for _ in range(100):
         response = client.get(f"/v1/jobs/{job_id}", headers=headers)

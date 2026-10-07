@@ -15,6 +15,22 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
 }
 
 describe("Replicate client", () => {
+  it("verifies credentials with the authenticated account endpoint", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ type: "user", username: "snarkroute-test" }));
+    const result = await createReplicateProviderAdapter({ token: "replicate-test-key", fetchImpl }).testConnection?.();
+    expect(result).toMatchObject({ status: "verified", ok: true });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.replicate.com/v1/account",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer replicate-test-key" }) })
+    );
+  });
+
+  it("normalizes an unreachable provider", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    const result = await createReplicateProviderAdapter({ token: "replicate-test-key", fetchImpl }).testConnection?.();
+    expect(result).toMatchObject({ status: "failed", ok: false, details: { reason: "network" } });
+  });
+
   it("creates a prediction", async () => {
     const fetchImpl = vi
       .fn()

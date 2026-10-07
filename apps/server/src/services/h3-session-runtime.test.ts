@@ -44,6 +44,7 @@ describe("H3 operation reference roles", () => {
     expect(input.prompt).toContain("<Subject 1>");
     expect(input.prompt).toContain("anime ink");
     expect(input.inferenceSteps).toBe(4);
+    expect(input.attentionMode).toBe("auto");
     expect(input.references?.[0]).toMatchObject({ kind: "video", visualMode: "motion" });
   });
 });
@@ -136,5 +137,11 @@ describe("H3 queue idempotency", () => {
 
     expect(after).not.toBe(before);
     expect(after).toMatch(/^h3q_example:[a-f0-9]{32}$/);
+  });
+
+  it("treats the per-render attention mode as part of the worker request", () => {
+    const before = idempotencyKeyForQueueItem({ ...item, attentionMode: "veda" });
+    const after = idempotencyKeyForQueueItem({ ...item, attentionMode: "dense" });
+    expect(after).not.toBe(before);
   });
 });

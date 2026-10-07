@@ -13,6 +13,34 @@ export type ConnectionProbeResult = {
   error: string | null;
 };
 
+export type LocalRuntime = {
+  id: string;
+  label: string;
+  state: "stopped" | "starting" | "loading" | "ready" | "busy" | "error";
+  online: boolean;
+  busy: boolean;
+  resourceClaim: "none" | "resident" | "active" | "unknown";
+  control: { canStart: boolean; canStop: boolean };
+  detail?: string;
+  discovered?: boolean;
+};
+
+export type LocalRuntimeSnapshot = {
+  capturedAt: string;
+  gpu?: { name: string; totalMiB: number; usedMiB: number; freeMiB: number; utilizationPercent: number };
+  memory: { totalMiB: number; usedMiB: number; freeMiB: number };
+  runtimes: LocalRuntime[];
+  pressure: { level: "idle" | "busy" | "critical"; summary: string };
+};
+
+export type LocalRuntimeDecision = {
+  allowed: boolean;
+  requiresConfirmation: boolean;
+  blockers: string[];
+  warnings: string[];
+  summary: string;
+};
+
 export class SnarkRouteGatewayClient {
   private readonly fetchImpl: typeof fetch;
 
@@ -47,6 +75,10 @@ export class SnarkRouteGatewayClient {
     }
   }
   async models(): Promise<{ models: GenerationModel[]; modelCount: number; familyCount: number; diagnosticsUrl: string }> { const body = await this.request<{ models?: GenerationModel[]; modelCount?: number }>("/api/models/executable-generation?materialize=image,audio,video&multipleImages=1", { cache: "no-store" }); const models = body.models ?? []; return { models, modelCount: body.modelCount ?? models.length, familyCount: new Set(models.map((model) => model.originVendor || model.provider)).size, diagnosticsUrl: "/api/models/executable-generation?materialize=image,audio,video&multipleImages=1" }; }
+  async localRuntimes() { return this.request<LocalRuntimeSnapshot & { ok: boolean }>("/api/system/local-runtimes", { cache: "no-store" }); }
+  async localRuntimeAdmission(runtimeId: LocalRuntime["id"], intent: "workload" | "start" = "workload") { return this.request<{ ok: boolean; snapshot: LocalRuntimeSnapshot; decision: LocalRuntimeDecision }>(`/api/system/local-runtimes/${encodeURIComponent(runtimeId)}/admission?intent=${intent}`); }
+  async startLocalRuntime(runtimeId: LocalRuntime["id"], force = false) { return this.request<{ ok: boolean; snapshot: LocalRuntimeSnapshot }>(`/api/system/local-runtimes/${encodeURIComponent(runtimeId)}/start`, { method: "POST", body: JSON.stringify({ force }) }); }
+  async stopLocalRuntime(runtimeId: LocalRuntime["id"]) { return this.request<{ ok: boolean; snapshot: LocalRuntimeSnapshot }>(`/api/system/local-runtimes/${encodeURIComponent(runtimeId)}/stop`, { method: "POST", body: "{}" }); }
   async quote(model: GenerationModel, params: Record<string, unknown>) { return this.request<{ selected?: { estimatedCost?: number | null; currency?: string | null }; warnings?: string[] }>("/api/model-gateway/quote", { method: "POST", body: JSON.stringify({ nodeType: model.nodeType, params: { ...params, model: model.storedModelId } }) }); }
   async importAsset(filename: string, dataBase64: string, kind: "image" | "audio" | "video" = "image") { return this.request<ImportedAsset>("/api/assets/import", { method: "POST", body: JSON.stringify({ filename, dataBase64, kind }) }); }
   async createJob(input: { model: GenerationModel; operation?: GenerationOperation; prompt: string; parameters: Record<string, unknown>; assets?: Array<ImportedAsset & { input: Omit<GenerationInput, "assetId" | "localPath"> }>; asset?: ImportedAsset }) {

@@ -1,4 +1,5 @@
 import { createExperientialTextNodeRunner } from "../providers/experiential";
+import { createLocalOpenAiTextNodeRunner } from "../providers/local-openai";
 import { readFile } from "node:fs/promises";
 import type { PricingQuote } from "@snarkroute/core";
 import { resolveNodePricing, type NodeRunner, type PricingBreakdown } from "@snarkroute/executor";
@@ -49,10 +50,15 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
   const geminiRunner = createGeminiLlmNodeRunner();
   const polzaRunner = createPolzaTextNodeRunner();
   const rutronixRunner = createRuTronixTextNodeRunner();
+  const localOpenAiRunner = createLocalOpenAiTextNodeRunner();
   return async (input) => {
     const params = decodeOpaquePromptParams(input.params);
     const executionProvider = stringValue(params.executionProvider ?? params.provider);
     const providerModelId = stringValue(params.providerModelId);
+    if (executionProvider === "local_openai") {
+      const localModelId = providerModelId ?? stringValue(params.model);
+      return localOpenAiRunner({ ...input, params: { ...params, model: params.model, providerModelId: localModelId } });
+    }
     if (executionProvider === "experiential") return createExperientialTextNodeRunner()({ ...input, params: { ...params, model: providerModelId ?? params.model } });
     if (executionProvider === "kie") return createKieNodeRunner("text.generate")({ ...input, params: { ...params, model: providerModelId ?? params.model } });
     if (executionProvider === "openrouter" && providerModelId) return rawOpenRouterRunner({ ...input, params: { ...params, model: providerModelId, providerMode: "openrouter" } });
@@ -186,6 +192,10 @@ export async function quoteModelExecutingNode(options: {
   if (options.nodeType === "ai.text") {
     const executionProvider = stringValue(params.executionProvider ?? params.provider);
     const providerModelId = stringValue(params.providerModelId) ?? stringValue(params.model) ?? "gpt-5-2";
+    if (executionProvider === "local_openai") {
+      const quote = localOpenAiQuote(stringValue(params.model) ?? providerModelId, providerModelId, params);
+      return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };
+    }
     if (executionProvider === "experiential") {
       const quote = unknownSelected(providerModelId, "experiential", providerModelId, "text.generate", params, "Experiential Labs pricing depends on the selected provider waterfall; cost is unknown.");
       return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings: quote.warnings ?? [] };
@@ -290,6 +300,21 @@ function openRouterQuote(logicalModel: string, providerModel: string, capability
 
 function geminiQuote(logicalModel: string, providerModel: string, capability: string, params: Record<string, unknown>, localPricingConfig: GeminiLocalPricingConfig): PricingQuote {
   return estimateGeminiPricingQuote({ logicalModel, provider: "gemini", providerModel, capability, params: { ...params, localPricingConfig }, inputMetadata: {} });
+}
+
+function localOpenAiQuote(logicalModel: string, providerModel: string, params: Record<string, unknown>): PricingQuote {
+  return {
+    logicalModel,
+    provider: "local_openai",
+    providerModel,
+    capability: "text.generate",
+    estimatedCost: 0,
+    currency: "USD",
+    pricingSource: "local",
+    confidence: "exact",
+    unit: "request",
+    breakdown: { requestedParams: Object.keys(params).filter((key) => !/api[_-]?key|token|secret|password/i.test(key)), local: true, apiCost: 0 }
+  };
 }
 
 function directGeminiAlternative(modelId: string, params: Record<string, unknown>, config: GeminiLocalPricingConfig): PricingQuote[] {

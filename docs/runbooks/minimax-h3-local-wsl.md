@@ -38,7 +38,7 @@ wsl.exe -d Ubuntu-24.04 -- bash -lc '~/h3/runtime/snarkroute-h3/scripts/setup_lo
 
 ## Start and stop from H3 Studio
 
-The default launcher selects `matlow_int8`, the local profile intended for this 16 GB laptop. T2VA, 10-second FL2VA, first/last-frame generation and visual Ref2VA have passed local GPU tests. Ref2VA remains experimental. Audio references and `final` are rejected. `local_fast` is pinned to 960x544 (or the corresponding aspect-ratio canvas), 4 denoise steps, dense attention, DynamicVRAM and native generated H3 audio.
+The default launcher selects `matlow_int8`, the local profile intended for this 16 GB laptop. T2VA, 10-second FL2VA, first/last-frame generation and visual Ref2VA have passed local GPU tests. Ref2VA remains experimental. Audio references and `final` are rejected. `local_fast` is pinned to 960x544 (or the corresponding aspect-ratio canvas), 4 denoise steps, DynamicVRAM and native generated H3 audio. Attention defaults to `H3_MATLOW_ATTENTION=auto`: the worker loads the Veda predictor and runs its Triton sparse-kernel self-test at startup, uses Veda when that succeeds, and otherwise keeps dense attention. Set `veda` to require sparse attention or `dense` for an A/B control.
 
 ### Visual references and motion
 

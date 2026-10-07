@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
@@ -9,6 +11,7 @@ from PIL import Image
 
 from app.errors import WorkerError
 from app.registry import UpscaleModel
+from app.video_benchmark import Policy, configure_torch, ort_session, phase
 
 
 class ImageRuntime(Protocol):
@@ -41,7 +44,7 @@ class OnnxRuntime:
             raise WorkerError("runtime_unavailable", "ONNX Runtime CUDAExecutionProvider is not available.")
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"] if wants_cuda else ["CPUExecutionProvider"]
         try:
-            self.session = ort.InferenceSession(str(path), providers=providers)
+            self.session = ort_session(ort,path,device) if Policy.from_env().enabled or os.getenv("LOCAL_VIDEO_PRODUCTION") == "1" else ort.InferenceSession(str(path), providers=providers)
         except Exception as exc:
             if wants_cuda:
                 raise WorkerError("runtime_unavailable", "ONNX Runtime could not initialize CUDAExecutionProvider.") from exc
@@ -67,6 +70,9 @@ class PyTorchRuntime:
             from spandrel import ModelLoader
         except ImportError as exc:
             raise WorkerError("runtime_unavailable", "Install the worker gpu extra to use PyTorch models.") from exc
+        configure_torch(torch)
+        if device.startswith("cuda") and not torch.cuda.is_available():
+            raise WorkerError("cuda_unavailable", "CUDA is unavailable. Video Upscale cannot fall back to CPU.")
         # Refuse checkpoints that cannot be parsed through PyTorch's safe weights-only loader.
         torch.load(path, map_location="cpu", weights_only=True)
         resolved_device = torch.device(device if device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu"))
@@ -81,10 +87,13 @@ class PyTorchRuntime:
         self.device_type = resolved_device.type
 
     def infer(self, tile: np.ndarray) -> np.ndarray:
-        tensor = self.torch.from_numpy(np.transpose(tile.astype(np.float32), (2, 0, 1))).unsqueeze(0).to(self.device)
-        with self.torch.inference_mode():
-            result = self.model(tensor).detach().float().cpu().numpy()[0]
-        return np.transpose(result, (1, 2, 0))
+        with phase(self,"preprocessing_seconds"):
+            tensor = self.torch.from_numpy(np.transpose(tile.astype(np.float32), (2, 0, 1))).unsqueeze(0).to(self.device)
+        with phase(self,"model_forward_seconds"), self.torch.inference_mode():
+            result = self.model(tensor)
+        with phase(self,"postprocessing_seconds"):
+            result = result.detach().float().cpu().numpy()[0]
+            return np.transpose(result, (1, 2, 0))
 
 
 class RuntimeFactory:

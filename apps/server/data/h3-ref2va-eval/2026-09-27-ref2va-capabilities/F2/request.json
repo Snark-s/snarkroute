@@ -1,0 +1,30 @@
+{
+  "operation": "video.generate.h3",
+  "task": "ref2va",
+  "prompt": "Use <Video 1> for the performance. Use <Picture 1> as the facial identity reference.\n\nPreserve the source performance, pose, timing, framing and camera. The person slowly turns toward the camera in a plain studio.",
+  "conditions": [
+    {
+      "type": "video",
+      "uri": "file:///home/serge/h3/outputs/inputs/d5a2c543-c8d9-4eab-9bc5-1b4738194693/input.mp4",
+      "role": "reference",
+      "purpose": "motion"
+    },
+    {
+      "type": "image",
+      "uri": "file:///home/serge/h3/outputs/inputs/41ff1403-e215-4518-ae13-05a4dca6d6b4/input.png",
+      "role": "reference",
+      "purpose": "identity"
+    }
+  ],
+  "target": {
+    "short_edge": 768,
+    "aspect_ratio": "16:9",
+    "duration_seconds": 5
+  },
+  "seed": 424242,
+  "num_outputs_per_prompt": 1,
+  "num_inference_steps": 4,
+  "quality_mode": "preview",
+  "quality": "lossless",
+  "turbo_lora": false
+}

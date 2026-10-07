@@ -1,0 +1,23 @@
+{
+  "candidate": "span",
+  "status": "BLOCKED",
+  "retry": false,
+  "next_candidate_queued": false,
+  "started_at": "2026-09-30T22:15:57.511001+00:00",
+  "license": "CC-BY-SA-4.0",
+  "gpu_memory_attribution": "System-level nvidia-smi; not model allocations",
+  "gpu_precheck": {
+    "index": 0,
+    "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+    "total_mib": 16384,
+    "used_mib": 11716,
+    "free_mib": 4460,
+    "utilization_percent": 95
+  },
+  "error": "Blocked by current GPU usage. Current GPU: NVIDIA GeForce RTX 3080 Laptop GPU; Used: 11716 MiB; Free: 4460 MiB; Required safety threshold: 8192 MiB",
+  "final_port_state": {
+    "open": false,
+    "scope": "No owned session started; precheck only"
+  },
+  "total_wall_seconds": 2.117334499998833
+}

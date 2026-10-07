@@ -1,0 +1,1233 @@
+<!doctype html><html><head><meta charset="utf-8"><title>H3 Ref2VA capability evaluation</title><style>
+    :root{color-scheme:dark;background:#0b0f14;color:#e8edf3;font:15px system-ui}body{margin:24px}header{position:sticky;top:0;background:#0b0f14e8;padding:12px 0;z-index:2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px}.card{border:1px solid #34404d;border-radius:12px;padding:14px;background:#111821}.card.failed{border-color:#b45050}.card.succeeded{border-color:#3f7d5a}h2{margin:0 0 8px}h2 span{font-size:12px;color:#9aacbd}video{width:100%;background:#050608;aspect-ratio:16/9}.refs{display:flex;gap:8px;overflow:auto;margin:10px 0}.refs figure{margin:0;min-width:150px}.refs img{width:150px;height:96px;object-fit:cover;border-radius:6px}.refs figcaption{font-size:11px;color:#aeb9c5}.assessment{padding:10px;border-left:3px solid #d69a50;background:#181c22}pre{white-space:pre-wrap;font-size:11px;max-height:360px;overflow:auto}</style></head><body>
+    <header><h1>H3 Ref2VA capability evaluation</h1><p>10/10 succeeded · 0 failed · 0 pending</p></header><main class="grid"><article class="card succeeded"><h2>A0 <span>succeeded</span></h2>
+      <p><strong>Variable:</strong> text-only baseline</p>
+      <video controls preload="metadata" poster="A0/thumbnail.jpg" src="A0/output.mp4"></video>
+      <div class="refs"></div>
+      <p class="assessment"><strong>Assessment:</strong> Valid neutral control: photoreal woman, clear left-to-right head turn, stable medium close-up and studio background.</p>
+      <details><summary>Request & metadata</summary><pre>{
+  &quot;seed&quot;: 424242,
+  &quot;steps&quot;: 4,
+  &quot;prompt&quot;: &quot;A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.&quot;,
+  &quot;contextInstruction&quot;: &quot;&quot;,
+  &quot;worker&quot;: {
+    &quot;backend&quot;: &quot;matlow_int8&quot;,
+    &quot;backend_version&quot;: &quot;model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31&quot;,
+    &quot;model_revision&quot;: &quot;8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3&quot;,
+    &quot;variant&quot;: &quot;t2va&quot;,
+    &quot;model_variant&quot;: &quot;h3_base&quot;,
+    &quot;gpu&quot;: &quot;NVIDIA GeForce RTX 3080 Laptop GPU&quot;,
+    &quot;vram_gib&quot;: 15.99951171875,
+    &quot;resolution&quot;: &quot;960x544&quot;,
+    &quot;frames&quot;: 124,
+    &quot;duration_seconds&quot;: 5,
+    &quot;steps&quot;: 4,
+    &quot;seed&quot;: 424242,
+    &quot;quantization&quot;: &quot;comfy_quant:int8_convrot&quot;,
+    &quot;sampler&quot;: &quot;res_multistep&quot;,
+    &quot;scheduler&quot;: &quot;simple&quot;,
+    &quot;flow_parameters&quot;: {
+      &quot;shift_video&quot;: 12,
+      &quot;shift_audio&quot;: 3
+    },
+    &quot;guidance&quot;: {
+      &quot;type&quot;: &quot;basic&quot;,
+      &quot;cfg&quot;: null
+    },
+    &quot;attention_backend&quot;: &quot;dense&quot;,
+    &quot;vae_tile_size&quot;: 256,
+    &quot;lora&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;kind&quot;: &quot;fused_turbo&quot;
+    },
+    &quot;references&quot;: null,
+    &quot;conditioning&quot;: {
+      &quot;encoder&quot;: &quot;MiniMaxH3ImageToVideo&quot;,
+      &quot;slot&quot;: &quot;keyframes&quot;,
+      &quot;conditioning_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root[0][0]&quot;,
+          &quot;shape&quot;: [
+            1,
+            43,
+            5120
+          ]
+        },
+        {
+          &quot;path&quot;: &quot;root[0][1].minimax_token_tags&quot;,
+          &quot;shape&quot;: [
+            43
+          ]
+        }
+      ],
+      &quot;latent_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root.samples&quot;,
+          &quot;shape&quot;: [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    &quot;render_time_seconds&quot;: 589.7936027769999,
+    &quot;peak_vram_gib&quot;: 2.369140625,
+    &quot;peak_ram_gib&quot;: 24.355037689208984,
+    &quot;peak_system_ram_gib&quot;: 23.260379791259766,
+    &quot;peak_swap_gib&quot;: 0,
+    &quot;peak_swap_growth_gib&quot;: 0,
+    &quot;model_load_seconds&quot;: 5.185423467999982,
+    &quot;text_encoder_seconds&quot;: 301.66304247799997,
+    &quot;diffusion_seconds&quot;: 198.60042181099993,
+    &quot;vae_decode_seconds&quot;: 76.92100266199998,
+    &quot;audio_seconds&quot;: 1.526605045999986,
+    &quot;kernel&quot;: &quot;comfy_kitchen.int8_linear.cuda&quot;,
+    &quot;input_bytes&quot;: 0,
+    &quot;output_bytes&quot;: 658931,
+    &quot;verified_gpu_inference&quot;: true
+  }
+}</pre></details>
+      <p>Baseline identity · Motion and framing · Default rendering language</p></article>
+<article class="card succeeded"><h2>S1 <span>succeeded</span></h2>
+      <p><strong>Variable:</strong> one Picture: stained-glass visual/style reference</p>
+      <video controls preload="metadata" poster="S1/thumbnail.jpg" src="S1/output.mp4"></video>
+      <div class="refs"><figure><img src="S1/reference-1.jpg" alt="Picture 1"><figcaption>Picture 1 · style</figcaption></figure></div>
+      <p class="assessment"><strong>Assessment:</strong> Picture reached Ref2VA, but stained glass, leaded edges and glass material did not transfer. Output stayed photoreal; only incidental subject/background details changed.</p>
+      <details><summary>Request & metadata</summary><pre>{
+  &quot;seed&quot;: 424242,
+  &quot;steps&quot;: 4,
+  &quot;prompt&quot;: &quot;A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.&quot;,
+  &quot;contextInstruction&quot;: &quot;Use &lt;Picture 1&gt; as the visual/style reference for rendering.&quot;,
+  &quot;worker&quot;: {
+    &quot;backend&quot;: &quot;matlow_int8&quot;,
+    &quot;backend_version&quot;: &quot;model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31&quot;,
+    &quot;model_revision&quot;: &quot;8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3&quot;,
+    &quot;variant&quot;: &quot;ref2va&quot;,
+    &quot;model_variant&quot;: &quot;h3_base&quot;,
+    &quot;gpu&quot;: &quot;NVIDIA GeForce RTX 3080 Laptop GPU&quot;,
+    &quot;vram_gib&quot;: 15.99951171875,
+    &quot;resolution&quot;: &quot;960x544&quot;,
+    &quot;frames&quot;: 124,
+    &quot;duration_seconds&quot;: 5,
+    &quot;steps&quot;: 4,
+    &quot;seed&quot;: 424242,
+    &quot;quantization&quot;: &quot;comfy_quant:int8_convrot&quot;,
+    &quot;sampler&quot;: &quot;res_multistep&quot;,
+    &quot;scheduler&quot;: &quot;simple&quot;,
+    &quot;flow_parameters&quot;: {
+      &quot;shift_video&quot;: 12,
+      &quot;shift_audio&quot;: 3
+    },
+    &quot;guidance&quot;: {
+      &quot;type&quot;: &quot;basic&quot;,
+      &quot;cfg&quot;: null
+    },
+    &quot;attention_backend&quot;: &quot;dense&quot;,
+    &quot;vae_tile_size&quot;: 256,
+    &quot;lora&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;kind&quot;: &quot;fused_turbo&quot;
+    },
+    &quot;references&quot;: {
+      &quot;counts&quot;: {
+        &quot;image&quot;: 1,
+        &quot;video&quot;: 0,
+        &quot;audio&quot;: 0
+      },
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;conditioning_slot&quot;: &quot;minimax_refs&quot;,
+      &quot;model_mode&quot;: &quot;ref2va&quot;,
+      &quot;reference_weights&quot;: null,
+      &quot;references&quot;: [
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 1&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;style&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            1344,
+            896,
+            3
+          ]
+        }
+      ]
+    },
+    &quot;conditioning&quot;: {
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;slot&quot;: &quot;minimax_refs&quot;,
+      &quot;conditioning_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root[0][0]&quot;,
+          &quot;shape&quot;: [
+            1,
+            569,
+            5120
+          ]
+        },
+        {
+          &quot;path&quot;: &quot;root[0][1].minimax_token_tags&quot;,
+          &quot;shape&quot;: [
+            569
+          ]
+        }
+      ],
+      &quot;latent_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root.samples&quot;,
+          &quot;shape&quot;: [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    &quot;render_time_seconds&quot;: 718.8503098460001,
+    &quot;peak_vram_gib&quot;: 2.50390625,
+    &quot;peak_ram_gib&quot;: 25.079566955566406,
+    &quot;peak_system_ram_gib&quot;: 24.797260284423828,
+    &quot;peak_swap_gib&quot;: 0.001953125,
+    &quot;peak_swap_growth_gib&quot;: 0.001953125,
+    &quot;model_load_seconds&quot;: 15.409165233999943,
+    &quot;text_encoder_seconds&quot;: 45.09392112199998,
+    &quot;diffusion_seconds&quot;: 567.845010924,
+    &quot;vae_decode_seconds&quot;: 75.1629961860001,
+    &quot;audio_seconds&quot;: 1.2927991399999428,
+    &quot;kernel&quot;: &quot;comfy_kitchen.int8_linear.cuda&quot;,
+    &quot;input_bytes&quot;: 2360895,
+    &quot;output_bytes&quot;: 627978,
+    &quot;verified_gpu_inference&quot;: true
+  }
+}</pre></details>
+      <p>Palette and contrast · Hard leaded-glass edges · Glass texture/material · Subject/composition leakage</p></article>
+<article class="card succeeded"><h2>S2 <span>succeeded</span></h2>
+      <p><strong>Variable:</strong> one Picture: photoreal face/appearance reference</p>
+      <video controls preload="metadata" poster="S2/thumbnail.jpg" src="S2/output.mp4"></video>
+      <div class="refs"><figure><img src="S2/reference-1.jpg" alt="Picture 1"><figcaption>Picture 1 · style</figcaption></figure></div>
+      <p class="assessment"><strong>Assessment:</strong> Strong transfer of the reference woman's short black hair, facial structure and makeup. This verifies identity/appearance conditioning, not a distinct style mechanism.</p>
+      <details><summary>Request & metadata</summary><pre>{
+  &quot;seed&quot;: 424242,
+  &quot;steps&quot;: 4,
+  &quot;prompt&quot;: &quot;A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.&quot;,
+  &quot;contextInstruction&quot;: &quot;Use &lt;Picture 1&gt; as the visual/style reference for rendering.&quot;,
+  &quot;worker&quot;: {
+    &quot;backend&quot;: &quot;matlow_int8&quot;,
+    &quot;backend_version&quot;: &quot;model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31&quot;,
+    &quot;model_revision&quot;: &quot;8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3&quot;,
+    &quot;variant&quot;: &quot;ref2va&quot;,
+    &quot;model_variant&quot;: &quot;h3_base&quot;,
+    &quot;gpu&quot;: &quot;NVIDIA GeForce RTX 3080 Laptop GPU&quot;,
+    &quot;vram_gib&quot;: 15.99951171875,
+    &quot;resolution&quot;: &quot;960x544&quot;,
+    &quot;frames&quot;: 124,
+    &quot;duration_seconds&quot;: 5,
+    &quot;steps&quot;: 4,
+    &quot;seed&quot;: 424242,
+    &quot;quantization&quot;: &quot;comfy_quant:int8_convrot&quot;,
+    &quot;sampler&quot;: &quot;res_multistep&quot;,
+    &quot;scheduler&quot;: &quot;simple&quot;,
+    &quot;flow_parameters&quot;: {
+      &quot;shift_video&quot;: 12,
+      &quot;shift_audio&quot;: 3
+    },
+    &quot;guidance&quot;: {
+      &quot;type&quot;: &quot;basic&quot;,
+      &quot;cfg&quot;: null
+    },
+    &quot;attention_backend&quot;: &quot;dense&quot;,
+    &quot;vae_tile_size&quot;: 256,
+    &quot;lora&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;kind&quot;: &quot;fused_turbo&quot;
+    },
+    &quot;references&quot;: {
+      &quot;counts&quot;: {
+        &quot;image&quot;: 1,
+        &quot;video&quot;: 0,
+        &quot;audio&quot;: 0
+      },
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;conditioning_slot&quot;: &quot;minimax_refs&quot;,
+      &quot;model_mode&quot;: &quot;ref2va&quot;,
+      &quot;reference_weights&quot;: null,
+      &quot;references&quot;: [
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 1&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;style&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            784,
+            756,
+            3
+          ]
+        }
+      ]
+    },
+    &quot;conditioning&quot;: {
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;slot&quot;: &quot;minimax_refs&quot;,
+      &quot;conditioning_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root[0][0]&quot;,
+          &quot;shape&quot;: [
+            1,
+            571,
+            5120
+          ]
+        },
+        {
+          &quot;path&quot;: &quot;root[0][1].minimax_token_tags&quot;,
+          &quot;shape&quot;: [
+            571
+          ]
+        }
+      ],
+      &quot;latent_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root.samples&quot;,
+          &quot;shape&quot;: [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    &quot;render_time_seconds&quot;: 702.165156882,
+    &quot;peak_vram_gib&quot;: 2.50390625,
+    &quot;peak_ram_gib&quot;: 24.200794219970703,
+    &quot;peak_system_ram_gib&quot;: 23.132667541503906,
+    &quot;peak_swap_gib&quot;: 4.029075622558594,
+    &quot;peak_swap_growth_gib&quot;: 4.027122497558594,
+    &quot;model_load_seconds&quot;: 1.95231281700012,
+    &quot;text_encoder_seconds&quot;: 46.284358500999815,
+    &quot;diffusion_seconds&quot;: 616.1011707739999,
+    &quot;vae_decode_seconds&quot;: 23.096977942000194,
+    &quot;audio_seconds&quot;: 1.2637447479996808,
+    &quot;kernel&quot;: &quot;comfy_kitchen.int8_linear.cuda&quot;,
+    &quot;input_bytes&quot;: 305520,
+    &quot;output_bytes&quot;: 547829,
+    &quot;verified_gpu_inference&quot;: true
+  }
+}</pre></details>
+      <p>Photoreal material rendering · Identity leakage · Lighting and texture · Difference from S1 at fixed seed</p></article>
+<article class="card succeeded"><h2>R2 <span>succeeded</span></h2>
+      <p><strong>Variable:</strong> two Pictures with separated subject/style roles</p>
+      <video controls preload="metadata" poster="R2/thumbnail.jpg" src="R2/output.mp4"></video>
+      <div class="refs"><figure><img src="R2/reference-1.jpg" alt="Picture 1"><figcaption>Picture 1 · subject</figcaption></figure><figure><img src="R2/reference-2.jpg" alt="Picture 2"><figcaption>Picture 2 · style</figcaption></figure></div>
+      <p class="assessment"><strong>Assessment:</strong> Picture 1 identity dominates. Picture 2 stained-glass rendering is not visible, so subject/style role separation is limited and style remains unverified.</p>
+      <details><summary>Request & metadata</summary><pre>{
+  &quot;seed&quot;: 424242,
+  &quot;steps&quot;: 4,
+  &quot;prompt&quot;: &quot;A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.&quot;,
+  &quot;contextInstruction&quot;: &quot;Use &lt;Picture 1&gt; for subject identity and appearance. Use &lt;Picture 2&gt; only for artistic style and rendering.&quot;,
+  &quot;worker&quot;: {
+    &quot;backend&quot;: &quot;matlow_int8&quot;,
+    &quot;backend_version&quot;: &quot;model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31&quot;,
+    &quot;model_revision&quot;: &quot;8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3&quot;,
+    &quot;variant&quot;: &quot;ref2va&quot;,
+    &quot;model_variant&quot;: &quot;h3_base&quot;,
+    &quot;gpu&quot;: &quot;NVIDIA GeForce RTX 3080 Laptop GPU&quot;,
+    &quot;vram_gib&quot;: 15.99951171875,
+    &quot;resolution&quot;: &quot;960x544&quot;,
+    &quot;frames&quot;: 124,
+    &quot;duration_seconds&quot;: 5,
+    &quot;steps&quot;: 4,
+    &quot;seed&quot;: 424242,
+    &quot;quantization&quot;: &quot;comfy_quant:int8_convrot&quot;,
+    &quot;sampler&quot;: &quot;res_multistep&quot;,
+    &quot;scheduler&quot;: &quot;simple&quot;,
+    &quot;flow_parameters&quot;: {
+      &quot;shift_video&quot;: 12,
+      &quot;shift_audio&quot;: 3
+    },
+    &quot;guidance&quot;: {
+      &quot;type&quot;: &quot;basic&quot;,
+      &quot;cfg&quot;: null
+    },
+    &quot;attention_backend&quot;: &quot;dense&quot;,
+    &quot;vae_tile_size&quot;: 256,
+    &quot;lora&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;kind&quot;: &quot;fused_turbo&quot;
+    },
+    &quot;references&quot;: {
+      &quot;counts&quot;: {
+        &quot;image&quot;: 2,
+        &quot;video&quot;: 0,
+        &quot;audio&quot;: 0
+      },
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;conditioning_slot&quot;: &quot;minimax_refs&quot;,
+      &quot;model_mode&quot;: &quot;ref2va&quot;,
+      &quot;reference_weights&quot;: null,
+      &quot;references&quot;: [
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 1&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;subject&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            784,
+            756,
+            3
+          ]
+        },
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 2&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;style&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            1344,
+            896,
+            3
+          ]
+        }
+      ]
+    },
+    &quot;conditioning&quot;: {
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;slot&quot;: &quot;minimax_refs&quot;,
+      &quot;conditioning_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root[0][0]&quot;,
+          &quot;shape&quot;: [
+            1,
+            1094,
+            5120
+          ]
+        },
+        {
+          &quot;path&quot;: &quot;root[0][1].minimax_token_tags&quot;,
+          &quot;shape&quot;: [
+            1094
+          ]
+        }
+      ],
+      &quot;latent_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root.samples&quot;,
+          &quot;shape&quot;: [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    &quot;render_time_seconds&quot;: 728.3716171420001,
+    &quot;peak_vram_gib&quot;: 2.640625,
+    &quot;peak_ram_gib&quot;: 21.448848724365234,
+    &quot;peak_system_ram_gib&quot;: 20.891582489013672,
+    &quot;peak_swap_gib&quot;: 5.234870910644531,
+    &quot;peak_swap_growth_gib&quot;: 1.4824066162109375,
+    &quot;model_load_seconds&quot;: 4.016424680999535,
+    &quot;text_encoder_seconds&quot;: 238.87378290499964,
+    &quot;diffusion_seconds&quot;: 443.66992628499975,
+    &quot;vae_decode_seconds&quot;: 22.84963595199997,
+    &quot;audio_seconds&quot;: 1.447567704999983,
+    &quot;kernel&quot;: &quot;comfy_kitchen.int8_linear.cuda&quot;,
+    &quot;input_bytes&quot;: 2666415,
+    &quot;output_bytes&quot;: 536739,
+    &quot;verified_gpu_inference&quot;: true
+  }
+}</pre></details>
+      <p>Picture 1 identity · Picture 2 rendering language · Role separation versus blending</p></article>
+<article class="card succeeded"><h2>R3 <span>succeeded</span></h2>
+      <p><strong>Variable:</strong> three Pictures / order and multi-image conditioning</p>
+      <video controls preload="metadata" poster="R3/thumbnail.jpg" src="R3/output.mp4"></video>
+      <div class="refs"><figure><img src="R3/reference-1.jpg" alt="Picture 1"><figcaption>Picture 1 · subject</figcaption></figure><figure><img src="R3/reference-2.jpg" alt="Picture 2"><figcaption>Picture 2 · style</figcaption></figure><figure><img src="R3/reference-3.jpg" alt="Picture 3"><figcaption>Picture 3 · appearance</figcaption></figure></div>
+      <p class="assessment"><strong>Assessment:</strong> All three image tensors reached conditioning in numbered order. Output remains dominated by Picture 1 identity; weak palette shifts are not proof that each requested semantic role was separated.</p>
+      <details><summary>Request & metadata</summary><pre>{
+  &quot;seed&quot;: 424242,
+  &quot;steps&quot;: 4,
+  &quot;prompt&quot;: &quot;A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.&quot;,
+  &quot;contextInstruction&quot;: &quot;Use &lt;Picture 1&gt; for subject identity. Use &lt;Picture 2&gt; for stained-glass rendering. Use &lt;Picture 3&gt; only for the restrained warm-gray palette and background treatment.&quot;,
+  &quot;worker&quot;: {
+    &quot;backend&quot;: &quot;matlow_int8&quot;,
+    &quot;backend_version&quot;: &quot;model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31&quot;,
+    &quot;model_revision&quot;: &quot;8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3&quot;,
+    &quot;variant&quot;: &quot;ref2va&quot;,
+    &quot;model_variant&quot;: &quot;h3_base&quot;,
+    &quot;gpu&quot;: &quot;NVIDIA GeForce RTX 3080 Laptop GPU&quot;,
+    &quot;vram_gib&quot;: 15.99951171875,
+    &quot;resolution&quot;: &quot;960x544&quot;,
+    &quot;frames&quot;: 124,
+    &quot;duration_seconds&quot;: 5,
+    &quot;steps&quot;: 4,
+    &quot;seed&quot;: 424242,
+    &quot;quantization&quot;: &quot;comfy_quant:int8_convrot&quot;,
+    &quot;sampler&quot;: &quot;res_multistep&quot;,
+    &quot;scheduler&quot;: &quot;simple&quot;,
+    &quot;flow_parameters&quot;: {
+      &quot;shift_video&quot;: 12,
+      &quot;shift_audio&quot;: 3
+    },
+    &quot;guidance&quot;: {
+      &quot;type&quot;: &quot;basic&quot;,
+      &quot;cfg&quot;: null
+    },
+    &quot;attention_backend&quot;: &quot;dense&quot;,
+    &quot;vae_tile_size&quot;: 256,
+    &quot;lora&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;kind&quot;: &quot;fused_turbo&quot;
+    },
+    &quot;references&quot;: {
+      &quot;counts&quot;: {
+        &quot;image&quot;: 3,
+        &quot;video&quot;: 0,
+        &quot;audio&quot;: 0
+      },
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;conditioning_slot&quot;: &quot;minimax_refs&quot;,
+      &quot;model_mode&quot;: &quot;ref2va&quot;,
+      &quot;reference_weights&quot;: null,
+      &quot;references&quot;: [
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 1&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;subject&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            784,
+            756,
+            3
+          ]
+        },
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 2&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;style&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            1344,
+            896,
+            3
+          ]
+        },
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 3&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;appearance&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            1024,
+            1024,
+            3
+          ]
+        }
+      ]
+    },
+    &quot;conditioning&quot;: {
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;slot&quot;: &quot;minimax_refs&quot;,
+      &quot;conditioning_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root[0][0]&quot;,
+          &quot;shape&quot;: [
+            1,
+            1645,
+            5120
+          ]
+        },
+        {
+          &quot;path&quot;: &quot;root[0][1].minimax_token_tags&quot;,
+          &quot;shape&quot;: [
+            1645
+          ]
+        }
+      ],
+      &quot;latent_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root.samples&quot;,
+          &quot;shape&quot;: [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    &quot;render_time_seconds&quot;: 616.2251742380004,
+    &quot;peak_vram_gib&quot;: 2.7578125,
+    &quot;peak_ram_gib&quot;: 22.750736236572266,
+    &quot;peak_system_ram_gib&quot;: 22.638179779052734,
+    &quot;peak_swap_gib&quot;: 3.972736358642578,
+    &quot;peak_swap_growth_gib&quot;: 0,
+    &quot;model_load_seconds&quot;: 3.732859535999978,
+    &quot;text_encoder_seconds&quot;: 67.42596906399967,
+    &quot;diffusion_seconds&quot;: 510.487150338,
+    &quot;vae_decode_seconds&quot;: 23.964002146999974,
+    &quot;audio_seconds&quot;: 1.140183683000032,
+    &quot;kernel&quot;: &quot;comfy_kitchen.int8_linear.cuda&quot;,
+    &quot;input_bytes&quot;: 3888297,
+    &quot;output_bytes&quot;: 494745,
+    &quot;verified_gpu_inference&quot;: true
+  }
+}</pre></details>
+      <p>Three references reached conditioning · Stable Picture numbering · Evidence of each requested role</p></article>
+<article class="card succeeded"><h2>V1 <span>succeeded</span></h2>
+      <p><strong>Variable:</strong> Video 1 motion/camera reference</p>
+      <video controls preload="metadata" poster="V1/thumbnail.jpg" src="V1/output.mp4"></video>
+      <div class="refs"><figure><img src="V1/reference-1.jpg" alt="Video 1"><figcaption>Video 1 · motion</figcaption></figure></div>
+      <p class="assessment"><strong>Assessment:</strong> Head-turn timing, framing, pose progression and static camera closely track A0. Video motion conditioning is verified.</p>
+      <details><summary>Request & metadata</summary><pre>{
+  &quot;seed&quot;: 424242,
+  &quot;steps&quot;: 4,
+  &quot;prompt&quot;: &quot;A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.&quot;,
+  &quot;contextInstruction&quot;: &quot;Use &lt;Video 1&gt; only for motion, timing, framing and camera movement.&quot;,
+  &quot;worker&quot;: {
+    &quot;backend&quot;: &quot;matlow_int8&quot;,
+    &quot;backend_version&quot;: &quot;model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31&quot;,
+    &quot;model_revision&quot;: &quot;8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3&quot;,
+    &quot;variant&quot;: &quot;ref2va&quot;,
+    &quot;model_variant&quot;: &quot;h3_base&quot;,
+    &quot;gpu&quot;: &quot;NVIDIA GeForce RTX 3080 Laptop GPU&quot;,
+    &quot;vram_gib&quot;: 15.99951171875,
+    &quot;resolution&quot;: &quot;960x544&quot;,
+    &quot;frames&quot;: 124,
+    &quot;duration_seconds&quot;: 5,
+    &quot;steps&quot;: 4,
+    &quot;seed&quot;: 424242,
+    &quot;quantization&quot;: &quot;comfy_quant:int8_convrot&quot;,
+    &quot;sampler&quot;: &quot;res_multistep&quot;,
+    &quot;scheduler&quot;: &quot;simple&quot;,
+    &quot;flow_parameters&quot;: {
+      &quot;shift_video&quot;: 12,
+      &quot;shift_audio&quot;: 3
+    },
+    &quot;guidance&quot;: {
+      &quot;type&quot;: &quot;basic&quot;,
+      &quot;cfg&quot;: null
+    },
+    &quot;attention_backend&quot;: &quot;dense&quot;,
+    &quot;vae_tile_size&quot;: 256,
+    &quot;lora&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;kind&quot;: &quot;fused_turbo&quot;
+    },
+    &quot;references&quot;: {
+      &quot;counts&quot;: {
+        &quot;image&quot;: 0,
+        &quot;video&quot;: 1,
+        &quot;audio&quot;: 0
+      },
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;conditioning_slot&quot;: &quot;minimax_refs&quot;,
+      &quot;model_mode&quot;: &quot;ref2va&quot;,
+      &quot;reference_weights&quot;: null,
+      &quot;references&quot;: [
+        {
+          &quot;source_id&quot;: &quot;input.mp4&quot;,
+          &quot;tag&quot;: &quot;Video 1&quot;,
+          &quot;kind&quot;: &quot;video&quot;,
+          &quot;purpose&quot;: &quot;motion&quot;,
+          &quot;visual_mode&quot;: &quot;motion&quot;,
+          &quot;preprocessed_shape&quot;: [
+            124,
+            96,
+            192,
+            3
+          ]
+        }
+      ]
+    },
+    &quot;conditioning&quot;: {
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;slot&quot;: &quot;minimax_refs&quot;,
+      &quot;conditioning_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root[0][0]&quot;,
+          &quot;shape&quot;: [
+            1,
+            222,
+            5120
+          ]
+        },
+        {
+          &quot;path&quot;: &quot;root[0][1].minimax_token_tags&quot;,
+          &quot;shape&quot;: [
+            222
+          ]
+        }
+      ],
+      &quot;latent_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root.samples&quot;,
+          &quot;shape&quot;: [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    &quot;render_time_seconds&quot;: 480.53895863000025,
+    &quot;peak_vram_gib&quot;: 2.46484375,
+    &quot;peak_ram_gib&quot;: 21.773479461669922,
+    &quot;peak_system_ram_gib&quot;: 21.52545928955078,
+    &quot;peak_swap_gib&quot;: 3.3697471618652344,
+    &quot;peak_swap_growth_gib&quot;: 0.8603897094726562,
+    &quot;model_load_seconds&quot;: 1.3742073050002546,
+    &quot;text_encoder_seconds&quot;: 34.02464539799985,
+    &quot;diffusion_seconds&quot;: 405.6808154170003,
+    &quot;vae_decode_seconds&quot;: 23.45080158799965,
+    &quot;audio_seconds&quot;: 1.234666930000003,
+    &quot;kernel&quot;: &quot;comfy_kitchen.int8_linear.cuda&quot;,
+    &quot;input_bytes&quot;: 658931,
+    &quot;output_bytes&quot;: 671800,
+    &quot;verified_gpu_inference&quot;: true
+  }
+}</pre></details>
+      <p>Head-turn timing · Pose trajectory · Framing and camera · Appearance leakage from grayscale motion guide</p></article>
+<article class="card succeeded"><h2>PV1 <span>succeeded</span></h2>
+      <p><strong>Variable:</strong> Picture appearance plus Video motion</p>
+      <video controls preload="metadata" poster="PV1/thumbnail.jpg" src="PV1/output.mp4"></video>
+      <div class="refs"><figure><img src="PV1/reference-1.jpg" alt="Picture 1"><figcaption>Picture 1 · appearance</figcaption></figure><figure><img src="PV1/reference-2.jpg" alt="Video 1"><figcaption>Video 1 · motion</figcaption></figure></div>
+      <p class="assessment"><strong>Assessment:</strong> Video motion/framing is preserved. Picture influence is weak compared with video identity, so mixed Picture+Video works technically but role balance is limited.</p>
+      <details><summary>Request & metadata</summary><pre>{
+  &quot;seed&quot;: 424242,
+  &quot;steps&quot;: 4,
+  &quot;prompt&quot;: &quot;A woman in a plain dark jacket stands in a quiet studio and slowly turns her head from left to right, then looks directly at the camera. Medium close-up, steady camera, even daylight, simple gray background.&quot;,
+  &quot;contextInstruction&quot;: &quot;Use &lt;Picture 1&gt; for subject appearance. Use &lt;Video 1&gt; for motion, timing and camera movement.&quot;,
+  &quot;worker&quot;: {
+    &quot;backend&quot;: &quot;matlow_int8&quot;,
+    &quot;backend_version&quot;: &quot;model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31&quot;,
+    &quot;model_revision&quot;: &quot;8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3&quot;,
+    &quot;variant&quot;: &quot;ref2va&quot;,
+    &quot;model_variant&quot;: &quot;h3_base&quot;,
+    &quot;gpu&quot;: &quot;NVIDIA GeForce RTX 3080 Laptop GPU&quot;,
+    &quot;vram_gib&quot;: 15.99951171875,
+    &quot;resolution&quot;: &quot;960x544&quot;,
+    &quot;frames&quot;: 124,
+    &quot;duration_seconds&quot;: 5,
+    &quot;steps&quot;: 4,
+    &quot;seed&quot;: 424242,
+    &quot;quantization&quot;: &quot;comfy_quant:int8_convrot&quot;,
+    &quot;sampler&quot;: &quot;res_multistep&quot;,
+    &quot;scheduler&quot;: &quot;simple&quot;,
+    &quot;flow_parameters&quot;: {
+      &quot;shift_video&quot;: 12,
+      &quot;shift_audio&quot;: 3
+    },
+    &quot;guidance&quot;: {
+      &quot;type&quot;: &quot;basic&quot;,
+      &quot;cfg&quot;: null
+    },
+    &quot;attention_backend&quot;: &quot;dense&quot;,
+    &quot;vae_tile_size&quot;: 256,
+    &quot;lora&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;kind&quot;: &quot;fused_turbo&quot;
+    },
+    &quot;references&quot;: {
+      &quot;counts&quot;: {
+        &quot;image&quot;: 1,
+        &quot;video&quot;: 1,
+        &quot;audio&quot;: 0
+      },
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;conditioning_slot&quot;: &quot;minimax_refs&quot;,
+      &quot;model_mode&quot;: &quot;ref2va&quot;,
+      &quot;reference_weights&quot;: null,
+      &quot;references&quot;: [
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 1&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;appearance&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            784,
+            756,
+            3
+          ]
+        },
+        {
+          &quot;source_id&quot;: &quot;input.mp4&quot;,
+          &quot;tag&quot;: &quot;Video 1&quot;,
+          &quot;kind&quot;: &quot;video&quot;,
+          &quot;purpose&quot;: &quot;motion&quot;,
+          &quot;visual_mode&quot;: &quot;motion&quot;,
+          &quot;preprocessed_shape&quot;: [
+            124,
+            96,
+            192,
+            3
+          ]
+        }
+      ]
+    },
+    &quot;conditioning&quot;: {
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;slot&quot;: &quot;minimax_refs&quot;,
+      &quot;conditioning_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root[0][0]&quot;,
+          &quot;shape&quot;: [
+            1,
+            743,
+            5120
+          ]
+        },
+        {
+          &quot;path&quot;: &quot;root[0][1].minimax_token_tags&quot;,
+          &quot;shape&quot;: [
+            743
+          ]
+        }
+      ],
+      &quot;latent_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root.samples&quot;,
+          &quot;shape&quot;: [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    &quot;render_time_seconds&quot;: 1111.7085653729996,
+    &quot;peak_vram_gib&quot;: 2.6015625,
+    &quot;peak_ram_gib&quot;: 21.46240997314453,
+    &quot;peak_system_ram_gib&quot;: 21.114429473876953,
+    &quot;peak_swap_gib&quot;: 7.268321990966797,
+    &quot;peak_swap_growth_gib&quot;: 4.0008697509765625,
+    &quot;model_load_seconds&quot;: 3.3786471389994404,
+    &quot;text_encoder_seconds&quot;: 274.3186680169997,
+    &quot;diffusion_seconds&quot;: 791.3213537359998,
+    &quot;vae_decode_seconds&quot;: 22.64397681599985,
+    &quot;audio_seconds&quot;: 1.393772512000396,
+    &quot;kernel&quot;: &quot;comfy_kitchen.int8_linear.cuda&quot;,
+    &quot;input_bytes&quot;: 964451,
+    &quot;output_bytes&quot;: 569656,
+    &quot;verified_gpu_inference&quot;: true
+  }
+}</pre></details>
+      <p>Picture appearance influence · Video motion retention · Whether either reference is ignored</p></article>
+<article class="card succeeded"><h2>F0 <span>succeeded</span></h2>
+      <p><strong>Variable:</strong> FaceSwap control OFF</p>
+      <video controls preload="metadata" poster="F0/thumbnail.jpg" src="F0/output.mp4"></video>
+      <div class="refs"><figure><img src="F0/reference-1.jpg" alt="Video 1"><figcaption>Video 1 · motion</figcaption></figure><figure><img src="F0/reference-2.jpg" alt="Picture 1"><figcaption>Picture 1 · identity</figcaption></figure></div>
+      <p class="assessment"><strong>Assessment:</strong> Plain Ref2VA control preserves source identity and performance despite the identity Picture being present.</p>
+      <details><summary>Request & metadata</summary><pre>{
+  &quot;seed&quot;: 424242,
+  &quot;steps&quot;: 4,
+  &quot;prompt&quot;: &quot;Preserve the source performance, pose, timing, framing and camera. The person slowly turns toward the camera in a plain studio.&quot;,
+  &quot;contextInstruction&quot;: &quot;Use &lt;Video 1&gt; for the performance. Use &lt;Picture 1&gt; as the facial identity reference.&quot;,
+  &quot;worker&quot;: {
+    &quot;backend&quot;: &quot;matlow_int8&quot;,
+    &quot;backend_version&quot;: &quot;model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31&quot;,
+    &quot;model_revision&quot;: &quot;8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3&quot;,
+    &quot;variant&quot;: &quot;ref2va&quot;,
+    &quot;model_variant&quot;: &quot;h3_base&quot;,
+    &quot;gpu&quot;: &quot;NVIDIA GeForce RTX 3080 Laptop GPU&quot;,
+    &quot;vram_gib&quot;: 15.99951171875,
+    &quot;resolution&quot;: &quot;960x544&quot;,
+    &quot;frames&quot;: 124,
+    &quot;duration_seconds&quot;: 5,
+    &quot;steps&quot;: 4,
+    &quot;seed&quot;: 424242,
+    &quot;quantization&quot;: &quot;comfy_quant:int8_convrot&quot;,
+    &quot;sampler&quot;: &quot;res_multistep&quot;,
+    &quot;scheduler&quot;: &quot;simple&quot;,
+    &quot;flow_parameters&quot;: {
+      &quot;shift_video&quot;: 12,
+      &quot;shift_audio&quot;: 3
+    },
+    &quot;guidance&quot;: {
+      &quot;type&quot;: &quot;basic&quot;,
+      &quot;cfg&quot;: null
+    },
+    &quot;attention_backend&quot;: &quot;dense&quot;,
+    &quot;vae_tile_size&quot;: 256,
+    &quot;lora&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;kind&quot;: &quot;fused_turbo&quot;
+    },
+    &quot;references&quot;: {
+      &quot;counts&quot;: {
+        &quot;image&quot;: 1,
+        &quot;video&quot;: 1,
+        &quot;audio&quot;: 0
+      },
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;conditioning_slot&quot;: &quot;minimax_refs&quot;,
+      &quot;model_mode&quot;: &quot;ref2va&quot;,
+      &quot;reference_weights&quot;: null,
+      &quot;references&quot;: [
+        {
+          &quot;source_id&quot;: &quot;input.mp4&quot;,
+          &quot;tag&quot;: &quot;Video 1&quot;,
+          &quot;kind&quot;: &quot;video&quot;,
+          &quot;purpose&quot;: &quot;motion&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            124,
+            288,
+            512,
+            3
+          ]
+        },
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 1&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;identity&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            784,
+            756,
+            3
+          ]
+        }
+      ]
+    },
+    &quot;conditioning&quot;: {
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;slot&quot;: &quot;minimax_refs&quot;,
+      &quot;conditioning_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root[0][0]&quot;,
+          &quot;shape&quot;: [
+            1,
+            1480,
+            5120
+          ]
+        },
+        {
+          &quot;path&quot;: &quot;root[0][1].minimax_token_tags&quot;,
+          &quot;shape&quot;: [
+            1480
+          ]
+        }
+      ],
+      &quot;latent_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root.samples&quot;,
+          &quot;shape&quot;: [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    &quot;render_time_seconds&quot;: 362.4254996569998,
+    &quot;peak_vram_gib&quot;: 3.24609375,
+    &quot;peak_ram_gib&quot;: 23.743698120117188,
+    &quot;peak_system_ram_gib&quot;: 22.946136474609375,
+    &quot;peak_swap_gib&quot;: 3.9918479919433594,
+    &quot;peak_swap_growth_gib&quot;: 0,
+    &quot;model_load_seconds&quot;: 1.6284371500014458,
+    &quot;text_encoder_seconds&quot;: 65.52624001599997,
+    &quot;diffusion_seconds&quot;: 262.14936401700015,
+    &quot;vae_decode_seconds&quot;: 23.477216643000247,
+    &quot;audio_seconds&quot;: 1.3397607920005612,
+    &quot;kernel&quot;: &quot;comfy_kitchen.int8_linear.cuda&quot;,
+    &quot;input_bytes&quot;: 964451,
+    &quot;output_bytes&quot;: 598778,
+    &quot;verified_gpu_inference&quot;: true
+  }
+}</pre></details>
+      <p>Control identity without LoRA · Motion/pose retention · Temporal face stability</p></article>
+<article class="card succeeded"><h2>F1 <span>succeeded</span></h2>
+      <p><strong>Variable:</strong> FaceSwap modifier ON at upstream strength 1</p>
+      <video controls preload="metadata" poster="F1/thumbnail.jpg" src="F1/output.mp4"></video>
+      <div class="refs"><figure><img src="F1/reference-1.jpg" alt="Video 1"><figcaption>Video 1 · motion</figcaption></figure><figure><img src="F1/reference-2.jpg" alt="Picture 1"><figcaption>Picture 1 · identity</figcaption></figure></div>
+      <p class="assessment"><strong>Assessment:</strong> FaceSwap visibly replaces identity as the face turns toward camera while preserving motion/framing. Frontal result is strong; profile and transition frames are temporally inconsistent, so capability is verified but limited.</p>
+      <details><summary>Request & metadata</summary><pre>{
+  &quot;seed&quot;: 424242,
+  &quot;steps&quot;: 4,
+  &quot;prompt&quot;: &quot;Preserve the source performance, pose, timing, framing and camera. The person slowly turns toward the camera in a plain studio.&quot;,
+  &quot;contextInstruction&quot;: &quot;Use &lt;Video 1&gt; for the performance. Use &lt;Picture 1&gt; as the facial identity reference.&quot;,
+  &quot;worker&quot;: {
+    &quot;backend&quot;: &quot;matlow_int8&quot;,
+    &quot;backend_version&quot;: &quot;model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31&quot;,
+    &quot;model_revision&quot;: &quot;8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3&quot;,
+    &quot;variant&quot;: &quot;ref2va&quot;,
+    &quot;model_variant&quot;: &quot;h3_base&quot;,
+    &quot;gpu&quot;: &quot;NVIDIA GeForce RTX 3080 Laptop GPU&quot;,
+    &quot;vram_gib&quot;: 15.99951171875,
+    &quot;resolution&quot;: &quot;960x544&quot;,
+    &quot;frames&quot;: 124,
+    &quot;duration_seconds&quot;: 5,
+    &quot;steps&quot;: 4,
+    &quot;seed&quot;: 424242,
+    &quot;quantization&quot;: &quot;comfy_quant:int8_convrot&quot;,
+    &quot;sampler&quot;: &quot;res_multistep&quot;,
+    &quot;scheduler&quot;: &quot;simple&quot;,
+    &quot;flow_parameters&quot;: {
+      &quot;shift_video&quot;: 12,
+      &quot;shift_audio&quot;: 3
+    },
+    &quot;guidance&quot;: {
+      &quot;type&quot;: &quot;basic&quot;,
+      &quot;cfg&quot;: null
+    },
+    &quot;attention_backend&quot;: &quot;dense&quot;,
+    &quot;vae_tile_size&quot;: 256,
+    &quot;lora&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;strength&quot;: 1,
+      &quot;kind&quot;: &quot;identity_transfer&quot;,
+      &quot;artifact&quot;: &quot;UntMods/FaceSwap_MiniMaxH3_REF2VA&quot;,
+      &quot;revision&quot;: &quot;b2a5823ca64bc78d91725fbfcc576095bfceb764&quot;,
+      &quot;sha256&quot;: &quot;1e032cf519cc143f434e67516d8ad0aacf4c6e146315b2dcc3b1c2800470326d&quot;,
+      &quot;trigger&quot;: &quot;Faceswap&quot;
+    },
+    &quot;references&quot;: {
+      &quot;counts&quot;: {
+        &quot;image&quot;: 1,
+        &quot;video&quot;: 1,
+        &quot;audio&quot;: 0
+      },
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;conditioning_slot&quot;: &quot;minimax_refs&quot;,
+      &quot;model_mode&quot;: &quot;ref2va&quot;,
+      &quot;reference_weights&quot;: null,
+      &quot;references&quot;: [
+        {
+          &quot;source_id&quot;: &quot;input.mp4&quot;,
+          &quot;tag&quot;: &quot;Video 1&quot;,
+          &quot;kind&quot;: &quot;video&quot;,
+          &quot;purpose&quot;: &quot;motion&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            124,
+            288,
+            512,
+            3
+          ]
+        },
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 1&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;identity&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            784,
+            756,
+            3
+          ]
+        }
+      ]
+    },
+    &quot;conditioning&quot;: {
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;slot&quot;: &quot;minimax_refs&quot;,
+      &quot;conditioning_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root[0][0]&quot;,
+          &quot;shape&quot;: [
+            1,
+            1483,
+            5120
+          ]
+        },
+        {
+          &quot;path&quot;: &quot;root[0][1].minimax_token_tags&quot;,
+          &quot;shape&quot;: [
+            1483
+          ]
+        }
+      ],
+      &quot;latent_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root.samples&quot;,
+          &quot;shape&quot;: [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    &quot;render_time_seconds&quot;: 1171.8015799620007,
+    &quot;peak_vram_gib&quot;: 3.48046875,
+    &quot;peak_ram_gib&quot;: 22.575420379638672,
+    &quot;peak_system_ram_gib&quot;: 21.774124145507812,
+    &quot;peak_swap_gib&quot;: 7.967231750488281,
+    &quot;peak_swap_growth_gib&quot;: 5.708049774169922,
+    &quot;model_load_seconds&quot;: 2.2760731719999967,
+    &quot;text_encoder_seconds&quot;: 190.26953189699998,
+    &quot;diffusion_seconds&quot;: 935.744087561,
+    &quot;vae_decode_seconds&quot;: 22.30068737900001,
+    &quot;audio_seconds&quot;: 1.3187622199993712,
+    &quot;kernel&quot;: &quot;comfy_kitchen.int8_linear.cuda&quot;,
+    &quot;input_bytes&quot;: 964451,
+    &quot;output_bytes&quot;: 619669,
+    &quot;verified_gpu_inference&quot;: true
+  }
+}</pre></details>
+      <p>Identity change versus F0 · Motion/pose retention · Artifacts · Temporal face consistency</p></article>
+<article class="card succeeded"><h2>F2 <span>succeeded</span></h2>
+      <p><strong>Variable:</strong> FaceSwap OFF immediately after ON / contamination control</p>
+      <video controls preload="metadata" poster="F2/thumbnail.jpg" src="F2/output.mp4"></video>
+      <div class="refs"><figure><img src="F2/reference-1.jpg" alt="Video 1"><figcaption>Video 1 · motion</figcaption></figure><figure><img src="F2/reference-2.jpg" alt="Picture 1"><figcaption>Picture 1 · identity</figcaption></figure></div>
+      <p class="assessment"><strong>Assessment:</strong> Byte-identical to F0 (same SHA-256 and SSIM 1.0) without worker restart. No dynamic LoRA contamination.</p>
+      <details><summary>Request & metadata</summary><pre>{
+  &quot;seed&quot;: 424242,
+  &quot;steps&quot;: 4,
+  &quot;prompt&quot;: &quot;Preserve the source performance, pose, timing, framing and camera. The person slowly turns toward the camera in a plain studio.&quot;,
+  &quot;contextInstruction&quot;: &quot;Use &lt;Video 1&gt; for the performance. Use &lt;Picture 1&gt; as the facial identity reference.&quot;,
+  &quot;worker&quot;: {
+    &quot;backend&quot;: &quot;matlow_int8&quot;,
+    &quot;backend_version&quot;: &quot;model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31&quot;,
+    &quot;model_revision&quot;: &quot;8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3&quot;,
+    &quot;variant&quot;: &quot;ref2va&quot;,
+    &quot;model_variant&quot;: &quot;h3_base&quot;,
+    &quot;gpu&quot;: &quot;NVIDIA GeForce RTX 3080 Laptop GPU&quot;,
+    &quot;vram_gib&quot;: 15.99951171875,
+    &quot;resolution&quot;: &quot;960x544&quot;,
+    &quot;frames&quot;: 124,
+    &quot;duration_seconds&quot;: 5,
+    &quot;steps&quot;: 4,
+    &quot;seed&quot;: 424242,
+    &quot;quantization&quot;: &quot;comfy_quant:int8_convrot&quot;,
+    &quot;sampler&quot;: &quot;res_multistep&quot;,
+    &quot;scheduler&quot;: &quot;simple&quot;,
+    &quot;flow_parameters&quot;: {
+      &quot;shift_video&quot;: 12,
+      &quot;shift_audio&quot;: 3
+    },
+    &quot;guidance&quot;: {
+      &quot;type&quot;: &quot;basic&quot;,
+      &quot;cfg&quot;: null
+    },
+    &quot;attention_backend&quot;: &quot;dense&quot;,
+    &quot;vae_tile_size&quot;: 256,
+    &quot;lora&quot;: {
+      &quot;enabled&quot;: true,
+      &quot;kind&quot;: &quot;fused_turbo&quot;
+    },
+    &quot;references&quot;: {
+      &quot;counts&quot;: {
+        &quot;image&quot;: 1,
+        &quot;video&quot;: 1,
+        &quot;audio&quot;: 0
+      },
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;conditioning_slot&quot;: &quot;minimax_refs&quot;,
+      &quot;model_mode&quot;: &quot;ref2va&quot;,
+      &quot;reference_weights&quot;: null,
+      &quot;references&quot;: [
+        {
+          &quot;source_id&quot;: &quot;input.mp4&quot;,
+          &quot;tag&quot;: &quot;Video 1&quot;,
+          &quot;kind&quot;: &quot;video&quot;,
+          &quot;purpose&quot;: &quot;motion&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            124,
+            288,
+            512,
+            3
+          ]
+        },
+        {
+          &quot;source_id&quot;: &quot;input.png&quot;,
+          &quot;tag&quot;: &quot;Picture 1&quot;,
+          &quot;kind&quot;: &quot;image&quot;,
+          &quot;purpose&quot;: &quot;identity&quot;,
+          &quot;visual_mode&quot;: null,
+          &quot;preprocessed_shape&quot;: [
+            1,
+            784,
+            756,
+            3
+          ]
+        }
+      ]
+    },
+    &quot;conditioning&quot;: {
+      &quot;encoder&quot;: &quot;MiniMaxH3ReferenceToVideo&quot;,
+      &quot;slot&quot;: &quot;minimax_refs&quot;,
+      &quot;conditioning_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root[0][0]&quot;,
+          &quot;shape&quot;: [
+            1,
+            1480,
+            5120
+          ]
+        },
+        {
+          &quot;path&quot;: &quot;root[0][1].minimax_token_tags&quot;,
+          &quot;shape&quot;: [
+            1480
+          ]
+        }
+      ],
+      &quot;latent_shapes&quot;: [
+        {
+          &quot;path&quot;: &quot;root.samples&quot;,
+          &quot;shape&quot;: [
+            1,
+            24,
+            37,
+            34,
+            60
+          ]
+        }
+      ]
+    },
+    &quot;render_time_seconds&quot;: 1038.5571542850003,
+    &quot;peak_vram_gib&quot;: 3.24609375,
+    &quot;peak_ram_gib&quot;: 19.663360595703125,
+    &quot;peak_system_ram_gib&quot;: 20.38823699951172,
+    &quot;peak_swap_gib&quot;: 6.717693328857422,
+    &quot;peak_swap_growth_gib&quot;: 2.7113990783691406,
+    &quot;model_load_seconds&quot;: 3.29888834600024,
+    &quot;text_encoder_seconds&quot;: 478.0458761629998,
+    &quot;diffusion_seconds&quot;: 514.4204683999997,
+    &quot;vae_decode_seconds&quot;: 22.555958989999453,
+    &quot;audio_seconds&quot;: 1.2450164510000832,
+    &quot;kernel&quot;: &quot;comfy_kitchen.int8_linear.cuda&quot;,
+    &quot;input_bytes&quot;: 964451,
+    &quot;output_bytes&quot;: 598778,
+    &quot;verified_gpu_inference&quot;: true
+  }
+}</pre></details>
+      <p>Match F0 control · No residual FaceSwap behavior · Worker stayed up between F1 and F2</p></article></main></body></html>

@@ -1,10 +1,12 @@
-import type { ModelIOContract } from "@snarkroute/protocol";
+import type { EngineCapability, ModelIOContract } from "@snarkroute/protocol";
 
 export type ModelProviderIdV1 =
   | "anthropic"
   | "gemini"
   | "local"
+  | "local_openai"
   | "openai"
+  | "prismml"
   | "openrouter"
   | "polza"
   | "replicate"
@@ -36,19 +38,10 @@ export type ModelOriginVendorV1 =
   | (string & {});
 
 export type ModelInputTypeV1 = "text" | "image" | "video" | "audio" | "file" | "json";
-export type ModelOutputTypeV1 = "text" | "image" | "video" | "audio" | "embedding" | "json" | "unknown";
+export type ModelOutputTypeV1 = "text" | "image" | "video" | "audio" | "model" | "embedding" | "json" | "unknown";
 
 export type ModelCapabilityV1 =
-  | "text.generate"
-  | "json.generate"
-  | "image.generate"
-  | "image.edit"
-  | "image.reference"
-  | "image.upscale"
-  | "video.generate"
-  | "video.upscale"
-  | "audio.generate"
-  | "embedding.create"
+  | EngineCapability
   | (string & {});
 
 export type ModelRoleV1 = "generator" | "editor" | "upscaler" | "router" | "embedding";
@@ -132,6 +125,7 @@ export type ProviderModelInfoV1 = {
   capabilities: ModelCapabilityV1[];
   roles: ModelRoleV1[];
   availability: ModelAvailabilityV1;
+  pricing?: ModelPricingInfoV1;
   metadata?: Record<string, unknown>;
   ioContract?: ModelIOContract;
 };

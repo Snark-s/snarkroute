@@ -1,0 +1,18 @@
+[
+  {
+    "monotonic_seconds": 83278.3541506,
+    "process_cpu_percent_one_core": null,
+    "total_cpu_percent": null,
+    "rss_bytes": 0,
+    "available_ram_bytes": 4043407360,
+    "owned_active_processes": 0,
+    "gpu": {
+      "index": 0,
+      "name": "NVIDIA GeForce RTX 3080 Laptop GPU",
+      "total_mib": 16384,
+      "used_mib": 11718,
+      "free_mib": 4458,
+      "utilization_percent": 95
+    }
+  }
+]

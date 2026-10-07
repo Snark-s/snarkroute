@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CREDIT_UNIT, getRubPerUsd } from "@snarkroute/protocol";
 
@@ -487,15 +487,37 @@ function persistLedger(): void {
   const path = localDevLedgerPath();
   if (!path) return;
   mkdirSync(dirname(path), { recursive: true });
-  const tmpPath = `${path}.tmp`;
-  writeFileSync(tmpPath, `${JSON.stringify({
+
+  const payload = `${JSON.stringify({
     version: 1,
     updatedAt: new Date().toISOString(),
     users: [...users.values()],
     reservations: [...reservations.values()],
     providerUsageEvents
-  }, null, 2)}\n`, "utf8");
-  renameSync(tmpPath, path);
+  }, null, 2)}\n`;
+
+  // Never share a fixed *.tmp name. A second local SnarkRoute process, AV,
+  // indexer, or Windows filesystem filter can otherwise collide with rename.
+  const nonce = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tmpPath = `${path}.${nonce}.tmp`;
+  writeFileSync(tmpPath, payload, "utf8");
+
+  try {
+    renameSync(tmpPath, path);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (process.platform === "win32" && (code === "EPERM" || code === "EACCES" || code === "EBUSY")) {
+      // Windows does not always permit atomic replacement of an existing file
+      // when a filesystem filter briefly holds it open. The ledger is local-dev
+      // bookkeeping, so a direct synchronous replacement is safer than crashing
+      // the entire model gateway after a successful inference.
+      writeFileSync(path, payload, "utf8");
+      rmSync(tmpPath, { force: true });
+      return;
+    }
+    rmSync(tmpPath, { force: true });
+    throw error;
+  }
 }
 
 function localDevLedgerPath(): string | null {

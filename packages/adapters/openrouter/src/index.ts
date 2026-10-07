@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 import { fetch as undiciFetch, ProxyAgent } from "undici";
-import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, isPricingCatalogFresh, ModelGateway, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
+import { estimateCatalogPricingQuote, estimatePricingCatalogQuote, failedProviderConnection, isPricingCatalogFresh, ModelGateway, verifiedProviderConnection, type ModelInfo, type ModelInvokeResult, type ModelPricingInput, type PricingCatalog, type PricingQuote, type PricingSourceAdapter, type ProviderAdapter } from "@snarkroute/core";
 import { providerHttpError, type NodeRunner, type ProviderUsageEvent } from "@snarkroute/executor";
 import {
   createModelResolver,
@@ -206,9 +206,13 @@ export function createOpenRouterClient(options: OpenRouterClientOptions = {}) {
   }
 
   return {
-    async testConnection(): Promise<{ ok: true; modelCount: number }> {
-      const catalog = parseOpenRouterModelCatalog(await request("/models", { method: "GET" }, true));
-      return { ok: true, modelCount: catalog.length };
+    async testConnection(): Promise<{ ok: true }> {
+      const output = await request("/key", { method: "GET", signal: AbortSignal.timeout(10_000) }, true);
+      const data = output && typeof output === "object" ? (output as Record<string, unknown>).data : null;
+      if (!data || typeof data !== "object" || Array.isArray(data)) {
+        throw new Error("OpenRouter returned a malformed API key response.");
+      }
+      return { ok: true };
     },
 
     async getModels(keyRequired = false): Promise<OpenRouterModelInfo[]> {
@@ -440,6 +444,14 @@ export function createOpenRouterProviderAdapter(options: OpenRouterClientOptions
     id: "openrouter",
     title: "OpenRouter",
     capabilities: ["text.generate", "image.generate", "video.generate"],
+    async testConnection() {
+      try {
+        await client.testConnection();
+        return verifiedProviderConnection("OpenRouter credentials verified.");
+      } catch (error) {
+        return failedProviderConnection("OpenRouter", error);
+      }
+    },
     pricingResolver: {
       estimate: estimateOpenRouterPricingQuote
     },

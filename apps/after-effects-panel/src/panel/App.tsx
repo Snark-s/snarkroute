@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { SnarkRouteGatewayClient, type ConnectionProbeResult } from "../api/client";
+import { SnarkRouteGatewayClient, type ConnectionProbeResult, type LocalRuntime, type LocalRuntimeSnapshot } from "../api/client";
 import { capabilityForOperation, countModelFamilies, filterModelsForOperation, frontendExclusionReason, maximumImageInputs, modelRequiresPrompt, modelSupportsPrompt, operationLabels, operationsForModels, outputMediaTypeForOperation } from "../api/catalog";
 import { gatewayParameters, parameterValidationErrors, parametersFromComposition } from "../api/parameters";
 import { ParameterFields } from "../components/ParameterFields";
@@ -200,6 +200,7 @@ export function App() {
   return <main>
     <section><h2>MCP / After Effects</h2><BridgeState label="MCP server" value={mcpBridge.mcpServerStatus} /><BridgeState label="AE Bridge" value={mcpBridge.bridgeStatus} /><BridgeState label="AE session" value={mcpBridge.sessionStatus} /><details><summary>Bridge diagnostics</summary><div className="diagnostics"><div>MCP URL: {mcpBridge.mcpUrl || "invalid"}</div><div>Bridge WebSocket URL: {mcpBridge.webSocketUrl || "invalid"}</div><div>Pairing status: {mcpBridge.pairingStatus}</div><div>Session ID: {mcpBridge.sessionId || "none"}</div><div>Last attempt: {mcpBridge.lastAttemptAt || "none"}</div><div>Last connected: {mcpBridge.lastConnectedAt || "none"}</div><div>Last close: {mcpBridge.lastCloseCode ?? "none"} · {mcpBridge.lastCloseReason || "no reason"}</div><div>Reconnect attempts: {mcpBridge.reconnectAttempts}</div><div>Connection prerequisite: {mcpBridge.connectionPrerequisite}</div><div>Last bridge error: {mcpBridge.lastError || "none"}</div></div></details></section>
     <section><h2>Connection</h2><label className="field"><span>Server URL</span><input value={serverUrl} onChange={(event) => setServerUrl(event.target.value)} /></label><div className={connected ? "status ok" : "status error"}>SnarkRoute server: {connecting ? "connecting…" : connected ? "connected" : "disconnected"}</div>{connection?.error && <div className="error-text">{connection.error}</div>}<button onClick={() => void connect()} disabled={connecting}>Reconnect</button>{connection && <div className="diagnostics"><div>URL: {connection.url}</div><div>Last attempt: {connection.attemptedAt}</div><div>Status: {connection.status ?? "fetch failed"}</div><div>Response: {connection.responseBody.slice(0, 300) || "empty"}</div><div>Error: {connection.error || "none"}</div></div>}</section>
+    <LocalRuntimePanel client={client} connected={connected} />
     <section><h2>Published tools</h2>{publishedTools.length ? <><select aria-label="Published tool" value={toolId} onChange={(event) => setToolId(event.target.value)}>{publishedTools.map((entry) => <option key={entry.tool.id} value={entry.tool.id}>{entry.tool.title} · v{entry.tool.version}</option>)}</select>{selectedTool && <><p>{selectedTool.description}</p><div className="diagnostics">Inputs: {selectedTool.inputs.map((field) => `${field.label ?? field.id} ← ${sourceForAfterEffects(field)}`).join(" · ")}<br />Outputs: {selectedTool.outputs.map((field) => `${field.label ?? field.id} → ${field.hostPlacements?.after_effects ?? field.placement}`).join(" · ")}</div><PortableToolFields fields={visibleToolFields} values={toolValues} onChange={(id, value) => setToolValues((current) => ({ ...current, [id]: value }))} />{toolSupport?.reasons.map((reason) => <div className="error-text" key={reason}>{reason}</div>)}<button className="primary" onClick={() => void runPublishedTool()} disabled={!connected || !toolSupport?.supported || toolBusy}>Run tool</button>{toolBusy && selectedTool.job.cancellable && <button onClick={() => void cancelPublishedTool()}>Cancel tool job</button>}<div className={toolMessage && !["completed", "cancelled"].includes(toolMessage) && toolJob?.status === "failed" ? "error-text" : "diagnostics"}>{toolMessage || "Ready"}</div>{toolJob?.status === "completed" && toolJob.results && <div>{toolJob.results.map((result) => <button key={result.id} onClick={() => void selectPublishedResult(result.id)} disabled={toolJob.selectedResultId === result.id}>{toolJob.selectedResultId === result.id ? "Selected" : "Select"} · {result.label}</button>)}</div>}{selectedTool.id === "minimax.h3.generate" && toolJob?.selectedResultId && <div className="diagnostics">{h3Quote && <>Regenerate in 2K estimate: {h3Quote.providerUsd.toFixed(2)} USD · {h3Quote.finalCredits} credits</>}{h3Unavailable && <div className="error-text">{h3Unavailable}</div>}<button onClick={() => void regenerateSelectedH3()} disabled={Boolean(h3Unavailable) || Boolean(h3Regeneration && !["completed", "failed", "cancelled"].includes(h3Regeneration.status))}>Regenerate in 2K</button>{h3Regeneration && <span> {h3Regeneration.status} · {Math.round(h3Regeneration.progress * 100)}%</span>}{h3Regeneration && !["completed", "failed", "cancelled"].includes(h3Regeneration.status) && <button onClick={() => void cancelH3Regeneration()}>Cancel 2K regeneration</button>}</div>}{toolArtifacts.map((artifact) => <div key={artifact}>{artifact}</div>)}</>}</> : <small>No valid tools are published for After Effects.</small>}</section>
     <section><h2>Operation</h2>{operations.length === 1 ? <input readOnly value={operationLabels[operations[0]]} /> : <select value={operation} onChange={(event) => setOperation(event.target.value as GenerationOperation)}>{operations.map((value) => <option key={value} value={value}>{operationLabels[value]}</option>)}</select>}<small>Only operations backed by live executable catalog models are shown.</small></section>
     <section><h2>Model</h2><select value={modelId} onChange={(event) => setModelId(event.target.value)}>{models.map((model) => <option key={`${model.nodeType}:${model.id}`} value={model.id}>{model.displayName} · {model.provider}</option>)}</select>{selectedModel && <small>{selectedModel.availability.status} · output {outputMediaTypeForOperation(operation)} · up to {maximumImageInputs(selectedModel)} image input(s)</small>}<div className="diagnostics">Executable models after frontend compatibility: {models.length} · Families: {countModelFamilies(models)} · Server returned: {catalogDiagnostics.received}</div></section>
@@ -214,6 +215,64 @@ export function App() {
     <section><details><summary>Catalog and input diagnostics</summary><div className="diagnostics"><div>Operation: {operation}</div><div>Catalog endpoint: {catalogDiagnostics.endpoint}</div><div>Server models: {catalogDiagnostics.received}</div><div>Displayed for {operation}: {models.length}</div><div>Selected model: {selectedModel ? `${selectedModel.id} · ${selectedModel.providerModelId}` : "none"}</div><div>Selected contract: {selectedModel ? JSON.stringify(selectedModel.inputContract ?? null) : "none"}</div><div>Normalized inputs: {JSON.stringify(inputSlots.flatMap((slot) => slot.items.flatMap((item, index) => item ? [{ kind: slot.kind, role: slot.role, index, source: item.sourceType, path: item.path, validation: item.validationState }] : [])))}</div><div>Normalized params: {JSON.stringify(selectedModel ? gatewayParameters(selectedModel.parameters, parameters) : {})}</div><div>Provider mapping preview: {JSON.stringify({ images: inputSlots.filter((slot) => slot.kind === "image").map((slot) => slot.role), audios: inputSlots.filter((slot) => slot.kind === "audio").map((slot) => slot.role), videos: inputSlots.filter((slot) => slot.kind === "video").map((slot) => slot.role) })}</div><div>Frontend exclusions: {JSON.stringify(excludedModels)}</div><div>Build: {__SNARKROUTE_BUILD_COMMIT__} · {__SNARKROUTE_BUILD_TIMESTAMP__}</div></div></details></section>
     <footer>Build: {__SNARKROUTE_BUILD_COMMIT__} · {__SNARKROUTE_BUILD_TIMESTAMP__}</footer>
   </main>;
+}
+
+function LocalRuntimePanel({ client, connected }: { client: SnarkRouteGatewayClient; connected: boolean }) {
+  const [snapshot, setSnapshot] = useState<LocalRuntimeSnapshot | null>(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    if (!connected) return setSnapshot(null);
+    try { setSnapshot(await client.localRuntimes()); setError(""); }
+    catch (reason) { setError(message(reason)); }
+  }
+
+  useEffect(() => {
+    let disposed = false;
+    const poll = async () => { if (!disposed) await refresh(); };
+    void poll();
+    if (!connected) return () => { disposed = true; };
+    const timer = window.setInterval(() => void poll(), 3_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [connected, client]);
+
+  async function change(runtime: LocalRuntime, action: "start" | "stop") {
+    setBusy(`${runtime.id}:${action}`); setError("");
+    try {
+      if (action === "start") {
+        const admission = await client.localRuntimeAdmission(runtime.id, "start");
+        if (!admission.decision.allowed) throw new Error(admission.decision.summary);
+        let force = false;
+        if (admission.decision.requiresConfirmation) {
+          force = window.confirm(`${admission.decision.summary}\n\nStart ${runtime.label} anyway?`);
+          if (!force) return;
+        }
+        setSnapshot((await client.startLocalRuntime(runtime.id, force)).snapshot);
+      } else {
+        setSnapshot((await client.stopLocalRuntime(runtime.id)).snapshot);
+      }
+    } catch (reason) {
+      setError(message(reason));
+      await refresh();
+    } finally { setBusy(""); }
+  }
+
+  const gpu = snapshot?.gpu;
+  return <section className="local-runtimes">
+    <h2>Local runtimes</h2>
+    <div className="runtime-summary">{gpu ? `GPU ${(gpu.usedMiB / 1024).toFixed(1)} / ${(gpu.totalMiB / 1024).toFixed(0)} GB · ${gpu.utilizationPercent}%` : "GPU telemetry unavailable"}{snapshot ? ` · ${snapshot.pressure.level}` : ""}</div>
+    <div className="runtime-buttons">{snapshot?.runtimes.map(runtime => {
+      const working = busy.startsWith(`${runtime.id}:`);
+      return <span className={`runtime-button ${runtime.state}`} key={runtime.id} title={runtime.detail || runtime.state}>
+        <span className="runtime-dot">●</span><strong>{runtime.label}{runtime.discovered ? " · auto" : ""}</strong><small>{runtime.state}</small>
+        {runtime.control.canStart && <button onClick={() => void change(runtime, "start")} disabled={working}>▶</button>}
+        {runtime.control.canStop && <button onClick={() => void change(runtime, "stop")} disabled={working}>■</button>}
+      </span>;
+    })}</div>
+    {snapshot && <small>{snapshot.pressure.summary}</small>}
+    {error && <div className="error-text">{error}</div>}
+  </section>;
 }
 
 function message(error: unknown) { return error instanceof Error ? error.message : String(error); }

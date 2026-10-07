@@ -1,0 +1,240 @@
+{
+  "kind": "snarkroute.node",
+  "schemaVersion": "0.1",
+  "id": "bonsai.brandeshmyg",
+  "title": "Bonsai",
+  "version": "0.1.0",
+  "author": {
+    "name": "SnarkRoute Studio"
+  },
+  "license": "UNLICENSED",
+  "origin": "generated",
+  "source": "snarkroute-studio",
+  "category": "Compound",
+  "description": "Generated from compound route \"Bonsai\".",
+  "permissions": {
+    "network": false,
+    "networkHosts": [],
+    "readFiles": false,
+    "writeOutputs": false,
+    "shell": false,
+    "env": []
+  },
+  "executor": {
+    "type": "declarative"
+  },
+  "inputs": [
+    {
+      "id": "text",
+      "type": "text",
+      "label": "text"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "text",
+      "type": "text",
+      "label": "text"
+    }
+  ],
+  "canvasAction": {
+    "enabled": true,
+    "surface": "brandeshmyg",
+    "title": "Bonsai",
+    "description": "Run \"Bonsai\" as a Brandeshmyg action.",
+    "icon": {
+      "kind": "preset",
+      "name": "file-text"
+    }
+  },
+  "tool": {
+    "schemaVersion": "1.0",
+    "id": "bonsai.brandeshmyg",
+    "title": "Bonsai",
+    "description": "Generated from compound route \"Bonsai\".",
+    "version": "0.1.0",
+    "action": {
+      "kind": "node",
+      "value": "bonsai.brandeshmyg"
+    },
+    "inputs": [
+      {
+        "id": "text",
+        "label": "text",
+        "type": "text",
+        "required": true,
+        "source": "manual",
+        "hostSources": {
+          "boojumroute": "manual",
+          "after_effects": "manual"
+        },
+        "multiple": false
+      }
+    ],
+    "outputs": [
+      {
+        "id": "text",
+        "label": "text",
+        "type": "text",
+        "required": true,
+        "placement": "new_artifact",
+        "hostPlacements": {
+          "boojumroute": "new_artifact",
+          "after_effects": "next_stage"
+        },
+        "allowSelection": false
+      }
+    ],
+    "params": [],
+    "hosts": [
+      {
+        "host": "boojumroute",
+        "sources": [
+          "manual",
+          "host_selection"
+        ],
+        "placements": [
+          "new_artifact",
+          "next_stage"
+        ],
+        "capabilities": [
+          "artifact_input",
+          "multiple_results"
+        ]
+      },
+      {
+        "host": "after_effects",
+        "sources": [
+          "manual",
+          "upload",
+          "host_selection",
+          "host_current_frame",
+          "host_active_layer",
+          "host_work_area"
+        ],
+        "placements": [
+          "project_item",
+          "replace_placeholder",
+          "next_stage"
+        ],
+        "capabilities": [
+          "current_frame",
+          "selected_layer",
+          "work_area",
+          "placeholder_replace"
+        ]
+      }
+    ],
+    "job": {
+      "states": [
+        "queued",
+        "starting_provider",
+        "loading_model",
+        "generating",
+        "generating_768p",
+        "regenerating_2k",
+        "downloading",
+        "completed",
+        "failed",
+        "cancelled"
+      ],
+      "cancellable": false,
+      "retryable": true,
+      "selectableResults": false
+    }
+  },
+  "generatedWith": {
+    "tool": "snarkroute-studio",
+    "kind": "compound.subroute",
+    "compound": {
+      "title": "Bonsai",
+      "inputs": [
+        {
+          "id": "text",
+          "label": "text",
+          "kind": "text",
+          "nodeId": "ai_text_3",
+          "port": "systemPrompt"
+        }
+      ],
+      "outputs": [
+        {
+          "id": "text",
+          "label": "text",
+          "kind": "text",
+          "nodeId": "output_text_6",
+          "port": "text"
+        }
+      ]
+    },
+    "subroute": {
+      "routeVersion": "0.1",
+      "route": {
+        "id": "m31-http-json-test.compound_7",
+        "title": "Bonsai",
+        "description": "HTTP Request -> Debug Log -> Text Output.",
+        "author": {
+          "name": "SnarkRoute"
+        },
+        "tags": [
+          "milestone-3.1",
+          "http",
+          "json"
+        ]
+      },
+      "economics": {
+        "enabled": false,
+        "mode": "disabled"
+      },
+      "nodes": [
+        {
+          "id": "ai_text_3",
+          "type": "ai.text",
+          "title": "Text AI",
+          "params": {
+            "model": "bonsai-2-27b",
+            "systemPrompt": "",
+            "prompt": "",
+            "temperature": 0.7,
+            "max_tokens": 1024,
+            "providerModelId": "I:\\AI\\Bonsai-demo\\models\\bonsai2-gguf\\27B\\Ternary-Bonsai-2-27B-PQ2_0.gguf",
+            "provider": "local_openai",
+            "executionProvider": "local_openai"
+          },
+          "ui": {
+            "x": 194.3870590809974,
+            "y": 675.285160740897
+          }
+        },
+        {
+          "id": "output_text_6",
+          "type": "output.text",
+          "title": "Text Output",
+          "params": {},
+          "ui": {
+            "x": 662.9512554227764,
+            "y": 806.8433459623235
+          }
+        }
+      ],
+      "edges": [
+        {
+          "id": "xy-edge__ai_text_3text-output_text_6from",
+          "from": "ai_text_3",
+          "to": "output_text_6",
+          "fromPort": "text",
+          "toPort": "from"
+        }
+      ],
+      "provenance": {
+        "tool": "snarkroute-studio",
+        "updatedAt": "2026-09-26T12:34:20.262Z"
+      }
+    }
+  },
+  "installConfirmation": {
+    "confirmedAt": "2026-09-26T12:34:49.364Z",
+    "warnings": []
+  },
+  "enabled": true
+}
