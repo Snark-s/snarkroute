@@ -1,0 +1,217 @@
+{
+  "schema_version": 1,
+  "name": "Snark workstation",
+  "variables": {
+    "SNARK_PROCESS_ROOT": {
+      "default": "Y:\\Процесс"
+    },
+    "SNARK_APPS_ROOT": {
+      "default": "Y:\\Приложения"
+    },
+    "SNARKROUTE_ROOT": {
+      "default": "{{SNARK_PROCESS_ROOT}}\\SnarkRoute"
+    },
+    "SNARK_MIXAR_SOURCE": {
+      "default": "{{SNARK_PROCESS_ROOT}}\\Jabberwock-Mixar-full"
+    },
+    "SNARK_MIXAR_BACKEND": {
+      "default": "{{SNARK_APPS_ROOT}}\\Jabberwock Mixar Local"
+    },
+    "SNARK_JABBER_BLENDER": {
+      "default": "{{SNARK_APPS_ROOT}}\\Jabberwock Blender"
+    },
+    "SNARK_MIXAR_INSTALL": {
+      "default": "C:\\Program Files\\Mixar"
+    },
+    "SNARK_MIXAR_PROFILE": {
+      "default": "{{APPDATA}}\\Mixar\\Mixar\\5.2"
+    },
+    "SNARK_REGISTRY_PATH": {
+      "default": "{{LOCALAPPDATA}}\\SnarkRoute\\service-registry.json"
+    }
+  },
+  "prerequisites": [
+    {
+      "id": "git",
+      "command": "git",
+      "required": true,
+      "winget_id": "Git.Git"
+    },
+    {
+      "id": "node",
+      "command": "node",
+      "required": true,
+      "winget_id": "OpenJS.NodeJS.LTS"
+    },
+    {
+      "id": "corepack",
+      "command": "corepack",
+      "required": true
+    },
+    {
+      "id": "python",
+      "command": "python",
+      "alternatives": [
+        "py"
+      ],
+      "required": true,
+      "winget_id": "Python.Python.3.11"
+    },
+    {
+      "id": "uv",
+      "command": "uv",
+      "required": false,
+      "winget_id": "astral-sh.uv"
+    },
+    {
+      "id": "ffmpeg",
+      "command": "ffmpeg",
+      "required": false,
+      "winget_id": "Gyan.FFmpeg"
+    },
+    {
+      "id": "wsl",
+      "command": "wsl.exe",
+      "required": false
+    },
+    {
+      "id": "nvidia",
+      "command": "nvidia-smi",
+      "required": false
+    }
+  ],
+  "components": [
+    {
+      "id": "snarkroute",
+      "label": "SnarkRoute",
+      "path": "{{SNARKROUTE_ROOT}}",
+      "strategy": "git",
+      "remote": "https://github.com/Snark-s/snarkroute.git",
+      "snapshot": true,
+      "install_commands": [
+        "corepack enable",
+        "corepack pnpm install --frozen-lockfile"
+      ]
+    },
+    {
+      "id": "mixar-program",
+      "label": "Mixar application",
+      "path": "{{SNARK_MIXAR_INSTALL}}",
+      "strategy": "copy",
+      "snapshot": true,
+      "requires_admin_restore": true
+    },
+    {
+      "id": "mixar-profile",
+      "label": "Mixar user profile and startup scripts",
+      "path": "{{SNARK_MIXAR_PROFILE}}",
+      "strategy": "copy",
+      "snapshot": true
+    },
+    {
+      "id": "mixar-source",
+      "label": "Modified Mixar source",
+      "path": "{{SNARK_MIXAR_SOURCE}}",
+      "strategy": "git-or-copy",
+      "snapshot": true
+    },
+    {
+      "id": "mixar-local-backend",
+      "label": "Jabberwock Mixar Local backend",
+      "path": "{{SNARK_MIXAR_BACKEND}}",
+      "strategy": "git-or-copy",
+      "snapshot": true
+    },
+    {
+      "id": "jabberwock-blender",
+      "label": "Jabberwock Blender client",
+      "path": "{{SNARK_JABBER_BLENDER}}",
+      "strategy": "git-or-copy",
+      "snapshot": true
+    }
+  ],
+  "services": [
+    {
+      "id": "snarkroute",
+      "label": "SnarkRoute API",
+      "endpoint": "http://127.0.0.1:4317",
+      "probe": {
+        "type": "http",
+        "path": "/capabilities"
+      },
+      "component": "snarkroute",
+      "start": "{{SNARKROUTE_ROOT}}\\start-server.bat",
+      "stop": "{{SNARKROUTE_ROOT}}\\stop-snarkroute.bat"
+    },
+    {
+      "id": "mixar-bridge",
+      "label": "Mixar/Jabberwock bridge",
+      "endpoint": "tcp://127.0.0.1:18765",
+      "probe": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 18765
+      },
+      "component": "mixar-profile"
+    },
+    {
+      "id": "mixar-local-backend",
+      "label": "Mixar local backend",
+      "endpoint": "http://127.0.0.1:18880",
+      "probe": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 18880
+      },
+      "component": "mixar-local-backend"
+    },
+    {
+      "id": "h3-local",
+      "label": "MiniMax H3 local worker",
+      "endpoint": "http://127.0.0.1:18080",
+      "probe": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 18080
+      },
+      "component": "snarkroute",
+      "resource_class": "gpu-heavy"
+    },
+    {
+      "id": "local-upscale",
+      "label": "Local upscale worker",
+      "endpoint": "http://127.0.0.1:8091",
+      "probe": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 8091
+      },
+      "component": "snarkroute",
+      "resource_class": "gpu"
+    }
+  ],
+  "inventories": [
+    "{{SNARKROUTE_ROOT}}\\workers\\minimax-h3\\model-manifest.yaml",
+    "{{SNARKROUTE_ROOT}}\\workers\\local-upscale\\model-registry.json",
+    "{{SNARKROUTE_ROOT}}\\workers\\local-upscale\\video-model-registry.json"
+  ],
+  "snapshot_excludes": [
+    ".git",
+    "node_modules",
+    ".pnpm-store",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".cache",
+    "models",
+    "artifacts",
+    "reports",
+    ".env",
+    ".env.local",
+    ".env.production",
+    "credentials.json",
+    "secrets.json"
+  ]
+}
