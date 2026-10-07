@@ -1,5 +1,4 @@
 @echo off
-chcp 65001 >nul
 setlocal EnableExtensions
 
 set "OUT=%~dp0"
@@ -12,7 +11,7 @@ echo   SNARK RESTORE
 echo ============================================
 echo.
 
-for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$f=Get-ChildItem -LiteralPath '%OUT%' -Filter 'snark-recovery-*.zip' | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if($f){$f.FullName}"`) do set "BUNDLE=%%F"
+for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$f=Get-ChildItem -LiteralPath '%OUT%' -Filter 'snark-recovery-*.zip' ^| Sort-Object LastWriteTime -Descending ^| Select-Object -First 1; if($f){$f.FullName}"`) do set "BUNDLE=%%F"
 
 if not defined BUNDLE (
   echo ERROR: No snark-recovery-*.zip found in:
@@ -37,7 +36,7 @@ echo.
 choice /C YN /N /M "Restore encrypted secret files too? [Y/N] "
 if errorlevel 2 goto :done
 
-for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$f=Get-ChildItem -LiteralPath '%OUT%' -Filter 'snark-secrets-*.zip' | Sort-Object LastWriteTime -Descending | Select-Object -First 1; if($f){$f.FullName}"`) do set "SECRETZIP=%%F"
+for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$f=Get-ChildItem -LiteralPath '%OUT%' -Filter 'snark-secrets-*.zip' ^| Sort-Object LastWriteTime -Descending ^| Select-Object -First 1; if($f){$f.FullName}"`) do set "SECRETZIP=%%F"
 
 if not defined SECRETZIP (
   echo No snark-secrets-*.zip found. Skipping secrets.
@@ -45,10 +44,7 @@ if not defined SECRETZIP (
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:Path=[Environment]::GetEnvironmentVariable('Path','Machine')+';'+[Environment]::GetEnvironmentVariable('Path','User'); python '%TOOLS%\secrets_archive.py' restore '%SECRETZIP%' --key-file '%KEY%'"
-if errorlevel 1 (
-  echo Secret restore failed or needs the password manually.
-  goto :fail
-)
+if errorlevel 1 goto :fail
 
 :done
 echo.

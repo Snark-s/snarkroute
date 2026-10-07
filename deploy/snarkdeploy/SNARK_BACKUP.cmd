@@ -1,11 +1,9 @@
 @echo off
-chcp 65001 >nul
 setlocal EnableExtensions
 
-set "REPO=Y:\Процесс\SnarkRoute"
 set "OUT=X:\SnarkBackups"
+set "TOOLS=%OUT%\SnarkDeploy"
 set "KEY=I:\SnarkRecoveryKey\SNARK_RECOVERY_PASSWORD.txt"
-set "DEPLOY=%REPO%\deploy\snarkdeploy"
 
 echo.
 echo ============================================
@@ -13,9 +11,9 @@ echo   SNARK BACKUP
 echo ============================================
 echo.
 
-if not exist "%DEPLOY%\snarkdeploy.py" (
-  echo ERROR: SnarkRoute not found at:
-  echo %REPO%
+if not exist "%TOOLS%\snarkdeploy.py" (
+  echo ERROR: Portable SnarkDeploy tools not found:
+  echo %TOOLS%
   goto :fail
 )
 
@@ -34,17 +32,17 @@ if not exist "C:\Program Files\7-Zip\7z.exe" (
 )
 
 echo [1/3] Checking workstation...
-python "%DEPLOY%\snarkdeploy.py" doctor
+python "%TOOLS%\snarkdeploy.py" doctor
 if errorlevel 1 goto :fail
 
 echo.
 echo [2/3] Creating recovery bundle...
-python "%DEPLOY%\snarkdeploy.py" snapshot --output "%OUT%"
+python "%TOOLS%\snarkdeploy.py" snapshot --output "%OUT%"
 if errorlevel 1 goto :fail
 
 echo.
 echo [3/3] Creating AES-256 encrypted secrets ZIP...
-python "%DEPLOY%\secrets_archive.py" backup --output "%OUT%" --key-file "%KEY%"
+python "%TOOLS%\secrets_archive.py" backup --output "%OUT%" --key-file "%KEY%"
 if errorlevel 1 goto :fail
 
 echo.
@@ -53,7 +51,6 @@ echo   BACKUP COMPLETE
 echo ============================================
 echo Recovery files: %OUT%
 echo Password file:  %KEY%
-echo.
 echo Keep X: and I: physically separate.
 echo.
 pause
