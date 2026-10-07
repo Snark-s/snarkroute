@@ -17,9 +17,15 @@ Reproducible disaster-recovery layer for the local Snark workstation.
 
 Large model weights remain outside the ZIP. Their paths, sizes and hashes (where practical) are stored in heavy-inventory.json; H3's pinned upstream checksums remain in workers/minimax-h3/model-manifest.yaml.
 
-Secrets are deliberately excluded. state.json records what must be restored or regenerated without storing the values.
+Secrets are deliberately excluded from the ordinary recovery ZIP. `SNARK_BACKUP.cmd` also creates a separate AES-256 encrypted `snark-secrets-*.zip`; its password is stored on a different physical disk.
 
-## Create a snapshot
+## One-click backup and restore
+
+Double-click `SNARK_BACKUP.cmd`. It runs doctor, creates the normal recovery bundle, then creates a separate AES-256 encrypted ZIP containing portable secret files. On the current workstation the archives are stored in `X:\SnarkBackups`, while the password is stored at `I:\SnarkRecoveryKey\SNARK_RECOVERY_PASSWORD.txt`.
+
+Double-click `SNARK_RESTORE.cmd` to restore the newest recovery bundle. After the normal restore it can also restore the newest encrypted secrets archive. FreeToken login is still machine-bound and must be signed in again.
+
+## Create a snapshot manually
 
     python deploy\snarkdeploy\snarkdeploy.py doctor
     python deploy\snarkdeploy\snarkdeploy.py snapshot --output X:\SnarkBackups
