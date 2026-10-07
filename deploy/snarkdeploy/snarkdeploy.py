@@ -74,20 +74,36 @@ def expand(value, variables):
     return os.path.expandvars(resolved)
 
 
-def run(cmd, cwd=None, check=True):
+def run(cmd, cwd=None, check=True, timeout=None):
     if isinstance(cmd, str):
-        process = subprocess.run(cmd, cwd=cwd, shell=True, text=True, encoding="utf-8", errors="replace", capture_output=True)
+        process = subprocess.run(
+            cmd, cwd=cwd, shell=True, text=True, encoding="utf-8", errors="replace",
+            capture_output=True, timeout=timeout,
+        )
     else:
         args = list(cmd)
         resolved = shutil.which(str(args[0])) if args else None
         if os.name == "nt" and resolved and Path(resolved).suffix.lower() in {".cmd", ".bat"}:
             command_line = subprocess.list2cmdline([resolved, *map(str, args[1:])])
-            process = subprocess.run(command_line, cwd=cwd, shell=True, text=True, encoding="utf-8", errors="replace", capture_output=True)
+            process = subprocess.run(
+                command_line, cwd=cwd, shell=True, text=True, encoding="utf-8", errors="replace",
+                capture_output=True, timeout=timeout,
+            )
         else:
-            process = subprocess.run(args, cwd=cwd, shell=False, text=True, encoding="utf-8", errors="replace", capture_output=True)
+            process = subprocess.run(
+                args, cwd=cwd, shell=False, text=True, encoding="utf-8", errors="replace",
+                capture_output=True, timeout=timeout,
+            )
     if check and process.returncode:
         raise RuntimeError((process.stderr or process.stdout or f"command failed: {cmd}").strip())
     return process
+
+
+def run_probe(cmd, cwd=None, timeout=15):
+    try:
+        return run(cmd, cwd=cwd, check=False, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(cmd, 124, "", f"timed out after {timeout}s")
 
 
 def clean_output(value):
@@ -205,7 +221,7 @@ def capture_system_inventory(manifest):
         entry = {"present": bool(resolved), "path": resolved}
         args = version_args.get(cid)
         if resolved and args:
-            probe = run(args, check=False)
+            probe = run_probe(args, timeout=10)
             value = clean_output(probe.stdout or probe.stderr)
             if value:
                 entry["version"] = value.splitlines()[0]
@@ -218,13 +234,13 @@ def capture_system_inventory(manifest):
         ], check=False)
         result["gpu"] = clean_output(probe.stdout)
     if command_exists("wsl.exe"):
-        probe = run(["wsl.exe", "-l", "-v"], check=False)
+        probe = run_probe(["wsl.exe", "-l", "-v"], timeout=10)
         result["wsl_distros"] = clean_output(probe.stdout or probe.stderr)
     if command_exists("npm"):
-        probe = run(["npm", "list", "-g", "--depth=0"], check=False)
+        probe = run_probe(["npm", "list", "-g", "--depth=0"], timeout=15)
         result["npm_global"] = clean_output(probe.stdout or probe.stderr)
     if command_exists("ollama"):
-        probe = run(["ollama", "list"], check=False)
+        probe = run_probe(["ollama", "list"], timeout=10)
         result["ollama_models"] = clean_output(probe.stdout or probe.stderr)
     return result
 
@@ -269,7 +285,7 @@ def capture_wsl_inventories(manifest):
         if distro:
             args += ["-d", distro]
         args += ["--", "bash", "-lc", command]
-        probe = run(args, check=False)
+        probe = run_probe(args, timeout=30)
         records.append({
             "id": spec["id"],
             "distro": distro,
