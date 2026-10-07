@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "name": "Snark workstation",
   "variables": {
     "SNARK_PROCESS_ROOT": {
@@ -28,6 +28,24 @@
     },
     "SNARK_REGISTRY_PATH": {
       "default": "{{LOCALAPPDATA}}\\SnarkRoute\\service-registry.json"
+    },
+    "SNARK_AI_ROOT": {
+      "default": "I:\\AI"
+    },
+    "PERSONA_HOME": {
+      "default": "I:\\PersonaCore"
+    },
+    "SNARK_ARCENGINE": {
+      "default": "{{SNARK_AI_ROOT}}\\ArcEngine"
+    },
+    "SNARK_HOLLYWOOD": {
+      "default": "{{SNARK_APPS_ROOT}}\\Hollywood_2.0"
+    },
+    "SNARK_FREETOKEN": {
+      "default": "{{SNARK_AI_ROOT}}\\FreeToken Desktop"
+    },
+    "SNARK_BONSAI": {
+      "default": "{{SNARK_AI_ROOT}}\\Bonsai-demo"
     }
   },
   "prerequisites": [
@@ -78,6 +96,12 @@
       "id": "nvidia",
       "command": "nvidia-smi",
       "required": false
+    },
+    {
+      "id": "ollama",
+      "command": "ollama",
+      "required": false,
+      "winget_id": "Ollama.Ollama"
     }
   ],
   "components": [
@@ -127,6 +151,54 @@
       "label": "Jabberwock Blender client",
       "path": "{{SNARK_JABBER_BLENDER}}",
       "strategy": "git-or-copy",
+      "snapshot": true
+    },
+    {
+      "id": "personacore",
+      "label": "PersonaCore",
+      "path": "{{PERSONA_HOME}}",
+      "strategy": "git-or-copy",
+      "snapshot": true,
+      "install_commands": [
+        "python -m venv .venv",
+        ".venv\\Scripts\\python.exe -m pip install -r requirements.txt",
+        "npm ci --prefix extension",
+        "npm run build --prefix extension"
+      ],
+      "snapshot_excludes": [
+        "config/secrets.*",
+        "data/runtime/agent/tasks/**",
+        "data/runtime/harness/**"
+      ]
+    },
+    {
+      "id": "arcengine",
+      "label": "ArcEngine previs",
+      "path": "{{SNARK_ARCENGINE}}",
+      "strategy": "git",
+      "remote": "https://github.com/xaidan777/ArcEngine.git",
+      "snapshot": true
+    },
+    {
+      "id": "hollywood2",
+      "label": "Hollywood 2",
+      "path": "{{SNARK_HOLLYWOOD}}",
+      "strategy": "copy",
+      "snapshot": true
+    },
+    {
+      "id": "freetoken",
+      "label": "FreeToken Desktop",
+      "path": "{{SNARK_FREETOKEN}}",
+      "strategy": "copy",
+      "snapshot": true
+    },
+    {
+      "id": "bonsai",
+      "label": "Bonsai 2 local runtime",
+      "path": "{{SNARK_BONSAI}}",
+      "strategy": "git",
+      "remote": "https://github.com/PrismML-Eng/Bonsai-demo.git",
       "snapshot": true
     }
   ],
@@ -188,12 +260,49 @@
       },
       "component": "snarkroute",
       "resource_class": "gpu"
+    },
+    {
+      "id": "bonsai-local",
+      "label": "Bonsai 2 27B local OpenAI API",
+      "endpoint": "http://127.0.0.1:8080/v1",
+      "probe": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 8080
+      },
+      "component": "bonsai",
+      "resource_class": "gpu-heavy"
+    },
+    {
+      "id": "ollama",
+      "label": "Ollama local runtime",
+      "endpoint": "http://127.0.0.1:11434",
+      "probe": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 11434
+      },
+      "resource_class": "gpu"
+    },
+    {
+      "id": "freetoken-api",
+      "label": "FreeToken OpenAI-compatible API",
+      "endpoint": "http://127.0.0.1:1919/v1",
+      "probe": {
+        "type": "tcp",
+        "host": "127.0.0.1",
+        "port": 1919
+      },
+      "component": "freetoken"
     }
   ],
   "inventories": [
     "{{SNARKROUTE_ROOT}}\\workers\\minimax-h3\\model-manifest.yaml",
     "{{SNARKROUTE_ROOT}}\\workers\\local-upscale\\model-registry.json",
-    "{{SNARKROUTE_ROOT}}\\workers\\local-upscale\\video-model-registry.json"
+    "{{SNARKROUTE_ROOT}}\\workers\\local-upscale\\video-model-registry.json",
+    "{{SNARK_REGISTRY_PATH}}",
+    "{{PERSONA_HOME}}\\projects\\registry.json",
+    "{{PERSONA_HOME}}\\data\\runtime\\host-mappings.json"
   ],
   "snapshot_excludes": [
     ".git",
@@ -212,6 +321,91 @@
     ".env.local",
     ".env.production",
     "credentials.json",
-    "secrets.json"
+    "secrets.json",
+    ".ruff_cache",
+    "graphify-out",
+    "test-results",
+    "logs",
+    "*.tmp",
+    "*.part"
+  ],
+  "global_npm_packages": [
+    "@deepseek-ai/dsh@0.1.1-rc.2",
+    "pm2@7.0.3"
+  ],
+  "heavy_inventories": [
+    {
+      "id": "bonsai-models",
+      "path": "{{SNARK_BONSAI}}\\models",
+      "hash": true,
+      "include": [
+        "*.gguf"
+      ]
+    },
+    {
+      "id": "local-upscale-models",
+      "path": "{{SNARKROUTE_ROOT}}\\workers\\local-upscale\\models",
+      "hash": true,
+      "include": [
+        "*"
+      ]
+    },
+    {
+      "id": "ai-models",
+      "path": "{{SNARK_AI_ROOT}}\\models",
+      "hash": false,
+      "include": [
+        "*"
+      ]
+    }
+  ],
+  "wsl_inventories": [
+    {
+      "id": "h3-models",
+      "distro": "Ubuntu-24.04",
+      "command": "find ~/h3/models -type f -printf '%p\\t%s\\n' 2>/dev/null | sort"
+    },
+    {
+      "id": "h3-runtime",
+      "distro": "Ubuntu-24.04",
+      "command": "find ~/h3/runtime -maxdepth 3 -type f -printf '%p\\t%s\\n' 2>/dev/null | sort"
+    }
+  ],
+  "secret_requirements": [
+    {
+      "id": "snarkroute-env",
+      "path": "{{SNARKROUTE_ROOT}}\\.env",
+      "restore": "manual-or-vault"
+    },
+    {
+      "id": "local-upscale-env",
+      "path": "{{SNARKROUTE_ROOT}}\\workers\\local-upscale\\.env",
+      "restore": "manual-or-vault"
+    },
+    {
+      "id": "h3-worker-token",
+      "path": "WSL:~/h3/runtime/worker-token",
+      "restore": "regenerate"
+    },
+    {
+      "id": "freetoken-auth",
+      "path": "Windows credential/keyring",
+      "restore": "sign-in-again"
+    },
+    {
+      "id": "personacore-cloud-token",
+      "path": "{{PERSONA_HOME}}\\config\\secrets.cloud-token",
+      "restore": "regenerate"
+    },
+    {
+      "id": "personacore-extension-token",
+      "path": "{{PERSONA_HOME}}\\config\\secrets.extension-token",
+      "restore": "regenerate"
+    },
+    {
+      "id": "personacore-harness-credentials",
+      "path": "{{PERSONA_HOME}}\\data\\runtime\\harness\\.credentials.yaml",
+      "restore": "manual-or-regenerate"
+    }
   ]
 }
