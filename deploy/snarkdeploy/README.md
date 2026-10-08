@@ -13,7 +13,8 @@ Reproducible disaster-recovery layer for the local Snark workstation.
 - H3/local-upscale model manifests and model inventories.
 - Logical service registry for SnarkRoute, Mixar, H3, local upscale, Bonsai, Ollama and FreeToken.
 - Machine inventory: Windows/Python/tool versions, GPU/driver, WSL distributions, global npm packages and Ollama model list.
-- Strong SHA-256 checksum for the entire bundle and ZIP CRC validation.
+- Strong SHA-256 checksum for the entire bundle and ZIP CRC validation. Snapshots are written to a `.partial` file and only become a `.zip` after the archive is complete and its checksum sidecar is ready, so an interrupted backup cannot masquerade as the newest valid recovery.
+- Heavy model SHA-256 values are cached by absolute path, size and nanosecond mtime. The cache can seed itself from the previous recovery's `heavy-inventory.json`, so unchanged multi-gigabyte model files are not reread on every backup.
 
 Large model weights remain outside the ZIP. Their paths, sizes and hashes (where practical) are stored in heavy-inventory.json; H3's pinned upstream checksums remain in workers/minimax-h3/model-manifest.yaml.
 

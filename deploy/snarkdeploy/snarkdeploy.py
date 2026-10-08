@@ -279,10 +279,106 @@ def capture_system_inventory(manifest):
     return result
 
 
-def inventory_tree(spec, variables):
+
+
+
+def hash_cache_path():
+    base = Path(os.getenv("LOCALAPPDATA") or tempfile.gettempdir()) / "SnarkDeploy"
+    return base / "hash-cache.json"
+
+
+def load_hash_cache():
+    path = hash_cache_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (OSError, ValueError, TypeError):
+        pass
+    return {}
+
+
+def save_hash_cache(cache):
+    path = hash_cache_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(cache, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temp.replace(path)
+
+
+
+
+
+def hash_cache_key(path):
+    key = str(Path(path).resolve())
+    return key.casefold() if os.name == "nt" else key
+
+
+def seed_hash_cache_from_latest_bundle(output, cache):
+    output = Path(output)
+    candidates = sorted(
+        output.glob("snark-recovery-*.zip"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    for bundle in candidates:
+        try:
+            with zipfile.ZipFile(bundle, "r") as zf:
+                heavy = json.loads(zf.read("heavy-inventory.json").decode("utf-8"))
+        except (OSError, KeyError, ValueError, zipfile.BadZipFile):
+            continue
+        seeded = 0
+        for inventory in heavy:
+            root = Path(inventory.get("root", ""))
+            for item in inventory.get("files", []):
+                digest = item.get("sha256")
+                if not isinstance(digest, str) or len(digest) != 64:
+                    continue
+                rel = item.get("path")
+                if not rel:
+                    continue
+                key = hash_cache_key(root / rel)
+                cache.setdefault(
+                    key,
+                    {
+                        "bytes": item.get("bytes"),
+                        "mtime_ns": item.get("mtime_ns"),
+                        "sha256": digest,
+                    },
+                )
+                seeded += 1
+        return seeded, bundle
+    return 0, None
+
+
+def cached_sha256(path, stat, cache):
+    path = Path(path)
+    key = hash_cache_key(path)
+    entry = cache.get(key)
+    if (
+        isinstance(entry, dict)
+        and entry.get("bytes") == stat.st_size
+        and entry.get("mtime_ns") == stat.st_mtime_ns
+        and isinstance(entry.get("sha256"), str)
+        and len(entry["sha256"]) == 64
+    ):
+        return entry["sha256"], True
+    digest = sha256_file(path)
+    cache[key] = {
+        "bytes": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "sha256": digest,
+    }
+    return digest, False
+
+
+def inventory_tree(spec, variables, hash_cache=None):
     root = Path(expand(spec["path"], variables))
     include = spec.get("include", ["*"])
     do_hash = bool(spec.get("hash", False))
+    cache = hash_cache if hash_cache is not None else {}
+    cache_hits = 0
+    cache_misses = 0
     record = {
         "id": spec["id"],
         "root": str(root),
@@ -301,10 +397,18 @@ def inventory_tree(spec, variables):
             continue
         item = {"path": rel, "bytes": stat.st_size, "mtime_ns": stat.st_mtime_ns}
         if do_hash:
-            item["sha256"] = sha256_file(path)
+            digest, hit = cached_sha256(path, stat, cache)
+            item["sha256"] = digest
+            if hit:
+                cache_hits += 1
+            else:
+                cache_misses += 1
         record["files"].append(item)
     record["total_bytes"] = sum(item["bytes"] for item in record["files"])
     record["file_count"] = len(record["files"])
+    if do_hash:
+        record["hash_cache_hits"] = cache_hits
+        record["hash_cache_misses"] = cache_misses
     return record
 
 
@@ -462,12 +566,29 @@ def snapshot(args):
     output.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     destination = output / f"snark-recovery-{stamp}.zip"
+    partial = output / f"snark-recovery-{stamp}.partial"
     print("[snapshot] system inventory", flush=True)
     system = capture_system_inventory(manifest)
+    hash_cache = load_hash_cache()
+    seeded, seed_bundle = seed_hash_cache_from_latest_bundle(output, hash_cache)
+    if seeded:
+        print(
+            f"[snapshot] hash cache seeded: {seeded} entries from {seed_bundle.name}",
+            flush=True,
+        )
     heavy = []
     for spec in manifest.get("heavy_inventories", []):
         print(f"[snapshot] model inventory: {spec['id']}", flush=True)
-        heavy.append(inventory_tree(spec, variables))
+        inventory = inventory_tree(spec, variables, hash_cache)
+        heavy.append(inventory)
+        if inventory.get("hash"):
+            print(
+                f"[snapshot] hash cache {spec['id']}: "
+                f"{inventory.get('hash_cache_hits', 0)} hit(s), "
+                f"{inventory.get('hash_cache_misses', 0)} miss(es)",
+                flush=True,
+            )
+    save_hash_cache(hash_cache)
     print("[snapshot] WSL inventory", flush=True)
     wsl = capture_wsl_inventories(manifest)
     secrets = secret_status(manifest)
@@ -479,7 +600,7 @@ def snapshot(args):
         "inventories": [],
         "secret_requirements": secrets,
     }
-    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as zf:
+    with zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as zf:
         for component in manifest.get("components", []):
             if not component.get("snapshot", False):
                 continue
@@ -558,9 +679,12 @@ def snapshot(args):
             "3. Re-enter secrets reported by snarkdeploy doctor.\n"
             "4. Large model weights are listed in heavy-inventory.json and model manifests; they are not duplicated here.\n",
         )
-    digest = sha256_file(destination)
+    digest = sha256_file(partial)
     sidecar = destination.with_suffix(destination.suffix + ".sha256")
-    sidecar.write_text(f"{digest}  {destination.name}\n", encoding="ascii")
+    sidecar_temp = sidecar.with_suffix(sidecar.suffix + ".partial")
+    sidecar_temp.write_text(f"{digest}  {destination.name}\n", encoding="ascii")
+    sidecar_temp.replace(sidecar)
+    partial.replace(destination)
     print(f"Bundle: {destination}")
     print(f"SHA256: {digest}")
     print(f"Sidecar: {sidecar}")

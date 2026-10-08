@@ -142,6 +142,46 @@ class SnarkDeployTests(unittest.TestCase):
             subprocess.run(["git", "checkout", "--detach", commit], cwd=restored, check=True, capture_output=True)
             self.assertEqual((restored / "tracked.txt").read_text(encoding="utf-8"), "offline recovery\n")
 
+    def test_cached_sha256_reuses_unchanged_file_and_invalidates_on_change(self):
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "model.bin"
+            target.write_bytes(b"first payload")
+            cache = {}
+            first, hit = SNARKDEPLOY.cached_sha256(target, target.stat(), cache)
+            self.assertFalse(hit)
+            second, hit = SNARKDEPLOY.cached_sha256(target, target.stat(), cache)
+            self.assertTrue(hit)
+            self.assertEqual(first, second)
+            target.write_bytes(b"changed payload with different length")
+            third, hit = SNARKDEPLOY.cached_sha256(target, target.stat(), cache)
+            self.assertFalse(hit)
+            self.assertNotEqual(first, third)
+
+    def test_hash_cache_can_seed_from_previous_recovery_inventory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            models = root / "models"
+            models.mkdir()
+            bundle = root / "snark-recovery-20260101-010101.zip"
+            heavy = [{
+                "id": "models",
+                "root": str(models),
+                "files": [{
+                    "path": "model.gguf",
+                    "bytes": 123,
+                    "mtime_ns": 456,
+                    "sha256": "a" * 64,
+                }],
+            }]
+            with zipfile.ZipFile(bundle, "w") as archive:
+                archive.writestr("heavy-inventory.json", json.dumps(heavy))
+            cache = {}
+            seeded, source = SNARKDEPLOY.seed_hash_cache_from_latest_bundle(root, cache)
+            self.assertEqual(seeded, 1)
+            self.assertEqual(source, bundle)
+            key = SNARKDEPLOY.hash_cache_key(models / "model.gguf")
+            self.assertEqual(cache[key]["sha256"], "a" * 64)
+
 
 if __name__ == "__main__":
     unittest.main()
