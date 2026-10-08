@@ -163,7 +163,7 @@ def make_backup(output: Path, key_path: Path) -> Path:
             "windows": [],
             "wsl": [],
             "notes": [
-                "FreeToken login is stored in Windows credential/keyring state and is not portable; sign in again.",
+                "FreeToken Desktop is restored as a local runtime; no external account requirement is recorded.",
                 "The archive contains secrets. Do not store its password on the same physical disk.",
             ],
         }
@@ -314,7 +314,6 @@ def restore_backup(archive: Path, key_path: Path) -> None:
             write_wsl_file(item["distro"], item["source"], stored.read_bytes())
 
     print("Secret files restored.")
-    print("FreeToken still requires sign-in again; its Windows keyring entry is machine-bound.")
 
 
 def newest_secret_archive(output: Path) -> Path:

@@ -21,9 +21,11 @@ Secrets are deliberately excluded from the ordinary recovery ZIP. `SNARK_BACKUP.
 
 ## One-click backup and restore
 
-Double-click `SNARK_BACKUP.cmd`. It runs doctor, creates the normal recovery bundle, then creates a separate AES-256 encrypted ZIP containing portable secret files. On the current workstation the archives are stored in `X:\SnarkBackups`, while the password is stored at `I:\SnarkRecoveryKey\SNARK_RECOVERY_PASSWORD.txt`.
+Double-click `SNARK_BACKUP.cmd`. It can be placed anywhere. If it is not inside the recovery folder itself, it scans all mounted drive letters for a `SnarkBackups\SnarkDeploy` folder and uses that recovery disk. It then finds `SnarkRecoveryKey\SNARK_RECOVERY_PASSWORD.txt` on any mounted drive. Drive letters are not part of the recovery contract.
 
-Double-click `SNARK_RESTORE.cmd` to restore the newest recovery bundle. After the normal restore it can also restore the newest encrypted secrets archive. FreeToken login is still machine-bound and must be signed in again.
+Double-click `SNARK_RESTORE.cmd` to restore the newest recovery bundle. It can also be placed anywhere: it scans mounted drives for the recovery folder, then restores the newest encrypted secrets archive and finds the password disk regardless of its drive letter.
+
+The current workstation happens to use `X:\SnarkBackups` and `I:\SnarkRecoveryKey`, but those are examples, not requirements. FreeToken Desktop is treated as a local runtime; no external account/sign-in requirement is assumed.
 
 ## Create a snapshot manually
 
@@ -61,7 +63,7 @@ A non-destructive restore preview is also available:
 ## What is not silently restored
 
 - API keys, provider tokens and passwords.
-- FreeToken login/keyring state. Sign in again.
+- FreeToken external login is not required by the current installed runtime; no account-specific recovery step is recorded.
 - The H3 worker token. Regenerate it.
 - NVIDIA drivers. Hardware/driver state is inventoried, but driver installation is hardware-specific.
 - Huge model weights. Use heavy-inventory.json and the pinned model manifests to redownload/copy the exact files.

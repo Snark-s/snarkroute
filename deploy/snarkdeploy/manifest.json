@@ -393,11 +393,6 @@
       "restore": "regenerate"
     },
     {
-      "id": "freetoken-auth",
-      "path": "Windows credential/keyring",
-      "restore": "sign-in-again"
-    },
-    {
       "id": "personacore-cloud-token",
       "path": "{{PERSONA_HOME}}\\config\\secrets.cloud-token",
       "restore": "regenerate"
