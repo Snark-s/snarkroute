@@ -3,87 +3,19 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
-import posixpath
 import re
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
-DEFAULT_ALIAS = "beget-wp"
-DEFAULT_REMOTE_DIR = "snark-backups"
+DEFAULT_REMOTE_DIR = "snark-backups-rclone"
 DEFAULT_KEEP = 5
-CHUNK = 4 * 1024 * 1024
-
-
-def sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        while True:
-            chunk = f.read(CHUNK)
-            if not chunk:
-                break
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def parse_ssh_config(alias: str) -> dict:
-    config_path = Path.home() / ".ssh" / "config"
-    if not config_path.is_file():
-        raise FileNotFoundError(f"SSH config not found: {config_path}")
-    try:
-        import paramiko
-    except ImportError as exc:
-        raise RuntimeError("paramiko is required; run via uv with paramiko.") from exc
-    config = paramiko.SSHConfig()
-    with config_path.open("r", encoding="utf-8", errors="replace") as f:
-        config.parse(f)
-    entry = config.lookup(alias)
-    host = entry.get("hostname", alias)
-    user = entry.get("user") or os.getenv("USERNAME")
-    identity = entry.get("identityfile", [])
-    if isinstance(identity, str):
-        identity = [identity]
-    key = None
-    for candidate in identity:
-        candidate = os.path.expandvars(os.path.expanduser(candidate))
-        p = Path(candidate)
-        if p.is_file():
-            key = p
-            break
-    if key is None:
-        raise FileNotFoundError(f"No usable IdentityFile found for SSH alias {alias}")
-    return {"host": host, "user": user, "key": key}
-
-
-def connect(alias: str):
-    import paramiko
-    cfg = parse_ssh_config(alias)
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        hostname=cfg["host"],
-        username=cfg["user"],
-        key_filename=str(cfg["key"]),
-        timeout=15,
-        auth_timeout=15,
-        banner_timeout=15,
-        look_for_keys=False,
-        allow_agent=False,
-    )
-    return client, cfg
-
-
-def ensure_remote_dir(sftp, path: str) -> None:
-    current = ""
-    for piece in path.strip("/").split("/"):
-        if not piece:
-            continue
-        current = posixpath.join(current, piece)
-        try:
-            sftp.stat(current)
-        except OSError:
-            sftp.mkdir(current)
+HOST = "plotva.beget.com"
+USER = "sirano"
+HOST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKcEECcmmjfdI9Poq4zTdCwArHCY/txB/dg/SdkAGncJ"
 
 
 def latest_file(source: Path, pattern: str) -> Path:
@@ -93,42 +25,129 @@ def latest_file(source: Path, pattern: str) -> Path:
     return items[0]
 
 
-def ensure_sidecar(path: Path) -> Path:
+def ensure_sha256(path: Path) -> Path:
     sidecar = path.with_suffix(path.suffix + ".sha256")
     if sidecar.is_file():
         text = sidecar.read_text(encoding="ascii", errors="ignore").strip()
         parts = text.split()
         if len(parts) >= 2 and parts[1] == path.name and len(parts[0]) == 64:
             return sidecar
-    digest = sha256_file(path)
-    sidecar.write_text(f"{digest}  {path.name}\n", encoding="ascii")
+
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    sidecar.write_text(f"{digest.hexdigest()}  {path.name}\n", encoding="ascii")
     return sidecar
 
 
-def upload_atomic(sftp, local: Path, remote_dir: str) -> None:
-    remote = posixpath.join(remote_dir, local.name)
-    partial = remote + ".partial"
-    sftp.put(str(local), partial)
-    local_size = local.stat().st_size
-    remote_size = sftp.stat(partial).st_size
-    if local_size != remote_size:
-        try:
-            sftp.remove(partial)
-        except OSError:
-            pass
-        raise RuntimeError(f"Size mismatch uploading {local.name}: local={local_size}, remote={remote_size}")
-    try:
-        sftp.remove(remote)
-    except OSError:
-        pass
-    sftp.rename(partial, remote)
+def find_rclone(source: Path) -> Path:
+    candidates = []
+    tools = source / "SnarkDeploy"
+    if tools.exists():
+        candidates.extend(tools.rglob("rclone.exe"))
+    found = shutil.which("rclone")
+    if found:
+        candidates.append(Path(found))
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(
+        "rclone.exe not found. Expected a portable copy under SnarkBackups\\SnarkDeploy\\Rclone."
+    )
 
 
-def list_remote(sftp, remote_dir: str):
-    try:
-        return sftp.listdir_attr(remote_dir)
-    except OSError:
-        return []
+def find_key() -> Path:
+    candidate = Path.home() / ".ssh" / "personacore_beget_ed25519"
+    if candidate.is_file():
+        return candidate
+    raise FileNotFoundError(
+        f"Beget SSH key not found: {candidate}. Restore the encrypted secrets archive first."
+    )
+
+
+def make_config(path: Path, key: Path, remote_dir: str) -> None:
+    content = (
+        "[beget_raw]\n"
+        "type = sftp\n"
+        f"host = {HOST}\n"
+        f"user = {USER}\n"
+        f"key_file = {key}\n"
+        f"host_keys = {HOST_KEY}\n"
+        "disable_hashcheck = true\n"
+        "shell_type = none\n"
+        "concurrency = 8\n"
+        "chunk_size = 255Ki\n"
+        "idle_timeout = 15s\n"
+        "\n"
+        "[beget]\n"
+        "type = chunker\n"
+        f"remote = beget_raw:{remote_dir}\n"
+        "chunk_size = 16Mi\n"
+        "hash_type = md5\n"
+        "meta_format = simplejson\n"
+        "fail_hard = true\n"
+        "transactions = rename\n"
+    )
+    path.write_text(content, encoding="utf-8")
+
+
+def run_rclone(
+    exe: Path,
+    config: Path,
+    args: list[str],
+    *,
+    capture: bool = False,
+    check: bool = True,
+) -> subprocess.CompletedProcess:
+    command = [
+        str(exe),
+        *args,
+        "--config",
+        str(config),
+        "--transfers",
+        "1",
+        "--checkers",
+        "1",
+        "--retries",
+        "8",
+        "--low-level-retries",
+        "20",
+        "--contimeout",
+        "15s",
+        "--timeout",
+        "60s",
+    ]
+    result = subprocess.run(
+        command,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=capture,
+    )
+    if check and result.returncode:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(detail or f"rclone failed with exit code {result.returncode}")
+    return result
+
+
+def copy_file(exe: Path, config: Path, local: Path, remote_path: str) -> None:
+    print(f"Uploading {local.name} -> Beget:{remote_path}", flush=True)
+    run_rclone(
+        exe,
+        config,
+        ["copyto", str(local), f"beget:{remote_path}", "--stats", "10s", "--stats-one-line"],
+    )
+
+
+def remote_names(exe: Path, config: Path) -> list[str]:
+    result = run_rclone(
+        exe,
+        config,
+        ["lsf", "beget:", "--files-only"],
+        capture=True,
+    )
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
 def generation_key(name: str, prefix: str) -> str | None:
@@ -136,113 +155,150 @@ def generation_key(name: str, prefix: str) -> str | None:
     return match.group(1) if match else None
 
 
-def prune_generations(sftp, remote_dir: str, prefix: str, keep: int) -> list[str]:
-    attrs = list_remote(sftp, remote_dir)
+def prune(exe: Path, config: Path, prefix: str, keep: int) -> list[str]:
     generations = []
-    for attr in attrs:
-        key = generation_key(attr.filename, prefix)
+    for name in remote_names(exe, config):
+        key = generation_key(name, prefix)
         if key:
-            generations.append((key, attr.filename))
+            generations.append((key, name))
     generations.sort(reverse=True)
-    removed = []
-    for _, filename in generations[keep:]:
-        base = posixpath.join(remote_dir, filename)
-        for remote in (base, base + ".sha256"):
-            try:
-                sftp.remove(remote)
-                removed.append(posixpath.basename(remote))
-            except OSError:
-                pass
+
+    removed: list[str] = []
+    for _, name in generations[keep:]:
+        for victim in (name, name + ".sha256"):
+            result = run_rclone(
+                exe,
+                config,
+                ["deletefile", f"beget:{victim}"],
+                capture=True,
+                check=False,
+            )
+            if result.returncode == 0:
+                removed.append(victim)
     return removed
 
 
-def remote_sha256(client, remote_path: str) -> str | None:
-    escaped = remote_path.replace("'", "'\\''")
-    _, stdout, _ = client.exec_command(f"sha256sum '{escaped}'", timeout=30)
-    output = stdout.read().decode("utf-8", "replace").strip()
-    if not output:
-        return None
-    return output.split()[0].lower()
+def verify_remote(exe: Path, config: Path, local: Path, remote_name: str) -> None:
+    result = run_rclone(
+        exe,
+        config,
+        ["lsjson", "beget:", "--files-only", "--include", f"/{remote_name}", "--hash"],
+        capture=True,
+        check=False,
+    )
+    if result.returncode:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise RuntimeError(f"Remote verification failed for {remote_name}: {detail}")
 
-
-def sync(source: Path, alias: str, remote_dir: str, keep: int) -> None:
-    source = source.resolve()
-    recovery = latest_file(source, "snark-recovery-*.zip")
-    recovery_sha = ensure_sidecar(recovery)
-    secrets = latest_file(source, "snark-secrets-*.zip")
-    secrets_sha = ensure_sidecar(secrets)
-
-    client, cfg = connect(alias)
     try:
-        sftp = client.open_sftp()
-        ensure_remote_dir(sftp, remote_dir)
-        tools_remote = posixpath.join(remote_dir, "SnarkDeploy")
-        ensure_remote_dir(sftp, tools_remote)
+        items = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Invalid remote metadata for {remote_name}") from exc
 
-        print(f"Beget: {cfg['user']}@{cfg['host']}:{remote_dir}")
-        for local in (recovery, recovery_sha, secrets, secrets_sha):
-            print(f"Uploading {local.name} ...")
-            upload_atomic(sftp, local, remote_dir)
+    item = next((entry for entry in items if entry.get("Path") == remote_name), None)
+    if item is None:
+        raise RuntimeError(f"Remote file missing after upload: {remote_name}")
+
+    local_size = local.stat().st_size
+    remote_size = int(item.get("Size", -1))
+    if remote_size != local_size:
+        raise RuntimeError(
+            f"Remote size mismatch for {remote_name}: local={local_size}, remote={remote_size}"
+        )
+
+    hashes = item.get("Hashes") or {}
+    remote_md5 = hashes.get("MD5") or hashes.get("md5")
+    if remote_md5:
+        md5 = hashlib.md5()
+        with local.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+                md5.update(chunk)
+        local_md5 = md5.hexdigest()
+        if local_md5.lower() != remote_md5.lower():
+            raise RuntimeError(
+                f"Remote MD5 mismatch for {remote_name}: local={local_md5}, remote={remote_md5}"
+            )
+        print(f"Verified on Beget: {remote_name} (size + MD5)", flush=True)
+    else:
+        print(f"Verified on Beget: {remote_name} (size)", flush=True)
+
+
+def sync(source: Path, remote_dir: str, keep: int) -> None:
+    source = source.resolve()
+    exe = find_rclone(source)
+    key = find_key()
+
+    recovery = latest_file(source, "snark-recovery-*.zip")
+    recovery_sha = ensure_sha256(recovery)
+    secrets = latest_file(source, "snark-secrets-*.zip")
+    secrets_sha = ensure_sha256(secrets)
+
+    with tempfile.TemporaryDirectory(prefix="snark-rclone-") as td:
+        config = Path(td) / "rclone.conf"
+        make_config(config, key, remote_dir)
+
+        print(f"Beget remote: {USER}@{HOST}:{remote_dir}", flush=True)
+        print(f"rclone: {exe}", flush=True)
+
+        copy_file(exe, config, recovery, recovery.name)
+        copy_file(exe, config, recovery_sha, recovery_sha.name)
+        copy_file(exe, config, secrets, secrets.name)
+        copy_file(exe, config, secrets_sha, secrets_sha.name)
 
         for name in ("START_HERE.txt", "LATEST.txt"):
             local = source / name
             if local.is_file():
-                upload_atomic(sftp, local, remote_dir)
+                copy_file(exe, config, local, name)
 
         tools = source / "SnarkDeploy"
         for name in (
-            "bootstrap.ps1", "snarkdeploy.py", "manifest.json", "secrets_archive.py",
-            "beget_sync.py", "SNARK_BACKUP.cmd", "SNARK_RESTORE.cmd",
+            "bootstrap.ps1",
+            "snarkdeploy.py",
+            "manifest.json",
+            "secrets_archive.py",
+            "beget_sync.py",
+            "SNARK_BACKUP.cmd",
+            "SNARK_RESTORE.cmd",
+            "rclone.zip",
         ):
             local = tools / name
             if local.is_file():
-                upload_atomic(sftp, local, tools_remote)
+                copy_file(exe, config, local, f"SnarkDeploy/{name}")
 
-        remote_recovery = posixpath.join(remote_dir, recovery.name)
-        remote_digest = remote_sha256(client, remote_recovery)
-        local_digest = recovery_sha.read_text(encoding="ascii").split()[0].lower()
-        if remote_digest and remote_digest != local_digest:
-            raise RuntimeError(
-                f"Remote recovery checksum mismatch: local={local_digest}, remote={remote_digest}"
-            )
+        verify_remote(exe, config, recovery, recovery.name)
+        verify_remote(exe, config, secrets, secrets.name)
 
         removed = []
-        removed += prune_generations(sftp, remote_dir, "snark-recovery", keep)
-        removed += prune_generations(sftp, remote_dir, "snark-secrets", keep)
+        removed.extend(prune(exe, config, "snark-recovery", keep))
+        removed.extend(prune(exe, config, "snark-secrets", keep))
 
-        import tempfile
-        with tempfile.TemporaryDirectory() as td:
-            index_file = Path(td) / "REMOTE_LATEST.txt"
-            index_file.write_text(
-                "SNARK REMOTE BACKUP\n"
-                f"Latest recovery: {recovery.name}\n"
-                f"Recovery SHA256: {local_digest}\n"
-                f"Latest secrets: {secrets.name}\n"
-                f"Retention: last {keep} recovery generations and last {keep} secrets generations\n",
-                encoding="utf-8",
-            )
-            upload_atomic(sftp, index_file, remote_dir)
+        remote_latest = (
+            "SNARK REMOTE BACKUP\n"
+            f"Latest recovery: {recovery.name}\n"
+            f"Latest secrets: {secrets.name}\n"
+            f"Retention: last {keep} recovery generations and last {keep} secrets generations\n"
+            f"Storage backend: rclone chunker over SFTP, 4 MiB physical chunks\n"
+        )
+        index = Path(td) / "REMOTE_LATEST.txt"
+        index.write_text(remote_latest, encoding="utf-8")
+        copy_file(exe, config, index, "REMOTE_LATEST.txt")
 
-        print("Beget upload complete.")
+        print("Beget upload complete.", flush=True)
         if removed:
-            print("Pruned remote files: " + ", ".join(removed))
-    finally:
-        try:
-            client.close()
-        except Exception:
-            pass
+            print("Pruned remote files: " + ", ".join(removed), flush=True)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", type=Path, required=True)
-    parser.add_argument("--alias", default=DEFAULT_ALIAS)
     parser.add_argument("--remote-dir", default=DEFAULT_REMOTE_DIR)
     parser.add_argument("--keep", type=int, default=DEFAULT_KEEP)
     args = parser.parse_args()
+
     if args.keep < 1:
         raise SystemExit("--keep must be >= 1")
-    sync(args.source, args.alias, args.remote_dir, args.keep)
+
+    sync(args.source, args.remote_dir, args.keep)
 
 
 if __name__ == "__main__":

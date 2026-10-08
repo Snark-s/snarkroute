@@ -29,9 +29,11 @@ The current workstation happens to use `X:\SnarkBackups` and `I:\SnarkRecoveryKe
 
 ### Beget remote copy
 
-After the two local archives are created, `SNARK_BACKUP.cmd` calls `beget_sync.py`. It uploads the newest recovery ZIP, its SHA-256 sidecar, the newest AES-256 secrets ZIP, its SHA-256 sidecar, recovery instructions and the portable SnarkDeploy tools to `~/snark-backups` on the SSH host alias `beget-wp`.
+After the two local archives are created, `SNARK_BACKUP.cmd` calls `beget_sync.py`. It uploads the newest recovery ZIP, its SHA-256 sidecar, the newest AES-256 secrets ZIP, its SHA-256 sidecar, recovery instructions and the portable SnarkDeploy tools to Beget.
 
-The remote recovery ZIP is verified with `sha256sum` after upload. Retention is automatic: keep the newest 5 recovery generations and newest 5 encrypted secrets generations. A Beget/network failure does not invalidate the already completed local backup; the launcher prints a warning and exits successfully for the local backup.
+The transport is a portable `rclone` bundled on the recovery disk. It uses the SFTP backend with the Beget host key pinned explicitly and wraps it in rclone's `chunker` backend. Large files are stored as 16 MiB physical chunks under `~/snark-backups-rclone`; rclone exposes them again as normal logical files. This avoids the long-transfer disconnects observed with plain SFTP/SCP and lets retries happen at chunk granularity.
+
+After upload, SnarkDeploy checks that the logical remote recovery and secrets files exist with exactly the local sizes; rclone only publishes the logical file after the chunk transaction completes. The original SHA-256 sidecars are uploaded alongside them. Retention is automatic: keep the newest 5 recovery generations and newest 5 encrypted secrets generations. A Beget/network failure does not invalidate the already completed local backup; the launcher prints a warning and exits successfully for the local backup.
 
 ## Create a snapshot manually
 

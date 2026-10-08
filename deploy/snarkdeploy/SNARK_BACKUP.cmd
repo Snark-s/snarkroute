@@ -76,16 +76,10 @@ if errorlevel 1 goto :fail
 
 echo.
 echo [4/4] Uploading latest backup to Beget...
-where uv >nul 2>nul
+python "%TOOLS%\beget_sync.py" --source "%OUT%" --keep 5
 if errorlevel 1 (
-  echo WARNING: uv not found. Local backup is complete, Beget upload skipped.
+  echo WARNING: Beget upload failed. Local backup is still complete.
   set "CLOUD_WARN=1"
-) else (
-  uv run --with paramiko python "%TOOLS%\beget_sync.py" --source "%OUT%" --keep 5
-  if errorlevel 1 (
-    echo WARNING: Beget upload failed. Local backup is still complete.
-    set "CLOUD_WARN=1"
-  )
 )
 
 echo.

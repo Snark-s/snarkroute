@@ -93,6 +93,12 @@ def discover_windows_secrets() -> list[Path]:
             if candidate.is_file():
                 files.append(candidate)
 
+    for letter in "DEFGHIJKLMNOPQRSTUVWXYZ":
+        candidate = Path(f"{letter}:\\SnarkRecoveryKey\\BEGET_UPLOAD_TOKEN.txt")
+        if candidate.is_file():
+            files.append(candidate)
+            break
+
     persona = Path(r"I:\PersonaCore")
     if persona.exists():
         config = persona / "config"
@@ -323,7 +329,11 @@ def restore_backup(archive: Path, key_path: Path) -> None:
         manifest = json.loads((payload / "SECRETS_MANIFEST.json").read_text(encoding="utf-8"))
 
         for item in manifest.get("windows", []):
-            destination = resolve_restore_path(item["source"])
+            source_path = Path(item["source"])
+            if source_path.name == "BEGET_UPLOAD_TOKEN.txt" and located_key:
+                destination = located_key.parent / "BEGET_UPLOAD_TOKEN.txt"
+            else:
+                destination = resolve_restore_path(item["source"])
             stored = payload / item["payload"]
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(stored, destination)
