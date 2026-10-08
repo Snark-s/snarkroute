@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 DEFAULT_REMOTE_DIR = "snark-backups-rclone"
@@ -179,16 +180,31 @@ def prune(exe: Path, config: Path, prefix: str, keep: int) -> list[str]:
 
 
 def verify_remote(exe: Path, config: Path, local: Path, remote_name: str) -> None:
-    result = run_rclone(
-        exe,
-        config,
-        ["lsjson", "beget:", "--files-only", "--include", f"/{remote_name}", "--hash"],
-        capture=True,
-        check=False,
-    )
-    if result.returncode:
-        detail = (result.stderr or result.stdout or "").strip()
-        raise RuntimeError(f"Remote verification failed for {remote_name}: {detail}")
+    result = None
+    last_detail = ""
+    for attempt in range(1, 6):
+        result = run_rclone(
+            exe,
+            config,
+            ["lsjson", "beget:", "--files-only", "--include", f"/{remote_name}", "--hash"],
+            capture=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            break
+        last_detail = (result.stderr or result.stdout or "").strip()
+        if attempt < 5:
+            delay = min(2 * attempt, 8)
+            print(
+                f"Beget verification retry {attempt}/5 for {remote_name} in {delay}s",
+                flush=True,
+            )
+            time.sleep(delay)
+
+    if result is None or result.returncode:
+        raise RuntimeError(
+            f"Remote verification failed for {remote_name}: {last_detail}"
+        )
 
     try:
         items = json.loads(result.stdout)
