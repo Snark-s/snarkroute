@@ -24,7 +24,7 @@ Secrets are deliberately excluded from the ordinary recovery ZIP. `SNARK_BACKUP.
 
 Double-click `SNARK_BACKUP.cmd`. It can be placed anywhere. If it is not inside the recovery folder itself, it scans all mounted drive letters for a `SnarkBackups\SnarkDeploy` folder and uses that recovery disk. It then finds `SnarkRecoveryKey\SNARK_RECOVERY_PASSWORD.txt` on any mounted drive. Drive letters are not part of the recovery contract.
 
-Double-click `SNARK_RESTORE.cmd` to restore the newest recovery bundle. It can also be placed anywhere: it scans mounted drives for the recovery folder, then restores the newest encrypted secrets archive and finds the password disk regardless of its drive letter.
+Double-click `SNARK_RESTORE.cmd` to restore the newest recovery bundle. It can also be placed anywhere: it scans mounted drives for the recovery folder, then restores the newest encrypted secrets archive and finds the password disk regardless of its drive letter. `LATEST.txt` is regenerated automatically after every successful local backup and always names the current recovery and encrypted-secrets archives with their checksums.
 
 The current workstation happens to use `X:\SnarkBackups` and `I:\SnarkRecoveryKey`, but those are examples, not requirements. FreeToken Desktop is treated as a local runtime; no external account/sign-in requirement is assumed.
 

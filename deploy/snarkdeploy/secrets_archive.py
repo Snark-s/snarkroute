@@ -234,6 +234,33 @@ def make_backup(output: Path, key_path: Path) -> Path:
 
     latest = output / "LATEST_SECRETS.txt"
     latest.write_text(f"{archive.name}\n", encoding="utf-8")
+
+    recoveries = sorted(
+        output.glob("snark-recovery-*.zip"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if recoveries:
+        recovery = recoveries[0]
+        recovery_sidecar = recovery.with_suffix(recovery.suffix + ".sha256")
+        recovery_sha = ""
+        if recovery_sidecar.is_file():
+            recovery_sha = recovery_sidecar.read_text(
+                encoding="ascii", errors="ignore"
+            ).strip().split()[0]
+        summary = (
+            "SNARK RECOVERY - LATEST\n\n"
+            f"Recovery bundle: {recovery.name}\n"
+            f"Recovery SHA256: {recovery_sha or 'sidecar missing'}\n"
+            f"Encrypted secrets: {archive.name}\n"
+            f"Secrets SHA256: {digest.hexdigest()}\n"
+            "Encryption: AES-256\n"
+        )
+        latest_summary = output / "LATEST.txt"
+        latest_temp = output / "LATEST.txt.partial"
+        latest_temp.write_text(summary, encoding="utf-8")
+        latest_temp.replace(latest_summary)
+
     print(f"Encrypted secrets archive: {archive}")
     print(f"Password location: {key_path}")
     print(f"Windows secret files: {len(windows_files)}")
