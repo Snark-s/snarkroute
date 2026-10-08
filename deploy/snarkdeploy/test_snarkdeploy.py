@@ -103,6 +103,45 @@ class SnarkDeployTests(unittest.TestCase):
             self.assertEqual(target.read_text(encoding="utf-8"), "changed\n")
             self.assertEqual(SNARKDEPLOY.apply_git_patch_idempotent(repo, patch, "test"), "already-applied")
 
+    def test_git_bundle_restores_commit_offline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "source"
+            source.mkdir()
+            subprocess.run(["git", "init"], cwd=source, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=source, check=True)
+            subprocess.run(["git", "config", "user.name", "SnarkDeploy Test"], cwd=source, check=True)
+            tracked = source / "tracked.txt"
+            tracked.write_text("offline recovery\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=source, check=True)
+            subprocess.run(["git", "commit", "-m", "snapshot"], cwd=source, check=True, capture_output=True)
+            commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=source,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+            bundle = root / "repo.bundle"
+            meta = SNARKDEPLOY.create_git_bundle(source, commit, bundle)
+            self.assertTrue(bundle.is_file())
+            self.assertEqual(meta["sha256"], hashlib.sha256(bundle.read_bytes()).hexdigest())
+            self.assertNotEqual(
+                subprocess.run(
+                    ["git", "show-ref", "--verify", "--quiet", meta["ref"]],
+                    cwd=source,
+                ).returncode,
+                0,
+            )
+
+            restored = root / "restored"
+            restored.mkdir()
+            subprocess.run(["git", "init"], cwd=restored, check=True, capture_output=True)
+            SNARKDEPLOY.fetch_git_bundle(restored, bundle, meta["ref"])
+            subprocess.run(["git", "checkout", "--detach", commit], cwd=restored, check=True, capture_output=True)
+            self.assertEqual((restored / "tracked.txt").read_text(encoding="utf-8"), "offline recovery\n")
+
 
 if __name__ == "__main__":
     unittest.main()

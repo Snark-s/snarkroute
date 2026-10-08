@@ -194,6 +194,40 @@ def git_info(path, patch_excludes=None):
     return {"commit": commit, "remote": remote, "branch": branch, "patch": patch, "untracked": untracked}
 
 
+
+
+
+def create_git_bundle(repo, commit, destination):
+    repo = Path(repo)
+    destination = Path(destination)
+    ref = "refs/snarkdeploy/recovery"
+    run(["git", "update-ref", ref, commit], cwd=repo)
+    try:
+        run(["git", "bundle", "create", str(destination), ref], cwd=repo)
+        verify = run(["git", "bundle", "verify", str(destination)], cwd=repo, check=False)
+        if verify.returncode:
+            raise RuntimeError(
+                (verify.stderr or verify.stdout or f"git bundle verify failed: {destination}").strip()
+            )
+    finally:
+        run(["git", "update-ref", "-d", ref], cwd=repo, check=False)
+    return {
+        "bytes": destination.stat().st_size,
+        "sha256": sha256_file(destination),
+        "ref": ref,
+    }
+
+
+def fetch_git_bundle(repo, bundle_path, ref="refs/snarkdeploy/recovery"):
+    repo = Path(repo)
+    bundle_path = Path(bundle_path)
+    result = run(["git", "fetch", str(bundle_path), ref], cwd=repo, check=False)
+    if result.returncode:
+        raise RuntimeError(
+            (result.stderr or result.stdout or f"git bundle fetch failed: {bundle_path}").strip()
+        )
+
+
 def capture_system_inventory(manifest):
     variables = manifest["variables"]
     result = {
@@ -469,6 +503,17 @@ def snapshot(args):
                     "remote": info["remote"],
                     "branch": info["branch"],
                 })
+                if component.get("embed_git_bundle", True):
+                    print(f"[snapshot] git bundle: {component['id']}", flush=True)
+                    with tempfile.TemporaryDirectory(prefix="snark-git-bundle-") as temp_dir:
+                        bundle_path = Path(temp_dir) / f"{component['id']}.bundle"
+                        bundle_meta = create_git_bundle(path, info["commit"], bundle_path)
+                        bundle_member = f"git/{component['id']}/repo.bundle"
+                        zf.write(bundle_path, bundle_member, compress_type=zipfile.ZIP_STORED)
+                        record["git_bundle"] = {
+                            "file": bundle_member,
+                            **bundle_meta,
+                        }
                 if info["patch"]:
                     zf.writestr(f"git/{component['id']}/working.patch", info["patch"])
                 copied = 0
@@ -627,7 +672,41 @@ def restore(args):
                     cwd=target,
                     check=False,
                 ).returncode == 0
+                bundle_meta = record.get("git_bundle") or {}
+                bundle_member = bundle_meta.get("file")
+                if not has_commit and bundle_member and bundle_member in zf.namelist():
+                    print(f"[restore] offline git bundle: {record['id']}", flush=True)
+                    with tempfile.NamedTemporaryFile("wb", delete=False, suffix=".bundle") as temp:
+                        temp.write(zf.read(bundle_member))
+                        bundle_path = Path(temp.name)
+                    try:
+                        expected_bundle_sha = (bundle_meta.get("sha256") or "").lower()
+                        if expected_bundle_sha:
+                            actual_bundle_sha = sha256_file(bundle_path).lower()
+                            if actual_bundle_sha != expected_bundle_sha:
+                                raise RuntimeError(
+                                    f"Git bundle checksum mismatch for {record['id']}: "
+                                    f"expected {expected_bundle_sha}, got {actual_bundle_sha}"
+                                )
+                        fetch_git_bundle(
+                            target,
+                            bundle_path,
+                            bundle_meta.get("ref", "refs/snarkdeploy/recovery"),
+                        )
+                    finally:
+                        bundle_path.unlink(missing_ok=True)
+                    has_commit = run(
+                        ["git", "cat-file", "-e", f"{record['commit']}^{{commit}}"],
+                        cwd=target,
+                        check=False,
+                    ).returncode == 0
+                    if not has_commit:
+                        raise RuntimeError(
+                            f"Embedded Git bundle did not provide commit {record['commit']} "
+                            f"for {record['id']}"
+                        )
                 if not has_commit:
+                    print(f"[restore] network git fetch: {record['id']}", flush=True)
                     fetch = run(["git", "fetch", "--depth=1", "origin", record["commit"]], cwd=target, check=False)
                     if fetch.returncode:
                         run(["git", "fetch", "origin", record["commit"]], cwd=target)

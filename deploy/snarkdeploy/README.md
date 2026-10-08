@@ -4,7 +4,7 @@ Reproducible disaster-recovery layer for the local Snark workstation.
 
 ## What the recovery bundle preserves
 
-- SnarkRoute: exact Git commit plus any local working patch and non-ignored untracked files.
+- SnarkRoute and other Git-backed components: exact Git commit plus an embedded offline Git bundle, any local working patch and non-ignored untracked files. Restore uses the embedded bundle first and falls back to the network only for older recovery archives that do not contain one.
 - PersonaCore, including its portable data/state, project registry, browser extension source/build and local host mappings.
 - Modified Mixar source, installed Mixar files, Mixar profile/startup scripts, Jabberwock Mixar Local and Jabberwock Blender.
 - ArcEngine plus local previs/tools layered on top of the upstream Git checkout.
