@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import json
 import os
 import secrets
@@ -85,6 +86,13 @@ def discover_windows_secrets() -> list[Path]:
     if snark.exists():
         files.extend(iter_env_files(snark))
 
+    ssh_dir = Path.home() / ".ssh"
+    if ssh_dir.exists():
+        for name in ("config", "personacore_beget_ed25519", "personacore_beget_ed25519.pub"):
+            candidate = ssh_dir / name
+            if candidate.is_file():
+                files.append(candidate)
+
     persona = Path(r"I:\PersonaCore")
     if persona.exists():
         config = persona / "config"
@@ -109,6 +117,7 @@ def archive_name_for(path: Path) -> str:
     mappings = [
         (Path(r"Y:\Процесс\SnarkRoute"), "windows/snarkroute"),
         (Path(r"I:\PersonaCore"), "windows/personacore"),
+        (Path.home(), "windows/userhome"),
     ]
     for root, prefix in mappings:
         try:
@@ -210,6 +219,13 @@ def make_backup(output: Path, key_path: Path) -> Path:
         f"Encrypted secret archives use AES-256.\nPassword file is on a different physical disk:\n{key_path}\n",
         encoding="utf-8",
     )
+    digest = hashlib.sha256()
+    with archive.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
+    sidecar = archive.with_suffix(archive.suffix + ".sha256")
+    sidecar.write_text(f"{digest.hexdigest()}  {archive.name}\n", encoding="ascii")
+
     latest = output / "LATEST_SECRETS.txt"
     latest.write_text(f"{archive.name}\n", encoding="utf-8")
     print(f"Encrypted secrets archive: {archive}")
@@ -279,6 +295,9 @@ def resolve_restore_path(source_text: str) -> Path:
         return persona_home / source.relative_to(old_persona)
     except ValueError:
         pass
+    if ".ssh" in source.parts:
+        index = source.parts.index(".ssh")
+        return Path.home().joinpath(*source.parts[index:])
     return source
 
 

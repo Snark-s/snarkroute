@@ -27,6 +27,12 @@ Double-click `SNARK_RESTORE.cmd` to restore the newest recovery bundle. It can a
 
 The current workstation happens to use `X:\SnarkBackups` and `I:\SnarkRecoveryKey`, but those are examples, not requirements. FreeToken Desktop is treated as a local runtime; no external account/sign-in requirement is assumed.
 
+### Beget remote copy
+
+After the two local archives are created, `SNARK_BACKUP.cmd` calls `beget_sync.py`. It uploads the newest recovery ZIP, its SHA-256 sidecar, the newest AES-256 secrets ZIP, its SHA-256 sidecar, recovery instructions and the portable SnarkDeploy tools to `~/snark-backups` on the SSH host alias `beget-wp`.
+
+The remote recovery ZIP is verified with `sha256sum` after upload. Retention is automatic: keep the newest 5 recovery generations and newest 5 encrypted secrets generations. A Beget/network failure does not invalidate the already completed local backup; the launcher prints a warning and exits successfully for the local backup.
+
 ## Create a snapshot manually
 
     python deploy\snarkdeploy\snarkdeploy.py doctor
@@ -62,9 +68,9 @@ A non-destructive restore preview is also available:
 
 ## What is not silently restored
 
-- API keys, provider tokens and passwords.
+- The ordinary recovery ZIP never contains API keys, provider tokens, passwords or SSH private keys. Those live only in the separate AES-256 secrets archive and are restored only when explicitly selected.
+- The encrypted secrets archive includes portable Snark/Persona secrets, H3/Hugging Face tokens when present, and the Beget SSH config/key used by remote backup.
 - FreeToken external login is not required by the current installed runtime; no account-specific recovery step is recorded.
-- The H3 worker token. Regenerate it.
 - NVIDIA drivers. Hardware/driver state is inventoried, but driver installation is hardware-specific.
 - Huge model weights. Use heavy-inventory.json and the pinned model manifests to redownload/copy the exact files.
 - WSL installation/reboot. If WSL2 + Ubuntu-24.04 are absent, bootstrap restores everything else and doctor reports the missing H3 prerequisite.

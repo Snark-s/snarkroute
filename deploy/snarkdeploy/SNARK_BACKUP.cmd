@@ -7,6 +7,8 @@ echo   SNARK BACKUP
 echo ============================================
 echo.
 
+set "CLOUD_WARN=0"
+
 rem 1) Find the recovery folder.
 rem If this BAT is inside SnarkBackups, use its own folder.
 set "OUT="
@@ -58,19 +60,33 @@ echo Recovery folder: %OUT%
 echo Password file:   %KEY%
 echo.
 
-echo [1/3] Checking workstation...
+echo [1/4] Checking workstation...
 python "%TOOLS%\snarkdeploy.py" doctor
 if errorlevel 1 goto :fail
 
 echo.
-echo [2/3] Creating recovery bundle...
+echo [2/4] Creating recovery bundle...
 python "%TOOLS%\snarkdeploy.py" snapshot --output "%OUT%"
 if errorlevel 1 goto :fail
 
 echo.
-echo [3/3] Creating AES-256 encrypted secrets ZIP...
+echo [3/4] Creating AES-256 encrypted secrets ZIP...
 python "%TOOLS%\secrets_archive.py" backup --output "%OUT%" --key-file "%KEY%"
 if errorlevel 1 goto :fail
+
+echo.
+echo [4/4] Uploading latest backup to Beget...
+where uv >nul 2>nul
+if errorlevel 1 (
+  echo WARNING: uv not found. Local backup is complete, Beget upload skipped.
+  set "CLOUD_WARN=1"
+) else (
+  uv run --with paramiko python "%TOOLS%\beget_sync.py" --source "%OUT%" --keep 5
+  if errorlevel 1 (
+    echo WARNING: Beget upload failed. Local backup is still complete.
+    set "CLOUD_WARN=1"
+  )
+)
 
 echo.
 echo ============================================
@@ -78,6 +94,11 @@ echo   BACKUP COMPLETE
 echo ============================================
 echo Recovery files: %OUT%
 echo Password file:  %KEY%
+if "%CLOUD_WARN%"=="1" (
+  echo Beget: WARNING - remote copy was not updated.
+) else (
+  echo Beget: latest copy uploaded, last 5 generations retained.
+)
 echo Keep the recovery disk and password disk physically separate.
 echo.
 pause
