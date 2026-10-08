@@ -182,6 +182,83 @@ class SnarkDeployTests(unittest.TestCase):
             key = SNARKDEPLOY.hash_cache_key(models / "model.gguf")
             self.assertEqual(cache[key]["sha256"], "a" * 64)
 
+    def test_git_bundle_unshallows_source_and_restores_full_commit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            origin_work = root / "origin-work"
+            origin_work.mkdir()
+            subprocess.run(["git", "init"], cwd=origin_work, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=origin_work, check=True)
+            subprocess.run(["git", "config", "user.name", "SnarkDeploy Test"], cwd=origin_work, check=True)
+
+            tracked = origin_work / "tracked.txt"
+            tracked.write_text("first\n", encoding="utf-8")
+            subprocess.run(["git", "add", "tracked.txt"], cwd=origin_work, check=True)
+            subprocess.run(["git", "commit", "-m", "first"], cwd=origin_work, check=True, capture_output=True)
+            tracked.write_text("second\n", encoding="utf-8")
+            subprocess.run(["git", "commit", "-am", "second"], cwd=origin_work, check=True, capture_output=True)
+
+            origin_bare = root / "origin.git"
+            subprocess.run(["git", "clone", "--bare", str(origin_work), str(origin_bare)], check=True, capture_output=True)
+
+            shallow = root / "shallow"
+            origin_url = origin_bare.resolve().as_uri()
+            subprocess.run(
+                ["git", "clone", "--depth=1", origin_url, str(shallow)],
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "rev-parse", "--is-shallow-repository"],
+                    cwd=shallow,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+                "true",
+            )
+            commit = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=shallow,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+            bundle = root / "shallow.bundle"
+            meta = SNARKDEPLOY.create_git_bundle(shallow, commit, bundle)
+            self.assertEqual(
+                subprocess.run(
+                    ["git", "rev-parse", "--is-shallow-repository"],
+                    cwd=shallow,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+                "false",
+            )
+
+            restored = root / "restored"
+            restored.mkdir()
+            subprocess.run(["git", "init"], cwd=restored, check=True, capture_output=True)
+            SNARKDEPLOY.fetch_git_bundle(restored, bundle, meta["ref"])
+            subprocess.run(
+                ["git", "checkout", "--detach", commit],
+                cwd=restored,
+                check=True,
+                capture_output=True,
+            )
+            self.assertEqual((restored / "tracked.txt").read_text(encoding="utf-8"), "second\n")
+            history = subprocess.run(
+                ["git", "rev-list", "--count", commit],
+                cwd=restored,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(history, "2")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -197,9 +197,74 @@ def git_info(path, patch_excludes=None):
 
 
 
+def ensure_full_git_history(repo):
+    repo = Path(repo)
+    shallow = clean_output(
+        run(["git", "rev-parse", "--is-shallow-repository"], cwd=repo).stdout
+    ).lower() == "true"
+    if not shallow:
+        return False
+
+    remote = clean_output(
+        run(["git", "remote", "get-url", "origin"], cwd=repo, check=False).stdout
+    )
+    if not remote:
+        raise RuntimeError(
+            f"cannot create self-contained recovery bundle from shallow repo without origin: {repo}"
+        )
+
+    print(f"[snapshot] unshallow git history: {repo}", flush=True)
+    result = run(
+        ["git", "fetch", "--unshallow", "--tags", "origin"],
+        cwd=repo,
+        check=False,
+    )
+    if result.returncode:
+        fallback = run(
+            ["git", "fetch", "--depth=2147483647", "--tags", "origin"],
+            cwd=repo,
+            check=False,
+        )
+        if fallback.returncode:
+            detail = fallback.stderr or fallback.stdout or result.stderr or result.stdout
+            raise RuntimeError(
+                f"failed to unshallow {repo}: {clean_output(detail)}"
+            )
+
+    still_shallow = clean_output(
+        run(["git", "rev-parse", "--is-shallow-repository"], cwd=repo).stdout
+    ).lower() == "true"
+    if still_shallow:
+        raise RuntimeError(f"repository is still shallow after fetch: {repo}")
+    return True
+
+
+def verify_git_bundle_self_contained(bundle_path, commit, ref):
+    bundle_path = Path(bundle_path)
+    with tempfile.TemporaryDirectory(prefix="snark-bundle-verify-") as temp_dir:
+        probe = Path(temp_dir) / "probe.git"
+        run(["git", "init", "--bare", str(probe)])
+        fetch_git_bundle(probe, bundle_path, ref)
+        reachable = run(
+            ["git", "rev-list", "--objects", commit],
+            cwd=probe,
+            check=False,
+        )
+        if reachable.returncode:
+            raise RuntimeError(
+                (
+                    reachable.stderr
+                    or reachable.stdout
+                    or f"git bundle is not self-contained for commit {commit}"
+                ).strip()
+            )
+        run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], cwd=probe)
+
+
 def create_git_bundle(repo, commit, destination):
     repo = Path(repo)
     destination = Path(destination)
+    ensure_full_git_history(repo)
     ref = "refs/snarkdeploy/recovery"
     run(["git", "update-ref", ref, commit], cwd=repo)
     try:
@@ -209,6 +274,7 @@ def create_git_bundle(repo, commit, destination):
             raise RuntimeError(
                 (verify.stderr or verify.stdout or f"git bundle verify failed: {destination}").strip()
             )
+        verify_git_bundle_self_contained(destination, commit, ref)
     finally:
         run(["git", "update-ref", "-d", ref], cwd=repo, check=False)
     return {
