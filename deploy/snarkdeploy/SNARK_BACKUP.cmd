@@ -14,9 +14,11 @@ rem If this BAT is inside SnarkBackups, use its own folder.
 set "OUT="
 if exist "%~dp0SnarkDeploy\snarkdeploy.py" set "OUT=%~dp0"
 
-rem Otherwise scan all mounted drive letters for SnarkBackups.
+rem Otherwise scan drive letters without PowerShell quoting.
 if not defined OUT (
-  for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$c=Get-PSDrive -PSProvider FileSystem ^| ForEach-Object { Join-Path $_.Root 'SnarkBackups' } ^| Where-Object { Test-Path (Join-Path $_ 'SnarkDeploy\snarkdeploy.py') } ^| Select-Object -First 1; if($c){$c}"`) do set "OUT=%%F"
+  for %%D in (A B C D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
+    if not defined OUT if exist "%%D:\SnarkBackups\SnarkDeploy\snarkdeploy.py" set "OUT=%%D:\SnarkBackups"
+  )
 )
 
 if not defined OUT (
@@ -34,7 +36,9 @@ set "KEY="
 if defined SNARK_KEY_FILE if exist "%SNARK_KEY_FILE%" set "KEY=%SNARK_KEY_FILE%"
 
 if not defined KEY (
-  for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$f=Get-PSDrive -PSProvider FileSystem ^| ForEach-Object { Join-Path $_.Root 'SnarkRecoveryKey\SNARK_RECOVERY_PASSWORD.txt' } ^| Where-Object { Test-Path -LiteralPath $_ } ^| Select-Object -First 1; if($f){$f}"`) do set "KEY=%%F"
+  for %%D in (A B C D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
+    if not defined KEY if exist "%%D:\SnarkRecoveryKey\SNARK_RECOVERY_PASSWORD.txt" set "KEY=%%D:\SnarkRecoveryKey\SNARK_RECOVERY_PASSWORD.txt"
+  )
 )
 
 if not defined KEY (

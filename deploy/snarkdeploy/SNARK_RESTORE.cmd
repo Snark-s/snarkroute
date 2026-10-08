@@ -12,7 +12,9 @@ set "OUT="
 if exist "%~dp0SnarkDeploy\bootstrap.ps1" set "OUT=%~dp0"
 
 if not defined OUT (
-  for /f "usebackq delims=" %%F in (`powershell -NoProfile -Command "$c=Get-PSDrive -PSProvider FileSystem ^| ForEach-Object { Join-Path $_.Root 'SnarkBackups' } ^| Where-Object { (Test-Path (Join-Path $_ 'SnarkDeploy\bootstrap.ps1')) -and (Get-ChildItem -LiteralPath $_ -Filter 'snark-recovery-*.zip' -ErrorAction SilentlyContinue) } ^| Select-Object -First 1; if($c){$c}"`) do set "OUT=%%F"
+  for %%D in (A B C D E F G H I J K L M N O P Q R S T U V W X Y Z) do (
+    if not defined OUT if exist "%%D:\SnarkBackups\SnarkDeploy\bootstrap.ps1" if exist "%%D:\SnarkBackups\snark-recovery-*.zip" set "OUT=%%D:\SnarkBackups"
+  )
 )
 
 if not defined OUT (
