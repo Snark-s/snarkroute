@@ -71,21 +71,35 @@ New-Item -ItemType Directory -Force -Path $AppsRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $AiRoot | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path $PersonaHome -Parent) | Out-Null
 
+$PortableDeploy=Join-Path $PSScriptRoot "snarkdeploy.py"
+
+function Run-DeployFile(
+  [string]$DeployFile,
+  [Parameter(ValueFromRemainingArguments=$true)][string[]]$DeployArgs
+) {
+  if (Has "python") { & python $DeployFile @DeployArgs } else { & py -3 $DeployFile @DeployArgs }
+  if ($LASTEXITCODE -ne 0) { throw "SnarkDeploy failed: $($DeployArgs -join ' ')" }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($Bundle)) {
+  if (-not (Test-Path $PortableDeploy)) {
+    throw "Portable SnarkDeploy is missing next to bootstrap.ps1: $PortableDeploy"
+  }
+  Say "Restoring from recovery bundle before any network clone"
+  Run-DeployFile $PortableDeploy verify $Bundle
+  Run-DeployFile $PortableDeploy restore $Bundle
+}
+
 if (-not (Test-Path (Join-Path $Repo ".git"))) {
-  Say "Cloning SnarkRoute"
+  Say "Recovery bundle did not provide SnarkRoute; cloning from GitHub"
   git clone https://github.com/Snark-s/snarkroute.git $Repo
 }
 
 $Deploy=Join-Path $Repo "deploy\snarkdeploy\snarkdeploy.py"
 function Run-Deploy([Parameter(ValueFromRemainingArguments=$true)][string[]]$DeployArgs) {
-  if (Has "python") { & python $Deploy @DeployArgs } else { & py -3 $Deploy @DeployArgs }
-  if ($LASTEXITCODE -ne 0) { throw "SnarkDeploy failed: $($DeployArgs -join ' ')" }
+  Run-DeployFile $Deploy @DeployArgs
 }
 
-if (-not [string]::IsNullOrWhiteSpace($Bundle)) {
-  Run-Deploy verify $Bundle
-  Run-Deploy restore $Bundle
-}
 Run-Deploy install
 
 $Registry=Join-Path $env:LOCALAPPDATA "SnarkRoute\service-registry.json"
