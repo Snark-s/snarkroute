@@ -223,6 +223,42 @@ def verify_remote(exe: Path, config: Path, local: Path, remote_name: str) -> Non
         print(f"Verified on Beget: {remote_name} (size)", flush=True)
 
 
+def cleanup_orphan_chunks(exe: Path, config: Path, remote_dir: str) -> list[str]:
+    result = run_rclone(
+        exe,
+        config,
+        ["lsf", f"beget_raw:{remote_dir}", "--files-only", "--recursive"],
+        capture=True,
+    )
+    pattern = re.compile(r"\.rclone_chunk\.\d+_[A-Za-z0-9]+$")
+    orphaned = [
+        name
+        for name in (line.strip() for line in result.stdout.splitlines())
+        if name and pattern.search(name)
+    ]
+    if not orphaned:
+        return []
+
+    deleted = run_rclone(
+        exe,
+        config,
+        [
+            "delete",
+            f"beget_raw:{remote_dir}",
+            "--include",
+            "*.rclone_chunk.*_*",
+            "--include",
+            "**/*.rclone_chunk.*_*",
+        ],
+        capture=True,
+        check=False,
+    )
+    if deleted.returncode != 0:
+        detail = (deleted.stderr or deleted.stdout or "").strip()
+        raise RuntimeError(f"Failed to clean orphan chunks: {detail}")
+    return orphaned
+
+
 def sync(source: Path, remote_dir: str, keep: int) -> None:
     source = source.resolve()
     exe = find_rclone(source)
@@ -271,13 +307,14 @@ def sync(source: Path, remote_dir: str, keep: int) -> None:
         removed = []
         removed.extend(prune(exe, config, "snark-recovery", keep))
         removed.extend(prune(exe, config, "snark-secrets", keep))
+        orphaned = cleanup_orphan_chunks(exe, config, remote_dir)
 
         remote_latest = (
             "SNARK REMOTE BACKUP\n"
             f"Latest recovery: {recovery.name}\n"
             f"Latest secrets: {secrets.name}\n"
             f"Retention: last {keep} recovery generations and last {keep} secrets generations\n"
-            f"Storage backend: rclone chunker over SFTP, 4 MiB physical chunks\n"
+            f"Storage backend: rclone chunker over SFTP, 16 MiB physical chunks\n"
         )
         index = Path(td) / "REMOTE_LATEST.txt"
         index.write_text(remote_latest, encoding="utf-8")
@@ -286,6 +323,8 @@ def sync(source: Path, remote_dir: str, keep: int) -> None:
         print("Beget upload complete.", flush=True)
         if removed:
             print("Pruned remote files: " + ", ".join(removed), flush=True)
+        if orphaned:
+            print(f"Cleaned orphan chunk files: {len(orphaned)}", flush=True)
 
 
 def main() -> None:
