@@ -1,11 +1,14 @@
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
 import subprocess
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 MODULE_PATH = Path(__file__).with_name("snarkdeploy.py")
 SPEC = importlib.util.spec_from_file_location("snarkdeploy", MODULE_PATH)
@@ -258,6 +261,52 @@ class SnarkDeployTests(unittest.TestCase):
                 text=True,
             ).stdout.strip()
             self.assertEqual(history, "2")
+
+    def test_restore_dry_run_uses_bundle_manifest_for_new_component(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bundle = root / "recovery.zip"
+            target = root / "future-component"
+            manifest = {
+                "variables": {
+                    "FUTURE_COMPONENT": {"default": str(target)},
+                },
+                "components": [
+                    {
+                        "id": "future-component",
+                        "label": "Future component",
+                        "path": "{{FUTURE_COMPONENT}}",
+                        "strategy": "copy",
+                        "snapshot": True,
+                    }
+                ],
+                "services": [],
+            }
+            state = {
+                "components": [
+                    {
+                        "id": "future-component",
+                        "path": r"C:\OldMachine\Future",
+                        "strategy": "copy",
+                        "present": True,
+                        "mode": "copy",
+                    }
+                ]
+            }
+            with zipfile.ZipFile(bundle, "w") as archive:
+                archive.writestr("state.json", json.dumps(state))
+                archive.writestr("manifest.json", json.dumps(manifest))
+                archive.writestr("system.json", "{}")
+                archive.writestr("heavy-inventory.json", "[]")
+
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                code = SNARKDEPLOY.restore(SimpleNamespace(bundle=str(bundle), dry_run=True))
+
+            self.assertEqual(code, 0)
+            self.assertIn("future-component: copy", output.getvalue())
+            self.assertIn(str(target), output.getvalue())
+            self.assertNotIn("skip unknown component", output.getvalue())
 
 
 if __name__ == "__main__":

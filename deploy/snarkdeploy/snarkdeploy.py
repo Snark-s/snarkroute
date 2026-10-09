@@ -827,7 +827,8 @@ def verify_bundle(bundle, quiet=False):
 def restore(args):
     bundle = Path(args.bundle).expanduser().resolve()
     state = verify_bundle(bundle, quiet=True)
-    current = load_manifest()
+    with zipfile.ZipFile(bundle, "r") as zf:
+        current = json.loads(zf.read("manifest.json").decode("utf-8"))
     variables = current["variables"]
     if args.dry_run:
         print("SnarkDeploy restore dry-run")
