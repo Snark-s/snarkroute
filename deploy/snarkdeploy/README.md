@@ -7,6 +7,7 @@ Reproducible disaster-recovery layer for the local Snark workstation.
 - SnarkRoute and other Git-backed components: exact Git commit plus an embedded offline Git bundle, any local working patch and non-ignored untracked files. Restore uses the embedded bundle first and falls back to the network only for older recovery archives that do not contain one.
 - PersonaCore, including its portable data/state, project registry, browser extension source/build and local host mappings.
 - Modified Mixar source, installed Mixar files, Mixar profile/startup scripts, Jabberwock Mixar Local and Jabberwock Blender.
+- SnarkRoute After Effects CEP panel, including the installed extension at `%APPDATA%\Adobe\CEP\extensions\com.snarkroute.aftereffects`. Restore also re-enables unsigned CEP extensions with `PlayerDebugMode=1` for CSXS 11 and 12. Adobe After Effects itself remains an external Creative Cloud application and is not copied into the recovery bundle.
 - ArcEngine plus local previs/tools layered on top of the upstream Git checkout.
 - Hollywood 2 and FreeToken Desktop.
 - Bonsai runtime source/configuration without duplicating the large GGUF weights.

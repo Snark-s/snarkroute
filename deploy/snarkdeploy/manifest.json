@@ -46,6 +46,9 @@
     },
     "SNARK_BONSAI": {
       "default": "{{SNARK_AI_ROOT}}\\Bonsai-demo"
+    },
+    "SNARK_AE_PANEL": {
+      "default": "{{APPDATA}}\\Adobe\\CEP\\extensions\\com.snarkroute.aftereffects"
     }
   },
   "prerequisites": [
@@ -120,6 +123,17 @@
         "apps/server/data/h3-studio/queue.json",
         "apps/server/data/h3-studio/results/**",
         "apps/server/nohup.out"
+      ]
+    },
+    {
+      "id": "after-effects-panel",
+      "label": "SnarkRoute After Effects CEP panel",
+      "path": "{{SNARK_AE_PANEL}}",
+      "strategy": "copy",
+      "snapshot": true,
+      "install_commands": [
+        "powershell -NoProfile -Command \"New-Item -Path 'HKCU:\\Software\\Adobe\\CSXS.11' -Force | Out-Null; New-ItemProperty -Path 'HKCU:\\Software\\Adobe\\CSXS.11' -Name PlayerDebugMode -Value '1' -PropertyType String -Force | Out-Null\"",
+        "powershell -NoProfile -Command \"New-Item -Path 'HKCU:\\Software\\Adobe\\CSXS.12' -Force | Out-Null; New-ItemProperty -Path 'HKCU:\\Software\\Adobe\\CSXS.12' -Name PlayerDebugMode -Value '1' -PropertyType String -Force | Out-Null\""
       ]
     },
     {
