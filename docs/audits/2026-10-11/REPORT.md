@@ -54,6 +54,8 @@ flowchart LR
 
 Реестр определяет адреса. Готовность определяется контрактом соответствующего сервиса. Наличие локального MCP не доказывает доступность подключённого плагина в ChatGPT; это отдельная внешняя сторона соединения.
 
+Дополнительная проверка подключённого SnarkBridge вернула `Session terminated`, хотя локальная identity health прошла. Регрессионный тест реального FastMCP с прежним session ID после рестарта получил `404 Session not found`. Установленный SDK генерирует `Session terminated` в client transport; вывод о прежней сессии согласуется с этим сценарием. Предложено stateless HTTP для этого scoped bridge, точный diff — `MCP_CHANGE_PROPOSAL.patch`. Автоматическая проверка разрешений отклонила изменение как потенциально меняющее session security; отдельное согласие запрошено. До его получения действующий stateful transport сохранён. Этот отказ подключения нельзя считать устранённым.
+
 ## Состав изменений
 
 Полный список и SHA256 до/после: `changes.json`; внешние компоненты: `external-changes.json`; коммиты: `commits.json`. Классифицированные статические network/service call sites Mixar с файлами, функциями и строками: `network-inventory.json`. Это инвентаризация first-party Python, а не перехват всего сетевого трафика native binary. Прежние пользовательские правки в файлах, которые затронул аудит, отделены checkpoint-коммитами. Остальные прежние изменения оставлены в рабочем дереве. Видео и очередь H3 не добавлены в коммиты аудита.
@@ -70,7 +72,13 @@ J выполнен частично: два новых процесса Blender,
 
 I проверяет admission и concurrency контролируемыми snapshot/launch зависимостями. Одновременно тяжёлые GPU модели специально не запускались. K проверяет перенесённые корни и реестр. Результат полного L вынесен в `recovery-verification.json`.
 
+L выполнен: `X:/SnarkBackups/snark-recovery-20261011-135413.zip` (1 496 708 825 bytes) прошёл SHA256/CRC и проверку members/секретов; все 13 компонентов восстановлены в новый `X:/SnarkBackups/stack-restore-test-20261011`. Registry/pointer направлены только в новые корни, исходный registry не изменился, ключи не перенесены. Восстановленный portable executable прошёл три factory probes: сетевые ограничения, RPC G/H, проверка E/F и тема. Восстановленный API собран и реально выполнил B с `PAID_PERMISSION_REQUIRED`; восстановленный PersonaCore прошёл 159 tests.
+
+Зависимости API установлены по frozen lockfile (386 packages, install scripts выключены); содержимое lockfile не изменилось. Кэш оказался неполным, поэтому закреплённые npm packages потребовали сети. Python runtime/dependencies использованы уже установленные на машине; новая установка Windows, drivers, WSL и weights не выполнялась. Первый повтор PersonaCore с fixtures на одновременно загруженном backup drive получил HTTP timeout 5s и SQLite cleanup lock; повтор с disposable fixtures в рабочем `.tmp` прошёл за 8.9s. Это ограничение диска/fixture workload не скрыто. Итоговый recovery proof создан после ZIP и хранится отдельно от него; ZIP содержит указанные source commits и инструкцию восстановления.
+
 Последние проверки: 23 Node contracts, 23 cross-component Python tests, 159 PersonaCore tests, 72 server tests (включая 44 library tests), 18 recovery tests и один пропущенный symlink test. Server/executor TypeScript build, Studio TypeScript и CEP TypeScript/production build прошли. CEP имеет отдельные 11 focused tests. Vitest из корня запускается с `--exclude '**/.tmp/**'`, чтобы сохранённые до аудита исходники не попадали в текущие тесты.
+
+87 изменённых Python-файлов дополнительно проверены через `compile` без исполнения и записи bytecode. Graphify AST update выполнен без LLM: 11 221 nodes, 24 212 edges; вывод содержит предупреждение о прежнем отсутствующем вложенном корне `SnarkRoute/SnarkRoute` и устаревших community labels. Semantic relabeling не выполнялось.
 
 AST проверка ограничивает допустимый план, но не является полноценной изоляцией Python. Локальный RPC доступен процессам владельца ключа; это доверенные процессы пользователя. Установленные bridge/startup расширения не объявляются вредоносными: их собственные функции сцены, journal, memory sync, cloud tunnel и updater являются штатной функциональностью, требующей явной границы доверия.
 

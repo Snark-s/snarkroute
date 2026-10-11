@@ -1,0 +1,77 @@
+{
+  "test": "L-full-offline-restore",
+  "archive": "X:\\SnarkBackups\\snark-recovery-20261011-135413.zip",
+  "archiveSha256": "b2bedc8d9939b94b050dba4ccf2cc11d7e2f6848177978722b3ecde03053a4ba",
+  "target": "X:\\SnarkBackups\\stack-restore-test-20261011",
+  "componentsRestored": 13,
+  "registryPathsConfinedToNewRoots": true,
+  "pointerRelocated": true,
+  "credentialsTransferred": false,
+  "sourceCommits": {
+    "snarkroute": "5965077dd07917fc737a83adca1d2c590a6d33d0",
+    "mixar-source": "db2a13d2a00f3d1338cecd6f3c9e2ee22d742bea",
+    "arcengine": "7aec24a3a6f463bf5fee2aa63d7a17260a871b1b",
+    "bonsai": "9ef32054fe44797376792c869891163083d64bd0"
+  },
+  "factoryLaunch": "passed: restored portable executable, policy, RPC G/H, scene verification E/F and theme",
+  "fullDependencyInstall": "API Node workspace dependencies installed; existing system Python/dependencies reused for PersonaCore",
+  "factoryProbes": [
+    {
+      "passed": true,
+      "probe": "portable_mixar_probe",
+      "log": "X:\\SnarkBackups\\stack-restore-test-20261011\\factory-probes\\portable_mixar_probe.log"
+    },
+    {
+      "passed": true,
+      "probe": "blender_rpc_integration",
+      "log": "X:\\SnarkBackups\\stack-restore-test-20261011\\factory-probes\\blender_rpc_integration.log"
+    },
+    {
+      "passed": true,
+      "probe": "headless_contract_probe",
+      "log": "X:\\SnarkBackups\\stack-restore-test-20261011\\factory-probes\\headless_contract_probe.log"
+    }
+  ],
+  "restoredExecutableSha256": "e4e3b9f29b8b207d62012a990d34a5049523aa8fd17f9da882a9eaffb82c41e7",
+  "zipMembers": 21707,
+  "verification": "full SHA256, CRC and member/secret policy verification before restore",
+  "archiveBytes": 1496708825,
+  "nodeDependencies": {
+    "workspaceScope": "21 of 29 projects: API dependencies + root tooling",
+    "packages": 386,
+    "frozenLockfile": true,
+    "installScripts": false,
+    "lockfileNormalizedSha256": "df2abda9c733dfff23f664e949feac0b383e78bff73c26153569c2d216ba1b74",
+    "offlineCacheComplete": false,
+    "networkUsedForPinnedPackages": true
+  },
+  "restoredApi": {
+    "build": "passed",
+    "realHttpRoute": {
+      "test": "B-live-unavailable",
+      "status": "failed",
+      "errorCode": "PAID_PERMISSION_REQUIRED",
+      "origin": "snarkroute",
+      "localInferencePorts": [
+        55516,
+        55517
+      ],
+      "paidPermission": false,
+      "providerCredentialsPresent": false
+    },
+    "sourceRoot": "X:\\SnarkBackups\\stack-restore-test-20261011\\Process\\SnarkRoute"
+  },
+  "restoredPersona": {
+    "passed": 159,
+    "sourceRoot": "X:\\SnarkBackups\\stack-restore-test-20261011\\PersonaCore",
+    "temporaryFixtures": "Y:\\Процесс\\SnarkRoute\\.tmp\\audit-20261011\\restored-persona-temp",
+    "initialAttempt": "5-second HTTP timeout and SQLite cleanup lock with fixtures on busy backup drive; final rerun passed"
+  },
+  "productionRegistryUnchanged": true,
+  "limits": [
+    "GUI/DPI and full native C++ build not verified",
+    "GPU drivers, WSL settings, model weights and owner credentials require machine-specific setup",
+    "External MCP connector session change awaits permission; local bridge identity is healthy"
+  ],
+  "reportTiming": "Final recovery proof is outside the ZIP; archive contains audited source commits and the pre-restore instructions."
+}

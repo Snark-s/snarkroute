@@ -23,7 +23,26 @@
     "executor": "passed",
     "studioTypeScript": "passed",
     "cepTypeScript": "passed",
-    "cepProduction": "passed"
+    "cepProduction": "passed",
+    "changedPythonCompile": {"passed": true, "files": 87}
+  },
+  "snarkbridgeConnector": {
+    "localIdentityHealth": "passed",
+    "connectedToolCall": "Session terminated",
+    "obsoleteSessionRegression": "404 Session not found; real FastMCP ASGI",
+    "proposedFix": "stateless HTTP; awaiting explicit approval after automatic review rejection",
+    "fixed": false
+  },
+  "fullRecovery": {
+    "passed": true,
+    "evidence": "recovery-verification.json",
+    "components": 13,
+    "factoryBlenderProbes": 3,
+    "restoredApiBuild": "passed",
+    "restoredRealApiRoute": "PAID_PERMISSION_REQUIRED; no paid permission",
+    "restoredPersonaTests": 159,
+    "credentialsTransferred": false,
+    "coldMachineDependencyInstall": "not performed; focused Node install and existing system Python used"
   },
   "limitations": [
     "Native C++ full build unavailable (MSVC toolset)",

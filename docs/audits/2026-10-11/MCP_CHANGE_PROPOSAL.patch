@@ -1,0 +1,11 @@
+--- a/server.py
++++ b/server.py
+@@ -13,7 +13,7 @@
+ WRITE_ROOT = Path(os.environ.get('SNARKBRIDGE_WRITE_ROOT') or ROOT / 'workspace').resolve()
+ WRITE_ROOT.mkdir(parents=True, exist_ok=True)
+ PORT = service('snarkbridge_mcp', ROOT)['port']
+-mcp = FastMCP('SnarkBridge', host='127.0.0.1', port=PORT,
++mcp = FastMCP('SnarkBridge', host='127.0.0.1', port=PORT, stateless_http=True,
+               transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=True,
+                   allowed_hosts=[f'127.0.0.1:{PORT}', f'localhost:{PORT}'], allowed_origins=[]),
+               max_request_body_size=1_048_576)

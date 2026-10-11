@@ -1,0 +1,12 @@
+{
+  "test": "B-live-unavailable",
+  "status": "failed",
+  "errorCode": "PAID_PERMISSION_REQUIRED",
+  "origin": "snarkroute",
+  "localInferencePorts": [
+    55516,
+    55517
+  ],
+  "paidPermission": false,
+  "providerCredentialsPresent": false
+}

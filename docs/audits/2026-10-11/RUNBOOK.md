@@ -48,6 +48,18 @@ python -X utf8 tests/stack/restore_archive_probe.py 'D:/Backup/snark-recovery-<t
 
 Git bundle сохраняет историю основного Mixar source repo. Полная история Blender upstream submodule в архив не загружается; для новой native C++ сборки отдельно получите этот submodule и установите поддерживаемый MSVC toolset. Это не требуется для запуска включённого portable runtime.
 
+В восстановленном SnarkRoute установите закреплённые зависимости и соберите API:
+
+```powershell
+corepack pnpm --filter snarkroute --filter '@snarkroute/server...' install --frozen-lockfile --ignore-scripts
+corepack pnpm -r --filter '@snarkroute/server...' build
+node tests/stack/live_unavailable_route.mjs
+```
+
+`--offline` можно добавить, если локальный pnpm store полный. В проверке этого архива он был неполным; недостающие packages загружены по lockfile с integrity verification. Для PersonaCore из его нового каталога создайте virtual environment и установите `requirements.txt`; для SnarkBridge отдельно установите его Python requirements в `.venv`. Точные prerequisites/install commands перечислены в `deploy/snarkdeploy/manifest.json`. Не включайте cloud registration/credentials автоматически. Для рабочих SQLite данных и disposable test fixtures используйте быстрый локальный диск; backup drive во время массовой установки может не уложиться в короткий тестовый HTTP timeout.
+
+Полное восстановление этого архива проверено на X; результат и source commits — `recovery-verification.json`. Factory запуск восстановленного runtime воспроизводится `evidence/restore-factory.ps1 -Target '<новый каталог полного восстановления>'` после `restore_archive_probe.py`.
+
 На новой машине восстановите provider `.env`, Persona extension token и tunnel registration вручную из вашего vault. DPAPI ключ привязан к Windows пользователю/машине и не экспортируется. Создание нового RPC ключа — отдельное действие владельца:
 
 ```powershell

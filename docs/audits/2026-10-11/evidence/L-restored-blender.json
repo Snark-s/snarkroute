@@ -1,0 +1,34 @@
+{
+  "ok": true,
+  "E": "invalid code rejected before scene mutation",
+  "F": "executed target x=1 vs requested x=2 failed verification",
+  "C": "provider 402 has no Mixar subscription classification",
+  "factorySceneRestored": true,
+  "sceneFile": "",
+  "background": true,
+  "registry": "X:\\SnarkBackups\\stack-restore-test-20261011\\Process\\SnarkRoute\\service-endpoints.json",
+  "J": "real bpy theme applied from persistent startup copy; Jabberwock artwork available; GUI rendering/DPI pending",
+  "theme": {
+    "object_selected": [
+      0.9529412388801575,
+      0.6352941393852234,
+      0.30980393290519714
+    ],
+    "object_active": [
+      1.0,
+      0.8196079134941101,
+      0.5411764979362488
+    ]
+  },
+  "startupHashesUnchanged": true,
+  "startupHashes": {
+    "X:\\SnarkBackups\\stack-restore-test-20261011\\Profile\\Mixar\\Mixar\\5.2\\scripts\\startup\\snark_orange_theme.py": "7b03c6f03f51b6c940227504796099b01fb97d0e26e9bd54254b8388880d813c",
+    "X:\\SnarkBackups\\stack-restore-test-20261011\\Profile\\Mixar\\Mixar\\5.2\\scripts\\startup\\snark_orange_theme.json": "b3b4fd83961bf26e0e00ac2b4d0db193d69fe382ed3ce1bdec1320ef0aab93f4",
+    "X:\\SnarkBackups\\stack-restore-test-20261011\\Profile\\Mixar\\Mixar\\5.2\\scripts\\startup\\snark_jabberwock_icon.png": "e27c3d9ec2d188421f6fdacb130db1cd4bb34449d8fb7b173be22e7532549530"
+  },
+  "blenderVersion": [
+    5,
+    2,
+    0
+  ]
+}
