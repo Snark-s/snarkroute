@@ -10,20 +10,20 @@ afterEach(async () => {
 });
 
 describe("GET /health", () => {
-  it("is registered on the main server and allows the local CEP origin", async () => {
+  it("is registered on the main server for native loopback clients", async () => {
     app = buildServer();
-    const response = await app.inject({
-      method: "GET",
-      url: "/health",
-      headers: { origin: "file://" }
-    });
+    const response = await app.inject({ method: "GET", url: "/health" });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual(expect.objectContaining({ ok: true, service: "snarkroute-server" }));
-    expect(response.headers["access-control-allow-origin"]).toBe("file://");
+  });
 
-    const opaqueOriginResponse = await app.inject({ method: "GET", url: "/health", headers: { origin: "null" } });
-    expect(opaqueOriginResponse.statusCode).toBe(200);
-    expect(opaqueOriginResponse.headers["access-control-allow-origin"]).toBe("null");
+  it("rejects file and opaque browser origins; the CEP panel uses native Node loopback transport", async () => {
+    app = buildServer();
+    for (const origin of ["file://", "null"]) {
+      const response = await app.inject({ method: "GET", url: "/health", headers: { origin } });
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toMatchObject({ code: "LOCAL_ORIGIN_REJECTED" });
+    }
   });
 });

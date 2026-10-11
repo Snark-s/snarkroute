@@ -118,7 +118,7 @@ describe("RuTronix model catalog endpoint semantics", () => {
   it("exposes the semantic selection explicitly so callers do not depend on models[0]", async () => {
     const app = buildServer();
     try {
-      const response = await app.inject({ method: "GET", url: "/api/models/for-node/ai.text?prompt=typescript%20api%20handler" });
+      const response = await app.inject({ method: "GET", url: "/api/models/for-node/ai.text?prompt=typescript%20api%20handler&allowPaid=true" });
       const body = response.json() as {
         models: Array<{ id: string }>;
         semanticSelection: { selectedModelId?: string; selectedRouteId?: string; selectedProvider?: string; selectedProviderModelId?: string };

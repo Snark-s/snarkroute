@@ -36,7 +36,7 @@ describe("Experiential Labs", () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: "Routed" } }] })));
     vi.stubGlobal("fetch", fetchImpl);
     const runner = createRemoteTextNodeRunner(createModelResolver([]));
-    const result = await runner({ node: { id: "n", type: "ai.text" }, params: { executionProvider: "experiential", providerModelId: "qwen3.8-27b", model: "canonical-id", prompt: "Hi" }, inputs: {}, context: {} } as Parameters<typeof runner>[0]);
+    const result = await runner({ node: { id: "n", type: "ai.text" }, params: { executionProvider: "experiential", providerModelId: "qwen3.8-27b", model: "canonical-id", prompt: "Hi", routingPolicy: { allowPaid: true } }, inputs: {}, context: {} } as Parameters<typeof runner>[0]);
     expect(result.provenance).toMatchObject({ provider: "experiential", model: "qwen3.8-27b" });
     expect(fetchImpl.mock.calls[0][0]).toBe("https://api.experientiallabs.ai/v1/chat/completions");
   });

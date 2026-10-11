@@ -164,7 +164,7 @@ describe("model catalog API", () => {
     try {
       const response = await app.inject({
         method: "GET",
-        url: "/api/models/for-node/ai.text?prompt=Fix%20a%20TypeScript%20API%20handler"
+        url: "/api/models/for-node/ai.text?prompt=Fix%20a%20TypeScript%20API%20handler&allowPaid=true"
       });
       const body = response.json();
 
@@ -177,6 +177,10 @@ describe("model catalog API", () => {
         trace: { selectionReason: "policy", decision: { invoked: true, backend: "semantic-rules" } }
       });
       expect(body.semanticSelection.trace).not.toHaveProperty("prompt");
+
+      // Without explicit permission and without a local or confirmed free route, Auto selects nothing.
+      const denied = (await app.inject({ method: "GET", url: "/api/models/for-node/ai.text?prompt=Fix%20a%20TypeScript%20API%20handler" })).json();
+      expect(denied.semanticSelection).toMatchObject({ status: "unsupported", errorCode: "PAID_PERMISSION_REQUIRED" });
     } finally {
       await app.close();
     }
@@ -189,7 +193,7 @@ describe("model catalog API", () => {
       const manualModelId = catalogResponse.json().models[1]?.id ?? catalogResponse.json().models[0].id;
       const response = await app.inject({
         method: "GET",
-        url: `/api/models/for-node/ai.text?manualModelRef=${encodeURIComponent(manualModelId)}&prompt=ignored`
+        url: `/api/models/for-node/ai.text?manualModelRef=${encodeURIComponent(manualModelId)}&prompt=ignored&allowPaid=true`
       });
       const body = response.json();
 
@@ -200,6 +204,15 @@ describe("model catalog API", () => {
         selection: { modelId: manualModelId },
         trace: { selectionReason: "manual_override", decision: { invoked: false } }
       });
+
+      // A paid manual pin without permission is refused for the policy reason, not for capabilities.
+      const denied = (await app.inject({
+        method: "GET",
+        url: `/api/models/for-node/ai.text?manualModelRef=${encodeURIComponent(manualModelId)}&prompt=ignored`
+      })).json();
+      expect(denied.semanticSelection).toMatchObject({ status: "unsupported", errorCode: "PAID_PERMISSION_REQUIRED" });
+      expect(denied.semanticSelection.trace.policyReasons).toContain("manual pin excluded by routing policy");
+      expect(denied.semanticSelection.trace.policyReasons).not.toContain("manual override failed capability validation");
     } finally {
       await app.close();
     }

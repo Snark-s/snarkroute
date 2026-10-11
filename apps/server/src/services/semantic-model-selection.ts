@@ -123,6 +123,12 @@ export async function selectSemanticModelOptionV1(
       && (!input.manualModelRef || projection.engine.id === manualProjectionId));
     result.errorCode = deniedPaid ? "PAID_PERMISSION_REQUIRED" : "NO_PERMITTED_MODEL_ROUTE";
     result.trace.policyReasons.push(deniedPaid ? "Paid or unknown-cost routes require explicit permission." : "No available model satisfies this task and routing policy.");
+    if (manualProjectionId && !permitted.some(projection => projection.engine.id === manualProjectionId)) {
+      // Core only sees permitted engines, so it would blame capabilities for a policy exclusion.
+      const reasons = result.trace.policyReasons;
+      const index = reasons.indexOf("manual override failed capability validation");
+      if (index >= 0) reasons[index] = "manual pin excluded by routing policy";
+    }
   }
   return result;
 }

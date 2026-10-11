@@ -18,7 +18,8 @@ describe("Replicate runner registration", () => {
           routeVersion: "0.1",
           route: { id: "clarity-no-token", title: "Clarity No Token", author: {} },
           nodes: [
-            { id: "upscale", type: "replicate.clarity-upscaler", params: { image: "https://example.com/in.png" } }
+            // Explicit permission lets the run reach the runner, which must report the missing token.
+            { id: "upscale", type: "replicate.clarity-upscaler", params: { image: "https://example.com/in.png", routingPolicy: { allowPaid: true } } }
           ],
           edges: []
         }
@@ -56,7 +57,7 @@ describe("Polza runner registration", () => {
           routeVersion: "0.1",
           route: { id: "polza-no-token", title: "Polza No Token", author: {} },
           nodes: [
-            { id: "text", type: "polza.text", params: { model: "openai/gpt-4o", prompt: "hi" } }
+            { id: "text", type: "polza.text", params: { model: "openai/gpt-4o", prompt: "hi", routingPolicy: { allowPaid: true } } }
           ],
           edges: []
         }
