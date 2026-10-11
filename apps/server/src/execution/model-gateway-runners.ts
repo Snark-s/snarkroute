@@ -42,8 +42,9 @@ import { assertModelInvocationPolicy, ModelRoutingPolicyError, modelRoutingPolic
 
 export function guardProviderRunner(provider: string, runner: NodeRunner): NodeRunner {
   return async input => {
-    const model = stringValue(input.params.providerModelId) ?? stringValue(input.params.model) ?? "unknown";
-    await assertModelInvocationPolicy(provider, model, input.params, input.node.type);
+    // Adapters execute either field, so every model identifier handed to the runner must be permitted.
+    const models = [...new Set([stringValue(input.params.providerModelId), stringValue(input.params.model)].filter((model): model is string => Boolean(model)))];
+    for (const model of models.length ? models : ["unknown"]) await assertModelInvocationPolicy(provider, model, input.params, input.node.type);
     try { return await runner(input); }
     catch (error) { recordModelProviderFailure(provider, error); throw error; }
   };

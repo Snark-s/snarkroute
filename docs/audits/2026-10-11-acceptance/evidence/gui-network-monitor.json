@@ -1,0 +1,48 @@
+{
+  "pid": 61416,
+  "exitedBySelf": true,
+  "exitCode": 0,
+  "connections": {
+    "127.0.0.1:52984->0.0.0.0:0 Listen": 7.6,
+    "127.0.0.1:52998->127.0.0.1:4317 Established": 8.8,
+    "127.0.0.1:52991->127.0.0.1:18880 Established": 8.8,
+    "127.0.0.1:52964->127.0.0.1:18881 FinWait2": 5.2,
+    "0.0.0.0:52998->0.0.0.0:0 Bound": 8.8,
+    "127.0.0.1:18767->0.0.0.0:0 Listen": 5.2,
+    "0.0.0.0:52991->0.0.0.0:0 Bound": 8.8
+  },
+  "externalConnections": [],
+  "dnsNewSuspicious": [],
+  "shots": {
+    "s1": [
+      {
+        "w": 304,
+        "h": 44,
+        "rect": "808,924,1112,968",
+        "title": "Agent Bubble Status",
+        "dpi": 96
+      },
+      {
+        "w": 1936,
+        "h": 1048,
+        "title": "acceptance_empty [C:\\Users\\serge\\AppData\\Local\\Temp\\claude\\Y----------After-the-Palace-Matrix\\ac19398c-fb04-4e05-a559-1e89736d4481\\scratchpad\\acceptance_empty.blend] - Mixar 4.2.2",
+        "dpi": 96
+      }
+    ],
+    "s2": [
+      {
+        "w": 304,
+        "h": 44,
+        "rect": "808,924,1112,968",
+        "title": "Agent Bubble Status",
+        "dpi": 96
+      },
+      {
+        "w": 1936,
+        "h": 1048,
+        "title": "acceptance_empty [C:\\Users\\serge\\AppData\\Local\\Temp\\claude\\Y----------After-the-Palace-Matrix\\ac19398c-fb04-4e05-a559-1e89736d4481\\scratchpad\\acceptance_empty.blend] - Mixar 4.2.2",
+        "dpi": 96
+      }
+    ]
+  }
+}

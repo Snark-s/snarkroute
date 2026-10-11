@@ -1,0 +1,98 @@
+{
+  "capturedAt": "2026-10-11",
+  "reviewedBranch": "codex/stack-stabilization-20261011 @ 135febb (SnarkRoute), 50f38fb (PersonaCore), db2a13d2 (Mixar Source)",
+  "acceptanceBranch": "acceptance/claude-20261011",
+  "paidModelsInvoked": false,
+  "providerKeysInTestEnvironment": "FAL_KEY and GEMINI_API_KEY removed from every test process; acceptance API server ran without .env",
+  "snarkbridge": {
+    "productionServerSha256": "c239e52623b429440cbe0e1ee6e4614a0081fdc6885f63efce79db7a21a4f598",
+    "mcpSdk": "mcp 1.30.0: FuncMetadata.call_fn_with_arg_validation calls sync tools inline on the event loop",
+    "liveProduction8767": {
+      "bridge_status": "ok 0.4.1 in 0.01s",
+      "managed_service_status(snarkbridge_mcp)": ["TimeoutError 2.06s", "TimeoutError 2.04s", "TimeoutError 2.05s"],
+      "managed_service_status(all)": "4.21s; snarkbridge_mcp TimeoutError, tunnel/sidecar/snarkroute online, mixar_bridge URLError (Blender closed)",
+      "external /health": "200 in 0.034s",
+      "concurrent bridge_status during status call": "1.85s (event loop blocked)"
+    },
+    "isolatedOriginal18799": { "selfStatus": "TimeoutError x3", "concurrentLatency": 1.87 },
+    "isolatedPatched18799": {
+      "selfStatus": ["online 0.05s", "online 0.03s", "online 0.03s"],
+      "all": "2.85s, snarkbridge_mcp online",
+      "concurrentLatency": 0.0,
+      "security": { "valid": 200, "wrongHost": 421, "wrongOrigin": 403, "oversized": 413, "healthWithOrigin": 403 }
+    },
+    "productionPatched": false
+  },
+  "routing": {
+    "serverSuiteCleanWorktree": { "codexBranch": "7 failed / 477 passed (484)", "main": "1 failed / 455 passed (456)", "acceptanceBranch": "7 failed / 478 passed (485)" },
+    "newFailuresVsMain": [
+      "experiential.test.ts routes ai.text to Experiential (now PAID_PERMISSION_REQUIRED)",
+      "health.test.ts allows the local CEP file:// origin (now 403)",
+      "models-api.test.ts semantic Auto-select (now unsupported)",
+      "models-api.test.ts manual selection (now unsupported, reason 'manual override failed capability validation')",
+      "replicate-registration.test.ts x2 (policy error precedes missing-token error)",
+      "providers.test.ts RuTronix semantic selection"
+    ],
+    "serverTypecheckCleanWorktree": "FAILS: h3-session-runtime.ts(250) outputMode not in H3GenerationInput; matching adapter change is uncommitted in the user tree",
+    "policyModelBindingBypass": {
+      "before": { "status": "succeeded", "checked": ["openrouter/fixture/free-decoy:free"], "sentUpstream": ["openai/gpt-4o"] },
+      "after": { "withoutPermission": "PAID_PERMISSION_REQUIRED, nothing sent", "withAllowPaid": "sent openai/gpt-4o" },
+      "productionCatalog": "19 zero-priced OpenRouter models cached; pricing catalog expired 2026-10-08"
+    },
+    "liveKeylessServer14317": {
+      "AUTO_LOCAL": "succeeded local_openai llama3:latest text OK actualCost 0 (52s cold load)",
+      "MANUAL_PAID_NO_PERMISSION": "PAID_PERMISSION_REQUIRED",
+      "BYPASS_ATTEMPT": "PAID_PERMISSION_REQUIRED (after fix)",
+      "OLLAMA_CLOUD_PIN deepseek-v3.1:671b-cloud": "not sent to Ollama (LOCAL_MODEL_UNAVAILABLE / primary endpoint)",
+      "POLZA_NO_PERMISSION": "PAID_PERMISSION_REQUIRED"
+    },
+    "falseAdmissionDenial": {
+      "config": "LOCAL_LLM_BASE_URL=http://127.0.0.1:11434/v1 (Ollama as primary)",
+      "result": "every local run fails: 'ollama: требования к GPU/VRAM не описаны' with requiresConfirmation=true and no errorDetails.code",
+      "cause": "bonsai builtin registration takes the Ollama origin first; ollama builtin is merged into the 'bonsai' id; runtimeBase('ollama') falls back to demand=unknown",
+      "productionConfig": "Bonsai :8081 primary, Ollama additional -> admission allowed"
+    }
+  },
+  "blenderRpc": {
+    "portableExecutableSha256": "e4e3b9f29b8b207d62012a990d34a5049523aa8fd17f9da882a9eaffb82c41e7 (identical to C:/Program Files/Mixar/mixar.exe)",
+    "codexProbes": { "portable_mixar_probe": "PASS", "blender_rpc_integration": "PASS", "headless_contract_probe": "PASS" },
+    "acceptanceNegativeProbe": { "no_token": 403, "wrong_token": 403, "prefix_token": 403, "sec_fetch_site": 403, "get_scene_no_token": 403, "health_no_token": 200, "oversized": 413, "extra_keys_schema": 400, "export_outside_root": "500 (refused, nothing written)", "options": 403, "scene_unchanged": true }
+  },
+  "planContract": "see plan-contract-probe.txt: optimistic and mutating verify scripts are accepted",
+  "network": {
+    "portableGuiRuns": 3,
+    "observedSeconds": "about 80 per run",
+    "externalConnections": 0,
+    "newMixarOrTelemetryDnsEntries": 0,
+    "loopbackPeers": [18880, 4317, 18767, 18881],
+    "originalInstall": "C:/Program Files/Mixar has no local_mode.py; connector sidecar still sends Access-Control-Allow-Origin *; Start-menu shortcut 'Mixar 4.2' launches it"
+  },
+  "gui": {
+    "theme": "amber theme active",
+    "uiScale": "1.0 -> 2.0 applied (pixel_size 2.0); main window scales; some toolbar items collapse into overflow",
+    "agentBubble": "separate OS window 304x44 px at both scales; Jabberwock overlay visible over chip at both scales; label still 'Ask Mixie anything...'",
+    "overlayHelperLifetime": "exits about 24s after Mixar closes (by design)",
+    "systemDpiChanged": false
+  },
+  "otherSuites": {
+    "tests/stack": "26 OK",
+    "recovery": "18 OK, 1 skipped (symlink privilege)",
+    "nodeContractsCommitted": "20 pass; the 3 extra tests counted by Codex are in an untracked user file",
+    "personaCoreCommitted": "102 run, 4 errors (Codex tests import untracked user modules)",
+    "personaCoreDirtyTree": "159 OK",
+    "mixarLocalSuite": "13 of 28 test modules error at collection (pre-audit baseline: 20 of 28)",
+    "mixarSourcePythonVsDeployedRuntime": "1803 identical, 0 different"
+  },
+  "recovery": {
+    "finalZipSha256": "a4b684706e925e6eee6c3360fbef41b9bb4f7b67736c5fe118d50bfa0f6a92e2 (matches sidecar and report)",
+    "recoveryDiskToolkit": "X:/SnarkBackups/SnarkDeploy is the 2026-10-09 version; snarkdeploy.py 997 vs 1075 lines; bootstrap.ps1 and manifest.json differ",
+    "oldToolkitVerify": "Bundle OK 13/13",
+    "oldToolkitDryRun": "restores to the standard drive layout",
+    "LATEST.txt": "still names snark-recovery-20261009-223708.zip and commit 6dbf0b7",
+    "globalPointer": "points to production registry (unchanged by Codex restore tests)"
+  },
+  "processes": {
+    "hungCodexTestRun": "PID 45096 python -m unittest discover -s .tmp/audit-20261011/mixar/tests, started 07:16, 0.4s CPU, listening 127.0.0.1:62719; not terminated by this review",
+    "unrelatedStuckPowerShell": "PIDs 24836/39336 since 2026-10-09 (Google Forms fetch), not part of the stack"
+  }
+}
