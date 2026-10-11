@@ -1,0 +1,974 @@
+[
+  {
+    "component": "snarkroute",
+    "relative": "apps/after-effects-panel/src/api/cep-fetch.test.ts",
+    "before": null,
+    "after": "ef47409ccda9d99d0a42bde4facd0ebcb0ba7d3c3966f5636c515519a04ad061"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/after-effects-panel/src/api/cep-fetch.ts",
+    "before": null,
+    "after": "bf593cae46c3293c042b050e3281fa9f49058ba3113ec94a203fed7115100890"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/after-effects-panel/src/api/client.ts",
+    "before": "075c7f4172d5bc4394285a6e3c26977fd1baff986ce2e6cf939807577e3cf73c",
+    "after": "f824a79515af3b78d26639e1d3917f942ba2258b75a21f298c8448170d023c0c"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/after-effects-panel/src/mcp/bridge.ts",
+    "before": "9497edccc946e327924294dccd25326524a6c63f9b26c77985e4ef507b9bc083",
+    "after": "803b9f7149c8670c287cc890b2577d74e4640d470e40fdb8c4e7cc83dd7db0a7"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/app.ts",
+    "before": "26d0548b04fe6f63e6684e55faef004195a7a4305e1533d97743d854ba953961",
+    "after": "a29f7c998772a82d37d2c3e669538025ce85c75411d5236c5427a776eecff7f4"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/execution/installed-runner-policy.ts",
+    "before": null,
+    "after": "674349dbd843634164e3290df9663cf529a7ce539e401f0b433369042e54fec4"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/execution/model-gateway-runners.ts",
+    "before": "e546474938af5451bcdd0866b99c1a9ed8f31970930e6a7a45603461f06a2839",
+    "after": "e5b4ca418d158c949976896bdd0854d432134cecd8ef8bca3315150e9a6bd2f1"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/execution/service.ts",
+    "before": "7f1a3fbad264ca2e2d0f4043072ed46b711518c22541935b79935c3c16f924e4",
+    "after": "d8fe80e9574443255f4474ae568cab245bbf918864e827c4b3d8035469d4b46d"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/jabberwock-memory/supervisor-bridge.ts",
+    "before": "00b6860d041a054d4e4b376d37730eb8c7825aa55c2889410b74f1e5e489d8e1",
+    "after": "65ba5caa0e49fc57b42d2c1f751f3d3483f0eb898b33ee585140fb605ede2c42"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/libraries/service.ts",
+    "before": "8a154ddf3e48aea327ce43681cb0b8421bc0337210bd5875f53b6c60a4c86120",
+    "after": "6ac29e4b62e68821232aadc35d73b82ee036a9c48ace35073b4a558c310c193f"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/libraries/types.ts",
+    "before": "f8fdcfd4a9d57571012e19b82d80803e10261af203e81b45afd8b3a1b3081f89",
+    "after": "8c37dde86bec14bc3777e0d04c798b119abb2288af7e5b400d8d24014445562e"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/providers/local-openai.ts",
+    "before": "e4371232f1fab8996234ad0a9762e09db166d46d0198c9e996b1edf086cae9de",
+    "after": "094f61f1fddd267264b6cbfa39c0ec921ed86a244277653c4f3eb7cd472fccb7"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/routes/after-effects.test.ts",
+    "before": "5a40a525b4b13662169072abf142cf20e5c8135888ccc231aefa7e96aa20919b",
+    "after": "913ca3d74a264f95693d14a884c039a4e328af4b64b54008aa2617a9219feb52"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/routes/after-effects.ts",
+    "before": "35f3eab968bb9cf80dffba7038b446dbf6c31be1a105512378d9d1e4ba73973d",
+    "after": "da4cc28e3f570d5c50e0b3db5f58b8d9723bb722b79da6986c2c12337b82d1ba"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/routes/decisions.test.ts",
+    "before": "7b08c7403f8b28ba1cf75651bc04b00ee0a537ee96b0871f5f1119e69728b906",
+    "after": "65b95d2861345154fc1815edb8aaccf1e5c4dad48ab0619e6c1f95b73da03be3"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/routes/h3.ts",
+    "before": "2c201828b8e83f44fad02192bee30b3730124154bea2a95d0fa1ea6393c67145",
+    "after": "ab48bb6007ea1ebd6f03eb4d27de2ee65c4f4d6e4ffcf5f00ba25256398d7341"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/routes/jabberwock-supervisor.ts",
+    "before": "e18682aa000051177b4869869b009cc031f8534639f78e43cb6bd3d1e5556a89",
+    "after": "c653b6ae79bd12be607d6bb2acb8a6ea4cee995753b31f40017ae3b99e2b5374"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/routes/libraries.ts",
+    "before": "21b930fc80b4d781562b39e8951086932b8b3eb6b6cff9112310109f8b73680e",
+    "after": "190f1bf6af9058cb8cbe779ea6fe81248bbf8f431b37caa7d1c24a1c1529cf57"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/routes/models.ts",
+    "before": "97ee80da1b776f8d3b505e3d0f9a06b233e9a1db59ab3dfe2aced6f9420a2dc2",
+    "after": "b66212359dfcf3b83019be13cba7ab68122c573bca9dc5c265b1fda7c3c1991a"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/routes/settings.ts",
+    "before": "9b2ad83f430d0bbbae553f8e7c2b01ec4e554467e5adec3639cb755a46d72a37",
+    "after": "924a87d425317fd69097230c8cf3f6fb43f5a105e86b2738ed1300884e52bfcb"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/routes/system.ts",
+    "before": "b508658097a81716f89eb27efc7483cecdf4934aaf7d834f1e7c26e993d3d3d5",
+    "after": "4163829b178f2179c1b0cc13b8b46219ad8c5b9dc8d73c7a4ab95f3610180117"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/routes/worldlabs-marble.ts",
+    "before": "df3c56648ffa7647f43ec239edcc457f9fc3614a9ce4ea8ce5f2ef1b92944ee8",
+    "after": "a7a918da4059dedccb33d21204ba1303df69c348453a2e77abd67f2fa4a2a27b"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/bonsai-local.ts",
+    "before": "0ac5e72dc4d2180d415e733eadf6fdce56e5cc100c801e1ff4e5fb634c12f9aa",
+    "after": "3df7ea5f16de8c2a0a697fbec755f6bcddf5eeda8d1723623ec976670c54568a"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/decision-runtime.ts",
+    "before": "eca023a061ca694a1b89b38aa9d24ccc97ab6fa3a478cb5cf9302f4650d64d11",
+    "after": "ea62fdc2b24acd547dd16b0866dfa0d0015b46bbc6cad33858392b00efc95275"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/h3-connection.test.ts",
+    "before": "6a88025265c8b3ce16224caf788adea1d4c04dc96a09b8545999078395e7d494",
+    "after": "a0c24f5dfb0a7d7edc6105689b1de4ba3fdabe23e54b06ce9970432f726687e9"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/h3-connection.ts",
+    "before": "26fbfa82836f94a8b0334d2337429ddea5829589ca6224cd870ee71f56450d99",
+    "after": "4d0929c9056401fd1d73e95f2d7f5f45630a6b1a5ae17a9b47666b55f08a8a09"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/h3-local-wsl.ts",
+    "before": "136b3cf0776ba5726ca0895b70503ae07e4590db1889a80d311abc425d772a8e",
+    "after": "77d0abd5ee57b36368248247f8a6afdfd3e2e08439929b2d316c617c6323fae3"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/h3-queue.ts",
+    "before": "4721382b22fc5c3ff53b9297acb075b137be00513742b8f529b86c53bbcf1e9a",
+    "after": "f7cdf5417a7297f72dab2218f000a3a2ff4d235de1d78902ecb236fc19aa21cb"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/h3-session-runtime.ts",
+    "before": "2e876dca21f6201f15c0778906796c98f319296f73af7409af22f134ed119d1b",
+    "after": "0d262889b4c1273734c10c3d99d959f88d73ee63dc0df7d0d76ae66b48d27d6b"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/local-http-boundary.ts",
+    "before": null,
+    "after": "de2a174803a17103386b121216def3b7d4a4fa339088c6b2ae8aba5f1b4711bb"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/local-runtime-supervisor.ts",
+    "before": "f50ccddaee0b577ce5cacc29a14d52406969960d1750c70d2eeb2d23c28acb22",
+    "after": "d54e5656d4cdefd16c941d62dce6321ed327029ad51e07e2b4696cd8f1c3d60d"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/local-service-endpoints.ts",
+    "before": "19931f17a6df5bd7ffee2c53195725850cf1451bd00e16af05a599714bc1562f",
+    "after": "611931e2f0d3de0a267941f443b1dfc50eb0a3a84ed7facd3ec36dd6b082e1d5"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/local-upscale-local.ts",
+    "before": "ad8cb6c1d00f5c5c61df7d9e379820150aa2bfb8a6db50de255a889fc5d99006",
+    "after": "6bb757eea999e463e8af946608b25986052b006b812f644a4070889597b54f9a"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/model-routing-policy.ts",
+    "before": null,
+    "after": "ff0eba0b4f984313eea0ca6d44f873948b0643240c59231a93ed5c86fa4e8760"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/paid-operation-permission.ts",
+    "before": null,
+    "after": "85c263e1bee9059c7c4abf7c0891c425c8c9362d5c25c7ef436cc8d7ef134105"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/semantic-model-selection.ts",
+    "before": "0b01e22ac9fac1dc9dd4de205fe84ff63f534d24ac3fe012046bd576d1190928",
+    "after": "0f4c14cb911abb9662d68f9445e32f2461749c317d26fbad788395383d37de36"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/src/services/yue2-local.ts",
+    "before": "a9b1c013295cbcdbbf9488406945f1c1201f85f52de23090a915f770d8184b84",
+    "after": "5375423a14dd03c7b2501b5f07f7d0ca7eebd51bbbce5d4bf43da9e81262da20"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/bonsai-local.test.ts",
+    "before": "75308f9424a87248ffade017f7ae67a0d1812b503c0611fb1b25c014d5a78e35",
+    "after": "c57a6cffb45f65ad87672564c489b8f4171c8e5da9e795f06ffa49faab62b45e"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/decision-paid-policy.test.ts",
+    "before": null,
+    "after": "9029b8eee366459171b4b141fb007cca70a32377bb85c4caf17d5a1663d000af"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/installed-runner-policy.test.ts",
+    "before": null,
+    "after": "93f9ae99c229b35a32e89976694ceafffacfe3ae29610d9cbab0e5cf395886b3"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/libraries.test.ts",
+    "before": "75e96f1090b83605d9c77735f24a6634a6a53ce087cd0f7fa876adedcbaa0438",
+    "after": "e86ba53a72298614c9ad669c051a7aa5643c92a65b676ffde872fd8d9ffb4cc2"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/local-http-boundary.test.ts",
+    "before": null,
+    "after": "0f09c68b6ba0c8c0835a81512b8ee8e51f1c949e3866d5350358271153398a23"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/local-inference-identity.test.ts",
+    "before": null,
+    "after": "88b1ba212a9ecf95a2666768903ea40222bfd442084c7fd2cbd98c4b50ce55de"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/local-openai-endpoints.test.ts",
+    "before": "c438884981061309b5fbb8d95d45ad8c5d0b7794049314af04557f0ac53dfcf7",
+    "after": "9dbaa89fbc9afaf5fbdb6e43abce0648a4ae439facf7d550ed0bfb162203427c"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/local-openai.test.ts",
+    "before": "798671f8438642ed21facf126cb8b9bd1b9ec224599c971e90744aa3f918e2ad",
+    "after": "951174bf1197f2d6db2d4478b7bc2df4592b6910b27a67a2a74ca6e43a4a5e70"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/local-runtime-admission-audit.test.ts",
+    "before": null,
+    "after": "ca067967f3e486b7eb2001e0937631df33e2008a6ad937f425ca5c7d6ec87621"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/model-routing-integration.test.ts",
+    "before": null,
+    "after": "f68df841749aba72f47e2eed93b39d0c705f8eb9966d3a5cc1b8d868d43de61a"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/native-local-openai.test.ts",
+    "before": "a875ae778cd4defbde6ee9b5d079446081bc053db767f62af63ee76f745d4d7c",
+    "after": "ff0d00a80315b2df9c1c7ee5776ed2cca5133bd0b59baf08b0a835feed69fc35"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/paid-media-permission.test.ts",
+    "before": null,
+    "after": "48fd9396819be49b495ef582105a88f9591f85857a3d0510288ed8e6534db83f"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/routing-policy.test.ts",
+    "before": null,
+    "after": "23817d312bb7f9a5dc0f17975d74d929b8d8b4bf7609f73648b18333b1e2c2f1"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/semantic-model-selection.test.ts",
+    "before": "bcd6fdaf21e56b31f1d3910246fb796761cc5fa71ca50c27e30e93e3c104795e",
+    "after": "954c43c5c663bd41c3a3c60413b0e4f7f3fdcee9f344e30cbaf38c842311334a"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/server/test/upscale-health-identity.test.ts",
+    "before": null,
+    "after": "c9405b71d401524af27bfa7e2348b506d5acb46b87ef743afdbbd6b385b4c1d6"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/studio/src/features/h3/H3QueuePanel.tsx",
+    "before": "fb9a9c95c0509a3d5853f3babfdeb8db00794f7d8dea421d8d31624400a6f295",
+    "after": "a0fa71584c9dc2de3245b0856ede9a30afc8a0416e15f28dad0aeb68ae9591c4"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "apps/studio/src/main.tsx",
+    "before": "1fade054c4e432334d73532895efa0fe06db3a49e7d2033c5ff80bff17b12855",
+    "after": "f1cd48c2b0869120f12c4305e72821ef4e6ded81f6d9b31b9cc48e66f14a43cb"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "deploy/snarkdeploy/manifest.json",
+    "before": "d6ed58b02ade3eb1730ba0539c6aad44c7a2452d5726c3eb06a7e9ce0888cb8d",
+    "after": "89fcfbedeb8fd94da509245ed69f3808c540aaee2de3ca67691e15706f73e536"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "deploy/snarkdeploy/snarkdeploy.py",
+    "before": "7e3ada13b0f150c2e053121f8d23d3df7639430d2a5ce11aecb686866b9d38ba",
+    "after": "37750ae19e7a0284ea6d325c5427e6936b5baf4651dbb6a6b823af6e42f8d02c"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "deploy/snarkdeploy/test_snarkdeploy.py",
+    "before": "464aadf1e9518bb50d7ca45e05455035a7bf60ddbb2ad3ba283c8137a4294240",
+    "after": "995af1c8e6a602f4d1302fd4198a93cc717927320dd3bcd524dd5d7806ffb399"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "packages/executor/src/index.ts",
+    "before": "26517d5cf4072a3158e879a4128b61b64b2ab5646ba8d26ab28454262bb6159e",
+    "after": "d290a4bc48d68fb1bb30dd1c8d7fc7fb809dede69023f70a3925b1db4236b474"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "packages/executor/test/provider-error-origin.test.ts",
+    "before": null,
+    "after": "b59e41653649e7e0502b7c7edae415ba5be44b8b3bb7fba6a55de06f6be94066"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/audit-local-services.mjs",
+    "before": null,
+    "after": "99697acf815fd406af0228f90848112881d1147f4d209afeff66ecc4ac09ac7a"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/check-local-stack.ps1",
+    "before": null,
+    "after": "7fcd9db81f15949756e80efc3e8c90f2740dc52e4f1fba81c1a08dee2f7b8308"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/launcher-control.mjs",
+    "before": "9f83aa76f6a703f3361b46e21608bc5e6b369d4f9749209efc8e4c08f3ec3a9c",
+    "after": "a2cde92e3a3c054f4afae8887e40450e865bfd1e4f7fdf537fa85ff082ecd7cd"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/local-service-registry.mjs",
+    "before": null,
+    "after": "41f820b73a6facc65e20f0a30e78dfcc751021858c0a2ed92b5afe05555dda53"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/local-service-registry.test.mjs",
+    "before": null,
+    "after": "a60aff17b269ad245e468b412a3558f79408c19ee236e9123c37c21d2ceda129"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/persona-bridge.mjs",
+    "before": "6015954f82aaaf59353b9a8f84d2a14f9b972fe12e7fc07509afbba63a76329a",
+    "after": "4f96c8af798f038940d7f5720a50a1254f9a2488e00054a30cadb6e9b5fcc6bc"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/persona-bridge.test.mjs",
+    "before": "668650b940ac7e601d51d82dfa002ef143ceebe5c4bec5918718ad8fe0041011",
+    "after": "9c62226b9608c05b8b99484f7ffb19fde3a01223f48919cc5c8f87a0b1904a79"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/provision-mixar-rpc-token.ps1",
+    "before": null,
+    "after": "0ab1a3c5e040b61c6e69f233de54ff4ec4ca077803c85b2a2a8d3f0661f91e26"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/start-bonsai.ps1",
+    "before": "4f6e936f47535cc1c6b18aefa2d13ddcbf7d41058bdf6b7e07161ec5c839fa08",
+    "after": "b68fcc4d74e17490c0506e9fd990e9dbb6ce6807095de57210e4fe416ad2b7c4"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/start-launcher.mjs",
+    "before": "a2ec7f055d4c98024139183ec6382eac3db49be16e2d4f70fc7e8ae42b0fcfba",
+    "after": "ad0ffc0b8a8e754ef9c210956e52aafd105fcc5f2bb9805b0984ab1b6f56a37f"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "scripts/start-mixar.ps1",
+    "before": null,
+    "after": "f047bcf0c52d8f3c3ccc9729de8f4638996c6bec076e03a2efb81c1405854a44"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "service-endpoints.json",
+    "before": "f2015a3fe521a962a82e94deb6acb78aeba62daad58c9b377c82cb9f014743e9",
+    "after": "b92a9c681547afa1d97d45b883f013f07419629e9379716302a39798331260f9"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/blender_rpc_integration.py",
+    "before": null,
+    "after": "7047e132e43ca839254fd8e956673ffc86c6a8faac87ac29feb50ee01802ec35"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/blender_rpc_owner_probe.py",
+    "before": null,
+    "after": "b9e723a62328ab2376c1cd854dc09fdaf8192a99956436e04f85b5aaf3181688"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/headless_contract_probe.py",
+    "before": null,
+    "after": "01af43718c37950338c7a05e9694819051ed2b9ebdbb1d236f6082899cea264a"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/live_unavailable_route.mjs",
+    "before": null,
+    "after": "92f2dfb1dd09f7e263ff9681ae23c1b2f732d94d2da94f722aaad1869f6a2d00"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/portable_mixar_probe.py",
+    "before": null,
+    "after": "9d988dfb78232c9b9ef2b687ecd5ba016985cf703ba1f26a146e7977e5c357cd"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/stack_paths.py",
+    "before": null,
+    "after": "a98d676685f930e06c5d62b416ac341b56d4aa50909431205f1063760a6cce46"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/test_bridge_secret_client.py",
+    "before": null,
+    "after": "5bafada773d0442b940d7a2ea22f802769fbc6d23246252b35f5f97de59f9330"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/test_local_policy.py",
+    "before": null,
+    "after": "6446ab5f9855ebd397feeb2a8d161462d50fff94436cdb3f0994ac6be84ced03"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/test_persona_health.py",
+    "before": null,
+    "after": "d0be9cc5966895dbb66dbf8fff64c19ba698430c96832d133dbe716890516258"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/test_plan_contract.py",
+    "before": null,
+    "after": "3683fd0328d2dd180d3852ec953d0fa8bf35e9a130c6e8b7a8a95d76f81794a7"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/test_registry_services.py",
+    "before": null,
+    "after": "469bc83f9c17a6964a782fb2438b4539780e36893b7b7f9373ed45c1318bf3d2"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/test_rpc_security.py",
+    "before": null,
+    "after": "fc3ad1a585f9004eaedcf8d019373110b20c1eff5fe77b5704103db0e1de045b"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/__init__.py",
+    "before": "1b989c7440357e39c6534b91cf05b332d3345bcefd361b24c630a65f9ea40d9c",
+    "after": "556f7869bb0e90691d57177cb57221052a344ac1817f171351eb9fb58626ea00"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/config/local_mode.py",
+    "before": null,
+    "after": "ca163b59f367ef3e984d02758a53c9f69a7ecfaa1facefaf281f32692ae72273"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/config/snark-local-mode.json",
+    "before": null,
+    "after": "3ed855906d1fc0bb916e3ab19a1a174acf3f2e30cceaf5cb190369e97f3d7a59"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/auth/core/auth.py",
+    "before": "74afef49d1d187d614f55f0a79daac6e2437bdf2460d4af2ed9fbe1b23caff96",
+    "after": "9445f4986fa70fd39eecc9d4901f06aaa417b7e43b15c7e013ab026b33d5ef20"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/common/analytics/preferences.py",
+    "before": "a291c8d6ab52ff999d46f543ec7299a97040a1fc3fd10897a7ecac681de96323",
+    "after": "4f854652058645ba1805dc270924697d263395a0e76c637efade23cfd37adf40"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/common/api/client.py",
+    "before": "fa245dbfa6ec56e26847d6bb9da12d4634184b71381de99026a2ca6531c4821b",
+    "after": "60db8946a865c620649c40e5f82ec87b5ee00d3f47d470fff986849bb86e5523"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/common/updates/core/install_flow.py",
+    "before": "3b3183a2df780b3437cd667e258434855ae042929b1e1ec71807707ae4853ab3",
+    "after": "63d9958604ab02616715b946ff0df8ca033b603e8e64494bb3e25da2cedc8319"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/common/updates/core/trigger.py",
+    "before": "8bf3758b15ecb44d52c22205f6531182896bfcdc7dd14c7bdb2beb779bd6f216",
+    "after": "04605a0d2e86d70401915e599187ebe328d5a2821002f07a7b673fda7cde77cd"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/local_models/core/orchestrator.py",
+    "before": "8b6c4e9e961cff20474eb8ced2093120e7ad75522ffba174f21c6e698bb45c19",
+    "after": "f554286657f3c908cec369ea9a6f15509d636ae9787cd98c96a1e0b3088231f5"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/local_models/core/relay.py",
+    "before": "cc5136b7a84f3a76ed53927e0ffdc928fcd1357f4147c28a39bd9c7bd79577dd",
+    "after": "4d0181add40458539eecee921650a3d7c156aefaec027607e49d4598d24ac145"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/space_mixie_chat/core/credits_notice.py",
+    "before": "a8e03770ee9cb4a26a79d7d0369f7ee4abac17145ebf8cade6b4e912121a45bb",
+    "after": "c5ccdcc9ed97e0ad543cd1cb9b43dcde053d1ea71324b4a24dfedc0eeff96bc0"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/space_mixie_chat/core/queue_processor.py",
+    "before": "f2547bc81b112f72f3bc7d3582bcf5b26b6c2194ff7116d36dfb7575283ef059",
+    "after": "dfad9e1a9adbc3b6851c340eef21ec35e12f11fd6dda74ce92e6ea86e5ad00bb"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/space_mixie_chat/core/turn_events.py",
+    "before": "783623b3ebbcf614f24cf6c54a8c51171e5a802497032a9a2f432663599a8ff8",
+    "after": "6cd76a52524258d2b2ec0681653b89bae0c559e4852cb8377389ec04206f0298"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/source/blender/editors/space_agent_bubble/agent_ui_pill_cat.cc",
+    "before": "3f5910269c269a22683ee36ebf140ef43a23dc52ba4de392b8377da1b3ced9fe",
+    "after": "81a435120d5b420c821455cc8783c7f288678f376f2579e4a20f3e830f53db05"
+  },
+  {
+    "component": "personacore",
+    "relative": "app/agent_runtime/openai_compatible_provider.py",
+    "before": "4216d69c6834655b8e98e39dfd03f6fd4f8e55a199afffb412919e37d7a4b853",
+    "after": "776911fc43aa3c779e5b18f3cfc64bafc0cb1f1f38a492afd9e224963bbc6952"
+  },
+  {
+    "component": "personacore",
+    "relative": "app/agent_runtime/server_model_policy.py",
+    "before": null,
+    "after": "46634ec4c63cb0dcddc8b261bf454d98e636c4c159b0f7fea69504909d717f01"
+  },
+  {
+    "component": "personacore",
+    "relative": "app/agent_runtime/snarkroute_provider.py",
+    "before": "46be12a5a051c3596eb865685ede59e8ef001fbc117a727091baa8c5b2a2b8d4",
+    "after": "f1698191681550635059127c5e8f91505deda63c09a5be5788e4b489fbb5701c"
+  },
+  {
+    "component": "personacore",
+    "relative": "app/extension_bridge/http.py",
+    "before": "8a966dd5302ce9df656446877b4cc3660daa912c40f520d64e1123c8a4f65fc6",
+    "after": "64107ce8f3e3030402dff6d4aa118c28bcbcbd2b4e1ec85a4fac415b87d95555"
+  },
+  {
+    "component": "personacore",
+    "relative": "app/extension_bridge/service.py",
+    "before": "2fcf86eaf3da538b92c697ceb3cd356009e1273fdc91aef93deb08b9ee458786",
+    "after": "e517ab22c45c99222dd165c70104d1cd7a3cf5ea2a7d689bdff337c8b92857d6"
+  },
+  {
+    "component": "personacore",
+    "relative": "app/personacore/cloud.py",
+    "before": "6a39b1bf21708a2f43c689f5f474b471340f782f74405b49cd093e9862645bc1",
+    "after": "dd55c7cacd73ed70ae59397500b79d9967c1fb35fbd32bcb57637c4a6d1bcfff"
+  },
+  {
+    "component": "personacore",
+    "relative": "app/personacore/model_provider.py",
+    "before": "e67d61bc5180c044a1c4a35af560c92042be1af581c7b0f0f08020c4582e4722",
+    "after": "7a039531b3392874c3e2185ff74745e123a8987d731f2ba84f2c8aa1ce6dcb77"
+  },
+  {
+    "component": "personacore",
+    "relative": "scripts/agent_task.py",
+    "before": "4544d7c526acfe74e580c8923fe34bbaa76d6457c447e83fe5bb4a54243ff42c",
+    "after": "dd45e036da940b3dcfd93fd93231328248445e3fed893d250e731a0fad495408"
+  },
+  {
+    "component": "personacore",
+    "relative": "scripts/run_persona.py",
+    "before": "6b45b97a6aad561d4c9f037e35256628abb6808a352efb3e1cd4366b3135985d",
+    "after": "47d2f8187941fce441355e284079913770772b0a4689bb6c754eeacd07baee0f"
+  },
+  {
+    "component": "personacore",
+    "relative": "scripts/start_extension_bridge.py",
+    "before": "eefb6e60da83788a80e88b5b168da1ddf131f07caad547112b3be374014da9b7",
+    "after": "1509c36cdcd75b50be981495da2b860d06302aa6fac28bba50f06d173af79e10"
+  },
+  {
+    "component": "personacore",
+    "relative": "snark_services.py",
+    "before": null,
+    "after": "75c4e72310057049039e597ddcc3e26b0d2d3c6797df2e99aa2f94860f0c6611"
+  },
+  {
+    "component": "personacore",
+    "relative": "tests/test_cloud_sync.py",
+    "before": "cceec5ab6c6bb9e7838b71e596c71f7f3e64374e9e6e1687e3b2b65dd47fc4e9",
+    "after": "ff44b0ca8d8fa92aef6018f3caf00e0324d2e8753b37d500ae264c0fd67f37ba"
+  },
+  {
+    "component": "personacore",
+    "relative": "tests/test_extension_bridge.py",
+    "before": "c248cf35461c173cefddd8a8a09f0df6374bb68b226cff97c5b0aa9df76eed10",
+    "after": "d4c380d22e7efd3b8a69a7bb9eafa3eed7cd4699f196b557348caf0ecc30643b"
+  },
+  {
+    "component": "personacore",
+    "relative": "tests/test_openai_compatible_provider.py",
+    "before": "99177f9db1db323daba2b2e60d7b8caf3cc864962a2b8f459fc9d44a47d65bfd",
+    "after": "4a14ca0d30237ec71d04c73b6087f587c58122fc8f34661de812653621df826a"
+  },
+  {
+    "component": "personacore",
+    "relative": "tests/test_snarkroute_provider.py",
+    "before": "32d556a45120136a1e608cac6e78f67bdf282a79faeff9db08eba106263cc840",
+    "after": "23ef6fb1fab5c937895be144413130cc0996d21d8d10e38bd21ad8acdeb96e46"
+  },
+  {
+    "component": "personacore",
+    "relative": "tests/test_stack_policy.py",
+    "before": null,
+    "after": "c1b1848a960e9b599a15f73bb130eeb6218cd1b07bb5547637fdb19218bf7e66"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "bootstrap.py",
+    "before": "94ad0e257949b1ee3b358647769191177884f09503b81a559b7e5ac98b40fd92",
+    "after": "308567f34b6374d5df438278c727f6addcc2db66aeec06b4ba805a2c360f5157"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "generation_jobs.py",
+    "before": "06f8cc040a6364556b5fcc451fe22a1a701f9cd39c25f27b70577cf38455fb30",
+    "after": "71b4ef4ee463861c4cc3a6354c963f19c737fe09ec1e82fa45b5868d10df7a3a"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "local_tool_agent.py",
+    "before": "dda53d3ac51ce5289f3ec36ca0d8b259a9dc40487c41fd9332822d5d796d1137",
+    "after": "938d0290c141338cfd2e03267948cfea342a4ab9af1618a7d26486d7a72be858"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "native_agent.py",
+    "before": "3d08cfffe5da471b94000895b5cff5a0af02e2c623442f5cc7ad11588bee052e",
+    "after": "3aeb10b2534ab987282b9de884d087d46503099f70501c7eb14a96cb6b517956"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "plan_contract.py",
+    "before": null,
+    "after": "ca17d09fc203a383b9c2b70897ac273fec7460b8dc420788129e1372a5aefa91"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "route_endpoints.py",
+    "before": "2cd8e00adecefa509e170b16c76a140de06c644a4a5d54b2e6a5bc117e18baf8",
+    "after": "73993a322c987099489bfbfcaad37028526cd63a2d2340f6072b7f82e647c2da"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "route_endpoints_v2.py",
+    "before": null,
+    "after": "73993a322c987099489bfbfcaad37028526cd63a2d2340f6072b7f82e647c2da"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "selftest.py",
+    "before": "b00b6ba60bdbd19bd286059ed44e46b67ceb82509c34f094db4c07b9052cf3b0",
+    "after": "8b53f92568988c2f298f9b8719e6bbbc51ae232f8bf2f5ac1b32cb9a16f4633c"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "selftest_v2.py",
+    "before": null,
+    "after": "8b53f92568988c2f298f9b8719e6bbbc51ae232f8bf2f5ac1b32cb9a16f4633c"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "server.py",
+    "before": "f68b055a160f236a5ff71814db5d7fcb69d6528c9fc8b2e95a73078593d790fd",
+    "after": "7f6388ef664b7b41ab87eed8498704ffbff5ad0205fe7444d89da8b37159792d"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "snark_local_secret.py",
+    "before": null,
+    "after": "4fbdbfb46d73f06716d7346868ae6d50292d4c578174c328b689d499d8c0e01a"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "snarkroute_client.py",
+    "before": "7ce8c5f41b71d79ab2e258a274d6b1c647474b1a5d3319704584290788f05307",
+    "after": "4b2f4481154c50adc845c4819967c9ca20639f47427b8d3773910024fdc63b57"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "turn_journal.py",
+    "before": "e2219edf757fc75cca9964f72df73b89012b7def97c3d5f0ec36eecdae29a73d",
+    "after": "41f9b3ee2a1eb0c9db31ab8441811d853110055bf8b4d3beebf724d86c8e911a"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "ui_agent.py",
+    "before": "8a188a679cdb08559e908547fc02a10169937755cc66af1383b4d583c2b2d02d",
+    "after": "197ad97d9f590e371d5e6ee4770b460e1a5438c7bd8a53132005bdd0ef3cea8b"
+  },
+  {
+    "component": "mixar-local",
+    "relative": "watchdog.py",
+    "before": "c7c71a53edd44114c0a170b89655b89a179f2f495c9b6bd7a08493a655981bd6",
+    "after": "081a33dea92fd2aa8ad5403958d98b849a5767376333b6d116d894e710d4673f"
+  },
+  {
+    "component": "startup",
+    "relative": "jabberwock_bridge.py",
+    "before": "318221fca209b9ff0079d6fb9b10525f4c6e3bd71a9ac17304b995ef3623b902",
+    "after": "13ecbca68d498a7271ede21c811c1a63e2164edcc300ac6106aa4cf9bfe4b211"
+  },
+  {
+    "component": "startup",
+    "relative": "jabberwock_local_backend.py",
+    "before": "60e107990ced940a57dfedbfe6533fe0eae9e56885a8f6a90c78db845ba11680",
+    "after": "6dfff44ff5fe18828fa8d38f7dc71b0c47e7f958045feb76c35e4891c26751ed"
+  },
+  {
+    "component": "startup",
+    "relative": "snark_bridge_hardening.py",
+    "before": "a05816a81b968a14f50c762a353c3afcb13fabec1f66b61addb3ea0bbbc7b64c",
+    "after": "3cf2da17cd18635d3b8570e15c5815ca39312d092d5cd2be7f9f8c7f30c18ccc"
+  },
+  {
+    "component": "startup",
+    "relative": "snark_local_credit_guard.py",
+    "before": "ce83e3d11d39beac92a776e1495e1342f40470a32d62ed1ef886beafdb01c3d1",
+    "after": "4c3b44ec558531bbd634753f821629f67e61053f9bbdb0ca0f34ad2796797134"
+  },
+  {
+    "component": "startup",
+    "relative": "snark_local_runtime.py",
+    "before": null,
+    "after": "d432f91d2ebe4633ffe7b281cf39921f9aa676d3c4569fb2b49d20a823e8ba9b"
+  },
+  {
+    "component": "startup",
+    "relative": "snark_local_secret.py",
+    "before": null,
+    "after": "4fbdbfb46d73f06716d7346868ae6d50292d4c578174c328b689d499d8c0e01a"
+  },
+  {
+    "component": "startup",
+    "relative": "snark_planner_model.py",
+    "before": "a414dc2d5bfeda6fd49e4a08d2fcec0ffb2c940cd155fe66803894a27084d570",
+    "after": "80064ba4108679fd701f3e4a29025216ab274207f780c3e56d4736b2bffcb77a"
+  },
+  {
+    "component": "startup",
+    "relative": "snark_rpc_security.py",
+    "before": null,
+    "after": "a90bdf53dbfdbeb822476fe64aabf8c8ff5a59c14de5ed13ccb46b683f465cbc"
+  },
+  {
+    "component": "startup",
+    "relative": "snark_services.py",
+    "before": null,
+    "after": "75c4e72310057049039e597ddcc3e26b0d2d3c6797df2e99aa2f94860f0c6611"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "CONNECT_SNARKBRIDGE.ps1",
+    "before": "68592ba3207f13198ebace017aa6639c5b5a6a67646bb3b14b7e178f6f7050f9",
+    "after": "2716f7a9d67116732cd7fbc13a4f93664ca9f9633cdcc58b7aad5c1e6732db5f"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "EXPORT_PORTABLE.ps1",
+    "before": "4824f0adc3810d775d799d681326f6c339c77328a80bcf32c674200d7131a3b9",
+    "after": "b331b37525dc0e47897adddeebb498ad7e1f3aa6ee6100b52cdcfd642263de2e"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "RESTART_BRIDGE_SERVER.ps1",
+    "before": "1b62d485aa806ae3974eda1546864b7a25ad69332124882924667fa0c61471e4",
+    "after": "a5b3ccd8296b61ead1cca97a5c0b2b4ab4be90ab1227e21a781327e6a9cb917a"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "RESTART_SNARKBRIDGE_TUNNEL.ps1",
+    "before": "8f4108f749e5ee894dc5a7d89f1953694d69529a2d5f204b43caf4318a75fe2c",
+    "after": "22b69126f5dad95051d2fb491ea755eb38cd8c8cf8183017615b938f2f36232d"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "START_SNARKBRIDGE.ps1",
+    "before": "dd6d5b4a20a27e39caeffc54af53a9228e93dc93abced7d7d0b888049765c71f",
+    "after": "99d255da08be10d95d761d0a942def35bc162d573aa2384e9b55fb4e218bbb53"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "bridge_projects.py",
+    "before": "8a30864452679dd67f683bff91fff61ed8766a67dd9ec194bfd42051cec027fe",
+    "after": "8d2a5d8da5321d4db1b7bec022681144172bf48711bc1402f98ffbcef6c8ab58"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "bridge_services.py",
+    "before": "b40908050bc3518af50ddb288210e36fbbf4745d26ef480eb9f7c86d661c4fb0",
+    "after": "0f61676f12da79c3164ab3ce5042c8e7f795abb10998903ac036bee2cc4be8cc"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "project_tools.py",
+    "before": "f5b900d4641aed4075c5155cfcdc3a19d99f6aef0a87cb6ea743f67d1f7d4a6a",
+    "after": "199fc36a8c95f63774b3f3f910838d0a26f3857886fc101f8895e83e64adc3db"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "requirements.txt",
+    "before": null,
+    "after": "4fe75062c5d424bbc86a8cd58c63ab19aeffe4f0a0e100022252c8032e12ee5b"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "server.py",
+    "before": "e2df41c803ffd89089914b73dc7ababa2e131d9fe50a6f9ad1c675c86430f672",
+    "after": "5ef3a05a537287f69e941d8ad53eab47808674b9716901f957fa90706c5a90df"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "snark_services.ps1",
+    "before": null,
+    "after": "c8fc07499f70fe7e37edff502f89edfabc45f837d093698638dccb5ed41e2919"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "snark_services.py",
+    "before": null,
+    "after": "75c4e72310057049039e597ddcc3e26b0d2d3c6797df2e99aa2f94860f0c6611"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\__init__.py",
+    "before": "1b989c7440357e39c6534b91cf05b332d3345bcefd361b24c630a65f9ea40d9c",
+    "after": "556f7869bb0e90691d57177cb57221052a344ac1817f171351eb9fb58626ea00"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\config\\local_mode.py",
+    "before": null,
+    "after": "ca163b59f367ef3e984d02758a53c9f69a7ecfaa1facefaf281f32692ae72273"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\config\\snark-local-mode.json",
+    "before": null,
+    "after": "3ed855906d1fc0bb916e3ab19a1a174acf3f2e30cceaf5cb190369e97f3d7a59"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\auth\\core\\auth.py",
+    "before": "74afef49d1d187d614f55f0a79daac6e2437bdf2460d4af2ed9fbe1b23caff96",
+    "after": "9445f4986fa70fd39eecc9d4901f06aaa417b7e43b15c7e013ab026b33d5ef20"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\common\\analytics\\preferences.py",
+    "before": "a291c8d6ab52ff999d46f543ec7299a97040a1fc3fd10897a7ecac681de96323",
+    "after": "4f854652058645ba1805dc270924697d263395a0e76c637efade23cfd37adf40"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\common\\api\\client.py",
+    "before": "fa245dbfa6ec56e26847d6bb9da12d4634184b71381de99026a2ca6531c4821b",
+    "after": "60db8946a865c620649c40e5f82ec87b5ee00d3f47d470fff986849bb86e5523"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\common\\updates\\core\\install_flow.py",
+    "before": "3b3183a2df780b3437cd667e258434855ae042929b1e1ec71807707ae4853ab3",
+    "after": "63d9958604ab02616715b946ff0df8ca033b603e8e64494bb3e25da2cedc8319"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\common\\updates\\core\\trigger.py",
+    "before": "8bf3758b15ecb44d52c22205f6531182896bfcdc7dd14c7bdb2beb779bd6f216",
+    "after": "04605a0d2e86d70401915e599187ebe328d5a2821002f07a7b673fda7cde77cd"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\local_models\\core\\orchestrator.py",
+    "before": "8b6c4e9e961cff20474eb8ced2093120e7ad75522ffba174f21c6e698bb45c19",
+    "after": "f554286657f3c908cec369ea9a6f15509d636ae9787cd98c96a1e0b3088231f5"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\local_models\\core\\relay.py",
+    "before": "cc5136b7a84f3a76ed53927e0ffdc928fcd1357f4147c28a39bd9c7bd79577dd",
+    "after": "4d0181add40458539eecee921650a3d7c156aefaec027607e49d4598d24ac145"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\space_mixie_chat\\core\\credits_notice.py",
+    "before": "df6336dccb1e42bd7278d0b6518d5741286667b20eef958e6243945bfb0a3bb8",
+    "after": "c5ccdcc9ed97e0ad543cd1cb9b43dcde053d1ea71324b4a24dfedc0eeff96bc0"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\space_mixie_chat\\core\\queue_processor.py",
+    "before": "f2547bc81b112f72f3bc7d3582bcf5b26b6c2194ff7116d36dfb7575283ef059",
+    "after": "dfad9e1a9adbc3b6851c340eef21ec35e12f11fd6dda74ce92e6ea86e5ad00bb"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\space_mixie_chat\\core\\turn_events.py",
+    "before": "783623b3ebbcf614f24cf6c54a8c51171e5a802497032a9a2f432663599a8ff8",
+    "after": "6cd76a52524258d2b2ec0681653b89bae0c559e4852cb8377389ec04206f0298"
+  }
+]

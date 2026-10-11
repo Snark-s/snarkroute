@@ -1,0 +1,114 @@
+{
+  "registry": "Y:\\Процесс\\SnarkRoute\\service-endpoints.json",
+  "capturedAt": "2026-10-11T10:02:31.002Z",
+  "services": [
+    {
+      "id": "snarkroute",
+      "port": 4317,
+      "state": "verified",
+      "enabled": true
+    },
+    {
+      "id": "mixar_sidecar",
+      "port": 18880,
+      "state": "verified",
+      "enabled": true
+    },
+    {
+      "id": "mixar_bridge",
+      "port": 18767,
+      "state": "stopped",
+      "enabled": true
+    },
+    {
+      "id": "mixar_watchdog",
+      "port": 18881,
+      "state": "stopped",
+      "enabled": true
+    },
+    {
+      "id": "snarkbridge_mcp",
+      "port": 8767,
+      "state": "verified",
+      "enabled": true
+    },
+    {
+      "id": "snarkbridge_tunnel",
+      "port": 8080,
+      "state": "listening_identity_unverified",
+      "enabled": true
+    },
+    {
+      "id": "bonsai_inference",
+      "port": 8081,
+      "state": "stopped",
+      "enabled": true
+    },
+    {
+      "id": "ollama_inference",
+      "port": 11434,
+      "state": "ollama_version_contract_verified",
+      "enabled": true
+    },
+    {
+      "id": "persona_bridge",
+      "port": 8766,
+      "state": "verified",
+      "enabled": true
+    },
+    {
+      "id": "project_publisher",
+      "port": 8765,
+      "state": "stopped",
+      "enabled": true
+    },
+    {
+      "id": "launcher",
+      "port": 5172,
+      "state": "stopped",
+      "enabled": true
+    },
+    {
+      "id": "launcher_control",
+      "port": 5176,
+      "state": "stopped",
+      "enabled": true
+    },
+    {
+      "id": "h3_worker",
+      "port": 18080,
+      "state": "listening_identity_unverified",
+      "enabled": true
+    },
+    {
+      "id": "h3_sglang_fl2va",
+      "port": 30010,
+      "state": "stopped",
+      "enabled": true
+    },
+    {
+      "id": "h3_sglang_ref2va",
+      "port": 30011,
+      "state": "stopped",
+      "enabled": true
+    },
+    {
+      "id": "local_upscale",
+      "port": 8091,
+      "state": "stopped",
+      "enabled": true
+    },
+    {
+      "id": "yue2",
+      "port": 7862,
+      "state": "stopped",
+      "enabled": true
+    },
+    {
+      "id": "freetoken",
+      "port": 1919,
+      "state": "stopped",
+      "enabled": false
+    }
+  ]
+}

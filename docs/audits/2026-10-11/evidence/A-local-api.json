@@ -1,0 +1,10 @@
+{
+  "test": "A-local-execution",
+  "status": "succeeded",
+  "provider": "local_openai",
+  "model": "llama3:latest",
+  "response": "OK",
+  "cost": 0,
+  "error": null,
+  "errorDetails": null
+}

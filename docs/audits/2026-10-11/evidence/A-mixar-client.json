@@ -1,0 +1,9 @@
+{
+  "test": "A-live-Mixar-client",
+  "provider": "local_openai",
+  "text": "OK",
+  "gateway": "http://127.0.0.1:4317",
+  "paidPermission": false,
+  "costUsd": 0.0,
+  "attempted": 1
+}

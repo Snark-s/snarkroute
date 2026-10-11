@@ -1,0 +1,26 @@
+{
+  "RPC": {
+    "ownerKey": "CurrentUser DPAPI; inheritance disabled; single owner ACE",
+    "credentialExported": false,
+    "factoryScene": "unchanged",
+    "realClient": "local_tool_agent._post",
+    "result": "BLENDER_OWNER_DPAPI_RPC_G_H_PASS REAL_LOCAL_TOOL_CLIENT SCENE_UNCHANGED"
+  },
+  "testCounts": {
+    "nodeContracts": 23,
+    "pythonStack": 20,
+    "personaPython": 159,
+    "recovery": {
+      "passed": 17,
+      "skipped": 1
+    },
+    "libraryApi": 44
+  },
+  "limitations": [
+    "Native C++ full build unavailable (MSVC toolset)",
+    "GUI buttons/DPI not inspected",
+    "Recovery symlink test requires OS privilege",
+    "Provider HTTP 402 is controlled transport, no paid account charged",
+    "GPU concurrency uses controlled snapshots, no simultaneous heavyweight generation"
+  ]
+}
