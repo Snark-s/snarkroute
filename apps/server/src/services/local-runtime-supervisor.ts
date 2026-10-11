@@ -74,9 +74,13 @@ export type LocalRuntimeAdmission = {
 };
 
 export class LocalRuntimeAdmissionError extends Error {
+  readonly code = "LOCAL_RUNTIME_ADMISSION";
+  readonly retryable = true;
+  readonly details: Record<string, unknown>;
   constructor(readonly decision: LocalRuntimeAdmission) {
     super(decision.summary);
     this.name = "LocalRuntimeAdmissionError";
+    this.details = { origin: "snarkroute", runtime: decision.target, requiresConfirmation: decision.requiresConfirmation };
   }
 }
 
@@ -294,12 +298,15 @@ export function isLocalRuntimeId(value: string): value is LocalRuntimeId {
 }
 
 function ensureRuntimeRegistrations(): void {
+  const ollamaEndpoint = localServiceUrl('ollama_inference');
   let bonsaiEndpoint = localServiceUrl('bonsai_inference', '/v1');
   try { bonsaiEndpoint = bonsaiRuntimeConfig().baseUrl; } catch {}
+  // LOCAL_LLM_BASE_URL may name Ollama itself; Bonsai must not take over Ollama's runtime identity.
+  if (sameLoopbackPort(bonsaiEndpoint, ollamaEndpoint)) bonsaiEndpoint = localServiceUrl('bonsai_inference', '/v1');
   registerLocalRuntimeEndpoint({ id: "bonsai", label: "Bonsai", endpoint: bonsaiEndpoint, demand: "heavy", claimsOnStart: true, source: "builtin" });
   registerLocalRuntimeController("bonsai", { start: startBonsai, stop: stopBonsai });
 
-  registerLocalRuntimeEndpoint({ id: "ollama", label: "Ollama", endpoint: localServiceUrl('ollama_inference'), demand: "heavy", claimsOnStart: false, source: "builtin" });
+  registerLocalRuntimeEndpoint({ id: "ollama", label: "Ollama", endpoint: ollamaEndpoint, demand: "heavy", claimsOnStart: false, source: "builtin" });
   registerLocalRuntimeController("ollama", { start: startOllama, stop: stopOllama });
 
   const h3Endpoint = process.env.H3_WORKER_URL?.trim() || localServiceUrl('h3_worker');
@@ -333,6 +340,16 @@ function ensureRuntimeRegistrations(): void {
       source: "provider-metadata",
       modelIds: config.modelIds ?? [config.fallbackModelId]
     });
+  }
+}
+
+function sameLoopbackPort(a: string, b: string): boolean {
+  try {
+    const left = new URL(a);
+    const right = new URL(b);
+    return left.protocol === right.protocol && left.port === right.port;
+  } catch {
+    return false;
   }
 }
 
