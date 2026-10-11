@@ -2,7 +2,7 @@
   {
     "task": "SnarkBridge Local MCP",
     "result": 0,
-    "lastRun": "2026-10-11T18:28:14.0000000+03:00",
+    "lastRun": "2026-10-11T18:28:14+03:00",
     "state": "Ready",
     "user": "serge",
     "runLevel": "Limited",
@@ -16,7 +16,7 @@
   {
     "task": "SnarkBridge Watchdog",
     "result": 0,
-    "lastRun": "2026-10-11T18:28:18.0000000+03:00",
+    "lastRun": "2026-10-11T18:28:18+03:00",
     "state": "Ready",
     "user": "serge",
     "runLevel": "Limited",
@@ -26,5 +26,13 @@
     "nonInteractiveChild": true,
     "explicitRegistry": true,
     "schedulesAndPrincipalPreserved": true
+  },
+  {
+    "task": "SnarkBridge Watchdog",
+    "result": 0,
+    "lastRun": "2026-10-11T18:34:33.0000000+03:00",
+    "automaticScheduledCycle": true,
+    "windowlessHost": true,
+    "runLevel": "Limited"
   }
 ]
