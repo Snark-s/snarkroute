@@ -28,7 +28,7 @@ try {
         $env:SNARK_MIXAR_LOCAL = '1'
         $reportDirectory = Join-Path $root ('.tmp/stack-check-' + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $reportDirectory | Out-Null
-        foreach ($probe in @('portable_mixar_probe', 'blender_rpc_integration', 'headless_contract_probe', 'headless_contract_probe')) {
+        foreach ($probe in @('portable_mixar_probe', 'blender_rpc_integration', 'acceptance_rpc_negative_probe', 'headless_contract_probe', 'verify_guard_blender_probe')) {
             $env:MIXAR_AUDIT_REPORT = Join-Path $reportDirectory ([Guid]::NewGuid().ToString('N') + '.json')
             & $executable --factory-startup --background --python-exit-code 1 --python (Join-Path $root ('tests/stack/' + $probe + '.py'))
             if ($LASTEXITCODE -ne 0) { throw ('Factory Blender probe failed: ' + $probe) }
