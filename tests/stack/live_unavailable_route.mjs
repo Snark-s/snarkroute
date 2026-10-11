@@ -37,7 +37,7 @@ const child = spawn(process.execPath, ['--import',pathToFileURL(resolve(root,'no
 const endpoint = `http://127.0.0.1:${registry.services.snarkroute.port}`;
 try {
   let ready=false;
-  for(let attempt=0;attempt<100;attempt++) {
+  for(let attempt=0;attempt<300;attempt++) {
     try { const health = await fetch(endpoint+'/health').then(reply => reply.json()); ready=health.service==='snarkroute-server'&&health.apiVersion===1&&health.ok===true; } catch {}
     if(ready) break;
     if(child.exitCode!==null) throw new Error('Isolated server exited');

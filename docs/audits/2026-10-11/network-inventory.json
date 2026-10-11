@@ -1,0 +1,932 @@
+{
+  "scope": "Mixar first-party Python source; static network/service call sites",
+  "filesParsed": 1801,
+  "limitations": [
+    "Static inventory is not packet capture or proof of all native/binary behavior",
+    "Dynamically assembled URLs and imported third-party transport internals are not expanded"
+  ],
+  "parseFailures": [],
+  "counts": {
+    "obsolete-in-local; cloud-auth-preserved": 6,
+    "direct-inference-replaced; SnarkRoute-required": 2,
+    "vendor-operation; shared-local-transport-guard": 10,
+    "vendor-service; local-sidecar-replacement-or-explicit-unavailable": 87,
+    "optional-vendor-asset/download; external-transfer-blocked-in-local": 4,
+    "vendor-agent/voice-WebSocket; external-connection-blocked-in-local": 3,
+    "local-bridge-control; configured-registry-only": 2
+  },
+  "calls": [
+    {
+      "file": "modules/auth/core/auth.py",
+      "line": 340,
+      "function": "login",
+      "call": "requests.post",
+      "literalEndpoint": null,
+      "classification": "obsolete-in-local; cloud-auth-preserved"
+    },
+    {
+      "file": "modules/auth/core/auth.py",
+      "line": 631,
+      "function": "_refresh_access_token_locked",
+      "call": "requests.post",
+      "literalEndpoint": null,
+      "classification": "obsolete-in-local; cloud-auth-preserved"
+    },
+    {
+      "file": "modules/auth/core/auth.py",
+      "line": 744,
+      "function": "get_user_info",
+      "call": "requests.get",
+      "literalEndpoint": null,
+      "classification": "obsolete-in-local; cloud-auth-preserved"
+    },
+    {
+      "file": "modules/auth/core/auth.py",
+      "line": 755,
+      "function": "get_user_info",
+      "call": "requests.get",
+      "literalEndpoint": null,
+      "classification": "obsolete-in-local; cloud-auth-preserved"
+    },
+    {
+      "file": "modules/auth/core/auth.py",
+      "line": 819,
+      "function": "create_dashboard_handoff_url",
+      "call": "requests.post",
+      "literalEndpoint": null,
+      "classification": "obsolete-in-local; cloud-auth-preserved"
+    },
+    {
+      "file": "modules/auth/core/sso.py",
+      "line": 182,
+      "function": "_exchange_code",
+      "call": "requests.post",
+      "literalEndpoint": null,
+      "classification": "obsolete-in-local; cloud-auth-preserved"
+    },
+    {
+      "file": "modules/byok/core/local_provider.py",
+      "line": 289,
+      "function": "_ping_models_endpoint",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "direct-inference-replaced; SnarkRoute-required"
+    },
+    {
+      "file": "modules/common/api/client.py",
+      "line": 132,
+      "function": "_create_session",
+      "call": "requests.Session",
+      "literalEndpoint": null,
+      "classification": "vendor-operation; shared-local-transport-guard"
+    },
+    {
+      "file": "modules/common/api/services/agent_service.py",
+      "line": 46,
+      "function": "list_models",
+      "call": "self.get",
+      "literalEndpoint": "models",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/agent_service.py",
+      "line": 52,
+      "function": "get_credentials",
+      "call": "self.get",
+      "literalEndpoint": "credentials",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/agent_service.py",
+      "line": 82,
+      "function": "save_credentials_all",
+      "call": "self.put",
+      "literalEndpoint": "byok",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/agent_service.py",
+      "line": 86,
+      "function": "delete_credentials_all",
+      "call": "self.delete",
+      "literalEndpoint": "credentials/all",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/agent_service.py",
+      "line": 105,
+      "function": "get_model_preference",
+      "call": "self.get",
+      "literalEndpoint": "model-preference",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/agent_service.py",
+      "line": 128,
+      "function": "put_model_preference",
+      "call": "self.put",
+      "literalEndpoint": "model-preference",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/agent_service.py",
+      "line": 135,
+      "function": "delete_model_preference",
+      "call": "self.delete",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/agent_service.py",
+      "line": 139,
+      "function": "delete_model_preferences",
+      "call": "self.delete",
+      "literalEndpoint": "model-preference",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/auth_service.py",
+      "line": 45,
+      "function": "get_current_user",
+      "call": "self.get",
+      "literalEndpoint": "me",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/auth_service.py",
+      "line": 58,
+      "function": "login",
+      "call": "self.post",
+      "literalEndpoint": "login",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/auth_service.py",
+      "line": 62,
+      "function": "logout",
+      "call": "self.post",
+      "literalEndpoint": "logout",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/auth_service.py",
+      "line": 74,
+      "function": "refresh_token",
+      "call": "self.post",
+      "literalEndpoint": "refresh",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 63,
+      "function": "get",
+      "call": "self._client.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 63,
+      "function": "get",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 67,
+      "function": "post",
+      "call": "self._client.post",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 67,
+      "function": "post",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 71,
+      "function": "put",
+      "call": "self._client.put",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 71,
+      "function": "put",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 75,
+      "function": "patch",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 79,
+      "function": "delete",
+      "call": "self._client.delete",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 79,
+      "function": "delete",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 95,
+      "function": "get_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 112,
+      "function": "post_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 129,
+      "function": "put_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 146,
+      "function": "patch_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 163,
+      "function": "delete_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/base_service.py",
+      "line": 172,
+      "function": "fire_and_forget_post",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/generation_catalog_service.py",
+      "line": 38,
+      "function": "get_catalog",
+      "call": "self.get",
+      "literalEndpoint": "",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/generation_catalog_service.py",
+      "line": 49,
+      "function": "get_chat_options",
+      "call": "self.get",
+      "literalEndpoint": "/chat-options",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/generation_metadata_service.py",
+      "line": 33,
+      "function": "get_models",
+      "call": "self.get",
+      "literalEndpoint": "models",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/generation_metadata_service.py",
+      "line": 37,
+      "function": "get_styles",
+      "call": "self.get",
+      "literalEndpoint": "styles",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/handwriting_service.py",
+      "line": 61,
+      "function": "recognize",
+      "call": "self._client.post",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/handwriting_service.py",
+      "line": 62,
+      "function": "recognize",
+      "call": "self._endpoint",
+      "literalEndpoint": "recognize",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/handwriting_service.py",
+      "line": 90,
+      "function": "recognize_async",
+      "call": "self._endpoint",
+      "literalEndpoint": "recognize",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/images_service.py",
+      "line": 57,
+      "function": "upload",
+      "call": "self.post",
+      "literalEndpoint": "upload",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/images_service.py",
+      "line": 69,
+      "function": "get_image",
+      "call": "self.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/images_service.py",
+      "line": 81,
+      "function": "delete_image",
+      "call": "self.delete",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/images_service.py",
+      "line": 114,
+      "function": "generate",
+      "call": "self.post",
+      "literalEndpoint": "generate",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/job_queue_service.py",
+      "line": 251,
+      "function": "get_job_status_sync",
+      "call": "self.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/model_3d_service.py",
+      "line": 75,
+      "function": "detect_views",
+      "call": "self._client.post",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/model_3d_service.py",
+      "line": 76,
+      "function": "detect_views",
+      "call": "self._endpoint",
+      "literalEndpoint": "detect-views",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/model_3d_service.py",
+      "line": 104,
+      "function": "detect_views_async",
+      "call": "self._endpoint",
+      "literalEndpoint": "detect-views",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/notifications_service.py",
+      "line": 40,
+      "function": "get_sounds",
+      "call": "self.get",
+      "literalEndpoint": "/sounds",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 74,
+      "function": "generate",
+      "call": "self._client.post",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 75,
+      "function": "generate",
+      "call": "self._endpoint",
+      "literalEndpoint": "generate",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 121,
+      "function": "generate_async",
+      "call": "self._endpoint",
+      "literalEndpoint": "generate",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 144,
+      "function": "get_job_status",
+      "call": "self._client.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 144,
+      "function": "get_job_status",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 167,
+      "function": "get_job_status_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 188,
+      "function": "download_object",
+      "call": "self._client.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 189,
+      "function": "download_object",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 216,
+      "function": "download_object_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 237,
+      "function": "delete_job",
+      "call": "self._client.delete",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 237,
+      "function": "delete_job",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 260,
+      "function": "delete_job_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 277,
+      "function": "health_check",
+      "call": "self._client.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 277,
+      "function": "health_check",
+      "call": "self._endpoint",
+      "literalEndpoint": "health",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 290,
+      "function": "get_queue_status",
+      "call": "self._client.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_gen_service.py",
+      "line": 290,
+      "function": "get_queue_status",
+      "call": "self._endpoint",
+      "literalEndpoint": "queue/status",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_recon_service.py",
+      "line": 57,
+      "function": "download_glb_from_url",
+      "call": "requests.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 64,
+      "function": "upload_image",
+      "call": "self._client.post",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 64,
+      "function": "upload_image",
+      "call": "self._endpoint",
+      "literalEndpoint": "upload",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 93,
+      "function": "upload_image_async",
+      "call": "self._endpoint",
+      "literalEndpoint": "upload",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 130,
+      "function": "segment_point",
+      "call": "self._client.post",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 130,
+      "function": "segment_point",
+      "call": "self._endpoint",
+      "literalEndpoint": "segment/point",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 160,
+      "function": "segment_point_async",
+      "call": "self._endpoint",
+      "literalEndpoint": "segment/point",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 192,
+      "function": "segment_box",
+      "call": "self._client.post",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 192,
+      "function": "segment_box",
+      "call": "self._endpoint",
+      "literalEndpoint": "segment/box",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 222,
+      "function": "segment_box_async",
+      "call": "self._endpoint",
+      "literalEndpoint": "segment/box",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 256,
+      "function": "segment_mask",
+      "call": "self._client.post",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 256,
+      "function": "segment_mask",
+      "call": "self._endpoint",
+      "literalEndpoint": "segment/mask",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 289,
+      "function": "segment_mask_async",
+      "call": "self._endpoint",
+      "literalEndpoint": "segment/mask",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 314,
+      "function": "get_job_status",
+      "call": "self._client.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 314,
+      "function": "get_job_status",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 338,
+      "function": "get_job_status_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 364,
+      "function": "download_mask",
+      "call": "self._client.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 365,
+      "function": "download_mask",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 392,
+      "function": "download_mask_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 413,
+      "function": "delete_job",
+      "call": "self._client.delete",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 413,
+      "function": "delete_job",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 436,
+      "function": "delete_job_async",
+      "call": "self._endpoint",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 453,
+      "function": "health_check",
+      "call": "self._client.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 453,
+      "function": "health_check",
+      "call": "self._endpoint",
+      "literalEndpoint": "health",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 462,
+      "function": "get_queue_status",
+      "call": "self._client.get",
+      "literalEndpoint": null,
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/scene_segment_service.py",
+      "line": 462,
+      "function": "get_queue_status",
+      "call": "self._endpoint",
+      "literalEndpoint": "queue/status",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/subscription_service.py",
+      "line": 58,
+      "function": "get_status",
+      "call": "self.get",
+      "literalEndpoint": "status",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/api/services/update_service.py",
+      "line": 62,
+      "function": "check",
+      "call": "self.get",
+      "literalEndpoint": "check",
+      "classification": "vendor-service; local-sidecar-replacement-or-explicit-unavailable"
+    },
+    {
+      "file": "modules/common/job_queue/core/downloader.py",
+      "line": 174,
+      "function": "_open",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "optional-vendor-asset/download; external-transfer-blocked-in-local"
+    },
+    {
+      "file": "modules/common/notifications/rest_api.py",
+      "line": 53,
+      "function": "report_client_version",
+      "call": "requests.put",
+      "literalEndpoint": null,
+      "classification": "vendor-operation; shared-local-transport-guard"
+    },
+    {
+      "file": "modules/common/remote_assets/core/download.py",
+      "line": 114,
+      "function": "_open",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "optional-vendor-asset/download; external-transfer-blocked-in-local"
+    },
+    {
+      "file": "modules/common/utils/image_utils.py",
+      "line": 363,
+      "function": "download_image_to_tempfile",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "vendor-operation; shared-local-transport-guard"
+    },
+    {
+      "file": "modules/common/websocket/client.py",
+      "line": 148,
+      "function": "send",
+      "call": "self._queues.send",
+      "literalEndpoint": null,
+      "classification": "vendor-agent/voice-WebSocket; external-connection-blocked-in-local"
+    },
+    {
+      "file": "modules/common/websocket/client.py",
+      "line": 302,
+      "function": "_send_loop",
+      "call": "self._ws.send",
+      "literalEndpoint": null,
+      "classification": "vendor-agent/voice-WebSocket; external-connection-blocked-in-local"
+    },
+    {
+      "file": "modules/common/websocket/client.py",
+      "line": 322,
+      "function": "_send_ping",
+      "call": "self._queues.send",
+      "literalEndpoint": null,
+      "classification": "vendor-agent/voice-WebSocket; external-connection-blocked-in-local"
+    },
+    {
+      "file": "modules/local_models/core/server_supervisor.py",
+      "line": 151,
+      "function": "_health_ok",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "direct-inference-replaced; SnarkRoute-required"
+    },
+    {
+      "file": "modules/mcp_bridge/core/eligibility.py",
+      "line": 83,
+      "function": "_fetch",
+      "call": "requests.get",
+      "literalEndpoint": null,
+      "classification": "local-bridge-control; configured-registry-only"
+    },
+    {
+      "file": "modules/mcp_bridge/core/forward.py",
+      "line": 30,
+      "function": "forward",
+      "call": "requests.post",
+      "literalEndpoint": null,
+      "classification": "local-bridge-control; configured-registry-only"
+    },
+    {
+      "file": "modules/moodboard/core/image_to_3d_utils.py",
+      "line": 60,
+      "function": "download_and_import_glb",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "vendor-operation; shared-local-transport-guard"
+    },
+    {
+      "file": "modules/moodboard/core/image_to_3d_utils.py",
+      "line": 125,
+      "function": "download_and_import_model",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "vendor-operation; shared-local-transport-guard"
+    },
+    {
+      "file": "modules/moodboard/core/lookdev360_utils.py",
+      "line": 231,
+      "function": "download_texture_to_tempfile",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "vendor-operation; shared-local-transport-guard"
+    },
+    {
+      "file": "modules/moodboard/core/scene_gen_queue.py",
+      "line": 118,
+      "function": "handle_result._bg_download_and_import",
+      "call": "requests.get",
+      "literalEndpoint": null,
+      "classification": "vendor-operation; shared-local-transport-guard"
+    },
+    {
+      "file": "modules/moodboard/core/world_labs_queue.py",
+      "line": 249,
+      "function": "_download_bytes",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "vendor-operation; shared-local-transport-guard"
+    },
+    {
+      "file": "modules/onboarding/core/tour/pack_fetch.py",
+      "line": 72,
+      "function": "fetch_manifest",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "optional-vendor-asset/download; external-transfer-blocked-in-local"
+    },
+    {
+      "file": "modules/paint/layered_build/download.py",
+      "line": 64,
+      "function": "_read_url",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "optional-vendor-asset/download; external-transfer-blocked-in-local"
+    },
+    {
+      "file": "modules/paint/ui/utils/material_preview_manager.py",
+      "line": 49,
+      "function": "_download_worker",
+      "call": "requests.get",
+      "literalEndpoint": null,
+      "classification": "vendor-operation; shared-local-transport-guard"
+    },
+    {
+      "file": "modules/space_mixie_chat/core/sound_catalog.py",
+      "line": 206,
+      "function": "download_clip",
+      "call": "urllib.request.urlopen",
+      "literalEndpoint": null,
+      "classification": "vendor-operation; shared-local-transport-guard"
+    }
+  ]
+}

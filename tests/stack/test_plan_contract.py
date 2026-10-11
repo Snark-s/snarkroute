@@ -12,6 +12,11 @@ from plan_contract import execution_passed, validate_blender_code, verification_
 
 
 class PlannerContractTests(unittest.TestCase):
+    def test_f_unconditional_positive_verification_is_not_scene_evidence(self):
+        for code in ('__RESULT__={"passed":True}',
+                     'import bpy\nscene=bpy.context.scene\n__RESULT__={"passed":True}'):
+            with self.subTest(code=code), self.assertRaises(ValueError):
+                validate_blender_code(code, 'verify')
     def test_e_rejects_invalid_python_import_escape_and_fake_receipt(self):
         for code in ('bpy.context.', 'import os\n__RESULT__={}',
                      '# __RESULT__\nx=3', "eval('3')\n__RESULT__={}",

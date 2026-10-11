@@ -15,7 +15,7 @@ except Exception as error: assert 'LOCAL_CLOUD_DISABLED' in str(error)
 else: raise AssertionError('Portable REST client bypassed policy')
 assert bpy.data.filepath==''
 import requests,websocket
-for service in ('ollama_inference','bonsai_inference'):
+for service in ('ollama_inference','bonsai_inference','h3_worker','local_upscale','yue2'):
     try: requests.Session().send(requests.Request('POST',snark_local_runtime.endpoints.url(service)+'/v1/chat/completions').prepare())
     except requests.exceptions.ConnectionError as error: assert 'LOCAL_CLOUD_DISABLED' in str(error)
     else: raise AssertionError('Mixar attempted direct local inference')
@@ -25,6 +25,10 @@ else: raise AssertionError('Vendor refresh transport escaped local mode')
 try: websocket.WebSocket().connect('wss://api.mixar.app/api/agent/ws/probe')
 except websocket.WebSocketException as error: assert 'LOCAL_CLOUD_DISABLED' in str(error)
 else: raise AssertionError('Vendor agent socket escaped local mode')
+from mixar.modules.connector.core.sidecar import start_sidecar
+try: start_sidecar()
+except RuntimeError as error: assert 'LOCAL_CLOUD_DISABLED' in str(error)
+else: raise AssertionError('Unprotected vendor connector escaped local mode')
 from mixar.modules.auth.core import auth
 auth._win_get_password=lambda *_: (_ for _ in ()).throw(AssertionError('Vendor credential read'))
 assert auth.get_access_token()=='' and auth.get_refresh_token()=='' and auth.refresh_access_token() is False

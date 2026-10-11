@@ -215,13 +215,13 @@ def ensure_full_git_history(repo):
 
     print(f"[snapshot] unshallow git history: {repo}", flush=True)
     result = run(
-        ["git", "fetch", "--unshallow", "--tags", "origin"],
+        ["git", "fetch", "--no-recurse-submodules", "--unshallow", "--tags", "origin"],
         cwd=repo,
         check=False,
     )
     if result.returncode:
         fallback = run(
-            ["git", "fetch", "--depth=2147483647", "--tags", "origin"],
+            ["git", "fetch", "--no-recurse-submodules", "--depth=2147483647", "--tags", "origin"],
             cwd=repo,
             check=False,
         )
@@ -287,7 +287,7 @@ def create_git_bundle(repo, commit, destination):
 def fetch_git_bundle(repo, bundle_path, ref="refs/snarkdeploy/recovery"):
     repo = Path(repo)
     bundle_path = Path(bundle_path)
-    result = run(["git", "fetch", str(bundle_path), ref], cwd=repo, check=False)
+    result = run(["git", "fetch", "--no-recurse-submodules", str(bundle_path), ref], cwd=repo, check=False)
     if result.returncode:
         raise RuntimeError(
             (result.stderr or result.stdout or f"git bundle fetch failed: {bundle_path}").strip()
@@ -532,10 +532,10 @@ def apply_git_patch_idempotent(target, patch, component_id):
     )
 
 
-def endpoint_registry(manifest):
+def endpoint_registry(manifest, path_override=None):
     variables = manifest['variables']
     root = Path(expand('{{SNARKROUTE_ROOT}}', variables))
-    path = Path(os.getenv('SNARKROUTE_PORT_REGISTRY') or root / 'service-endpoints.json')
+    path = Path(path_override or os.getenv('SNARKROUTE_PORT_REGISTRY') or root / 'service-endpoints.json')
     registry = json.loads(path.read_text(encoding='utf-8'))
     if registry.get('schemaVersion') != 1 or registry.get('host') != '127.0.0.1':
         raise RuntimeError('Invalid authoritative service-endpoints.json')
@@ -563,10 +563,11 @@ def resolved_services(manifest, registry=None):
     return services
 
 
-def write_registry(manifest):
+def write_registry(manifest, registry_path=None):
     variables = manifest["variables"]
     services = []
-    for service in resolved_services(manifest):
+    canonical_path, canonical = endpoint_registry(manifest, registry_path)
+    for service in resolved_services(manifest, canonical):
         item = dict(service)
         for key, value in list(item.items()):
             if isinstance(value, str):
@@ -578,10 +579,9 @@ def write_registry(manifest):
         "schema_version": 1,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "services": services,
-        'source': str(endpoint_registry(manifest)[0]),
+        'source': str(canonical_path),
     }
     target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    canonical_path, canonical = endpoint_registry(manifest)
     path_variables = {'snarkroute':'SNARKROUTE_ROOT','mixar_local':'SNARK_MIXAR_BACKEND',
                       'mixar_source':'SNARK_MIXAR_SOURCE','mixar_runtime':'SNARK_MIXAR_INSTALL','mixar_startup':None,
                       'personacore':'PERSONA_HOME','snarkbridge':'SNARKBRIDGE_ROOT','bonsai_home':'SNARK_BONSAI'}
@@ -1007,7 +1007,7 @@ def restore(args):
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         with zf.open(name) as source, open(destination, "wb") as output:
                             shutil.copyfileobj(source, output)
-    registry = write_registry(current)
+    registry = write_registry(current, registry_path=Path(expand('{{SNARKROUTE_ROOT}}', variables)) / 'service-endpoints.json')
     print(f"Restore complete. Registry: {registry}")
     return 0
 

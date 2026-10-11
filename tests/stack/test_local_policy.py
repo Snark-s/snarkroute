@@ -59,4 +59,24 @@ class LocalPolicyTests(unittest.TestCase):
             namespace['handle_llm_request']({'url':'http://127.0.0.1:8080/v1/chat/completions'},outputs.append)
         self.assertEqual(outputs[0]['error']['code'],'snarkroute_required')
 
+    def test_direct_media_inference_ports_denied_before_network(self):
+        registry=Path(__file__).resolve().parents[2]/'service-endpoints.json'
+        import json
+        services=json.loads(registry.read_text(encoding='utf-8'))['services']
+        with patch.dict(os.environ,{'SNARK_MIXAR_LOCAL':'1','SNARKROUTE_PORT_REGISTRY':str(registry)}):
+            for name in ('h3_worker','local_upscale','yue2'):
+                with self.subTest(service=name), self.assertRaisesRegex(RuntimeError,'LOCAL_CLOUD_DISABLED'):
+                    policy.enforce_transport_url(f"http://127.0.0.1:{services[name]['port']}/generate")
+
+    def test_unprotected_vendor_connector_cannot_start_in_local_mode(self):
+        tree=ast.parse((ROOT/'modules/connector/core/sidecar.py').read_text())
+        fn=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='start_sidecar')
+        namespace={'DEFAULT_SIDECAR_PORT':19998, '_server':None,
+                   'ThreadingHTTPServer':lambda *_: (_ for _ in ()).throw(AssertionError('Unprotected listener started')),
+                   '_Handler':object}
+        exec(compile(ast.Module(body=[fn],type_ignores=[]),'<connector>','exec'),namespace)
+        with patch.dict(os.environ,{'SNARK_MIXAR_LOCAL':'1'}),patch.dict(sys.modules,{'mixar.config.local_mode':policy}):
+            with self.assertRaisesRegex(RuntimeError,'LOCAL_CLOUD_DISABLED'):
+                namespace['start_sidecar']()
+
 if __name__=='__main__': unittest.main()

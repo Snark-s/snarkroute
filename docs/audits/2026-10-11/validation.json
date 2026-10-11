@@ -8,13 +8,22 @@
   },
   "testCounts": {
     "nodeContracts": 23,
-    "pythonStack": 20,
+    "pythonStack": 23,
     "personaPython": 159,
     "recovery": {
-      "passed": 17,
+      "passed": 18,
       "skipped": 1
     },
-    "libraryApi": 44
+    "libraryApi": 44,
+    "serverFocused": 72,
+    "cepFocused": 11
+  },
+  "buildChecks": {
+    "server": "passed",
+    "executor": "passed",
+    "studioTypeScript": "passed",
+    "cepTypeScript": "passed",
+    "cepProduction": "passed"
   },
   "limitations": [
     "Native C++ full build unavailable (MSVC toolset)",

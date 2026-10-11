@@ -40,6 +40,14 @@ python -X utf8 deploy/snarkdeploy/snarkdeploy.py restore 'D:/Backup/snark-recove
 
 Используйте пустые целевые каталоги. Restore применяет вложенные Git bundles без необходимости получить текущие исходники из сети, затем восстанавливает source patch/untracked files и обновляет абсолютные пути registry/pointer. Зависимости Node/Python не входят в source ZIP: установите их из закреплённых manifest/lock files. Portable Mixar executable и его встроенный Python входят в отдельный application компонент.
 
+Для воспроизводимой изолированной проверки всего архива выберите **новый, ещё не существующий** каталог. Скрипт направляет все компоненты, APPDATA и LOCALAPPDATA внутрь него и проверяет отсутствие переноса ключей:
+
+```powershell
+python -X utf8 tests/stack/restore_archive_probe.py 'D:/Backup/snark-recovery-<timestamp>.zip' --target 'D:/RestoreTest/stack'
+```
+
+Git bundle сохраняет историю основного Mixar source repo. Полная история Blender upstream submodule в архив не загружается; для новой native C++ сборки отдельно получите этот submodule и установите поддерживаемый MSVC toolset. Это не требуется для запуска включённого portable runtime.
+
 На новой машине восстановите provider `.env`, Persona extension token и tunnel registration вручную из вашего vault. DPAPI ключ привязан к Windows пользователю/машине и не экспортируется. Создание нового RPC ключа — отдельное действие владельца:
 
 ```powershell

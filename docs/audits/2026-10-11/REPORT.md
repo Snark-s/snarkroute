@@ -15,16 +15,20 @@
 | API библиотеки терял routingPolicy и errorDetails | Высокий | Политика передаётся во все пять генерационных обработчиков; код, источник и retryable сохраняются | 44 library tests, включая два новых API сценария |
 | 402 провайдера превращался в ошибку собственных кредитов Mixar | Высокий | В local vendor subscription path отключён; ошибка содержит origin/provider/status; исчерпанный провайдер временно исключается | C: mocked upstream HTTP 402 + реальный класс HTTPClient в Mixar |
 | Mixar vendor REST/auth/WebSocket/updates обходили локальный маршрут | Высокий | Ранние transport guards; собственный local marker; vendor credentials не читаются/не обновляются; прямые inference порты запрещены | Настоящий portable Mixar: REST, requests, urllib/WebSocket guards; credential spy; локальная генерация через sidecar |
+| Общий transport guard разрешал прямые H3/upscale/YuE worker запросы | Высокий | Media inference ports исключены из разрешённых для Mixar transport; запросы проходят SnarkRoute | Три regression subtests и реальный portable requests guard |
+| Vendor connector мог открыть CORS `*` scene/export HTTP без аутентификации | Критический | `modules/connector/core/sidecar.py:start_sidecar` запрещён в local до создания listener; используется защищённый RPC | Regression до исправления и настоящий portable импорт/вызов после исправления; vendor cloud behavior сохранён |
 | Защищённый RPC клиент читал только plaintext token | Высокий | Общий read-only DPAPI reader для сервера и клиентов; отсутствие ключа блокирует запрос | Настоящий `local_tool_agent._post` с разрешённым ключом владельца |
 | Blender RPC допускал браузерные запросы и небезопасную обработку | Критический | Token, loopback Host, Origin/fetch restrictions, JSON limit, очередь main thread, fencing таймаута, ограниченный export root | G/H: реальный Blender HTTP RPC; внешний Origin/Host отклонены; сцена неизменна |
-| План/выполнение/проверка смешивались; успешное исполнение считалось достижением цели | Высокий | AST contract, отдельная read-only verification, только boolean `passed:true`, task phases, отказ оптимистичному reporter | E/F: неправильный код отклонён; реальный Cube x=1 против цели x=2 не verified |
+| План/выполнение/проверка смешивались; успешное исполнение считалось достижением цели | Высокий | AST contract, отдельная read-only verification с чтением сцены; константный положительный receipt запрещён; task phases, отказ оптимистичному reporter | E/F: неправильный код отклонён; реальный Cube x=1 против цели x=2 не verified; literal receipt regression |
 | Нет сериализации GPU admission / двойные старты | Высокий | Общий admission lock, VRAM checks, identity preflight, ownership, ограниченный supervisor | I: конкурентные admissions и отказы; idle health snapshot; ресурсная гонка без тяжёлого запуска |
 | Python venv PID не совпадал с владельцем socket | Средний | Допустим непосредственный дочерний interpreter проверенного venv launcher, с проверкой аргумента сервера | Настоящий перезапуск MCP и identity API v1 |
 | Persona health требовал bearer, launcher объявлял живой сервер неготовым | Средний | Публичная только identity health; данные по-прежнему требуют bearer; Host/Origin сохранены | Настоящий /health, реальные HTTP auth tests, 159 Persona tests |
 | Медленный Persona startup повторно запускал дочерние процессы | Средний | Хранение собственного pending child; повторные вызовы не создают дубликат; bounded retries | Node regression |
 | CEP file-origin конфликтовал с новым HTTP boundary | Средний | Native Node loopback transport в CEP; одноразовый pairing; null Origin разрешён только аутентифицированному AE WebSocket | Server pairing tests, CEP tests и production build |
 | Локальные пути содержали mojibake/зависели от прежней буквы диска | Высокий | UTF-8 registry, относительные пути и environment roots; restore перезаписывает registry и pointer | K: relocation tests; L: отдельное восстановление |
-| ZIP restore допускал traversal, drive/ADS и выход через symlink | Высокий | Проверка всех members и resolved destination containment, запрет duplicate names | 18 recovery tests; symlink test требует права ОС и был пропущен |
+| ZIP restore допускал traversal, drive/ADS и выход через symlink | Высокий | Проверка всех members и resolved destination containment, запрет duplicate names | 19 recovery tests: 18 passed; symlink test требует права ОС и был пропущен |
+| Snapshot автоматически загружал историю upstream Blender submodule | Средний | Fetch основной Git истории и bundle используют `--no-recurse-submodules` | Regression test; первоначальный незавершённый `.partial` сохранён, действующий архив создаётся заново |
+| Restore мог изменить реестр исходной установки через унаследованную environment переменную | Высокий | Явный путь реестра восстановленного SnarkRoute; загрузка canonical document один раз | Relocation regression подтверждает неизменность старого реестра; полный restore probe ограничивает все назначения новым каталогом |
 
 ## Конечная схема
 
@@ -52,7 +56,7 @@ flowchart LR
 
 ## Состав изменений
 
-Полный список и SHA256 до/после: `changes.json`; внешние компоненты: `external-changes.json`; коммиты: `commits.json`. Прежние пользовательские правки в файлах, которые затронул аудит, отделены checkpoint-коммитами. Остальные прежние изменения оставлены в рабочем дереве. Видео и очередь H3 не добавлены в коммиты аудита.
+Полный список и SHA256 до/после: `changes.json`; внешние компоненты: `external-changes.json`; коммиты: `commits.json`. Классифицированные статические network/service call sites Mixar с файлами, функциями и строками: `network-inventory.json`. Это инвентаризация first-party Python, а не перехват всего сетевого трафика native binary. Прежние пользовательские правки в файлах, которые затронул аудит, отделены checkpoint-коммитами. Остальные прежние изменения оставлены в рабочем дереве. Видео и очередь H3 не добавлены в коммиты аудита.
 
 Защищённая локальная сборка находится в каталоге `mixar_runtime` реестра. Она содержит копию исходного Mixar executable с тем же SHA256 и обновлёнными Python модулями. Исходная установка `C:\Program Files\Mixar` не изменена. Загрузка Python overlay через startup оказалась слишком поздней; экспериментальная накладка удалена, рабочее решение применяет политику до vendor imports.
 
@@ -65,6 +69,8 @@ E/F/G/H выполнены настоящим portable Mixar/Blender на зав
 J выполнен частично: два новых процесса Blender, настоящий `bpy` theme, постоянные startup assets, hashes неизменны, заводская сцена восстановлена. Отображение всех кнопок, плавающего агента, рамок и масштабирование при разных DPI **не проверены**: native computer APIs недоступны. Полная native C++ сборка также не подтверждена: установленный MSVC 14.41 старше требуемого toolset. Янтарная тема и оригинальный Jabberwock asset существовали до аудита; их сохранение проверено, их создание не приписывается аудиту.
 
 I проверяет admission и concurrency контролируемыми snapshot/launch зависимостями. Одновременно тяжёлые GPU модели специально не запускались. K проверяет перенесённые корни и реестр. Результат полного L вынесен в `recovery-verification.json`.
+
+Последние проверки: 23 Node contracts, 23 cross-component Python tests, 159 PersonaCore tests, 72 server tests (включая 44 library tests), 18 recovery tests и один пропущенный symlink test. Server/executor TypeScript build, Studio TypeScript и CEP TypeScript/production build прошли. CEP имеет отдельные 11 focused tests. Vitest из корня запускается с `--exclude '**/.tmp/**'`, чтобы сохранённые до аудита исходники не попадали в текущие тесты.
 
 AST проверка ограничивает допустимый план, но не является полноценной изоляцией Python. Локальный RPC доступен процессам владельца ключа; это доверенные процессы пользователя. Установленные bridge/startup расширения не объявляются вредоносными: их собственные функции сцены, journal, memory sync, cloud tunnel и updater являются штатной функциональностью, требующей явной границы доверия.
 

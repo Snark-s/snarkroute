@@ -19,6 +19,15 @@ SPEC.loader.exec_module(SNARKDEPLOY)
 
 
 class SnarkDeployTests(unittest.TestCase):
+    def test_unshallow_never_recursively_downloads_submodule_history(self):
+        replies = [SimpleNamespace(stdout='true',stderr='',returncode=0),
+                   SimpleNamespace(stdout='fixture-origin',stderr='',returncode=0),
+                   SimpleNamespace(stdout='',stderr='',returncode=0),
+                   SimpleNamespace(stdout='false',stderr='',returncode=0)]
+        with patch.object(SNARKDEPLOY, 'run', side_effect=replies) as commands:
+            SNARKDEPLOY.ensure_full_git_history(Path('fixture-repo'))
+        self.assertIn('--no-recurse-submodules', commands.call_args_list[2].args[0])
+
     def test_verify_rejects_windows_and_posix_archive_traversal(self):
         for member in ('files/demo/../../outside.txt', 'files/demo/..\\outside.txt',
                        '/outside.txt', 'C:/outside.txt', 'files/demo/file.txt:stream'):
@@ -57,8 +66,13 @@ class SnarkDeployTests(unittest.TestCase):
             variables['SNARKROUTE_ROOT'] = {'default':str(route)}
             variables['SNARK_REGISTRY_PATH'] = {'default':str(root / 'service-registry.json')}
             manifest = {'variables':variables,'services':[{'id':'snarkroute','registry_service':'snarkroute'}]}
-            with patch.dict(SNARKDEPLOY.os.environ, {'LOCALAPPDATA':str(root / 'LocalAppData')}, clear=True):
-                generated = SNARKDEPLOY.write_registry(manifest)
+            old_registry = root / 'original-registry.json'
+            old_registry.write_text(json.dumps(registry), encoding='utf-8')
+            original_content = old_registry.read_bytes()
+            with patch.dict(SNARKDEPLOY.os.environ, {'LOCALAPPDATA':str(root / 'LocalAppData'),
+                    'SNARKROUTE_PORT_REGISTRY':str(old_registry)}, clear=True):
+                generated = SNARKDEPLOY.write_registry(manifest, registry_path=route / 'service-endpoints.json')
+            self.assertEqual(old_registry.read_bytes(), original_content)
             self.assertEqual(json.loads(generated.read_text())['services'][0]['endpoint'], 'http://127.0.0.1:24317')
             canonical = json.loads((route / 'service-endpoints.json').read_text())
             self.assertEqual(canonical['paths']['snarkroute'], str(route))

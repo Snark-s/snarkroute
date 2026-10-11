@@ -26,6 +26,12 @@ try:
 except ValueError:
     rejected=True
 assert rejected and before=={obj.name:tuple(obj.location) for obj in bpy.context.scene.objects}
+try:
+    validate_blender_code('__RESULT__={"passed":True}', 'verify')
+except ValueError:
+    pass
+else:
+    raise AssertionError('Verification must inspect the real scene before reporting success')
 cube=bpy.data.objects['Cube']
 code='bpy.data.objects["Cube"].location.x=1\n__RESULT__={"object":"Cube"}'
 verify='__RESULT__={"passed":bpy.data.objects["Cube"].location.x==2,"actual":bpy.data.objects["Cube"].location.x}'

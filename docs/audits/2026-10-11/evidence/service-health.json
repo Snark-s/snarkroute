@@ -1,6 +1,6 @@
 {
   "registry": "Y:\\Процесс\\SnarkRoute\\service-endpoints.json",
-  "capturedAt": "2026-10-11T10:02:31.002Z",
+  "capturedAt": "2026-10-11T10:34:41.672Z",
   "services": [
     {
       "id": "snarkroute",
@@ -65,13 +65,13 @@
     {
       "id": "launcher",
       "port": 5172,
-      "state": "stopped",
+      "state": "listening_identity_unverified",
       "enabled": true
     },
     {
       "id": "launcher_control",
       "port": 5176,
-      "state": "stopped",
+      "state": "listening_identity_unverified",
       "enabled": true
     },
     {

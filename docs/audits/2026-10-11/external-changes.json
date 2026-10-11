@@ -9,7 +9,7 @@
     "component": "mixar-source",
     "relative": "src/scripts/mixar/config/local_mode.py",
     "before": null,
-    "after": "ca163b59f367ef3e984d02758a53c9f69a7ecfaa1facefaf281f32692ae72273"
+    "after": "dabf505ef94b00dbe498ab6ca46fa9b96fc9e2cc6fb561986bdf80eeae84f082"
   },
   {
     "component": "mixar-source",
@@ -46,6 +46,12 @@
     "relative": "src/scripts/mixar/modules/common/updates/core/trigger.py",
     "before": "8bf3758b15ecb44d52c22205f6531182896bfcdc7dd14c7bdb2beb779bd6f216",
     "after": "04605a0d2e86d70401915e599187ebe328d5a2821002f07a7b673fda7cde77cd"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/connector/core/sidecar.py",
+    "before": "1b435c064130c9a17f0ad76feb836518a8622f0e6d206776faa5f385a4e8384d",
+    "after": "eaf5108c2a3b0a2d3bdedf46a9056438b960f9f959d7ba177af69fc170576e18"
   },
   {
     "component": "mixar-source",
@@ -207,7 +213,7 @@
     "component": "mixar-local",
     "relative": "plan_contract.py",
     "before": null,
-    "after": "ca17d09fc203a383b9c2b70897ac273fec7460b8dc420788129e1372a5aefa91"
+    "after": "18f1123cc4140251c3a7b2a4d90ef820b53df5ca6f3122abdfa10af2b7a79f93"
   },
   {
     "component": "mixar-local",
@@ -405,7 +411,7 @@
     "component": "mixar-runtime",
     "relative": "5.2\\scripts\\mixar\\config\\local_mode.py",
     "before": null,
-    "after": "ca163b59f367ef3e984d02758a53c9f69a7ecfaa1facefaf281f32692ae72273"
+    "after": "dabf505ef94b00dbe498ab6ca46fa9b96fc9e2cc6fb561986bdf80eeae84f082"
   },
   {
     "component": "mixar-runtime",
@@ -442,6 +448,12 @@
     "relative": "5.2\\scripts\\mixar\\modules\\common\\updates\\core\\trigger.py",
     "before": "8bf3758b15ecb44d52c22205f6531182896bfcdc7dd14c7bdb2beb779bd6f216",
     "after": "04605a0d2e86d70401915e599187ebe328d5a2821002f07a7b673fda7cde77cd"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\connector\\core\\sidecar.py",
+    "before": "1b435c064130c9a17f0ad76feb836518a8622f0e6d206776faa5f385a4e8384d",
+    "after": "eaf5108c2a3b0a2d3bdedf46a9056438b960f9f959d7ba177af69fc170576e18"
   },
   {
     "component": "mixar-runtime",

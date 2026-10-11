@@ -333,13 +333,13 @@
     "component": "snarkroute",
     "relative": "deploy/snarkdeploy/snarkdeploy.py",
     "before": "7e3ada13b0f150c2e053121f8d23d3df7639430d2a5ce11aecb686866b9d38ba",
-    "after": "37750ae19e7a0284ea6d325c5427e6936b5baf4651dbb6a6b823af6e42f8d02c"
+    "after": "24bf4b95806b3a8749412333d656daaef4894586d0d975fee6fc23a40d0f7dea"
   },
   {
     "component": "snarkroute",
     "relative": "deploy/snarkdeploy/test_snarkdeploy.py",
     "before": "464aadf1e9518bb50d7ca45e05455035a7bf60ddbb2ad3ba283c8137a4294240",
-    "after": "995af1c8e6a602f4d1302fd4198a93cc717927320dd3bcd524dd5d7806ffb399"
+    "after": "101d663b71ef2af30fc0a65c995346e8b2dcb9b7dded3e226a9833f122188dbe"
   },
   {
     "component": "snarkroute",
@@ -441,19 +441,37 @@
     "component": "snarkroute",
     "relative": "tests/stack/headless_contract_probe.py",
     "before": null,
-    "after": "01af43718c37950338c7a05e9694819051ed2b9ebdbb1d236f6082899cea264a"
+    "after": "a4bee2d4de93dcc517e2f74b1d11c4c98f7033f44e23b52c50eb2ec5d6302fa8"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/live_mixar_local_route.py",
+    "before": null,
+    "after": "f859c9d3b5ebeb8e83f65a057c691309899356075776a7504cc2fcb3349ba9e3"
   },
   {
     "component": "snarkroute",
     "relative": "tests/stack/live_unavailable_route.mjs",
     "before": null,
-    "after": "92f2dfb1dd09f7e263ff9681ae23c1b2f732d94d2da94f722aaad1869f6a2d00"
+    "after": "7435fda75722c9a97fe522fa02af4f39296e56846e73019d054aa3870ac0f507"
   },
   {
     "component": "snarkroute",
     "relative": "tests/stack/portable_mixar_probe.py",
     "before": null,
-    "after": "9d988dfb78232c9b9ef2b687ecd5ba016985cf703ba1f26a146e7977e5c357cd"
+    "after": "3f813499e6da08b1b9e80630fd083053577c36f7b4d3f46aadb659e501cb9ed6"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/restore_archive_probe.py",
+    "before": null,
+    "after": "00d445b20f3077fb117c6248be427613b3a1b8dad83f9500169614acb0c8b384"
+  },
+  {
+    "component": "snarkroute",
+    "relative": "tests/stack/snarkbridge_mcp_restart_probe.py",
+    "before": null,
+    "after": "89d7bbe0c4511e38b3358769a18be714d967de390e3c5bc377de8908018e2e51"
   },
   {
     "component": "snarkroute",
@@ -471,7 +489,7 @@
     "component": "snarkroute",
     "relative": "tests/stack/test_local_policy.py",
     "before": null,
-    "after": "6446ab5f9855ebd397feeb2a8d161462d50fff94436cdb3f0994ac6be84ced03"
+    "after": "e0fd7d6e5e12809f9a6b6b1191b897b142e8507f06be4a95dd6ce07e7d2ea6ee"
   },
   {
     "component": "snarkroute",
@@ -483,7 +501,7 @@
     "component": "snarkroute",
     "relative": "tests/stack/test_plan_contract.py",
     "before": null,
-    "after": "3683fd0328d2dd180d3852ec953d0fa8bf35e9a130c6e8b7a8a95d76f81794a7"
+    "after": "924ee9eaab1219e673b321479ade2614ead7c2a81c648fd5d32cf4e529193b4a"
   },
   {
     "component": "snarkroute",
@@ -507,7 +525,7 @@
     "component": "mixar-source",
     "relative": "src/scripts/mixar/config/local_mode.py",
     "before": null,
-    "after": "ca163b59f367ef3e984d02758a53c9f69a7ecfaa1facefaf281f32692ae72273"
+    "after": "dabf505ef94b00dbe498ab6ca46fa9b96fc9e2cc6fb561986bdf80eeae84f082"
   },
   {
     "component": "mixar-source",
@@ -544,6 +562,12 @@
     "relative": "src/scripts/mixar/modules/common/updates/core/trigger.py",
     "before": "8bf3758b15ecb44d52c22205f6531182896bfcdc7dd14c7bdb2beb779bd6f216",
     "after": "04605a0d2e86d70401915e599187ebe328d5a2821002f07a7b673fda7cde77cd"
+  },
+  {
+    "component": "mixar-source",
+    "relative": "src/scripts/mixar/modules/connector/core/sidecar.py",
+    "before": "1b435c064130c9a17f0ad76feb836518a8622f0e6d206776faa5f385a4e8384d",
+    "after": "eaf5108c2a3b0a2d3bdedf46a9056438b960f9f959d7ba177af69fc170576e18"
   },
   {
     "component": "mixar-source",
@@ -705,7 +729,7 @@
     "component": "mixar-local",
     "relative": "plan_contract.py",
     "before": null,
-    "after": "ca17d09fc203a383b9c2b70897ac273fec7460b8dc420788129e1372a5aefa91"
+    "after": "18f1123cc4140251c3a7b2a4d90ef820b53df5ca6f3122abdfa10af2b7a79f93"
   },
   {
     "component": "mixar-local",
@@ -903,7 +927,7 @@
     "component": "mixar-runtime",
     "relative": "5.2\\scripts\\mixar\\config\\local_mode.py",
     "before": null,
-    "after": "ca163b59f367ef3e984d02758a53c9f69a7ecfaa1facefaf281f32692ae72273"
+    "after": "dabf505ef94b00dbe498ab6ca46fa9b96fc9e2cc6fb561986bdf80eeae84f082"
   },
   {
     "component": "mixar-runtime",
@@ -940,6 +964,12 @@
     "relative": "5.2\\scripts\\mixar\\modules\\common\\updates\\core\\trigger.py",
     "before": "8bf3758b15ecb44d52c22205f6531182896bfcdc7dd14c7bdb2beb779bd6f216",
     "after": "04605a0d2e86d70401915e599187ebe328d5a2821002f07a7b673fda7cde77cd"
+  },
+  {
+    "component": "mixar-runtime",
+    "relative": "5.2\\scripts\\mixar\\modules\\connector\\core\\sidecar.py",
+    "before": "1b435c064130c9a17f0ad76feb836518a8622f0e6d206776faa5f385a4e8384d",
+    "after": "eaf5108c2a3b0a2d3bdedf46a9056438b960f9f959d7ba177af69fc170576e18"
   },
   {
     "component": "mixar-runtime",
