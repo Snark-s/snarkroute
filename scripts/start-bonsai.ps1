@@ -1,20 +1,20 @@
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)]
   [string]$BonsaiDemoPath
 )
 
-$demo = (Resolve-Path -LiteralPath $BonsaiDemoPath -ErrorAction Stop).Path
-$launcher = Join-Path $demo "scripts\start_llama_server.ps1"
-if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
-  throw "PrismML Bonsai-demo launcher was not found at: $launcher"
+$registryPath = $env:SNARKROUTE_PORT_REGISTRY
+if (-not $registryPath) { $registryPath = Join-Path (Split-Path $PSScriptRoot) 'service-endpoints.json' }
+$registry = Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json
+if ($registry.schemaVersion -ne 1 -or $registry.host -ne '127.0.0.1') { throw 'Invalid service endpoint registry.' }
+$base = 'http://127.0.0.1:' + $registry.services.snarkroute.port
+$health = Invoke-RestMethod -Uri ($base + '/health') -TimeoutSec 3 -MaximumRedirection 0
+if ($health.service -ne 'snarkroute-server' -or $health.apiVersion -ne 1 -or $health.ok -ne $true) {
+  throw 'Configured port is not a compatible SnarkRoute API.'
 }
-
-$env:BONSAI_FAMILY = "bonsai2"
-$env:BONSAI_MODEL = "27B"
-$env:BONSAI_HOST = "127.0.0.1"
-
-Write-Host "Starting the user-installed PrismML Bonsai 2 runtime at http://127.0.0.1:8080/v1"
-Write-Host "The official launcher selects the PrismML llama.cpp fork and enables --jinja for native tool calls."
-& $launcher
-exit $LASTEXITCODE
+if ($BonsaiDemoPath) {
+  Write-Host 'Configure BONSAI_DEMO_PATH in SnarkRoute; the runtime supervisor owns Bonsai startup.'
+}
+# SnarkRoute performs service identity and GPU admission before launching.
+$result = Invoke-RestMethod -Method Post -Uri ($base + '/api/system/bonsai/start') -TimeoutSec 30 -MaximumRedirection 0
+$result | ConvertTo-Json -Depth 3

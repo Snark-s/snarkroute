@@ -3,16 +3,16 @@
   "name": "Snark workstation",
   "variables": {
     "SNARK_PROCESS_ROOT": {
-      "default": "Y:\\Процесс"
+      "default": "Y:/Процесс"
     },
     "SNARK_APPS_ROOT": {
-      "default": "Y:\\Приложения"
+      "default": "Y:/Приложения"
     },
     "SNARKROUTE_ROOT": {
       "default": "{{SNARK_PROCESS_ROOT}}\\SnarkRoute"
     },
     "SNARK_MIXAR_SOURCE": {
-      "default": "{{SNARK_PROCESS_ROOT}}\\Jabberwock-Mixar-full"
+      "default": "{{SNARK_APPS_ROOT}}\\Jabberwock Mixar Source"
     },
     "SNARK_MIXAR_BACKEND": {
       "default": "{{SNARK_APPS_ROOT}}\\Jabberwock Mixar Local"
@@ -21,7 +21,7 @@
       "default": "{{SNARK_APPS_ROOT}}\\Jabberwock Blender"
     },
     "SNARK_MIXAR_INSTALL": {
-      "default": "C:\\Program Files\\Mixar"
+      "default": "{{SNARK_APPS_ROOT}}\\Jabberwock Mixar Runtime"
     },
     "SNARK_MIXAR_PROFILE": {
       "default": "{{APPDATA}}\\Mixar\\Mixar\\5.2"
@@ -145,7 +145,7 @@
       "path": "{{SNARK_MIXAR_INSTALL}}",
       "strategy": "copy",
       "snapshot": true,
-      "requires_admin_restore": true
+      "requires_admin_restore": false
     },
     {
       "id": "mixar-profile",
@@ -258,94 +258,55 @@
     {
       "id": "snarkroute",
       "label": "SnarkRoute API",
-      "endpoint": "http://127.0.0.1:4317",
-      "probe": {
-        "type": "http",
-        "path": "/api/capabilities"
-      },
       "component": "snarkroute",
       "start": "{{SNARKROUTE_ROOT}}\\start-server.bat",
-      "stop": "{{SNARKROUTE_ROOT}}\\stop-snarkroute.bat"
+      "stop": "{{SNARKROUTE_ROOT}}\\stop-snarkroute.bat",
+      "registry_service": "snarkroute"
     },
     {
       "id": "mixar-bridge",
       "label": "Mixar/Jabberwock bridge",
-      "endpoint": "tcp://127.0.0.1:18765",
-      "probe": {
-        "type": "tcp",
-        "host": "127.0.0.1",
-        "port": 18765
-      },
-      "component": "mixar-profile"
+      "component": "mixar-profile",
+      "registry_service": "mixar_bridge"
     },
     {
       "id": "mixar-local-backend",
       "label": "Mixar local backend",
-      "endpoint": "http://127.0.0.1:18880",
-      "probe": {
-        "type": "tcp",
-        "host": "127.0.0.1",
-        "port": 18880
-      },
-      "component": "mixar-local-backend"
+      "component": "mixar-local-backend",
+      "registry_service": "mixar_sidecar"
     },
     {
       "id": "h3-local",
       "label": "MiniMax H3 local worker",
-      "endpoint": "http://127.0.0.1:18080",
-      "probe": {
-        "type": "tcp",
-        "host": "127.0.0.1",
-        "port": 18080
-      },
       "component": "snarkroute",
-      "resource_class": "gpu-heavy"
+      "resource_class": "gpu-heavy",
+      "registry_service": "h3_worker"
     },
     {
       "id": "local-upscale",
       "label": "Local upscale worker",
-      "endpoint": "http://127.0.0.1:8091",
-      "probe": {
-        "type": "tcp",
-        "host": "127.0.0.1",
-        "port": 8091
-      },
       "component": "snarkroute",
-      "resource_class": "gpu"
+      "resource_class": "gpu",
+      "registry_service": "local_upscale"
     },
     {
       "id": "bonsai-local",
       "label": "Bonsai 2 27B local OpenAI API",
-      "endpoint": "http://127.0.0.1:8080/v1",
-      "probe": {
-        "type": "tcp",
-        "host": "127.0.0.1",
-        "port": 8080
-      },
       "component": "bonsai",
-      "resource_class": "gpu-heavy"
+      "resource_class": "gpu-heavy",
+      "registry_service": "bonsai_inference"
     },
     {
       "id": "ollama",
       "label": "Ollama local runtime",
-      "endpoint": "http://127.0.0.1:11434",
-      "probe": {
-        "type": "tcp",
-        "host": "127.0.0.1",
-        "port": 11434
-      },
-      "resource_class": "gpu"
+      "resource_class": "gpu",
+      "registry_service": "ollama_inference"
     },
     {
       "id": "freetoken-api",
       "label": "FreeToken OpenAI-compatible API",
-      "endpoint": "http://127.0.0.1:1919/v1",
-      "probe": {
-        "type": "tcp",
-        "host": "127.0.0.1",
-        "port": 1919
-      },
-      "component": "freetoken"
+      "component": "freetoken",
+      "registry_service": "freetoken"
     }
   ],
   "inventories": [
@@ -379,7 +340,10 @@
     "test-results",
     "logs",
     "*.tmp",
-    "*.part"
+    "*.part",
+    ".tmp",
+    ".codex",
+    "service-endpoints.paths.json"
   ],
   "global_npm_packages": [
     "@deepseek-ai/dsh@0.1.1-rc.2",
@@ -424,6 +388,11 @@
     }
   ],
   "secret_requirements": [
+    {
+      "id": "mixar-rpc-owner-token",
+      "path": "{{LOCALAPPDATA}}\\SnarkDream\\mixar_bridge_rpc.dpapi",
+      "restore": "owner-authorized-regenerate-with-scripts/provision-mixar-rpc-token.ps1"
+    },
     {
       "id": "snarkroute-env",
       "path": "{{SNARKROUTE_ROOT}}\\.env",

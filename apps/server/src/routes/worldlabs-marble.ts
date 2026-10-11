@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { generateMarbleWorld, getMarbleOperation, getMarbleWorld, WORLD_LABS_MARBLE_MODELS } from "../services/worldlabs-marble";
+import { assertPaidOperationPermission } from '../services/paid-operation-permission';
 
 export async function registerWorldLabsMarbleRoutes(app: FastifyInstance) {
   app.get("/api/worldlabs/marble/models", async () => {
@@ -59,12 +60,16 @@ export async function registerWorldLabsMarbleRoutes(app: FastifyInstance) {
       model?: string;
       displayName?: string;
       sourceImageHash?: string;
+      routingPolicy?: { allowPaid?: boolean };
     };
   }>("/api/worldlabs/marble/generate", async (request, reply) => {
     try {
+      assertPaidOperationPermission(request.body?.routingPolicy?.allowPaid, 'worldlabs-marble');
       return await generateMarbleWorld(request.body ?? {});
     } catch (error) {
-      return reply.code(statusForWorldLabsError(error)).send({ error: errorMessage(error) });
+      const policyError = error as { code?: string; origin?: string; providerId?: string };
+      return reply.code(policyError.code === 'PAID_PERMISSION_REQUIRED' ? 403 : statusForWorldLabsError(error)).send({ error: errorMessage(error),
+        ...(policyError.code ? { code: policyError.code, origin: policyError.origin, providerId: policyError.providerId } : {}) });
     }
   });
 

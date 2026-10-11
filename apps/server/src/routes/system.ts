@@ -85,7 +85,8 @@ export async function registerSystemRoutes(app: FastifyInstance) {
 
   app.post("/api/system/bonsai/start", async (_request, reply) => {
     try {
-      return reply.code(202).send({ ok: true, ...await startBonsai() });
+      await startLocalRuntime('bonsai');
+      return reply.code(202).send({ ok: true, ...await readBonsaiStatus() });
     } catch (error) {
       return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readBonsaiStatus() });
     }

@@ -10,17 +10,34 @@
     "snarkroute": {
       "port": 4317,
       "protocol": "http",
-      "healthPath": "/health"
+      "healthPath": "/health",
+      "identity": {
+        "field": "service",
+        "value": "snarkroute-server"
+      },
+      "apiVersion": 1,
+      "readyField": "ok"
     },
     "mixar_sidecar": {
       "port": 18880,
       "protocol": "http",
-      "healthPath": "/ready"
+      "healthPath": "/ready",
+      "identity": {
+        "field": "service",
+        "value": "jabberwock-mixar-local"
+      },
+      "apiVersion": 1,
+      "readyField": "ready"
     },
     "mixar_bridge": {
       "port": 18767,
       "protocol": "http",
-      "healthPath": "/health"
+      "healthPath": "/health",
+      "identity": {
+        "field": "service",
+        "value": "jabberwock-blender-bridge"
+      },
+      "apiVersion": 1
     },
     "mixar_watchdog": {
       "port": 18881,
@@ -29,7 +46,13 @@
     "snarkbridge_mcp": {
       "port": 8767,
       "protocol": "http",
-      "healthPath": "/mcp"
+      "healthPath": "/health",
+      "identity": {
+        "field": "service",
+        "value": "snarkbridge-mcp"
+      },
+      "apiVersion": 1,
+      "readyField": "ok"
     },
     "snarkbridge_tunnel": {
       "port": 8080,
@@ -45,6 +68,80 @@
       "port": 11434,
       "protocol": "http",
       "healthPath": "/api/version"
+    },
+    "persona_bridge": {
+      "port": 8766,
+      "protocol": "http",
+      "healthPath": "/health",
+      "identity": {
+        "field": "service",
+        "value": "PersonaCore"
+      },
+      "apiVersion": 1
+    },
+    "project_publisher": {
+      "port": 8765,
+      "protocol": "http",
+      "healthPath": "/health"
+    },
+    "launcher": {
+      "port": 5172,
+      "protocol": "http",
+      "healthPath": "/"
+    },
+    "launcher_control": {
+      "port": 5176,
+      "protocol": "http",
+      "healthPath": "/status"
+    },
+    "h3_worker": {
+      "port": 18080,
+      "protocol": "http",
+      "healthPath": "/ready"
+    },
+    "h3_sglang_fl2va": {
+      "port": 30010,
+      "protocol": "http",
+      "healthPath": "/health"
+    },
+    "h3_sglang_ref2va": {
+      "port": 30011,
+      "protocol": "http",
+      "healthPath": "/health"
+    },
+    "local_upscale": {
+      "port": 8091,
+      "protocol": "http",
+      "healthPath": "/health",
+      "identity": {
+        "field": "service",
+        "value": "snarkroute-local-upscale-worker"
+      }
+    },
+    "yue2": {
+      "port": 7862,
+      "protocol": "http",
+      "healthPath": "/health",
+      "identity": {
+        "field": "service",
+        "value": "YuE2"
+      }
+    },
+    "freetoken": {
+      "port": 1919,
+      "protocol": "http",
+      "healthPath": "/v1/models",
+      "enabled": false
     }
+  },
+  "paths": {
+    "snarkroute": ".",
+    "mixar_local": "../../Приложения/Jabberwock Mixar Local",
+    "mixar_source": "../../Приложения/Jabberwock Mixar Source",
+    "mixar_runtime": "../../Приложения/Jabberwock Mixar Runtime",
+    "mixar_startup": "C:\\Users\\serge\\AppData\\Roaming\\Mixar\\Mixar\\5.2\\scripts\\startup",
+    "personacore": "I:/PersonaCore",
+    "snarkbridge": "I:/SnarkBridge",
+    "bonsai_home": "I:/AI/Bonsai-demo"
   }
 }

@@ -20,6 +20,7 @@ function option(overrides: Partial<ModelOptionForNodeV1> & Pick<ModelOptionForNo
     catalogStatus: "known",
     nodeType: "ai.video.generate",
     storedModelId: overrides.providerModelId,
+    pricing: { status: "fresh", source: "manual", pricing: { request: 0 } },
     executionProvider: overrides.provider ?? "test-provider",
     ioContract: {
       inputs: [{ kind: "text", minItems: 0, maxItems: 1 }, { kind: "image", minItems: 0, maxItems: 2 }],
@@ -136,6 +137,7 @@ describe("semantic model selection over existing model options", () => {
       outputTypes: ["video"],
       capabilities: ["video.generate", "video.preserve_motion"],
       parameters: [],
+      pricing: { status: "fresh", source: "manual", pricing: { request: 0 } },
       metadata: { priority },
       ioContract: {
         inputs: [{ kind: "text", minItems: 0, maxItems: 1 }, { kind: "image", minItems: 0, maxItems: 1 }],

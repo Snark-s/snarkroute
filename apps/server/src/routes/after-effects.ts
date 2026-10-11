@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { aeBridgePairingService, type AeBridgePairingContext, type AeBridgePairingService } from "../ae-bridge/pairing";
 import { aeBridgeService, type AeBridgeService } from "../ae-bridge/service";
 import { appMode } from "../services/env";
+import { localBrowserOriginAllowed } from '../services/local-http-boundary';
 
 type AfterEffectsRouteOptions = { bridge?: AeBridgeService; pairing?: AeBridgePairingService };
 
@@ -17,7 +18,12 @@ export function registerAfterEffectsRoutes(app: FastifyInstance, options: AfterE
     scope.addHook("onClose", async () => clearInterval(sweep));
     scope.post("/api/ae-bridge/pair", async (request, reply) => {
       if (appMode() !== "local") return reply.code(404).send({ error: "AE bridge pairing is unavailable." });
-      const context = pairingContext(request.raw.socket.remoteAddress ?? request.ip, request.headers.origin);
+      // Native CEP Node transport has no browser Origin. Issue a credential
+      // bound to the file-origin WebSocket without trusting arbitrary null-origin pages.
+      if (!localBrowserOriginAllowed(request.headers.origin) || request.headers['sec-fetch-site'] === 'cross-site') {
+        return reply.code(403).send({ error: 'Use the native CEP transport for local pairing.' });
+      }
+      const context = pairingContext(request.raw.socket.remoteAddress ?? request.ip, request.headers.origin ?? 'null');
       if (!isLoopbackAddress(context.remoteAddress) || !isLoopbackHost(request.hostname) || !isAllowedCepOrigin(context.origin)) return reply.code(403).send({ error: "AE bridge pairing is restricted to local CEP clients." });
       reply.header("Access-Control-Allow-Origin", context.origin).header("Vary", "Origin").header("Cache-Control", "no-store");
       const credential = pairing.issue(context);

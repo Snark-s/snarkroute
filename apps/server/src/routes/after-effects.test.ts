@@ -10,6 +10,7 @@ import { AeBridgePairingService } from "../ae-bridge/pairing";
 import { AeBridgeService } from "../ae-bridge/service";
 import { createAeMcpServer } from "../mcp/server";
 import { registerAfterEffectsRoutes } from "./after-effects";
+import { registerLocalHttpBoundary } from '../services/local-http-boundary';
 
 const require = createRequire(import.meta.url);
 const WebSocket = require(require.resolve("ws", { paths: [dirname(require.resolve("@fastify/websocket"))] }));
@@ -28,10 +29,13 @@ describe("After Effects WebSocket route", () => {
     process.env.APP_MODE = "local";
     process.env.SNARKROUTE_AE_BRIDGE_TOKEN = "permanent-fallback-must-not-leak";
     const app = Fastify();
+    registerLocalHttpBoundary(app);
     registerAfterEffectsRoutes(app, { bridge: new AeBridgeService(), pairing: new AeBridgePairingService() });
     await app.ready();
 
-    const allowed = await app.inject({ method: "POST", url: "/api/ae-bridge/pair", headers: { host: "127.0.0.1:4317", origin: "null" }, remoteAddress: "127.0.0.1" });
+    const blocked = await app.inject({ method: 'POST', url: '/api/ae-bridge/pair', headers: { host: '127.0.0.1:4317', origin: 'null' } });
+    expect(blocked.statusCode).toBe(403);
+    const allowed = await app.inject({ method: "POST", url: "/api/ae-bridge/pair", headers: { host: "127.0.0.1:4317" }, remoteAddress: "127.0.0.1" });
     expect(allowed.statusCode).toBe(200);
     expect(allowed.json()).toMatchObject({ expiresInMs: expect.any(Number) });
     expect(allowed.json().pairingToken).toMatch(/^[A-Za-z0-9_-]+$/);
@@ -59,10 +63,10 @@ describe("After Effects WebSocket route", () => {
   it("consumes a pairing credential during WebSocket authentication", async () => {
     process.env.APP_MODE = "local";
     const bridge = new AeBridgeService(), pairing = new AeBridgePairingService();
-    const app = Fastify(); registerAfterEffectsRoutes(app, { bridge, pairing });
+    const app = Fastify(); registerLocalHttpBoundary(app); registerAfterEffectsRoutes(app, { bridge, pairing });
     await app.listen({ host: "127.0.0.1", port: 0 });
     const port = (app.server.address() as AddressInfo).port;
-    const pair = await app.inject({ method: "POST", url: "/api/ae-bridge/pair", headers: { host: `127.0.0.1:${port}`, origin: "null" }, remoteAddress: "127.0.0.1" });
+    const pair = await app.inject({ method: "POST", url: "/api/ae-bridge/pair", headers: { host: `127.0.0.1:${port}` }, remoteAddress: "127.0.0.1" });
     const token = pair.json().pairingToken as string;
     const socket = new WebSocket(`ws://127.0.0.1:${port}/api/ae-bridge?pairingToken=${encodeURIComponent(token)}`, { origin: "null" });
     try {

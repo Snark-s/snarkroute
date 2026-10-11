@@ -12,6 +12,7 @@ import { saveProviderUsageEventsForRunResult } from "../billing/provider-usage-e
 import { createTextPromptAsset } from "../prompt-library/service";
 import { fetchWithTimeout } from "../services/http";
 import { appMode } from "../services/env";
+import { assertModelInvocationPolicy } from '../services/model-routing-policy';
 import { providerNodeManifests } from "../providers/provider-node-manifests";
 import { loadCanvasActionManifests } from "../canvas-actions/service";
 import { embedImageProvenance, imageMetadataSchema, type SnarkImageMetadata } from "./image-metadata";
@@ -1250,6 +1251,7 @@ export async function generateImageNodeStackItem(input: GenerateImageNodeInput):
   await writeCurrentPrompt(nodePath, promptTemplate);
   const providerId = executionProviderForInput(input);
   const runResult = await runImageModelForStackItem({
+    routingPolicy: input.routingPolicy,
     nodeId: input.nodeId,
     modelId: input.modelId,
     executionProvider: providerId,
@@ -1336,6 +1338,7 @@ export async function generateVideoNodeStackItem(input: GenerateVideoNodeInput):
   const generationSettings = sanitizeImageGenerationSettings(input.parameters);
   await writeCurrentPrompt(nodePath, promptTemplate);
   const runResult = await runVideoModelForStackItem({
+    routingPolicy: input.routingPolicy,
     nodeId: input.nodeId,
     modelId: input.modelId,
     executionProvider: executionProviderForInput(input),
@@ -1389,6 +1392,7 @@ export async function generateAudioNodeStackItem(input: GenerateAudioNodeInput):
   const generationSettings = sanitizeImageGenerationSettings(input.parameters);
   await writeCurrentPrompt(nodePath, promptTemplate);
   const runResult = await runAudioModelForStackItem({
+    routingPolicy: input.routingPolicy,
     nodeId: input.nodeId,
     modelId: input.modelId,
     executionProvider: executionProviderForInput(input),
@@ -1534,6 +1538,7 @@ async function runTextNodeModel(input: GenerateTextNodeInput, promptTemplate: st
 async function executeTextNodeModel(input: GenerateTextNodeInput, prompt: string, images: GenerationImageInput[]): Promise<{ text: string; executionProvider: string }> {
   const executionProvider = executionProviderForInput(input);
   const runResult = await runTextModelForStackItem({
+    routingPolicy: input.routingPolicy,
     nodeId: input.nodeId,
     modelId: input.modelId,
     executionProvider,
@@ -1553,11 +1558,13 @@ async function executeTextNodeModel(input: GenerateTextNodeInput, prompt: string
   return { text, executionProvider };
 }
 
-async function runImageModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
+type LibraryInvocationPolicy = Pick<GenerateTextNodeInput, 'routingPolicy'>;
+
+async function runImageModelForStackItem(input: LibraryInvocationPolicy & { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
   if (!["auto", "polza", "openrouter", "gemini", "kie"].includes(input.executionProvider)) {
     throw new Error(`Execution provider "${input.executionProvider}" is not available for image generation.`);
   }
-  const autoCanUsePolza = input.executionProvider === "auto" && input.availableExecutionProviders?.includes("polza");
+  const autoCanUsePolza = appMode() === 'cloud' && input.executionProvider === "auto" && input.availableExecutionProviders?.includes("polza");
   const nodeType = input.executionProvider === "polza" || autoCanUsePolza ? "polza.image.generate" : "ai.image.generate";
   const route = {
     routeVersion: "0.1",
@@ -1569,14 +1576,14 @@ async function runImageModelForStackItem(input: { nodeId: string; modelId: strin
     nodes: [{
       id: "generate",
       type: nodeType,
-      params: imageGenerationParameters(input.modelId, input.executionProvider, input.fallbackAllowed, input.prompt, input.images, input.parameters)
+      params: { ...imageGenerationParameters(input.modelId, input.executionProvider, input.fallbackAllowed, input.prompt, input.images, input.parameters), routingPolicy: input.routingPolicy }
     }],
     edges: []
   };
   return executeSnarkRouteWithUsageStats(route);
 }
 
-async function runTextModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[] }) {
+async function runTextModelForStackItem(input: LibraryInvocationPolicy & { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[] }) {
   const autoOnlyPolza = input.executionProvider === "auto" && input.availableExecutionProviders?.length === 1 && input.availableExecutionProviders[0] === "polza";
   const directPolza = input.executionProvider === "polza" || autoOnlyPolza;
   const canFallbackFromPolza = input.executionProvider === "polza"
@@ -1590,6 +1597,7 @@ async function runTextModelForStackItem(input: { nodeId: string; modelId: string
         type: nodeType,
         params: {
           model: input.modelId,
+          routingPolicy: input.routingPolicy,
           executionProvider,
           providerMode,
           fallbackAllowed: input.fallbackAllowed !== false,
@@ -1600,7 +1608,7 @@ async function runTextModelForStackItem(input: { nodeId: string; modelId: string
       edges: []
     });
 
-  if (!directPolza) {
+  if (appMode() === 'local' || !directPolza) {
     return executeTextRoute(
       "ai.text",
       input.executionProvider,
@@ -1622,6 +1630,10 @@ function generationRunFailed(runResult: { status?: string; nodeResults?: Record<
 }
 
 function generationFailureError(runResult: object, message: string): Error {
+  const structured = (runResult as RunResult).nodeResults?.generate?.errorDetails;
+  if (structured) return Object.assign(new Error(message), structured, {
+    origin: structured.details?.origin ?? 'snarkroute', providerId: structured.details?.providerId,
+  });
   const details = runResult as { errorCode?: RunResult["errorCode"]; providerId?: string };
   return details.errorCode && details.providerId
     ? new ProviderRunError(message, details.errorCode, details.providerId)
@@ -1644,12 +1656,15 @@ async function persistSnarkUsageStats(runResult: RunResult): Promise<void> {
   }
 }
 
-async function runVideoModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
-  if (input.executionProvider === "openrouter") return runOpenRouterVideoModelForStackItem(input);
+async function runVideoModelForStackItem(input: LibraryInvocationPolicy & { nodeId: string; modelId: string; executionProvider: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; prompt: string; images: GenerationImageInput[]; parameters: ImageGenerationSettings }) {
+  if (input.executionProvider === "openrouter") {
+    await assertModelInvocationPolicy('openrouter', input.modelId, { routingPolicy: input.routingPolicy }, 'ai.video.generate');
+    return runOpenRouterVideoModelForStackItem(input);
+  }
   if (input.executionProvider !== "auto" && input.executionProvider !== "polza" && input.executionProvider !== "kie") {
     throw new Error("Video generation is currently available through polza.ai, OpenRouter, or KIE.ai.");
   }
-  const nodeType = input.executionProvider === "kie" ? "ai.video.generate" : "polza.video.generate";
+  const nodeType = appMode() === 'local' || input.executionProvider === "kie" ? "ai.video.generate" : "polza.video.generate";
   const route = {
     routeVersion: "0.1",
     route: {
@@ -1660,18 +1675,19 @@ async function runVideoModelForStackItem(input: { nodeId: string; modelId: strin
     nodes: [{
       id: "generate",
       type: nodeType,
-      params: imageGenerationParameters(input.modelId, input.executionProvider === "auto" ? "polza" : input.executionProvider, input.fallbackAllowed, input.prompt, input.images, input.parameters)
+      params: { ...imageGenerationParameters(input.modelId, appMode() === 'cloud' && input.executionProvider === "auto" ? "polza" : input.executionProvider, input.fallbackAllowed, input.prompt, input.images, input.parameters), routingPolicy: input.routingPolicy }
     }],
     edges: []
   };
   return executeSnarkRouteWithUsageStats(route);
 }
 
-async function runAudioModelForStackItem(input: { nodeId: string; modelId: string; executionProvider: string; prompt: string; mediaInputs: GenerationMediaInput[]; parameters: ImageGenerationSettings }) {
+async function runAudioModelForStackItem(input: LibraryInvocationPolicy & { nodeId: string; modelId: string; executionProvider: string; prompt: string; mediaInputs: GenerationMediaInput[]; parameters: ImageGenerationSettings }) {
   const provider = audioExecutionProvider(input.executionProvider, input.modelId);
   if (provider !== "openrouter" && provider !== "polza" && provider !== "elevenlabs") {
     throw new Error(`Execution provider "${input.executionProvider}" is not available for audio generation.`);
   }
+  await assertModelInvocationPolicy(provider, input.modelId, { routingPolicy: input.routingPolicy }, 'ai.audio.generate');
   if (input.mediaInputs.length > 0 && !audioModelAcceptsMediaInputs(provider, input.modelId)) {
     throw new Error("The selected audio execution path does not accept connected media inputs yet.");
   }

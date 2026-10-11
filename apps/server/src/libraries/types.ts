@@ -412,6 +412,7 @@ export interface AppendVideoStackInput extends AppendImageStackInput {}
 export interface AppendAudioStackInput extends AppendImageStackInput {}
 
 export interface GenerateImageNodeInput {
+  routingPolicy?: { allowPaid?: boolean; localModels?: 'allow' | 'exclude' };
   nodeId: string;
   modelId: string;
   prompt?: string;
@@ -429,6 +430,7 @@ export interface GenerateVideoNodeInput extends GenerateImageNodeInput {}
 export interface GenerateAudioNodeInput extends GenerateImageNodeInput {}
 
 export interface GenerateTextNodeInput {
+  routingPolicy?: { allowPaid?: boolean; localModels?: 'allow' | 'exclude' };
   nodeId: string;
   modelId: string;
   prompt?: string;

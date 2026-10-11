@@ -6,20 +6,21 @@ import { join } from "node:path";
 import { ensurePersonaBridge, startPersonaBridgeSupervisor } from "./persona-bridge.mjs";
 import { startLauncherControl } from "./launcher-control.mjs";
 import { createProjectPublisherControl, defaultProjectPublisherRoot } from "./project-publisher-control.mjs";
+import { registeredPort, serviceHealthy } from "./local-service-registry.mjs";
 
 try { process.loadEnvFile(join(process.cwd(), ".env")); } catch (error) { if (error.code !== "ENOENT") throw error; }
 
 await ensurePersonaBridge();
 if (process.env.PERSONA_BRIDGE_AUTO_START !== "0") startPersonaBridgeSupervisor();
 
-const apiPort = Number(process.env.API_PORT ?? 4317);
-const launcherPort = Number(process.env.LAUNCHER_PORT ?? 5172);
+const apiPort = registeredPort('snarkroute', 'API_PORT');
+const launcherPort = registeredPort('launcher', 'LAUNCHER_PORT');
 const apiUrl = `http://127.0.0.1:${apiPort}/api/health`;
 const launcherUrl = `http://127.0.0.1:${launcherPort}`;
-const controlPort = Number(process.env.SNARKROUTE_LAUNCHER_CONTROL_PORT ?? 5176);
+const controlPort = registeredPort('launcher_control', 'SNARKROUTE_LAUNCHER_CONTROL_PORT');
 const projectPublisher = createProjectPublisherControl({
   root: defaultProjectPublisherRoot(process.cwd()),
-  port: Number(process.env.PROJECT_PUBLISHER_PORT ?? 8765)
+  port: registeredPort('project_publisher', 'PROJECT_PUBLISHER_PORT')
 });
 
 const owner = await startLauncherControl({ apiPort, controlPort, projectPublisher });
@@ -40,9 +41,9 @@ if (!await portOpen(launcherPort)) {
   startPackage("@snarkroute/launcher", "preview", { LAUNCHER_PORT: String(launcherPort), VITE_API_BASE_URL: `http://127.0.0.1:${apiPort}`, VITE_LAUNCHER_CONTROL_PORT: String(controlPort) }, ["--host", "127.0.0.1", "--port", String(launcherPort), "--strictPort"]);
 }
 
-const [apiReady, launcherReady] = await Promise.all([waitForUrl(apiUrl), waitForUrl(launcherUrl)]);
+const [apiReady, launcherReady] = await Promise.all([waitForUrl(apiUrl, 'snarkroute'), waitForUrl(launcherUrl)]);
 if (!apiReady || !launcherReady) {
-  console.error("Не удалось запустить мастерскую. Проверьте, не заняты ли порты 4317 и 5172.");
+  console.error(`Не удалось запустить мастерскую. Проверьте сервисы и порты ${apiPort} и ${launcherPort}.`);
   process.exitCode = 1;
 } else {
   if (!process.argv.includes("--no-browser")) openUrl(launcherUrl);
@@ -76,10 +77,16 @@ function portOpen(port) {
   });
 }
 
-async function waitForUrl(url, timeoutMs = 60000) {
+async function waitForUrl(url, service, timeoutMs = 60000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    try { if ((await fetch(url, { signal: AbortSignal.timeout(1200) })).status < 500) return true; } catch { /* starting */ }
+    try {
+      if (service) { if (await serviceHealthy(service)) return true; }
+      else {
+        const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(1200) });
+        if (response.status === 200 && (await response.text()).includes('<title>Мастерская</title>')) return true;
+      }
+    } catch { /* starting */ }
     await new Promise((resolve) => setTimeout(resolve, 700));
   }
   return false;

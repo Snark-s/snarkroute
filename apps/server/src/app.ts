@@ -35,6 +35,7 @@ import { startModelPricingRefreshScheduler } from "./billing/model-pricing-refre
 import { appMode, assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
 import { createDecisionRuntimeFromEnv } from "./services/decision-runtime";
+import { localBrowserOriginAllowed, registerLocalHttpBoundary } from './services/local-http-boundary';
 export function buildServer() {
   loadRootEnv();
   assertProductionSafety();
@@ -44,7 +45,10 @@ export function buildServer() {
   const supervisorBridge = jabberwockMemory ? new SupervisorBridge(jabberwockMemory, { decisionExecutor: decisionRuntime.executor }) : null;
   app.addHook("onClose", async () => decisionRuntime.close());
   if (jabberwockMemory) app.addHook("onClose", async () => jabberwockMemory.close());
-  app.register(cors, { origin: true, credentials: true });
+  if (appMode() === 'local') registerLocalHttpBoundary(app);
+  app.register(cors, { origin: appMode() === 'local'
+    ? (origin, callback) => callback(null, localBrowserOriginAllowed(origin))
+    : true, credentials: true });
   registerAfterEffectsRoutes(app);
   void ensureDevUsers();
   void refreshPromptLibraryCache();

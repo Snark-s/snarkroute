@@ -8,12 +8,16 @@ export const REQUIRED_LOCAL_SERVICES = [
   "snarkbridge_mcp", "snarkbridge_tunnel", "bonsai_inference", "ollama_inference"
 ] as const;
 export type LocalServiceName = typeof REQUIRED_LOCAL_SERVICES[number];
+export type RegisteredServiceName = LocalServiceName | "persona_bridge" | "project_publisher"
+  | "launcher" | "launcher_control" | "h3_worker" | "h3_sglang_fl2va" | "h3_sglang_ref2va"
+  | "local_upscale" | "yue2" | "freetoken";
 type Service = { port: number; protocol: "http" | "tcp"; healthPath?: string };
 export type ServiceEndpointRegistry = {
   schemaVersion: 1;
   host: "127.0.0.1";
   modelPolicy: { routeVia: "snarkroute"; directMixarInference: false };
-  services: Record<LocalServiceName, Service>;
+  services: Record<LocalServiceName, Service> & Partial<Record<RegisteredServiceName, Service>>;
+  paths?: Record<string, string>;
 };
 
 export function serviceEndpointRegistry(path = process.env.SNARKROUTE_PORT_REGISTRY?.trim()
@@ -29,9 +33,8 @@ export function serviceEndpointRegistry(path = process.env.SNARKROUTE_PORT_REGIS
   }
   const ports = new Set<number>();
   const names = Object.keys(doc.services);
-  if (names.length !== REQUIRED_LOCAL_SERVICES.length
-    || REQUIRED_LOCAL_SERVICES.some(name => !names.includes(name))) {
-    throw new Error("Local registry has missing or unknown service IDs");
+  if (REQUIRED_LOCAL_SERVICES.some(name => !names.includes(name))) {
+    throw new Error("Local registry has missing service IDs");
   }
   for (const [name, service] of Object.entries(doc.services)) {
     if (!service || !Number.isInteger(service.port) || service.port < 1024
@@ -47,14 +50,22 @@ export function serviceEndpointRegistry(path = process.env.SNARKROUTE_PORT_REGIS
   return doc as ServiceEndpointRegistry;
 }
 
-export function localServicePort(name: LocalServiceName): number {
-  return serviceEndpointRegistry().services[name].port;
-}
-export function localServiceUrl(name: LocalServiceName, path = ""): string {
+export function localServicePort(name: RegisteredServiceName): number {
   const service = serviceEndpointRegistry().services[name];
+  if (!service) throw new Error(`Unregistered local service: ${name}`);
+  return service.port;
+}
+export function localServiceUrl(name: RegisteredServiceName, path = ""): string {
+  const service = serviceEndpointRegistry().services[name];
+  if (!service) throw new Error(`Unregistered local service: ${name}`);
   if (service.protocol !== "http") throw new Error(`${name} is TCP-only`);
   if (path && !path.startsWith("/")) throw new Error("Service path must be absolute");
   return `http://127.0.0.1:${service.port}${path}`;
+}
+export function localServiceHome(name: string): string | undefined {
+  const registryPath = process.env.SNARKROUTE_PORT_REGISTRY?.trim() || join(repoRoot, "service-endpoints.json");
+  const path = serviceEndpointRegistry(registryPath).paths?.[name];
+  return path ? resolve(registryPath, "..", path) : undefined;
 }
 export function assertLocalInferenceEndpoint(url: string): void {
   const endpoint = new URL(url);

@@ -116,8 +116,8 @@ export type H3RenderResult = {
 };
 
 export type H3QueueRuntime = {
-  acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Promise<void>, items: H3QueueItem[]): Promise<H3QueueLease>;
-  render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progress: number, stage?: string) => Promise<void>, onJobCreated?: (workerJobId: string) => Promise<void>): Promise<H3RenderResult>;
+  acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Promise<void>, items: H3QueueItem[], invocation?: { allowPaid?: boolean }): Promise<H3QueueLease>;
+  render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progress: number, stage?: string) => Promise<void>, onJobCreated?: (workerJobId: string) => Promise<void>, invocation?: { allowPaid?: boolean }): Promise<H3RenderResult>;
   cancel?(item: H3QueueItem, lease: H3QueueLease): Promise<void>;
   cleanup(lease: H3QueueLease): Promise<void>;
 };
@@ -327,7 +327,7 @@ export class H3QueueService {
     return { deletedCount };
   }
 
-  async start(mode: H3SessionMode): Promise<H3QueueSession> {
+  async start(mode: H3SessionMode, invocation: { allowPaid?: boolean } = {}): Promise<H3QueueSession> {
     await this.initialize();
     if (this.activeRun || ["connecting", "rendering", "cancelling", "cleaning"].includes(this.state.session.status)) throw new Error("An H3 render session is already active.");
     if (!this.state.items.some((item) => isRunnable(item))) throw new Error("Select at least one non-archived H3 job to render.");
@@ -352,7 +352,7 @@ export class H3QueueService {
     this.stopRequested = false;
     this.cancellationDispatched = false;
     await this.persist();
-    this.activeRun = this.run(mode).catch((error) => {
+    this.activeRun = this.run(mode, { allowPaid: invocation.allowPaid === true }).catch((error) => {
       // A failed final disk write must not become an unhandled rejection
       // that terminates the API and leaves every client showing stale progress.
       this.state.session.status = this.state.session.managedInstanceId && this.state.session.cleanupConfirmed !== true ? "cleanup_failed" : "failed";
@@ -421,7 +421,7 @@ export class H3QueueService {
     return clone(this.state.session);
   }
 
-  private async run(mode: H3SessionMode): Promise<void> {
+  private async run(mode: H3SessionMode, invocation: { allowPaid?: boolean }): Promise<void> {
     let lease: H3QueueLease | undefined;
     let finalStatus: H3SessionStatus = "completed";
     try {
@@ -433,7 +433,7 @@ export class H3QueueService {
         this.state.session.hourlyPriceUsd = acquiredLease.hourlyPriceUsd;
         this.state.session.updatedAt = new Date().toISOString();
         await this.persist();
-      }, runnableItems);
+      }, runnableItems, invocation);
       const renderLease = lease;
       this.activeLease = lease;
       this.state.session.managedInstanceId = lease.managedInstanceId;
@@ -474,7 +474,7 @@ export class H3QueueService {
                 try { await this.runtime.cancel(item, renderLease); }
                 catch (error) { this.cancellationDispatched = false; throw error; }
               }
-            }
+            }, invocation
           );
           item.status = "succeeded";
           item.progress = 1;

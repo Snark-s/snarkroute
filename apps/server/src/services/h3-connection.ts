@@ -49,7 +49,12 @@ export async function inspectH3Connection(options: H3ConnectionOptions = {}): Pr
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5_000);
   const headers = { Authorization: `Bearer ${serviceToken}` };
   try {
-    const readyResponse = await fetcher(`${workerUrl}/ready`, { headers, signal: controller.signal });
+    const identityResponse = await fetcher(`${workerUrl}/health`, { signal:controller.signal, redirect:'error', headers:{ Accept:'application/json' } });
+    const identity = await jsonObject(identityResponse);
+    if (identityResponse.status !== 200 || identity.service !== 'snarkroute-minimax-h3-worker' || identity.version !== '0.2.0') {
+      return { ...base, error:'H3 worker identity/API version mismatch; no authenticated model request was sent.' };
+    }
+    const readyResponse = await fetcher(`${workerUrl}/ready`, { headers, signal: controller.signal, redirect:'error' });
     const readyPayload = await jsonObject(readyResponse);
     if (!readyResponse.ok) {
       return {
@@ -60,7 +65,7 @@ export async function inspectH3Connection(options: H3ConnectionOptions = {}): Pr
       };
     }
 
-    const capabilitiesResponse = await fetcher(`${workerUrl}/v1/capabilities`, { headers, signal: controller.signal });
+    const capabilitiesResponse = await fetcher(`${workerUrl}/v1/capabilities`, { headers, signal: controller.signal, redirect:'error' });
     const capabilitiesPayload = await jsonObject(capabilitiesResponse);
     const capabilities = Array.isArray(capabilitiesPayload.capabilities)
       ? capabilitiesPayload.capabilities.filter(isCapabilityStatus)

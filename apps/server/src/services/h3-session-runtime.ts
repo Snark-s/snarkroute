@@ -9,6 +9,7 @@ import { openH3SshTunnel, resolveH3SshPrivateKeyPath, type H3SshTunnel } from ".
 import { H3_VAST_IMAGE, H3_VAST_IMAGE_TAG, H3_VAST_SOURCE_REVISION } from "./h3-vast-template";
 import { DEFAULT_EXCLUDED_H3_COUNTRIES, selectH3VastOffer, VastClient, type VastInstance } from "./vast-client";
 import { renderVideoUpscale, cancelVideoUpscale } from "./video-upscale";
+import { assertPaidOperationPermission } from './paid-operation-permission';
 
 const activeVastTunnels = new Map<number, H3SshTunnel>();
 const activeHostedJobs = new Map<string, { endpoint: H3HostedEndpoint; requestId: string }>();
@@ -71,11 +72,26 @@ export function createDefaultH3QueueRuntime(options: { fetchImpl?: typeof fetch;
   const fetchImpl = options.fetchImpl ?? fetch;
   const resultsDirectory = options.resultsDirectory ?? join(h3StudioDirectory, "results");
   return {
-    acquire: (mode, onLease, items) => acquire(mode, onLease, items, fetchImpl),
-    render: (item, lease, onProgress, onJobCreated) => render(item, lease, onProgress, onJobCreated, resultsDirectory, fetchImpl),
+    acquire: async (mode, onLease, items, invocation) => {
+      assertH3SessionPermission(mode, items, invocation?.allowPaid);
+      return acquire(mode, onLease, items, fetchImpl);
+    },
+    render: async (item, lease, onProgress, onJobCreated, invocation) => {
+      if (isHostedH3Variant(item.modelVariant)) assertPaidOperationPermission(invocation?.allowPaid, 'fal');
+      return render(item, lease, onProgress, onJobCreated, resultsDirectory, fetchImpl);
+    },
     cancel: (item, lease) => cancel(item, lease, fetchImpl),
     cleanup: (lease) => cleanup(lease, fetchImpl)
   };
+}
+
+export function assertH3SessionPermission(mode: H3SessionMode, items: H3QueueItem[], allowPaid: unknown): void {
+  if (mode === 'vast' || mode === 'provider' || items.some(item => isHostedH3Variant(item.modelVariant))) {
+    assertPaidOperationPermission(allowPaid, mode === 'vast' ? 'vast' : 'fal');
+  }
+  if (mode === 'saved_worker' && process.env.H3_WORKER_URL && !/^http:\/\/(127\.0\.0\.1|localhost|\[::1\]):/.test(process.env.H3_WORKER_URL)) {
+    assertPaidOperationPermission(allowPaid, 'remote-h3-worker');
+  }
 }
 
 async function acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Promise<void>, items: H3QueueItem[], fetchImpl: typeof fetch): Promise<H3QueueLease> {

@@ -1,6 +1,9 @@
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
 import { localServiceUrl, assertLocalInferenceEndpoint } from "../services/local-service-endpoints";
 import { normalizeProviderModelToV1Input, type ProviderModelInfoV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
+import { ModelRoutingPolicyError } from "../services/model-routing-policy";
+import { providerHttpError } from "@snarkroute/executor";
+import { redactSecrets } from "../services/errors";
 
 export const LOCAL_OPENAI_PROVIDER_ID = "local_openai";
 export const BONSAI_CANONICAL_MODEL_ID = "bonsai-2-27b";
@@ -79,25 +82,22 @@ export async function discoverLocalOpenAiModels(options: {
   fetchImpl?: FetchLike;
 } = {}): Promise<ProviderModelInfoV1[]> {
   if (!options.config) {
-    const groups = await Promise.all(localOpenAiConfigs().map(config => discoverLocalOpenAiModels({ ...options, config })));
-    return groups.flat();
+    try {
+      const groups = await Promise.all(localOpenAiConfigs().map(config => discoverLocalOpenAiModels({ ...options, config })));
+      return groups.flat();
+    } catch (error) {
+      // Invalid configuration must not take down the catalog or unrelated routes.
+      return [localModel(process.env.LOCAL_LLM_MODEL_ID?.trim() || DEFAULT_BONSAI_PROVIDER_MODEL_ID,
+        { baseUrl: DEFAULT_LOCAL_LLM_BASE_URL, fallbackModelId: DEFAULT_BONSAI_PROVIDER_MODEL_ID,
+          timeoutMs: DEFAULT_LOCAL_LLM_TIMEOUT_MS, maxConcurrency: 1 }, false, new Date().toISOString(), safeErrorMessage(error))];
+    }
   }
   const config = options.config ?? localOpenAiConfig();
   const fetchedAt = new Date().toISOString();
   const configurationError = localOpenAiConfigurationError(config);
   if (configurationError) return [localModel(config.fallbackModelId, config, false, fetchedAt, configurationError)];
   try {
-    const { response, text } = await fetchTextWithTimeout(`${config.baseUrl}/models`, {
-      method: "GET",
-      headers: requestHeaders(config)
-    }, Math.min(config.timeoutMs, LOCAL_LLM_DISCOVERY_TIMEOUT_MS), options.fetchImpl ?? fetch);
-    if (!response.ok) throw new Error(`GET /models returned HTTP ${response.status}`);
-    const payload = JSON.parse(text) as { data?: unknown };
-    const models = Array.isArray(payload.data) ? payload.data : [];
-    const ids = [...new Set(models.flatMap((model) => {
-      const id = recordString(model, "id");
-      return id && (!config.modelIds || config.modelIds.includes(id)) ? [id] : [];
-    }))];
+    const ids = await verifiedLocalModelIds(config, options.fetchImpl ?? fetch);
     if (!ids.length) throw new Error("GET /models returned no model ids");
     return ids.map((id) => localModel(id, config, true, fetchedAt));
   } catch (error) {
@@ -110,9 +110,9 @@ export function createLocalOpenAiTextNodeRunner(options: {
   fetchImpl?: FetchLike;
 } = {}): NodeRunner {
   if (!options.config) {
-    const configs = localOpenAiConfigs();
-    const runners = configs.map(config => createLocalOpenAiTextNodeRunner({ ...options, config }));
     return input => {
+      const configs = localOpenAiConfigs();
+      const runners = configs.map(config => createLocalOpenAiTextNodeRunner({ ...options, config }));
       const model = stringValue(input.params.providerModelId) ?? stringValue(input.params.model);
       const index = configs.findIndex(config => config.modelIds?.includes(model ?? ""));
       return runners[index < 0 ? 0 : index](input);
@@ -146,14 +146,20 @@ export function createLocalOpenAiTextNodeRunner(options: {
     try {
       release = await acquisition;
       throwIfAborted(context.signal);
+      const verifiedIds = await verifiedLocalModelIds(config, fetchImpl, context.signal);
+      if (!verifiedIds.includes(model)) throw new ModelRoutingPolicyError("LOCAL_MODEL_UNAVAILABLE", `Local inference service does not expose the requested model "${model}".`, LOCAL_OPENAI_PROVIDER_ID);
+      const { assertLocalRuntimeAdmission } = await import("../services/local-runtime-supervisor");
+      await assertLocalRuntimeAdmission(config.baseUrl === localServiceUrl("ollama_inference", "/v1") ? "ollama" : "bonsai");
+      throwIfAborted(context.signal);
       logLocalInference("started", { requestId, stepId: node.id, promptChars, ...gate.snapshot() });
       const { response, text: responseText } = await fetchTextWithTimeout(`${config.baseUrl}/chat/completions`, {
         method: "POST",
         headers: requestHeaders(config),
         body: JSON.stringify(body),
+        redirect: "error",
         signal: context.signal
       }, config.timeoutMs, fetchImpl);
-      if (!response.ok) throw new Error(`Local OpenAI-compatible chat failed with HTTP ${response.status}: ${responseText.slice(0, 1_000)}`);
+      if (!response.ok) throw providerHttpError(response.status, LOCAL_OPENAI_PROVIDER_ID, `Local OpenAI-compatible chat failed with HTTP ${response.status}: ${responseText.slice(0, 1_000)}`);
       let payload: Record<string, unknown>;
       try {
         payload = JSON.parse(responseText) as Record<string, unknown>;
@@ -266,7 +272,7 @@ function localModel(id: string, config: LocalOpenAiConfig, available: boolean, r
       local: true,
       apiCost: 0,
       ...(bonsai ? { supportsTools: true, supportsReasoning: true } : {}),
-      autoEligible: false,
+      autoEligible: available,
       benchmarkRequired: true,
       baseUrl: config.baseUrl,
       discovered: available,
@@ -277,6 +283,41 @@ function localModel(id: string, config: LocalOpenAiConfig, available: boolean, r
       } : {})
     }
   });
+}
+
+async function verifiedLocalModelIds(config: LocalOpenAiConfig, fetchImpl: FetchLike, signal?: AbortSignal): Promise<string[]> {
+  const endpoint = new URL(config.baseUrl);
+  if (endpoint.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname)
+    || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+    throw new ModelRoutingPolicyError("LOCAL_SERVICE_MISMATCH", "Local inference requires an explicit loopback HTTP endpoint.", LOCAL_OPENAI_PROVIDER_ID);
+  }
+  const timeoutMs = Math.min(config.timeoutMs, LOCAL_LLM_DISCOVERY_TIMEOUT_MS);
+  // Ollama identifies its implementation and API version independently of the
+  // OpenAI compatibility list. Never POST to another service on its port.
+  if (config.baseUrl === localServiceUrl("ollama_inference", "/v1")) {
+    const { response, text } = await fetchTextWithTimeout(`${endpoint.origin}/api/version`, {
+      method: "GET", headers: { Accept: "application/json" }, redirect: "error", signal
+    }, timeoutMs, fetchImpl);
+    let version: unknown;
+    try { version = JSON.parse(text); } catch { /* handled below */ }
+    if (response.status !== 200 || !/^\d+\.\d+\.\d+(?:[-+].*)?$/.test(recordString(version, "version") ?? "")) {
+      throw new ModelRoutingPolicyError("LOCAL_SERVICE_MISMATCH", `Expected Ollama /api/version response, received HTTP ${response.status}.`, LOCAL_OPENAI_PROVIDER_ID);
+    }
+  }
+  const { response, text } = await fetchTextWithTimeout(`${config.baseUrl}/models`, {
+    method: "GET", headers: requestHeaders(config), redirect: "error", signal
+  }, timeoutMs, fetchImpl);
+  let payload: unknown;
+  try { payload = JSON.parse(text); } catch { /* handled below */ }
+  const list = objectRecord(payload);
+  if (response.status !== 200 || list.object !== "list" || !Array.isArray(list.data)
+    || list.service !== undefined || list.data.some(model => recordString(model, "object") !== "model" || !recordString(model, "id"))) {
+    throw new ModelRoutingPolicyError("LOCAL_SERVICE_MISMATCH", `Expected OpenAI-compatible /v1/models identity and API contract, received HTTP ${response.status}.`, LOCAL_OPENAI_PROVIDER_ID);
+  }
+  return [...new Set(list.data.flatMap(model => {
+    const id = recordString(model, "id");
+    return id && !/cloud/i.test(id) && (!config.modelIds || config.modelIds.includes(id)) ? [id] : [];
+  }))];
 }
 
 function chatMessages(value: unknown, inputs: Record<string, unknown>, params: Record<string, unknown>): Array<Record<string, unknown>> {
@@ -496,8 +537,8 @@ function positiveConcurrency(value: string | undefined, fallback: number): numbe
 }
 
 function safeErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.name === "AbortError" ? "request timed out" : error.message.slice(0, 500);
-  return String(error).slice(0, 500);
+  if (error instanceof Error) return error.name === "AbortError" ? "request timed out" : redactSecrets(error.message).slice(0, 500);
+  return redactSecrets(String(error)).slice(0, 500);
 }
 
 function recordString(value: unknown, key: string): string | undefined {

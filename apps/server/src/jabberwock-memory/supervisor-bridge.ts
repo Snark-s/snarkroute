@@ -17,6 +17,8 @@ import type { NativeMessage, NativeToolDefinition, ToolProtocol } from "./native
 import { localOpenAiConfigs } from "../providers/local-openai";
 import type { Artifact, Decision, Fact, Step } from "./types";
 import type { RepairAttempt } from "./repair-target";
+import { ModelRoutingPolicyError, modelRoutingPolicy, type ModelRoutingPolicy } from "../services/model-routing-policy";
+import { redactSecrets } from "../services/errors";
 
 export type SupervisorRoutingMode = "default" | "auto" | "fixed";
 export type SupervisorRuntimeMode = "text" | "agent";
@@ -50,6 +52,7 @@ export interface SupervisorExecuteStepInput {
   signal?: AbortSignal;
   routingMode?: SupervisorRoutingMode;
   model?: string;
+  routingPolicy?: ModelRoutingPolicy;
   runtimeMode?: SupervisorRuntimeMode;
   permissions?: AtomicPermissions;
   maxToolTurns?: number;
@@ -88,6 +91,9 @@ export interface SupervisorStepResult {
   artifacts?: Artifact[];
   error?: string;
   failureStage?: "routing" | "runtime";
+  errorCode?: string;
+  providerId?: string;
+  errorDetails?: { code: string; retryable: boolean; details?: Record<string, unknown> };
 }
 
 export interface SupervisorRouteRequest {
@@ -96,6 +102,7 @@ export interface SupervisorRouteRequest {
   instruction: string;
   contextPacket: string;
   signal?: AbortSignal;
+  routingPolicy?: ModelRoutingPolicy;
 }
 
 export interface SupervisorModelRouter {
@@ -236,6 +243,7 @@ export class SupervisorBridge {
         model,
         instruction,
         contextPacket,
+        routingPolicy: input.routingPolicy,
         signal: input.signal
       });
       throwIfAborted(input.signal);
@@ -278,7 +286,10 @@ export class SupervisorBridge {
         ...(artifacts.length ? { artifacts } : {})
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = redactSecrets(error instanceof Error ? error.message : String(error));
+      const failure = record(error);
+      const errorDetails = typeof failure.code === "string" ? { code: failure.code, retryable: failure.retryable === true,
+        ...(failure.details && typeof failure.details === "object" ? { details: record(failure.details) } : {}) } : undefined;
       this.memory.update_run(run.id, {
         model: routing.model,
         response: message,
@@ -297,7 +308,10 @@ export class SupervisorBridge {
         summary: compactSummary(message),
         response: "",
         error: message,
-        failureStage
+        failureStage,
+        ...(typeof failure.errorCode === "string" ? { errorCode: failure.errorCode } : errorDetails ? { errorCode: errorDetails.code } : {}),
+        ...(typeof failure.providerId === "string" ? { providerId: failure.providerId } : {}),
+        ...(errorDetails ? { errorDetails } : {})
       };
     }
   }
@@ -349,12 +363,13 @@ export class SnarkRouteSupervisorModelRouter implements SupervisorModelRouter {
       nodeType: "ai.text",
       prompt: request.contextPacket,
       inputs: { text: true },
-      manualModelRef: request.routingMode === "fixed" ? request.model : undefined
+      manualModelRef: request.routingMode === "fixed" ? request.model : undefined,
+      routingPolicy: request.routingPolicy
     }, this.decisionExecutor);
     throwIfAborted(request.signal);
     if (selection.status !== "ok" || !selection.selection) {
       const reason = selection.trace.policyReasons.join("; ") || "No compatible text model route is available.";
-      throw new Error(request.routingMode === "fixed" ? `Fixed model could not be resolved: ${reason}` : `Automatic model routing failed: ${reason}`);
+      throw new ModelRoutingPolicyError(selection.errorCode ?? "NO_PERMITTED_MODEL_ROUTE", request.routingMode === "fixed" ? `Fixed model could not be resolved: ${reason}` : `Automatic model routing failed: ${reason}`);
     }
     const selected = selection.selection;
     return {
@@ -367,6 +382,7 @@ export class SnarkRouteSupervisorModelRouter implements SupervisorModelRouter {
         engineId: selected.engineId,
         catalogModelId: selected.modelId,
         storedModelId: selected.storedModelId,
+        routingPolicy: modelRoutingPolicy(request.routingPolicy),
         nativeToolsConfirmed: selected.provider === "local_openai" && localOpenAiConfigs().some(config => config.nativeToolModelIds?.includes(selected.providerModelId)),
         requirements: selection.requirements,
         trace: selection.trace
@@ -393,6 +409,7 @@ export class SnarkRouteAtomicTextRuntime implements SupervisorAgentRuntime {
         model: stringMetadata(input.routing.metadata, "catalogModelId") ?? input.routing.model,
         executionProvider: input.routing.provider,
         providerModelId: input.routing.providerModelId ?? input.routing.model,
+        routingPolicy: modelRoutingPolicy(input.routing.metadata?.routingPolicy),
         prompt: input.contextPacket,
         ...(input.chat ? { messages: input.chat.messages, tools: input.chat.tools, tool_choice: input.chat.toolChoice } : {}),
         ...(input.generation ? { max_tokens: input.generation.maxTokens, temperature: input.generation.temperature,

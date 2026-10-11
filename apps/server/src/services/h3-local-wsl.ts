@@ -1,6 +1,7 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { inspectH3Connection, type H3ConnectionStatus } from "./h3-connection";
+import { localServicePort } from './local-service-endpoints';
 
 const execFileAsync = promisify(execFile);
 
@@ -53,7 +54,7 @@ export async function startH3LocalWsl(): Promise<StartedH3LocalWsl> {
       "--",
       "bash",
       "-lc",
-      `H3_LOCAL_FOREGROUND=1 H3_ACCEPT_MODEL_LICENSE=1 ${config.startScript}`
+      `H3_LOCAL_FOREGROUND=1 H3_ACCEPT_MODEL_LICENSE=1 H3_LOCAL_VARIANT=${config.variant} H3_API_PORT=${config.port} H3_SGLANG_PORT=${config.sglangPort} ${config.startScript}`
     ],
     { detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }
   );
@@ -124,7 +125,11 @@ async function readServiceToken(config: ReturnType<typeof localConfig>): Promise
 
 function localConfig() {
   const distro = safeName(process.env.H3_LOCAL_WSL_DISTRO?.trim() || "Ubuntu-24.04", "WSL distro");
-  const port = positiveInteger(process.env.H3_LOCAL_PORT, 18_080);
+  const port = localServicePort('h3_worker');
+  if (process.env.H3_LOCAL_PORT?.trim() && Number(process.env.H3_LOCAL_PORT) !== port) throw new Error('H3_LOCAL_PORT conflicts with service-endpoints.json.');
+  const variant = process.env.H3_LOCAL_VARIANT?.trim() || 'fl2va';
+  if (!['fl2va', 'ref2va'].includes(variant)) throw new Error('Invalid H3_LOCAL_VARIANT.');
+  const sglangPort = localServicePort(variant === 'ref2va' ? 'h3_sglang_ref2va' : 'h3_sglang_fl2va');
   const startScript = safeAbsolutePath(
     process.env.H3_LOCAL_WSL_START_SCRIPT?.trim()
       || "/home/serge/h3/runtime/snarkroute-h3/scripts/start_local_wsl.sh",
@@ -141,6 +146,9 @@ function localConfig() {
   );
   return {
     distro,
+    port,
+    variant,
+    sglangPort,
     workerUrl: `http://127.0.0.1:${port}`,
     startScript,
     stopScript,

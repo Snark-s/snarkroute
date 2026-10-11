@@ -5,6 +5,7 @@ import { totalmem } from "node:os";
 import { join } from "node:path";
 import { localOpenAiConfig } from "../providers/local-openai";
 import { repoRoot } from "../server-paths";
+import { localServiceHome } from "./local-service-endpoints";
 
 export type BonsaiRuntimeConfig = {
   baseUrl: string;
@@ -35,9 +36,11 @@ export function bonsaiRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Bonsa
   const local = localOpenAiConfig(env);
   const parsed = new URL(local.baseUrl);
   if (!isLoopback(parsed.hostname)) throw new Error("Bonsai lifecycle control is allowed only for a loopback LOCAL_LLM_BASE_URL.");
+  const demoPath = env.BONSAI_DEMO_PATH?.trim() || localServiceHome('bonsai_home');
+  if (!demoPath) throw new Error('Bonsai home is not configured in service-endpoints.json or BONSAI_DEMO_PATH.');
   return {
     baseUrl: local.baseUrl,
-    demoPath: env.BONSAI_DEMO_PATH?.trim() || "I:\\AI\\Bonsai-demo",
+    demoPath,
     modelId: local.fallbackModelId,
     port: Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80))
   };
@@ -57,7 +60,7 @@ export async function readBonsaiStatus(options: ReadStatusOptions = {}): Promise
   try {
     const response = await fetchImpl(`${endpoint}/models`, {
       headers: { Accept: "application/json" },
-      signal: AbortSignal.timeout(1500)
+      signal: AbortSignal.timeout(1500), redirect: "error"
     });
     if (response.ok) {
       const payload = await response.json() as { data?: unknown };
@@ -71,10 +74,11 @@ export async function readBonsaiStatus(options: ReadStatusOptions = {}): Promise
       launchError = undefined;
       return status("ready", true, endpoint, modelId);
     }
-    if (response.status === 503 && await portListening(config.port)) return status("loading", false, endpoint);
+    // Loading is trusted only for the child this process launched, never an arbitrary listener.
+    if (response.status === 503 && launchStartedAt && await portListening(config.port)) return status("loading", false, endpoint);
     if (await portListening(config.port)) return status("error", false, endpoint, undefined, `Port ${config.port} is occupied by another service.`);
   } catch {
-    if (await portListening(config.port)) return status("loading", false, endpoint);
+    if (await portListening(config.port)) return status("error", false, endpoint, undefined, `Port ${config.port} failed the Bonsai service identity check.`);
   }
 
   if (launchError) return status("error", false, endpoint, undefined, launchError);

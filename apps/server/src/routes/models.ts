@@ -501,6 +501,12 @@ function semanticSelectionInput(
     nodeType,
     prompt,
     operation,
+    routingPolicy: {
+      allowPaid: searchParams.get("allowPaid") === "true",
+      localModels: searchParams.get("localModels") === "exclude" ? "exclude" : "allow",
+      excludeModelRefs: (searchParams.get("excludeModelRefs") ?? "").split(",").map(ref => ref.trim()).filter(Boolean)
+    },
+    requiredCapabilities: (searchParams.get("requiredCapabilities") ?? "").split(",").map(capability => capability.trim()).filter(Boolean) as SemanticModelSelectionInputV1["requiredCapabilities"],
     manualModelRef: normalizeQueryValue(searchParams.get("manualModelRef") ?? searchParams.get("model")),
     inputs: suppliedInputs || prompt || imageRoles.length
       ? { ...(suppliedInputs ?? {}), text: Boolean(prompt), imageRoles: imageRoles.length ? imageRoles : undefined }

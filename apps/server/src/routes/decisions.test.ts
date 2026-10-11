@@ -11,6 +11,7 @@ afterEach(() => {
 describe("decision.v1 server runtime", () => {
   it("executes a configured Jev backend through the provider-independent route", async () => {
     vi.stubEnv("JEV_ENABLED", "true");
+    vi.stubEnv('DECISION_ALLOW_PAID', 'true');
     vi.stubEnv("JEV_API_KEY", "test-secret");
     vi.stubEnv("DECISION_PRODUCTION_BACKENDS", "jev-main");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
@@ -38,6 +39,7 @@ describe("decision.v1 server runtime", () => {
     const fetch = vi.fn(async () => json({ model: "jev-1.13.0", answers: { decision: { type: "choice", choice: "b", probabilities: { a: 0.2, b: 0.8 }, confidence: 0.8 } }, usage: {} }));
     const runtime = createDecisionRuntimeFromEnv({
       env: {
+        APP_MODE: 'cloud',
         JEV_ENABLED: "true",
         JEV_API_KEY: "test-secret",
         DECISION_PRODUCTION_BACKENDS: "semantic-rules",

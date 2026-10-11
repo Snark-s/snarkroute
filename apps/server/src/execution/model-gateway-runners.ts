@@ -38,6 +38,16 @@ type PricingCatalog = {
 };
 import { openRouterCatalogCachePath, openRouterMappingsPath } from "../server-paths";
 import { isGeminiEnabled, isOpenRouterEnabled } from "../services/env";
+import { assertModelInvocationPolicy, ModelRoutingPolicyError, modelRoutingPolicy, recordModelProviderFailure } from "../services/model-routing-policy";
+
+export function guardProviderRunner(provider: string, runner: NodeRunner): NodeRunner {
+  return async input => {
+    const model = stringValue(input.params.providerModelId) ?? stringValue(input.params.model) ?? "unknown";
+    await assertModelInvocationPolicy(provider, model, input.params, input.node.type);
+    try { return await runner(input); }
+    catch (error) { recordModelProviderFailure(provider, error); throw error; }
+  };
+}
 
 export async function loadModelRouteMappings(): Promise<ModelMapping[]> {
   const parsed = JSON.parse(await readFile(openRouterMappingsPath, "utf8")) as { models?: unknown };
@@ -45,22 +55,38 @@ export async function loadModelRouteMappings(): Promise<ModelMapping[]> {
 }
 
 export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof createModelResolver>): NodeRunner {
-  const openRouterRunner = createOpenRouterTextNodeRunner({ modelResolver });
-  const rawOpenRouterRunner = createOpenRouterTextNodeRunner();
-  const geminiRunner = createGeminiLlmNodeRunner();
-  const polzaRunner = createPolzaTextNodeRunner();
-  const rutronixRunner = createRuTronixTextNodeRunner();
+  const openRouterRunner = guardProviderRunner("openrouter", createOpenRouterTextNodeRunner({ modelResolver }));
+  const rawOpenRouterRunner = guardProviderRunner("openrouter", createOpenRouterTextNodeRunner());
+  const geminiRunner = guardProviderRunner("gemini", createGeminiLlmNodeRunner());
+  const polzaRunner = guardProviderRunner("polza", createPolzaTextNodeRunner());
+  const rutronixRunner = guardProviderRunner("rutronix", createRuTronixTextNodeRunner());
   const localOpenAiRunner = createLocalOpenAiTextNodeRunner();
   return async (input) => {
-    const params = decodeOpaquePromptParams(input.params);
-    const executionProvider = stringValue(params.executionProvider ?? params.provider);
+    let params = decodeOpaquePromptParams(input.params);
+    let executionProvider = stringValue(params.executionProvider ?? params.provider);
+    if ((!executionProvider || executionProvider === "auto") && providerModeParam(params.providerMode) === "auto") {
+      const { loadLiveModelCatalogV1 } = await import("../routes/models");
+      const { modelOptionsForNodeV1 } = await import("../services/model-catalog-v1");
+      const { selectSemanticModelOptionV1 } = await import("../services/semantic-model-selection");
+      const requestedModel = stringValue(params.model);
+      const images = input.inputs.images ?? params.images;
+      const selection = await selectSemanticModelOptionV1(modelOptionsForNodeV1("ai.text", await loadLiveModelCatalogV1("ai.text")), {
+        nodeType: "ai.text", prompt: stringValue(params.prompt) ?? stringValue(input.inputs.prompt),
+        inputs: { text: true, image: Array.isArray(images) ? images.length : images ? 1 : 0 },
+        manualModelRef: requestedModel && requestedModel !== "text.default" ? requestedModel : undefined,
+        routingPolicy: modelRoutingPolicy(params.routingPolicy)
+      });
+      if (!selection.selection) throw new ModelRoutingPolicyError(selection.errorCode ?? "NO_PERMITTED_MODEL_ROUTE", selection.trace.policyReasons.join("; "));
+      executionProvider = selection.selection.provider;
+      params = { ...params, model: selection.selection.storedModelId, executionProvider, providerModelId: selection.selection.providerModelId };
+    }
     const providerModelId = stringValue(params.providerModelId);
     if (executionProvider === "local_openai") {
       const localModelId = providerModelId ?? stringValue(params.model);
       return localOpenAiRunner({ ...input, params: { ...params, model: params.model, providerModelId: localModelId } });
     }
-    if (executionProvider === "experiential") return createExperientialTextNodeRunner()({ ...input, params: { ...params, model: providerModelId ?? params.model } });
-    if (executionProvider === "kie") return createKieNodeRunner("text.generate")({ ...input, params: { ...params, model: providerModelId ?? params.model } });
+    if (executionProvider === "experiential") return guardProviderRunner("experiential", createExperientialTextNodeRunner())({ ...input, params: { ...params, model: providerModelId ?? params.model } });
+    if (executionProvider === "kie") return guardProviderRunner("kie", createKieNodeRunner("text.generate"))({ ...input, params: { ...params, model: providerModelId ?? params.model } });
     if (executionProvider === "openrouter" && providerModelId) return rawOpenRouterRunner({ ...input, params: { ...params, model: providerModelId, providerMode: "openrouter" } });
     if (executionProvider === "polza" && providerModelId) return polzaRunner({ ...input, params: { ...params, model: providerModelId } });
     if (executionProvider === "gemini" && providerModelId) return geminiRunner({ ...input, params: { ...params, model: providerModelId } });
@@ -87,9 +113,9 @@ export function decodeOpaquePromptParams(params: Record<string, unknown>): Recor
 }
 
 export function createRemoteImageNodeRunner(modelResolver: ReturnType<typeof createModelResolver>): NodeRunner {
-  const geminiRunner = createNanoBanana2NodeRunner();
-  const openRouterRunner = createOpenRouterImageNodeRunner({ modelResolver });
-  const polzaRunner = createPolzaImageNodeRunner();
+  const geminiRunner = guardProviderRunner("gemini", createNanoBanana2NodeRunner());
+  const openRouterRunner = guardProviderRunner("openrouter", createOpenRouterImageNodeRunner({ modelResolver }));
+  const polzaRunner = guardProviderRunner("polza", createPolzaImageNodeRunner());
   return async (input) => {
     const executionProvider = stringValue(input.params.executionProvider ?? input.params.provider);
     const providerModelId = stringValue(input.params.providerModelId) ?? stringValue(input.params.model) ?? "image.nano-banana";
@@ -97,7 +123,7 @@ export function createRemoteImageNodeRunner(modelResolver: ReturnType<typeof cre
       const model = listDocumentedKieModels().find((entry) => entry.id === providerModelId);
       const hasImages = Array.isArray(input.params.images) && input.params.images.length > 0 || Array.isArray(input.inputs.images) && input.inputs.images.length > 0;
       const capability = hasImages && model?.capabilities.includes("image.edit") ? "image.edit" : model?.capabilities.includes("image.generate") ? "image.generate" : "image.edit";
-      return createKieNodeRunner(capability)({ ...input, params: { ...input.params, model: providerModelId, providerModelId } });
+      return guardProviderRunner("kie", createKieNodeRunner(capability))({ ...input, params: { ...input.params, model: providerModelId, providerModelId } });
     }
     if (executionProvider === "polza") return polzaRunner({ ...input, params: { ...input.params, model: providerModelId } });
     const providerMode = providerModeParam(input.params.providerMode);
@@ -107,9 +133,9 @@ export function createRemoteImageNodeRunner(modelResolver: ReturnType<typeof cre
     if (cachedModel && !openRouterModelSupportsImage(cachedModel)) throw new Error("This model is not available for image generation.");
     if (cachedModel && openRouterModelSupportsImage(cachedModel) && providerMode !== "direct") {
       if (!isOpenRouterEnabled()) throw new Error("OpenRouter is selected, but OpenRouter is not configured.");
-      const catalogBackedRunner = createOpenRouterImageNodeRunner({
+      const catalogBackedRunner = guardProviderRunner("openrouter", createOpenRouterImageNodeRunner({
         modelResolver: createModelResolver([catalogImageModelMapping(cachedModel)])
-      });
+      }));
       return catalogBackedRunner({ ...input, params: { ...input.params, model: modelId, providerMode, pricing: cachedModel.pricing } });
     }
     const resolution = modelResolver({ task: "image", modelId, providerMode });

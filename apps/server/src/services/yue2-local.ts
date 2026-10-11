@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { repoRoot } from "../server-paths";
+import { localServicePort, localServiceUrl } from "./local-service-endpoints";
 
 type Yue2Config = {
   wslDistro: string;
@@ -12,7 +13,8 @@ type Yue2Config = {
   url: string;
 };
 
-export const yue2Config: Yue2Config = JSON.parse(readFileSync(join(repoRoot, "config", "yue2.local.json"), "utf8"));
+const storedConfig: Yue2Config = JSON.parse(readFileSync(join(repoRoot, "config", "yue2.local.json"), "utf8"));
+export const yue2Config: Yue2Config = { ...storedConfig, port: localServicePort('yue2'), url: localServiceUrl('yue2') };
 
 export type Yue2Status = {
   service?: "YuE2";
@@ -25,7 +27,7 @@ export type Yue2Status = {
 
 export async function readYue2Status(): Promise<Yue2Status> {
   try {
-    const response = await fetch(`${yue2Config.url}/health`, { signal: AbortSignal.timeout(1200) });
+    const response = await fetch(`${yue2Config.url}/health`, { signal: AbortSignal.timeout(1200), redirect: 'error' });
     if (!response.ok) throw new Error(`Health returned ${response.status}`);
     const state = await response.json() as Yue2Status;
     if (state.service !== "YuE2" || !["loading", "ready", "generating", "error"].includes(state.status)) {

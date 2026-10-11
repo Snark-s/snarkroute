@@ -83,13 +83,16 @@ import {
   type SnarkCanvasDocument
 } from "../libraries/service";
 import { errorMessage } from "../services/errors";
+import type { ModelRoutingPolicy } from '../services/model-routing-policy';
 
 function sendGenerationError(reply: FastifyReply, error: unknown) {
-  const details = error && typeof error === "object" ? error as { errorCode?: unknown; providerId?: unknown } : {};
-  return reply.code(400).send({
+  const details = error && typeof error === "object" ? error as { errorCode?: unknown; code?: unknown; providerId?: unknown; retryable?: unknown; details?: unknown } : {};
+  const code = typeof details.code === 'string' ? details.code : details.errorCode;
+  return reply.code(code === 'PAID_PERMISSION_REQUIRED' ? 403 : 400).send({
     error: errorMessage(error),
-    errorCode: typeof details.errorCode === "string" ? details.errorCode : undefined,
-    providerId: typeof details.providerId === "string" ? details.providerId : undefined
+    errorCode: typeof code === "string" ? code : undefined,
+    providerId: typeof details.providerId === "string" ? details.providerId : undefined,
+    errorDetails: typeof details.code === 'string' ? {code:details.code,retryable:details.retryable === true,details:details.details} : undefined
   });
 }
 
@@ -600,12 +603,13 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; parameters?: ImageGenerationSettings } }>("/api/libraries/current/image-nodes/:nodeId/generate", async (request, reply) => {
+  app.post<{ Params: { nodeId: string }; Body: { routingPolicy?: ModelRoutingPolicy; modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; parameters?: ImageGenerationSettings } }>("/api/libraries/current/image-nodes/:nodeId/generate", async (request, reply) => {
     try {
       if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
       return await generateImageNodeStackItem({
         nodeId: request.params.nodeId,
         modelId: request.body.modelId,
+        routingPolicy: request.body.routingPolicy,
         prompt: request.body.prompt,
         providerId: request.body.providerId,
         executionProvider: request.body.executionProvider,
@@ -621,12 +625,13 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; parameters?: ImageGenerationSettings } }>("/api/libraries/current/video-nodes/:nodeId/generate", async (request, reply) => {
+  app.post<{ Params: { nodeId: string }; Body: { routingPolicy?: ModelRoutingPolicy; modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; parameters?: ImageGenerationSettings } }>("/api/libraries/current/video-nodes/:nodeId/generate", async (request, reply) => {
     try {
       if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
       return await generateVideoNodeStackItem({
         nodeId: request.params.nodeId,
         modelId: request.body.modelId,
+        routingPolicy: request.body.routingPolicy,
         prompt: request.body.prompt,
         providerId: request.body.providerId,
         executionProvider: request.body.executionProvider,
@@ -642,12 +647,13 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; parameters?: ImageGenerationSettings } }>("/api/libraries/current/audio-nodes/:nodeId/generate", async (request, reply) => {
+  app.post<{ Params: { nodeId: string }; Body: { routingPolicy?: ModelRoutingPolicy; modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; parameters?: ImageGenerationSettings } }>("/api/libraries/current/audio-nodes/:nodeId/generate", async (request, reply) => {
     try {
       if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
       return await generateAudioNodeStackItem({
         nodeId: request.params.nodeId,
         modelId: request.body.modelId,
+        routingPolicy: request.body.routingPolicy,
         prompt: request.body.prompt,
         providerId: request.body.providerId,
         executionProvider: request.body.executionProvider,
@@ -788,12 +794,13 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string } }>("/api/libraries/current/text-nodes/:nodeId/generate", async (request, reply) => {
+  app.post<{ Params: { nodeId: string }; Body: { routingPolicy?: ModelRoutingPolicy; modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string } }>("/api/libraries/current/text-nodes/:nodeId/generate", async (request, reply) => {
     try {
       if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
       return await generateTextNodeStackItem({
         nodeId: request.params.nodeId,
         modelId: request.body.modelId,
+        routingPolicy: request.body.routingPolicy,
         prompt: request.body.prompt,
         providerId: request.body.providerId,
         executionProvider: request.body.executionProvider,
@@ -830,12 +837,13 @@ export async function registerLibraryRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post<{ Params: { nodeId: string }; Body: { modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; attachments?: Array<{ nodeId?: string; file?: string; alt?: string }> } }>("/api/libraries/current/text-nodes/:nodeId/conversation/turn", async (request, reply) => {
+  app.post<{ Params: { nodeId: string }; Body: { routingPolicy?: ModelRoutingPolicy; modelId?: string; prompt?: string; providerId?: string; executionProvider?: string; fallbackAllowed?: boolean; availableExecutionProviders?: string[]; inputNodeIds?: string[]; maxImageInputs?: number; imageReferenceSyntax?: string; attachments?: Array<{ nodeId?: string; file?: string; alt?: string }> } }>("/api/libraries/current/text-nodes/:nodeId/conversation/turn", async (request, reply) => {
     try {
       if (!request.body?.modelId) return reply.code(400).send({ error: "modelId is required." });
       return await runTextNodeConversationTurn({
         nodeId: request.params.nodeId,
         modelId: request.body.modelId,
+        routingPolicy: request.body.routingPolicy,
         prompt: request.body.prompt,
         providerId: request.body.providerId,
         executionProvider: request.body.executionProvider,

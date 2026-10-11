@@ -189,16 +189,23 @@ export const PROVIDER_INSUFFICIENT_FUNDS_ERROR_CODE = "provider_insufficient_fun
 export type RunErrorCode = typeof PROVIDER_INSUFFICIENT_FUNDS_ERROR_CODE;
 
 export class ProviderRunError extends Error {
-  constructor(message: string, readonly errorCode: RunErrorCode, readonly providerId: string) {
+  readonly origin = "provider";
+  readonly details: Record<string, unknown>;
+  constructor(message: string, readonly errorCode: RunErrorCode | undefined, readonly providerId: string,
+    readonly statusCode = 402, readonly code = "PROVIDER_INSUFFICIENT_FUNDS", readonly retryable = false) {
     super(message);
     this.name = "ProviderRunError";
+    this.details = { origin: this.origin, providerId, statusCode };
   }
 }
 
 export function providerHttpError(status: number, providerId: string, message: string, insufficientFundsStatuses: readonly number[] = [402]): Error {
-  return insufficientFundsStatuses.includes(status)
-    ? new ProviderRunError(message, PROVIDER_INSUFFICIENT_FUNDS_ERROR_CODE, providerId)
-    : new Error(message);
+  const insufficient = insufficientFundsStatuses.includes(status);
+  const code = insufficient ? "PROVIDER_INSUFFICIENT_FUNDS" : status === 401 || status === 403 ? "PROVIDER_AUTH"
+    : status === 404 ? "PROVIDER_NOT_FOUND" : status === 408 || status === 504 ? "PROVIDER_TIMEOUT"
+    : status === 429 ? "PROVIDER_RATE_LIMIT" : status >= 500 ? "PROVIDER_UNAVAILABLE" : "PROVIDER_REQUEST_REJECTED";
+  return new ProviderRunError(message, insufficient ? PROVIDER_INSUFFICIENT_FUNDS_ERROR_CODE : undefined, providerId,
+    status, code, status === 408 || status === 429 || status >= 500);
 }
 
 export interface ExecuteOptions {

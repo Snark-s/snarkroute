@@ -16,7 +16,7 @@ import tempfile
 import urllib.request
 import zipfile
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 HERE = Path(__file__).resolve().parent
 MANIFEST_PATH = HERE / "manifest.json"
@@ -532,10 +532,41 @@ def apply_git_patch_idempotent(target, patch, component_id):
     )
 
 
+def endpoint_registry(manifest):
+    variables = manifest['variables']
+    root = Path(expand('{{SNARKROUTE_ROOT}}', variables))
+    path = Path(os.getenv('SNARKROUTE_PORT_REGISTRY') or root / 'service-endpoints.json')
+    registry = json.loads(path.read_text(encoding='utf-8'))
+    if registry.get('schemaVersion') != 1 or registry.get('host') != '127.0.0.1':
+        raise RuntimeError('Invalid authoritative service-endpoints.json')
+    ports = [item.get('port') for item in registry['services'].values()]
+    if any(type(port) is not int or not 1024 <= port <= 65535 for port in ports) or len(ports) != len(set(ports)):
+        raise RuntimeError('Invalid or duplicated service ports')
+    return path, registry
+
+
+def resolved_services(manifest, registry=None):
+    if registry is None:
+        _, registry = endpoint_registry(manifest)
+    services = []
+    for service in manifest.get('services', []):
+        item = dict(service)
+        name = item.get('registry_service')
+        if not name or name not in registry['services']:
+            raise RuntimeError(f"Service {item['id']} is absent from service-endpoints.json")
+        entry = registry['services'][name]
+        item['endpoint'] = f"{entry['protocol']}://{registry['host']}:{entry['port']}"
+        item['probe'] = {'type': entry['protocol'], 'host': registry['host'], 'port': entry['port'],
+                         'path': entry.get('healthPath', ''), 'identity': entry.get('identity'),
+                         'api_version': entry.get('apiVersion')}
+        services.append(item)
+    return services
+
+
 def write_registry(manifest):
     variables = manifest["variables"]
     services = []
-    for service in manifest.get("services", []):
+    for service in resolved_services(manifest):
         item = dict(service)
         for key, value in list(item.items()):
             if isinstance(value, str):
@@ -547,8 +578,20 @@ def write_registry(manifest):
         "schema_version": 1,
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "services": services,
+        'source': str(endpoint_registry(manifest)[0]),
     }
     target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    canonical_path, canonical = endpoint_registry(manifest)
+    path_variables = {'snarkroute':'SNARKROUTE_ROOT','mixar_local':'SNARK_MIXAR_BACKEND',
+                      'mixar_source':'SNARK_MIXAR_SOURCE','mixar_runtime':'SNARK_MIXAR_INSTALL','mixar_startup':None,
+                      'personacore':'PERSONA_HOME','snarkbridge':'SNARKBRIDGE_ROOT','bonsai_home':'SNARK_BONSAI'}
+    canonical['paths'] = {name: expand('{{' + variable + '}}', variables) if variable else
+                          str(Path(expand('{{SNARK_MIXAR_PROFILE}}', variables)) / 'scripts/startup')
+                          for name, variable in path_variables.items()}
+    canonical_path.write_text(json.dumps(canonical, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    pointer = Path(os.environ['LOCALAPPDATA']) / 'SnarkDream/service-endpoints.path'
+    pointer.parent.mkdir(parents=True, exist_ok=True)
+    pointer.write_text(str(canonical_path.resolve()), encoding='utf-8')
     return target
 
 
@@ -560,10 +603,24 @@ def probe_tcp(host, port, timeout=0.8):
         return False, str(error)
 
 
-def probe_http(url, timeout=1.5):
+class NoHealthRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def probe_http(url, timeout=1.5, identity=None, api_version=None):
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
-            return 200 <= response.status < 500, f"HTTP {response.status}"
+        opener = urllib.request.build_opener(NoHealthRedirect())
+        with opener.open(url, timeout=timeout) as response:
+            if response.status != 200:
+                return False, f'Unexpected HTTP {response.status}'
+            if identity or api_version is not None:
+                body = json.loads(response.read(1024 * 1024 + 1))
+                if not isinstance(body, dict) or identity and body.get(identity['field']) != identity['value']:
+                    return False, 'Service identity mismatch'
+                if api_version is not None and body.get('apiVersion') != api_version:
+                    return False, 'API version mismatch'
+            return True, 'HTTP 200; expected service'
     except Exception as error:
         return False, str(error)
 
@@ -590,7 +647,7 @@ def doctor(args):
         if component["id"] == "snarkroute" and not ok:
             bad += 1
     print("\nServices")
-    for service in manifest.get("services", []):
+    for service in resolved_services(manifest):
         probe = service.get("probe", {})
         ok = False
         detail = ""
@@ -598,7 +655,7 @@ def doctor(args):
             ok, detail = probe_tcp(probe["host"], probe["port"])
         elif probe.get("type") == "http":
             base = service.get("endpoint", "").rstrip("/")
-            ok, detail = probe_http(base + probe.get("path", ""))
+            ok, detail = probe_http(base + probe.get("path", ""), identity=probe.get('identity'), api_version=probe.get('api_version'))
         print(f"  {'UP ' if ok else 'down'} {service['id']}: {service.get('endpoint', '')} {detail or ''}".rstrip())
     print("\nSecret material")
     for item in secret_status(manifest):
@@ -785,6 +842,23 @@ def scan_bundle_for_secrets(zf):
     return sorted(set(path_hits)), sorted(set(value_hits))
 
 
+def validate_archive_member(name):
+    # ZIP names are POSIX paths. Backslashes, drives and ADS are unsafe on Windows.
+    if (not name or '\\' in name or ':' in name or '\x00' in name
+            or PurePosixPath(name).is_absolute() or PureWindowsPath(name).drive
+            or '..' in PurePosixPath(name).parts):
+        raise RuntimeError(f'unsafe archive member: {name}')
+
+
+def restore_destination(target, relative):
+    validate_archive_member(relative)
+    root = Path(target).resolve()
+    destination = (root / relative).resolve()
+    if not destination.is_relative_to(root):
+        raise RuntimeError(f'archive destination escapes restore target: {relative}')
+    return destination
+
+
 def verify_bundle(bundle, quiet=False):
     bundle = Path(bundle).expanduser().resolve()
     if not bundle.is_file():
@@ -801,6 +875,10 @@ def verify_bundle(bundle, quiet=False):
         if bad_member:
             raise RuntimeError(f"ZIP CRC failure: {bad_member}")
         names = zf.namelist()
+        if len(names) != len(set(names)):
+            raise RuntimeError('unsafe archive: duplicate members')
+        for name in names:
+            validate_archive_member(name)
         for required in ("state.json", "manifest.json", "system.json", "heavy-inventory.json"):
             if required not in names:
                 raise RuntimeError(f"bundle is missing {required}")
@@ -915,7 +993,7 @@ def restore(args):
                 for name in zf.namelist():
                     if name.startswith(prefix) and not name.endswith("/"):
                         rel = name[len(prefix):]
-                        destination = target / Path(rel)
+                        destination = restore_destination(target, rel)
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         with zf.open(name) as source, open(destination, "wb") as output:
                             shutil.copyfileobj(source, output)
@@ -925,7 +1003,7 @@ def restore(args):
                 for name in zf.namelist():
                     if name.startswith(prefix) and not name.endswith("/"):
                         rel = name[len(prefix):]
-                        destination = target / Path(rel)
+                        destination = restore_destination(target, rel)
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         with zf.open(name) as source, open(destination, "wb") as output:
                             shutil.copyfileobj(source, output)

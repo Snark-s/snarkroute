@@ -40,10 +40,14 @@ export class ServerDecisionRuntime implements DecisionExecutor {
   constructor(options: DecisionRuntimeOptions = {}) {
     const env = options.env ?? process.env;
     const fetchImpl = options.fetch ?? globalThis.fetch;
+    const remoteAllowed = env.APP_MODE === 'cloud' || env.DECISION_ALLOW_PAID === 'true';
     const jevEnabled = booleanEnv(env.JEV_ENABLED, false);
     const needleEnabled = booleanEnv(env.NEEDLE_ENABLED, false);
-    const jevConfigured = jevEnabled && Boolean(env.JEV_API_KEY?.trim());
-    const needleConfigured = needleEnabled && Boolean(env.NEEDLE_BASE_URL?.trim());
+    const jevConfigured = remoteAllowed && jevEnabled && Boolean(env.JEV_API_KEY?.trim());
+    let needleLocal = false;
+    try { const url = new URL(env.NEEDLE_BASE_URL ?? ''); needleLocal = ['http:', 'https:'].includes(url.protocol)
+      && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname); } catch { /* Unconfigured. */ }
+    const needleConfigured = (remoteAllowed || needleLocal) && needleEnabled && Boolean(env.NEEDLE_BASE_URL?.trim());
 
     const rules = new RulesDecisionAdapter({ id: "semantic-rules" });
     const jev = new JevDecisionAdapter({

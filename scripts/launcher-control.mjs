@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { registeredPort } from './local-service-registry.mjs';
 
 export function allowedControlOrigin(origin) {
   if (!origin) return true;
@@ -237,8 +238,8 @@ const portOpen = (port) =>
  */
 export async function startLauncherControl({
   root = process.cwd(),
-  apiPort = 4317,
-  controlPort = 5176,
+  apiPort = registeredPort('snarkroute', 'API_PORT'),
+  controlPort = registeredPort('launcher_control', 'SNARKROUTE_LAUNCHER_CONTROL_PORT'),
   projectPublisher = null,
 } = {}) {
   root = resolve(root);
@@ -268,13 +269,20 @@ export async function startLauncherControl({
       try {
         if (!child) return false;
 
+        const health = await fetch(`http://127.0.0.1:${apiPort}/api/health`, {
+          signal: AbortSignal.timeout(1500), redirect: 'error',
+        });
+        if (health.status !== 200) return false;
+        const body = await health.json();
+        if (body.service !== 'snarkroute-server' || body.apiVersion !== 1 || body.ok !== true) return false;
+
         const ownership = await fetch(
           `http://127.0.0.1:${apiPort}/api/system/restart/ownership`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
             },
-            signal: AbortSignal.timeout(1500),
+            signal: AbortSignal.timeout(1500), redirect: 'error',
           }
         );
 
@@ -286,14 +294,7 @@ export async function startLauncherControl({
           return false;
         }
 
-        const response = await fetch(
-          `http://127.0.0.1:${apiPort}/api/health`,
-          {
-            signal: AbortSignal.timeout(1500),
-          }
-        );
-
-        return response.ok;
+        return true;
       } catch {
         return false;
       }

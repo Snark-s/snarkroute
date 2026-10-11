@@ -10,6 +10,7 @@ import { readOllamaStatus, startOllama, stopOllama } from "./ollama-local";
 import { readYue2Status, startYue2, stopYue2, yue2Config } from "./yue2-local";
 import { writeEnvValue } from "./env";
 import { localOpenAiConfigs } from "../providers/local-openai";
+import { localServiceUrl } from "./local-service-endpoints";
 import {
   getRegisteredLocalRuntime,
   isRegisteredLocalRuntime,
@@ -23,6 +24,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const builtinRuntimeIds = new Set(["bonsai", "ollama", "h3", "yue2", "upscale"]);
+let pendingStart: Promise<unknown> = Promise.resolve();
 
 export type LocalRuntimeId = string;
 export type RuntimeDemand = RegisteredRuntimeDemand;
@@ -186,6 +188,7 @@ export function planLocalRuntimeAdmission(
   const conflicts = new Set<LocalRuntimeId>();
 
   if (effectiveDemand !== "none" && effectiveDemand !== "light") {
+    if (!snapshot.gpu) blockers.push(`${profile.label}: GPU telemetry is unavailable; resource admission cannot be verified.`);
     if (effectiveDemand === "unknown") {
       warnings.push(`${profile.label}: требования к GPU/VRAM не описаны. SnarkRoute будет ориентироваться только на текущую загрузку и известные конфликты.`);
     }
@@ -220,7 +223,7 @@ export function planLocalRuntimeAdmission(
       }
       const recommended = profile.recommendedFreeVramMiB;
       if (recommended && snapshot.gpu.freeMiB < recommended) {
-        warnings.push(`Для ${profile.label} желательно хотя бы ${formatGiB(recommended)} свободной VRAM; сейчас ${formatGiB(snapshot.gpu.freeMiB)}.`);
+        blockers.push(`Для ${profile.label} требуется хотя бы ${formatGiB(recommended)} свободной VRAM; сейчас ${formatGiB(snapshot.gpu.freeMiB)}.`);
       }
     }
 
@@ -257,10 +260,17 @@ export async function admissionForLocalRuntime(target: LocalRuntimeId, intent: A
 
 export async function assertLocalRuntimeAdmission(target: LocalRuntimeId): Promise<void> {
   const { decision } = await admissionForLocalRuntime(target, "workload");
-  if (!decision.allowed) throw new LocalRuntimeAdmissionError(decision);
+  if (!decision.allowed || decision.requiresConfirmation) throw new LocalRuntimeAdmissionError(decision);
 }
 
 export async function startLocalRuntime(target: LocalRuntimeId, options: { force?: boolean } = {}) {
+  // Serialize admission with startup so two models cannot both admit against an idle snapshot.
+  const operation = pendingStart.then(() => startLocalRuntimeAdmitted(target, options));
+  pendingStart = operation.catch(() => undefined);
+  return operation;
+}
+
+async function startLocalRuntimeAdmitted(target: LocalRuntimeId, options: { force?: boolean }) {
   ensureRuntimeRegistrations();
   const before = await readLocalRuntimeSnapshot();
   const decision = planLocalRuntimeAdmission(target, before, "start");
@@ -284,16 +294,16 @@ export function isLocalRuntimeId(value: string): value is LocalRuntimeId {
 }
 
 function ensureRuntimeRegistrations(): void {
-  let bonsaiEndpoint = "http://127.0.0.1:8081";
+  let bonsaiEndpoint = localServiceUrl('bonsai_inference', '/v1');
   try { bonsaiEndpoint = bonsaiRuntimeConfig().baseUrl; } catch {}
   registerLocalRuntimeEndpoint({ id: "bonsai", label: "Bonsai", endpoint: bonsaiEndpoint, demand: "heavy", claimsOnStart: true, source: "builtin" });
   registerLocalRuntimeController("bonsai", { start: startBonsai, stop: stopBonsai });
 
-  registerLocalRuntimeEndpoint({ id: "ollama", label: "Ollama", endpoint: "http://127.0.0.1:11434", demand: "heavy", claimsOnStart: false, source: "builtin" });
+  registerLocalRuntimeEndpoint({ id: "ollama", label: "Ollama", endpoint: localServiceUrl('ollama_inference'), demand: "heavy", claimsOnStart: false, source: "builtin" });
   registerLocalRuntimeController("ollama", { start: startOllama, stop: stopOllama });
 
-  const h3Endpoint = process.env.H3_WORKER_URL?.trim() || "http://127.0.0.1:18080";
-  registerLocalRuntimeEndpoint({ id: "h3", label: "H3", endpoint: h3Endpoint, demand: "exclusive", claimsOnStart: false, source: "builtin" });
+  const h3Endpoint = process.env.H3_WORKER_URL?.trim() || localServiceUrl('h3_worker');
+  registerLocalRuntimeEndpoint({ id: "h3", label: "H3", endpoint: h3Endpoint, demand: "exclusive", claimsOnStart: true, source: "builtin" });
   registerLocalRuntimeController("h3", {
     start: async () => {
       const started = await startH3LocalWsl();

@@ -670,16 +670,35 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
   }
 
   async function start(mode: "saved_worker" | "vast" | "provider") {
+    let allowPaid = false;
     if (mode === "vast") {
       const ceiling = state?.vast.maxHourlyUsd ?? 1.2;
       const confirmed = window.confirm(`SnarkRoute подберёт Vast-сервер не дороже $${ceiling.toFixed(2)}/ч, выполнит очередь последовательно и затем УНИЧТОЖИТ точный instance. Продолжить аренду?`);
       if (!confirmed) return;
+      allowPaid = true;
+    }
+    const hosted = state?.items.some(item => !item.archivedAt && item.selectedForRun !== false
+      && ['ready', 'failed', 'blocked', 'cancelled'].includes(item.status) && item.modelVariant.startsWith('h3_max'));
+    let remoteWorker = false;
+    if (mode === 'saved_worker' && selectedRunnable.some(item => item.operation !== 'video_upscale')) {
+      try {
+        const response = await apiFetch(`${apiBase}/api/h3/connection`);
+        const connection = await response.json() as {workerUrl?:string;error?:string};
+        if (!response.ok) throw new Error(connection.error ?? 'Не удалось проверить H3 worker.');
+        if (connection.workerUrl) remoteWorker = !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(connection.workerUrl).hostname);
+      } catch (error) { setMessage(errorText(error)); return; }
+    }
+    if (!allowPaid && (mode === 'provider' || hosted || remoteWorker)) {
+      if (!window.confirm(remoteWorker
+        ? 'Сохранённый H3 worker находится на внешнем сервере и может расходовать оплаченные ресурсы. Разрешить его использование для этой сессии?'
+        : 'Выбранная очередь использует платный провайдер H3. Разрешить расходы на эту сессию?')) return;
+      allowPaid = true;
     }
     setBusy(true);
     setMessage(mode === "vast" ? "Ищу сервер. Если безопасного предложения нет, аренда не начнётся." : mode === "provider" ? "Отправляю выбранные задания в hosted H3 Max / Turbo через fal…" : "Подключаю сохранённый worker…");
     try {
       const response = await apiFetch(`${apiBase}/api/h3/queue/session`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode })
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode, routingPolicy: { allowPaid } })
       });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Не удалось запустить очередь.");

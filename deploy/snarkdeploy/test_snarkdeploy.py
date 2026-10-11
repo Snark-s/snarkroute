@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +19,82 @@ SPEC.loader.exec_module(SNARKDEPLOY)
 
 
 class SnarkDeployTests(unittest.TestCase):
+    def test_verify_rejects_windows_and_posix_archive_traversal(self):
+        for member in ('files/demo/../../outside.txt', 'files/demo/..\\outside.txt',
+                       '/outside.txt', 'C:/outside.txt', 'files/demo/file.txt:stream'):
+            with self.subTest(member=member), tempfile.TemporaryDirectory() as temp:
+                bundle = Path(temp) / 'recovery.zip'
+                with zipfile.ZipFile(bundle, 'w') as archive:
+                    for name, value in [('state.json', '{"components":[]}'), ('manifest.json', '{}'),
+                                        ('system.json', '{}'), ('heavy-inventory.json', '[]'), (member, 'payload')]:
+                        archive.writestr(name, value)
+                with self.assertRaisesRegex(RuntimeError, 'unsafe archive'):
+                    SNARKDEPLOY.verify_bundle(bundle, quiet=True)
+
+    def test_restore_refuses_symlink_destination_escape(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            target, outside = root/'target', root/'outside'
+            target.mkdir()
+            outside.mkdir()
+            try:
+                (target/'redirect').symlink_to(outside, target_is_directory=True)
+            except OSError:
+                self.skipTest('Symlink creation requires OS permission')
+            with self.assertRaisesRegex(RuntimeError, 'escapes restore target'):
+                SNARKDEPLOY.restore_destination(target, 'redirect/file.txt')
+
+    def test_restored_registry_and_pointer_follow_new_roots(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            route = root / 'SnarkRoute'
+            route.mkdir()
+            registry = {'schemaVersion':1,'host':'127.0.0.1','services':{
+                'snarkroute': {'port':24317,'protocol':'http','healthPath':'/health'}}}
+            (route / 'service-endpoints.json').write_text(json.dumps(registry), encoding='utf-8')
+            variables = {name:{'default':str(root / name)} for name in [
+                'SNARK_MIXAR_BACKEND','SNARK_MIXAR_SOURCE','SNARK_MIXAR_PROFILE','PERSONA_HOME','SNARKBRIDGE_ROOT','SNARK_BONSAI']}
+            variables['SNARKROUTE_ROOT'] = {'default':str(route)}
+            variables['SNARK_REGISTRY_PATH'] = {'default':str(root / 'service-registry.json')}
+            manifest = {'variables':variables,'services':[{'id':'snarkroute','registry_service':'snarkroute'}]}
+            with patch.dict(SNARKDEPLOY.os.environ, {'LOCALAPPDATA':str(root / 'LocalAppData')}, clear=True):
+                generated = SNARKDEPLOY.write_registry(manifest)
+            self.assertEqual(json.loads(generated.read_text())['services'][0]['endpoint'], 'http://127.0.0.1:24317')
+            canonical = json.loads((route / 'service-endpoints.json').read_text())
+            self.assertEqual(canonical['paths']['snarkroute'], str(route))
+            pointer = root / 'LocalAppData/SnarkDream/service-endpoints.path'
+            self.assertEqual(pointer.read_text(), str((route / 'service-endpoints.json').resolve()))
+
+    def test_service_inventory_uses_authoritative_ports(self):
+        registry = {'schemaVersion': 1, 'host': '127.0.0.1', 'services': {
+            'bonsai_inference': {'port': 18081, 'protocol': 'http', 'healthPath': '/v1/models'},
+        }}
+        manifest = {'variables': {}, 'services': [{
+            'id': 'bonsai-local', 'registry_service': 'bonsai_inference', 'endpoint': 'http://127.0.0.1:8080/v1',
+        }]}
+        item = SNARKDEPLOY.resolved_services(manifest, registry)[0]
+        self.assertEqual(item['endpoint'], 'http://127.0.0.1:18081')
+        self.assertEqual(item['probe']['path'], '/v1/models')
+
+    def test_http_probe_rejects_success_from_foreign_service(self):
+        class Reply:
+            status = 200
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self, *args): return b'{"service":"foreign","apiVersion":1}'
+        with patch.object(SNARKDEPLOY.urllib.request.OpenerDirector, 'open', return_value=Reply()):
+            ok, detail = SNARKDEPLOY.probe_http('http://127.0.0.1:4317/health', identity={'field':'service','value':'snarkroute-server'}, api_version=1)
+        self.assertFalse(ok)
+        self.assertIn('identity', detail)
+
+    def test_http_probe_requires_exact_status_200(self):
+        class Reply:
+            status = 404
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+        with patch.object(SNARKDEPLOY.urllib.request.OpenerDirector, 'open', return_value=Reply()):
+            self.assertFalse(SNARKDEPLOY.probe_http('http://127.0.0.1:4317/health')[0])
+
     def test_expand_resolves_nested_variables(self):
         variables = {
             "ROOT": {"default": r"C:\Snark"},

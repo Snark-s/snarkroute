@@ -20,6 +20,9 @@ import type {
   ModelProviderRouteV1,
   SuppliedModelInputsV1
 } from "@snarkroute/model-catalog/dist/v1/index.js";
+import { modelCostTier, modelRoutingPolicy, providerBalanceUnavailable, type ModelRoutingPolicy } from "./model-routing-policy";
+import { appMode } from "./env";
+import type { EngineCapability } from "@snarkroute/protocol";
 
 export interface SemanticModelSelectionInputV1 {
   nodeType: string;
@@ -29,6 +32,8 @@ export interface SemanticModelSelectionInputV1 {
   manualModelRef?: string;
   preferences?: EnginePreferences;
   constraints?: EngineConstraints;
+  routingPolicy?: ModelRoutingPolicy;
+  requiredCapabilities?: EngineCapability[];
 }
 
 export interface SelectedModelRouteV1 {
@@ -50,6 +55,7 @@ export interface SemanticModelSelectionResultV1 {
   models: ModelOptionForNodeV1[];
   requirements: Awaited<ReturnType<EngineRequirementBuilder["build"]>>["requirements"];
   trace: EngineSelectionTrace;
+  errorCode?: "PAID_PERMISSION_REQUIRED" | "NO_PERMITTED_MODEL_ROUTE";
 }
 
 interface EngineProjection {
@@ -86,7 +92,42 @@ export async function selectSemanticModelOptionV1(
   input: SemanticModelSelectionInputV1,
   decisionExecutor: DecisionExecutor = semanticRulesDispatcher
 ): Promise<SemanticModelSelectionResultV1> {
-  const projections = projectEngines(options, input.nodeType);
+  const allProjections = projectEngines(options, input.nodeType);
+  const policy = modelRoutingPolicy(input.routingPolicy);
+  const applies = appMode() !== "cloud";
+  const permitted = allProjections.filter(projection => {
+    if (!applies) return true;
+    const tier = costTier(projection);
+    const refs = [projection.engine.id, projection.option.id, projection.route?.storedModelId ?? projection.option.storedModelId,
+      `model://${projection.engine.providerId}/${projection.route?.providerModelId ?? projection.option.providerModelId}`];
+    return !providerBalanceUnavailable(projection.engine.providerId)
+      && !policy.excludeModelRefs?.some(ref => refs.includes(ref))
+      && !(tier === "local" && policy.localModels === "exclude")
+      && (tier !== "paid_or_unknown" || policy.allowPaid);
+  });
+  const manualProjectionId = input.manualModelRef ? resolveManualEngineId(input.manualModelRef, allProjections) : undefined;
+  // Selection still runs capability validation inside each tier, so an incapable
+  // local engine cannot hide a suitable free engine. Manual never changes tiers.
+  const groups = !applies || input.manualModelRef ? [permitted] : ["local", "free", "paid_or_unknown"]
+    .map(tier => permitted.filter(projection => costTier(projection) === tier));
+  let result: SemanticModelSelectionResultV1 | undefined;
+  for (const projections of groups) {
+    if (!projections.length && groups.length > 1) continue;
+    result = await selectProjected(options, input, projections, decisionExecutor, manualProjectionId);
+    if (result.status === "ok") break;
+  }
+  result ??= await selectProjected(options, input, [], decisionExecutor, manualProjectionId);
+  if (applies) result.trace.policyReasons.unshift(input.manualModelRef ? "Manual provider/model pin" : "Local First", "Free Available", "Paid With Explicit Permission");
+  if (result.status !== "ok") {
+    const deniedPaid = allProjections.some(projection => costTier(projection) === "paid_or_unknown" && !policy.allowPaid
+      && (!input.manualModelRef || projection.engine.id === manualProjectionId));
+    result.errorCode = deniedPaid ? "PAID_PERMISSION_REQUIRED" : "NO_PERMITTED_MODEL_ROUTE";
+    result.trace.policyReasons.push(deniedPaid ? "Paid or unknown-cost routes require explicit permission." : "No available model satisfies this task and routing policy.");
+  }
+  return result;
+}
+
+async function selectProjected(options: ModelOptionForNodeV1[], input: SemanticModelSelectionInputV1, projections: EngineProjection[], decisionExecutor: DecisionExecutor, manualProjectionId?: string): Promise<SemanticModelSelectionResultV1> {
   const gateway = new ModelGateway({
     models: projections.map(({ engine }) => engine),
     connections: providerConnections(projections)
@@ -94,7 +135,7 @@ export async function selectSemanticModelOptionV1(
   const builder = new EngineRequirementBuilder(decisionExecutor);
   const selector = new SemanticEngineSelector(gateway, builder);
   const manualModelRef = input.manualModelRef
-    ? resolveManualEngineId(input.manualModelRef, projections) ?? input.manualModelRef
+    ? manualProjectionId ?? input.manualModelRef
     : undefined;
   const inputFacts = inputFactsForNode(input);
   const selected = await selector.select({
@@ -105,6 +146,7 @@ export async function selectSemanticModelOptionV1(
     manualModelRef,
     preferences: input.preferences,
     constraints: input.constraints,
+    explicit: input.requiredCapabilities?.length ? { requiredCapabilities: input.requiredCapabilities } : undefined,
     metadata: { nodeType: input.nodeType }
   });
   const projection = selected.selected
@@ -131,6 +173,11 @@ export async function selectSemanticModelOptionV1(
     requirements,
     trace
   };
+}
+
+function costTier(projection: EngineProjection) {
+  return modelCostTier(projection.engine.providerId, projection.route?.providerModelId ?? projection.option.providerModelId,
+    projection.engine.metadata ?? {}, projection.route?.pricing ?? projection.option.pricing, projection.engine.outputTypes ?? []);
 }
 
 function inputFactsForNode(input: SemanticModelSelectionInputV1) {

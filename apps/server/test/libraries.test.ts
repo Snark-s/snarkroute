@@ -21,6 +21,7 @@ describe("SnarkRoute libraries", () => {
   let libraryPath: string;
 
   beforeEach(async () => {
+    vi.stubEnv('APP_MODE', 'local');
     process.env.SNARKROUTE_NO_LISTEN = "1";
     libraryPath = await mkdtemp(join(tmpdir(), "sr-library-"));
     process.env.SNARKROUTE_LIBRARY_PATH = libraryPath;
@@ -29,6 +30,7 @@ describe("SnarkRoute libraries", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     restoreEnv("SNARKROUTE_NO_LISTEN", previousNoListen);
     restoreEnv("SNARKROUTE_LIBRARY_PATH", previousLibraryPath);
     restoreEnv("OPENROUTER_API_KEY", previousOpenRouterApiKey);
@@ -46,6 +48,39 @@ describe("SnarkRoute libraries", () => {
     } finally {
       await app.close();
     }
+  });
+
+  it('keeps a local Manual model pinned and forwards permission without private fallback', async () => {
+    const app = await testServer();
+    try {
+      const created = (await app.inject({method:'POST',url:'/api/libraries/current/nodes',payload:{type:'text',x:0,y:0,width:320,height:180}})).json();
+      const node = created.nodes.find((entry: {manifest:{type:string}}) => entry.manifest.type === 'text');
+      executeRouteMock.mockResolvedValue({status:'failed',nodeResults:{generate:{status:'failed',error:'Provider balance empty',
+        errorDetails:{code:'PROVIDER_INSUFFICIENT_FUNDS',retryable:false,details:{origin:'provider',providerId:'polza',statusCode:402}}}}});
+      const result = await app.inject({method:'POST',url:`/api/libraries/current/text-nodes/${node.manifest.id}/generate`,
+        payload:{modelId:'manual-model',executionProvider:'polza',fallbackAllowed:true,routingPolicy:{allowPaid:true},prompt:'Caption'}});
+      expect(result.json()).toMatchObject({errorCode:'PROVIDER_INSUFFICIENT_FUNDS',providerId:'polza',
+        errorDetails:{retryable:false,details:{origin:'provider',statusCode:402}}});
+      expect(executeRouteMock).toHaveBeenCalledTimes(1);
+      expect(executeRouteMock).toHaveBeenCalledWith(expect.objectContaining({nodes:[expect.objectContaining({type:'ai.text',
+        params:expect.objectContaining({model:'manual-model',executionProvider:'polza',routingPolicy:{allowPaid:true}})})]}));
+    } finally { await app.close(); }
+  });
+
+  it('rejects direct paid video before generation without explicit permission', async () => {
+    const app = await testServer();
+    const fetchMock = vi.fn(async (_url: unknown, _init?: RequestInit) => new Response('{}',{status:503}));
+    vi.stubGlobal('fetch',fetchMock);
+    try {
+      const created = (await app.inject({method:'POST',url:'/api/libraries/current/import-video',
+        payload:{filename:'Target.mp4',dataBase64:sampleVideoBase64,dropX:0,dropY:0,width:320,height:240}})).json();
+      const node = created.nodes.find((entry:{manifest:{type:string}}) => entry.manifest.type === 'video');
+      const result = await app.inject({method:'POST',url:`/api/libraries/current/video-nodes/${node.manifest.id}/generate`,
+        payload:{modelId:'paid-fixture',executionProvider:'openrouter',prompt:'Animate'}});
+      expect(result.statusCode).toBe(403);
+      expect(result.json().errorCode).toBe('PAID_PERMISSION_REQUIRED');
+      expect(fetchMock.mock.calls.some(call => (call[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
+    } finally { vi.unstubAllGlobals(); await app.close(); }
   });
 
   it("normalizes legacy image provenance metadata when reading", async () => {
@@ -595,6 +630,7 @@ describe("SnarkRoute libraries", () => {
   });
 
   it("sends video generation through the selected provider and appends the result", async () => {
+    vi.stubEnv('APP_MODE', 'cloud'); // Preserve the existing cloud contract.
     const app = await testServer();
     try {
       const source = await importNode(app, "Source.png");
@@ -691,6 +727,7 @@ describe("SnarkRoute libraries", () => {
   });
 
   it("sends OpenRouter video frame images in the documented content-part shape", async () => {
+    vi.stubEnv('APP_MODE', 'cloud');
     const app = await testServer();
     try {
       process.env.OPENROUTER_API_KEY = "sk-openrouter-test";
@@ -952,6 +989,7 @@ describe("SnarkRoute libraries", () => {
   });
 
   it("prefers the Polza credit route for automatic image generation when it is available", async () => {
+    vi.stubEnv('APP_MODE', 'cloud');
     const app = await testServer();
     try {
       const target = await importNode(app, "Auto route target.png");
@@ -1356,6 +1394,7 @@ describe("SnarkRoute libraries", () => {
   });
 
   it("falls back from a failed Polza text route when fallback is allowed", async () => {
+    vi.stubEnv('APP_MODE', 'cloud');
     const app = await testServer();
     try {
       const created = await app.inject({

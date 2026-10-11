@@ -1,4 +1,5 @@
 import { capabilityForOperation, outputMediaTypeForOperation } from "./catalog";
+import { cepFetch } from './cep-fetch';
 import type { GenerationInput, GenerationJob, GenerationModel, GenerationOperation, ImportedAsset } from "../types";
 import type { H3RegenerationJob, H3RegenerationQuote, PortableToolJob, PublishedTool } from "../tools/schema";
 
@@ -44,7 +45,7 @@ export type LocalRuntimeDecision = {
 export class SnarkRouteGatewayClient {
   private readonly fetchImpl: typeof fetch;
 
-  constructor(readonly baseUrl: string, fetchImpl: typeof fetch = globalThis.fetch) {
+  constructor(readonly baseUrl: string, fetchImpl: typeof fetch = cepFetch) {
     this.fetchImpl = fetchImpl.bind(globalThis);
   }
 

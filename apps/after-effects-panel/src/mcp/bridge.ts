@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { cepFetch } from '../api/cep-fetch';
 
 export type BridgeStatus = "pairing" | "connecting" | "connected" | "disconnected";
 export type McpServerStatus = "checking" | "reachable" | "unavailable";
@@ -78,11 +79,11 @@ export function useAeMcpBridge(serverUrl: string, manualToken = ""): BridgeDiagn
       setDiagnostics((current) => ({ ...current, mcpServerStatus: "checking", bridgeStatus: "pairing", pairingStatus: "requesting", sessionStatus: "not_registered", lastError: null, lastAttemptAt: attemptedAt, connectionPrerequisite: reconnect ? "retrying local server" : "checking local server" }));
       log("bridge initialization", { attemptedAt, reconnect });
       try {
-        const health = await fetch(endpoint(serverUrl, "/health"), { method: "GET", cache: "no-store", credentials: "omit" });
+        const health = await cepFetch(endpoint(serverUrl, "/health"), { method: "GET", cache: "no-store", credentials: "omit" });
         if (!health.ok) throw new Error(`MCP server health check failed with HTTP ${health.status}.`);
         if (stopped) return;
         setDiagnostics((current) => ({ ...current, mcpServerStatus: "reachable", connectionPrerequisite: "requesting local pairing" }));
-        const pair = await fetch(endpoint(serverUrl, "/api/ae-bridge/pair"), { method: "POST", cache: "no-store", credentials: "omit" });
+        const pair = await cepFetch(endpoint(serverUrl, "/api/ae-bridge/pair"), { method: "POST", cache: "no-store", credentials: "omit" });
         let pairingToken = "", useManualToken = false;
         if (pair.ok) {
           const payload = await pair.json() as PairingResponse;

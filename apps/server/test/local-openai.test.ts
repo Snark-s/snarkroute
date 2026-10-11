@@ -1,4 +1,7 @@
 import { createServer, type Server } from "node:http";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createModelResolver } from "@snarkroute/openrouter";
 import { buildServer } from "../src/app";
@@ -8,6 +11,8 @@ import {
   localOpenAiConfig,
   localOpenAiRuntimeSnapshot
 } from "../src/providers/local-openai";
+vi.mock("../src/services/local-runtime-supervisor", () => ({ assertLocalRuntimeAdmission: vi.fn(async () => undefined) }));
+const registryFixtures: string[] = [];
 
 const originalEnv = {
   LOCAL_LLM_BASE_URL: process.env.LOCAL_LLM_BASE_URL,
@@ -16,17 +21,19 @@ const originalEnv = {
   LOCAL_LLM_TIMEOUT_MS: process.env.LOCAL_LLM_TIMEOUT_MS,
   LOCAL_LLM_MAX_CONCURRENCY: process.env.LOCAL_LLM_MAX_CONCURRENCY,
   LOCAL_LLM_ADDITIONAL_ENDPOINTS_JSON: process.env.LOCAL_LLM_ADDITIONAL_ENDPOINTS_JSON
+  ,SNARKROUTE_PORT_REGISTRY: process.env.SNARKROUTE_PORT_REGISTRY
 };
 
 // These tests describe the primary-only configuration, independent of installed host models.
 beforeEach(() => { process.env.LOCAL_LLM_ADDITIONAL_ENDPOINTS_JSON = ""; });
 
-afterEach(() => {
+afterEach(async () => {
   for (const [key, value] of Object.entries(originalEnv)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
   vi.restoreAllMocks();
+  for (const path of registryFixtures.splice(0)) await rm(path, { recursive: true, force: true });
 });
 
 describe.sequential("generic local OpenAI-compatible model route", () => {
@@ -78,7 +85,7 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
     const server = await mockOpenAiServer((request, response) => {
       if (request.url === "/v1/models") {
         response.setHeader("content-type", "application/json");
-        response.end(JSON.stringify({ data: [{ id: "Ternary-Bonsai-2-27B-PQ2_0.gguf", object: "model", owned_by: "prismml" }] }));
+        response.end(JSON.stringify({ object: "list", data: [{ id: "Ternary-Bonsai-2-27B-PQ2_0.gguf", object: "model", owned_by: "prismml" }] }));
         return;
       }
       response.statusCode = 404;
@@ -112,8 +119,8 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
   });
 
   it("executes an ordinary local chat request and records zero API cost", async () => {
-    process.env.LOCAL_LLM_BASE_URL = "http://127.0.0.1:8080/v1";
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+    process.env.LOCAL_LLM_BASE_URL = "http://127.0.0.1:8081/v1";
+    const fetchMock = mockLocalFetch(new Response(JSON.stringify({
       choices: [{ message: { role: "assistant", content: "local answer" } }],
       usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }
     }), { status: 200, headers: { "content-type": "application/json" } }));
@@ -126,14 +133,14 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
       context: {}
     } as Parameters<typeof runner>[0]);
 
-    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8080/v1/chat/completions", expect.objectContaining({ method: "POST" }));
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8081/v1/chat/completions", expect.objectContaining({ method: "POST" }));
     expect(result.output).toMatchObject({ text: "local answer", provider: "local_openai", model: "actual-local-id", estimatedCost: 0, actualCost: 0 });
     expect(result.providerUsage).toMatchObject({ provider: "local_openai", providerModel: "actual-local-id", actualCost: 0, finalCredits: 0 });
   });
 
   it("uses the canvas model id as the physical local model route", async () => {
-    process.env.LOCAL_LLM_BASE_URL = "http://127.0.0.1:8080/v1";
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+    process.env.LOCAL_LLM_BASE_URL = "http://127.0.0.1:8081/v1";
+    const fetchMock = mockLocalFetch(new Response(JSON.stringify({
       choices: [{ message: { role: "assistant", content: "canvas local answer" } }]
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const runner = createRemoteTextNodeRunner(createModelResolver([]));
@@ -146,15 +153,15 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
       context: {}
     } as Parameters<typeof runner>[0]);
 
-    const request = fetchMock.mock.calls[0]?.[1];
+    const request = fetchMock.mock.calls.find(call => call[1]?.method === "POST")?.[1];
     expect(JSON.parse(String(request?.body))).toMatchObject({ model: "physical-local-model.gguf", max_tokens: 768,
       temperature: 0, response_format: { type: "json_object" } });
     expect(result.output).toMatchObject({ text: "canvas local answer", provider: "local_openai", model: "physical-local-model.gguf" });
   });
 
   it("moves and coalesces system messages for strict Jinja chat templates", async () => {
-    process.env.LOCAL_LLM_BASE_URL = "http://127.0.0.1:8080/v1";
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+    process.env.LOCAL_LLM_BASE_URL = "http://127.0.0.1:8081/v1";
+    const fetchMock = mockLocalFetch(new Response(JSON.stringify({
       choices: [{ message: { role: "assistant", content: "normalized" } }]
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const runner = createRemoteTextNodeRunner(createModelResolver([]));
@@ -175,7 +182,7 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
       context: {}
     } as Parameters<typeof runner>[0]);
 
-    const request = fetchMock.mock.calls[0]?.[1];
+    const request = fetchMock.mock.calls.find(call => call[1]?.method === "POST")?.[1];
     const body = JSON.parse(String(request?.body));
     expect(body.messages).toEqual([
       { role: "system", content: "Primary instructions\n\nTask context" },
@@ -185,8 +192,8 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
   });
 
   it("adds a user turn when a generated text route supplies only a system prompt", async () => {
-    process.env.LOCAL_LLM_BASE_URL = "http://127.0.0.1:8080/v1";
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+    process.env.LOCAL_LLM_BASE_URL = "http://127.0.0.1:8081/v1";
+    const fetchMock = mockLocalFetch(new Response(JSON.stringify({
       choices: [{ message: { role: "assistant", content: "hello" } }]
     }), { status: 200, headers: { "content-type": "application/json" } }));
     const runner = createRemoteTextNodeRunner(createModelResolver([]));
@@ -198,7 +205,7 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
       context: {}
     } as Parameters<typeof runner>[0]);
 
-    const request = fetchMock.mock.calls[0]?.[1];
+    const request = fetchMock.mock.calls.find(call => call[1]?.method === "POST")?.[1];
     expect(JSON.parse(String(request?.body)).messages).toEqual([
       { role: "system", content: "Привет!" },
       { role: "user", content: "Respond to the system instructions above." }
@@ -210,7 +217,8 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
     const releases: Array<() => void> = [];
     let active = 0;
     let maximumActive = 0;
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn(async (url: unknown) => {
+      if (String(url).endsWith("/models")) return localModelsResponse();
       active++;
       maximumActive = Math.max(maximumActive, active);
       await new Promise<void>((resolve) => releases.push(resolve));
@@ -223,12 +231,12 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
     });
     const calls = [1, 2, 3].map((index) => runner(localInput(`queued-${index}`)));
 
-    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
     expect(localOpenAiRuntimeSnapshot(baseUrl)).toMatchObject({ active: 1, queued: 2, concurrency: 1 });
     releases.shift()?.();
-    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
     releases.shift()?.();
-    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(3));
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
     releases.shift()?.();
     await expect(Promise.all(calls)).resolves.toHaveLength(3);
 
@@ -240,7 +248,8 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
     const baseUrl = "http://127.0.0.1:18083/v1";
     let releaseFirst!: () => void;
     const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = vi.fn(async (url: unknown) => {
+      if (String(url).endsWith("/models")) return localModelsResponse();
       await firstGate;
       return localResponse("ok");
     });
@@ -249,7 +258,7 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
       fetchImpl
     });
     const first = runner(localInput("first"));
-    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
     const controller = new AbortController();
     const queued = runner({ ...localInput("queued-abort"), context: { runId: "queued-abort", signal: controller.signal } });
     expect(localOpenAiRuntimeSnapshot(baseUrl)).toMatchObject({ active: 1, queued: 1 });
@@ -279,7 +288,12 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
     let connectionClosed!: () => void;
     const started = new Promise<void>((resolve) => { requestStarted = resolve; });
     const closed = new Promise<void>((resolve) => { connectionClosed = resolve; });
-    const server = await mockOpenAiServer((_request, response) => {
+    const server = await mockOpenAiServer((request, response) => {
+      if (request.url?.endsWith("/models")) {
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ object: "list", data: [{ id: "bonsai.gguf", object: "model" }] }));
+        return;
+      }
       if (first) {
         first = false;
         response.once("close", connectionClosed);
@@ -307,7 +321,7 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
 
   it("completes many sequential atomic-sized calls without accumulating active work", async () => {
     const baseUrl = "http://127.0.0.1:18082/v1";
-    const fetchImpl = vi.fn(async () => localResponse("ok"));
+    const fetchImpl = vi.fn(async (url: unknown) => String(url).endsWith("/models") ? localModelsResponse() : localResponse("ok"));
     const runner = createLocalOpenAiTextNodeRunner({
       config: { baseUrl, fallbackModelId: "bonsai.gguf", timeoutMs: 10_000, maxConcurrency: 1 },
       fetchImpl
@@ -315,7 +329,7 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
 
     for (let index = 0; index < 50; index++) await runner(localInput(`atomic-${index}`));
 
-    expect(fetchImpl).toHaveBeenCalledTimes(50);
+    expect(fetchImpl).toHaveBeenCalledTimes(100);
     expect(localOpenAiRuntimeSnapshot(baseUrl)).toMatchObject({ active: 0, queued: 0, concurrency: 1 });
   });
 
@@ -335,6 +349,13 @@ async function mockOpenAiServer(handler: Parameters<typeof createServer>[0]): Pr
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("mock server did not bind a TCP port");
+  const fixture = await mkdtemp(join(tmpdir(), "local-inference-registry-"));
+  registryFixtures.push(fixture);
+  const registry = JSON.parse(await readFile(join(process.cwd(), "..", "..", "service-endpoints.json"), "utf8"));
+  registry.services.bonsai_inference.port = address.port;
+  const registryPath = join(fixture, "service-endpoints.json");
+  await writeFile(registryPath, JSON.stringify(registry));
+  process.env.SNARKROUTE_PORT_REGISTRY = registryPath;
   return {
     url: `http://127.0.0.1:${address.port}`,
     close: () => new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()))
@@ -355,4 +376,13 @@ function localResponse(text: string): Response {
     status: 200,
     headers: { "content-type": "application/json" }
   });
+}
+
+function localModelsResponse(): Response {
+  return new Response(JSON.stringify({ object: "list", data: ["bonsai.gguf", "actual-local-id", "physical-local-model.gguf"]
+    .map(id => ({ id, object: "model" })) }), { headers: { "content-type": "application/json" } });
+}
+
+function mockLocalFetch(response: Response) {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async url => String(url).endsWith("/models") ? localModelsResponse() : response.clone());
 }

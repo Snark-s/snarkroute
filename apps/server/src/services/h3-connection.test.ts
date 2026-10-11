@@ -4,6 +4,7 @@ import { inspectH3Connection, normalizeH3WorkerUrl } from "./h3-connection";
 describe("H3 connection inspection", () => {
   it("returns a sanitized ready status and capabilities", async () => {
     const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json({ service:'snarkroute-minimax-h3-worker', version:'0.2.0', ok:true }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ ready: true, backend: "sglang", backendVersion: "0.5.19", reason: null, activeJobs: 1 }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ backend: "sglang", capabilities: [{ name: "fl2va", available: true }, { name: "video_inpaint", available: false, experimental: true }] }), { status: 200 }));
 
@@ -16,10 +17,21 @@ describe("H3 connection inspection", () => {
   });
 
   it("distinguishes an invalid token without exposing it", async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(new Response("unauthorized", { status: 401 }));
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(Response.json({ service:'snarkroute-minimax-h3-worker', version:'0.2.0', ok:true }))
+      .mockResolvedValueOnce(new Response("unauthorized", { status: 401 }));
     const result = await inspectH3Connection({ workerUrl: "http://127.0.0.1:8000", serviceToken: "wrong-secret", fetchImpl });
     expect(result).toMatchObject({ configured: true, connected: false, ready: false, error: "H3 worker rejected the service token." });
     expect(JSON.stringify(result)).not.toContain("wrong-secret");
+  });
+
+  it('never sends a service token to a foreign listener', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(Response.json({ ready:true, service:'foreign', version:'0.2.0' }));
+    const result = await inspectH3Connection({ workerUrl:'http://127.0.0.1:18080', serviceToken:'must-not-leak', fetchImpl });
+    expect(result.ready).toBe(false);
+    expect(result.error).toMatch(/identity/);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0]?.[1]).not.toHaveProperty('headers.Authorization');
   });
 
   it("validates worker URLs", () => {

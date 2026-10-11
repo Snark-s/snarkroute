@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { repoRoot } from "../server-paths";
+import { localServiceUrl } from "./local-service-endpoints";
+import { createConnection } from 'node:net';
 
 export type LocalUpscaleRuntimeStatus = {
   service: "Local Upscale";
@@ -19,7 +21,8 @@ let launchStartedAt = 0;
 let launchError: string | undefined;
 
 export function localUpscaleRuntimeConfig(env: NodeJS.ProcessEnv = process.env) {
-  const raw = (env.LOCAL_UPSCALE_WORKER_URL || "http://127.0.0.1:8091").trim();
+  const registered = localServiceUrl('local_upscale');
+  const raw = (env.LOCAL_UPSCALE_WORKER_URL || registered).trim();
   const url = new URL(raw);
   if (!["127.0.0.1", "localhost", "::1", "[::1]"].includes(url.hostname)) {
     throw new Error("Local Upscale lifecycle control is allowed only for a loopback worker.");
@@ -27,6 +30,7 @@ export function localUpscaleRuntimeConfig(env: NodeJS.ProcessEnv = process.env) 
   if (url.protocol !== "http:" || url.username || url.password || url.search || url.hash) {
     throw new Error("Local Upscale worker URL must be a plain local http:// address.");
   }
+  if (url.toString().replace(/\/$/, '') !== registered) throw new Error('LOCAL_UPSCALE_WORKER_URL conflicts with service-endpoints.json.');
   const port = Number(url.port || 80);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Local Upscale worker port is invalid.");
   return {
@@ -37,7 +41,8 @@ export function localUpscaleRuntimeConfig(env: NodeJS.ProcessEnv = process.env) 
   };
 }
 
-export async function readLocalUpscaleStatus(): Promise<LocalUpscaleRuntimeStatus> {
+export async function readLocalUpscaleStatus(options: { fetchImpl?: typeof fetch; portListening?: (port: number) => Promise<boolean> } = {}): Promise<LocalUpscaleRuntimeStatus> {
+  const fetchImpl = options.fetchImpl ?? fetch;
   let config: ReturnType<typeof localUpscaleRuntimeConfig>;
   try {
     config = localUpscaleRuntimeConfig();
@@ -46,20 +51,19 @@ export async function readLocalUpscaleStatus(): Promise<LocalUpscaleRuntimeStatu
   }
   const configured = Boolean(config.token);
   try {
-    const health = await fetch(`${config.baseUrl}/health`, { signal: AbortSignal.timeout(1000) });
+    const health = await fetchImpl(`${config.baseUrl}/health`, { signal: AbortSignal.timeout(1000), redirect: 'error' });
     const body = await health.json().catch(() => ({})) as Record<string, unknown>;
-    if (!health.ok || body.service !== "snarkroute-local-upscale-worker") {
+    if (health.status !== 200 || body.service !== "snarkroute-local-upscale-worker" || body.version !== '0.1.0') {
       return result("error", true, configured, 0, config.baseUrl, `Port ${config.port} is occupied by another service.`);
     }
     launchStartedAt = 0;
     launchError = undefined;
     if (!configured) return result("ready", true, false, 0, config.baseUrl, "LOCAL_UPSCALE_WORKER_TOKEN is not configured.");
 
-    const runtime = await fetch(`${config.baseUrl}/runtime`, {
+    const runtime = await fetchImpl(`${config.baseUrl}/runtime`, {
       headers: { Authorization: `Bearer ${config.token}` },
-      signal: AbortSignal.timeout(1200)
+      signal: AbortSignal.timeout(1200), redirect: 'error'
     });
-    if (runtime.status === 404) return result("ready", true, true, 0, config.baseUrl);
     const state = await runtime.json().catch(() => ({})) as Record<string, unknown>;
     if (!runtime.ok) return result("error", true, true, 0, config.baseUrl, `Runtime status returned ${runtime.status}.`);
     const activeJobs = numberField(state.active_jobs);
@@ -68,12 +72,24 @@ export async function readLocalUpscaleStatus(): Promise<LocalUpscaleRuntimeStatu
       imageJobs: numberField(state.image_jobs),
       videoJobs: numberField(state.video_jobs)
     };
-  } catch {
+  } catch (error) {
+    if (await (options.portListening ?? localPortListening)(config.port)) {
+      return result('error', true, configured, 0, config.baseUrl, `Unhealthy or unrecognized service on port ${config.port}: ${errorMessage(error)}`);
+    }
     if (launchError) return result("error", false, configured, 0, config.baseUrl, launchError);
     if (launchStartedAt && Date.now() - launchStartedAt < 60_000) return result("starting", false, configured, 0, config.baseUrl);
     launchStartedAt = 0;
     return result("stopped", false, configured, 0, config.baseUrl);
   }
+}
+
+function localPortListening(port: number): Promise<boolean> {
+  return new Promise(resolve => {
+    const socket = createConnection({ host: '127.0.0.1', port });
+    const finish = (value: boolean) => { socket.destroy(); resolve(value); };
+    socket.once('connect', () => finish(true)); socket.once('error', () => finish(false));
+    socket.setTimeout(400, () => finish(false));
+  });
 }
 
 export async function startLocalUpscale(): Promise<LocalUpscaleRuntimeStatus> {

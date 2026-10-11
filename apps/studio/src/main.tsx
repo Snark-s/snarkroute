@@ -1492,6 +1492,7 @@ function ChooseCameraPointParams({
       setError("Connect or set a 360 equirectangular panorama image before generating a Marble world.");
       return;
     }
+    if (!window.confirm('World Labs is a paid provider. Allow charges for this world generation?')) return;
     setIsGenerating(true);
     setStatus("uploading panorama");
     onChange({ marbleWorld: { ...marbleWorld, provider: "worldlabs-marble", model: String(params.model ?? "marble-1.0-draft"), sourceImageHash, generationStatus: "generating" } });
@@ -1505,7 +1506,8 @@ function ChooseCameraPointParams({
           isPano: true,
           model: String(params.model ?? "marble-1.0-draft"),
           sourceImageHash,
-          displayName: "SnarkRoute Choose Camera Point"
+          displayName: "SnarkRoute Choose Camera Point",
+          routingPolicy: { allowPaid: true }
         })
       });
       setStatus("waiting for World Labs");

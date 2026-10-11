@@ -11,9 +11,11 @@ import { errorMessage } from "../services/errors";
 import { inspectH3Connection, normalizeH3WorkerUrl } from "../services/h3-connection";
 import { h3LocalWslStatus, startH3LocalWsl, stopH3LocalWsl } from "../services/h3-local-wsl";
 import { H3QueueService, H3_QUEUE_OPERATIONS, type H3QueueAsset, type H3QueueOperation, type H3SessionMode } from "../services/h3-queue";
-import { createDefaultH3QueueRuntime, h3VastConfigStatus } from "../services/h3-session-runtime";
+import { assertH3SessionPermission, createDefaultH3QueueRuntime, h3VastConfigStatus } from "../services/h3-session-runtime";
+import { ModelRoutingPolicyError } from '../services/model-routing-policy';
 import { createH3VastTemplate } from "../services/h3-vast-template";
 import { videoUpscaleCatalog } from "../services/video-upscale";
+import { startLocalRuntime } from '../services/local-runtime-supervisor';
 
 const h3QueueService = new H3QueueService({ directory: h3StudioDirectory, runtime: createDefaultH3QueueRuntime() });
 
@@ -25,12 +27,9 @@ export async function registerH3Routes(app: FastifyInstance) {
 
   app.post("/api/h3/local/start", async (_request, reply) => {
     try {
-      const started = await startH3LocalWsl();
-      await writeEnvValue("H3_WORKER_URL", started.status.workerUrl);
-      await writeEnvValue("H3_WORKER_SERVICE_TOKEN", started.serviceToken);
-      process.env.H3_WORKER_URL = started.status.workerUrl;
-      process.env.H3_WORKER_SERVICE_TOKEN = started.serviceToken;
-      return { ok: true, status: { ...started.status, local: started.local } };
+      await startLocalRuntime('h3');
+      const status = await inspectH3Connection();
+      return { ok: true, status: { ...status, local: h3LocalWslStatus(status) } };
     } catch (error) {
       return reply.code(500).send({ error: errorMessage(error) });
     }
@@ -168,11 +167,16 @@ export async function registerH3Routes(app: FastifyInstance) {
     catch (error) { return reply.code(409).send({ error: errorMessage(error) }); }
   });
 
-  app.post<{ Body: { mode?: H3SessionMode } }>("/api/h3/queue/session", async (request, reply) => {
+  app.post<{ Body: { mode?: H3SessionMode; routingPolicy?: { allowPaid?: boolean } } }>("/api/h3/queue/session", async (request, reply) => {
     try {
       const mode = request.body?.mode === "vast" ? "vast" : request.body?.mode === "provider" ? "provider" : "saved_worker";
-      return reply.code(202).send({ session: await h3QueueService.start(mode) });
+      const state = await h3QueueService.getState();
+      assertH3SessionPermission(mode, state.items.filter(item => !item.archivedAt && item.selectedForRun !== false
+        && ['ready', 'failed', 'blocked', 'cancelled'].includes(item.status)), request.body?.routingPolicy?.allowPaid);
+      return reply.code(202).send({ session: await h3QueueService.start(mode, { allowPaid: request.body?.routingPolicy?.allowPaid === true }) });
     } catch (error) {
+      if (error instanceof ModelRoutingPolicyError) return reply.code(403).send({ error: error.message,
+        code: error.code, origin: error.origin, providerId: error.providerId, retryable: false });
       return reply.code(409).send({ error: errorMessage(error) });
     }
   });
