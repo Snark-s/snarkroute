@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 import { repoRoot } from "../server-paths";
+import { localServiceUrl } from "./local-service-endpoints";
 
 export type OllamaStatus = {
   service: "Ollama";
@@ -17,7 +18,7 @@ let ownedPid: number | undefined;
 
 export async function readOllamaStatus(): Promise<OllamaStatus> {
   try {
-    const response = await fetch("http://127.0.0.1:11434/api/ps", { signal: AbortSignal.timeout(1200) });
+    const response = await fetch(localServiceUrl("ollama_inference", "/api/ps"), { signal: AbortSignal.timeout(1200) });
     if (!response.ok) throw new Error(`Ollama /api/ps returned ${response.status}`);
     const body = await response.json() as { models?: Array<{ name?: string; model?: string }> };
     launchStartedAt = 0;
@@ -75,7 +76,7 @@ export async function stopOllama(): Promise<{ ok: true; releasedModels: string[]
 
   const releasedModels: string[] = [];
   for (const model of current.residentModels) {
-    const response = await fetch("http://127.0.0.1:11434/api/generate", {
+    const response = await fetch(localServiceUrl("ollama_inference", "/api/generate"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model, prompt: "", keep_alive: 0, stream: false }),

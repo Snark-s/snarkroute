@@ -68,7 +68,7 @@ class MatlowInt8Backend:
                 "purpose": purpose,
                 "default_steps": steps,
                 "minimum_steps": 4,
-                "maximum_steps": 4 if model_id == "h3_base" else 8,
+                "maximum_steps": 10 if model_id == "h3_base" else 8,
                 "revision": revision,
                 "weights_installed": shared_ready and self._model_path(model_id).is_file(),
                 "recommended_for_16gb": model_id == "10eros_max_turbo",
@@ -183,6 +183,12 @@ class MatlowInt8Backend:
                 request.requested_capability,
                 "matlow_int8 accepts T2VA, FL2VA and visual Ref2VA only",
             )
+        if request.output_mode == "still" and (request.task not in {"t2va", "ref2va"} or request.vae_mode != "stock" or any(c.get("type") != "image" for c in request.conditions)):
+            raise CapabilityUnavailable("still", "Experimental stills support text or image-only Ref2VA with the stock VAE")
+        if (request.output_mode == "still" or request.vae_mode == "x2") and request.model_variant != "h3_base":
+            raise CapabilityUnavailable("preview", "Experimental still/X2 output is tested with h3_base only")
+        if request.vae_mode == "x2" and (request.output_mode != "video" or not self.settings.matlow_x2_vae_file.is_file()):
+            raise CapabilityUnavailable("x2", "Experimental X2 VAE requires installed weights and normal video output")
         if request.task == "ref2va" and any(condition.get("type") not in {"image", "video"} for condition in request.conditions):
             raise CapabilityUnavailable(
                 "ref2va",
@@ -209,9 +215,9 @@ class MatlowInt8Backend:
                 "matlow_int8 exposes only the GPU-verified local_fast preview profile; "
                 "local_quality will be added after a real benchmark",
             )
-        if request.model_variant == "h3_base" and request.num_inference_steps not in {None, 4}:
+        if request.model_variant == "h3_base" and request.effective_steps not in range(4, 11):
             raise CapabilityUnavailable(
-                "preview", "local_fast is pinned to the checkpoint's documented 4 denoise steps"
+                "preview", "H3 Base supports experimental 4–10 denoise steps; the checkpoint was validated at 4"
             )
 
         error = self._configuration_error()
@@ -234,14 +240,15 @@ class MatlowInt8Backend:
 
             for index in range(request.num_outputs_per_prompt):
                 await progress(0.05, "loading_models")
-                output_path = work_dir / f"variant-{index}.mp4"
+                file_ext = ".png" if request.output_mode == "still" else ".mp4"
+                output_path = work_dir / f"variant-{index}{file_ext}"
                 result = await asyncio.to_thread(runtime.generate, request, output_path, index, report)
                 await progress(0.9, "persisting_result")
                 outputs.append(
                     BackendOutput(
                         path=output_path,
-                        filename=f"h3-matlow-{request.seed or 0}-{index}.mp4",
-                        mime_type="video/mp4",
+                        filename=f"h3-matlow-{request.seed or 0}-{index}{file_ext}",
+                        mime_type="image/png" if request.output_mode == "still" else "video/mp4",
                         metadata=ResultMetadata(
                             backend=self.name,
                             backend_version=self.version,
@@ -301,4 +308,6 @@ class MatlowInt8Backend:
                 message,
                 retryable=True,
             ) from exc
+        if request.output_mode == "still" or request.vae_mode == "x2":
+            await asyncio.to_thread(runtime.unload)
         return outputs

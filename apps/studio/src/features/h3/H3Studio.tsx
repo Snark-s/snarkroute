@@ -4,6 +4,7 @@ import { apiBase } from "../../studioConfig";
 import { apiFetch } from "../../shared/apiClient";
 import { navigate } from "../../shared/navigation";
 import { H3QueuePanel } from "./H3QueuePanel";
+import { H3ExperimentalComposer } from "./H3ExperimentalComposer";
 import { H3RegenerationStatus } from "./H3RegenerationStatus";
 import "./H3Studio.css";
 
@@ -302,6 +303,7 @@ export function H3Studio() {
         </div>
       </details>
 
+      <H3ExperimentalComposer />
       <H3QueuePanel finalAvailable={capabilityMap.get("final")?.available === true} />
       <H3RegenerationStatus />
 

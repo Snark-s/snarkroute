@@ -1,7 +1,16 @@
 import { buildServer } from "./app";
 import type { FastifyInstance } from "fastify";
-export const port = Number(process.env.API_PORT ?? 4317);
-export const host = process.env.HOST ?? "127.0.0.1";
+import { localServicePort } from "./services/local-service-endpoints";
+// Local mode has one port authority. API_PORT may only confirm, never override it.
+const declaredPort = localServicePort("snarkroute");
+if (process.env.API_PORT?.trim() && Number(process.env.API_PORT) !== declaredPort) {
+  throw new Error("API_PORT conflicts with SnarkRoute service-endpoints.json");
+}
+export const port = declaredPort;
+if (process.env.HOST?.trim() && process.env.HOST.trim() !== "127.0.0.1") {
+  throw new Error("HOST conflicts with SnarkRoute loopback service registry");
+}
+export const host = "127.0.0.1";
 export function startServer() {
   const app = buildServer();
   if (!attachLauncherLifetime(app)) return app;

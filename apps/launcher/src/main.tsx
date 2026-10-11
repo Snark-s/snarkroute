@@ -5,6 +5,7 @@ import { ApiRequestError, codexRetryFromError, confirmedCodexNotice, type CodexH
 import { parsePersonaModelPreferences, type AutoStrategy } from "./personaModelPreferences";
 import "./styles.css";
 import { RestartSnarkRoute } from "./RestartSnarkRoute";
+import { ProjectPublisherCard, ProjectPublisherControl } from "./ProjectPublisherControl";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 
@@ -79,6 +80,7 @@ function Launcher() {
           {app.id === "yue2" ? <span className="cardActions"><button title="Открыть результаты" onClick={() => void yueAction("outputs")} disabled={!app.running}><FolderOpen /> Результаты</button><button title="Остановить YuE2" onClick={() => void yueAction("stop")} disabled={!app.running}><Square /> Остановить</button></span> : null}
         </div>;
       })}
+      <ProjectPublisherCard />
     </section>
   </main>;
 }
@@ -162,17 +164,20 @@ function LocalRuntimeControl() {
   return <div className={`runtimeDeck ${snapshot?.pressure.level ?? "idle"}`} title={localError || snapshot?.pressure.summary || "Локальные процессы"}>
     <span className="runtimeDeckSummary">{gpuLabel}</span>
     <span className="runtimeDeckItems">
+      <ProjectPublisherControl />
       {(snapshot?.runtimes ?? []).map((runtime) => {
         const working = action.startsWith(`${runtime.id}:`);
         const catalog = catalogs[runtime.id];
         const catalogText = catalog?.total ? `${catalog.available}/${catalog.total}` : "";
         const detail = [runtime.detail || runtime.state, catalog?.total ? `${catalog.available} из ${catalog.total} моделей готовы` : ""].filter(Boolean).join(" · ");
+        const nextAction: "start" | "stop" = runtime.control.canStop || runtime.online ? "stop" : "start";
+        const canAct = nextAction === "stop" ? runtime.control.canStop : runtime.control.canStart;
+        const actionLabel = nextAction === "stop" ? "Остановить" : "Запустить";
         return <span className={`runtimeMini ${runtime.state}`} key={runtime.id} title={detail}>
           <span className="runtimeMiniDot" />
           <span>{runtime.label}{runtime.discovered ? " · auto" : ""}</span>
           {catalogText ? <span className="runtimeMiniCatalog">{catalogText}</span> : null}
-          {runtime.control.canStart ? <button type="button" aria-label={`Запустить ${runtime.label}`} title={`Запустить ${runtime.label}`} onClick={() => void change(runtime, "start")} disabled={working}>{working ? <LoaderCircle className="spin" /> : <Play />}</button> : null}
-          {runtime.control.canStop ? <button type="button" aria-label={`Остановить ${runtime.label}`} title={`Остановить ${runtime.label}`} onClick={() => void change(runtime, "stop")} disabled={working}>{working ? <LoaderCircle className="spin" /> : <Square />}</button> : null}
+          <button type="button" aria-label={`${actionLabel} ${runtime.label}`} title={canAct ? `${actionLabel} ${runtime.label}` : `${actionLabel} ${runtime.label} сейчас недоступно`} onClick={() => void change(runtime, nextAction)} disabled={working || !canAct}>{working ? <LoaderCircle className="spin" /> : nextAction === "stop" ? <Square /> : <Play />}</button>
         </span>;
       })}
     </span>

@@ -18,6 +18,7 @@ export function VideoUpscaleComposer({ onQueued, draft, onClearDraft, outputs = 
   const [source,setSource] = useState<Asset>();
   const [title,setTitle] = useState("Video Upscale");
   const [busy,setBusy] = useState(false);
+  const [expanded,setExpanded] = useState(false);
   const [message,setMessage] = useState("");
   const [dimensions,setDimensions] = useState<[number,number]>();
   useEffect(() => {
@@ -30,7 +31,7 @@ export function VideoUpscaleComposer({ onQueued, draft, onClearDraft, outputs = 
     return () => { disposed = true; };
   }, []);
   useEffect(() => {
-    if (draft) { setSource(draft.assets[0]); setTitle(draft.title); setSettings(draft.videoUpscale ?? catalog?.profile ?? {}); }
+    if (draft) { setExpanded(true); setSource(draft.assets[0]); setTitle(draft.title); setSettings(draft.videoUpscale ?? catalog?.profile ?? {}); }
     else { setSource(undefined); setTitle("Video Upscale"); if (catalog) setSettings(catalog.profile); }
     setDimensions(undefined);
   }, [draft]);
@@ -57,8 +58,8 @@ export function VideoUpscaleComposer({ onQueued, draft, onClearDraft, outputs = 
     } catch (error) { setMessage(String(error)); } finally { setBusy(false); }
   }
   return <section className="h3ComposerSection h3VideoUpscale" aria-label="Video Upscale">
-    <header className="h3QueueHeader"><div><span className="h3Eyebrow">VIDEO UPSCALE</span><h2>Video Upscale</h2><p>Conservative temporal enlargement preserving motion and appearance.</p></div></header>
-    <div className="h3ComposerLayout"><div className="h3ComposerMain">
+    <header className="h3QueueHeader h3CompactHeader"><div><span className="h3Eyebrow">VIDEO UPSCALE</span><h2>Video Upscale</h2>{!expanded ? <p>{selected?.display_name ?? "VimeoScale 2×"} · {source?.filename ?? "No input"}</p> : null}</div><button type="button" className="h3SectionToggle" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? "▴" : "▾"}</button></header>
+    {expanded ? <div className="h3ComposerLayout"><div className="h3ComposerMain">
       <strong>{selected?.display_name ?? "VimeoScale 2× — Conservative Video"} {settings.model === DEFAULT_MODEL ? "· default" : ""}</strong>
       <p>{selected?.verification ?? "Verified · H3 Max / CUDA / 2× tested"} · {selected?.license ?? "CC-BY-SA-4.0"}{selected?.commercial_use === false ? " · NONCOMMERCIAL" : ""}</p>
       <label><span>Input video</span><input type="file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska,.mkv" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void upload(file); event.target.value = ""; }} /></label>
@@ -81,6 +82,6 @@ export function VideoUpscaleComposer({ onQueued, draft, onClearDraft, outputs = 
       <p>H.264 / libx264 · MP4 · CUDA only · source CFR timing</p><p>Color: explicit SDR BT.709 decode → RGB → encode. Untagged sources are logged as BT.709 SDR assumed; output tags are verified.</p>
       <p>Aspect: fit inside the delivery canvas, pad as needed; no crop. Dimensions round to even pixels. SAR=1.</p>
       <p>Resource precheck: free VRAM ≥ {catalog?.resourcePolicy.minFreeVramMiB ?? 8192} MiB; available RAM ≥ {catalog?.resourcePolicy.minAvailableRamMiB ?? 4096} MiB. One local upscale at a time. {catalog?.runtimeInstalled ? "Runtime installed." : "Runtime not installed."}</p>
-    </details></aside></div>
+    </details></aside></div> : null}
   </section>;
 }

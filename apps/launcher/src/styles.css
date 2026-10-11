@@ -24,8 +24,10 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; bac
 .runtimeMiniCatalog { padding:1px 5px; border-radius:999px; background:#203225; color:#9fe7aa; font-size:10px; font-weight:800; letter-spacing:.02em; }
 .runtimeMini button { display:grid; place-items:center; width:23px; height:23px; padding:0; border:0; border-radius:6px; color:#bac3d6; background:#252c3c; cursor:pointer; }
 .runtimeMini button:hover:not(:disabled) { color:#fff; background:#343d52; }
+.runtimeMini button:disabled { opacity:.28; cursor:default; }
 .runtimeMini button svg { width:11px; height:11px; }
 .runtimeDeckError { max-width:220px; overflow:hidden; text-overflow:ellipsis; color:#ffabc8; font-size:11px; white-space:nowrap; }
+.publisherMini { border-color:#494066; }
 .bonsaiRuntime { display: flex; align-items: center; gap: 7px; padding: 6px 7px 6px 12px; border: 1px solid #3a4256; border-radius: 15px; background: #111522e8; color: #aeb7ca; white-space: nowrap; }
 .bonsaiState { display: flex; align-items: center; gap: 7px; margin-right: 3px; font-size: 13px; font-weight: 700; }
 .bonsaiDot { width: 8px; height: 8px; border-radius: 50%; background: #687287; box-shadow: 0 0 0 4px #68728718; }

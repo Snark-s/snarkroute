@@ -403,6 +403,9 @@
   .h3ImportCardGrid { grid-template-columns: 1fr; }
   .h3ImportReferences article.h3ImportAssetCard { grid-template-columns: 120px minmax(0, 1fr); }
 }
+.h3InlineWarning { color: #f1b86b; font-size: 12px; line-height: 1.4; }
+.h3SectionToggle { display: inline-flex; align-items: center; justify-content: center; min-width: 25px; width: 25px; height: 25px; padding: 0; border-radius: 6px; }
 .h3UpscalePreview { width: 100%; max-height: 260px; background: #111; border-radius: 8px; }
 .h3VideoUpscale details summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
 .h3VideoUpscale .h3ComposerMain > p { font-size: 13px; line-height: 1.5; }
+.h3SectionToggle { flex-shrink: 0; align-self: flex-start; cursor: pointer; border: 1px solid #374151; border-radius: 7px; padding: 0; box-sizing: border-box; background: #1b2431; color: #d7e2f3; } .h3SectionToggle svg { display: block; flex-shrink: 0; width: 14px; height: 14px; stroke: currentColor; } .h3SectionToggle:hover { background: #273447; } .h3ComposerSection:has(> .h3QueueHeader .h3SectionToggle[aria-expanded="false"]) { padding-top: 12px; padding-bottom: 12px; } .h3ComposerSection > .h3QueueHeader:has(.h3SectionToggle) { gap: 14px; align-items: center; } .h3ComposerSection > .h3QueueHeader:has(.h3SectionToggle) p { margin: 3px 0 0; }

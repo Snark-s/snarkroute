@@ -48,6 +48,19 @@ model:
   gated: false
   manual_license_acceptance_required: true
 components:
+  - id: experimental-h3-x2-vae
+    repository: speach1sdef178/MiniMax-H3-X2-Detail-VAE
+    revision: af8c92d267c6849fec5032c35a65d5766737b338
+    allow_patterns: ["MiniMax-H3-X2-Detail-v1.safetensors"]
+    path: speach1sdef178/MiniMax-H3-X2-Detail-VAE
+    license: minimax-h3-community-license-agreement
+    manual_license_acceptance_required: true
+    variant: experimental_x2_vae
+    filename: MiniMax-H3-X2-Detail-v1.safetensors
+    expected_bytes: 5246877148
+    checksum_sha256: 2296840f4acedcaa976688e7d7b97f7bf570b136e400385d3f46224011897aac
+    purpose: Experimental 2X H3 VAE with PixelShuffle packed RGB
+    download: false
   - id: authentic-cinematic-texture-v1
     repository: Alex995647/loras-minimax-h3
     source_model: "civitai:2890588"

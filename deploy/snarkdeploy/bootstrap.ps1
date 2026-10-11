@@ -102,6 +102,15 @@ function Run-Deploy([Parameter(ValueFromRemainingArguments=$true)][string[]]$Dep
 
 Run-Deploy install
 
+# Extra bootstrap for SnarkBridge on archives based on earlier SnarkRoute checkouts.
+$BridgeRoot=Join-Path (Split-Path $PersonaHome -Parent) 'SnarkBridge'
+$BridgeInstaller=Join-Path $BridgeRoot 'RESTORE_SNARKBRIDGE.ps1'
+if(Test-Path $BridgeInstaller) {
+  Say 'Restoring SnarkBridge MCP environment'
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $BridgeInstaller
+  if($LASTEXITCODE -ne 0) { throw 'SnarkBridge restore failed' }
+}
+
 $Registry=Join-Path $env:LOCALAPPDATA "SnarkRoute\service-registry.json"
 [Environment]::SetEnvironmentVariable("SNARK_SERVICE_REGISTRY",$Registry,"User")
 $env:SNARK_SERVICE_REGISTRY=$Registry

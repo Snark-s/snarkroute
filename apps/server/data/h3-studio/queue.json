@@ -27,326 +27,291 @@
       "selectedForRun": false
     },
     {
-      "title": "Перенос стиля видео",
-      "operation": "style_transfer",
-      "prompt": "лошадь скачет по лесу. Стиль - пикторализм",
-      "duration": 5,
-      "aspectRatio": "16:9",
-      "seed": 1499410093,
+      "title": "Окна 1",
+      "operation": "first_last_frame",
+      "prompt": "Subject\nExterior view of a building facade at night with a static grid of 12 windows. Each window has glowing warm amber curtains and black frames. Behind each curtain there is a dark human silhouette.\nScene style\nWarm cinematic night atmosphere, intimate domestic life, realistic silhouettes, strong contrast, elegant readable motion.\nCamera\nLocked-off static camera.\nNo camera movement.\nNo zoom.\nNo pan.\nNo tilt.\nNo dolly.\nNo parallax.\nMain rule\nAll 12 silhouettes must be visibly animated.\nNo static windows.\nMotion should be energetic, expressive, clearly readable, and larger in amplitude than subtle natural movement, while still believable.\nActions  \n- woman actively tossing and gathering her hair with strong arm and head motion\n- elderly man clearly opening, lifting, adjusting, and shifting his newspaper\n- child making a high energetic jump with arms spread\n- hugging couple swaying broadly and shifting weight visibly\n- dancer making a wide expressive dance movement with arms and torso\n- man with raised hand keeping the arm raised and clearly waving side to side with hand and forearm; he must wave, not lower the arm\n- mother actively lifting and rocking the baby\n- violinist playing with broad bow strokes and visible upper-body movement\n- girl on the phone turning her head and gesturing clearly while talking\n- elderly couple at the table talking animatedly with visible hand and head gestures\n- person watering the plant bending clearly and noticeably tilting the watering can\n- child throwing a paper airplane forward with a strong visible gesture\nPaper airplane rule\nThe paper airplane flies naturally forward in a smooth arc.\nIt must not reverse direction.\nIt must not fly backward into the hand like reversed footage.\nEnvironment constraints\nKeep the 12-window grid, black frames, curtains, warm amber backlight, composition, and perspective unchanged.\nPreserve each silhouette’s identity, proportions, and position inside its own window.\nNo silhouettes crossing into other windows.\nCurtains remain almost still.\nLoop rule\nCreate a seamless loop.\nThe final frame must match the first frame exactly.\nThe motion should feel cyclical and continuous.\nNegative\ncamera movement, zoom, pan, tilt, dolly, parallax, flickering light, changing window geometry, moving frames, morphing silhouettes, frozen windows, static waving man, lowering arm instead of waving, tiny motion, extra people, extra limbs, distorted anatomy, silhouettes crossing between windows, reverse airplane motion, airplane flying back into hand, jump cuts, broken loop",
+      "promptJson": {
+        "snarkrouteH3Composer": {
+          "schemaVersion": 1,
+          "taskFamily": "FL2VA",
+          "prompt": "Subject\nExterior view of a building facade at night with a static grid of 12 windows. Each window has glowing warm amber curtains and black frames. Behind each curtain there is a dark human silhouette.\nScene style\nWarm cinematic night atmosphere, intimate domestic life, realistic silhouettes, strong contrast, elegant readable motion.\nCamera\nLocked-off static camera.\nNo camera movement.\nNo zoom.\nNo pan.\nNo tilt.\nNo dolly.\nNo parallax.\nMain rule\nAll 12 silhouettes must be visibly animated.\nNo static windows.\nMotion should be energetic, expressive, clearly readable, and larger in amplitude than subtle natural movement, while still believable.\nActions  \n- woman actively tossing and gathering her hair with strong arm and head motion\n- elderly man clearly opening, lifting, adjusting, and shifting his newspaper\n- child making a high energetic jump with arms spread\n- hugging couple swaying broadly and shifting weight visibly\n- dancer making a wide expressive dance movement with arms and torso\n- man with raised hand keeping the arm raised and clearly waving side to side with hand and forearm; he must wave, not lower the arm\n- mother actively lifting and rocking the baby\n- violinist playing with broad bow strokes and visible upper-body movement\n- girl on the phone turning her head and gesturing clearly while talking\n- elderly couple at the table talking animatedly with visible hand and head gestures\n- person watering the plant bending clearly and noticeably tilting the watering can\n- child throwing a paper airplane forward with a strong visible gesture\nPaper airplane rule\nThe paper airplane flies naturally forward in a smooth arc.\nIt must not reverse direction.\nIt must not fly backward into the hand like reversed footage.\nEnvironment constraints\nKeep the 12-window grid, black frames, curtains, warm amber backlight, composition, and perspective unchanged.\nPreserve each silhouette’s identity, proportions, and position inside its own window.\nNo silhouettes crossing into other windows.\nCurtains remain almost still.\nLoop rule\nCreate a seamless loop.\nThe final frame must match the first frame exactly.\nThe motion should feel cyclical and continuous.\nNegative\ncamera movement, zoom, pan, tilt, dolly, parallax, flickering light, changing window geometry, moving frames, morphing silhouettes, frozen windows, static waving man, lowering arm instead of waving, tiny motion, extra people, extra limbs, distorted anatomy, silhouettes crossing between windows, reverse airplane motion, airplane flying back into hand, jump cuts, broken loop",
+          "contextInstruction": "",
+          "contextPreset": "none"
+        }
+      },
+      "duration": 10,
+      "aspectRatio": "adaptive",
+      "seed": 1706064773,
       "variants": 1,
       "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
       "assets": [
         {
-          "slot": "referenceVideo",
-          "kind": "video",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_1f2accbc-7d8b-4219-a74d-c9f21fb3cf02-h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "filename": "h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "mimeType": "video/mp4"
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_414302f3-a62d-456e-b607-a74611349de2-windows.png",
+          "filename": "windows.png",
+          "mimeType": "image/png"
         },
         {
-          "slot": "referenceImage",
+          "slot": "lastFrame",
           "kind": "image",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_865642b0-d582-4a71-aeb3-06dc1a0c8a09-image.png",
-          "filename": "image.png",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_8509407e-55e0-4b8d-9a00-d3bd61298f01-windows.png",
+          "filename": "windows.png",
           "mimeType": "image/png"
         }
       ],
-      "id": "h3q_72f2bba7-114d-4fe1-b219-b6efb0373798",
+      "id": "h3q_face8229-0946-4ea9-bce8-fe74cb9f8bf6",
       "status": "succeeded",
       "progress": 1,
-      "createdAt": "2026-09-10T12:35:51.886Z",
-      "updatedAt": "2026-09-10T14:59:24.252Z",
+      "createdAt": "2026-10-08T09:03:02.660Z",
+      "updatedAt": "2026-10-08T12:00:19.768Z",
       "selectedForRun": true,
-      "startedAt": "2026-09-10T14:51:02.170Z",
-      "workerJobId": "afde3f4e-65b7-4550-91e7-e68e627f49c5",
+      "workerJobId": "cc38f1b7-e529-4c97-b5a8-00231f5af75a",
       "resultPaths": [
-        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_72f2bba7-114d-4fe1-b219-b6efb0373798\\h3q_72f2bba7-114d-4fe1-b219-b6efb0373798-0.mp4"
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_face8229-0946-4ea9-bce8-fe74cb9f8bf6\\h3q_face8229-0946-4ea9-bce8-fe74cb9f8bf6-0.mp4"
       ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 243,
+          "duration_seconds": 10,
+          "steps": 6,
+          "seed": 1706064773,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  1550,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  1550
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  72,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1164.8577813480001,
+          "peak_vram_gib": 5.9609375,
+          "peak_ram_gib": 21.909046173095703,
+          "peak_system_ram_gib": 19.968647003173828,
+          "peak_swap_gib": 0.000255584716796875,
+          "peak_swap_growth_gib": 0.000255584716796875,
+          "model_load_seconds": 62.70402861499998,
+          "text_encoder_seconds": 485.358020426,
+          "diffusion_seconds": 552.4727673250001,
+          "vae_decode_seconds": 48.551693387999876,
+          "audio_seconds": 1.923316739000029,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 13313694,
+          "output_bytes": 1252557,
+          "verified_gpu_inference": true
+        }
+      },
+      "startedAt": "2026-10-08T11:41:05.510Z",
       "stage": "complete",
-      "completedAt": "2026-09-10T14:59:24.252Z"
+      "completedAt": "2026-10-08T12:00:19.768Z"
     },
     {
-      "title": "Перенос стиля видео",
-      "operation": "style_transfer",
-      "prompt": "лошадь скачет по лесу. Стиль - аниме",
-      "duration": 5,
-      "aspectRatio": "16:9",
-      "seed": 1499410093,
-      "variants": 1,
-      "renderMode": "preview",
-      "assets": [
-        {
-          "slot": "referenceVideo",
-          "kind": "video",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_1f2accbc-7d8b-4219-a74d-c9f21fb3cf02-h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "filename": "h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "mimeType": "video/mp4"
-        },
-        {
-          "slot": "referenceImage",
-          "kind": "image",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_2e4e8023-00b0-4d4d-8465-76a2019b34d9-image.png",
-          "filename": "image.png",
-          "mimeType": "image/png"
+      "title": "Окна 2",
+      "operation": "first_last_frame",
+      "prompt": "Seamless looping animation based on the reference image. Camera fully locked off. The 12-window grid, black frames, curtains, warm amber backlight, composition and perspective remain completely unchanged. No camera movement, zoom, parallax or lighting flicker.All 12 silhouettes must be clearly animated. No static windows.The man with the raised hand must wave his hand clearly and repeatedly. He does not simply lower the arm. He keeps the arm raised and performs a visible waving gesture, moving the hand and forearm side to side in a friendly wave, with a slight shoulder and torso motion.All the other figures move with even larger amplitude and more expressive body motion:woman strongly tossing and gathering her hairelderly man clearly opening, lifting and adjusting the newspaperchild making a high lively jumphugging couple swaying broadly in the embracedancer making a wide expressive dance movementmother actively lifting and rocking the babyviolinist using broad bow strokes and visible body motiongirl on the phone turning her head and gesturing clearlyelderly couple talking with large hand and head gesturesperson watering the plant bending more and clearly tilting the watering canchild throwing the paper airplane forward with a strong visible gestureThe paper airplane flies naturally forward in a smooth arc and does not reverse back into the hand. At the loop point, the child is again in the starting pose holding the airplane, ready to throw again.Every silhouette keeps the same identity, proportions and place inside its own window. No crossing between windows. Curtains remain almost still.Final frame matches the first frame for a clean seamless loop. Warm cinematic silhouettes, intimate evening atmosphere, strong readable motion, large amplitude, perfect loop.",
+      "promptJson": {
+        "snarkrouteH3Composer": {
+          "schemaVersion": 1,
+          "taskFamily": "FL2VA",
+          "prompt": "Seamless looping animation based on the reference image. Camera fully locked off. The 12-window grid, black frames, curtains, warm amber backlight, composition and perspective remain completely unchanged. No camera movement, zoom, parallax or lighting flicker.All 12 silhouettes must be clearly animated. No static windows.The man with the raised hand must wave his hand clearly and repeatedly. He does not simply lower the arm. He keeps the arm raised and performs a visible waving gesture, moving the hand and forearm side to side in a friendly wave, with a slight shoulder and torso motion.All the other figures move with even larger amplitude and more expressive body motion:woman strongly tossing and gathering her hairelderly man clearly opening, lifting and adjusting the newspaperchild making a high lively jumphugging couple swaying broadly in the embracedancer making a wide expressive dance movementmother actively lifting and rocking the babyviolinist using broad bow strokes and visible body motiongirl on the phone turning her head and gesturing clearlyelderly couple talking with large hand and head gesturesperson watering the plant bending more and clearly tilting the watering canchild throwing the paper airplane forward with a strong visible gestureThe paper airplane flies naturally forward in a smooth arc and does not reverse back into the hand. At the loop point, the child is again in the starting pose holding the airplane, ready to throw again.Every silhouette keeps the same identity, proportions and place inside its own window. No crossing between windows. Curtains remain almost still.Final frame matches the first frame for a clean seamless loop. Warm cinematic silhouettes, intimate evening atmosphere, strong readable motion, large amplitude, perfect loop.",
+          "contextInstruction": "",
+          "contextPreset": "none"
         }
-      ],
-      "id": "h3q_63d93444-2f86-4a2b-b368-1a38bb1babdd",
-      "status": "succeeded",
-      "progress": 1,
-      "createdAt": "2026-09-10T15:11:20.188Z",
-      "updatedAt": "2026-09-10T15:16:06.019Z",
-      "selectedForRun": true,
-      "stage": "complete",
-      "startedAt": "2026-09-10T15:11:27.215Z",
-      "workerJobId": "f66d295c-52f2-482e-93c1-f26e35505876",
-      "resultPaths": [
-        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_63d93444-2f86-4a2b-b368-1a38bb1babdd\\h3q_63d93444-2f86-4a2b-b368-1a38bb1babdd-0.mp4"
-      ],
-      "completedAt": "2026-09-10T15:16:06.019Z"
-    },
-    {
-      "title": "Перенос стиля видео",
-      "operation": "style_transfer",
-      "prompt": "лошадь скачет по лесу. Стиль - пикторализм",
-      "duration": 5,
-      "aspectRatio": "16:9",
-      "seed": 1499410093,
+      },
+      "duration": 10,
+      "aspectRatio": "adaptive",
+      "seed": 1706064773,
       "variants": 1,
-      "renderMode": "preview",
+      "renderMode": "final",
+      "modelVariant": "10eros_max",
+      "inferenceSteps": 8,
+      "attentionMode": "dense",
       "assets": [
         {
-          "slot": "referenceVideo",
-          "kind": "video",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_1f2accbc-7d8b-4219-a74d-c9f21fb3cf02-h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "filename": "h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "mimeType": "video/mp4"
-        },
-        {
-          "slot": "referenceImage",
+          "slot": "firstFrame",
           "kind": "image",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_930a71b9-8e5f-4839-a13e-6bf5ca0cfa29-image.png",
-          "filename": "image.png",
-          "mimeType": "image/png"
-        }
-      ],
-      "id": "h3q_93807615-d631-4f61-ab60-ee0c1c04143a",
-      "status": "succeeded",
-      "progress": 1,
-      "createdAt": "2026-09-10T16:04:18.902Z",
-      "updatedAt": "2026-09-10T16:12:45.273Z",
-      "selectedForRun": true,
-      "stage": "complete",
-      "startedAt": "2026-09-10T16:04:24.479Z",
-      "workerJobId": "05a1c28a-5263-4197-8948-908a361b5f63",
-      "resultPaths": [
-        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_93807615-d631-4f61-ab60-ee0c1c04143a\\h3q_93807615-d631-4f61-ab60-ee0c1c04143a-0.mp4"
-      ],
-      "completedAt": "2026-09-10T16:12:45.273Z"
-    },
-    {
-      "title": "Проверка переноса стиля — аниме",
-      "operation": "style_transfer",
-      "prompt": "лошадь скачет по лесу. Стиль - аниме",
-      "duration": 5,
-      "aspectRatio": "16:9",
-      "seed": 1499410093,
-      "variants": 1,
-      "renderMode": "preview",
-      "assets": [
-        {
-          "slot": "referenceVideo",
-          "kind": "video",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_1f2accbc-7d8b-4219-a74d-c9f21fb3cf02-h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "filename": "h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "mimeType": "video/mp4"
-        },
-        {
-          "slot": "referenceImage",
-          "kind": "image",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_2e4e8023-00b0-4d4d-8465-76a2019b34d9-image.png",
-          "filename": "image.png",
-          "mimeType": "image/png"
-        }
-      ],
-      "id": "h3q_ce29be7e-5db9-4258-921c-f38a824f08c2",
-      "status": "succeeded",
-      "progress": 1,
-      "createdAt": "2026-09-10T17:36:18.628Z",
-      "updatedAt": "2026-09-10T17:41:46.809Z",
-      "selectedForRun": true,
-      "stage": "complete",
-      "startedAt": "2026-09-10T17:36:19.358Z",
-      "workerJobId": "eff86c63-2e4a-4d1e-8366-742c587ff6f6",
-      "resultPaths": [
-        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_ce29be7e-5db9-4258-921c-f38a824f08c2\\h3q_ce29be7e-5db9-4258-921c-f38a824f08c2-0.mp4"
-      ],
-      "completedAt": "2026-09-10T17:41:46.809Z"
-    },
-    {
-      "title": "Проверка переноса стиля — аниме",
-      "operation": "style_transfer",
-      "prompt": "лошадь скачет по лесу. Стиль - аниме",
-      "duration": 5,
-      "aspectRatio": "16:9",
-      "seed": 1499410093,
-      "variants": 1,
-      "renderMode": "preview",
-      "assets": [
-        {
-          "slot": "referenceVideo",
-          "kind": "video",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_1f2accbc-7d8b-4219-a74d-c9f21fb3cf02-h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "filename": "h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "mimeType": "video/mp4"
-        },
-        {
-          "slot": "referenceImage",
-          "kind": "image",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_2e4e8023-00b0-4d4d-8465-76a2019b34d9-image.png",
-          "filename": "image.png",
-          "mimeType": "image/png"
-        }
-      ],
-      "id": "h3q_d81bf9a8-aad2-4a69-956a-43565b4942ef",
-      "status": "succeeded",
-      "progress": 1,
-      "createdAt": "2026-09-13T11:39:24.672Z",
-      "updatedAt": "2026-09-13T11:49:42.848Z",
-      "selectedForRun": true,
-      "stage": "complete",
-      "startedAt": "2026-09-13T11:39:34.697Z",
-      "workerJobId": "86a327e9-7631-42ad-af39-225f01ab11a3",
-      "resultPaths": [
-        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_d81bf9a8-aad2-4a69-956a-43565b4942ef\\h3q_d81bf9a8-aad2-4a69-956a-43565b4942ef-0.mp4"
-      ],
-      "completedAt": "2026-09-13T11:49:42.848Z"
-    },
-    {
-      "title": "Контроль переноса стиля — motion-guide",
-      "operation": "style_transfer",
-      "prompt": "лошадь скачет по лесу. Стиль - аниме",
-      "duration": 5,
-      "aspectRatio": "16:9",
-      "seed": 1499410093,
-      "variants": 1,
-      "renderMode": "preview",
-      "assets": [
-        {
-          "slot": "referenceVideo",
-          "kind": "video",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_1f2accbc-7d8b-4219-a74d-c9f21fb3cf02-h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "filename": "h3q_1745b293-b4aa-4f48-98d4-412f10f6d3f9-0.mp4",
-          "mimeType": "video/mp4"
-        },
-        {
-          "slot": "referenceImage",
-          "kind": "image",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_2e4e8023-00b0-4d4d-8465-76a2019b34d9-image.png",
-          "filename": "image.png",
-          "mimeType": "image/png"
-        }
-      ],
-      "id": "h3q_ba9ad012-1ae8-4090-8d51-d01ab3ad0506",
-      "status": "succeeded",
-      "progress": 1,
-      "createdAt": "2026-09-13T15:13:07.308Z",
-      "updatedAt": "2026-09-13T15:57:43.080Z",
-      "selectedForRun": true,
-      "stage": "complete",
-      "startedAt": "2026-09-13T15:46:01.980Z",
-      "workerJobId": "665f85ec-4da3-4197-aa27-b9e651f49eaa",
-      "completedAt": "2026-09-13T15:57:43.080Z",
-      "resultPaths": [
-        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_ba9ad012-1ae8-4090-8d51-d01ab3ad0506\\h3q_ba9ad012-1ae8-4090-8d51-d01ab3ad0506-0.mp4"
-      ]
-    },
-    {
-      "title": "Перенос стиля видео",
-      "operation": "reference_mix",
-      "prompt": "Движение возьми из <Video 1>, стиль из <Picture 1>",
-      "duration": 5,
-      "aspectRatio": "16:9",
-      "seed": 1499410093,
-      "variants": 1,
-      "renderMode": "preview",
-      "assets": [
-        {
-          "slot": "referenceImage",
-          "kind": "image",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_b120e225-5fa1-4e9f-a295-15b7425ba83c-image.png",
-          "filename": "image.png",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_414302f3-a62d-456e-b607-a74611349de2-windows.png",
+          "filename": "windows.png",
           "mimeType": "image/png"
         },
         {
-          "slot": "referenceVideo",
-          "kind": "video",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_e0552015-34ed-4d1a-8363-920f4208ab38-preview.mp4",
-          "filename": "preview.mp4",
-          "mimeType": "video/mp4"
-        }
-      ],
-      "id": "h3q_773f42d3-4478-4423-ab32-8584a3204a2e",
-      "status": "succeeded",
-      "progress": 1,
-      "createdAt": "2026-09-13T19:17:16.560Z",
-      "updatedAt": "2026-09-13T19:22:52.220Z",
-      "selectedForRun": true,
-      "stage": "complete",
-      "startedAt": "2026-09-13T19:17:19.243Z",
-      "workerJobId": "a966ac3a-9cef-4145-8cbb-3209831cb088",
-      "resultPaths": [
-        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_773f42d3-4478-4423-ab32-8584a3204a2e\\h3q_773f42d3-4478-4423-ab32-8584a3204a2e-0.mp4"
-      ],
-      "completedAt": "2026-09-13T19:22:52.220Z"
-    },
-    {
-      "title": "Перенос движения",
-      "operation": "motion_transfer",
-      "prompt": "Движение возьми из <Video 1>, стиль из <Picture 1>",
-      "duration": 5,
-      "aspectRatio": "16:9",
-      "seed": 118669188,
-      "variants": 1,
-      "renderMode": "preview",
-      "inferenceSteps": 4,
-      "assets": [
-        {
-          "slot": "referenceVideo",
-          "kind": "video",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_05bb81fc-84e6-43d0-a63f-6e305448a546-preview.mp4",
-          "filename": "preview.mp4",
-          "mimeType": "video/mp4"
-        },
-        {
-          "slot": "referenceImage",
+          "slot": "lastFrame",
           "kind": "image",
-          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_8cc3c128-b860-481c-a3d2-1508c8fa840f-image.png",
-          "filename": "image.png",
+          "path": "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\assets\\asset_8509407e-55e0-4b8d-9a00-d3bd61298f01-windows.png",
+          "filename": "windows.png",
           "mimeType": "image/png"
         }
       ],
-      "id": "h3q_e9601a8b-d283-460b-93a4-911b9d9bbde1",
+      "id": "h3q_e0d69758-96e7-4195-ae9b-ed180892ecb5",
       "status": "succeeded",
       "progress": 1,
-      "createdAt": "2026-09-13T20:28:06.931Z",
-      "updatedAt": "2026-09-13T21:20:19.514Z",
+      "createdAt": "2026-10-08T12:01:25.782Z",
+      "updatedAt": "2026-10-08T12:22:50.408Z",
       "selectedForRun": true,
-      "startedAt": "2026-09-13T21:03:07.215Z",
-      "workerJobId": "fd6e1de5-473f-425d-90f0-91b4a1f125b1",
-      "stage": "complete",
+      "workerJobId": "03cd3068-0dac-4033-8477-bc6e0a7a4e95",
       "resultPaths": [
-        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_e9601a8b-d283-460b-93a4-911b9d9bbde1\\h3q_e9601a8b-d283-460b-93a4-911b9d9bbde1-0.mp4"
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_e0d69758-96e7-4195-ae9b-ed180892ecb5\\h3q_e0d69758-96e7-4195-ae9b-ed180892ecb5-0.mp4"
       ],
-      "completedAt": "2026-09-13T21:20:19.514Z"
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 243,
+          "duration_seconds": 10,
+          "steps": 8,
+          "seed": 1706064773,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "res_multistep",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": false,
+            "kind": "none"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  1374,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  1374
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  72,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1265.722396659,
+          "peak_vram_gib": 5.94140625,
+          "peak_ram_gib": 26.37131118774414,
+          "peak_system_ram_gib": 25.390296936035156,
+          "peak_swap_gib": 0.00344085693359375,
+          "peak_swap_growth_gib": 0.003185272216796875,
+          "model_load_seconds": 78.9266777519997,
+          "text_encoder_seconds": 246.39328851699997,
+          "diffusion_seconds": 879.9657380199999,
+          "vae_decode_seconds": 45.91822660800017,
+          "audio_seconds": 1.6551304360000358,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 13313694,
+          "output_bytes": 1158113,
+          "verified_gpu_inference": true
+        }
+      },
+      "startedAt": "2026-10-08T12:01:59.565Z",
+      "completedAt": "2026-10-08T12:22:50.408Z",
+      "stage": "complete"
     }
   ],
   "session": {
-    "id": "h3s_482c81dc-c367-4158-a20c-7bccc701b66c",
+    "id": "h3s_5edb772f-b0e2-4723-b786-7e71a4f4a97a",
     "mode": "saved_worker",
     "status": "completed",
     "cleanupConfirmed": true,
-    "createdAt": "2026-09-13T20:38:18.667Z",
-    "updatedAt": "2026-09-13T21:20:19.532Z",
-    "completedAt": "2026-09-13T21:20:19.532Z"
+    "createdAt": "2026-10-08T12:01:59.536Z",
+    "updatedAt": "2026-10-08T12:22:50.411Z",
+    "completedAt": "2026-10-08T12:22:50.411Z"
   }
 }

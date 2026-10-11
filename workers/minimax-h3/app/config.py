@@ -29,6 +29,7 @@ class Settings:
     matlow_10eros_max_turbo_file: Path
     matlow_text_encoder_file: Path
     matlow_video_vae_file: Path
+    matlow_x2_vae_file: Path
     matlow_audio_vae_file: Path
     matlow_faceswap_lora_file: Path
     matlow_authentic_cinematic_lora_file: Path
@@ -159,6 +160,12 @@ class Settings:
                         / "Kijai/MiniMax-H3-experimental"
                         / "minimax_h3_video_vae_int8_convrot.safetensors"
                     ),
+                )
+            ).resolve(),
+            matlow_x2_vae_file=Path(
+                os.getenv(
+                    "H3_MATLOW_X2_VAE_FILE",
+                    str(matlow_root / "speach1sdef178/MiniMax-H3-X2-Detail-VAE" / "MiniMax-H3-X2-Detail-v1.safetensors"),
                 )
             ).resolve(),
             matlow_audio_vae_file=Path(

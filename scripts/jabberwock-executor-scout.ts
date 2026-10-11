@@ -58,7 +58,7 @@ const ollama = configs.find(c => c.baseUrl === "http://127.0.0.1:11434/v1");
 if (!ollama) throw new Error("Existing configured Ollama endpoint required");
 const tags = await fetchJson("http://127.0.0.1:11434/api/tags");
 const residency = await fetchJson("http://127.0.0.1:11434/api/ps");
-const props = await fetchJson("http://127.0.0.1:8080/props");
+const props = await fetchJson(`${configs[0].baseUrl.replace(/\/v1\/?$/, "")}/props`);
 const installed = ["qwen3:8b", "llama3:latest", "gemma3:12b", "gemma3:27b"].filter(model => tags.models.some((t: any) => t.name === model));
 const additional = JSON.parse(process.env.LOCAL_LLM_ADDITIONAL_ENDPOINTS_JSON || "[]");
 const endpoint = additional.find((c: any) => c.baseUrl === ollama.baseUrl);

@@ -97,6 +97,7 @@ class MatlowRuntime:
         self.settings = settings
         self._modules: dict[str, Any] | None = None
         self._models: dict[str, Any] | None = None
+        self._loaded_vae_mode = "stock"
         self._probe_status: dict[str, Any] | None = None
         self._probe_lock = threading.Lock()
         self._lock = threading.Lock()
@@ -113,6 +114,7 @@ class MatlowRuntime:
         modules = self._imports()
         model_management = modules["model_management"]
         self._models = None
+        self._loaded_vae_mode = "stock"
         model_management.unload_all_models()
         gc.collect()
         model_management.soft_empty_cache(force=True)
@@ -167,6 +169,7 @@ class MatlowRuntime:
             comfy.memory_management.aimdo_enabled = True
         import comfy.sd
         import comfy.utils
+        import comfy.nested_tensor
         import torch
         from comfy_api.latest import Types
         from comfy_extras.nodes_audio import VAEDecodeAudio
@@ -188,6 +191,7 @@ class MatlowRuntime:
         self._modules = {
             "torch": torch,
             "comfy": comfy,
+            "NestedTensor": comfy.nested_tensor.NestedTensor,
             "model_management": model_management,
             "Types": Types,
             "VAEDecodeAudio": VAEDecodeAudio,
@@ -287,9 +291,11 @@ class MatlowRuntime:
         if output.shape != (16, 256) or not torch.isfinite(output).all().item():
             raise RuntimeError("comfy-kitchen INT8 ConvRot CUDA self-test failed")
 
-    def _load_models(self) -> tuple[dict[str, Any], float]:
-        if self._models is not None:
+    def _load_models(self, vae_mode: str = "stock") -> tuple[dict[str, Any], float]:
+        if self._models is not None and self._loaded_vae_mode == vae_mode:
             return self._models, 0.0
+        if self._models is not None:
+            self.unload()
         modules = self._imports()
         comfy_sd = modules["comfy"].sd
         comfy_utils = modules["comfy"].utils
@@ -301,7 +307,10 @@ class MatlowRuntime:
             vae.throw_exception_if_invalid()
             return vae
 
-        video_vae = load_vae(self.settings.matlow_video_vae_file)
+        selected_vae_file = self.settings.matlow_x2_vae_file if vae_mode == "x2" else self.settings.matlow_video_vae_file
+        if not selected_vae_file.is_file():
+            raise RuntimeError(f"Video VAE weights unavailable: {selected_vae_file}")
+        video_vae = load_vae(selected_vae_file)
         video_vae.first_stage_model.tile_size = self.settings.matlow_vae_tile_size
         video_vae.first_stage_model.tile_overlap_min = self.settings.matlow_vae_tile_overlap
         audio_vae = (
@@ -311,6 +320,7 @@ class MatlowRuntime:
             "video_vae": video_vae,
             "audio_vae": audio_vae,
         }
+        self._loaded_vae_mode = vae_mode
         return self._models, time.perf_counter() - started
 
     def generate(
@@ -358,7 +368,7 @@ class MatlowRuntime:
                 _report(stage_callback, 0.2, "models_loaded")
                 width, height = _dimensions(request.target.aspect_ratio if request.target else "16:9")
                 duration = request.target.duration_seconds if request.target else 5.0
-                frames = _frame_count(duration)
+                frames = 5 if request.output_mode == "still" else _frame_count(duration)
                 seed = (
                     (request.seed if request.seed is not None else secrets.randbelow(2**31)) + variant_index
                 ) % (2**31)
@@ -414,6 +424,10 @@ class MatlowRuntime:
                                 first_frame=first_frame,
                                 last_frame=last_frame,
                             ).result
+                        if request.output_mode == "still":
+                            from .h3_experimental_stills import still_latent
+                            latent = still_latent(torch, modules["NestedTensor"], width, height,
+                                                  device=model_management.intermediate_device())
                         conditioning_diagnostics = {
                             "encoder": "MiniMaxH3ReferenceToVideo"
                             if reference_inputs is not None
@@ -523,37 +537,51 @@ class MatlowRuntime:
                     torch.cuda.max_memory_reserved() / GIB,
                 )
                 _report(stage_callback, 0.78, "diffusion_offloaded")
-                models, vae_reload_seconds = self._load_models()
+                models, vae_reload_seconds = self._load_models(vae_mode=request.vae_mode)
                 model_load_seconds += vae_reload_seconds
                 vae_started = time.perf_counter()
                 # MiniMaxH3VideoVAE owns its spatial and temporal chunking and ignores
                 # the generic VAEDecodeTiled arguments. Configure its internal tile
                 # above, then use the ordinary node so the actual memory bound is clear.
                 with torch.inference_mode():
-                    images = modules["VAEDecode"]().decode(models["video_vae"], sampled)[0]
+                    if request.output_mode == "still":
+                        from .h3_experimental_stills import decode_still
+                        images = decode_still(torch, model_management, models["video_vae"], sampled)
+                    elif request.vae_mode == "x2":
+                        from .h3_experimental_stills import decode_x2_video
+                        images = decode_x2_video(torch, model_management, models["video_vae"], sampled,
+                                                 self.settings.matlow_vae_tile_size, self.settings.matlow_vae_tile_overlap)
+                    else:
+                        images = modules["VAEDecode"]().decode(models["video_vae"], sampled)[0]
                 torch.cuda.synchronize()
                 vae_decode_seconds = time.perf_counter() - vae_started
                 _report(stage_callback, 0.86, "video_decoded")
                 audio = None
                 audio_seconds = None
-                if self.settings.matlow_native_audio:
+                if self.settings.matlow_native_audio and request.output_mode == "video":
                     audio_started = time.perf_counter()
                     with torch.inference_mode():
                         audio = modules["VAEDecodeAudio"].execute(models["audio_vae"], sampled)[0]
                     torch.cuda.synchronize()
                     audio_seconds = time.perf_counter() - audio_started
 
-                video = modules["CreateVideo"].execute(
-                    images, 24.0, audio=audio, bit_depth=8, color_space="sRGB"
-                )[0]
                 output_path.parent.mkdir(parents=True, exist_ok=True)
-                video.save_to(
-                    str(output_path),
-                    format=modules["Types"].VideoContainer("mp4"),
-                    codec=modules["Types"].VideoCodec("h264"),
-                    metadata=None,
-                )
-                _report(stage_callback, 0.9, "video_encoded")
+                if request.output_mode == "still":
+                    from PIL import Image
+                    rgb = images[0].float().clamp(0.0, 1.0).mul(255).round().byte().cpu().numpy()
+                    Image.fromarray(rgb, mode="RGB").save(output_path, format="PNG")
+                    _report(stage_callback, 0.9, "still_encoded")
+                else:
+                    video = modules["CreateVideo"].execute(
+                        images, 24.0, audio=audio, bit_depth=8, color_space="sRGB"
+                    )[0]
+                    video.save_to(
+                        str(output_path),
+                        format=modules["Types"].VideoContainer("mp4"),
+                        codec=modules["Types"].VideoCodec("h264"),
+                        metadata=None,
+                    )
+                    _report(stage_callback, 0.9, "video_encoded")
                 if resources.abort_reason:
                     raise RuntimeError(resources.abort_reason)
             except torch.cuda.OutOfMemoryError as exc:
@@ -573,14 +601,19 @@ class MatlowRuntime:
 
         with output_path.open("rb") as stream:
             prefix = stream.read(12)
-        if len(prefix) < 8 or prefix[4:8] != b"ftyp":
+        if request.output_mode == "still":
+            if not prefix.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise RuntimeError("headless still runtime did not produce a valid PNG")
+        elif len(prefix) < 8 or prefix[4:8] != b"ftyp":
             raise RuntimeError("headless runtime did not produce a valid MP4")
         render_seconds = time.perf_counter() - started
         result = {
             **status,
-            "resolution": f"{width}x{height}",
-            "frames": frames,
-            "duration_seconds": duration,
+            "resolution": f"{int(images.shape[-2])}x{int(images.shape[-3])}" if request.output_mode == "still" or request.vae_mode == "x2" else f"{width}x{height}",
+            "frames": 1 if request.output_mode == "still" else frames,
+            "duration_seconds": 0 if request.output_mode == "still" else duration,
+            "output_mode": request.output_mode,
+            "vae_mode": request.vae_mode,
             "seed": seed,
             "model_variant": request.model_variant,
             "model_revision": model_spec["revision"],

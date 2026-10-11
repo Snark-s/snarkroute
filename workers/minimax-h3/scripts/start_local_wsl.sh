@@ -116,7 +116,7 @@ if [[ "$LOCAL_BACKEND" == "matlow_int8" ]]; then
     H3_RESULT_DIR="${DATA_DIR}/outputs" \
     H3_TEMP_DIR="${DATA_DIR}/runtime/tmp" \
     H3_MODEL_DIR="${H3_HOME}/models" \
-    H3_JOB_TIMEOUT_SECONDS=7200 \
+    H3_JOB_TIMEOUT_SECONDS=21600 \
     "${SGLANG_VENV}/bin/uvicorn" app.main:app --app-dir "$APP_DIR" --host 127.0.0.1 --port "$API_PORT" --no-access-log \
     >"$API_LOG" 2>&1 </dev/null &
   printf '%s\n' "$!" >"$API_PID_FILE"

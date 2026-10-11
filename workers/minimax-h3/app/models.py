@@ -116,6 +116,9 @@ class GenerateRequest(BaseModel):
     num_inference_steps: int | None = Field(default=None, ge=4, le=40)
     quality_mode: Literal["preview", "final"] = "final"
     quality: Literal["lossless", "high"] = "lossless"
+    # Experimental choices are opt-in. Normal video remains the default.
+    output_mode: Literal["video", "still"] = "video"
+    vae_mode: Literal["stock", "x2"] = "stock"
     turbo_lora: bool = False
     lora_scale: float = Field(default=1.0, ge=0, le=2)
     model_variant: H3ModelVariant = "h3_base"
@@ -127,7 +130,7 @@ class GenerateRequest(BaseModel):
     idempotency_key: str | None = Field(
         default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
     )
-    timeout_seconds: int | None = Field(default=None, ge=30, le=7200)
+    timeout_seconds: int | None = Field(default=None, ge=30, le=21600)
 
     @field_validator("conditions")
     @classmethod
