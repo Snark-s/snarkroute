@@ -8,7 +8,7 @@
   },
   "testCounts": {
     "nodeContracts": 23,
-    "pythonStack": 23,
+    "pythonStack": 26,
     "personaPython": 159,
     "recovery": {
       "passed": 18,
@@ -31,7 +31,7 @@
   },
   "snarkbridgeConnector": {
     "localIdentityHealth": "passed",
-    "connectedToolCall": "Session terminated; two attempts after approved restart",
+    "connectedToolCall": "passed: bridge_status status=ok version=0.4.1",
     "obsoleteSessionRegression": "passed: real FastMCP ASGI and live loopback HTTP return 200",
     "freshSdkSession": "passed: initialize, list 22 tools, call bridge_status",
     "securityRegression": {
@@ -43,9 +43,12 @@
     },
     "approvedFix": "stateless_http=True applied after explicit owner approval; only MCP restarted",
     "localTransportFixed": true,
-    "fixed": false,
+    "fixed": true,
     "evidence": "evidence/MCP-approved-stateless.json",
-    "remaining": "Connected-tool failure remains; root cause not established by the local checks"
+    "remaining": null,
+    "managedTunnelStatus": "online=true; fresh control-plane poll",
+    "hiddenRestart": "passed",
+    "windowFlashTaskArguments": "Hidden + NonInteractive applied to both existing tasks"
   },
   "fullRecovery": {
     "passed": true,
@@ -56,7 +59,8 @@
     "restoredRealApiRoute": "PAID_PERMISSION_REQUIRED; no paid permission",
     "restoredPersonaTests": 159,
     "credentialsTransferred": false,
-    "coldMachineDependencyInstall": "not performed; focused Node install and existing system Python used"
+    "coldMachineDependencyInstall": "not performed; focused Node install and existing system Python used",
+    "approvedMcpFollowup": "All 13 components restored again; changed MCP source and negative security tests passed"
   },
   "limitations": [
     "Native C++ full build unavailable (MSVC toolset)",

@@ -37,19 +37,26 @@
     "identity": "snarkbridge-mcp",
     "apiVersion": 1,
     "healthPassed": true,
-    "tunnelRestarted": false,
-    "credentialsChanged": false
+    "tunnelRestarted": true,
+    "credentialsChanged": false,
+    "managedHiddenRestart": "TUNNEL_CONTROL_PLANE_READY"
   },
   "tunnelHealth": {
     "healthz": 200,
     "readyz": 200,
     "controlPlanePoll": true,
-    "result": "ok"
+    "result": "ok",
+    "initialPollAgeSeconds": 50720,
+    "initialBinaryHealthWasFalsePositive": true,
+    "freshPollAfterRestart": true,
+    "readinessMaxPollAgeSeconds": 120,
+    "futureClockToleranceSeconds": 5
   },
   "connector": {
-    "attemptsAfterRestart": 2,
-    "fixed": false,
-    "response": {
+    "fixed": true,
+    "cause": "Local obsolete-session regression plus a stale tunnel; exact independent contribution of each is not established",
+    "initialAttemptsAfterMcpRestart": 2,
+    "initialResponse": {
       "content": [
         {
           "type": "text",
@@ -67,10 +74,41 @@
       },
       "isError": true
     },
-    "cause": "Not established; local session regression is fixed but the connected tool still fails"
+    "finalResponse": {
+      "status": "ok",
+      "version": "0.4.1",
+      "mode": "audited-scoped-writes-no-shell"
+    },
+    "verifiedAfterStandardHiddenTunnelRestart": true
   },
   "limits": [
-    "Actual connected-tool recovery is not confirmed; a fresh external connector session remains necessary to check",
-    "No remote registration, tunnel key or provider credentials were changed"
-  ]
+    "GUI/DPI and full native C++ build remain unverified",
+    "Cold-machine installation of dependencies/drivers/weights not performed"
+  ],
+  "backgroundStartup": {
+    "observedFailure": "Windows PowerShell 5 could not autoload Microsoft.PowerShell.Security from inherited PowerShell 7 PSModulePath",
+    "moduleFix": "Import native module explicitly from the current host PSHOME; global PSModulePath unchanged",
+    "initialPollWaitFix": "50-second bounded wait permits the default 30-second initial long poll",
+    "quietMode": true,
+    "credentialProvisioningInQuietMode": false,
+    "standardHandles": "Dedicated stdout/stderr handles; quiet daemon payload output discarded",
+    "actualHiddenRestart": "passed",
+    "actualLauncherOnRunningServices": "passed"
+  },
+  "windowFlash": {
+    "source": "Existing SnarkBridge Watchdog launched PowerShell every five minutes without WindowStyle Hidden",
+    "updatedExistingTasks": [
+      "SnarkBridge Local MCP",
+      "SnarkBridge Watchdog"
+    ],
+    "arguments": "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"I:\\SnarkBridge\\START_SNARKBRIDGE.ps1\"",
+    "scheduleAndPrincipalPreserved": true,
+    "installersUpdated": true,
+    "nativeVisualObservation": "unavailable; verified registered task arguments and hidden startup"
+  },
+  "readinessTests": {
+    "pythonStack": 26,
+    "newPythonFreshnessTests": 3,
+    "powershellFreshness": "passed under Windows PowerShell 5 and PowerShell 7"
+  }
 }
