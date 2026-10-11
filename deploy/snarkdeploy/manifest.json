@@ -49,6 +49,9 @@
     },
     "SNARK_AE_PANEL": {
       "default": "{{APPDATA}}\\Adobe\\CEP\\extensions\\com.snarkroute.aftereffects"
+    },
+    "SNARKBRIDGE_ROOT": {
+      "default": "{{PERSONA_HOME}}\\..\\SnarkBridge"
     }
   },
   "prerequisites": [
@@ -219,6 +222,36 @@
       "strategy": "git",
       "remote": "https://github.com/PrismML-Eng/Bonsai-demo.git",
       "snapshot": true
+    },
+    {
+      "id": "snarkbridge",
+      "label": "SnarkBridge private ChatGPT MCP and tunnel",
+      "path": "{{SNARKBRIDGE_ROOT}}",
+      "strategy": "copy",
+      "snapshot": true,
+      "snapshot_excludes": [
+        ".tunnel-key.dpapi",
+        ".venv",
+        ".venv/**",
+        "__pycache__",
+        "__pycache__/**",
+        "*.pyc",
+        "workspace",
+        "workspace/**",
+        "dist",
+        "dist/**",
+        "*.zip",
+        "*.zip.sha256",
+        "SNARKBRIDGE_ENV.ps1",
+        "logs/**",
+        "*.log",
+        "*.pid",
+        "*.tmp",
+        "secrets/**"
+      ],
+      "install_commands": [
+        "powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\RESTORE_SNARKBRIDGE.ps1"
+      ]
     }
   ],
   "services": [

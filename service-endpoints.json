@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "host": "127.0.0.1",
+  "description": "Authoritative loopback service ports. Mixar clients must call SnarkRoute for ALL model generation.",
+  "modelPolicy": {
+    "routeVia": "snarkroute",
+    "directMixarInference": false
+  },
+  "services": {
+    "snarkroute": {
+      "port": 4317,
+      "protocol": "http",
+      "healthPath": "/health"
+    },
+    "mixar_sidecar": {
+      "port": 18880,
+      "protocol": "http",
+      "healthPath": "/ready"
+    },
+    "mixar_bridge": {
+      "port": 18767,
+      "protocol": "http",
+      "healthPath": "/health"
+    },
+    "mixar_watchdog": {
+      "port": 18881,
+      "protocol": "tcp"
+    },
+    "snarkbridge_mcp": {
+      "port": 8767,
+      "protocol": "http",
+      "healthPath": "/mcp"
+    },
+    "snarkbridge_tunnel": {
+      "port": 8080,
+      "protocol": "http",
+      "healthPath": "/readyz"
+    },
+    "bonsai_inference": {
+      "port": 8081,
+      "protocol": "http",
+      "healthPath": "/v1/models"
+    },
+    "ollama_inference": {
+      "port": 11434,
+      "protocol": "http",
+      "healthPath": "/api/version"
+    }
+  }
+}

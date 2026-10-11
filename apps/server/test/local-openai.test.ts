@@ -31,6 +31,7 @@ afterEach(() => {
 
 describe.sequential("generic local OpenAI-compatible model route", () => {
   it("uses an inference-sized default timeout for local models", () => {
+    expect(localOpenAiConfig({}).baseUrl).toBe("http://127.0.0.1:8081/v1");
     expect(localOpenAiConfig({}).timeoutMs).toBe(600_000);
     expect(localOpenAiConfig({}).maxConcurrency).toBe(1);
   });

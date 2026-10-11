@@ -239,6 +239,7 @@ export async function startLauncherControl({
   root = process.cwd(),
   apiPort = 4317,
   controlPort = 5176,
+  projectPublisher = null,
 } = {}) {
   root = resolve(root);
 
@@ -490,6 +491,23 @@ export async function startLauncherControl({
         res.end(JSON.stringify(value));
       };
 
+      const requireJson = async () => {
+        if (!req.headers['content-type']?.startsWith('application/json')) {
+          reply(415, { ok: false, error: 'JSON required' });
+          return false;
+        }
+
+        let size = 0;
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > 1024) {
+            reply(413, { ok: false, error: 'Body too large' });
+            return false;
+          }
+        }
+        return true;
+      };
+
       try {
         if (
           req.method === 'GET' &&
@@ -506,35 +524,43 @@ export async function startLauncherControl({
           req.method === 'POST' &&
           req.url === '/restart'
         ) {
-          if (
-            !req.headers[
-              'content-type'
-            ]?.startsWith('application/json')
-          ) {
-            return reply(415, {
-              ok: false,
-              error: 'JSON required',
-            });
-          }
-
-          let size = 0;
-
-          for await (const chunk of req) {
-            size += chunk.length;
-
-            if (size > 1024) {
-              return reply(413, {
-                ok: false,
-                error: 'Body too large',
-              });
-            }
-          }
+          if (!await requireJson()) return;
 
           return reply(202, {
             ok: true,
             ...control.status(),
             operation: control.restart(),
           });
+        }
+
+        if (
+          req.method === 'GET' &&
+          req.url === '/project-publisher/status'
+        ) {
+          if (!projectPublisher) {
+            return reply(503, {
+              ok: false,
+              error: 'Project Publisher control is unavailable',
+            });
+          }
+          return reply(200, {
+            ok: true,
+            ...await projectPublisher.status(),
+          });
+        }
+
+        const publisherAction = req.method === 'POST' &&
+          req.url?.match(/^\/project-publisher\/(start|stop|restart)$/)?.[1];
+        if (publisherAction) {
+          if (!projectPublisher) {
+            return reply(503, {
+              ok: false,
+              error: 'Project Publisher control is unavailable',
+            });
+          }
+          if (!await requireJson()) return;
+          const next = await projectPublisher[publisherAction]();
+          return reply(200, { ok: true, ...next });
         }
 
         return reply(404, {
@@ -602,6 +628,7 @@ export async function startLauncherControl({
     server,
 
     close: async () => {
+      await projectPublisher?.shutdown();
       await control.shutdown();
 
       await new Promise(

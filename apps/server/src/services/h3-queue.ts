@@ -6,6 +6,7 @@ import { normalizeVideoUpscale, type VideoUpscaleSettings } from "./video-upscal
 
 export const H3_QUEUE_OPERATIONS = [
   "text_to_video",
+  "still_image",
   "first_last_frame",
   "motion_transfer",
   "style_transfer",
@@ -41,6 +42,7 @@ export type H3QueueItem = {
   seed?: number;
   variants: number;
   renderMode: "preview" | "final";
+  vaeMode?: "stock" | "x2";
   modelVariant: "h3_base" | "10eros_max" | "10eros_max_turbo" | "h3_max" | "h3_max_turbo";
   inferenceSteps?: number;
   attentionMode?: "auto" | "veda" | "dense";
@@ -129,7 +131,7 @@ export class H3ManagedInstanceError extends Error {
   constructor(message: string, readonly managedInstanceId: number) { super(message); }
 }
 
-type CreateH3QueueItem = Pick<H3QueueItem, "title" | "operation" | "prompt"> & Partial<Pick<H3QueueItem, "promptJson" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "modelVariant" | "inferenceSteps" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode" | "assets">> & { videoUpscale?: Record<string, unknown> };
+type CreateH3QueueItem = Pick<H3QueueItem, "title" | "operation" | "prompt"> & Partial<Pick<H3QueueItem, "promptJson" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "vaeMode" | "modelVariant" | "inferenceSteps" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode" | "assets">> & { videoUpscale?: Record<string, unknown> };
 
 const IDLE_SESSION: H3QueueSession = {
   id: "session_idle",
@@ -611,6 +613,10 @@ function normalizeItem(value: Omit<Partial<H3QueueItem>, "videoUpscale"> & { vid
   const seed = value.seed === undefined ? randomInt(0, 2_147_483_648) : integer(value.seed, 0, 2_147_483_647, "seed");
   const promptJson = value.promptJson && typeof value.promptJson === "object" && !Array.isArray(value.promptJson) ? value.promptJson : undefined;
   const assets = Array.isArray(value.assets) ? value.assets.map(normalizeAsset) : [];
+  if (value.operation === "still_image" && (modelVariant !== "h3_base" || renderMode !== "preview")) throw new Error("H3 Still currently supports local H3 Base Preview only.");
+  if (value.operation === "still_image" && value.vaeMode === "x2") throw new Error("Still and X2 VAE cannot be combined until GPU validation.");
+  if (value.vaeMode === "x2" && (modelVariant !== "h3_base" || renderMode !== "preview" || value.operation === "video_upscale")) throw new Error("X2 Video currently supports H3 Base Preview only.");
+  const vaeMode = value.vaeMode === "x2" ? "x2" as const : "stock" as const;
   const videoUpscale = value.operation === "video_upscale" ? normalizeVideoUpscale(value.videoUpscale) : undefined;
   if (videoUpscale && (assets.length !== 1 || assets[0]?.slot !== "sourceVideo" || assets[0]?.kind !== "video")) throw new Error("Video Upscale requires exactly one source video.");
   if (videoUpscale && (variants !== 1 || value.cameraPath || value.identityTransfer || value.visualModifier)) throw new Error("Video Upscale cannot use H3 generation modifiers or multiple variants.");
@@ -639,6 +645,7 @@ function normalizeItem(value: Omit<Partial<H3QueueItem>, "videoUpscale"> & { vid
     seed,
     variants,
     renderMode,
+    vaeMode,
     modelVariant,
     ...(inferenceSteps === undefined ? {} : { inferenceSteps }),
     attentionMode,

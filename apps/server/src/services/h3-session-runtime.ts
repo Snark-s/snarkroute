@@ -165,7 +165,7 @@ async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progr
   if (item.operation === "video_upscale") return renderVideoUpscale(item,resultsDirectory,onProgress,onJobCreated);
   if (isHostedH3Variant(item.modelVariant)) return renderHosted(item, onProgress, onJobCreated, resultsDirectory, fetchImpl);
   if (item.cameraPath && item.cameraControlMode === "native") throw new H3QueueBlockedError("Native CameraPath requires the hosted H3 Max Model Gateway route; this queue targets a local H3 worker. Choose Auto or Prompt fallback.");
-  const requiredCapability = capabilityFor(item.operation);
+  const requiredCapability = item.operation === "still_image" && item.assets.some(asset => asset.slot === "referenceImage") ? "ref2va" : capabilityFor(item.operation);
   if (!requiredCapability) throw new H3QueueBlockedError(blockedReason(item.operation));
   const client = createH3WorkerClient({ baseUrl: lease.workerUrl, serviceToken: lease.serviceToken, fetchImpl, pollingIntervalMs: 2_000, timeoutMs: 60 * 60_000 });
   const capabilities = await client.capabilities() as { backend?: string; capabilities?: Array<{ name?: string; available?: boolean; reason?: string }> };
@@ -195,7 +195,9 @@ async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progr
   await onJobCreated?.(job.id);
   const started = Date.now();
   while (!terminal(job.status)) {
-    if (Date.now() - started > positiveInteger(process.env.H3_QUEUE_ITEM_TIMEOUT_MS, 60 * 60_000)) throw new Error(`H3 job ${job.id} timed out.`);
+    // The local worker owns the generation deadline; it may need hours for multiple sequential outputs.
+    // Keep a generous transport-side safety ceiling only for a truly unresponsive worker.
+    if (Date.now() - started > positiveInteger(process.env.H3_QUEUE_LOCAL_WATCHDOG_MS, 8 * 60 * 60_000)) throw new Error(`H3 worker job ${job.id} exceeded the 8-hour connection watchdog.`);
     await delay(2_000);
     job = await client.get(job.id);
     await onProgress(typeof job.progress === "number" ? job.progress : 0.05, job.stage);
@@ -208,8 +210,9 @@ async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progr
   const resultPaths: string[] = [];
   for (let variant = 0; variant < count; variant += 1) {
     const bytes = Buffer.from(await client.download(job.id, variant));
-    validateMp4(bytes);
-    const path = join(itemDirectory, `${item.id}-${variant}.mp4`);
+    if (item.operation === "still_image") validatePng(bytes);
+    else validateMp4(bytes);
+    const path = join(itemDirectory, `${item.id}-${variant}.${item.operation === "still_image" ? "png" : "mp4"}`);
     await writeFile(path, bytes);
     resultPaths.push(path);
   }
@@ -217,7 +220,7 @@ async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progr
 }
 
 export function generationInputForH3QueueItem(
-  item: Pick<H3QueueItem, "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode"> & Partial<Pick<H3QueueItem, "modelVariant" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode">>,
+  item: Pick<H3QueueItem, "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode"> & Partial<Pick<H3QueueItem, "modelVariant" | "vaeMode" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode">>,
   references: H3Reference[],
   inferenceSteps?: number
 ): H3GenerationInput {
@@ -228,6 +231,8 @@ export function generationInputForH3QueueItem(
     ...(item.seed === undefined ? {} : { seed: item.seed }),
     variants: item.variants,
     renderMode: item.renderMode,
+    outputMode: item.operation === "still_image" ? "still" : "video",
+    vaeMode: item.vaeMode ?? "stock",
     modelVariant: item.modelVariant ?? "h3_base",
     attentionMode: item.attentionMode ?? "auto",
     ...(inferenceSteps === undefined ? {} : { inferenceSteps }),
@@ -270,6 +275,7 @@ async function cleanup(lease: H3QueueLease, fetchImpl: typeof fetch): Promise<vo
 }
 
 async function renderHosted(item: H3QueueItem, onProgress: (progress: number, stage?: string) => Promise<void>, onJobCreated: ((workerJobId: string) => Promise<void>) | undefined, resultsDirectory: string, fetchImpl: typeof fetch) {
+  if (item.operation === "still_image" || item.vaeMode === "x2") throw new H3QueueBlockedError("Experimental still/X2 modes are local-only.");
   if (item.variants !== 1) throw new H3QueueBlockedError("H3 Max hosted requests generate one output per job. Set Output count to 1.");
   if (item.identityTransfer?.enabled) throw new H3QueueBlockedError("The local FaceSwap Ref2VA LoRA cannot be applied to hosted H3 Max.");
   if (item.visualModifier?.enabled) throw new H3QueueBlockedError("Local visual LoRA modifiers cannot be applied to hosted H3 profiles.");
@@ -337,7 +343,7 @@ function isHostedH3Variant(value: H3QueueItem["modelVariant"]): value is "h3_max
 }
 
 export function idempotencyKeyForQueueItem(
-  item: Pick<H3QueueItem, "id" | "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "inferenceSteps" | "assets" | "startedAt"> & Partial<Pick<H3QueueItem, "modelVariant" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode">>
+  item: Pick<H3QueueItem, "id" | "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "inferenceSteps" | "assets" | "startedAt"> & Partial<Pick<H3QueueItem, "modelVariant" | "vaeMode" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode">>
 ): string {
   const renderRevision = JSON.stringify({
     attemptStartedAt: item.startedAt,
@@ -349,6 +355,7 @@ export function idempotencyKeyForQueueItem(
     variants: item.variants,
     renderMode: item.renderMode,
     modelVariant: item.modelVariant,
+    vaeMode: item.vaeMode,
     inferenceSteps: item.inferenceSteps,
     attentionMode: item.attentionMode,
     identityTransfer: item.identityTransfer,
@@ -479,7 +486,7 @@ function resolveWorkerUrl(template: string, instance: VastInstance): string {
 }
 
 function capabilityFor(operation: H3QueueItem["operation"]): "fl2va" | "ref2va" | "style_transfer" | null {
-  if (operation === "text_to_video" || operation === "first_last_frame") return "fl2va";
+  if (operation === "text_to_video" || operation === "first_last_frame" || operation === "still_image") return "fl2va";
   if (operation === "style_transfer") return "style_transfer";
   if (operation === "motion_transfer" || operation === "reference_mix") return "ref2va";
   return null;
@@ -498,6 +505,7 @@ function validateAssets(item: H3QueueItem, references: H3Reference[]): void {
   if (item.identityTransfer?.enabled && (!references.some((reference) => reference.kind === "video") || !references.some((reference) => reference.kind === "image" && reference.purpose === "identity"))) throw new H3QueueBlockedError("Identity transfer requires a reference video and an image in the identity slot.");
 }
 
+function validatePng(bytes: Buffer): void { if (bytes.length < 24 || !bytes.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))) throw new Error("H3 worker returned a result that is not a valid PNG file."); }
 function validateMp4(bytes: Buffer): void { if (bytes.length < 12 || bytes.toString("ascii", 4, 8) !== "ftyp") throw new Error("H3 worker returned a result that is not a valid MP4 file."); }
 function terminal(status: H3WorkerJob["status"]): boolean { return ["succeeded", "completed", "failed", "cancelled"].includes(status); }
 function successful(job: H3WorkerJob): boolean { return job.status === "succeeded" || job.status === "completed"; }

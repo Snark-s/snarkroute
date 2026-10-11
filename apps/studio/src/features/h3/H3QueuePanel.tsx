@@ -14,7 +14,7 @@ type AssetKind = "image" | "video" | "audio";
 type TaskFamily = "FL2VA" | "Ref2VA";
 type ModelVariant = "h3_base" | "10eros_max" | "10eros_max_turbo" | "h3_max" | "h3_max_turbo";
 type AttentionMode = "auto" | "veda" | "dense";
-type H3Model = { id: ModelVariant; display_name: string; purpose: "preview" | "final"; default_steps: number; minimum_steps: number; maximum_steps: number; weights_installed: boolean; hosted?: boolean; selectable?: boolean; experimental?: boolean; cost?: { rates?: Record<string, number>; referenceRates?: Record<string, number>; promotionEndsAt?: string; referenceInputsExtra?: boolean }; recommended_for_16gb?: boolean; downloading?: boolean; progress?: number; error?: string | null };
+type H3Model = { id: ModelVariant; display_name: string; purpose: "preview" | "final"; default_steps: number; minimum_steps: number; maximum_steps: number; weights_installed: boolean; hosted?: boolean; selectable?: boolean; experimental?: boolean; local_unavailable?: boolean; cost?: { rates?: Record<string, number>; referenceRates?: Record<string, number>; promotionEndsAt?: string; referenceInputsExtra?: boolean }; recommended_for_16gb?: boolean; downloading?: boolean; progress?: number; error?: string | null };
 type VisualModifierId = "authentic_cinematic_texture";
 type H3Modifier = { id: "faceswap_ref2va" | VisualModifierId; title?: string; category?: "identity" | "visual"; notes?: string; capability_status?: string; repository: string; revision: string; filename: string; weights_installed: boolean; downloading?: boolean; progress?: number; error?: string | null; trigger?: string | null; default_strength?: number; motion_strength?: number; compatibility?: string };
 type CameraKeyframe = { time: number; azimuth: number; elevation: number; distance: number };
@@ -242,6 +242,7 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
   const [cameraPath, setCameraPath] = useState<CameraPath>(draft.cameraPath);
   const [models, setModels] = useState<H3Model[]>([]);
   const [modifiers, setModifiers] = useState<H3Modifier[]>([]);
+  const [modelsLocalError, setModelsLocalError] = useState("");
   const [assets, setAssets] = useState<ComposerAsset[]>(draft.assets);
   const [importedWorkflow, setImportedWorkflow] = useState<H3ImportAnalysis | undefined>(draft.importedWorkflow);
   const [importBundle, setImportBundle] = useState<ImportBundle | null>(null);
@@ -287,6 +288,11 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
     const timer = window.setInterval(() => void refreshModels(false), 2_000);
     return () => window.clearInterval(timer);
   }, [models, modifiers]);
+  useEffect(() => {
+    if (!modelsLocalError) return;
+    const timer = window.setInterval(() => void refreshModels(false), 5_000);
+    return () => window.clearInterval(timer);
+  }, [modelsLocalError]);
   useEffect(() => { if (!finalAvailable) setRenderMode("preview"); }, [finalAvailable]);
   useEffect(() => {
     const snapshot: ComposerDraft = {
@@ -356,10 +362,11 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
   async function refreshModels(showError = false) {
     try {
       const response = await apiFetch(`${apiBase}/api/h3/models`, { signal: AbortSignal.timeout(10_000) });
-      const result = await response.json() as { models?: H3Model[]; modifiers?: H3Modifier[]; error?: string };
+      const result = await response.json() as { models?: H3Model[]; modifiers?: H3Modifier[]; error?: string; localError?: string };
       if (!response.ok) throw new Error(result.error ?? "Не удалось прочитать модели H3.");
       setModels(result.models ?? []);
       setModifiers(result.modifiers ?? []);
+      setModelsLocalError(result.localError ?? "");
     } catch (error) {
       if (showError) setMessage(errorText(error));
     }
@@ -408,6 +415,10 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
   }
 
   async function submitItem() {
+    if (modelVariant === "h3_base" && (renderMode !== "preview" || inferenceSteps < 4 || inferenceSteps > 10)) {
+      setEnqueueError("Local H3 Base supports Preview with 4–10 steps; 4 steps are verified and higher values experimental.");
+      return;
+    }
     setBusy(true);
     setMessage("");
     setEnqueueError("");
@@ -473,7 +484,7 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
     setAspectRatio(item.aspectRatio);
     setVariants(item.variants);
     setSeed(item.seed === undefined ? "" : String(item.seed));
-    setRenderMode(finalAvailable ? item.renderMode : "preview");
+    setRenderMode(item.modelVariant === "h3_base" ? "preview" : finalAvailable ? item.renderMode : "preview");
     setModelVariant(item.modelVariant ?? "h3_base");
     setInferenceSteps(item.inferenceSteps ?? (item.modelVariant === "10eros_max" ? 8 : item.modelVariant === "10eros_max_turbo" ? 6 : 4));
     setAttentionMode(item.attentionMode ?? "auto");
@@ -708,20 +719,25 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
     setContextPreset(recipe.preset);
     setContextInstruction(recipe.context);
     setMessage(`${recipe.title} prepared the Base H3 composer. Review and edit the native request before adding it to the queue.`);
+    setComposerExpanded(true);
     window.requestAnimationFrame(() => document.querySelector(".h3ComposerSection")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
 
+  const [composerExpanded, setComposerExpanded] = useState(true);
+  const [recipesExpanded, setRecipesExpanded] = useState(false);
+  const [productionExpanded, setProductionExpanded] = useState(false);
+  const [queueExpanded, setQueueExpanded] = useState(true);
   const referenceAssets = assets.filter((asset) => isReferenceSlot(asset.slot));
 
   return (<>
     <VideoUpscaleComposer draft={upscaleDraft} onClearDraft={() => setUpscaleDraft(undefined)} onQueued={() => refresh(false)} outputs={queueItems.flatMap(item => item.resultPaths ?? [])} />
     <section className="h3ComposerSection">
       <header className="h3QueueHeader">
-        <div><span className="h3Eyebrow">BASE H3</span><h2>Request Composer</h2><p>Choose a native task family, add its native inputs, then send the reviewed request to the existing queue.</p></div>
+        <div><span className="h3Eyebrow">BASE H3</span><h2>Request Composer</h2>{!composerExpanded ? <p>{taskFamily} · {title || "Untitled"}</p> : null}</div><button type="button" className="h3SectionToggle" aria-expanded={composerExpanded} onClick={() => setComposerExpanded(value => !value)}>{composerExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>
         {editingId ? <div className="h3EditingBanner"><span><Pencil size={14} /> Editing queue item</span><button type="button" title="Cancel editing" onClick={resetComposer}><X size={14} /></button></div> : null}
       </header>
 
-      <div className="h3TaskFamily" role="tablist" aria-label="H3 task family">
+      {composerExpanded ? <><div className="h3TaskFamily" role="tablist" aria-label="H3 task family">
         {(["FL2VA", "Ref2VA"] as const).map((family) => <button type="button" role="tab" aria-selected={taskFamily === family} className={taskFamily === family ? "active" : ""} key={family} onClick={() => { setTaskFamily(family); if (family === "Ref2VA") setRecipeOperation("reference_mix"); }}>{family}<small>{family === "FL2VA" ? "text + optional first / last" : "prompt + multimodal references"}</small></button>)}
       </div>
 
@@ -777,8 +793,8 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
         </div>
 
         <aside className="h3ComposerSettings">
-          <section><div className="h3Subheading"><div><strong>Model / Profile</strong><span>Independent from task family.</span></div></div><label><span>Model</span><select value={modelVariant} onChange={(event) => { const value = event.target.value as ModelVariant; const model = models.find((item) => item.id === value); setModelVariant(value); setRenderMode(value === "10eros_max" || value === "h3_max" ? "final" : "preview"); setInferenceSteps(model?.default_steps ?? (value === "10eros_max" ? 8 : value === "10eros_max_turbo" ? 6 : 4)); if (isHostedModel(value)) { setVariants(1); setIdentityEnabled(false); setAttentionMode("auto"); } if (value !== "h3_base") setVisualModifierEnabled(false); if (value === "h3_max_turbo") setCameraEnabled(false); }}>{(models.length ? models : fallbackModels()).map((model) => <option value={model.id} key={model.id} disabled={model.selectable === false}>{model.display_name}{model.recommended_for_16gb ? " · 16 GB" : ""}{model.hosted ? model.weights_installed ? " · ready" : " · key required" : model.weights_installed ? " · ready" : " · not downloaded"}</option>)}</select></label><label><span>Profile</span><select value={renderMode} onChange={(event) => setRenderMode(event.target.value as "preview" | "final")}><option value="preview">Preview</option><option value="final" disabled={!finalAvailable && modelVariant !== "h3_max"}>{finalAvailable || modelVariant === "h3_max" ? "Final" : "Final · unavailable"}</option></select></label>{modelVariant === "h3_max" ? <p>Hosted · fal · 768P · ≈ ${(duration * composerHostedRate).toFixed(2)} USD output. Semantic reference tokens can add cost. First/last frame and image/video/audio references are verified; local FaceSwap is unavailable.</p> : modelVariant === "h3_max_turbo" ? <p>Hosted · fal · 768P · ≈ ${(duration * composerHostedRate).toFixed(2)} USD output. T2V and first/last-frame I2V are available; semantic references, FaceSwap, and CameraPath controls are unavailable.</p> : <p>Local · saved worker or managed Vast. H3 Base keeps its existing FL2VA/Ref2VA path.</p>}{(() => { const model = models.find((item) => item.id === modelVariant); if (!model || model.hosted || model.weights_installed || modelVariant === "h3_base") return null; return <button type="button" disabled={busy || model.downloading} onClick={() => void downloadModel()}>{model.downloading ? <LoaderCircle className="h3Spin" size={15} /> : <Cloud size={15} />} {model.downloading ? `Download ${Math.round((model.progress ?? 0) * 100)}%` : `Download ${model.display_name}`}</button>; })()}</section>
-          <section><div className="h3Subheading"><div><strong>Generation Settings</strong><span>Only parameters used by the current queue/runtime.</span></div></div><div className="h3SettingsGrid"><label><span>Duration</span><input type="number" min={isHostedModel(modelVariant) ? 5 : 4} max={15} value={duration} onChange={(event) => setDuration(Number(event.target.value))} /></label><label><span>Ratio</span><select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}><option>16:9</option><option>9:16</option><option>1:1</option><option>4:3</option><option>3:4</option><option>21:9</option><option>auto</option><option>adaptive</option></select></label><label><span>Output count</span><input type="number" min={1} max={isHostedModel(modelVariant) ? 1 : 10} value={variants} onChange={(event) => setVariants(Number(event.target.value))} /></label><label><span>Attention</span><select disabled={isHostedModel(modelVariant)} value={isHostedModel(modelVariant) ? "auto" : attentionMode} onChange={(event) => setAttentionMode(event.target.value as AttentionMode)}><option value="auto">Auto · Veda with fallback</option><option value="veda">Veda · strict</option><option value="dense">Dense · off</option></select></label></div><details className="h3AdvancedSettings"><summary>Advanced</summary>{!isHostedModel(modelVariant) ? <label><span>Steps</span><input type="number" min={models.find((model) => model.id === modelVariant)?.minimum_steps ?? 4} max={models.find((model) => model.id === modelVariant)?.maximum_steps ?? 8} value={inferenceSteps} onChange={(event) => setInferenceSteps(Number(event.target.value))} /></label> : null}<label><span>Seed · empty = auto</span><div className="h3SeedField"><input type="number" min={0} max={2147483647} value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="Auto" /><button type="button" title="New random seed" onClick={() => setSeed(String(randomSeed()))}><Dices size={15} /></button></div></label></details></section>
+          <section><div className="h3Subheading"><div><strong>Model / Profile</strong><span>Independent from task family.</span></div></div><label><span>Model</span><select value={modelVariant} onChange={(event) => { const value = event.target.value as ModelVariant; const model = models.find((item) => item.id === value); setModelVariant(value); setRenderMode(value === "10eros_max" || value === "h3_max" ? "final" : "preview"); setInferenceSteps(model?.default_steps ?? (value === "10eros_max" ? 8 : value === "10eros_max_turbo" ? 6 : 4)); if (isHostedModel(value)) { setVariants(1); setIdentityEnabled(false); setAttentionMode("auto"); } if (value !== "h3_base") setVisualModifierEnabled(false); if (value === "h3_max_turbo") setCameraEnabled(false); }}>{(models.length ? models : fallbackModels()).map((model) => <option value={model.id} key={model.id} disabled={model.selectable === false}>{model.display_name}{model.recommended_for_16gb ? " · 16 GB" : ""}{model.local_unavailable ? " · offline" : model.hosted ? model.weights_installed ? " · ready" : " · key required" : model.weights_installed ? " · ready" : " · not downloaded"}</option>)}</select></label><label><span>Profile</span><select value={renderMode} onChange={(event) => setRenderMode(modelVariant === "h3_base" ? "preview" : event.target.value as "preview" | "final")}><option value="preview">Preview</option><option value="final" disabled={modelVariant === "h3_base" || (!finalAvailable && modelVariant !== "h3_max")}>{finalAvailable || modelVariant === "h3_max" ? "Final" : "Final · unavailable"}</option></select></label>{modelVariant === "h3_max" ? <p>Hosted · fal · 768P · ≈ ${(duration * composerHostedRate).toFixed(2)} USD output. Semantic reference tokens can add cost. First/last frame and image/video/audio references are verified; local FaceSwap is unavailable.</p> : modelVariant === "h3_max_turbo" ? <p>Hosted · fal · 768P · ≈ ${(duration * composerHostedRate).toFixed(2)} USD output. T2V and first/last-frame I2V are available; semantic references, FaceSwap, and CameraPath controls are unavailable.</p> : <p>Local · saved worker or managed Vast. H3 Base keeps its existing FL2VA/Ref2VA path.</p>}{(() => { const model = models.find((item) => item.id === modelVariant); if (!model || model.hosted || model.local_unavailable || model.weights_installed || modelVariant === "h3_base") return null; return <button type="button" disabled={busy || model.downloading} onClick={() => void downloadModel()}>{model.downloading ? <LoaderCircle className="h3Spin" size={15} /> : <Cloud size={15} />} {model.downloading ? `Download ${Math.round((model.progress ?? 0) * 100)}%` : `Download ${model.display_name}`}</button>; })()}</section>
+          <section><div className="h3Subheading"><div><strong>Generation Settings</strong><span>Only parameters used by the current queue/runtime.</span></div></div><div className="h3SettingsGrid"><label><span>Duration</span><input type="number" min={isHostedModel(modelVariant) ? 5 : 4} max={15} value={duration} onChange={(event) => setDuration(Number(event.target.value))} /></label><label><span>Ratio</span><select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}><option>16:9</option><option>9:16</option><option>1:1</option><option>4:3</option><option>3:4</option><option>21:9</option><option>auto</option><option>adaptive</option></select></label><label><span>Output count</span><input type="number" min={1} max={isHostedModel(modelVariant) ? 1 : 10} value={variants} onChange={(event) => setVariants(Number(event.target.value))} /></label><label><span>Attention</span><select disabled={isHostedModel(modelVariant)} value={isHostedModel(modelVariant) ? "auto" : attentionMode} onChange={(event) => setAttentionMode(event.target.value as AttentionMode)}><option value="auto">Auto · Veda with fallback</option><option value="veda">Veda · strict</option><option value="dense">Dense · off</option></select></label></div><details className="h3AdvancedSettings"><summary>Advanced</summary>{!isHostedModel(modelVariant) ? <label><span>Steps</span><input type="number" min={models.find((model) => model.id === modelVariant)?.minimum_steps ?? 4} max={modelVariant === "h3_base" ? 10 : models.find((model) => model.id === modelVariant)?.maximum_steps ?? 8} value={inferenceSteps} onChange={(event) => setInferenceSteps(Number(event.target.value))} /></label> : null}{modelVariant === "h3_base" && inferenceSteps !== 4 ? <p className="h3InlineWarning">H3 Base рассчитана и проверена на 4 шагах. {inferenceSteps} шагов: экспериментальный режим; качество может ухудшиться.</p> : null}<label><span>Seed · empty = auto</span><div className="h3SeedField"><input type="number" min={0} max={2147483647} value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="Auto" /><button type="button" title="New random seed" onClick={() => setSeed(String(randomSeed()))}><Dices size={15} /></button></div></label></details></section>
 <section><div className="h3Subheading"><div><strong>Optional Modifiers</strong><span>Capability-aware controls, not task families.</span></div></div>{!isHostedModel(modelVariant) ? <><label><span>Identity Transfer / FaceSwap</span><select disabled={taskFamily !== "Ref2VA" || visualModifierEnabled} value={identityEnabled ? "on" : "off"} onChange={(event) => setIdentityEnabled(event.target.value === "on")}><option value="off">Off</option><option value="on">On · H3 Base Ref2VA</option></select></label>{identityEnabled ? <label><span>Identity strength</span><input type="number" min={0} max={2} step={0.05} value={identityStrength} onChange={(event) => setIdentityStrength(Number(event.target.value))} /></label> : null}{identityEnabled && !modifiers.find((item) => item.id === "faceswap_ref2va")?.weights_installed ? <button type="button" disabled={busy || modifiers.find((item) => item.id === "faceswap_ref2va")?.downloading} onClick={() => void downloadIdentityModifier()}><Cloud size={15} /> {modifiers.find((item) => item.id === "faceswap_ref2va")?.downloading ? `FaceSwap ${Math.round((modifiers.find((item) => item.id === "faceswap_ref2va")?.progress ?? 0) * 100)}%` : "Download FaceSwap Ref2VA LoRA"}</button> : null}<VisualModifierControls modifiers={modifiers} id={visualModifierId} enabled={visualModifierEnabled} strength={visualModifierStrength} includeTrigger={visualModifierTrigger} disabled={modelVariant !== "h3_base" || identityEnabled} busy={busy} onId={setVisualModifierId} onEnabled={setVisualModifierEnabled} onStrength={setVisualModifierStrength} onTrigger={setVisualModifierTrigger} onDownload={() => void downloadVisualModifier()} /></> : <p>Hosted profiles do not load local LoRA modifiers.</p>}
             {modelVariant !== "h3_max_turbo" ? <details className="h3CameraControl" open={cameraEnabled}><summary>Camera Control · CameraPath 1.0</summary><label><span>Enabled</span><select value={cameraEnabled ? "on" : "off"} onChange={(event) => setCameraEnabled(event.target.value === "on")}><option value="off">Off</option><option value="on">On</option></select></label><label><span>Mode</span><select disabled={!cameraEnabled} value={cameraMode} onChange={(event) => setCameraMode(event.target.value as typeof cameraMode)}><option value="auto">Auto</option><option value="native">Native · hosted H3 Max only</option><option value="prompt">Prompt fallback</option></select></label><label><span>Preset</span><select disabled={!cameraEnabled} defaultValue="static" onChange={(event) => setCameraPath(cameraPreset(event.target.value))}><option value="static">Static</option><option value="orbitLeft">Orbit left</option><option value="orbitRight">Orbit right</option><option value="orbit360">360 orbit</option><option value="rise">Rise</option><option value="fall">Fall</option><option value="dollyIn">Dolly in</option><option value="dollyOut">Dolly out</option></select></label><p>Local H3 uses the existing prompt fallback. Native orbit remains hosted H3 Max only.</p></details> : null}
           </section>
@@ -787,14 +803,14 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
           <button className="h3Primary h3AddQueue" type="button" disabled={busy} onClick={() => void submitItem()}>{editingId ? <Pencil size={16} /> : <ListPlus size={16} />} {editingId ? "Save Changes" : "Add to Queue"}</button>
         </aside>
       </div>
-      {message && !connectionError ? <p className="h3QueueMessage">{message}</p> : null}
+      {message && !connectionError ? <p className="h3QueueMessage">{message}</p> : null}</> : null}
     </section>
 
-    <section className="h3ToolsSection h3RecipesSection"><header><div><h2>Quick Recipes</h2><p>Shortcuts that prepare an editable Base H3 request. They never start generation.</p></div></header><div className="h3RecipeGrid">{quickRecipes.map((recipe) => <button type="button" key={recipe.title} onClick={() => applyRecipe(recipe)}><span>{recipe.badge}</span><strong>{recipe.title}</strong><small>{recipe.context}</small></button>)}</div></section>
-    <section className="h3ToolsSection h3ProductionSection"><header><div><h2>Production Workflow</h2><p>Guided stages below the native composer; each stage still resolves to the same H3 request/queue pipeline.</p></div></header><div className="h3ToolGrid">{productionStages.map((stage) => <article className="h3ToolCard available" key={stage.title}><div className="h3ToolCardStatus"><Check size={15} /> guidance</div><h3>{stage.title}</h3><p>{stage.note}</p><footer><span>{stage.model}</span><code>h3</code></footer></article>)}</div></section>
+    <section className="h3ToolsSection h3RecipesSection"><header className="h3QueueHeader"><div><h2>Quick Recipes</h2></div><button type="button" className="h3SectionToggle" aria-label="Toggle Quick Recipes" aria-expanded={recipesExpanded} onClick={() => setRecipesExpanded(v => !v)}>{recipesExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></header>{recipesExpanded ? <div className="h3RecipeGrid">{quickRecipes.map((recipe) => <button type="button" key={recipe.title} onClick={() => applyRecipe(recipe)}><span>{recipe.badge}</span><strong>{recipe.title}</strong><small>{recipe.context}</small></button>)}</div> : null}</section>
+    <section className="h3ToolsSection h3ProductionSection"><header className="h3QueueHeader"><div><h2>Production Workflow</h2></div><button type="button" className="h3SectionToggle" aria-label="Toggle Production Workflow" aria-expanded={productionExpanded} onClick={() => setProductionExpanded(v => !v)}>{productionExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></header>{productionExpanded ? <div className="h3ToolGrid">{productionStages.map((stage) => <article className="h3ToolCard available" key={stage.title}><div className="h3ToolCardStatus"><Check size={15} /> guidance</div><h3>{stage.title}</h3><p>{stage.note}</p><footer><span>{stage.model}</span><code>h3</code></footer></article>)}</div> : null}</section>
 
     <section className="h3QueueSection">
-      <header className="h3QueueHeader"><div><h2>Queue</h2><p>Pending and completed jobs. Rendering controls remain backed by the existing local queue.</p></div><span className="h3QueueCount">{queueItems.length} jobs · selected {runnableCount}</span></header>
+      <header className="h3QueueHeader"><div><h2>Queue</h2><p>{queueItems.length} jobs · selected {runnableCount}</p></div><button type="button" className="h3SectionToggle" aria-label="Toggle Queue" aria-expanded={queueExpanded} onClick={() => setQueueExpanded(v => !v)}>{queueExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button></header>{queueExpanded ? <>
       <div className="h3QueueTrashActions"><button type="button" disabled={busy || sessionActive} onClick={() => void cleanResults(false)}>Collect outputs from removed jobs</button><button type="button" disabled={busy || sessionActive} onClick={() => void cleanResults(true)}><Trash2 size={14} /> Empty trash</button></div>
       <div className="h3QueueList">{!queueItems.length ? <div className="h3QueueEmpty"><ListPlus size={30} /><strong>Queue is empty</strong><span>{archivedItems.length ? "Older jobs are in the archive below." : "Sources and jobs stay on this computer."}</span></div> : queueItems.map((item, index) => <QueueCard key={item.id} item={item} index={index} count={queueItems.length} busy={busy || sessionActive} onLoad={() => loadItem(item, false)} onEdit={() => loadItem(item, true)} onMutate={mutate} onOpenResult={openResult} onToggleSelected={(selected) => mutate(`/api/h3/queue/${item.id}/selection`, "POST", { selected })} onArchive={() => mutate(`/api/h3/queue/${item.id}/archive`, "POST")} />)}</div>
 
@@ -818,7 +834,7 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
         </article>)}</div> : null}
       </section> : null}
 
-      <button className={`h3AdvancedToggle ${vastOpen ? "open" : ""}`} type="button" onClick={() => setVastOpen((value) => !value)}><Settings2 size={15} /> Автоматическая аренда Vast <span>{state?.vast.configured ? "настроена" : "не настроена"}</span></button>
+      <button className={`h3AdvancedToggle ${vastOpen ? "open" : ""}`} type="button" onClick={() => setVastOpen((value) => !value)}>{vastOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Автоматическая аренда Vast <span>{state?.vast.configured ? "настроена" : "не настроена"}</span></button>
       {vastOpen ? <div className="h3VastConfig">
         <p>SnarkRoute сам создаст приватный Vast template, запустит worker и откроет локальный SSH-туннель. Терминал, Jupyter и внешний публичный H3-порт не понадобятся. Секреты сохраняются только локальным API и обратно не показываются.</p>
         <p><strong>Закреплено:</strong> {state?.vast.image || "образ загружается…"} · source {state?.vast.sourceRevision?.slice(0, 12) || "…"}</p>
@@ -832,6 +848,7 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
         <button type="button" disabled={busy || !vastForm.acceptLicense} onClick={() => void prepareVastTemplate()}><Settings2 size={15} /> {state?.vast.templateHashConfigured ? "Пересоздать приватный H3 template" : "Подготовить автоматический запуск"}</button>
         {!state?.vast.sshKeyConfigured ? <p className="h3OperationNote blocked"><AlertTriangle size={14} /> Не найден локальный SSH-ключ, добавленный в аккаунт Vast. Укажи путь к private key.</p> : null}
       </div> : null}
+      </> : null}
     </section>
     {importBundle ? <ImportSetPreview bundle={importBundle} busy={importBusy} onChange={setImportBundle} onCancel={() => setImportBundle(null)} onApply={() => void applyImportSet()} /> : null}
   </>);
@@ -989,11 +1006,12 @@ export function QueueCard({ item, index, count, busy, onLoad, onEdit, onMutate, 
     {item.operation === "video_upscale" && item.status === "running" && item.startedAt ? <p>{Math.round((Date.now()-Date.parse(item.startedAt))/1000)} с · {item.stage}</p> : null}
     {item.operation === "video_upscale" && item.resultMetadata?.provenance ? <details><summary>Result metadata · provenance / color / worker lifecycle</summary><pre className="h3FinalRequest">{JSON.stringify(item.resultMetadata.provenance,null,2)}</pre></details> : null}
     {item.resultPaths?.length ? <div className="h3QueueResults">{item.resultPaths.map((path, resultIndex) => {
-      const src = `${apiBase}/api/assets/preview?kind=video&path=${encodeURIComponent(path)}`;
+      const still = path.toLowerCase().endsWith(".png");
+      const src = `${apiBase}/api/assets/preview?kind=${still ? "image" : "video"}&path=${encodeURIComponent(path)}`;
       return <div className="h3QueueResult" key={path}>
-        <video src={src} controls playsInline preload="metadata" />
+        {still ? <img src={src} alt={`H3 Still ${resultIndex + 1}`} /> : <video src={src} controls playsInline preload="metadata" />}
         <div className="h3QueueResultActions">
-          <button type="button" onClick={() => void onOpenResult(path, "open")}><ExternalLink size={13} /> Открыть видео {resultIndex + 1}</button>
+          <button type="button" onClick={() => void onOpenResult(path, "open")}><ExternalLink size={13} /> Открыть {still ? "изображение" : "видео"} {resultIndex + 1}</button>
           <button type="button" onClick={() => void onOpenResult(path, "folder")}><FolderOpen size={13} /> Показать в папке</button>
         </div>
       </div>;

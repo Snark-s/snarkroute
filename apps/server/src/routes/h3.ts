@@ -54,7 +54,11 @@ export async function registerH3Routes(app: FastifyInstance) {
       const local = await h3Client().models();
       return { ...local, models: [...local.models, ...hostedH3StudioModels()] };
     } catch (error) {
-      return { models: hostedH3StudioModels(), modifiers: [], localError: errorMessage(error) };
+      return {
+        models: [...offlineLocalH3StudioModels(), ...hostedH3StudioModels()],
+        modifiers: [],
+        localError: errorMessage(error)
+      };
     }
   });
 
@@ -381,6 +385,53 @@ async function h3ResultPath(value: string | undefined): Promise<string> {
 }
 function validateLocalPath(value: string): void {
   if (value.includes("\0") || value.length > 1_024) throw new Error("SSH private key path is invalid.");
+}
+
+function offlineLocalH3StudioModels() {
+  return [
+    {
+      id: "h3_base",
+      family: "h3",
+      variant: "h3_base",
+      display_name: "MiniMax H3 (legacy local fast)",
+      purpose: "preview",
+      default_steps: 4,
+      minimum_steps: 4,
+      maximum_steps: 4,
+      weights_installed: false,
+      selectable: false,
+      local_unavailable: true,
+      recommended_for_16gb: false
+    },
+    {
+      id: "10eros_max",
+      family: "h3",
+      variant: "10eros_max",
+      display_name: "H3 · 10Eros Max",
+      purpose: "final",
+      default_steps: 8,
+      minimum_steps: 4,
+      maximum_steps: 8,
+      weights_installed: false,
+      selectable: false,
+      local_unavailable: true,
+      recommended_for_16gb: false
+    },
+    {
+      id: "10eros_max_turbo",
+      family: "h3",
+      variant: "10eros_max_turbo",
+      display_name: "H3 · 10Eros Max Turbo",
+      purpose: "preview",
+      default_steps: 6,
+      minimum_steps: 4,
+      maximum_steps: 8,
+      weights_installed: false,
+      selectable: false,
+      local_unavailable: true,
+      recommended_for_16gb: true
+    }
+  ];
 }
 
 function hostedH3StudioModels() {

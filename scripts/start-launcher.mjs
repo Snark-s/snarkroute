@@ -5,6 +5,7 @@ import { createConnection } from "node:net";
 import { join } from "node:path";
 import { ensurePersonaBridge, startPersonaBridgeSupervisor } from "./persona-bridge.mjs";
 import { startLauncherControl } from "./launcher-control.mjs";
+import { createProjectPublisherControl, defaultProjectPublisherRoot } from "./project-publisher-control.mjs";
 
 try { process.loadEnvFile(join(process.cwd(), ".env")); } catch (error) { if (error.code !== "ENOENT") throw error; }
 
@@ -16,8 +17,12 @@ const launcherPort = Number(process.env.LAUNCHER_PORT ?? 5172);
 const apiUrl = `http://127.0.0.1:${apiPort}/api/health`;
 const launcherUrl = `http://127.0.0.1:${launcherPort}`;
 const controlPort = Number(process.env.SNARKROUTE_LAUNCHER_CONTROL_PORT ?? 5176);
+const projectPublisher = createProjectPublisherControl({
+  root: defaultProjectPublisherRoot(process.cwd()),
+  port: Number(process.env.PROJECT_PUBLISHER_PORT ?? 8765)
+});
 
-const owner = await startLauncherControl({ apiPort, controlPort });
+const owner = await startLauncherControl({ apiPort, controlPort, projectPublisher });
 if (!owner.existing) {
   let shuttingDown = false;
   const shutdown = () => {

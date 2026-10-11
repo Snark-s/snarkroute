@@ -1,9 +1,10 @@
 import type { NodeRunner, ProviderUsageEvent } from "@snarkroute/executor";
+import { localServiceUrl, assertLocalInferenceEndpoint } from "../services/local-service-endpoints";
 import { normalizeProviderModelToV1Input, type ProviderModelInfoV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 
 export const LOCAL_OPENAI_PROVIDER_ID = "local_openai";
 export const BONSAI_CANONICAL_MODEL_ID = "bonsai-2-27b";
-export const DEFAULT_LOCAL_LLM_BASE_URL = "http://127.0.0.1:8080/v1";
+export const DEFAULT_LOCAL_LLM_BASE_URL = localServiceUrl("bonsai_inference", "/v1");
 export const DEFAULT_BONSAI_PROVIDER_MODEL_ID = "Ternary-Bonsai-2-27B-PQ2_0.gguf";
 export const DEFAULT_LOCAL_LLM_TIMEOUT_MS = 600_000;
 export const DEFAULT_LOCAL_LLM_MAX_CONCURRENCY = 1;
@@ -26,9 +27,15 @@ export type LocalOpenAiConfig = {
   nativeToolModelIds?: string[];
 };
 
+function validatedLocalUrl(raw: string): string {
+  const url = normalizeBaseUrl(raw);
+  assertLocalInferenceEndpoint(url);
+  return url;
+}
+
 export function localOpenAiConfig(env: NodeJS.ProcessEnv = process.env): LocalOpenAiConfig {
   return {
-    baseUrl: normalizeBaseUrl(env.LOCAL_LLM_BASE_URL || DEFAULT_LOCAL_LLM_BASE_URL),
+    baseUrl: validatedLocalUrl(env.LOCAL_LLM_BASE_URL || DEFAULT_LOCAL_LLM_BASE_URL),
     apiKey: env.LOCAL_LLM_API_KEY?.trim() || undefined,
     fallbackModelId: env.LOCAL_LLM_MODEL_ID?.trim() || DEFAULT_BONSAI_PROVIDER_MODEL_ID,
     timeoutMs: positiveTimeout(env.LOCAL_LLM_TIMEOUT_MS, DEFAULT_LOCAL_LLM_TIMEOUT_MS),
@@ -45,7 +52,7 @@ export function localOpenAiConfigs(env: NodeJS.ProcessEnv = process.env): LocalO
   const urls = new Set([primary.baseUrl]);
   const additional = entries.map(entry => {
     const value = objectRecord(entry);
-    const baseUrl = normalizeBaseUrl(stringValue(value.baseUrl) ?? "");
+    const baseUrl = validatedLocalUrl(stringValue(value.baseUrl) ?? "");
     const url = new URL(baseUrl);
     if (url.protocol !== "http:" || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password || urls.has(baseUrl)) {
       throw new Error("Additional local endpoints must be distinct loopback HTTP URLs.");
