@@ -40,6 +40,20 @@ class SnarkDeployTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'unsafe archive'):
                     SNARKDEPLOY.verify_bundle(bundle, quiet=True)
 
+    def test_git_component_keeps_listed_ignored_data(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for rel in ('data/memory/persona.db', 'data/raw/2026/event.json',
+                        'data/runtime/agent/tasks/task.json', 'data/cache/logs/trace.txt',
+                        'config/local.cloud.json', 'config/secrets.extension-token', 'app/main.py'):
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                (root / rel).write_text('fixture', encoding='utf-8')
+            excludes = ['logs', 'config/secrets.*', 'data/runtime/agent/tasks/**']
+            found = SNARKDEPLOY.ignored_data_files(root, ['data', 'config/local.cloud.json', 'missing'], excludes)
+            self.assertEqual(sorted(found), ['config/local.cloud.json', 'data/memory/persona.db', 'data/raw/2026/event.json'])
+            with self.assertRaisesRegex(ValueError, 'escapes component root'):
+                SNARKDEPLOY.ignored_data_files(root / 'data', ['../config'], [])
+
     def test_restore_refuses_symlink_destination_escape(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

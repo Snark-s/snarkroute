@@ -191,6 +191,10 @@
         "config/secrets.*",
         "data/runtime/agent/tasks/**",
         "data/runtime/harness/**"
+      ],
+      "snapshot_ignored_paths": [
+        "data",
+        "config/local.cloud.json"
       ]
     },
     {

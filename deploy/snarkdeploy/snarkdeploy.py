@@ -179,6 +179,27 @@ def copy_tree_into_zip(zf, src, prefix, excludes):
     return {"files": files, "bytes": total_bytes}
 
 
+def ignored_data_files(root, paths, excludes):
+    """Files under listed component paths that Git ignores but a restore must bring back."""
+    root = Path(root).resolve()
+    found = []
+    for entry in paths:
+        base = (root / entry).resolve()
+        if base != root and root not in base.parents:
+            raise ValueError(f"snapshot path escapes component root: {entry}")
+        if base.is_file():
+            candidates = [base]
+        elif base.is_dir():
+            candidates = [path for path, _ in iter_files(base)]
+        else:
+            continue
+        for path in candidates:
+            rel = path.relative_to(root).as_posix()
+            if not should_exclude(rel, excludes) and not is_linklike(path):
+                found.append(rel)
+    return found
+
+
 def git_info(path, patch_excludes=None):
     path = Path(path)
     patch_excludes = patch_excludes or []
@@ -762,7 +783,10 @@ def snapshot(args):
                     zf.writestr(f"git/{component['id']}/working.patch", info["patch"])
                 copied = 0
                 copied_bytes = 0
-                for rel in info["untracked"]:
+                # A Git bundle cannot carry ignored runtime data (e.g. persona memory); keep listed paths.
+                ignored = ignored_data_files(path, component.get("snapshot_ignored_paths", []), component_excludes)
+                record["ignored_data_files"] = len(ignored)
+                for rel in dict.fromkeys(info["untracked"] + ignored):
                     source = path / rel
                     if source.is_file() and not should_exclude(rel, component_excludes):
                         zf.write(source, f"git/{component['id']}/untracked/{Path(rel).as_posix()}")
