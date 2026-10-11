@@ -1,0 +1,8 @@
+literal_receipt (should reject)    rejected: verify cannot return an unconditional positive receipt
+indirect_true_receipt              ACCEPTED
+dict_call_receipt                  ACCEPTED
+mutation_via_ops_alias             ACCEPTED
+mutation_via_hide_set              ACCEPTED
+mutation_via_vector_zero           ACCEPTED
+direct_assign (should reject)      rejected: verify must be read-only
+optimistic receipt counted as pass: True

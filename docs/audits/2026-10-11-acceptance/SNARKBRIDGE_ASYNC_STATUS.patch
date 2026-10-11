@@ -1,0 +1,34 @@
+diff --git a/sb-orig/server.py b/sb-fix/server.py
+index 49ab51c..2dfe804 100644
+--- a/sb-orig/server.py
++++ b/sb-fix/server.py
+@@ -3,6 +3,7 @@ from __future__ import annotations
+ import os
+ import tempfile
+ from pathlib import Path
++import anyio
+ from mcp.server.fastmcp import FastMCP
+ from mcp.server.transport_security import TransportSecuritySettings
+ from starlette.responses import JSONResponse
+@@ -190,16 +191,17 @@ def validate_project_file(project: str, path: str) -> dict:
+     return project_validate(project, path)
+ 
+ @mcp.tool()
+-def managed_service_status(name: str = "all") -> list[dict]:
++async def managed_service_status(name: str = "all") -> list[dict]:
+     """Inspect fixed local endpoints for Mixar, SnarkBridge, SnarkRoute."""
+     from bridge_services import service_status
+-    return service_status(name)
++    # Blocking probes run off the event loop so the self health check can be answered.
++    return await anyio.to_thread.run_sync(service_status, name)
+ 
+ @mcp.tool()
+-def start_managed_service(name: str) -> dict:
++async def start_managed_service(name: str) -> dict:
+     """Start explicitly approved Mixar sidecar or SnarkRoute service, no shell."""
+     from bridge_services import start_service
+-    return start_service(name)
++    return await anyio.to_thread.run_sync(start_service, name)
+ 
+ @mcp.tool()
+ def git_project_overview(project: str, mode: str = "status") -> dict:
