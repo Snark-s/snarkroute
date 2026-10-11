@@ -471,7 +471,7 @@
     "component": "snarkroute",
     "relative": "tests/stack/snarkbridge_mcp_restart_probe.py",
     "before": null,
-    "after": "89d7bbe0c4511e38b3358769a18be714d967de390e3c5bc377de8908018e2e51"
+    "after": "6182af42b2c8f650836a79f83b7bc488fd453ace797a3169e51c26c6d8959e75"
   },
   {
     "component": "snarkroute",
@@ -903,7 +903,7 @@
     "component": "snarkbridge",
     "relative": "server.py",
     "before": "e2df41c803ffd89089914b73dc7ababa2e131d9fe50a6f9ad1c675c86430f672",
-    "after": "5ef3a05a537287f69e941d8ad53eab47808674b9716901f957fa90706c5a90df"
+    "after": "c239e52623b429440cbe0e1ee6e4614a0081fdc6885f63efce79db7a21a4f598"
   },
   {
     "component": "snarkbridge",

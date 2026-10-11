@@ -15,6 +15,8 @@ node scripts/start-launcher.mjs
 
 Для MCP используйте `START_SNARKBRIDGE.ps1` / `RESTART_BRIDGE_SERVER.ps1` в каталоге `snarkbridge` реестра. Sidecar: Python `server.py` в `mixar_local`; Persona: существующий `scripts/start_extension_bridge.py` в `personacore`. Не запускайте второй экземпляр на занятом порту. Проверяйте identity и API version, а не только TCP.
 
+MCP работает с согласованным `stateless_http=True`: каждый HTTP request независим от прежней session ID. Bridge использует фиксированные scoped tools без необходимого состояния MCP-сессии. Loopback bind, Host/Origin validation, лимит 1MiB и файловые ограничения сохранены. Локальная проверка: задайте `SNARKROUTE_PORT_REGISTRY` на действующий `service-endpoints.json`, затем выполните `<snarkbridge>/.venv/Scripts/python.exe tests/stack/snarkbridge_mcp_restart_probe.py --live` из SnarkRoute. Это проверяет прежнюю session ID, новую SDK-сессию и отказы запрещённых запросов. Успех локального теста не доказывает восстановление подключённого инструмента Codex: текущие внешние вызовы возвращают `Session terminated`. Проверка с новым внешним соединением остаётся необходимой; не меняйте ключ или регистрацию на основании одной этой ошибки.
+
 Порты: API 4317, sidecar 18880, Blender RPC 18767, MCP 8767, Persona 8766, cloud tunnel 8080, Bonsai 8081, Ollama 11434, upscale 8091. Остальные адреса и контракты указаны в реестре. Отсутствующая idle inference модель не означает поломку UI/API.
 
 Local First использует доступные локальные модели. Неизвестная цена не считается бесплатной. Manual не даёт разрешения на расходы. Пример разрешения только для конкретного вызова API: `routingPolicy: { allowPaid: true }`. Секреты и permission не следует добавлять в переносимую route как постоянную настройку.

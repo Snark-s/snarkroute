@@ -6,7 +6,8 @@
     "branch": "refs/heads/codex/stack-stabilization-20261011",
     "followupCommits": [
       "e845538e06c73a9e0d4b8618f799768a774f5f05",
-      "5965077dd07917fc737a83adca1d2c590a6d33d0"
+      "5965077dd07917fc737a83adca1d2c590a6d33d0",
+      "a8301bb99120bc1ab3018fcce2dd00a76ea16b9c"
     ]
   },
   "mixar-source": {

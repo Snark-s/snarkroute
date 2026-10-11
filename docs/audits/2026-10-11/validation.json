@@ -24,14 +24,28 @@
     "studioTypeScript": "passed",
     "cepTypeScript": "passed",
     "cepProduction": "passed",
-    "changedPythonCompile": {"passed": true, "files": 87}
+    "changedPythonCompile": {
+      "passed": true,
+      "files": 87
+    }
   },
   "snarkbridgeConnector": {
     "localIdentityHealth": "passed",
-    "connectedToolCall": "Session terminated",
-    "obsoleteSessionRegression": "404 Session not found; real FastMCP ASGI",
-    "proposedFix": "stateless HTTP; awaiting explicit approval after automatic review rejection",
-    "fixed": false
+    "connectedToolCall": "Session terminated; two attempts after approved restart",
+    "obsoleteSessionRegression": "passed: real FastMCP ASGI and live loopback HTTP return 200",
+    "freshSdkSession": "passed: initialize, list 22 tools, call bridge_status",
+    "securityRegression": {
+      "wrongHost": 421,
+      "wrongOrigin": 403,
+      "oversizedBody": 413,
+      "traversal": "isError; Outside SnarkBridge workspace",
+      "protectedPath": "isError; Protected path"
+    },
+    "approvedFix": "stateless_http=True applied after explicit owner approval; only MCP restarted",
+    "localTransportFixed": true,
+    "fixed": false,
+    "evidence": "evidence/MCP-approved-stateless.json",
+    "remaining": "Connected-tool failure remains; root cause not established by the local checks"
   },
   "fullRecovery": {
     "passed": true,
