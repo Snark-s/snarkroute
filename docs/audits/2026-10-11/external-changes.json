@@ -345,13 +345,13 @@
     "component": "snarkbridge",
     "relative": "INSTALL_AUTOSTART.ps1",
     "before": "b27414b65bc90df37f6d4863ac6d87db0d569c57a2ef0d1b730727306dfe4996",
-    "after": "b0a8bf735a28d5f8f3894888c87b8f3076c3608c70f708221492fda590febc3b"
+    "after": "bbe6256d57d8b67744d2db921980f68a84dc17fd759dce6f3fa95706d8c9f9b0"
   },
   {
     "component": "snarkbridge",
     "relative": "INSTALL_WATCHDOG.ps1",
     "before": "d5714d8b73f3da88c5082c6991f2f79dd2808be0348686541e2eaf19194030b2",
-    "after": "5dabfb8b3b4b3912e797b25d99f21dec83418485d90cb266d784be5220c6b659"
+    "after": "72b161c137371b08706dcb73ee62461f2334e180d5ce0974e7335c582275d07d"
   },
   {
     "component": "snarkbridge",
@@ -405,7 +405,7 @@
     "component": "snarkbridge",
     "relative": "snark_services.ps1",
     "before": null,
-    "after": "966e2b2e97ab4e882ef225ebab8a33f4444ee3403a6bf9f302128f6e3b4302c5"
+    "after": "b1c0140975c22f2c81564cd1ba6dde0120fe2c04cfbcee377d2ae0eb4a75e4b0"
   },
   {
     "component": "snarkbridge",

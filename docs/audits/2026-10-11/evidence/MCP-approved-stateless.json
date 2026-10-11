@@ -88,12 +88,14 @@
   "backgroundStartup": {
     "observedFailure": "Windows PowerShell 5 could not autoload Microsoft.PowerShell.Security from inherited PowerShell 7 PSModulePath",
     "moduleFix": "Import native module explicitly from the current host PSHOME; global PSModulePath unchanged",
-    "initialPollWaitFix": "50-second bounded wait permits the default 30-second initial long poll",
+    "initialPollWaitFix": "100 iterations with 500ms sleep plus health-command duration; permits the default 30-second initial long poll",
     "quietMode": true,
     "credentialProvisioningInQuietMode": false,
     "standardHandles": "Dedicated stdout/stderr handles; quiet daemon payload output discarded",
     "actualHiddenRestart": "passed",
-    "actualLauncherOnRunningServices": "passed"
+    "actualLauncherOnRunningServices": "passed",
+    "watchdogRegistryFailure": "Limited scheduled context could not find profile pointer, while the same canonical registry and process metadata were accessible",
+    "watchdogRegistryFix": "Embed only validated canonical registry and startup paths as safely quoted UTF-16 command; keep Limited principal and schedule"
   },
   "windowFlash": {
     "source": "Existing SnarkBridge Watchdog launched PowerShell every five minutes without WindowStyle Hidden",
@@ -101,14 +103,16 @@
       "SnarkBridge Local MCP",
       "SnarkBridge Watchdog"
     ],
-    "arguments": "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File \"I:\\SnarkBridge\\START_SNARKBRIDGE.ps1\"",
+    "arguments": "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand <UTF-16 paths-only startup command>",
     "scheduleAndPrincipalPreserved": true,
     "installersUpdated": true,
-    "nativeVisualObservation": "unavailable; verified registered task arguments and hidden startup"
+    "nativeVisualObservation": "unavailable; verified registered task arguments and hidden startup",
+    "actualTaskResults": "evidence/watchdog-task-verification.json; both result=0, normal scheduled cycle result=0"
   },
   "readinessTests": {
     "pythonStack": 26,
     "newPythonFreshnessTests": 3,
-    "powershellFreshness": "passed under Windows PowerShell 5 and PowerShell 7"
+    "powershellFreshness": "passed under Windows PowerShell 5 and PowerShell 7",
+    "scheduledTaskAction": "PS5/PS7 passed: Unicode/apostrophe paths, missing environment locator, startup failure propagation and missing registry rejection"
   }
 }

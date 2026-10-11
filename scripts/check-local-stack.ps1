@@ -13,6 +13,7 @@ try {
     python -X utf8 -m unittest discover -s tests/stack -p 'test_*.py'
     if ($LASTEXITCODE -ne 0) { throw 'Cross-component Python tests failed' }
     & (Join-Path $root 'tests/stack/tunnel_freshness_probe.ps1')
+    & (Join-Path $root 'tests/stack/scheduled_startup_probe.ps1')
     python -X utf8 -m unittest discover -s deploy/snarkdeploy -p test_snarkdeploy.py
     if ($LASTEXITCODE -ne 0) { throw 'Recovery tests failed' }
     if ($LiveUnavailable) {

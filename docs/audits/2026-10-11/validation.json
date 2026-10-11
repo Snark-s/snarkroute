@@ -41,14 +41,17 @@
       "traversal": "isError; Outside SnarkBridge workspace",
       "protectedPath": "isError; Protected path"
     },
-    "approvedFix": "stateless_http=True applied after explicit owner approval; only MCP restarted",
+    "approvedFix": "stateless_http=True applied after explicit owner approval; managed MCP and stale tunnel restarted without changing credentials",
     "localTransportFixed": true,
     "fixed": true,
     "evidence": "evidence/MCP-approved-stateless.json",
     "remaining": null,
     "managedTunnelStatus": "online=true; fresh control-plane poll",
     "hiddenRestart": "passed",
-    "windowFlashTaskArguments": "Hidden + NonInteractive applied to both existing tasks"
+    "windowFlashTaskArguments": "Hidden + NonInteractive + explicit canonical registry locator in both existing Limited tasks",
+    "actualScheduledTasks": "Both tasks returned 0; subsequent scheduled watchdog cycle also returned 0",
+    "scheduledTaskEvidence": "evidence/watchdog-task-verification.json",
+    "taskActionRegression": "PS5/PS7 passed: Unicode/apostrophe paths, missing environment locator, startup failure propagation and missing registry rejection"
   },
   "fullRecovery": {
     "passed": true,
