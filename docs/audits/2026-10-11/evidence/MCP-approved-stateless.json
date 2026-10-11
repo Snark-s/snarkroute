@@ -95,24 +95,28 @@
     "actualHiddenRestart": "passed",
     "actualLauncherOnRunningServices": "passed",
     "watchdogRegistryFailure": "Limited scheduled context could not find profile pointer, while the same canonical registry and process metadata were accessible",
-    "watchdogRegistryFix": "Embed only validated canonical registry and startup paths as safely quoted UTF-16 command; keep Limited principal and schedule"
+    "watchdogRegistryFix": "Validated canonical registry passed as Unicode argv to fixed pythonw launcher; unchanged Limited principal and schedule"
   },
   "windowFlash": {
-    "source": "Existing SnarkBridge Watchdog launched PowerShell every five minutes without WindowStyle Hidden",
+    "source": "Watchdog used a console host; four read-only Python subprocess call sites also allowed console creation. Exact visual attribution was not captured.",
     "updatedExistingTasks": [
       "SnarkBridge Local MCP",
       "SnarkBridge Watchdog"
     ],
-    "arguments": "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand <UTF-16 paths-only startup command>",
+    "arguments": "pythonw.exe -I START_SNARKBRIDGE_HIDDEN.py <canonical registry path>",
     "scheduleAndPrincipalPreserved": true,
     "installersUpdated": true,
-    "nativeVisualObservation": "unavailable; verified registered task arguments and hidden startup",
-    "actualTaskResults": "evidence/watchdog-task-verification.json; both result=0, normal scheduled cycle result=0"
+    "nativeVisualObservation": "No screen capture; child console absence measured by GetConsoleWindow and real task results verified",
+    "actualTaskResults": "evidence/watchdog-task-verification.json; both result=0, normal scheduled cycle result=0",
+    "userReport": "Window appears more often than every five minutes",
+    "hostCreatesConsole": false,
+    "childPowerShellConsoleHandle": 0,
+    "consoleProbePolicy": "CREATE_NO_WINDOW for nvidia-smi, tasklist, git, tunnel health; .NET CreateNoWindow for PS health"
   },
   "readinessTests": {
     "pythonStack": 26,
     "newPythonFreshnessTests": 3,
     "powershellFreshness": "passed under Windows PowerShell 5 and PowerShell 7",
-    "scheduledTaskAction": "PS5/PS7 passed: Unicode/apostrophe paths, missing environment locator, startup failure propagation and missing registry rejection"
+    "scheduledTaskAction": "PS5/PS7 passed: child console handle=0, Unicode/apostrophe paths, startup failure propagation and missing registry rejection"
   }
 }

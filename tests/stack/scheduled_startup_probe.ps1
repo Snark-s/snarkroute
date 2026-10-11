@@ -1,5 +1,13 @@
-param([string]$BridgeRoot = 'I:/SnarkBridge')
+param([string]$BridgeRoot = '', [string]$WindowlessPython = '')
 $ErrorActionPreference = 'Stop'
+if (-not $BridgeRoot) {
+    $registryPath = $env:SNARKROUTE_PORT_REGISTRY
+    if (-not $registryPath) { $registryPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'service-endpoints.json' }
+    $document = [IO.File]::ReadAllText($registryPath) | ConvertFrom-Json
+    $BridgeRoot = $document.paths.snarkbridge
+    if (-not [IO.Path]::IsPathRooted($BridgeRoot)) { $BridgeRoot = Join-Path (Split-Path -Parent $registryPath) $BridgeRoot }
+}
+if (-not $WindowlessPython) { $WindowlessPython = Join-Path $BridgeRoot '.venv/Scripts/pythonw.exe' }
 . (Join-Path $BridgeRoot 'snark_services.ps1')
 
 # Exercise action construction without registering or changing any real task.
@@ -16,14 +24,19 @@ try {
     [IO.Directory]::CreateDirectory($root) | Out-Null
     $registryPath = Join-Path $root 'service-endpoints.json'
     [IO.File]::WriteAllText($registryPath, '{"schemaVersion":1,"host":"127.0.0.1","services":{"test":{"port":4317}}}', [Text.UTF8Encoding]::new($false))
-    [IO.File]::WriteAllText((Join-Path $root 'START_SNARKBRIDGE.ps1'), '[IO.File]::WriteAllText((Join-Path $PSScriptRoot ''received.txt''), $env:SNARKROUTE_PORT_REGISTRY)', [Text.UTF8Encoding]::new($true))
+    Copy-Item -LiteralPath (Join-Path $BridgeRoot 'START_SNARKBRIDGE_HIDDEN.py') -Destination (Join-Path $root 'START_SNARKBRIDGE_HIDDEN.py')
+    $probeBody = @'
+Add-Type -Namespace SnarkTaskProbe -Name Native -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow();'
+if ([SnarkTaskProbe.Native]::GetConsoleWindow() -ne [IntPtr]::Zero) { throw 'Scheduled PowerShell has a console window' }
+[IO.File]::WriteAllText((Join-Path $PSScriptRoot 'received.txt'), $env:SNARKROUTE_PORT_REGISTRY)
+'@
+    [IO.File]::WriteAllText((Join-Path $root 'START_SNARKBRIDGE.ps1'), $probeBody, [Text.UTF8Encoding]::new($true))
     $env:SNARKROUTE_PORT_REGISTRY = $registryPath
     $resolved = Get-SnarkRegistry -PathOnly
     if ($resolved -isnot [string] -or $resolved -ne $registryPath) { throw 'Registry path resolution failed' }
-    $action = New-SnarkStartupTaskAction $root
-    if ($action.Arguments -notmatch '-NonInteractive -WindowStyle Hidden' -or $action.Arguments -notmatch '-EncodedCommand ([A-Za-z0-9+/=]+)$') { throw 'Task action is not hidden and encoded' }
-    $payload = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($Matches[1]))
-    if (-not $payload.Contains($registryPath.Replace("'", "''"))) { throw 'Canonical registry path was not safely embedded' }
+    $action = New-SnarkStartupTaskAction $root $WindowlessPython
+    if ([IO.Path]::GetFileName($action.Execute) -ne 'pythonw.exe' -or $action.Arguments -notmatch '^-I "[^"]+" "[^"]+"$') { throw 'Task action is not a windowless isolated Python host' }
+    if (-not $action.Arguments.Contains($registryPath)) { throw 'Canonical Unicode registry path was not safely passed' }
     # A task-like child starts without the caller's explicit registry environment.
     Remove-Item Env:/SNARKROUTE_PORT_REGISTRY -ErrorAction SilentlyContinue
     $stdout = Join-Path $fixture 'stdout.txt'
@@ -42,9 +55,9 @@ try {
     if ($null -eq $process.ExitCode -or $process.ExitCode -eq 0) { throw 'Task action concealed a startup failure' }
     $env:SNARKROUTE_PORT_REGISTRY = Join-Path $root 'missing-registry.json'
     $failed = $false
-    try { New-SnarkStartupTaskAction $root | Out-Null } catch { $failed = $true }
+    try { New-SnarkStartupTaskAction $root $WindowlessPython | Out-Null } catch { $failed = $true }
     if (-not $failed) { throw 'Task installation accepted a missing explicit registry' }
-    Write-Output 'SCHEDULED_STARTUP_LOCATOR_PASSED'
+    Write-Output 'SCHEDULED_STARTUP_LOCATOR_PASSED; CHILD_CONSOLE_HANDLE_ZERO'
 } finally {
     if ($null -eq $savedRegistry) { Remove-Item Env:/SNARKROUTE_PORT_REGISTRY -ErrorAction SilentlyContinue }
     else { $env:SNARKROUTE_PORT_REGISTRY = $savedRegistry }

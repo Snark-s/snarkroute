@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-10-11T18:19:37.2051416+03:00",
+  "user": "WANDERER\\serge",
+  "keyRotated": false,
+  "secretLogged": false,
+  "sameEncryptedCredential": true,
+  "ownerOnlyAcl": true,
+  "ordinaryContextDecrypts": true,
+  "registryPointerVisible": true,
+  "passed": true
+}

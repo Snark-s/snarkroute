@@ -4,7 +4,12 @@
     "credentialExported": false,
     "factoryScene": "unchanged",
     "realClient": "local_tool_agent._post",
-    "result": "BLENDER_OWNER_DPAPI_RPC_G_H_PASS REAL_LOCAL_TOOL_CLIENT SCENE_UNCHANGED"
+    "result": "BLENDER_OWNER_DPAPI_RPC_G_H_PASS REAL_LOCAL_TOOL_CLIENT SCENE_UNCHANGED",
+    "ordinaryWindowsContext": "passed: same encrypted key, CurrentUser DPAPI, owner-only ACL and actual factory Blender/local_tool_agent G/H; scene unchanged",
+    "ordinaryContextEvidence": [
+      "evidence/ordinary-owner-rpc-provision.json",
+      "evidence/ordinary-owner-blender-rpc.json"
+    ]
   },
   "testCounts": {
     "nodeContracts": 23,
@@ -26,7 +31,7 @@
     "cepProduction": "passed",
     "changedPythonCompile": {
       "passed": true,
-      "files": 87
+      "files": 92
     }
   },
   "snarkbridgeConnector": {
@@ -48,10 +53,12 @@
     "remaining": null,
     "managedTunnelStatus": "online=true; fresh control-plane poll",
     "hiddenRestart": "passed",
-    "windowFlashTaskArguments": "Hidden + NonInteractive + explicit canonical registry locator in both existing Limited tasks",
+    "windowFlashTaskArguments": "pythonw.exe -I fixed managed launcher and explicit canonical registry; PowerShell child CREATE_NO_WINDOW",
     "actualScheduledTasks": "Both tasks returned 0; subsequent scheduled watchdog cycle also returned 0",
     "scheduledTaskEvidence": "evidence/watchdog-task-verification.json",
-    "taskActionRegression": "PS5/PS7 passed: Unicode/apostrophe paths, missing environment locator, startup failure propagation and missing registry rejection"
+    "taskActionRegression": "PS5/PS7 passed: child console handle=0, Unicode/apostrophe paths, startup failure propagation and missing registry rejection",
+    "consoleProbes": "Four Python probe call sites and native PS health process use no-window creation; all five connected read-only tool calls passed",
+    "consoleProbeEvidence": "evidence/windowless-tools.json"
   },
   "fullRecovery": {
     "passed": true,

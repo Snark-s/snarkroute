@@ -373,6 +373,12 @@
   },
   {
     "component": "snarkbridge",
+    "relative": "START_SNARKBRIDGE_HIDDEN.py",
+    "before": null,
+    "after": "7bb8bca0b331ef6c5943c43dc629c2ff1f8d247f2dee0731033df93b5e2e18c0"
+  },
+  {
+    "component": "snarkbridge",
     "relative": "bridge_projects.py",
     "before": "8a30864452679dd67f683bff91fff61ed8766a67dd9ec194bfd42051cec027fe",
     "after": "8d2a5d8da5321d4db1b7bec022681144172bf48711bc1402f98ffbcef6c8ab58"
@@ -381,7 +387,19 @@
     "component": "snarkbridge",
     "relative": "bridge_services.py",
     "before": "b40908050bc3518af50ddb288210e36fbbf4745d26ef480eb9f7c86d661c4fb0",
-    "after": "d562bb1e0fed934630c14ab38bcc07714be03e1e3ac570a8a4c2fd8ee491926a"
+    "after": "f9970d3fbffccb8f4f8a9a0f2fbf9274b930d9c081ac6de900c35b1454e30745"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "gpu_tools.py",
+    "before": "c6a6d2519fe3b9348cfcc683a0ecb7dfc7d35172e451648097dc789fdb4350de",
+    "after": "015decb71af4463fb115de5da632192fc4f6615f4bb10912f16c0a66ef95373a"
+  },
+  {
+    "component": "snarkbridge",
+    "relative": "process_tools.py",
+    "before": "3bf4814965b8d613eed0fe3b863e2ab69f036a93ba616724b880fc10431ee67c",
+    "after": "54436fc5f27f975dda9fb5136e42de61cb0c4f4484b60f51d092f22b600da313"
   },
   {
     "component": "snarkbridge",
@@ -405,7 +423,7 @@
     "component": "snarkbridge",
     "relative": "snark_services.ps1",
     "before": null,
-    "after": "b1c0140975c22f2c81564cd1ba6dde0120fe2c04cfbcee377d2ae0eb4a75e4b0"
+    "after": "cafb3e55eff29818045ea3df7492b00962c7e7091206783a93ef01e4c0b18bc7"
   },
   {
     "component": "snarkbridge",

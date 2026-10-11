@@ -1,0 +1,34 @@
+{
+  "phase": "after-windowless-probe-deployment-and-managed-MCP-restart",
+  "checks": [
+    {
+      "tool": "bridge_status",
+      "passed": true
+    },
+    {
+      "tool": "gpu_status",
+      "passed": true
+    },
+    {
+      "tool": "list_managed_processes",
+      "passed": true
+    },
+    {
+      "tool": "git_project_overview",
+      "passed": true
+    },
+    {
+      "tool": "managed_service_status",
+      "passed": true
+    }
+  ],
+  "allPassed": true,
+  "childPowerShellConsoleHandle": 0,
+  "pythonNoWindowProbeSites": [
+    "gpu_tools.gpu_status",
+    "process_tools.list_managed_processes",
+    "bridge_services._status tunnel health",
+    "bridge_services.git_overview"
+  ],
+  "nativeVisualObservation": false
+}
