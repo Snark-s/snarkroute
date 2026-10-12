@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 DEFAULT_REMOTE_DIR = "snark-backups-rclone"
-DEFAULT_KEEP = 5
+DEFAULT_KEEP = 2
 HOST = "plotva.beget.com"
 USER = "sirano"
 HOST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKcEECcmmjfdI9Poq4zTdCwArHCY/txB/dg/SdkAGncJ"

@@ -80,7 +80,7 @@ if errorlevel 1 goto :fail
 
 echo.
 echo [4/4] Uploading latest backup to Beget...
-python "%TOOLS%\beget_sync.py" --source "%OUT%" --keep 5
+python "%TOOLS%\beget_sync.py" --source "%OUT%" --keep 2
 if errorlevel 1 (
   echo WARNING: Beget upload failed. Local backup is still complete.
   set "CLOUD_WARN=1"
@@ -95,7 +95,7 @@ echo Password file:  %KEY%
 if "%CLOUD_WARN%"=="1" (
   echo Beget: WARNING - remote copy was not updated.
 ) else (
-  echo Beget: latest copy uploaded, last 5 generations retained.
+  echo Beget: latest copy uploaded, last 2 generations retained.
 )
 echo Keep the recovery disk and password disk physically separate.
 echo.
