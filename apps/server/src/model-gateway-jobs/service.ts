@@ -41,6 +41,8 @@ export type GenerationJobRequest = {
   correlationId?: string;
   idempotencyKey?: string;
   retryOf?: string;
+  /** Paid permission for this submission only, granted by an explicit model choice. */
+  routingPolicy?: { allowPaid?: boolean };
 };
 
 export type GenerationOutput = {
@@ -184,6 +186,8 @@ export class ModelGatewayJobService {
     if (source.status !== "failed" && source.status !== "cancelled") throw new Error("Only failed or cancelled jobs can be retried.");
     return this.create({
       ...source.request,
+      // Permission is never replayed from stored jobs; a paid model must be chosen again.
+      routingPolicy: undefined,
       retryOf: source.id,
       idempotencyKey: idempotencyKey?.trim() || `${source.id}:retry:${(source.retry?.attempt ?? 1) + 1}`
     }, (source.retry?.attempt ?? 1) + 1);
@@ -304,7 +308,9 @@ export function generationRouteFromJob(job: GenerationJob): OpenRoute {
         images: normalizedRouteInputs(job.request.inputs, "image"),
         audios: normalizedRouteInputs(job.request.inputs, "audio"),
         videos: normalizedRouteInputs(job.request.inputs, "video"),
-        models: normalizedRouteInputs(job.request.inputs, "model")
+        models: normalizedRouteInputs(job.request.inputs, "model"),
+        // Only the top-level policy counts; one smuggled through parameters is overridden.
+        routingPolicy: { allowPaid: job.request.routingPolicy?.allowPaid === true }
       }
     }],
     edges: []
@@ -361,7 +367,8 @@ function sanitizeRequest(request: GenerationJobRequest): GenerationJobRequest {
     inputs: request.inputs ?? [],
     sourceContext: sanitizeContext(request.sourceContext),
     correlationId: request.correlationId?.trim(),
-    idempotencyKey: request.idempotencyKey?.trim()
+    idempotencyKey: request.idempotencyKey?.trim(),
+    routingPolicy: request.routingPolicy?.allowPaid === true ? { allowPaid: true } : undefined
   };
 }
 

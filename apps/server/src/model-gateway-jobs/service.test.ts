@@ -148,6 +148,26 @@ describe("ModelGatewayJobService", () => {
     for (let i = 0; i < 20 && retried?.status !== "failed"; i++) { await new Promise((resolve) => setTimeout(resolve, 5)); retried = retry ? await service.get(retry.id) : null; }
   });
 
+  it("carries paid permission only from the explicit top-level policy of this submission", async () => {
+    const base = { capability: "video.generate", nodeType: "polza.video.generate", modelId: "wan", providerModelId: "wan", provider: "polza" } as const;
+    const route = (request: Record<string, unknown>) => generationRouteFromJob({ id: "gen_policy", status: "queued", createdAt: "now", updatedAt: "now", request } as unknown as GenerationJob).nodes[0]!.params ?? {};
+    expect(route({ ...base, routingPolicy: { allowPaid: true } }).routingPolicy).toEqual({ allowPaid: true });
+    expect(route({ ...base }).routingPolicy).toEqual({ allowPaid: false });
+    expect(route({ ...base, parameters: { routingPolicy: { allowPaid: true } } }).routingPolicy).toEqual({ allowPaid: false });
+
+    const directory = await mkdtemp(join(tmpdir(), "snarkroute-paid-retry-")); directories.push(directory);
+    const seen: unknown[] = [];
+    const service = new ModelGatewayJobService(directory, vi.fn(async (job: GenerationJob) => { seen.push(generationRouteFromJob(job).nodes[0]!.params?.routingPolicy); throw new Error("provider failed"); }));
+    const created = await service.create({ ...base, routingPolicy: { allowPaid: true } });
+    let failed = await service.get(created.id);
+    for (let i = 0; i < 20 && failed?.status !== "failed"; i++) { await new Promise((resolve) => setTimeout(resolve, 5)); failed = await service.get(created.id); }
+    const retry = await service.retry(created.id, "retry:paid");
+    let retried = retry ? await service.get(retry.id) : null;
+    for (let i = 0; i < 20 && retried?.status !== "failed"; i++) { await new Promise((resolve) => setTimeout(resolve, 5)); retried = retry ? await service.get(retry.id) : null; }
+    // The stored job never replays the permission into a retry.
+    expect(seen).toEqual([{ allowPaid: true }, { allowPaid: false }]);
+  });
+
   it("enforces canonical job status transitions", () => {
     expect(canTransitionGenerationJob("queued", "starting_provider")).toBe(true);
     expect(canTransitionGenerationJob("starting_provider", "generating_768p")).toBe(true);
