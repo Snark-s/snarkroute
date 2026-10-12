@@ -2180,6 +2180,7 @@ function App() {
       await apiPut<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}`, { text: prompt });
       const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/generate`, {
         modelId: selection.modelId,
+        routingPolicy: explicitModelPermission(selection),
         prompt,
         executionProvider: selection.executionProvider,
         fallbackAllowed: selection.fallbackAllowed,
@@ -2588,6 +2589,7 @@ function App() {
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: true, message: "Generating..." } }));
       const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/${type}-nodes/${encodeURIComponent(nodeId)}/generate`, {
         modelId: selection.modelId,
+        routingPolicy: explicitModelPermission(selection),
         prompt,
         executionProvider: selection.executionProvider,
         fallbackAllowed: selection.fallbackAllowed,
@@ -3017,6 +3019,7 @@ function App() {
       setGenerationFeedback((current) => ({ ...current, [nodeId]: { busy: true, message: "Thinking..." } }));
       const snapshot = await apiPost<LibrarySnapshot>(`/api/libraries/current/text-nodes/${encodeURIComponent(nodeId)}/conversation/turn`, {
         modelId: selection.modelId,
+        routingPolicy: explicitModelPermission(selection),
         prompt,
         executionProvider: selection.executionProvider,
         fallbackAllowed: selection.fallbackAllowed,
@@ -7996,6 +7999,11 @@ function BusyGears() {
       <Cog size={10} className="nodeBusyGearSmall" />
     </span>
   );
+}
+
+/** The model shown on a node is the owner's explicit choice, so it may run even when paid. */
+function explicitModelPermission(selection: Pick<ModelRouteSelection, "modelId">): { allowPaid: boolean } {
+  return { allowPaid: Boolean(selection.modelId) };
 }
 
 function normalizedModelRouteSelection(value: string | ModelRouteSelection | undefined, fallback: ModelOption | undefined): ModelRouteSelection {

@@ -839,6 +839,7 @@ function DialogueWorkbenchEditor({
               params: {
                 model: modelIdForProfile(profile),
                 providerMode: providerModeForProfile(profile),
+                routingPolicy: { allowPaid: explicitModelChoice(modelIdForProfile(profile)) },
                 systemPrompt: agentPresets.find((preset) => preset.id === state.agentPresetId)?.systemPrompt ?? "",
                 prompt: dialoguePromptForModel({ state: nextState, inputs, userText }),
                 images
@@ -1279,6 +1280,21 @@ function providerModeForProfile(profile: ModelProfile): string {
   if (profile.providerId === "openrouter") return "openrouter";
   if (profile.providerId === "gemini") return "direct";
   return "auto";
+}
+
+/** A concrete model set on a node is the owner's explicit choice; auto and *.default stay free-only. */
+function explicitModelChoice(model: unknown): boolean {
+  return typeof model === "string" && Boolean(model.trim()) && model !== "auto" && !model.endsWith(".default");
+}
+
+/** Run-time copy only: paid permission must never be saved into a route document. */
+function withExplicitModelPermission(route: RouteDoc): RouteDoc {
+  return {
+    ...route,
+    nodes: route.nodes.map((node) => explicitModelChoice(node.params?.model) && !node.params?.routingPolicy
+      ? { ...node, params: { ...node.params, routingPolicy: { allowPaid: true } } }
+      : node)
+  };
 }
 
 function firstRunError(result: unknown): string | null {
@@ -7349,10 +7365,11 @@ function App() {
 
   async function runRouteWithProgress(route: RouteDoc, initialNodeOutputs?: Record<string, unknown>) {
     try {
+      const runnable = withExplicitModelPermission(route);
       const response = await apiFetch(`${apiBase}/api/routes/run/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(initialNodeOutputs ? { route, initialNodeOutputs } : route)
+        body: JSON.stringify(initialNodeOutputs ? { route: runnable, initialNodeOutputs } : runnable)
       });
       if (!response.ok || !response.body) throw new Error(`Run request failed: ${response.status} ${response.statusText}`.trim());
 
@@ -7435,10 +7452,11 @@ function App() {
 
   async function runRouteWithoutProgress(route: RouteDoc, initialNodeOutputs?: Record<string, unknown>) {
     try {
+      const runnable = withExplicitModelPermission(route);
       const response = await apiFetch(`${apiBase}/api/routes/run`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(initialNodeOutputs ? { route, initialNodeOutputs } : route)
+        body: JSON.stringify(initialNodeOutputs ? { route: runnable, initialNodeOutputs } : runnable)
       });
       const result = await response.json();
       if (!response.ok) throw new Error(String(result.error ?? `Run request failed: ${response.status} ${response.statusText}`.trim()));
