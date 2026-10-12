@@ -166,7 +166,18 @@
       "label": "Jabberwock Mixar Local backend",
       "path": "{{SNARK_MIXAR_BACKEND}}",
       "strategy": "git-or-copy",
-      "snapshot": true
+      "snapshot": true,
+      "snapshot_ignored_paths": [
+        "config.json",
+        "generation_jobs_state.json",
+        "generation_performance.json",
+        "model_performance.json",
+        "snarkroute_generation_catalog_cache.json",
+        "generation_inputs",
+        "turn_journal",
+        "trellis-recovery-test",
+        "mixar-app-main.zip"
+      ]
     },
     {
       "id": "jabberwock-blender",
