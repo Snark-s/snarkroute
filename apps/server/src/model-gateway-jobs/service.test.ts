@@ -166,6 +166,11 @@ describe("ModelGatewayJobService", () => {
     for (let i = 0; i < 20 && retried?.status !== "failed"; i++) { await new Promise((resolve) => setTimeout(resolve, 5)); retried = retry ? await service.get(retry.id) : null; }
     // The stored job never replays the permission into a retry.
     expect(seen).toEqual([{ allowPaid: true }, { allowPaid: false }]);
+    // An explicit retry request on the chosen model grants it again.
+    const explicitRetry = await service.retry(created.id, "retry:paid-explicit", { allowPaid: true });
+    let explicitRetried = explicitRetry ? await service.get(explicitRetry.id) : null;
+    for (let i = 0; i < 20 && explicitRetried?.status !== "failed"; i++) { await new Promise((resolve) => setTimeout(resolve, 5)); explicitRetried = explicitRetry ? await service.get(explicitRetry.id) : null; }
+    expect(seen).toEqual([{ allowPaid: true }, { allowPaid: false }, { allowPaid: true }]);
   });
 
   it("enforces canonical job status transitions", () => {

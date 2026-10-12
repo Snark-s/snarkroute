@@ -180,14 +180,14 @@ export class ModelGatewayJobService {
     return publicJob(internal);
   }
 
-  async retry(id: string, idempotencyKey?: string): Promise<GenerationJob | null> {
+  async retry(id: string, idempotencyKey?: string, routingPolicy?: GenerationJobRequest["routingPolicy"]): Promise<GenerationJob | null> {
     const source = await this.get(id);
     if (!source) return null;
     if (source.status !== "failed" && source.status !== "cancelled") throw new Error("Only failed or cancelled jobs can be retried.");
     return this.create({
       ...source.request,
-      // Permission is never replayed from stored jobs; a paid model must be chosen again.
-      routingPolicy: undefined,
+      // Permission is never replayed from the stored job; only the retry request itself can grant it.
+      routingPolicy,
       retryOf: source.id,
       idempotencyKey: idempotencyKey?.trim() || `${source.id}:retry:${(source.retry?.attempt ?? 1) + 1}`
     }, (source.retry?.attempt ?? 1) + 1);

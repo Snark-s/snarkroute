@@ -29,9 +29,9 @@ export async function registerModelGatewayJobRoutes(app: FastifyInstance) {
     return { ok: true, job };
   });
 
-  app.post<{ Params: { id: string }; Body: { idempotencyKey?: string } }>("/api/model-gateway/jobs/:id/retry", async (request, reply) => {
+  app.post<{ Params: { id: string }; Body: { idempotencyKey?: string; routingPolicy?: { allowPaid?: boolean } } }>("/api/model-gateway/jobs/:id/retry", async (request, reply) => {
     try {
-      const job = await modelGatewayJobService.retry(request.params.id, request.body?.idempotencyKey ?? firstHeader(request.headers["idempotency-key"]));
+      const job = await modelGatewayJobService.retry(request.params.id, request.body?.idempotencyKey ?? firstHeader(request.headers["idempotency-key"]), request.body?.routingPolicy);
       if (!job) return reply.code(404).send({ error: "Generation job not found." });
       return { ok: true, job };
     } catch (error) {

@@ -32,6 +32,7 @@ describe("gateway client", () => {
     expect(providerNeutralJobRequest({ model, prompt: "move", parameters: {}, asset: { id: "asset_frame", path: "C:\\assets\\frame.png" } })).toMatchObject({
       modelId: "stored-wan",
       providerModelId: "wan/2.6",
+      routingPolicy: { allowPaid: true },
       inputs: [{ kind: "image", assetId: "asset_frame", path: "C:\\assets\\frame.png" }]
     });
   });

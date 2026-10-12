@@ -95,7 +95,7 @@ export class SnarkRouteGatewayClient {
   }
   async job(id: string) { const body = await this.request<{ job: GenerationJob }>(`/api/model-gateway/jobs/${encodeURIComponent(id)}`); return body.job; }
   async cancelJob(id: string) { const body = await this.request<{ job: GenerationJob }>(`/api/model-gateway/jobs/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }); return body.job; }
-  async retryJob(id: string, idempotencyKey: string) { const body = await this.request<{ job: GenerationJob }>(`/api/model-gateway/jobs/${encodeURIComponent(id)}/retry`, { method: "POST", body: JSON.stringify({ idempotencyKey }) }); return body.job; }
+  async retryJob(id: string, idempotencyKey: string) { const body = await this.request<{ job: GenerationJob }>(`/api/model-gateway/jobs/${encodeURIComponent(id)}/retry`, { method: "POST", body: JSON.stringify({ idempotencyKey, routingPolicy: { allowPaid: true } }) }); return body.job; }
   async selectJobResult(id: string, index: number) { const body = await this.request<{ job: GenerationJob }>(`/api/model-gateway/jobs/${encodeURIComponent(id)}/select-result`, { method: "POST", body: JSON.stringify({ index }) }); return body.job; }
   async tools() { const body = await this.request<{ tools?: PublishedTool[]; diagnostics?: unknown[] }>("/api/tools?host=after_effects", { cache: "no-store" }); return { tools: body.tools ?? [], diagnostics: body.diagnostics ?? [] }; }
   async createToolJob(toolId: string, request: { schemaVersion: string; hostType: "after_effects"; inputs: Record<string, unknown>; parameters: Record<string, unknown>; sourceContext?: Record<string, unknown>; correlationId?: string; idempotencyKey: string }) { const body = await this.request<{ job: PortableToolJob }>(`/api/tools/${encodeURIComponent(toolId)}/jobs`, { method: "POST", body: JSON.stringify(request) }); return body.job; }
@@ -115,7 +115,8 @@ export class SnarkRouteGatewayClient {
 export function providerNeutralJobRequest(input: { model: GenerationModel; operation?: GenerationOperation; prompt: string; parameters: Record<string, unknown>; assets?: Array<ImportedAsset & { input: Omit<GenerationInput, "assetId" | "localPath"> }>; asset?: ImportedAsset }) {
   const operation = input.operation ?? "image-to-video";
   const assets = input.assets ?? (input.asset ? [{ ...input.asset, input: { kind: "image" as const, role: "source", index: 0, sourceType: "current-composition-frame" as const } }] : []);
-  return { capability: capabilityForOperation(operation), outputMediaType: outputMediaTypeForOperation(operation), nodeType: input.model.nodeType, modelId: input.model.storedModelId, providerModelId: input.model.providerModelId, provider: input.model.provider, ...(input.prompt.trim() ? { prompt: input.prompt.trim() } : {}), parameters: input.parameters, inputs: assets.map((asset) => ({ kind: asset.input.kind, role: asset.input.role, index: asset.input.index, assetId: asset.id, path: asset.path })) };
+  // The panel always runs the model picked in its list; that choice is the paid permission.
+  return { capability: capabilityForOperation(operation), outputMediaType: outputMediaTypeForOperation(operation), nodeType: input.model.nodeType, modelId: input.model.storedModelId, providerModelId: input.model.providerModelId, provider: input.model.provider, routingPolicy: { allowPaid: true }, ...(input.prompt.trim() ? { prompt: input.prompt.trim() } : {}), parameters: input.parameters, inputs: assets.map((asset) => ({ kind: asset.input.kind, role: asset.input.role, index: asset.input.index, assetId: asset.id, path: asset.path })) };
 }
 
 function redactSecrets(value: unknown): unknown {
