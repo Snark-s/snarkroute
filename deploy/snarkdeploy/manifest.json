@@ -52,6 +52,9 @@
     },
     "SNARKBRIDGE_ROOT": {
       "default": "{{PERSONA_HOME}}\\..\\SnarkBridge"
+    },
+    "SNARK_PROJECT_PUBLISHER": {
+      "default": "{{SNARK_APPS_ROOT}}\\Project Publisher"
     }
   },
   "prerequisites": [
@@ -177,6 +180,21 @@
         "turn_journal",
         "trellis-recovery-test",
         "mixar-app-main.zip"
+      ]
+    },
+    {
+      "id": "project-publisher",
+      "label": "Project Publisher",
+      "path": "{{SNARK_PROJECT_PUBLISHER}}",
+      "strategy": "git-or-copy",
+      "snapshot": true,
+      "install_commands": [
+        "python -m venv .venv",
+        ".venv\\Scripts\\python.exe -m pip install -e ."
+      ],
+      "snapshot_ignored_paths": [
+        "data/publisher.sqlite3",
+        "data/settings.yaml"
       ]
     },
     {
@@ -437,6 +455,21 @@
       "id": "personacore-harness-credentials",
       "path": "{{PERSONA_HOME}}\\data\\runtime\\harness\\.credentials.yaml",
       "restore": "manual-or-regenerate"
+    },
+    {
+      "id": "project-publisher-env",
+      "path": "{{SNARK_PROJECT_PUBLISHER}}\\.env",
+      "restore": "encrypted-secrets-archive"
+    },
+    {
+      "id": "project-publisher-youtube-oauth",
+      "path": "{{SNARK_PROJECT_PUBLISHER}}\\client_secret.json",
+      "restore": "encrypted-secrets-archive"
+    },
+    {
+      "id": "project-publisher-youtube-token",
+      "path": "{{SNARK_PROJECT_PUBLISHER}}\\youtube-token.json",
+      "restore": "encrypted-secrets-archive-or-reauthorize"
     }
   ]
 }

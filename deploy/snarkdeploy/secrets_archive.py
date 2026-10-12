@@ -109,6 +109,12 @@ def discover_windows_secrets() -> list[Path]:
             files.extend(p for p in harness.glob("*credentials*") if p.is_file())
         files.extend(iter_env_files(persona))
 
+    publisher = Path(r"Y:\Приложения\Project Publisher")
+    if publisher.exists():
+        # Explicit files only: walking the project folders would read gigabytes of media.
+        files.extend(p for p in (publisher / ".env", publisher / "client_secret.json", publisher / "youtube-token.json")
+                     if p.is_file())
+
     unique: list[Path] = []
     seen = set()
     for path in files:
@@ -123,6 +129,7 @@ def archive_name_for(path: Path) -> str:
     mappings = [
         (Path(r"Y:\Процесс\SnarkRoute"), "windows/snarkroute"),
         (Path(r"I:\PersonaCore"), "windows/personacore"),
+        (Path(r"Y:\Приложения\Project Publisher"), "windows/project-publisher"),
         (Path.home(), "windows/userhome"),
     ]
     for root, prefix in mappings:
