@@ -167,9 +167,9 @@ class MatlowRuntime:
                 raise RuntimeError("comfy-aimdo DynamicVRAM initialization failed")
             comfy.model_patcher.CoreModelPatcher = comfy.model_patcher.ModelPatcherDynamic
             comfy.memory_management.aimdo_enabled = True
+        import comfy.nested_tensor
         import comfy.sd
         import comfy.utils
-        import comfy.nested_tensor
         import torch
         from comfy_api.latest import Types
         from comfy_extras.nodes_audio import VAEDecodeAudio
@@ -333,12 +333,49 @@ class MatlowRuntime:
         with self._lock:
             return self._generate_locked(request, output_path, variant_index, stage_callback)
 
+    def sample_latent_segment(
+        self, request: GenerateRequest, capture_directory: Path, *,
+        previous_archive: Path | None = None, tone_reference_archive: Path | None = None,
+        overlap_frames: int = 22, tone_strength: float = 0.0,
+        width: int = 960, height: int = 544, frames: int = 124,
+        stage_callback: Callable[[float, str], None] | None = None,
+    ) -> dict[str, Any]:
+        """Explicit offline experiment: sample AV and archive it without decoding.
+
+        This Python entrypoint is deliberately separate from GenerateRequest/ORP.
+        Normal generate() keeps its original decoding and validation behavior.
+        """
+        if request.output_mode != "video" or request.vae_mode != "stock":
+            raise ValueError("Latent Extend currently requires the stock video decoder")
+        if request.model_variant != "h3_base" or request.task not in {"t2va", "fl2va"}:
+            raise ValueError("Latent Extend currently requires h3_base T2VA/FL2VA")
+        if request.identity_transfer or request.visual_modifier:
+            raise ValueError("Latent Extend does not yet support LoRA conditioning")
+        if previous_archive is not None and request.conditions:
+            raise ValueError("Cannot combine image conditioning with previous latent context")
+        if not self.settings.matlow_native_audio:
+            raise ValueError("Latent Extend requires native audio for paired AV validation")
+        if not Path(capture_directory).is_absolute():
+            raise ValueError("Experimental capture directory must be absolute")
+        _validate_experiment_geometry(width, height, frames, overlap_frames)
+        if not 0 <= tone_strength <= 1 or (tone_strength and tone_reference_archive is None):
+            raise ValueError("Tone strength must be 0..1 with a fixed reference archive")
+        experiment = {
+            "capture_directory": Path(capture_directory), "previous_archive": previous_archive,
+            "tone_reference_archive": tone_reference_archive, "overlap_frames": overlap_frames,
+            "tone_strength": tone_strength, "width": width, "height": height, "frames": frames,
+        }
+        with self._lock:
+            return self._generate_locked(request, Path(capture_directory) / "unused.mp4", 0,
+                                         stage_callback, experiment=experiment)
+
     def _generate_locked(
         self,
         request: GenerateRequest,
         output_path: Path,
         variant_index: int,
         stage_callback: Callable[[float, str], None] | None,
+        *, experiment: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         status = self.probe()
         if not status.get("ready"):
@@ -363,12 +400,19 @@ class MatlowRuntime:
 
         with _ResourceMonitor(self.settings.matlow_max_swap_gib, self.cancel) as resources:
             try:
-                models, model_load_seconds = self._load_models()
+                # A direct AV continuation has no pixels to encode. Do not load
+                # either VAE while sampling this experimental path.
+                if experiment is not None and not request.conditions:
+                    models, model_load_seconds = {"video_vae": None, "audio_vae": None}, 0.0
+                else:
+                    models, model_load_seconds = self._load_models()
                 self._log_vram(torch, "after VAE loading", "video_vae,audio_vae")
                 _report(stage_callback, 0.2, "models_loaded")
                 width, height = _dimensions(request.target.aspect_ratio if request.target else "16:9")
                 duration = request.target.duration_seconds if request.target else 5.0
                 frames = 5 if request.output_mode == "still" else _frame_count(duration)
+                if experiment is not None:
+                    width, height, frames = experiment["width"], experiment["height"], experiment["frames"]
                 seed = (
                     (request.seed if request.seed is not None else secrets.randbelow(2**31)) + variant_index
                 ) % (2**31)
@@ -424,6 +468,31 @@ class MatlowRuntime:
                                 first_frame=first_frame,
                                 last_frame=last_frame,
                             ).result
+                        if experiment is not None and experiment["previous_archive"] is not None:
+                            from .h3_latent_archive import read_h3_latent
+                            from .h3_latent_extend import prepare_h3_continuation, select_h3_context
+                            previous_video, previous_audio, previous_manifest = read_h3_latent(
+                                experiment["previous_archive"]
+                            )
+                            if (previous_manifest["model_variant"] != request.model_variant
+                                    or previous_manifest["vae_mode"] != request.vae_mode
+                                    or previous_manifest["width"] != width or previous_manifest["height"] != height):
+                                raise ValueError("Previous latent model/VAE/canvas is incompatible with this segment")
+                            tone_reference = None
+                            if experiment["tone_strength"]:
+                                tone_reference, _, tone_manifest = read_h3_latent(experiment["tone_reference_archive"])
+                                if any(tone_manifest[key] != previous_manifest[key]
+                                       for key in ("model_variant", "vae_mode", "width", "height")):
+                                    raise ValueError("Tone reference model/VAE/canvas is incompatible")
+                            context = select_h3_context(
+                                previous_video, previous_audio, previous_manifest,
+                                overlap_frames=experiment["overlap_frames"], tone_reference=tone_reference,
+                                tone_strength=experiment["tone_strength"],
+                            )
+                            conditioning, latent = prepare_h3_continuation(
+                                conditioning, latent, context, modules["NestedTensor"]
+                            )
+                            del previous_video, previous_audio, tone_reference
                         if request.output_mode == "still":
                             from .h3_experimental_stills import still_latent
                             latent = still_latent(torch, modules["NestedTensor"], width, height,
@@ -456,7 +525,7 @@ class MatlowRuntime:
                         model_management.unload_model_and_clones(vae_patcher, all_devices=True)
                     models.clear()
                     self._models = None
-                    del video_vae, first_frame, last_frame
+                    del video_vae, first_frame, last_frame, clip_patcher, vae_patcher
                     gc.collect()
                     model_management.soft_empty_cache(force=True)
                 text_encoder_seconds = time.perf_counter() - text_started
@@ -509,6 +578,35 @@ class MatlowRuntime:
                 diffusion_started = time.perf_counter()
                 sampled = modules["SamplerCustomAdvanced"].execute(noise, guider, sampler, sigmas, latent)[0]
                 torch.cuda.synchronize()
+                # Experiment only. Never archive by default, and never let archive
+                # failures change the normal MP4 inference path.
+                latent_archive_name = None
+                capture_dir = os.environ.get("H3_LATENT_CAPTURE_DIR", "").strip()
+                if experiment is not None:
+                    capture_dir = str(experiment["capture_directory"])
+                if capture_dir and request.output_mode == "video":
+                    try:
+                        from .h3_latent_archive import save_h3_latent
+                        archived = save_h3_latent(
+                            sampled, Path(capture_dir), seed=seed,
+                            model_variant=request.model_variant, frames=frames,
+                            width=width, height=height, vae_mode=request.vae_mode,
+                        )
+                        latent_archive_name = archived.name
+                        if experiment is not None:
+                            from .h3_latent_archive import _get_av_tensors, read_h3_latent
+                            captured_video, captured_audio, _ = read_h3_latent(archived)
+                            raw_video, raw_audio = _get_av_tensors(sampled)
+                            if not all(torch.equal(source.detach().cpu().contiguous().view(torch.uint8),
+                                                   restored.contiguous().view(torch.uint8))
+                                       for source, restored in ((raw_video, captured_video), (raw_audio, captured_audio))):
+                                raise RuntimeError("Captured H3 AV differs from the raw post-sampler tensors")
+                            del captured_video, captured_audio, raw_video, raw_audio
+                        logging.info("Saved H3 experimental AV latent %s", archived.name)
+                    except Exception:
+                        if experiment is not None:
+                            raise  # Capturing is mandatory for a latent-only job.
+                        logging.exception("H3 experimental latent capture failed; generating MP4 normally")
                 diagnostics = attention_metadata.get("diagnostics", {})
                 if attention_metadata.get("active") and not diagnostics.get("completed"):
                     logging.warning("H3 Veda hook attached, but cleanup telemetry was not reported")
@@ -537,6 +635,32 @@ class MatlowRuntime:
                     torch.cuda.max_memory_reserved() / GIB,
                 )
                 _report(stage_callback, 0.78, "diffusion_offloaded")
+                if experiment is not None:
+                    if resources.abort_reason:
+                        raise RuntimeError(resources.abort_reason)
+                    return {
+                        "archive_path": str(archived), "seed": seed, "frames": frames,
+                        "archive_lossless": True,
+                        "width": width, "height": height, "model_variant": request.model_variant,
+                        "model_revision": model_spec["revision"], "comfyui_revision": COMFYUI_REVISION,
+                        "sampler": model_spec["sampler"], "scheduler": model_spec["scheduler"],
+                        "steps": steps, "conditioning": conditioning_diagnostics,
+                        "context": None if experiment["previous_archive"] is None else {
+                            "overlap_frames": experiment["overlap_frames"],
+                            "tone_strength": experiment["tone_strength"],
+                            "max_channel_mean_shift": None if context.tone_shift is None
+                            else float(context.tone_shift.abs().max()),
+                            "method": "immutable_av_keyframes", "vae_roundtrips": 0,
+                        },
+                        "attention": attention_metadata, "runtime": status,
+                        "model_load_seconds": model_load_seconds,
+                        "text_encoder_seconds": text_encoder_seconds, "diffusion_seconds": diffusion_seconds,
+                        "render_time_seconds": time.perf_counter() - started,
+                        "peak_vram_gib": torch.cuda.max_memory_reserved() / GIB,
+                        "vram_measurement": "PyTorch reserved allocator peak; excludes some DynamicVRAM allocations",
+                        "peak_ram_gib": resources.peak_ram / GIB,
+                        "peak_swap_growth_gib": resources.peak_swap_growth / GIB,
+                    }
                 models, vae_reload_seconds = self._load_models(vae_mode=request.vae_mode)
                 model_load_seconds += vae_reload_seconds
                 vae_started = time.perf_counter()
@@ -614,6 +738,7 @@ class MatlowRuntime:
             "duration_seconds": 0 if request.output_mode == "still" else duration,
             "output_mode": request.output_mode,
             "vae_mode": request.vae_mode,
+            "experimental_latent_archive": latent_archive_name,
             "seed": seed,
             "model_variant": request.model_variant,
             "model_revision": model_spec["revision"],
@@ -824,6 +949,15 @@ def _load_reference_video(path: Path, torch, start_time=0, visual_mode="full"):
 def _frame_count(duration_seconds: float) -> int:
     requested = max(5, round(duration_seconds * 24))
     return requested + (5 - requested % 17) % 17
+
+
+def _validate_experiment_geometry(width: int, height: int, frames: int, overlap: int) -> None:
+    if width < 256 or height < 256 or width % 32 or height % 32:
+        raise ValueError("Experimental width/height must be >=256 and multiples of 32")
+    if frames < 5 or frames % 17 != 5 or overlap < 5 or overlap % 17 != 5 or overlap >= frames:
+        raise ValueError("Experimental segment and overlap must follow H3 17k+5 frame grid")
+    if (frames - overlap) % 3:
+        raise ValueError("Experimental audio grid requires added frame count divisible by 3")
 
 
 def _dimensions(aspect_ratio: str) -> tuple[int, int]:

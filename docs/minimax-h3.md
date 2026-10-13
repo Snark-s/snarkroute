@@ -60,6 +60,18 @@ Primary references:
 | `video_inpaint` | contract/validation only | Returns `capability_not_available`; neither pinned backend exposes the required native noise-mask workflow. |
 | `automatic_tracking` | adapter boundary only | A ready mask video is the intended first working path. No SAM3 claim. |
 | `resample` | contract only | Hosted H3-Regenerate-2K is separate; open local weights are unavailable. |
+| `orb360_multiview` | research idea; NOT implemented | Ref2VA + external ORB360 LoRA: generate a clockwise 360-degree orbit around a still reference subject; extract views/character sheet. Optional subsequent pose XYZ estimation. No free 3D camera or geometry guarantee. |
+
+## Experimental H3 possibilities (backlog)
+
+### ORB360: reference image -> 360-degree orbit -> views -> optional 3D
+
+- **Status:** idea only, do not implement yet (added 2026-10-13). Group with the existing MiniMax H3 Character Turnaround -> 3D idea; avoid making a second H3 pipeline.
+- **Input:** single character/object reference or 3 labelled views (front/120/240 degrees). Use the native H3 `Ref2VA` route plus an optional LoRA modifier, not a second model provider or registry.
+- **Generation:** MATLOWAI `minimax_h3_orb360_step1500.safetensors` (ORB360_CW), 124 frames / 24 fps, guided clockwise camera orbit around a static subject. Select multiple angles for character sheets, consistent storyboards, potential photogrammetry/3D experiments. Evaluate CardSpin v2 only as a separate visual effect; its detail is worse.
+- **Follow-on research:** use orbit frames for multi-view body pose estimation (XYZ) and pose-controlled image production; `ComfyUI-360-Orbit-Pose-Estimation` is a reference implementation only, **not** a production dependency. If adapted, keep the SnarkRoute worker headless and ComfyUI-free.
+- **Validation before development:** test likeness retention, unseen-side hallucinations, constant-speed orbit, consistent clothing/silhouette, frame-to-frame stability, VRAM and performance on the local 16 GB card, plus licenses. The published LoRA does **not** offer arbitrary physically correct camera control; camera-height prompts on real photos remain unreliable.
+- **References:** [ORB360 LoRA model card](https://huggingface.co/MATLOWAI/MiniMax-H3-ORB360-CardSpin), [pose estimation experiment](https://github.com/hiderminer/ComfyUI-360-Orbit-Pose-Estimation), [original discussion](https://x.com/monoradio102/status/2109085133328486474).
 
 ## Latent video inpainting design
 
