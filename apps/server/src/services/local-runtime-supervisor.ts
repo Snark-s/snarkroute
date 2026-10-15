@@ -11,6 +11,7 @@ import { readYue2Status, startYue2, stopYue2, yue2Config } from "./yue2-local";
 import { writeEnvValue } from "./env";
 import { localOpenAiConfigs } from "../providers/local-openai";
 import { localServiceUrl } from "./local-service-endpoints";
+import { registerAutonomousApps } from "./autonomous-apps";
 import {
   getRegisteredLocalRuntime,
   isRegisteredLocalRuntime,
@@ -298,6 +299,7 @@ export function isLocalRuntimeId(value: string): value is LocalRuntimeId {
 }
 
 function ensureRuntimeRegistrations(): void {
+  registerAutonomousApps();
   const ollamaEndpoint = localServiceUrl('ollama_inference');
   let bonsaiEndpoint = localServiceUrl('bonsai_inference', '/v1');
   try { bonsaiEndpoint = bonsaiRuntimeConfig().baseUrl; } catch {}
@@ -370,8 +372,24 @@ function runtimeBase(id: string) {
 }
 
 async function readDiscoveredRuntimeStatus(runtime: RegisteredLocalRuntime): Promise<LocalRuntimeStatus> {
-  const online = await endpointReachable(runtime.endpoint);
   const controller = localRuntimeController(runtime.id);
+  if (controller?.status) {
+    const reported = await controller.status();
+    return {
+      id: runtime.id,
+      label: runtime.label,
+      state: reported.state,
+      online: reported.online,
+      busy: reported.busy ?? false,
+      resourceClaim: "none",
+      demand: runtime.demand,
+      claimsOnStart: runtime.claimsOnStart,
+      control: { canStart: !reported.online && reported.state !== "error" && Boolean(controller.start), canStop: reported.online && Boolean(controller.stop) },
+      endpoint: runtime.endpoint,
+      ...(reported.detail ? { detail: reported.detail } : {})
+    };
+  }
+  const online = await endpointReachable(runtime.endpoint);
   const resourceClaim: RuntimeClaim = !online
     ? "none"
     : runtime.claimsOnStart

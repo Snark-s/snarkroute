@@ -6,10 +6,11 @@ import { parsePersonaModelPreferences, type AutoStrategy } from "./personaModelP
 import "./styles.css";
 import { RestartSnarkRoute } from "./RestartSnarkRoute";
 import { ProjectPublisherCard, ProjectPublisherControl } from "./ProjectPublisherControl";
+import { AutonomousAppCard } from "./AutonomousAppCard";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 
-type AppCard = { id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string };
+type AppCard = { id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string; controllable?: boolean };
 type ProviderRoute = { provider: string; providerModelId: string; storedModelId?: string; inputTypes?: string[]; availability?: { status?: string; configured?: boolean } };
 type Model = { id: string; canonicalModelId?: string; displayName: string; inputTypes?: string[]; providerRoutes?: ProviderRoute[] };
 type AutoAttempt = { role: string; display_name?: string; model: string; provider: string; estimated_cost?: number | null; actual_cost?: number | null; result_status: string };
@@ -70,6 +71,7 @@ function Launcher() {
     {error ? <div className="errorBanner">{error}</div> : null}
     <section className="appGrid">
       {apps.map((app, index) => {
+        if (app.controllable) return <AutonomousAppCard key={app.id} app={app} apiBase={apiBase} index={index} />;
         const Icon = iconMap[app.icon as keyof typeof iconMap] ?? Sparkles;
         return <div key={app.id} className={`appCard ${app.accent}`} style={{ animationDelay: `${index * 55}ms` }}>
           <button className="cardMain" onClick={() => void openApp(app)}>

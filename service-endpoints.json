@@ -132,6 +132,28 @@
       "protocol": "http",
       "healthPath": "/v1/models",
       "enabled": false
+    },
+    "tove": {
+      "port": 4890,
+      "protocol": "http",
+      "healthPath": "/api/health",
+      "identity": {
+        "field": "service",
+        "value": "tove"
+      },
+      "apiVersion": 1,
+      "readyField": "ok"
+    },
+    "factory": {
+      "port": 4891,
+      "protocol": "http",
+      "healthPath": "/api/health",
+      "identity": {
+        "field": "service",
+        "value": "factory"
+      },
+      "apiVersion": 1,
+      "readyField": "ok"
     }
   },
   "paths": {
@@ -142,6 +164,8 @@
     "mixar_startup": "C:\\Users\\serge\\AppData\\Roaming\\Mixar\\Mixar\\5.2\\scripts\\startup",
     "personacore": "I:/PersonaCore",
     "snarkbridge": "I:/SnarkBridge",
-    "bonsai_home": "I:/AI/Bonsai-demo"
+    "bonsai_home": "I:/AI/Bonsai-demo",
+    "tove": "../../Приложения/Tove",
+    "factory": "../../Приложения/Factory"
   }
 }

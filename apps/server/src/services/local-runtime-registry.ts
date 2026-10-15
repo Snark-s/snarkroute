@@ -16,6 +16,8 @@ export type RegisteredLocalRuntime = {
 export type LocalRuntimeController = {
   start?: () => Promise<unknown>;
   stop?: () => Promise<unknown>;
+  /** Optional application-level state (e.g. from an identity-checked health endpoint) instead of a bare port probe. */
+  status?: () => Promise<{ online: boolean; state: "stopped" | "starting" | "loading" | "ready" | "busy" | "error"; busy?: boolean; detail?: string }>;
 };
 
 type RuntimeModelLike = {
