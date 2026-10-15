@@ -6,6 +6,7 @@ import { parsePersonaModelPreferences, type AutoStrategy } from "./personaModelP
 import "./styles.css";
 import { RestartSnarkRoute } from "./RestartSnarkRoute";
 import { ProjectPublisherCard, ProjectPublisherControl } from "./ProjectPublisherControl";
+import { SnarkBridgeCard } from "./SnarkBridgeCard";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 
@@ -81,6 +82,7 @@ function Launcher() {
         </div>;
       })}
       <ProjectPublisherCard />
+      <SnarkBridgeCard apiBase={apiBase} />
     </section>
   </main>;
 }
