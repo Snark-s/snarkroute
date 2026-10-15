@@ -8,6 +8,7 @@ import { h3LocalWslStatus, startH3LocalWsl, stopH3LocalWsl } from "./h3-local-ws
 import { localUpscaleRuntimeConfig, readLocalUpscaleStatus, startLocalUpscale, stopLocalUpscale } from "./local-upscale-local";
 import { readOllamaStatus, startOllama, stopOllama } from "./ollama-local";
 import { readYue2Status, startYue2, stopYue2, yue2Config } from "./yue2-local";
+import { readSnarkBridgeStatus, snarkBridgeConfig, startSnarkBridge, stopSnarkBridge, type SnarkBridgeStatus } from "./snarkbridge-local";
 import { writeEnvValue } from "./env";
 import { localOpenAiConfigs } from "../providers/local-openai";
 import { localServiceUrl } from "./local-service-endpoints";
@@ -23,7 +24,7 @@ import {
 } from "./local-runtime-registry";
 
 const execFileAsync = promisify(execFile);
-const builtinRuntimeIds = new Set(["bonsai", "ollama", "h3", "yue2", "upscale"]);
+const builtinRuntimeIds = new Set(["bonsai", "ollama", "h3", "yue2", "upscale", "snarkbridge"]);
 let pendingStart: Promise<unknown> = Promise.resolve();
 
 export type LocalRuntimeId = string;
@@ -86,12 +87,13 @@ export class LocalRuntimeAdmissionError extends Error {
 
 export async function readLocalRuntimeSnapshot(): Promise<LocalRuntimeSnapshot> {
   ensureRuntimeRegistrations();
-  const [bonsai, ollama, h3, yue2, upscale, gpu] = await Promise.all([
+  const [bonsai, ollama, h3, yue2, upscale, bridge, gpu] = await Promise.all([
     readBonsaiStatus(),
     readOllamaStatus(),
     inspectH3Connection(),
     readYue2Status(),
     readLocalUpscaleStatus(),
+    readSnarkBridgeStatus().catch(() => undefined),
     readGpuTelemetry()
   ]);
   const h3Local = h3LocalWslStatus(h3);
@@ -158,7 +160,8 @@ export async function readLocalRuntimeSnapshot(): Promise<LocalRuntimeSnapshot> 
         canStop: upscale.online
       },
       ...(upscale.error ? { detail: upscale.error } : {})
-    }
+    },
+    ...(bridge ? [snarkBridgeRuntime(bridge)] : [])
   ];
 
   const dynamicDefinitions = listRegisteredLocalRuntimes().filter(runtime => !builtinRuntimeIds.has(runtime.id));
@@ -331,6 +334,13 @@ function ensureRuntimeRegistrations(): void {
     registerLocalRuntimeController("upscale", { start: startLocalUpscale, stop: stopLocalUpscale });
   } catch {}
 
+  // SnarkBridge (ChatGPT MCP + tunnel) holds no GPU; it is listed so the Мастерская controls it like the others.
+  try {
+    const bridge = snarkBridgeConfig();
+    registerLocalRuntimeEndpoint({ id: "snarkbridge", label: "SnarkBridge", endpoint: `http://127.0.0.1:${bridge.mcpPort}`, demand: "none", claimsOnStart: false, source: "builtin" });
+    registerLocalRuntimeController("snarkbridge", { start: startSnarkBridge, stop: stopSnarkBridge });
+  } catch {}
+
   for (const config of safeLocalOpenAiConfigs()) {
     registerLocalRuntimeEndpoint({
       endpoint: config.baseUrl,
@@ -356,6 +366,19 @@ function sameLoopbackPort(a: string, b: string): boolean {
 function safeLocalOpenAiConfigs() {
   try { return localOpenAiConfigs(); }
   catch { return []; }
+}
+
+function snarkBridgeRuntime(bridge: SnarkBridgeStatus): LocalRuntimeStatus {
+  return {
+    ...runtimeBase("snarkbridge"),
+    // "MCP running / tunnel disconnected" is an error for the runtime deck; the card shows the detail.
+    state: bridge.status === "running" ? "ready" : bridge.status === "stopped" ? "stopped" : bridge.status === "starting" ? "starting" : bridge.status === "stopping" ? "busy" : "error",
+    online: bridge.running,
+    busy: bridge.status === "stopping",
+    resourceClaim: "none",
+    control: { canStart: bridge.control.canStart, canStop: bridge.control.canStop },
+    detail: bridge.control.blockedReason ? `${bridge.summary} · ${bridge.control.blockedReason}` : bridge.summary
+  };
 }
 
 function runtimeBase(id: string) {

@@ -54,3 +54,29 @@ Python-sidecar читает путь в порядке приоритета:
 
 При изменении адресов перезапусти SnarkRoute API и Mixar sidecar.
 Действующий SnarkBridge (MCP и туннель) не трогай без необходимости.
+
+## SnarkBridge в «Мастерской»
+
+Карточка SnarkBridge и чип в деке локальных процессов управляются сервером
+SnarkRoute (`apps/server/src/services/snarkbridge-local.ts`), а не через MCP
+самого SnarkBridge:
+
+- Start / Stop — `POST /api/system/local-runtimes/snarkbridge/start|stop`
+  (общий Local Runtime Supervisor); Restart, проверки и журнал —
+  `POST /api/system/snarkbridge/restart`, `GET /api/system/snarkbridge`,
+  `GET /api/system/snarkbridge/logs`.
+- Запуск — штатный `I:\SnarkBridge\START_SNARKBRIDGE.ps1 -ResetBackoff`
+  (MCP `server.py` и туннель через `CONNECT_SNARKBRIDGE.ps1 -Quiet`, ключ —
+  из `.tunnel-key.dpapi`), в отдельном скрытом PowerShell, переживающем
+  перезапуск SnarkRoute.
+- Остановка и проверка владельцев — `scripts/snarkbridge-control.ps1` по
+  правилам `snark_services.ps1` (путь exe + командная строка); чужие и
+  непроверяемые процессы (например, туннель, запущенный с правами
+  администратора) не останавливаются.
+- Stop пишет `I:\SnarkBridge\.owner-stopped.json`; пока он есть,
+  `START_SNARKBRIDGE.ps1` (задачи «SnarkBridge Local MCP» и «SnarkBridge
+  Watchdog») ничего не запускает. Start/Restart в «Мастерской» удаляют маркер.
+- «Работает» — только если `/health` (identity `snarkbridge-mcp`) и `/mcp`
+  отвечают, а туннель успешно опрашивал OpenAI не позже 120 с назад.
+  «Доступ из ChatGPT» = Connected лишь после доставленного ответа на запрос
+  ChatGPT; иначе Unknown.

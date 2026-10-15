@@ -12,6 +12,7 @@ import { isLoopbackAddress, isLoopbackHost } from "./after-effects";
 import { timingSafeEqual } from "node:crypto";
 import { appMode } from "../services/env";
 import { admissionForLocalRuntime, isLocalRuntimeId, LocalRuntimeAdmissionError, readLocalRuntimeSnapshot, startLocalRuntime, stopLocalRuntime } from "../services/local-runtime-supervisor";
+import { readSnarkBridgeLogs, readSnarkBridgeStatus, restartSnarkBridge } from "../services/snarkbridge-local";
 
 type SystemAppDefinition = {
   id: string;
@@ -133,6 +134,25 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     } catch (error) {
       return reply.code(503).send({ ok: false, error: errorMessage(error), snapshot: await readLocalRuntimeSnapshot() });
     }
+  });
+
+  // SnarkBridge: start/stop go through the local runtime routes above; these add its checks, restart and logs.
+  app.get("/api/system/snarkbridge", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
+    try { return { ok: true, ...await readSnarkBridgeStatus() }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
+  });
+
+  app.post("/api/system/snarkbridge/restart", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
+    try { return { ok: true, ...await restartSnarkBridge() }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error), status: await readSnarkBridgeStatus().catch(() => undefined) }); }
+  });
+
+  app.get("/api/system/snarkbridge/logs", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
+    try { return { ok: true, ...readSnarkBridgeLogs() }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
   });
 
   app.get("/api/system/update/status", async (request, reply) => {

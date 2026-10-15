@@ -56,6 +56,19 @@ body::before { content: ""; position: fixed; inset: 0; pointer-events: none; bac
 .status { display: flex; align-items: center; gap: 7px; font-size: 13px; } .status svg { width: 14px; } .status.on { color: #8de888; }
 .errorBanner { padding: 13px 16px; margin: 0 0 18px; border: 1px solid #8f3d5d; border-radius: 13px; color: #ffb3cd; background: #401b2b99; }
 .successBanner { padding: 13px 16px; margin: 0 0 18px; border: 1px solid #3f7650; border-radius: 13px; color: #b9f2c4; background: #173522b8; }
+.bridgeMain { cursor: default; } .bridgeCard .cardActions { flex-wrap: wrap; } .bridgeCard .cardActions button.active { color: #fff; border-color: #54d2e1; }
+.bridgeHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.bridgeBadge { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border: 1px solid #343b50; border-radius: 999px; background: #181d2b; color: #b7c0d7; font-size: 12px; font-weight: 750; text-align: right; } .bridgeBadge svg { width: 13px; height: 13px; }
+.bridgeBadge.running { color: #8de888; border-color: #3f7650; } .bridgeBadge.starting, .bridgeBadge.stopping { color: #ffc85d; border-color: #7a6431; } .bridgeBadge.degraded { color: #ffc85d; border-color: #a2702a; background: #33260f; } .bridgeBadge.error { color: #ffb3cd; border-color: #8f3d5d; background: #401b2b99; }
+.bridgeCard .appCopy { margin-top: 22px; } .bridgeCard .appCopy small { font-size: 13px; line-height: 1.35; }
+.bridgeChecks { display: grid; gap: 7px; margin: 16px 0 0; padding: 0; list-style: none; font-size: 12px; }
+.bridgeChecks li { display: grid; grid-template-columns: 9px 128px 1fr; align-items: baseline; gap: 7px; color: #8f98ac; } .bridgeChecks b { color: #c7cfdf; font-weight: 650; } .bridgeChecks li span:last-child { overflow-wrap: anywhere; line-height: 1.35; }
+.bridgeDot { width: 8px; height: 8px; border-radius: 50%; background: #4a5266; transform: translateY(-1px); }
+.bridgeChecks li.ok .bridgeDot { background: #8de888; box-shadow: 0 0 8px #8de88866; } .bridgeChecks li.warning .bridgeDot { background: #ffc85d; } .bridgeChecks li.error .bridgeDot { background: #ff6e9f; } .bridgeChecks li.unknown .bridgeDot { background: transparent; border: 1px solid #8f98ac; }
+.bridgeNotice { margin: 14px 0 0; padding: 9px 11px; border: 1px solid #7a6431; border-radius: 10px; color: #ffd98f; background: #2b220f; font-size: 12px; line-height: 1.4; }
+.bridgeLogs { position: relative; z-index: 2; margin: 0 25px 22px; padding: 10px 12px; border: 1px solid #252b3b; border-radius: 12px; background: #0b0e17; font-size: 12px; }
+.bridgeLogsHead { display: flex; align-items: center; justify-content: space-between; color: #8f98ac; } .bridgeLogsHead button { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid #343b50; border-radius: 7px; background: #181d2b; color: #b7c0d7; cursor: pointer; } .bridgeLogsHead svg { width: 13px; height: 13px; }
+.bridgeLogs summary { margin-top: 8px; color: #c7cfdf; cursor: pointer; } .bridgeLogs pre { max-height: 220px; overflow: auto; margin: 6px 0 0; padding: 8px; border-radius: 8px; background: #05070c; color: #aab3c6; font: 11px/1.45 ui-monospace, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 .personaPage { height: 100vh; min-height: 0; display: grid; grid-template-columns: 330px 1fr; overflow: hidden; }
 .taskRail { height: 100vh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; padding: 24px 18px; border-right: 1px solid #22283a; background: #0b0e17d9; }
 .backLink { display: flex; align-items: center; gap: 8px; color: #929caf; text-decoration: none; font-size: 14px; } .backLink svg { width: 17px; }

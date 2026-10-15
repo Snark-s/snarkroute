@@ -18,6 +18,7 @@ apps/server/data/assets/
 apps/server/data/billing/
 apps/server/data/secrets/
 apps/server/data/model-gateway-jobs/
+apps/server/data/snarkbridge/
 # Controlled H3 research videos remain local; metadata/contact sheets can be shared.
 apps/server/data/h3-max-eval/**/*.mp4
 apps/server/data/h3-turbo-eval/**/*.mp4
