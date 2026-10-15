@@ -23,7 +23,6 @@ export function AutonomousAppCard({ app, apiBase, index }: { app: CardApp; apiBa
   const [status, setStatus] = useState<AutonomousStatus>();
   const [action, setAction] = useState<"start" | "stop" | "open" | "">("");
   const [error, setError] = useState("");
-  const [icon, setIcon] = useState(app.id === "tove" ? `${app.url}/assets/tove-avatar.png` : app.icon);
 
   useEffect(() => {
     let disposed = false;
@@ -70,7 +69,7 @@ export function AutonomousAppCard({ app, apiBase, index }: { app: CardApp; apiBa
   return <div className={`appCard ${app.accent} autonomousCard`} style={{ animationDelay: `${index * 55}ms` }}>
     <button className="cardMain" onClick={() => void open()} disabled={busy || state === "unavailable"} title={error || `Открыть: ${app.name}`}>
       <span className="cardGlow" />
-      <span className="appIcon branded"><img src={icon} alt="" onError={() => setIcon(app.icon)} /></span>
+      <span className="appIcon branded"><img src={app.icon} alt="" /></span>
       <span className="appCopy"><strong>{app.name}</strong><small>{app.description}</small></span>
       <span className="cardFooter">
         <span className={`status autonomous ${state}`}><span className="autonomousDot" />{label}</span>

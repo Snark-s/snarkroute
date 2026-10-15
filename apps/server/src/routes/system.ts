@@ -38,8 +38,8 @@ export const systemAppCatalog: readonly SystemAppDefinition[] = [
   { id: "h3", name: "H3", description: "Пространственная студия", url: `http://127.0.0.1:${studioPort}/h3`, port: studioPort, packageName: "@snarkroute/studio", accent: "cyan", icon: "/h3-studio-icon.png" },
   { id: "persona", name: "Jabberwock", description: "Продолжение задач с общей памятью", url: `http://127.0.0.1:${launcherPort}/persona`, port: launcherPort, packageName: "@snarkroute/launcher", accent: "rose", icon: "/jabberwock-icon.png" },
   { id: "yue2", name: "YuE2", description: "Локальная генерация музыки", url: yue2Config.url, port: yue2Config.port, accent: "cyan", icon: "/yue2-icon.png", service: "yue2" },
-  { id: "tove", name: "Шорёк", description: "Tove · проактивный агент: цели, намерения, действия", url: `http://127.0.0.1:${autonomousApps.tove.port}`, port: autonomousApps.tove.port, accent: "amber", icon: "/tove-icon.svg", service: "autonomous" },
-  { id: "factory", name: "Фабрика", description: "Factory · производство и продажа цифровых товаров", url: `http://127.0.0.1:${autonomousApps.factory.port}`, port: autonomousApps.factory.port, accent: "cyan", icon: "/factory-icon.svg", service: "autonomous" }
+  { id: "tove", name: "Шорёк", description: "Tove · проактивный агент: цели, намерения, действия", url: `http://127.0.0.1:${autonomousApps.tove.port}`, port: autonomousApps.tove.port, accent: "amber", icon: "/tove-icon.png", service: "autonomous" },
+  { id: "factory", name: "Фабрика", description: "Factory · производство и продажа цифровых товаров", url: `http://127.0.0.1:${autonomousApps.factory.port}`, port: autonomousApps.factory.port, accent: "cyan", icon: "/factory-icon.png", service: "autonomous" }
 ];
 const launcherApp: SystemAppDefinition = { id: "launcher", name: "Мастерская", description: "Общий лаунчер", url: `http://127.0.0.1:${launcherPort}`, port: launcherPort, packageName: "@snarkroute/launcher", accent: "violet", icon: "sparkles" };
 
