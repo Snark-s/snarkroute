@@ -677,6 +677,11 @@ export function buildMediaImageRequestBody(model: string, prompt: string, params
   if (isPolzaGpt54Image2(model)) {
     input.aspect_ratio = aspectRatio ?? "auto";
     input.n = numberParam(params.n) ?? 1;
+    // Polza: aspect_ratio=auto supports only 1K, and 1:1 has no 4K. Pass an explicit resolution only where valid.
+    const resolution = imageResolution ?? imageSize;
+    if (resolution && input.aspect_ratio !== "auto" && !(input.aspect_ratio === "1:1" && resolution === "4K")) {
+      input.image_resolution = resolution;
+    }
   } else if (isPolzaGptImage15(model)) {
     input.aspect_ratio = supportedPolzaAspectRatio(aspectRatio, ["1:1", "2:3", "3:2"], "1:1");
     input.quality = stringParam(params.quality) ?? "medium";

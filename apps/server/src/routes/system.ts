@@ -11,6 +11,7 @@ import { launcherControlRequest } from "../services/launcher-restart";
 import { isLoopbackAddress, isLoopbackHost } from "./after-effects";
 import { timingSafeEqual } from "node:crypto";
 import { appMode } from "../services/env";
+import { autonomousApps, isAutonomousAppId, readAutonomousAppStatus, startAutonomousApp, stopAutonomousApp } from "../services/autonomous-apps";
 import { admissionForLocalRuntime, isLocalRuntimeId, LocalRuntimeAdmissionError, readLocalRuntimeSnapshot, startLocalRuntime, stopLocalRuntime } from "../services/local-runtime-supervisor";
 
 type SystemAppDefinition = {
@@ -22,7 +23,7 @@ type SystemAppDefinition = {
   packageName?: string;
   accent: string;
   icon: string;
-  service?: "yue2";
+  service?: "yue2" | "autonomous";
 };
 
 const launcherPort = Number(process.env.LAUNCHER_PORT ?? 5172);
@@ -36,7 +37,9 @@ export const systemAppCatalog: readonly SystemAppDefinition[] = [
   { id: "brandeshmyg", name: "Брандешмыг", description: "Инструменты как отдельные приложения", url: `http://127.0.0.1:${brandeshmygPort}`, port: brandeshmygPort, packageName: "@snarkroute/brandeshmyg", accent: "lime", icon: "/brandeshmyg-icon.png" },
   { id: "h3", name: "H3", description: "Пространственная студия", url: `http://127.0.0.1:${studioPort}/h3`, port: studioPort, packageName: "@snarkroute/studio", accent: "cyan", icon: "/h3-studio-icon.png" },
   { id: "persona", name: "Jabberwock", description: "Продолжение задач с общей памятью", url: `http://127.0.0.1:${launcherPort}/persona`, port: launcherPort, packageName: "@snarkroute/launcher", accent: "rose", icon: "/jabberwock-icon.png" },
-  { id: "yue2", name: "YuE2", description: "Локальная генерация музыки", url: yue2Config.url, port: yue2Config.port, accent: "cyan", icon: "/yue2-icon.png", service: "yue2" }
+  { id: "yue2", name: "YuE2", description: "Локальная генерация музыки", url: yue2Config.url, port: yue2Config.port, accent: "cyan", icon: "/yue2-icon.png", service: "yue2" },
+  { id: "tove", name: "Шорёк", description: "Tove · проактивный агент: цели, намерения, действия", url: `http://127.0.0.1:${autonomousApps.tove.port}`, port: autonomousApps.tove.port, accent: "amber", icon: "/tove-icon.png", service: "autonomous" },
+  { id: "factory", name: "Фабрика", description: "Factory · производство и продажа цифровых товаров", url: `http://127.0.0.1:${autonomousApps.factory.port}`, port: autonomousApps.factory.port, accent: "cyan", icon: "/factory-icon.png", service: "autonomous" }
 ];
 const launcherApp: SystemAppDefinition = { id: "launcher", name: "Мастерская", description: "Общий лаунчер", url: `http://127.0.0.1:${launcherPort}`, port: launcherPort, packageName: "@snarkroute/launcher", accent: "violet", icon: "sparkles" };
 
@@ -178,6 +181,10 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   app.get("/api/system/apps", async () => ({
     ok: true,
     apps: await Promise.all(systemAppCatalog.map(async ({ packageName: _packageName, port, service, ...entry }) => {
+      if (service === "autonomous" && isAutonomousAppId(entry.id)) {
+        const state = await readAutonomousAppStatus(entry.id);
+        return { ...entry, running: state.running, status: state.state, mode: state.mode, current: state.current, generating: state.state === "working", error: state.error, controllable: true };
+      }
       const state = service === "yue2" ? await readYue2Status() : undefined;
       return { ...entry, running: state ? state.status !== "stopped" : await isPortListening(port), status: state?.status ?? (await isPortListening(port) ? "ready" : "stopped"), generating: state?.generating ?? false, error: state?.error };
     }))
@@ -186,6 +193,16 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   app.post<{ Params: { appId: string } }>("/api/system/apps/:appId/open", async (request, reply) => {
     const target = request.params.appId === "launcher" ? launcherApp : systemAppCatalog.find((entry) => entry.id === request.params.appId);
     if (!target) return reply.code(404).send({ ok: false, error: "Unknown local application." });
+    if (target.service === "autonomous" && isAutonomousAppId(target.id)) {
+      if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+      try {
+        const before = await readAutonomousAppStatus(target.id);
+        const state = await startAutonomousApp(target.id);
+        return { ok: true, url: target.url, started: !before.running, status: state.state };
+      } catch (error) {
+        return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readAutonomousAppStatus(target.id) });
+      }
+    }
     if (target.service === "yue2") {
       try {
         const before = await readYue2Status();
@@ -198,6 +215,26 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     const open = await isPortListening(target.port);
     if (!open) startSystemApp(target);
     return { ok: true, url: target.url, started: !open };
+  });
+
+  app.get<{ Params: { appId: string } }>("/api/system/apps/:appId/status", async (request, reply) => {
+    if (!isAutonomousAppId(request.params.appId)) return reply.code(404).send({ ok: false, error: "Unknown autonomous application." });
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+    return { ok: true, ...await readAutonomousAppStatus(request.params.appId) };
+  });
+
+  app.post<{ Params: { appId: string } }>("/api/system/apps/:appId/start", async (request, reply) => {
+    if (!isAutonomousAppId(request.params.appId)) return reply.code(404).send({ ok: false, error: "Unknown autonomous application." });
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+    try { return { ok: true, ...await startAutonomousApp(request.params.appId) }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readAutonomousAppStatus(request.params.appId) }); }
+  });
+
+  app.post<{ Params: { appId: string } }>("/api/system/apps/:appId/stop", async (request, reply) => {
+    if (!isAutonomousAppId(request.params.appId)) return reply.code(404).send({ ok: false, error: "Unknown autonomous application." });
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+    try { return { ok: true, ...await stopAutonomousApp(request.params.appId) }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readAutonomousAppStatus(request.params.appId) }); }
   });
 
   app.post("/api/system/apps/yue2/stop", async (_request, reply) => {

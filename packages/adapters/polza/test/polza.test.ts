@@ -56,6 +56,17 @@ describe("Polza adapter", () => {
     });
   });
 
+  it("passes the requested resolution to GPT-5.4 Image 2 only where Polza allows it", () => {
+    expect(buildMediaImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "4:3", imageResolution: "4K" }).input)
+      .toMatchObject({ aspect_ratio: "4:3", image_resolution: "4K" });
+    expect(buildMediaImageRequestBody("openai/gpt-5.4-image-2", "draw", { imageResolution: "4K" }).input)
+      .not.toHaveProperty("image_resolution");
+    expect(buildMediaImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "1:1", imageResolution: "4K" }).input)
+      .not.toHaveProperty("image_resolution");
+    expect(buildMediaImageRequestBody("openai/gpt-5.4-image-2", "draw", { aspectRatio: "16:9" }).input)
+      .not.toHaveProperty("image_resolution");
+  });
+
   it("builds Wan video payload with video-specific parameters", () => {
     expect(buildMediaVideoRequestBody("wan/2.6", "pan across the skyline", { resolution: "1080p", duration: "10", multi_shots: "true", generate_audio: true, provider: "polza", executionProvider: "polza", providerModelId: "wan/2.6", apiKey: "must-not-leak", authorizationToken: "must-not-leak" }, [
       { type: "base64", data: "data:image/png;base64,aaa" },
