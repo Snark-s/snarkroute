@@ -1,21 +1,29 @@
 import { spawn } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { createConnection } from "node:net";
 import { totalmem } from "node:os";
 import { join } from "node:path";
 import { localOpenAiConfig } from "../providers/local-openai";
 import { repoRoot } from "../server-paths";
 import { localServiceHome } from "./local-service-endpoints";
+import { launchBackgroundService, watchProcessExit } from "./background-process";
+
+/** Output of llama-server started by SnarkRoute (kept at its historical path for independent diagnosis). */
+export function bonsaiLogPath(): string {
+  return join(repoRoot, "apps", "server", "data", "bonsai-runtime.log");
+}
 
 export type BonsaiRuntimeConfig = {
   baseUrl: string;
   demoPath: string;
   modelId: string;
   port: number;
+  /** Selected installed Bonsai 2 size; defaults to the existing 27B runtime. */
+  size?: "2B" | "4B" | "9B" | "27B";
 };
 
 export type BonsaiStatus = {
-  service: "Bonsai 2 27B";
+  service: string;
   status: "stopped" | "starting" | "loading" | "ready" | "error";
   model_loaded: boolean;
   endpoint: string;
@@ -34,6 +42,8 @@ let launchError: string | undefined;
 
 export function bonsaiRuntimeConfig(env: NodeJS.ProcessEnv = process.env): BonsaiRuntimeConfig {
   const local = localOpenAiConfig(env);
+  const size = (env.BONSAI_MODEL?.trim() || "27B").toUpperCase();
+  if (!["2B", "4B", "9B", "27B"].includes(size)) throw new Error("BONSAI_MODEL must be 2B, 4B, 9B, or 27B.");
   const parsed = new URL(local.baseUrl);
   if (!isLoopback(parsed.hostname)) throw new Error("Bonsai lifecycle control is allowed only for a loopback LOCAL_LLM_BASE_URL.");
   const demoPath = env.BONSAI_DEMO_PATH?.trim() || localServiceHome('bonsai_home');
@@ -42,7 +52,8 @@ export function bonsaiRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Bonsa
     baseUrl: local.baseUrl,
     demoPath,
     modelId: local.fallbackModelId,
-    port: Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80))
+    port: Number(parsed.port || (parsed.protocol === "https:" ? 443 : 80)),
+    size: size as BonsaiRuntimeConfig["size"]
   };
 }
 
@@ -68,7 +79,10 @@ export async function readBonsaiStatus(options: ReadStatusOptions = {}): Promise
         const id = recordString(entry, "id");
         return id ? [id] : [];
       }) : [];
-      const modelId = modelIds.find((id) => id === config.modelId || isBonsaiModel(id));
+      // An externally started Bonsai of another size is still our registered local runtime.
+      // Report the resident model rather than misclassifying the known PrismML server as a foreign service.
+      const modelId = modelIds.find((id) => isBonsaiModel(id, config.size ?? "27B"))
+        ?? modelIds.find(isAnyBonsai2Model);
       if (!modelId) return status("error", false, endpoint, undefined, `Port ${config.port} is occupied by another service or model.`);
       launchStartedAt = 0;
       launchError = undefined;
@@ -99,24 +113,20 @@ export async function startBonsai(): Promise<BonsaiStatus> {
 
   launchError = undefined;
   launchStartedAt = Date.now();
-  const logDirectory = join(repoRoot, "apps", "server", "data");
-  const logPath = join(logDirectory, "bonsai-runtime.log");
-  mkdirSync(logDirectory, { recursive: true });
-  const log = openSync(logPath, "a");
-  const child = spawn(launch.executable, launch.args, {
-    cwd: config.demoPath,
-    detached: true,
-    windowsHide: true,
-    stdio: ["ignore", log, log],
-    shell: false,
-    env: process.env
-  });
-  closeSync(log);
-  child.once("error", (error) => { launchError = `${error.message} See ${logPath}`; });
-  child.once("exit", (code) => {
-    if (launchStartedAt) launchError = `Bonsai launcher exited before the model became ready (code ${code ?? "unknown"}). See ${logPath}`;
-  });
-  child.unref();
+  const logPath = bonsaiLogPath();
+  // Windowless: no console window, output in the rotating log, survives a SnarkRoute restart.
+  let launched;
+  try {
+    launched = await launchBackgroundService({ label: "Bonsai", command: launch.executable, args: launch.args, cwd: config.demoPath, logPath, env: process.env });
+  } catch (error) {
+    launchError = `${error instanceof Error ? error.message : String(error)} See ${logPath}`;
+    throw error;
+  }
+  const exited = () => {
+    if (launchStartedAt) launchError = `Bonsai launcher exited before the model became ready. See ${logPath}`;
+  };
+  if (launched.exitedEarly) exited();
+  else if (launched.pid) watchProcessExit(launched.pid, exited);
   return status("starting", false, config.baseUrl);
 }
 
@@ -132,11 +142,12 @@ function resolveLaunchCommand(config: BonsaiRuntimeConfig): { executable: string
   const executable = binaryCandidates.find(existsSync);
   if (!executable) throw new Error(`Official Bonsai llama-server.exe was not found under ${config.demoPath}`);
 
-  const modelDirectory = join(config.demoPath, "models", "bonsai2-gguf", "27B");
-  if (!existsSync(modelDirectory)) throw new Error(`Bonsai 2 27B model directory was not found at ${modelDirectory}`);
+  const size = config.size ?? "27B";
+  const modelDirectory = join(config.demoPath, "models", "bonsai2-gguf", size);
+  if (!existsSync(modelDirectory)) throw new Error(`Bonsai 2 ${size} model directory was not found at ${modelDirectory}`);
   const filenames = readdirSync(modelDirectory);
   const modelName = filenames.find((name) => /-PQ2_0\.gguf$/i.test(name) && !/mmproj|dspark|kv-bias/i.test(name));
-  if (!modelName) throw new Error(`Bonsai 2 27B PQ2_0 model was not found at ${modelDirectory}`);
+  if (!modelName) throw new Error(`Bonsai 2 ${size} PQ2_0 model was not found at ${modelDirectory}`);
   const mmprojName = filenames.find((name) => /mmproj.*\.gguf$/i.test(name));
   const context = positiveInteger(process.env.BONSAI_CTX) ?? recommendedContextSize();
   const gpuLayers = process.env.BONSAI_NGL?.trim() || (executable.includes(`${join("bin", "cpu")}\\`) ? "0" : "99");
@@ -207,7 +218,8 @@ function runPowerShell(script: string, args: string[]): Promise<void> {
 }
 
 function status(state: BonsaiStatus["status"], loaded: boolean, endpoint: string, modelId?: string, error?: string): BonsaiStatus {
-  return { service: "Bonsai 2 27B", status: state, model_loaded: loaded, endpoint, ...(modelId ? { model_id: modelId } : {}), ...(error ? { error } : {}) };
+  const detectedSize = modelId?.match(/bonsai[-_]?2[-_:]?(2|4|9|27)b/i)?.[1];
+  return { service: detectedSize ? `Bonsai 2 ${detectedSize}B` : "Bonsai 2 27B", status: state, model_loaded: loaded, endpoint, ...(modelId ? { model_id: modelId } : {}), ...(error ? { error } : {}) };
 }
 
 function isPortListening(port: number): Promise<boolean> {
@@ -219,8 +231,13 @@ function isPortListening(port: number): Promise<boolean> {
   });
 }
 
-function isBonsaiModel(id: string): boolean {
-  return /(?:^|[\/_-])(?:ternary-)?bonsai-?2(?:[\/_-])?27b(?:[\/_\-.]|$)/i.test(id);
+function isAnyBonsai2Model(id: string): boolean {
+  return /bonsai[-_]?2[-_:]?(2|4|9|27)b(?:[\/_\-.]|$)/i.test(id);
+}
+
+function isBonsaiModel(id: string, size: "2B" | "4B" | "9B" | "27B"): boolean {
+  const match = id.match(/bonsai[-_]?2[-_:]?(2|4|9|27)b(?:[\/_\-.]|$)/i);
+  return Boolean(match && `${match[1]}B` === size);
 }
 
 function isLoopback(hostname: string): boolean {

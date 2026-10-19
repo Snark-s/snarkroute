@@ -1,0 +1,8 @@
+{
+  "updated_at": "2026-10-16T21:30:00.366849+00:00",
+  "phase": "blocked",
+  "detail": {
+    "error_type": "RuntimeError",
+    "message": "Command failed with exit code 1; see Y:\\Процесс\\SnarkRoute\\workers\\flux3-native\\overnight.log"
+  }
+}

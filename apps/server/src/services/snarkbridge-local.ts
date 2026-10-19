@@ -5,6 +5,9 @@ import { join } from "node:path";
 import dotenv from "dotenv";
 import { envPath, repoRoot } from "../server-paths";
 import { localServiceHome, localServicePort } from "./local-service-endpoints";
+import { decodeLogBuffer, redactLogText, type ServiceLogSourceDef } from "./service-logs";
+
+export { redactLogText };
 
 /*
  * SnarkBridge (ChatGPT MCP server + OpenAI Secure MCP tunnel) as a Мастерская service.
@@ -551,38 +554,38 @@ function clearMarker(config: SnarkBridgeConfig) {
 export type SnarkBridgeLogSource = { id: string; title: string; file: string; text: string; updatedAt?: string };
 
 export function readSnarkBridgeLogs(): { sources: SnarkBridgeLogSource[] } {
-  const config = snarkBridgeConfig();
-  const workspace = join(config.home, "workspace");
   const sources: SnarkBridgeLogSource[] = [];
-  const add = (id: string, title: string, path: string | undefined, lines: number) => {
-    if (!path || !existsSync(path)) return;
-    const stat = statSync(path);
-    sources.push({ id, title, file: path, text: redactLogText(tailLines(decodeLog(readTail(path, 96_000)), lines)), updatedAt: stat.mtime.toISOString() });
-  };
-  add("control", "Мастерская: команды запуска и остановки", controlLogPath(config), 80);
-  const lastStart = newestNonEmpty(config.stateDir, /^start-.*\.out\.log$/);
-  if (lastStart) {
-    const prefix = lastStart.replace(/\.out\.log$/, "");
-    sources.push({ id: "start", title: "Последний запуск START_SNARKBRIDGE.ps1", file: lastStart, text: redactLogText(tailLines(startLogText(prefix), 80)), updatedAt: statSync(lastStart).mtime.toISOString() });
+  for (const source of snarkBridgeLogSources()) {
+    // The card's "start" entry already merges the error stream.
+    if (source.id === "start-errors" || !source.path || !existsSync(source.path)) continue;
+    const stat = statSync(source.path);
+    const text = source.id === "start" ? startLogText(source.path.replace(/\.out\.log$/, "")) : decodeLog(readTail(source.path, 96_000));
+    sources.push({ id: source.id, title: source.title, file: source.path, text: redactLogText(tailLines(text, SOURCE_TAIL_LINES[source.id] ?? 40)), updatedAt: stat.mtime.toISOString() });
   }
-  add("watchdog", "SnarkBridge Watchdog и автозапуск", join(workspace, "scheduled-startup.log"), 60);
-  add("tunnel", "Ошибки последнего запуска туннеля", newestNonEmpty(workspace, /^snarkbridge-tunnel-start-.*\.stderr\.log$/), 40);
-  add("events", "Event driver", join(workspace, "event-driver.log"), 20);
   return { sources };
 }
 
-export function redactLogText(text: string): string {
-  return text
-    .replace(/\bsk-[A-Za-z0-9_-]{8,}/g, "[скрыто]")
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [скрыто]")
-    .replace(/\b([A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD))(\s*[=:]\s*)("?)[^\s"',;]+/gi, "$1$2$3[скрыто]");
+const SOURCE_TAIL_LINES: Record<string, number> = { control: 80, start: 80, watchdog: 60, tunnel: 40, events: 20 };
+
+/** SnarkBridge keeps its own logs; the Мастерская terminals read them, SnarkRoute never rotates them. */
+export function snarkBridgeLogSources(): ServiceLogSourceDef[] {
+  const config = snarkBridgeConfig();
+  const workspace = join(config.home, "workspace");
+  const lastStart = newestNonEmpty(config.stateDir, /^start-.*\.out\.log$/);
+  const lastStartErrors = lastStart ? lastStart.replace(/\.out\.log$/, ".err.log") : undefined;
+  const sources: Array<ServiceLogSourceDef | undefined> = [
+    { id: "control", title: "Команды Мастерской", path: controlLogPath(config), owner: "own-file" },
+    lastStart ? { id: "start", title: "Последний запуск", path: lastStart, owner: "own-file" } : undefined,
+    lastStartErrors && existsSync(lastStartErrors) ? { id: "start-errors", title: "Ошибки запуска", path: lastStartErrors, owner: "own-file" } : undefined,
+    { id: "watchdog", title: "Watchdog и автозапуск", path: join(workspace, "scheduled-startup.log"), owner: "own-file" },
+    { id: "tunnel", title: "Туннель (stderr)", path: newestNonEmpty(workspace, /^snarkbridge-tunnel-start-.*\.stderr\.log$/), owner: "own-file" },
+    { id: "events", title: "Event driver", path: join(workspace, "event-driver.log"), owner: "own-file" }
+  ];
+  return sources.filter((source): source is ServiceLogSourceDef => Boolean(source));
 }
 
 function decodeLog(buffer: Buffer): string {
-  const utf8 = buffer.toString("utf8");
-  if (!utf8.includes("�")) return utf8;
-  // Windows PowerShell 5 writes redirected error text in the OEM code page.
-  try { return new TextDecoder("ibm866").decode(buffer); } catch { return utf8; }
+  return decodeLogBuffer(buffer);
 }
 
 function readTail(path: string, bytes: number): Buffer {

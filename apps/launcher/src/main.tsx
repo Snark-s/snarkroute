@@ -6,11 +6,14 @@ import { parsePersonaModelPreferences, type AutoStrategy } from "./personaModelP
 import "./styles.css";
 import { RestartSnarkRoute } from "./RestartSnarkRoute";
 import { ProjectPublisherCard, ProjectPublisherControl } from "./ProjectPublisherControl";
+import { BeamishControl } from "./BeamishControl";
+import { AutonomousAppCard } from "./AutonomousAppCard";
 import { SnarkBridgeCard } from "./SnarkBridgeCard";
+import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTerminalContextMenu } from "./ServiceTerminals";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 
-type AppCard = { id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string };
+type AppCard = { id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string; controllable?: boolean };
 type ProviderRoute = { provider: string; providerModelId: string; storedModelId?: string; inputTypes?: string[]; availability?: { status?: string; configured?: boolean } };
 type Model = { id: string; canonicalModelId?: string; displayName: string; inputTypes?: string[]; providerRoutes?: ProviderRoute[] };
 type AutoAttempt = { role: string; display_name?: string; model: string; provider: string; estimated_cost?: number | null; actual_cost?: number | null; result_status: string };
@@ -29,6 +32,7 @@ type RuntimeCatalogSummary = { total: number; available: number };
 const iconMap = { sparkles: Sparkles, route: Route, wand: Wand2, hexagon: Hexagon, brain: Brain, music: Music };
 
 function App() {
+  if (location.pathname.startsWith("/logs")) return <TerminalPage apiBase={apiBase} />;
   return location.pathname.startsWith("/persona") ? <PersonaAgent /> : <Launcher />;
 }
 
@@ -44,6 +48,11 @@ function Launcher() {
     link.href = "/launcher-icon.png";
   }, []);
   useEffect(() => { void refresh().catch((reason) => setError(message(reason))); }, []);
+  useEffect(() => {
+    const changed = () => void refresh().catch((reason) => setError(message(reason)));
+    window.addEventListener("snarkroute:apps-changed", changed);
+    return () => window.removeEventListener("snarkroute:apps-changed", changed);
+  }, []);
 
   async function openApp(app: AppCard) {
     setBusy(app.id); setError("");
@@ -68,9 +77,12 @@ function Launcher() {
       <div className="launcherBrand"><img src="/launcher-icon.png" alt="" /><div><span className="eyebrow">Локальная мастерская</span><p>Один вход во все инструменты. SnarkRoute уже держит модели и плагины на связи.</p></div></div>
       <div className="heroRuntimes"><div className="runtimePill"><span className="pulse" /> SnarkRoute работает</div><RestartSnarkRoute apiPort={Number(new URL(apiBase).port||80)} onHealthy={()=>void refresh().catch(reason=>setError(message(reason)))}/><LocalRuntimeControl /></div>
     </header>
+    <TerminalPanel apiBase={apiBase} />
     {error ? <div className="errorBanner">{error}</div> : null}
     <section className="appGrid">
       {apps.map((app, index) => {
+        if (app.controllable) return <AutonomousAppCard key={app.id} app={app} apiBase={apiBase} index={index} />;
+        if (app.controllable) return <AutonomousAppCard key={app.id} app={app} apiBase={apiBase} index={index} />;
         const Icon = iconMap[app.icon as keyof typeof iconMap] ?? Sparkles;
         return <div key={app.id} className={`appCard ${app.accent}`} style={{ animationDelay: `${index * 55}ms` }}>
           <button className="cardMain" onClick={() => void openApp(app)}>
@@ -96,6 +108,8 @@ function LocalRuntimeControl() {
   const [catalogs, setCatalogs] = useState<Record<string, RuntimeCatalogSummary>>({});
   const [action, setAction] = useState("");
   const [localError, setLocalError] = useState("");
+  const { alerts } = useServiceLogs(apiBase);
+  const terminalMenu = useTerminalContextMenu();
 
   async function refresh() {
     const next = await api<LocalRuntimeSnapshot & { ok: boolean }>("/api/system/local-runtimes");
@@ -165,8 +179,9 @@ function LocalRuntimeControl() {
   const gpuLabel = gpu ? `GPU ${(gpu.usedMiB / 1024).toFixed(1)}/${(gpu.totalMiB / 1024).toFixed(0)} ГБ` : "GPU ?";
   return <div className={`runtimeDeck ${snapshot?.pressure.level ?? "idle"}`} title={localError || snapshot?.pressure.summary || "Локальные процессы"}>
     <span className="runtimeDeckSummary">{gpuLabel}</span>
-    <span className="runtimeDeckItems">
-      <ProjectPublisherControl />
+    <span className="runtimeDeckItems" onContextMenu={terminalMenu.onContextMenu}>
+      <ProjectPublisherControl logAlert={alerts.has("publisher")} />
+      <BeamishControl apiBase={apiBase} logAlert={alerts.has("beamish")} />
       {(snapshot?.runtimes ?? []).map((runtime) => {
         const working = action.startsWith(`${runtime.id}:`);
         const catalog = catalogs[runtime.id];
@@ -175,7 +190,7 @@ function LocalRuntimeControl() {
         const nextAction: "start" | "stop" = runtime.control.canStop || runtime.online ? "stop" : "start";
         const canAct = nextAction === "stop" ? runtime.control.canStop : runtime.control.canStart;
         const actionLabel = nextAction === "stop" ? "Остановить" : "Запустить";
-        return <span className={`runtimeMini ${runtime.state}`} key={runtime.id} title={detail}>
+        return <span className={`runtimeMini ${runtime.state}`} key={runtime.id} title={`${detail} · правый клик: терминал`} data-service-id={runtime.id} data-service-label={runtime.label} data-log-alert={alerts.has(runtime.id) || undefined}>
           <span className="runtimeMiniDot" />
           <span>{runtime.label}{runtime.discovered ? " · auto" : ""}</span>
           {catalogText ? <span className="runtimeMiniCatalog">{catalogText}</span> : null}
@@ -183,7 +198,9 @@ function LocalRuntimeControl() {
         </span>;
       })}
     </span>
+    <TerminalsButton apiBase={apiBase} />
     {localError ? <span className="runtimeDeckError">{localError}</span> : null}
+    {terminalMenu.element}
   </div>;
 }
 

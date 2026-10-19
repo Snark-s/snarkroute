@@ -1,8 +1,21 @@
-import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, openSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { repoRoot } from "../server-paths";
 import { localServiceUrl } from "./local-service-endpoints";
+import { killProcessTree, launchBackgroundService, watchProcessExit } from "./background-process";
+import type { ServiceLogSourceDef } from "./service-logs";
+
+export function ollamaLogPath(): string {
+  return join(repoRoot, "apps", "server", "data", "ollama-runtime.log");
+}
+
+/** Our launch log, plus the Ollama tray app's own server.log when Ollama was started outside SnarkRoute. */
+export function ollamaLogSources(): ServiceLogSourceDef[] {
+  const sources: ServiceLogSourceDef[] = [{ id: "runtime", title: "Запуск из Мастерской", path: ollamaLogPath(), owner: "managed" }];
+  const appLog = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "Ollama", "server.log") : undefined;
+  if (appLog && existsSync(appLog)) sources.push({ id: "app", title: "Ollama (трей, server.log)", path: appLog, owner: "own-file" });
+  return sources;
+}
 
 export type OllamaStatus = {
   service: "Ollama";
@@ -45,28 +58,24 @@ export async function readOllamaStatus(): Promise<OllamaStatus> {
 export async function startOllama(): Promise<OllamaStatus> {
   const current = await readOllamaStatus();
   if (current.online || current.status === "starting") return current;
-  const logDirectory = join(repoRoot, "apps", "server", "data");
-  const logPath = join(logDirectory, "ollama-runtime.log");
-  mkdirSync(logDirectory, { recursive: true });
-  const log = openSync(logPath, "a");
+  const logPath = ollamaLogPath();
 
   launchStartedAt = Date.now();
   launchError = undefined;
-  const child = spawn("ollama.exe", ["serve"], {
-    detached: true,
-    windowsHide: true,
-    stdio: ["ignore", log, log],
-    shell: false,
-    env: process.env
-  });
-  closeSync(log);
-  ownedPid = child.pid;
-  child.once("error", error => { launchError = `${error.message}. See ${logPath}`; });
-  child.once("exit", code => {
-    if (launchStartedAt) launchError = `Ollama exited before becoming ready (code ${code ?? "unknown"}). See ${logPath}`;
+  // Windowless: runner subprocesses inherit the hidden console instead of opening terminal windows.
+  let launched;
+  try {
+    launched = await launchBackgroundService({ label: "Ollama", command: "ollama.exe", args: ["serve"], cwd: repoRoot, logPath, env: process.env });
+  } catch (error) {
+    launchError = `${error instanceof Error ? error.message : String(error)}. See ${logPath}`;
+    throw error;
+  }
+  const exited = () => {
+    if (launchStartedAt) launchError = `Ollama exited before becoming ready. See ${logPath}`;
     ownedPid = undefined;
-  });
-  child.unref();
+  };
+  if (launched.exitedEarly) exited();
+  else if (launched.pid) { ownedPid = launched.pid; watchProcessExit(launched.pid, exited); }
   return { service: "Ollama", status: "starting", online: false, residentModels: [] };
 }
 
@@ -87,7 +96,7 @@ export async function stopOllama(): Promise<{ ok: true; releasedModels: string[]
   }
 
   if (!releasedModels.length && ownedPid) {
-    try { process.kill(ownedPid); } catch {}
+    await killProcessTree(ownedPid);
     ownedPid = undefined;
   }
   return { ok: true, releasedModels };

@@ -1,7 +1,10 @@
-import { execFile, spawn } from "node:child_process";
+import { execFile } from "node:child_process";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { promisify } from "node:util";
 import { inspectH3Connection, type H3ConnectionStatus } from "./h3-connection";
 import { localServicePort } from './local-service-endpoints';
+import { launchBackgroundService, watchProcessExit } from "./background-process";
+import { managedLogPath, redactLogText } from "./service-logs";
 
 const execFileAsync = promisify(execFile);
 
@@ -12,6 +15,11 @@ export type H3LocalWslStatus = {
   running: boolean;
   reason?: string;
 };
+
+/** Foreground output of the WSL launcher (worker and SGLang) for the Мастерская terminal. */
+export function h3LocalLogPath(): string {
+  return managedLogPath("h3-local");
+}
 
 export type StartedH3LocalWsl = {
   status: H3ConnectionStatus;
@@ -46,9 +54,18 @@ export async function startH3LocalWsl(): Promise<StartedH3LocalWsl> {
     return { status: current, serviceToken, local: h3LocalWslStatus(current) };
   }
 
-  const child = spawn(
-    "wsl.exe",
-    [
+  const logPath = h3LocalLogPath();
+  const logStart = existsSync(logPath) ? statSync(logPath).size : 0;
+  const launcherOutput = () => {
+    try { return redactLogText(readFileSync(logPath).subarray(logStart).toString("utf8").slice(-4_000).trim()); } catch { return ""; }
+  };
+  let launcherFailure: Error | undefined;
+  let launcherExited = false;
+  // Windowless, with output in a log: the old pipe was dropped after readiness and later output was lost.
+  const launched = await launchBackgroundService({
+    label: "H3 (WSL)",
+    command: "wsl.exe",
+    args: [
       "-d",
       config.distro,
       "--",
@@ -56,28 +73,17 @@ export async function startH3LocalWsl(): Promise<StartedH3LocalWsl> {
       "-lc",
       `H3_LOCAL_FOREGROUND=1 H3_ACCEPT_MODEL_LICENSE=1 H3_LOCAL_VARIANT=${config.variant} H3_API_PORT=${config.port} H3_SGLANG_PORT=${config.sglangPort} ${config.startScript}`
     ],
-    { detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true }
-  );
-  let launcherFailure: Error | undefined;
-  let launcherExited = false;
-  let launcherOutput = "";
-  const collectOutput = (chunk: Buffer) => {
-    launcherOutput = `${launcherOutput}${chunk.toString("utf8")}`.slice(-4_000);
-  };
-  child.stdout?.on("data", collectOutput);
-  child.stderr?.on("data", collectOutput);
-  child.once("error", (error) => { launcherFailure = error; });
-  child.once("exit", (code, signal) => {
-    launcherExited = true;
-    if (code && !launcherFailure) {
-      const detail = launcherOutput.trim();
-      launcherFailure = new Error(
-        `Local H3 launcher exited with code ${code}${signal ? ` (${signal})` : ""}.`
-        + (detail ? ` ${detail}` : "")
-      );
-    }
+    cwd: process.cwd(),
+    logPath
   });
-  child.unref();
+  const exited = () => {
+    launcherExited = true;
+    const detail = launcherOutput();
+    launcherFailure = new Error(`Local H3 launcher exited before the worker became ready.${detail ? ` ${detail}` : ""}`);
+  };
+  let stopWatching = () => {};
+  if (launched.exitedEarly) exited();
+  else if (launched.pid) stopWatching = watchProcessExit(launched.pid, exited, 2_000);
 
   const deadline = Date.now() + config.startupTimeoutMs;
   let last = current;
@@ -91,11 +97,11 @@ export async function startH3LocalWsl(): Promise<StartedH3LocalWsl> {
       timeoutMs: 3_000
     });
     if (last.ready) {
-      child.stdout?.destroy();
-      child.stderr?.destroy();
+      stopWatching();
       return { status: last, serviceToken, local: h3LocalWslStatus(last) };
     }
   }
+  stopWatching();
   throw new Error(last.error ?? last.reason ?? "Local H3 worker did not become ready in time.");
 }
 

@@ -1,8 +1,16 @@
-import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { execFile, spawn } from 'node:child_process';
+import { closeSync, existsSync, mkdirSync, openSync, writeFileSync, writeSync } from 'node:fs';
 import { createConnection } from 'node:net';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { rotateLogIfLarge } from './windowless-launch.mjs';
+
+/** The venv python.exe is a launcher whose child serves the port: stop the whole tree. */
+export function killProcessTree(child) {
+  if (process.platform !== 'win32' || !child.pid) return child.kill();
+  execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, timeout: 15_000 }, () => {});
+  return true;
+}
 
 const probePort = (port) =>
   new Promise((resolveProbe) => {
@@ -40,6 +48,9 @@ export function createProjectPublisherControl({
   root,
   port = 8765,
   spawnProcess = spawn,
+  killTree = killProcessTree,
+  /** When set, stdout/stderr go to this rotating log (shown in the Мастерская terminals). */
+  logPath,
   fileExists = existsSync,
   portOpen = () => probePort(port),
   healthy = async () => {
@@ -100,7 +111,7 @@ export function createProjectPublisherControl({
     }
 
     const current = child;
-    current.kill();
+    killTree(current);
     await until(
       async () => !child || !(await portOpen()),
       'Project Publisher не остановился вовремя'
@@ -117,14 +128,32 @@ export function createProjectPublisherControl({
       throw new Error(`Python Project Publisher не найден: ${launch.python}`);
     }
 
-    const current = spawnProcess(launch.python, launch.args, {
-      cwd: launch.cwd,
-      env: process.env,
-      windowsHide: true,
-      detached: false,
-      stdio: ['ignore', 'inherit', 'inherit'],
-    });
+    let log;
+    if (logPath) {
+      mkdirSync(dirname(logPath), { recursive: true });
+      rotateLogIfLarge(logPath);
+      log = openSync(logPath, 'a');
+      writeSync(log, `\n[${new Date().toISOString()}] ▶ Project Publisher: запуск из Мастерской\n`);
+    }
+    let current;
+    try {
+      current = spawnProcess(launch.python, launch.args, {
+        cwd: launch.cwd,
+        // Live log lines and readable Cyrillic when output goes to a file.
+        env: log === undefined ? process.env : { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
+        windowsHide: true,
+        detached: false,
+        stdio: ['ignore', log ?? 'inherit', log ?? 'inherit'],
+      });
+    } finally {
+      if (log !== undefined) closeSync(log);
+    }
     child = current;
+    if (logPath) {
+      try {
+        writeFileSync(`${logPath}.launch.json`, JSON.stringify({ label: 'Project Publisher', pid: current.pid, startedAt: new Date().toISOString() }), 'utf8');
+      } catch {}
+    }
     exited = new Promise((resolveExit) => {
       current.once('close', () => {
         if (child === current) child = undefined;

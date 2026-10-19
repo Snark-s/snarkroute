@@ -28,6 +28,8 @@ export type LocalOpenAiConfig = {
   reasoningEffort?: "none" | "low" | "medium" | "high";
   /** Explicit per-model confirmation for AtomicAgentRuntime auto protocol selection. */
   nativeToolModelIds?: string[];
+  /** Do not expose offline placeholders for automatically discovered optional runtimes. */
+  optionalDiscovery?: boolean;
 };
 
 function validatedLocalUrl(raw: string): string {
@@ -46,14 +48,18 @@ export function localOpenAiConfig(env: NodeJS.ProcessEnv = process.env): LocalOp
   };
 }
 
+/** Official Ollama model tags. Exposed only after local model discovery confirms installation. */
+export const BONSAI2_OLLAMA_MODEL_IDS = ["bonsai-2:2b", "bonsai-2:4b", "bonsai-2:9b", "bonsai-2:27b"] as const;
+
 export function localOpenAiConfigs(env: NodeJS.ProcessEnv = process.env): LocalOpenAiConfig[] {
   const primary = localOpenAiConfig(env);
-  if (!env.LOCAL_LLM_ADDITIONAL_ENDPOINTS_JSON?.trim()) return [primary];
-  const entries: unknown = JSON.parse(env.LOCAL_LLM_ADDITIONAL_ENDPOINTS_JSON);
-  if (!Array.isArray(entries) || entries.length > 4) throw new Error("Invalid additional local endpoints.");
+  const rawEntries: unknown = env.LOCAL_LLM_ADDITIONAL_ENDPOINTS_JSON?.trim()
+    ? JSON.parse(env.LOCAL_LLM_ADDITIONAL_ENDPOINTS_JSON)
+    : [];
+  if (!Array.isArray(rawEntries) || rawEntries.length > 4) throw new Error("Invalid additional local endpoints.");
   const ids = new Set<string>();
   const urls = new Set([primary.baseUrl]);
-  const additional = entries.map(entry => {
+  const additional: LocalOpenAiConfig[] = rawEntries.map(entry => {
     const value = objectRecord(entry);
     const baseUrl = validatedLocalUrl(stringValue(value.baseUrl) ?? "");
     const url = new URL(baseUrl);
@@ -74,6 +80,22 @@ export function localOpenAiConfigs(env: NodeJS.ProcessEnv = process.env): LocalO
     return { ...primary, baseUrl, apiKey: undefined, fallbackModelId: modelIds[0], modelIds,
       reasoningEffort: reasoningEffort as LocalOpenAiConfig["reasoningEffort"], nativeToolModelIds: nativeToolModelIds as string[] | undefined };
   });
+  const ollamaUrl = localServiceUrl("ollama_inference", "/v1");
+  // Experimental only: upstream Q2_0 decoding may omit PrismML's Hadamard transforms.
+  // Never automatically offer potentially invalid agent outputs on stock Ollama.
+  if (env.BONSAI2_OLLAMA_EXPERIMENTAL === "1" && primary.baseUrl !== ollamaUrl) {
+    const alreadyConfigured = additional.find(config => config.baseUrl === ollamaUrl);
+    if (alreadyConfigured) {
+      alreadyConfigured.modelIds = [...new Set([...(alreadyConfigured.modelIds ?? []), ...BONSAI2_OLLAMA_MODEL_IDS])];
+    } else if (additional.length < 4) {
+      additional.push({
+        ...primary, baseUrl: ollamaUrl, apiKey: undefined,
+        fallbackModelId: BONSAI2_OLLAMA_MODEL_IDS[0],
+        modelIds: [...BONSAI2_OLLAMA_MODEL_IDS],
+        optionalDiscovery: true
+      });
+    }
+  }
   return [primary, ...additional];
 }
 
@@ -101,6 +123,7 @@ export async function discoverLocalOpenAiModels(options: {
     if (!ids.length) throw new Error("GET /models returned no model ids");
     return ids.map((id) => localModel(id, config, true, fetchedAt));
   } catch (error) {
+    if (config.optionalDiscovery) return [];
     return (config.modelIds ?? [config.fallbackModelId]).map(id => localModel(id, config, false, fetchedAt, safeErrorMessage(error)));
   }
 }
@@ -128,6 +151,22 @@ export function createLocalOpenAiTextNodeRunner(options: {
     const messages = chatMessages(params.messages, inputs, params);
     if (!messages.length) throw new Error("Local OpenAI-compatible text generation requires messages or a prompt.");
     const body: Record<string, unknown> = { model, messages };
+    // Bonsai 2 2B/4B/9B may spend thousands of tokens thinking, then hit the
+    // llama.cpp PEG parser when short requests truncate the unfinished turn.
+    // Use PrismML's documented non-thinking sampler defaults for local agents.
+    // A route may explicitly opt back into thinking with enable_thinking=true.
+    const smallBonsai = /bonsai[-_]?2[-_:]?(2|4|9)b(?:[-_.]|$)/i.test(model);
+    if (smallBonsai) {
+      const thinking = params.enable_thinking === true;
+      body.chat_template_kwargs = { enable_thinking: thinking };
+      body.temperature = thinking ? 1.0 : 0.7;
+      body.top_p = thinking ? 0.95 : 0.8;
+      body.top_k = 20;
+      body.min_p = 0.0;
+      body.presence_penalty = thinking ? 1.0 : 1.5;
+      body.repeat_penalty = 1.0;
+      body.repeat_last_n = 64;
+    }
     if (config.reasoningEffort) body.reasoning_effort = config.reasoningEffort;
     copyParam(params, body, "temperature");
     copyParam(params, body, "top_p");
@@ -149,7 +188,7 @@ export function createLocalOpenAiTextNodeRunner(options: {
       const verifiedIds = await verifiedLocalModelIds(config, fetchImpl, context.signal);
       if (!verifiedIds.includes(model)) throw new ModelRoutingPolicyError("LOCAL_MODEL_UNAVAILABLE", `Local inference service does not expose the requested model "${model}".`, LOCAL_OPENAI_PROVIDER_ID);
       const { assertLocalRuntimeAdmission } = await import("../services/local-runtime-supervisor");
-      await assertLocalRuntimeAdmission(config.baseUrl === localServiceUrl("ollama_inference", "/v1") ? "ollama" : "bonsai");
+      await assertLocalRuntimeAdmission(config.baseUrl === localServiceUrl("ollama_inference", "/v1") ? "ollama" : "bonsai", model);
       throwIfAborted(context.signal);
       logLocalInference("started", { requestId, stepId: node.id, promptChars, ...gate.snapshot() });
       const { response, text: responseText } = await fetchTextWithTimeout(`${config.baseUrl}/chat/completions`, {
@@ -241,12 +280,13 @@ export function localOpenAiRuntimeSnapshot(baseUrl = localOpenAiConfig().baseUrl
 }
 
 function localModel(id: string, config: LocalOpenAiConfig, available: boolean, refreshedAt: string, reason?: string): ProviderModelInfoV1 {
-  const bonsai = isBonsai2Model(id);
+  const bonsaiSize = /(?:^|[-_])(?:ternary[-_]?)?bonsai[-_]?2[-_:]?(2b|4b|9b|27b)(?:[-_.]|$)/i.exec(id)?.[1]?.toLowerCase();
+  const bonsai = Boolean(bonsaiSize) || isBonsai2Model(id);
   return normalizeProviderModelToV1Input({
     provider: LOCAL_OPENAI_PROVIDER_ID,
     providerModelId: id,
-    canonicalModelId: bonsai ? BONSAI_CANONICAL_MODEL_ID : undefined,
-    displayName: bonsai ? "Bonsai 2 27B" : id,
+    canonicalModelId: bonsaiSize ? `bonsai-2-${bonsaiSize}` : bonsai ? BONSAI_CANONICAL_MODEL_ID : undefined,
+    displayName: bonsaiSize ? `Bonsai 2 ${bonsaiSize.toUpperCase()}` : bonsai ? "Bonsai 2 27B" : id,
     originVendor: bonsai ? "prismml" : "local",
     inputTypes: ["text"],
     outputTypes: ["text", "json"],

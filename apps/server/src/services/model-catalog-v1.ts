@@ -28,6 +28,27 @@ import type {
 import type { SuppliedModelInputsV1 } from "@snarkroute/model-catalog/dist/v1/index.js";
 import type { ModelIOItem } from "@snarkroute/protocol";
 
+/** Local FLUX.3 is opt-in. It stays unavailable until native Python dependencies are installed. */
+export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
+  const configured = process.env.FLUX3_NATIVE_ENABLED === "1";
+  return [
+    normalizeProviderModelToV1Input({
+      provider: "flux3_native",
+      providerModelId: "flux-3-image-klein",
+      originVendor: "black-forest-labs",
+      displayName: "FLUX.3 Image Klein (Native Diffusers)",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.generate", "image.edit", "image.reference"],
+      roles: ["generator", "editor"],
+      availability: { status: configured ? "available" : "unavailable", source: "curated", configured, reason: configured ? undefined : "Native Diffusers runtime and gated weights not installed" },
+      metadata: { local: true, providerModelId: "flux-3-image-klein", license: "flux-kommunity-license", inference: "diffusers", maximumImageInputs: 10, resourceDemand: "heavy" }
+    }),
+    ...baseFallbackProviderModelsForCatalogV1()
+  ];
+}
+
+
 export type RawProviderModelV1 = Record<string, unknown> & {
   id?: string;
   name?: string;
@@ -142,7 +163,7 @@ function mergeProviderModelDefaultsV1(providerModels: ProviderModelInfoV1[]): Pr
   return [...merged.values()];
 }
 
-export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
+function baseFallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
   return [
     normalizeProviderModelToV1Input({
       provider: "gemini",

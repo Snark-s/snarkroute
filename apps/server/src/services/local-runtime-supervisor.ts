@@ -2,16 +2,18 @@ import { execFile } from "node:child_process";
 import { createConnection } from "node:net";
 import { freemem, totalmem } from "node:os";
 import { promisify } from "node:util";
-import { bonsaiRuntimeConfig, readBonsaiStatus, startBonsai, stopBonsai } from "./bonsai-local";
+import { bonsaiLogPath, bonsaiRuntimeConfig, readBonsaiStatus, startBonsai, stopBonsai } from "./bonsai-local";
 import { inspectH3Connection } from "./h3-connection";
-import { h3LocalWslStatus, startH3LocalWsl, stopH3LocalWsl } from "./h3-local-wsl";
-import { localUpscaleRuntimeConfig, readLocalUpscaleStatus, startLocalUpscale, stopLocalUpscale } from "./local-upscale-local";
-import { readOllamaStatus, startOllama, stopOllama } from "./ollama-local";
-import { readYue2Status, startYue2, stopYue2, yue2Config } from "./yue2-local";
-import { readSnarkBridgeStatus, snarkBridgeConfig, startSnarkBridge, stopSnarkBridge, type SnarkBridgeStatus } from "./snarkbridge-local";
+import { h3LocalLogPath, h3LocalWslStatus, startH3LocalWsl, stopH3LocalWsl } from "./h3-local-wsl";
+import { localUpscaleLogPath, localUpscaleRuntimeConfig, readLocalUpscaleStatus, startLocalUpscale, stopLocalUpscale } from "./local-upscale-local";
+import { ollamaLogSources, readOllamaStatus, startOllama, stopOllama } from "./ollama-local";
+import { readYue2Status, startYue2, stopYue2, yue2Config, yue2LogSources } from "./yue2-local";
+import { readSnarkBridgeStatus, snarkBridgeConfig, snarkBridgeLogSources, startSnarkBridge, stopSnarkBridge, type SnarkBridgeStatus } from "./snarkbridge-local";
+import { registerServiceLogProvider } from "./service-logs";
 import { writeEnvValue } from "./env";
 import { localOpenAiConfigs } from "../providers/local-openai";
 import { localServiceUrl } from "./local-service-endpoints";
+import { registerAutonomousApps } from "./autonomous-apps";
 import {
   getRegisteredLocalRuntime,
   isRegisteredLocalRuntime,
@@ -26,6 +28,7 @@ import {
 const execFileAsync = promisify(execFile);
 const builtinRuntimeIds = new Set(["bonsai", "ollama", "h3", "yue2", "upscale", "snarkbridge"]);
 let pendingStart: Promise<unknown> = Promise.resolve();
+let lastSnapshot: { at: number; snapshot: LocalRuntimeSnapshot } | undefined;
 
 export type LocalRuntimeId = string;
 export type RuntimeDemand = RegisteredRuntimeDemand;
@@ -40,6 +43,7 @@ export type LocalRuntimeStatus = {
   online: boolean;
   busy: boolean;
   resourceClaim: RuntimeClaim;
+  residentModelIds?: string[];
   demand: RuntimeDemand;
   claimsOnStart: boolean;
   control: { canStart: boolean; canStop: boolean };
@@ -105,6 +109,7 @@ export async function readLocalRuntimeSnapshot(): Promise<LocalRuntimeSnapshot> 
       online: bonsai.status !== "stopped" && bonsai.status !== "error",
       busy: false,
       resourceClaim: ["starting", "loading", "ready"].includes(bonsai.status) ? "resident" : "none",
+      residentModelIds: bonsai.status === "ready" && bonsai.model_id ? [bonsai.model_id] : [],
       control: {
         canStart: bonsai.status === "stopped",
         canStop: ["starting", "loading", "ready"].includes(bonsai.status)
@@ -117,6 +122,7 @@ export async function readLocalRuntimeSnapshot(): Promise<LocalRuntimeSnapshot> 
       online: ollama.online,
       busy: false,
       resourceClaim: ollama.residentModels.length ? "resident" : "none",
+      residentModelIds: ollama.residentModels,
       control: {
         canStart: ollama.status === "stopped",
         canStop: ollama.online && (ollama.residentModels.length > 0 || ollama.status === "starting")
@@ -167,19 +173,27 @@ export async function readLocalRuntimeSnapshot(): Promise<LocalRuntimeSnapshot> 
   const dynamicDefinitions = listRegisteredLocalRuntimes().filter(runtime => !builtinRuntimeIds.has(runtime.id));
   const dynamic = await Promise.all(dynamicDefinitions.map(readDiscoveredRuntimeStatus));
   const runtimes = [...builtins, ...dynamic];
-  return {
+  const snapshot: LocalRuntimeSnapshot = {
     capturedAt: new Date().toISOString(),
     ...(gpu ? { gpu } : {}),
     memory,
     runtimes,
     pressure: pressure(runtimes, gpu, memory)
   };
+  lastSnapshot = { at: Date.now(), snapshot };
+  return snapshot;
+}
+
+/** The snapshot the runtime deck polled most recently, if it is fresh enough (avoids a second probe). */
+export function recentLocalRuntimeSnapshot(maxAgeMs: number): LocalRuntimeSnapshot | undefined {
+  return lastSnapshot && Date.now() - lastSnapshot.at <= maxAgeMs ? lastSnapshot.snapshot : undefined;
 }
 
 export function planLocalRuntimeAdmission(
   target: LocalRuntimeId,
   snapshot: LocalRuntimeSnapshot,
-  intent: AdmissionIntent = "workload"
+  intent: AdmissionIntent = "workload",
+  requestedModelId?: string
 ): LocalRuntimeAdmission {
   const status = snapshot.runtimes.find(runtime => runtime.id === target);
   const registered = getRegisteredLocalRuntime(target);
@@ -190,6 +204,12 @@ export function planLocalRuntimeAdmission(
     recommendedFreeVramMiB: registered?.recommendedFreeVramMiB
   };
   const effectiveDemand: RuntimeDemand = intent === "start" && !profile.claimsOnStart ? "none" : profile.demand;
+  // A workload on a runtime that already holds its model allocates no new weights: the VRAM it
+  // occupies is its own and must not count as GPU pressure against itself.
+  const targetHoldsItsModel = intent === "workload" && status?.online === true
+    && (status.resourceClaim === "resident" || status.resourceClaim === "active");
+  const reusesResidentTextModel = targetHoldsItsModel && (target === "bonsai" || target === "ollama")
+    && Boolean(requestedModelId && status?.residentModelIds?.includes(requestedModelId));
   const blockers: string[] = [];
   const warnings: string[] = [];
   const conflicts = new Set<LocalRuntimeId>();
@@ -225,7 +245,7 @@ export function planLocalRuntimeAdmission(
 
     if (snapshot.gpu) {
       const usedRatio = snapshot.gpu.totalMiB > 0 ? snapshot.gpu.usedMiB / snapshot.gpu.totalMiB : 0;
-      if (!blockers.length && usedRatio >= 0.7) {
+      if (!blockers.length && usedRatio >= 0.7 && !targetHoldsItsModel) {
         warnings.push(`GPU уже занят на ${Math.round(usedRatio * 100)}%: свободно ${formatGiB(snapshot.gpu.freeMiB)} из ${formatGiB(snapshot.gpu.totalMiB)}.`);
       }
       const recommended = profile.recommendedFreeVramMiB;
@@ -234,7 +254,9 @@ export function planLocalRuntimeAdmission(
       }
     }
 
-    if (snapshot.memory.totalMiB > 0 && snapshot.memory.freeMiB / snapshot.memory.totalMiB < 0.12) {
+    // Reusing verified resident weights needs working headroom; preserve the 2 GiB critical floor.
+    if (snapshot.memory.totalMiB > 0 && snapshot.memory.freeMiB / snapshot.memory.totalMiB < 0.12
+      && (!reusesResidentTextModel || snapshot.memory.freeMiB < 2048)) {
       warnings.push(`Оперативная память почти заполнена: свободно ${formatGiB(snapshot.memory.freeMiB)} из ${formatGiB(snapshot.memory.totalMiB)}. Система может начать активно свопить.`);
     }
   }
@@ -259,14 +281,14 @@ export function planLocalRuntimeAdmission(
   };
 }
 
-export async function admissionForLocalRuntime(target: LocalRuntimeId, intent: AdmissionIntent = "workload") {
+export async function admissionForLocalRuntime(target: LocalRuntimeId, intent: AdmissionIntent = "workload", requestedModelId?: string) {
   const snapshot = await readLocalRuntimeSnapshot();
   if (!snapshot.runtimes.some(runtime => runtime.id === target)) throw new Error(`Unknown local runtime: ${target}`);
-  return { snapshot, decision: planLocalRuntimeAdmission(target, snapshot, intent) };
+  return { snapshot, decision: planLocalRuntimeAdmission(target, snapshot, intent, requestedModelId) };
 }
 
-export async function assertLocalRuntimeAdmission(target: LocalRuntimeId): Promise<void> {
-  const { decision } = await admissionForLocalRuntime(target, "workload");
+export async function assertLocalRuntimeAdmission(target: LocalRuntimeId, requestedModelId?: string): Promise<void> {
+  const { decision } = await admissionForLocalRuntime(target, "workload", requestedModelId);
   if (!decision.allowed || decision.requiresConfirmation) throw new LocalRuntimeAdmissionError(decision);
 }
 
@@ -301,6 +323,7 @@ export function isLocalRuntimeId(value: string): value is LocalRuntimeId {
 }
 
 function ensureRuntimeRegistrations(): void {
+  registerAutonomousApps();
   const ollamaEndpoint = localServiceUrl('ollama_inference');
   let bonsaiEndpoint = localServiceUrl('bonsai_inference', '/v1');
   try { bonsaiEndpoint = bonsaiRuntimeConfig().baseUrl; } catch {}
@@ -308,6 +331,7 @@ function ensureRuntimeRegistrations(): void {
   if (sameLoopbackPort(bonsaiEndpoint, ollamaEndpoint)) bonsaiEndpoint = localServiceUrl('bonsai_inference', '/v1');
   registerLocalRuntimeEndpoint({ id: "bonsai", label: "Bonsai", endpoint: bonsaiEndpoint, demand: "heavy", claimsOnStart: true, source: "builtin" });
   registerLocalRuntimeController("bonsai", { start: startBonsai, stop: stopBonsai });
+  registerBuiltinLogs();
 
   registerLocalRuntimeEndpoint({ id: "ollama", label: "Ollama", endpoint: ollamaEndpoint, demand: "heavy", claimsOnStart: false, source: "builtin" });
   registerLocalRuntimeController("ollama", { start: startOllama, stop: stopOllama });
@@ -353,6 +377,17 @@ function ensureRuntimeRegistrations(): void {
   }
 }
 
+/** Where the Мастерская terminals find each built-in runtime's console output. */
+function registerBuiltinLogs(): void {
+  const managed = (title: string, path: string) => [{ id: "runtime", title, path, owner: "managed" as const }];
+  registerServiceLogProvider({ id: "bonsai", label: "Bonsai", sources: () => managed("llama-server", bonsaiLogPath()) });
+  registerServiceLogProvider({ id: "ollama", label: "Ollama", sources: () => ollamaLogSources() });
+  registerServiceLogProvider({ id: "h3", label: "H3", sources: () => managed("WSL: воркер и SGLang", h3LocalLogPath()) });
+  registerServiceLogProvider({ id: "yue2", label: "YuE2", sources: context => yue2LogSources(context) });
+  registerServiceLogProvider({ id: "upscale", label: "Upscale", sources: () => managed("uvicorn", localUpscaleLogPath()) });
+  registerServiceLogProvider({ id: "snarkbridge", label: "SnarkBridge", sources: () => snarkBridgeLogSources() });
+}
+
 function sameLoopbackPort(a: string, b: string): boolean {
   try {
     const left = new URL(a);
@@ -393,8 +428,24 @@ function runtimeBase(id: string) {
 }
 
 async function readDiscoveredRuntimeStatus(runtime: RegisteredLocalRuntime): Promise<LocalRuntimeStatus> {
-  const online = await endpointReachable(runtime.endpoint);
   const controller = localRuntimeController(runtime.id);
+  if (controller?.status) {
+    const reported = await controller.status();
+    return {
+      id: runtime.id,
+      label: runtime.label,
+      state: reported.state,
+      online: reported.online,
+      busy: reported.busy ?? false,
+      resourceClaim: "none",
+      demand: runtime.demand,
+      claimsOnStart: runtime.claimsOnStart,
+      control: { canStart: !reported.online && reported.state !== "error" && Boolean(controller.start), canStop: reported.online && Boolean(controller.stop) },
+      endpoint: runtime.endpoint,
+      ...(reported.detail ? { detail: reported.detail } : {})
+    };
+  }
+  const online = await endpointReachable(runtime.endpoint);
   const resourceClaim: RuntimeClaim = !online
     ? "none"
     : runtime.claimsOnStart

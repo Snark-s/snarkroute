@@ -51,7 +51,7 @@ function useProjectPublisher() {
   return { status, action, error, change };
 }
 
-export function ProjectPublisherControl() {
+export function ProjectPublisherControl({ logAlert = false }: { logAlert?: boolean }) {
   const { status, action, error, change } = useProjectPublisher();
 
   const running = Boolean(status?.running);
@@ -65,7 +65,7 @@ export function ProjectPublisherControl() {
   const canChange = Boolean(status?.available) && !external && !working;
   const nextAction = running ? "stop" : "start";
 
-  return <span className={`runtimeMini publisherMini ${running ? "ready" : "stopped"} ${external ? "error" : ""}`} title={error || `Project Publisher: ${label}`}>
+  return <span className={`runtimeMini publisherMini ${running ? "ready" : "stopped"} ${external ? "error" : ""}`} title={`${error || `Project Publisher: ${label}`} · правый клик: терминал`} data-service-id="publisher" data-service-label="Publisher" data-log-alert={logAlert || undefined}>
     <span className="runtimeMiniDot" />
     <span>Publisher</span>
     <button type="button" aria-label={`${nextAction === "stop" ? "Остановить" : "Запустить"} Project Publisher`} title={`${nextAction === "stop" ? "Остановить" : "Запустить"} Project Publisher`} disabled={!canChange} onClick={() => void change(nextAction)}>

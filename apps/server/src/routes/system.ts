@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
@@ -11,8 +12,13 @@ import { launcherControlRequest } from "../services/launcher-restart";
 import { isLoopbackAddress, isLoopbackHost } from "./after-effects";
 import { timingSafeEqual } from "node:crypto";
 import { appMode } from "../services/env";
+import { localServiceHome } from "../services/local-service-endpoints";
+import { autonomousApps, isAutonomousAppId, readAutonomousAppStatus, startAutonomousApp, stopAutonomousApp } from "../services/autonomous-apps";
 import { admissionForLocalRuntime, isLocalRuntimeId, LocalRuntimeAdmissionError, readLocalRuntimeSnapshot, startLocalRuntime, stopLocalRuntime } from "../services/local-runtime-supervisor";
 import { readSnarkBridgeLogs, readSnarkBridgeStatus, restartSnarkBridge } from "../services/snarkbridge-local";
+import { launchBackgroundService } from "../services/background-process";
+import { listServiceLogs, managedLogPath, readServiceLogChunk, registerServiceLogProvider, startServiceLogMaintenance, type ServiceLogSourceDef } from "../services/service-logs";
+import { recentLocalRuntimeSnapshot } from "../services/local-runtime-supervisor";
 
 type SystemAppDefinition = {
   id: string;
@@ -23,13 +29,14 @@ type SystemAppDefinition = {
   packageName?: string;
   accent: string;
   icon: string;
-  service?: "yue2";
+  service?: "yue2" | "imaginarium" | "autonomous";
 };
 
 const launcherPort = Number(process.env.LAUNCHER_PORT ?? 5172);
 const studioPort = Number(process.env.STUDIO_PORT ?? 5173);
 const canvasPort = Number(process.env.SNARKROUTE_PORT ?? 5174);
 const brandeshmygPort = Number(process.env.BRANDESHMYG_PORT ?? 5175);
+const imaginariumPort = Number(process.env.IMAGINARIUM_PORT ?? 4870);
 
 export const systemAppCatalog: readonly SystemAppDefinition[] = [
   { id: "living-canvas", name: "Живой холст", description: "Маршруты, модели и свободная сборка", url: `http://127.0.0.1:${canvasPort}`, port: canvasPort, packageName: "@snarkroute/snarkroute", accent: "violet", icon: "/snarkroute-icon.png" },
@@ -37,11 +44,16 @@ export const systemAppCatalog: readonly SystemAppDefinition[] = [
   { id: "brandeshmyg", name: "Брандешмыг", description: "Инструменты как отдельные приложения", url: `http://127.0.0.1:${brandeshmygPort}`, port: brandeshmygPort, packageName: "@snarkroute/brandeshmyg", accent: "lime", icon: "/brandeshmyg-icon.png" },
   { id: "h3", name: "H3", description: "Пространственная студия", url: `http://127.0.0.1:${studioPort}/h3`, port: studioPort, packageName: "@snarkroute/studio", accent: "cyan", icon: "/h3-studio-icon.png" },
   { id: "persona", name: "Jabberwock", description: "Продолжение задач с общей памятью", url: `http://127.0.0.1:${launcherPort}/persona`, port: launcherPort, packageName: "@snarkroute/launcher", accent: "rose", icon: "/jabberwock-icon.png" },
-  { id: "yue2", name: "YuE2", description: "Локальная генерация музыки", url: yue2Config.url, port: yue2Config.port, accent: "cyan", icon: "/yue2-icon.png", service: "yue2" }
+  { id: "yue2", name: "YuE2", description: "Локальная генерация музыки", url: yue2Config.url, port: yue2Config.port, accent: "cyan", icon: "/yue2-icon.png", service: "yue2" },
+  { id: "beamish", name: "Бимиш", description: "Snark’s Imaginarium · живая графика на JavaScript", url: `http://127.0.0.1:${imaginariumPort}`, port: imaginariumPort, accent: "amber", icon: "/beamish-icon.png", service: "imaginarium" },
+  { id: "tove", name: "Шорёк", description: "Tove · проактивный агент: цели, намерения, действия", url: `http://127.0.0.1:${autonomousApps.tove.port}`, port: autonomousApps.tove.port, accent: "amber", icon: "/tove-icon.png", service: "autonomous" },
+  { id: "factory", name: "Фабрика", description: "Factory · производство и продажа цифровых товаров", url: `http://127.0.0.1:${autonomousApps.factory.port}`, port: autonomousApps.factory.port, accent: "cyan", icon: "/factory-icon.png", service: "autonomous" }
 ];
 const launcherApp: SystemAppDefinition = { id: "launcher", name: "Мастерская", description: "Общий лаунчер", url: `http://127.0.0.1:${launcherPort}`, port: launcherPort, packageName: "@snarkroute/launcher", accent: "violet", icon: "sparkles" };
 
 export async function registerSystemRoutes(app: FastifyInstance) {
+  registerSystemLogProviders();
+  startServiceLogMaintenance();
   const local = (request: { ip: string; hostname: string; headers: { origin?: string } }) => {
     if (appMode() !== "local" || !isLoopbackAddress(request.ip) || !isLoopbackHost(request.hostname)) return false;
     if (!request.headers.origin) return true;
@@ -104,6 +116,29 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   app.get("/api/system/local-runtimes", async (request, reply) => {
     if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
     return { ok: true, ...await readLocalRuntimeSnapshot() };
+  });
+
+  // Мастерская terminals: read-only console output of local services; no command execution.
+  // Polled every second, so the requests themselves stay out of the server log.
+  app.get("/api/system/local-runtimes/logs", { logLevel: "warn" }, async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
+    const snapshot = recentLocalRuntimeSnapshot(6_000) ?? await readLocalRuntimeSnapshot();
+    const beamish = await readImaginariumStatus().catch(() => undefined);
+    const extras = [
+      { id: "snarkroute", label: "SnarkRoute", online: true },
+      { id: "beamish", label: "Beamish", ...(beamish ? { online: beamish.running } : {}) }
+    ];
+    return { ok: true, services: listServiceLogs([...extras, ...snapshot.runtimes]) };
+  });
+
+  app.get<{ Params: { serviceId: string }; Querystring: { source?: string; cursor?: string } }>("/api/system/local-runtimes/:serviceId/logs", { logLevel: "warn" }, async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
+    const cursor = request.query.cursor === undefined || request.query.cursor === "" ? undefined : Number(request.query.cursor);
+    try {
+      return { ok: true, ...readServiceLogChunk(request.params.serviceId, String(request.query.source ?? ""), cursor) };
+    } catch (error) {
+      return reply.code(404).send({ ok: false, error: errorMessage(error) });
+    }
   });
 
   app.get<{ Params: { runtimeId: string }; Querystring: { intent?: string } }>("/api/system/local-runtimes/:runtimeId/admission", async (request, reply) => {
@@ -198,6 +233,14 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   app.get("/api/system/apps", async () => ({
     ok: true,
     apps: await Promise.all(systemAppCatalog.map(async ({ packageName: _packageName, port, service, ...entry }) => {
+      if (service === "autonomous" && isAutonomousAppId(entry.id)) {
+        const state = await readAutonomousAppStatus(entry.id);
+        return { ...entry, running: state.running, status: state.state, mode: state.mode, current: state.current, generating: state.state === "working", error: state.error, controllable: true };
+      }
+      if (service === "imaginarium") {
+        const state = await readImaginariumStatus();
+        return { ...entry, running: state.running, status: state.status, generating: false, error: state.error };
+      }
       const state = service === "yue2" ? await readYue2Status() : undefined;
       return { ...entry, running: state ? state.status !== "stopped" : await isPortListening(port), status: state?.status ?? (await isPortListening(port) ? "ready" : "stopped"), generating: state?.generating ?? false, error: state?.error };
     }))
@@ -206,6 +249,28 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   app.post<{ Params: { appId: string } }>("/api/system/apps/:appId/open", async (request, reply) => {
     const target = request.params.appId === "launcher" ? launcherApp : systemAppCatalog.find((entry) => entry.id === request.params.appId);
     if (!target) return reply.code(404).send({ ok: false, error: "Unknown local application." });
+    if (target.service === "autonomous" && isAutonomousAppId(target.id)) {
+      if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+      try {
+        const before = await readAutonomousAppStatus(target.id);
+        const state = await startAutonomousApp(target.id);
+        return { ok: true, url: target.url, started: !before.running, status: state.state };
+      } catch (error) {
+        return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readAutonomousAppStatus(target.id) });
+      }
+    }
+    if (target.service === "imaginarium") {
+      if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+      try {
+        const before = await readImaginariumStatus();
+        if (before.status === "error") return reply.code(409).send({ ok: false, error: before.error });
+        if (before.status === "stopped") await startImaginarium();
+        if (before.status !== "ready") await waitFor(async () => (await readImaginariumStatus()).status === "ready", 45_000, "Snark’s Imaginarium не запустился за 45 с — см. data/server.log в его папке или запустите start-imaginarium.cmd, чтобы увидеть вывод");
+        return { ok: true, url: target.url, started: before.status !== "ready", status: "ready" };
+      } catch (error) {
+        return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readImaginariumStatus() });
+      }
+    }
     if (target.service === "yue2") {
       try {
         const before = await readYue2Status();
@@ -220,6 +285,48 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     return { ok: true, url: target.url, started: !open };
   });
 
+  app.get("/api/system/apps/beamish/status", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+    return { ok: true, url: `http://127.0.0.1:${imaginariumPort}`, ...await readImaginariumStatus() };
+  });
+
+  app.post("/api/system/apps/beamish/stop", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+    try {
+      const before = await readImaginariumStatus();
+      if (!before.running) return { ok: true, ...before };
+      if (before.status === "error") return reply.code(409).send({ ok: false, error: before.error, ...before });
+      // Imaginarium stops itself: its tasks are cancelled first, then the process exits.
+      const response = await fetch(`http://127.0.0.1:${imaginariumPort}/api/system/shutdown`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal: AbortSignal.timeout(3000) });
+      if (!response.ok) throw new Error(`Snark’s Imaginarium не принял остановку: HTTP ${response.status}`);
+      await waitFor(async () => !(await isPortListening(imaginariumPort)), 15_000, "Snark’s Imaginarium не остановился за 15 с");
+      imaginariumStartedAt = 0;
+      return { ok: true, ...await readImaginariumStatus() };
+    } catch (error) {
+      return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readImaginariumStatus() });
+    }
+  });
+
+  app.get<{ Params: { appId: string } }>("/api/system/apps/:appId/status", async (request, reply) => {
+    if (!isAutonomousAppId(request.params.appId)) return reply.code(404).send({ ok: false, error: "Unknown autonomous application." });
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+    return { ok: true, ...await readAutonomousAppStatus(request.params.appId) };
+  });
+
+  app.post<{ Params: { appId: string } }>("/api/system/apps/:appId/start", async (request, reply) => {
+    if (!isAutonomousAppId(request.params.appId)) return reply.code(404).send({ ok: false, error: "Unknown autonomous application." });
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+    try { return { ok: true, ...await startAutonomousApp(request.params.appId) }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readAutonomousAppStatus(request.params.appId) }); }
+  });
+
+  app.post<{ Params: { appId: string } }>("/api/system/apps/:appId/stop", async (request, reply) => {
+    if (!isAutonomousAppId(request.params.appId)) return reply.code(404).send({ ok: false, error: "Unknown autonomous application." });
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
+    try { return { ok: true, ...await stopAutonomousApp(request.params.appId) }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error), ...await readAutonomousAppStatus(request.params.appId) }); }
+  });
+
   app.post("/api/system/apps/yue2/stop", async (_request, reply) => {
     try { return await stopYue2(); }
     catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
@@ -231,56 +338,125 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   });
 }
 
+/* On-demand dev servers: windowless, with their console output in a terminal log. */
+const devServers: Record<string, { id: string; label: string; log: string }> = {
+  "@snarkroute/studio": { id: "studio", label: "Boojum Studio", log: "studio-dev" },
+  "@snarkroute/snarkroute": { id: "living-canvas", label: "Живой холст", log: "living-canvas-dev" },
+  "@snarkroute/brandeshmyg": { id: "brandeshmyg", label: "Брандешмыг", log: "brandeshmyg-dev" },
+  "@snarkroute/launcher": { id: "launcher-ui", label: "Мастерская (интерфейс)", log: "launcher-ui" }
+};
+
+function startPnpmDevServer(packageName: string, env: NodeJS.ProcessEnv) {
+  const server = devServers[packageName] ?? { id: packageName, label: packageName, log: packageName.replace(/[^a-z0-9]+/gi, "-") };
+  // corepack -> pnpm -> vite would each open a terminal window under a detached spawn.
+  void launchBackgroundService({
+    label: server.label, command: "corepack", args: ["pnpm", "--filter", packageName, "dev"], cwd: repoRoot, logPath: managedLogPath(server.log), env
+  }).catch(error => console.warn(`${server.label}: ${errorMessage(error)}`));
+}
+
+function registerSystemLogProviders() {
+  const managed = (id: string, title: string, log: string): ServiceLogSourceDef => ({ id, title, path: managedLogPath(log), owner: "managed" });
+  registerServiceLogProvider({ id: "snarkroute", label: "SnarkRoute", order: 0, sources: () => {
+    // The Mixar watchdog (Jabberwock Mixar Local) restarts SnarkRoute on its own and keeps that output itself.
+    const mixarHome = localServiceHome("mixar_local");
+    const mixarLog = mixarHome ? join(mixarHome, "snarkroute-autostart.log") : undefined;
+    return [
+      managed("server", "Сервер API (Мастерская)", "snarkroute-server"),
+      ...(mixarLog && existsSync(mixarLog) ? [{ id: "mixar-autostart", title: "Автозапуск Mixar watchdog", path: mixarLog, owner: "own-file" as const }] : [])
+    ];
+  } });
+  registerServiceLogProvider({ id: "publisher", label: "Publisher", order: 1, sources: () => [managed("server", "Project Publisher", "project-publisher")] });
+  registerServiceLogProvider({ id: "beamish", label: "Beamish", order: 2, sources: () => [
+    { id: "server", title: "server.log", path: join(imaginariumDir(), "data", "server.log"), owner: "own-file" },
+    managed("launch", "npm start", "imaginarium-launch")
+  ] });
+  for (const server of Object.values(devServers)) {
+    registerServiceLogProvider({ id: server.id, label: server.label, order: 80, onlyWhenPresent: true, sources: () => [managed("dev", "dev-сервер", server.log)] });
+  }
+  // Persona Bridge started at Windows logon by "Persona Bridge.vbs" (Startup folder) keeps this log itself.
+  const personaStartupLog = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, "PersonaBridge", "startup.log") : undefined;
+  registerServiceLogProvider({ id: "persona-bridge", label: "Persona Bridge", order: 85, onlyWhenPresent: true, sources: () =>
+    personaStartupLog ? [{ id: "startup", title: "Автозапуск Windows", path: personaStartupLog, owner: "own-file" }] : [] });
+}
+
 function startSystemApp(target: SystemAppDefinition) {
   if (!target.packageName) throw new Error("Application has no package launcher.");
-  const child = spawn("corepack", ["pnpm", "--filter", target.packageName, "dev"], {
-    cwd: repoRoot,
-    detached: true,
-    env: {
-      ...process.env,
-      ...(target.packageName === "@snarkroute/studio" ? { STUDIO_PORT: String(target.port) } : {}),
-      ...(target.packageName === "@snarkroute/snarkroute" ? { SNARKROUTE_PORT: String(target.port) } : {}),
-      ...(target.packageName === "@snarkroute/brandeshmyg" ? { BRANDESHMYG_PORT: String(target.port) } : {}),
-      ...(target.packageName === "@snarkroute/launcher" ? { LAUNCHER_PORT: String(target.port) } : {}),
-      VITE_API_BASE_URL: process.env.VITE_API_BASE_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? 4317}`
-    },
-    shell: process.platform === "win32",
-    stdio: "ignore",
-    windowsHide: true
+  startPnpmDevServer(target.packageName, {
+    ...process.env,
+    ...(target.packageName === "@snarkroute/studio" ? { STUDIO_PORT: String(target.port) } : {}),
+    ...(target.packageName === "@snarkroute/snarkroute" ? { SNARKROUTE_PORT: String(target.port) } : {}),
+    ...(target.packageName === "@snarkroute/brandeshmyg" ? { BRANDESHMYG_PORT: String(target.port) } : {}),
+    ...(target.packageName === "@snarkroute/launcher" ? { LAUNCHER_PORT: String(target.port) } : {}),
+    VITE_API_BASE_URL: process.env.VITE_API_BASE_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? 4317}`
   });
-  child.unref();
+}
+
+/* Snark’s Imaginarium (Beamish): a separate project next to SnarkRoute, started by the Мастерская on demand. */
+
+let imaginariumStartedAt = 0;
+
+function imaginariumDir() {
+  return process.env.IMAGINARIUM_DIR ?? join(repoRoot, "..", "snarks-imaginarium");
+}
+
+async function imaginariumHealthy(): Promise<boolean> {
+  try {
+    const response = await fetch(`http://127.0.0.1:${imaginariumPort}/api/health`, { signal: AbortSignal.timeout(1500) });
+    const body = await response.json() as { ok?: boolean; service?: string };
+    return response.ok && body.ok === true && body.service === "snarks-imaginarium";
+  } catch {
+    return false;
+  }
+}
+
+export async function readImaginariumStatus(): Promise<{ status: "stopped" | "starting" | "ready" | "error"; running: boolean; error?: string }> {
+  const starting = imaginariumStartedAt > 0 && Date.now() - imaginariumStartedAt < 45_000;
+  if (!await isPortListening(imaginariumPort)) return { status: starting ? "starting" : "stopped", running: false };
+  if (await imaginariumHealthy()) { imaginariumStartedAt = 0; return { status: "ready", running: true }; }
+  return starting ? { status: "starting", running: true } : { status: "error", running: true, error: `Порт ${imaginariumPort} занят другим процессом, не Snark’s Imaginarium` };
+}
+
+async function startImaginarium() {
+  const dir = imaginariumDir();
+  if (!existsSync(join(dir, "package.json"))) throw new Error(`Snark’s Imaginarium не найден: ${dir}`);
+  // Imaginarium writes its own data/server.log; npm's output goes to the launch log, without a window.
+  // SnarkRoute's own secrets and ports are not Imaginarium's business.
+  const { SNARKROUTE_LAUNCHER_TOKEN: _token, API_PORT: _apiPort, ...env } = process.env;
+  imaginariumStartedAt = Date.now();
+  try {
+    await launchBackgroundService({
+      label: "Snark’s Imaginarium", command: "npm", args: ["start"], cwd: dir, logPath: managedLogPath("imaginarium-launch"),
+      env: { ...env, IMAGINARIUM_PORT: String(imaginariumPort) }
+    });
+  } catch (error) {
+    imaginariumStartedAt = 0;
+    throw error;
+  }
+}
+
+async function waitFor(check: () => Promise<boolean>, timeoutMs: number, message: string) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  }
+  throw new Error(message);
 }
 
 function startBoojumStudio(studioPort: string) {
-  const child = spawn("corepack", ["pnpm", "--filter", "@snarkroute/studio", "dev"], {
-    cwd: repoRoot,
-    detached: true,
-    env: {
-      ...process.env,
-      STUDIO_PORT: studioPort,
-      VITE_API_BASE_URL: process.env.VITE_API_BASE_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? 4317}`
-    },
-    shell: process.platform === "win32",
-    stdio: "ignore",
-    windowsHide: true
+  startPnpmDevServer("@snarkroute/studio", {
+    ...process.env,
+    STUDIO_PORT: studioPort,
+    VITE_API_BASE_URL: process.env.VITE_API_BASE_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? 4317}`
   });
-  child.unref();
 }
 
 function startBrandeshmyg(brandeshmygPort: string) {
-  const child = spawn("corepack", ["pnpm", "--filter", "@snarkroute/brandeshmyg", "dev"], {
-    cwd: repoRoot,
-    detached: true,
-    env: {
-      ...process.env,
-      BRANDESHMYG_PORT: brandeshmygPort,
-      VITE_API_BASE_URL: process.env.VITE_API_BASE_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? 4317}`
-    },
-    shell: process.platform === "win32",
-    stdio: "ignore",
-    windowsHide: true
+  startPnpmDevServer("@snarkroute/brandeshmyg", {
+    ...process.env,
+    BRANDESHMYG_PORT: brandeshmygPort,
+    VITE_API_BASE_URL: process.env.VITE_API_BASE_URL ?? `http://127.0.0.1:${process.env.API_PORT ?? 4317}`
   });
-  child.unref();
 }
 
 function isPortListening(port: number): Promise<boolean> {

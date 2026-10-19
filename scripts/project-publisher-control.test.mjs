@@ -31,6 +31,7 @@ function fixture({ external = false } = {}) {
     root: 'Y:/Приложения/Project Publisher',
     port: 8765,
     spawnProcess,
+    killTree: (child) => { calls.push(['killTree', child.pid]); return child.kill(); },
     fileExists: () => true,
     portOpen: async () => open,
     healthy: async () => healthy,
@@ -53,6 +54,7 @@ test('starts and stops the exact Project Publisher child', async () => {
   assert.equal(stopped.managed, false);
   assert.equal(f.calls.filter(([name]) => name === 'spawn').length, 1);
   assert.equal(f.calls.filter(([name]) => name === 'kill').length, 1);
+  assert.equal(f.calls.filter(([name]) => name === 'killTree').length, 1);
 });
 
 test('refuses to stop or replace an external process on the port', async () => {

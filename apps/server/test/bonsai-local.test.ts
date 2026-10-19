@@ -29,6 +29,24 @@ describe("Bonsai local runtime status", () => {
     });
   });
 
+  it("reports actual resident Bonsai size even if the configured start size differs", async () => {
+    const config9b = { ...config, size: "9B" as const };
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{ id: "Ternary-Bonsai-2-9B-PQ2_0.gguf" }]
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    await expect(readBonsaiStatus({ config: config9b, fetchImpl, portListening: async () => true })).resolves.toMatchObject({
+      service: "Bonsai 2 9B", status: "ready", model_loaded: true,
+      model_id: "Ternary-Bonsai-2-9B-PQ2_0.gguf"
+    });
+    const wrongModel = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{ id: "Ternary-Bonsai-2-27B-PQ2_0.gguf" }]
+    }), { status: 200 }));
+    await expect(readBonsaiStatus({ config: config9b, fetchImpl: wrongModel, portListening: async () => true })).resolves.toMatchObject({
+      service: "Bonsai 2 27B", status: "ready", model_loaded: true,
+      model_id: "Ternary-Bonsai-2-27B-PQ2_0.gguf"
+    });
+  });
+
   it("does not claim an unrelated service on the inference port", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "another-model" }] }), { status: 200 }));
     await expect(readBonsaiStatus({ config, fetchImpl, portListening: async () => true })).resolves.toMatchObject({

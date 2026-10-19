@@ -1,0 +1,89 @@
+{
+  "_blocks_class_name": "Flux3DistilledAutoBlocks",
+  "_class_name": "Flux3DistilledModularPipeline",
+  "_diffusers_version": "0.41.0.dev0",
+  "text_encoder": [
+    "transformers",
+    "Qwen3VLForConditionalGeneration",
+    {
+      "pretrained_model_name_or_path": "black-forest-labs/flux-3-image-klein",
+      "revision": null,
+      "subfolder": "text_encoder",
+      "type_hint": [
+        "transformers",
+        "Qwen3VLForConditionalGeneration"
+      ],
+      "variant": null
+    }
+  ],
+  "tokenizer": [
+    "transformers",
+    "Qwen3VLProcessor",
+    {
+      "pretrained_model_name_or_path": "black-forest-labs/flux-3-image-klein",
+      "revision": null,
+      "subfolder": "text_encoder",
+      "type_hint": [
+        "transformers",
+        "Qwen3VLProcessor"
+      ],
+      "variant": null
+    }
+  ],
+  "transformer": [
+    "diffusers",
+    "Flux3Transformer2DModel",
+    {
+      "pretrained_model_name_or_path": "black-forest-labs/flux-3-image-klein",
+      "revision": null,
+      "subfolder": "transformer",
+      "type_hint": [
+        "diffusers",
+        "Flux3Transformer2DModel"
+      ],
+      "variant": null
+    }
+  ],
+  "vae": [
+    "diffusers",
+    "AutoencoderKLFlux2",
+    {
+      "pretrained_model_name_or_path": "black-forest-labs/flux-3-image-klein",
+      "revision": null,
+      "subfolder": "vae",
+      "type_hint": [
+        "diffusers",
+        "AutoencoderKLFlux2"
+      ],
+      "variant": null
+    }
+  ],
+  "prompt_upsampler": [
+    "transformers",
+    "Qwen3_5ForConditionalGeneration",
+    {
+      "pretrained_model_name_or_path": "black-forest-labs/flux-3-image-klein-pup",
+      "revision": null,
+      "subfolder": "",
+      "type_hint": [
+        "transformers",
+        "Qwen3_5ForConditionalGeneration"
+      ],
+      "variant": null
+    }
+  ],
+  "prompt_upsampler_processor": [
+    "transformers",
+    "AutoProcessor",
+    {
+      "pretrained_model_name_or_path": "black-forest-labs/flux-3-image-klein-pup",
+      "revision": null,
+      "subfolder": "",
+      "type_hint": [
+        "transformers",
+        "AutoProcessor"
+      ],
+      "variant": null
+    }
+  ]
+}

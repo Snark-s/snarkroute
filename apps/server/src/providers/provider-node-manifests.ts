@@ -1,6 +1,38 @@
 import { builtInNodeManifests, type SnarkNodeManifest } from "@snarkroute/nodes";
 import { isGeminiEnabled, isReplicateEnabled, isTripoEnabled } from "../services/env";
+
 export function providerNodeManifests(): SnarkNodeManifest[] {
+  return [
+    {
+      kind: "snarkroute.node",
+      schemaVersion: "0.1",
+      id: "flux3.native.generate",
+      title: "FLUX.3 Image Klein (Native Diffusers)",
+      version: "0.1.0",
+      author: { name: "SnarkRoute maintainers" },
+      license: "AGPL-3.0-or-later",
+      origin: "bundled",
+      source: "snarkroute-core",
+      category: "Image Generation",
+      description: "FLUX.3 Image Klein locally through Hugging Face Diffusers with CPU offload; no ComfyUI.",
+      enabled: process.env.FLUX3_NATIVE_ENABLED === "1",
+      permissions: { network: false, networkHosts: [], readFiles: true, writeOutputs: true, shell: false, env: ["FLUX3_NATIVE_ENABLED"] },
+      executor: { type: "builtin", runtime: "builtin", builtinRunner: "flux3.native.generate" },
+      inputs: [{ id: "prompt", type: "text", required: true, label: "Prompt" }, { id: "images", type: "image", required: false, label: "Reference images (up to 10)" }],
+      outputs: [{ id: "image", type: "image", label: "Generated PNG" }],
+      params: [
+        { id: "prompt", type: "text", label: "Prompt", default: "" },
+        { id: "seed", type: "number", label: "Seed", default: 0, min: 0, max: 2147483647, step: 1 },
+        { id: "width", type: "number", label: "Width", default: 1024, min: 256, max: 4096, step: 16 },
+        { id: "height", type: "number", label: "Height", default: 1024, min: 256, max: 4096, step: 16 },
+        { id: "steps", type: "number", label: "Steps", default: 16, min: 1, max: 100, step: 1 }
+      ]
+    },
+    ...baseProviderNodeManifests()
+  ];
+}
+
+function baseProviderNodeManifests(): SnarkNodeManifest[] {
   return [
     {
       kind: "snarkroute.node",

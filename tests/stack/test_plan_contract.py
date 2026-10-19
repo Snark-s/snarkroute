@@ -12,6 +12,30 @@ from plan_contract import execution_passed, validate_blender_code, verification_
 
 
 class PlannerContractTests(unittest.TestCase):
+    def test_scene_summary_metadata_is_not_a_blender_object_property(self):
+        for lookup in ("bpy.data.objects['Cup']", "bpy.data.objects.get('Cup')"):
+            for access in ("obj['z_profile']", "obj.get('local_bounds')"):
+                code = 'obj=' + lookup + '\nprofile=' + access + '\n__RESULT__={"passed":False}'
+                for label in ('script', 'verify'):
+                    with self.subTest(lookup=lookup, access=access, label=label):
+                        with self.assertRaisesRegex(ValueError, 'evidence'):
+                            validate_blender_code(code, label)
+        validate_blender_code('evidence={"z_profile":{}}\nprofile=evidence["z_profile"]\n__RESULT__={}', 'script')
+
+    def test_free_form_plan_cannot_replace_an_existing_mesh_datablock(self):
+        with self.assertRaisesRegex(ValueError, 'structured'):
+            validate_blender_code('obj=bpy.data.objects["Cup"]\nobj.data=new_mesh\n__RESULT__={}', 'script')
+        # Making an independent duplicate remains a valid preservation tactic.
+        validate_blender_code('src=bpy.data.objects["Cup"]\ndup=src.copy()\ndup.data=src.data.copy()\n__RESULT__={}', 'script')
+
+    def test_free_form_planner_cannot_replace_or_delete_existing_objects(self):
+        for operation in ('bpy.data.objects.remove(obj)', 'bpy.data.meshes.remove(mesh)',
+                          'bpy.data.objects.clear()', 'bpy.context.collection.objects.unlink(obj)',
+                          'bpy.ops.object.delete()'):
+            with self.subTest(operation=operation), self.assertRaisesRegex(ValueError, 'structured'):
+                validate_blender_code(operation + '\n__RESULT__={"changed":True}', 'script')
+        validate_blender_code('obj.data.vertices[0].co.x *= 0.9\n__RESULT__={"changed":1}', 'script')
+
     def test_f_unconditional_positive_verification_is_not_scene_evidence(self):
         for code in ('__RESULT__={"passed":True}',
                      'import bpy\nscene=bpy.context.scene\n__RESULT__={"passed":True}'):
@@ -60,6 +84,18 @@ class PlannerContractTests(unittest.TestCase):
             result = completed.value
         self.assertFalse(called)
         self.assertNotEqual(result, 'Готово!')
+
+    def test_failed_execution_surfaces_its_error_without_claiming_success(self):
+        tree = ast.parse((LOCAL / 'server.py').read_text(encoding='utf-8-sig'))
+        fn = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'final_text')
+        namespace = {'execution_passed': execution_passed}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), '<final_text>', 'exec'), namespace)
+        pending = namespace['final_text']('task', {'summary': 'Готово'},
+                                         {'success': False, 'error': 'missing scene property'}, {})
+        with self.assertRaises(StopIteration) as completed:
+            pending.send(None)
+        self.assertIn('missing scene property', completed.exception.value)
+        self.assertNotIn('Готово', completed.exception.value)
 
 
 if __name__ == '__main__':

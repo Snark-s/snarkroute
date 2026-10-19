@@ -1,9 +1,13 @@
-import { spawn } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { repoRoot } from "../server-paths";
 import { localServiceUrl } from "./local-service-endpoints";
+import { launchBackgroundService, PYTHON_LOG_ENV, watchProcessExit } from "./background-process";
 import { createConnection } from 'node:net';
+
+export function localUpscaleLogPath(): string {
+  return join(repoRoot, "apps", "server", "data", "local-upscale-runtime.log");
+}
 
 export type LocalUpscaleRuntimeStatus = {
   service: "Local Upscale";
@@ -102,27 +106,30 @@ export async function startLocalUpscale(): Promise<LocalUpscaleRuntimeStatus> {
 
   const python = join(config.workerRoot, ".venv", "Scripts", "python.exe");
   if (!existsSync(python)) throw new Error(`Local Upscale Python runtime was not found at ${python}`);
-  const logDirectory = join(repoRoot, "apps", "server", "data");
-  const logPath = join(logDirectory, "local-upscale-runtime.log");
-  mkdirSync(logDirectory, { recursive: true });
-  const log = openSync(logPath, "a");
+  const logPath = localUpscaleLogPath();
 
   launchStartedAt = Date.now();
   launchError = undefined;
-  const child = spawn(python, ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(config.port)], {
-    cwd: config.workerRoot,
-    detached: true,
-    windowsHide: true,
-    stdio: ["ignore", log, log],
-    env: process.env,
-    shell: false
-  });
-  closeSync(log);
-  child.once("error", error => { launchError = `${error.message} See ${logPath}`; });
-  child.once("exit", code => {
-    if (launchStartedAt) launchError = `Local Upscale exited before it became ready (code ${code ?? "unknown"}). See ${logPath}`;
-  });
-  child.unref();
+  // Windowless: the venv python.exe launcher and its interpreter share one hidden console.
+  let launched;
+  try {
+    launched = await launchBackgroundService({
+      label: "Local Upscale",
+      command: python,
+      args: ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(config.port)],
+      cwd: config.workerRoot,
+      logPath,
+      env: { ...process.env, ...PYTHON_LOG_ENV }
+    });
+  } catch (error) {
+    launchError = `${error instanceof Error ? error.message : String(error)} See ${logPath}`;
+    throw error;
+  }
+  const exited = () => {
+    if (launchStartedAt) launchError = `Local Upscale exited before it became ready. See ${logPath}`;
+  };
+  if (launched.exitedEarly) exited();
+  else if (launched.pid) watchProcessExit(launched.pid, exited);
   return result("starting", false, true, 0, config.baseUrl);
 }
 

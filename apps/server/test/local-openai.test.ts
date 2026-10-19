@@ -11,6 +11,7 @@ import {
   localOpenAiConfig,
   localOpenAiRuntimeSnapshot
 } from "../src/providers/local-openai";
+import { assertLocalRuntimeAdmission } from "../src/services/local-runtime-supervisor";
 vi.mock("../src/services/local-runtime-supervisor", () => ({ assertLocalRuntimeAdmission: vi.fn(async () => undefined) }));
 const registryFixtures: string[] = [];
 
@@ -134,6 +135,7 @@ describe.sequential("generic local OpenAI-compatible model route", () => {
     } as Parameters<typeof runner>[0]);
 
     expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8081/v1/chat/completions", expect.objectContaining({ method: "POST" }));
+    expect(assertLocalRuntimeAdmission).toHaveBeenCalledWith("bonsai", "actual-local-id");
     expect(result.output).toMatchObject({ text: "local answer", provider: "local_openai", model: "actual-local-id", estimatedCost: 0, actualCost: 0 });
     expect(result.providerUsage).toMatchObject({ provider: "local_openai", providerModel: "actual-local-id", actualCost: 0, finalCredits: 0 });
   });

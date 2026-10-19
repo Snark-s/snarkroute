@@ -303,15 +303,2792 @@
       "startedAt": "2026-10-08T12:01:59.565Z",
       "completedAt": "2026-10-08T12:22:50.408Z",
       "stage": "complete"
+    },
+    {
+      "title": "Кицуне S1 · 03-04",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. Keep the composition, lighting, character identity, architecture and props exactly as in the given frame. Printed newspaper pages stay rigid; their text and layout do not change or warp.\n\nOne continuous slow dolly-out: the camera pulls straight back from a close view of the raised open newspaper to a medium shot of the reception desk. The newspaper stays raised and motionless, only the bald crown of the concierge visible above it. The glass desk lamp and the framed sign on the pillar come into view. Smooth, steady, decelerating to a full stop.\n\nSound: quiet old hotel lobby room tone, a distant clock ticking. No music. No speech.\n\nNegative: color, morphing faces, warping or changing newspaper text, extra people, extra limbs, flicker, jump cuts, camera shake.",
+      "duration": 7,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_03.png",
+          "filename": "frame_03.png",
+          "mimeType": "image/png"
+        },
+        {
+          "slot": "lastFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_04.png",
+          "filename": "frame_04.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_14c6e314-4692-46fd-b65c-ae6bacb17bfd",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.768Z",
+      "updatedAt": "2026-10-18T10:37:44.026Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T10:21:20.852Z",
+      "workerJobId": "845176f4-cfda-43dd-9b8f-302c07a2f05a",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_14c6e314-4692-46fd-b65c-ae6bacb17bfd\\h3q_14c6e314-4692-46fd-b65c-ae6bacb17bfd-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 175,
+          "duration_seconds": 7,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  1219,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  1219
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  52,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 982.1590219120001,
+          "peak_vram_gib": 4.359375,
+          "peak_ram_gib": 21.663177490234375,
+          "peak_system_ram_gib": 19.89748764038086,
+          "peak_swap_gib": 0.000255584716796875,
+          "peak_swap_growth_gib": 0.000255584716796875,
+          "model_load_seconds": 5.0258889190000815,
+          "text_encoder_seconds": 579.566439471,
+          "diffusion_seconds": 347.56541708099996,
+          "vae_decode_seconds": 37.918332453000176,
+          "audio_seconds": 2.2940567830000873,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 3691937,
+          "output_bytes": 1674433,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T10:37:44.026Z"
+    },
+    {
+      "title": "Кицуне S1 · 05",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frame. The concierge's open newspaper stays rigid, its printed layout unchanged.\n\nLocked-off static camera. The concierge slowly lowers the newspaper a few centimetres until his eyes appear above its top edge; he looks straight into the lens, face calm and still. His hands stay at the bottom edge.\n\nSound: a door latch clicks and a heavy door creaks open off-screen, quiet lobby tone. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_05.png",
+          "filename": "frame_05.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_ff6e1ac7-a6a7-4a46-80fc-e0a1ff91341c",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.781Z",
+      "updatedAt": "2026-10-18T16:04:59.138Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T15:42:02.185Z",
+      "workerJobId": "c72ef0aa-d0f0-428b-a750-4ea578b77347",
+      "completedAt": "2026-10-18T16:04:59.138Z",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_ff6e1ac7-a6a7-4a46-80fc-e0a1ff91341c\\h3q_ff6e1ac7-a6a7-4a46-80fc-e0a1ff91341c-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  646,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  646
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1396.2182890370023,
+          "peak_vram_gib": 2.69921875,
+          "peak_ram_gib": 17.949886322021484,
+          "peak_system_ram_gib": 18.749794006347656,
+          "peak_swap_gib": 16,
+          "peak_swap_growth_gib": 0.5042304992675781,
+          "model_load_seconds": 104.99206390900144,
+          "text_encoder_seconds": 519.5101956019971,
+          "diffusion_seconds": 640.396363003998,
+          "vae_decode_seconds": 87.13023196799986,
+          "audio_seconds": 12.402909743999771,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 1916565,
+          "output_bytes": 759991,
+          "verified_gpu_inference": true
+        }
+      }
+    },
+    {
+      "title": "Кицуне S1 · 06",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. Keep the composition, lighting, character identity, architecture and props exactly as in the given frame. Printed newspaper pages stay rigid; their text and layout do not change or warp.\n\nLocked-off static camera. The right leaf of the glass entrance door stands ajar; cold street light and thin mist drift in through the gap; dust motes float in the light. The doorway stays empty.\n\nSound: faint street wind through the open door. No music. No speech.\n\nNegative: color, morphing faces, warping or changing newspaper text, extra people, extra limbs, flicker, jump cuts, camera shake.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_06.png",
+          "filename": "frame_06.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_92052c6e-6c2e-4904-94d0-a792d11928f4",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.786Z",
+      "updatedAt": "2026-10-18T11:14:56.455Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T10:50:47.891Z",
+      "workerJobId": "de8ab7d2-1442-4828-a7b7-b0491d7ead6c",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_92052c6e-6c2e-4904-94d0-a792d11928f4\\h3q_92052c6e-6c2e-4904-94d0-a792d11928f4-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  662,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  662
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1059.606538248,
+          "peak_vram_gib": 2.6796875,
+          "peak_ram_gib": 20.14853286743164,
+          "peak_system_ram_gib": 25.39666748046875,
+          "peak_swap_gib": 6.883533477783203,
+          "peak_swap_growth_gib": 0,
+          "model_load_seconds": 29.321794080000018,
+          "text_encoder_seconds": 566.2017017849998,
+          "diffusion_seconds": 436.574011574,
+          "vae_decode_seconds": 21.02171073699992,
+          "audio_seconds": 1.3804408299997704,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 2089779,
+          "output_bytes": 684384,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T11:14:56.455Z"
+    },
+    {
+      "title": "Кицуне S1 · 07",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. Keep the composition, lighting, character identity, architecture and props exactly as in the given frame. Printed newspaper pages stay rigid; their text and layout do not change or warp.\n\nStatic extreme close-up. The concierge's eyes slowly lower toward the floor. Eyebrows stay completely still; nothing else moves.\n\nSound: quiet old hotel lobby room tone, a distant clock ticking. No music. No speech.\n\nNegative: color, morphing faces, warping or changing newspaper text, extra people, extra limbs, flicker, jump cuts, camera shake.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_07.png",
+          "filename": "frame_07.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_27192626-89eb-4405-861e-c8ba5dbe67f5",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.792Z",
+      "updatedAt": "2026-10-18T11:32:40.818Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T11:14:56.457Z",
+      "workerJobId": "93cf536d-fd41-4dee-bb75-d062306d53ba",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_27192626-89eb-4405-861e-c8ba5dbe67f5\\h3q_27192626-89eb-4405-861e-c8ba5dbe67f5-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  651,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  651
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1061.9692568169999,
+          "peak_vram_gib": 2.6796875,
+          "peak_ram_gib": 25.355880737304688,
+          "peak_system_ram_gib": 25.178218841552734,
+          "peak_swap_gib": 6.839832305908203,
+          "peak_swap_growth_gib": 0,
+          "model_load_seconds": 6.166227673000776,
+          "text_encoder_seconds": 577.0357551779998,
+          "diffusion_seconds": 323.9211817070004,
+          "vae_decode_seconds": 133.77287944199998,
+          "audio_seconds": 14.919700649000333,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 1748240,
+          "output_bytes": 738259,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T11:32:40.818Z"
+    },
+    {
+      "title": "Кицуне S1 · 08",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. Keep the composition, lighting, character identity, architecture and props exactly as in the given frame. Printed newspaper pages stay rigid; their text and layout do not change or warp.\n\nStatic floor-level camera. A red fox's front paw steps down onto the dark tiles, then the second paw follows as the fox walks forward past the camera; its long shadow stretches toward the lens.\n\nSound: soft padding of paws on stone tiles. No music. No speech.\n\nNegative: color, morphing faces, warping or changing newspaper text, extra people, extra limbs, flicker, jump cuts, camera shake.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_08.png",
+          "filename": "frame_08.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_9d21fe2a-fac5-4bdd-97c0-df3ea28c46cd",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.796Z",
+      "updatedAt": "2026-10-18T11:49:55.116Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T11:32:40.823Z",
+      "workerJobId": "c5dda47b-8e71-4bcc-96b8-4e5fa6d2a38a",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_9d21fe2a-fac5-4bdd-97c0-df3ea28c46cd\\h3q_9d21fe2a-fac5-4bdd-97c0-df3ea28c46cd-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  661,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  661
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1032.603242581,
+          "peak_vram_gib": 2.69921875,
+          "peak_ram_gib": 23.92190933227539,
+          "peak_system_ram_gib": 25.401626586914062,
+          "peak_swap_gib": 7.886329650878906,
+          "peak_swap_growth_gib": 1.0464973449707031,
+          "model_load_seconds": 83.7917531309995,
+          "text_encoder_seconds": 676.672114686,
+          "diffusion_seconds": 242.2737182230003,
+          "vae_decode_seconds": 22.06782782099981,
+          "audio_seconds": 1.5820180529999561,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 2087042,
+          "output_bytes": 1108635,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T11:49:55.116Z"
+    },
+    {
+      "title": "Кицуне S1 · 09",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. Keep the composition, lighting, character identity, architecture and props exactly as in the given frame. Printed newspaper pages stay rigid; their text and layout do not change or warp.\n\nVery slow push-in. The fox's head in three-quarter view: it blinks once and shifts its gaze slightly toward the reception desk off-frame; one ear twitches. The small white star stays centred on its forehead.\n\nSound: quiet old hotel lobby room tone, a distant clock ticking. No music. No speech.\n\nNegative: color, morphing faces, warping or changing newspaper text, extra people, extra limbs, flicker, jump cuts, camera shake.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_09.png",
+          "filename": "frame_09.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_4bdd59fa-1af6-4b5c-8459-39d3019266fb",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.800Z",
+      "updatedAt": "2026-10-18T12:12:01.415Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T11:49:55.117Z",
+      "workerJobId": "46f76a38-1507-4a83-acf0-2c0c140d4d0d",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_4bdd59fa-1af6-4b5c-8459-39d3019266fb\\h3q_4bdd59fa-1af6-4b5c-8459-39d3019266fb-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  670,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  670
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1324.3547315839996,
+          "peak_vram_gib": 2.69921875,
+          "peak_ram_gib": 22.58051300048828,
+          "peak_system_ram_gib": 25.33230972290039,
+          "peak_swap_gib": 9.999835968017578,
+          "peak_swap_growth_gib": 2.115459442138672,
+          "model_load_seconds": 8.97551252499943,
+          "text_encoder_seconds": 746.5302252669999,
+          "diffusion_seconds": 422.53836149000017,
+          "vae_decode_seconds": 120.68034485000044,
+          "audio_seconds": 11.362885308999466,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 2178348,
+          "output_bytes": 1598993,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T12:12:01.415Z"
+    },
+    {
+      "title": "Кицуне S1 · 10",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. Keep the composition, lighting, character identity, architecture and props exactly as in the given frame. Printed newspaper pages stay rigid; their text and layout do not change or warp.\n\nLocked-off static camera. The concierge, newspaper lowered to chest height, looks down and to the left past the paper toward the floor; his lips move once in a short, polite, quiet greeting, then he stays still.\n\nSound: quiet lobby room tone only. Generate no speech; the line is dubbed later. No music.\n\nNegative: color, morphing faces, warping or changing newspaper text, extra people, extra limbs, flicker, jump cuts, camera shake.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_10.png",
+          "filename": "frame_10.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_a83b0a85-d7d8-481c-a951-6e7b546c5e64",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.805Z",
+      "updatedAt": "2026-10-18T12:34:30.445Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T12:12:01.418Z",
+      "workerJobId": "7fcf30d8-25b2-4fac-b806-7147e31ffb97",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_a83b0a85-d7d8-481c-a951-6e7b546c5e64\\h3q_a83b0a85-d7d8-481c-a951-6e7b546c5e64-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  671,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  671
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1348.4676520680005,
+          "peak_vram_gib": 2.69921875,
+          "peak_ram_gib": 22.39154815673828,
+          "peak_system_ram_gib": 23.64999008178711,
+          "peak_swap_gib": 10.779579162597656,
+          "peak_swap_growth_gib": 2.043659210205078,
+          "model_load_seconds": 6.889106619999438,
+          "text_encoder_seconds": 846.3240802250002,
+          "diffusion_seconds": 455.0329634439995,
+          "vae_decode_seconds": 22.082735814999978,
+          "audio_seconds": 1.7824016399999891,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 1794187,
+          "output_bytes": 519502,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T12:34:30.445Z"
+    },
+    {
+      "title": "Кицуне S1 · 11",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frame. The concierge's open newspaper stays rigid, its printed layout unchanged.\n\nVery low wide shot just above the floor. Slow pan following the small fox as it trots across the vast polished tiled floor from the entrance toward the wrought-iron cage elevator. The concierge at the far left desk stays motionless behind his raised newspaper.\n\nSound: light paw steps echoing in a large stone lobby. No music.",
+      "duration": 5,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_11.png",
+          "filename": "frame_11.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_5b5aaf38-61d2-4bb7-86f7-17efa79daa99",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.810Z",
+      "updatedAt": "2026-10-18T12:57:16.818Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "workerJobId": "2b665772-09ea-4199-a6b5-12f22c9c8fd2",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_5b5aaf38-61d2-4bb7-86f7-17efa79daa99\\h3q_5b5aaf38-61d2-4bb7-86f7-17efa79daa99-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 124,
+          "duration_seconds": 5,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  643,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  643
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  37,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1365.687813523,
+          "peak_vram_gib": 3.08984375,
+          "peak_ram_gib": 21.508148193359375,
+          "peak_system_ram_gib": 22.645248413085938,
+          "peak_swap_gib": 12.980522155761719,
+          "peak_swap_growth_gib": 2.7348785400390625,
+          "model_load_seconds": 10.38473211100063,
+          "text_encoder_seconds": 691.3706492939991,
+          "diffusion_seconds": 617.0191411229989,
+          "vae_decode_seconds": 40.341027905000374,
+          "audio_seconds": 1.485007396000583,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 2078599,
+          "output_bytes": 893768,
+          "verified_gpu_inference": true
+        }
+      },
+      "startedAt": "2026-10-18T12:34:30.447Z",
+      "completedAt": "2026-10-18T12:57:16.818Z",
+      "stage": "complete"
+    },
+    {
+      "title": "Кицуне S1 · 12",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frame. The space stays calm, uncluttered and still; only the described action moves.\n\nStatic macro of the brass elevator call button. The tiny curved reflection of the fox's face shifts slightly in the convex brass as the fox looks up at it. The empty label frame above stays still.\n\nSound: a faint electric hum of an old elevator. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_12.png",
+          "filename": "frame_12.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_318b4ce5-fbc2-4734-b496-64ef95b1d314",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.814Z",
+      "updatedAt": "2026-10-18T13:19:16.960Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "workerJobId": "331c4ffc-dff6-4288-aec5-11563a26fae0",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_318b4ce5-fbc2-4734-b496-64ef95b1d314\\h3q_318b4ce5-fbc2-4734-b496-64ef95b1d314-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  634,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  634
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1319.4853793860002,
+          "peak_vram_gib": 2.69921875,
+          "peak_ram_gib": 23.142581939697266,
+          "peak_system_ram_gib": 24.176483154296875,
+          "peak_swap_gib": 12.413593292236328,
+          "peak_swap_growth_gib": 1.0375633239746094,
+          "model_load_seconds": 156.444011313999,
+          "text_encoder_seconds": 479.34073722500034,
+          "diffusion_seconds": 655.7471829249989,
+          "vae_decode_seconds": 20.954375773999345,
+          "audio_seconds": 1.2842310390005878,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 1609845,
+          "output_bytes": 233796,
+          "verified_gpu_inference": true
+        }
+      },
+      "startedAt": "2026-10-18T12:57:16.821Z",
+      "completedAt": "2026-10-18T13:19:16.960Z",
+      "stage": "complete"
+    },
+    {
+      "title": "Кицуне S1 · 13",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frame. The concierge's open newspaper stays rigid, its printed layout unchanged.\n\nLocked-off static camera. The concierge raises the newspaper fully to reading height, hiding his face, and then it stays completely still.\n\nSound: a crisp single rustle of paper, then quiet lobby tone; the spoken line is dubbed later. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_13.png",
+          "filename": "frame_13.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_8eca16ec-4c9d-44d6-9d7b-b6842752b26f",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.819Z",
+      "updatedAt": "2026-10-18T13:37:42.071Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "workerJobId": "edb99343-c26d-4318-9dbc-84b0deb13195",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_8eca16ec-4c9d-44d6-9d7b-b6842752b26f\\h3q_8eca16ec-4c9d-44d6-9d7b-b6842752b26f-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  628,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  628
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1103.2014596059998,
+          "peak_vram_gib": 2.69921875,
+          "peak_ram_gib": 22.04521942138672,
+          "peak_system_ram_gib": 23.418132781982422,
+          "peak_swap_gib": 12.273212432861328,
+          "peak_swap_growth_gib": 0,
+          "model_load_seconds": 128.46043502199973,
+          "text_encoder_seconds": 385.3427526129999,
+          "diffusion_seconds": 457.8149552300001,
+          "vae_decode_seconds": 115.3380511840005,
+          "audio_seconds": 11.087414989000536,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 1836966,
+          "output_bytes": 995089,
+          "verified_gpu_inference": true
+        }
+      },
+      "startedAt": "2026-10-18T13:19:16.962Z",
+      "completedAt": "2026-10-18T13:37:42.071Z",
+      "stage": "complete"
+    },
+    {
+      "title": "Кицуне S1 · 14-14b",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frame. The space stays calm, uncluttered and still; only the described action moves.\n\nStatic camera. The fox sits in front of the cage elevator, turns its head back toward the distant reception desk, holds still for a moment, then turns away, rises and takes its first steps toward the staircase.\n\nSound: quiet old hotel lobby room tone, a distant clock ticking. No music.",
+      "duration": 5,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_14.png",
+          "filename": "frame_14.png",
+          "mimeType": "image/png"
+        },
+        {
+          "slot": "lastFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_14b.png",
+          "filename": "frame_14b.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_a033cb80-3ebd-40ba-93b9-0f741a291162",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.823Z",
+      "updatedAt": "2026-10-18T13:53:02.594Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "workerJobId": "6c3f8e8c-6086-4f16-b3a5-5c291c1a8cce",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_a033cb80-3ebd-40ba-93b9-0f741a291162\\h3q_a033cb80-3ebd-40ba-93b9-0f741a291162-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 124,
+          "duration_seconds": 5,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  1158,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  1158
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  37,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 919.2590722719997,
+          "peak_vram_gib": 3.2265625,
+          "peak_ram_gib": 25.518810272216797,
+          "peak_system_ram_gib": 25.08669662475586,
+          "peak_swap_gib": 10.870800018310547,
+          "peak_swap_growth_gib": 0,
+          "model_load_seconds": 9.595171552000465,
+          "text_encoder_seconds": 382.5427942229999,
+          "diffusion_seconds": 483.2672822660006,
+          "vae_decode_seconds": 24.372571941999922,
+          "audio_seconds": 6.009603349000827,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 4027489,
+          "output_bytes": 528720,
+          "verified_gpu_inference": true
+        }
+      },
+      "startedAt": "2026-10-18T13:37:42.075Z",
+      "completedAt": "2026-10-18T13:53:02.594Z",
+      "stage": "complete"
+    },
+    {
+      "title": "Кицуне S1 · 15-15b",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frame. The space stays calm, uncluttered and still; only the described action moves.\n\nStatic low-angle camera at the bottom of the staircase. The fox climbs the wooden stairs away from the camera into darkness; at the end only the tip of its tail is visible on the dark upper steps.\n\nSound: soft paw steps on wooden stairs fading upward. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261018,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_15.png",
+          "filename": "frame_15.png",
+          "mimeType": "image/png"
+        },
+        {
+          "slot": "lastFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_15b.png",
+          "filename": "frame_15b.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_ad1ee86b-8015-4c40-85ae-09be5c17bfb7",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T10:21:20.827Z",
+      "updatedAt": "2026-10-18T14:19:34.556Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "workerJobId": "cb50469a-cd25-42a7-aafb-13ee6abfb3d0",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_ad1ee86b-8015-4c40-85ae-09be5c17bfb7\\h3q_ad1ee86b-8015-4c40-85ae-09be5c17bfb7-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261018,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  1153,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  1153
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1592.8500460670002,
+          "peak_vram_gib": 2.8359375,
+          "peak_ram_gib": 22.346412658691406,
+          "peak_system_ram_gib": 25.313278198242188,
+          "peak_swap_gib": 12.070030212402344,
+          "peak_swap_growth_gib": 3.6245880126953125,
+          "model_load_seconds": 74.9787496200006,
+          "text_encoder_seconds": 914.3209310829989,
+          "diffusion_seconds": 559.7058027960011,
+          "vae_decode_seconds": 24.326866180999787,
+          "audio_seconds": 1.2772904960002052,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 4139677,
+          "output_bytes": 469731,
+          "verified_gpu_inference": true
+        }
+      },
+      "startedAt": "2026-10-18T13:53:02.595Z",
+      "completedAt": "2026-10-18T14:19:34.556Z",
+      "stage": "complete"
+    },
+    {
+      "title": "Кицуне S1 · 06 v2",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frame. The space stays calm, uncluttered and still; only the described action moves.\n\nLocked-off static camera on the empty lobby. The right leaf of the glass entrance door stands ajar; cold street light and a thin mist drift slowly in through the gap and settle low over the bare polished floor; dust motes float in the light. The doorway and the floor stay empty.\n\nSound: faint street wind through the open door. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261019,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_06.png",
+          "filename": "frame_06.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_333ffe6c-4fd3-4f3d-9553-00dc94dafed7",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T12:20:40.273Z",
+      "updatedAt": "2026-10-18T14:48:23.182Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T14:19:34.558Z",
+      "workerJobId": "36dedf05-224c-4bbf-aeeb-71c8b68a7011",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_333ffe6c-4fd3-4f3d-9553-00dc94dafed7\\h3q_333ffe6c-4fd3-4f3d-9553-00dc94dafed7-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261019,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  652,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  652
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1752.5462257039999,
+          "peak_vram_gib": 2.69921875,
+          "peak_ram_gib": 17.75609588623047,
+          "peak_system_ram_gib": 18.62445831298828,
+          "peak_swap_gib": 16,
+          "peak_swap_growth_gib": 4.883583068847656,
+          "model_load_seconds": 122.07957690599869,
+          "text_encoder_seconds": 956.309950932,
+          "diffusion_seconds": 522.119251690001,
+          "vae_decode_seconds": 115.2339399299999,
+          "audio_seconds": 11.991429088000586,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 2089779,
+          "output_bytes": 484420,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T14:48:23.182Z"
+    },
+    {
+      "title": "Кицуне S1 · 08 v2",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frame. The space stays calm, uncluttered and still; only the described action moves.\n\nStatic floor-level camera on bare dark tiles. A fox's front paw steps down onto the tiles, then the second paw follows as the fox walks forward past the camera; its long shadow stretches toward the lens. The tiles around it stay bare.\n\nSound: soft padding of paws on stone tiles. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261019,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_08.png",
+          "filename": "frame_08.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_fffd3097-6120-4ecc-905f-e5d9958a600b",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T12:20:40.284Z",
+      "updatedAt": "2026-10-18T15:03:44.948Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T14:48:23.185Z",
+      "workerJobId": "0a853b3b-7433-4aee-9b19-bdf1d2f1869a",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_fffd3097-6120-4ecc-905f-e5d9958a600b\\h3q_fffd3097-6120-4ecc-905f-e5d9958a600b-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261019,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  643,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  643
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 934.2554458750019,
+          "peak_vram_gib": 2.69921875,
+          "peak_ram_gib": 19.10094451904297,
+          "peak_system_ram_gib": 19.975982666015625,
+          "peak_swap_gib": 15.47201156616211,
+          "peak_swap_growth_gib": 1.1117477416992188,
+          "model_load_seconds": 10.794791078002163,
+          "text_encoder_seconds": 511.50984679799876,
+          "diffusion_seconds": 378.5306584220016,
+          "vae_decode_seconds": 23.508790184001555,
+          "audio_seconds": 1.3001208449968544,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 2087042,
+          "output_bytes": 879605,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T15:03:44.948Z"
+    },
+    {
+      "title": "Кицуне S1 · 09 v2",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frame. The space stays calm, uncluttered and still; only the described action moves.\n\nVery slow push-in on the fox's head in three-quarter view against the dark, softly blurred lobby. It blinks once and shifts its gaze slightly toward the reception desk off-frame; one ear twitches. The small white star stays centred on its forehead. The dark background stays soft and plain.\n\nSound: quiet old hotel lobby room tone, a distant clock ticking. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261019,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_09.png",
+          "filename": "frame_09.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_e7d32788-79a8-4c44-bcf7-355fb272e909",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T12:20:40.288Z",
+      "updatedAt": "2026-10-18T15:21:04.385Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T15:03:44.951Z",
+      "workerJobId": "7d45cfde-feac-45fd-9925-9e34e127b46a",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_e7d32788-79a8-4c44-bcf7-355fb272e909\\h3q_e7d32788-79a8-4c44-bcf7-355fb272e909-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261019,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  658,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  658
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1049.7168162180024,
+          "peak_vram_gib": 2.69921875,
+          "peak_ram_gib": 19.327327728271484,
+          "peak_system_ram_gib": 20.111740112304688,
+          "peak_swap_gib": 15.637767791748047,
+          "peak_swap_growth_gib": 2.833751678466797,
+          "model_load_seconds": 74.90421925099872,
+          "text_encoder_seconds": 469.99232050499995,
+          "diffusion_seconds": 473.5200874479997,
+          "vae_decode_seconds": 23.361797830002615,
+          "audio_seconds": 1.400486243001069,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 2178348,
+          "output_bytes": 1025963,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T15:21:04.385Z"
+    },
+    {
+      "title": "Кицуне S1 r3 · 03-03m",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frames. The concierge's open newspaper stays flat and rigid, its printed layout unchanged; his face, head shape, hands and arm length stay exactly the same throughout.\n\nOne slow, perfectly straight dolly-out: the camera glides back from the raised open newspaper. The concierge, the newspaper and the hands holding it stay completely still. Steady constant speed.\n\nSound: quiet old hotel lobby room tone, a distant clock ticking. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261020,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_03.png",
+          "filename": "frame_03.png",
+          "mimeType": "image/png"
+        },
+        {
+          "slot": "lastFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\_revision3\\frame_03m.png",
+          "filename": "frame_03m.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_22c173da-c163-47a5-a039-f2d605432149",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T17:31:16.532Z",
+      "updatedAt": "2026-10-18T23:20:29.550Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T23:00:32.915Z",
+      "workerJobId": "51684971-6cf9-41b6-a4ef-3672756f13b4",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_22c173da-c163-47a5-a039-f2d605432149\\h3q_22c173da-c163-47a5-a039-f2d605432149-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261020,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  1169,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  1169
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1196.291638004,
+          "peak_vram_gib": 2.81640625,
+          "peak_ram_gib": 22.15906524658203,
+          "peak_system_ram_gib": 19.896953582763672,
+          "peak_swap_gib": 0,
+          "peak_swap_growth_gib": 0,
+          "model_load_seconds": 71.29273259299997,
+          "text_encoder_seconds": 577.413172772,
+          "diffusion_seconds": 517.0514708200001,
+          "vae_decode_seconds": 23.563162017999957,
+          "audio_seconds": 1.7180547799998749,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 3858284,
+          "output_bytes": 1070466,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T23:20:29.550Z"
+    },
+    {
+      "title": "Кицуне S1 r3 · 03m-04",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frames. The concierge's open newspaper stays flat and rigid, its printed layout unchanged; his face, head shape, hands and arm length stay exactly the same throughout.\n\nThe same slow straight dolly-out continues at the same speed and gently decelerates to a full stop on a medium shot of the reception desk. The concierge, the newspaper and his hands stay completely still; the desk and the glass lamp keep their exact shape.\n\nSound: quiet old hotel lobby room tone, a distant clock ticking. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261020,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\_revision3\\frame_03m.png",
+          "filename": "frame_03m.png",
+          "mimeType": "image/png"
+        },
+        {
+          "slot": "lastFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_04.png",
+          "filename": "frame_04.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_3bb2a685-813b-48e2-a90d-dc1b4373caa3",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T17:31:16.546Z",
+      "updatedAt": "2026-10-19T07:42:23.292Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-19T07:25:26.366Z",
+      "workerJobId": "d6a398bc-7b56-42fe-9a03-d8e7922b78f6",
+      "completedAt": "2026-10-19T07:42:23.292Z",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_3bb2a685-813b-48e2-a90d-dc1b4373caa3\\h3q_3bb2a685-813b-48e2-a90d-dc1b4373caa3-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261020,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  1183,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  1183
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 951.3520898869999,
+          "peak_vram_gib": 2.796875,
+          "peak_ram_gib": 22.170085906982422,
+          "peak_system_ram_gib": 20.057239532470703,
+          "peak_swap_gib": 0,
+          "peak_swap_growth_gib": 0,
+          "model_load_seconds": 66.32991839700006,
+          "text_encoder_seconds": 566.473381259,
+          "diffusion_seconds": 171.72379843800002,
+          "vae_decode_seconds": 112.172394349,
+          "audio_seconds": 13.737152030999937,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 3777449,
+          "output_bytes": 822065,
+          "verified_gpu_inference": true
+        }
+      }
+    },
+    {
+      "title": "Кицуне S1 r3 · 05-05b",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frames. The concierge's open newspaper stays flat and rigid, its printed layout unchanged; his face, head shape, hands and arm length stay exactly the same throughout.\n\nLocked-off static camera. The concierge slowly lowers the newspaper a few centimetres until his eyes appear above its top edge, then looks straight into the lens and stays still.\n\nSound: a door latch clicks and a heavy door creaks open off-screen, quiet lobby tone. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261020,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_05.png",
+          "filename": "frame_05.png",
+          "mimeType": "image/png"
+        },
+        {
+          "slot": "lastFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\_revision3\\frame_05b.png",
+          "filename": "frame_05b.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_f61ee650-a9fa-410b-8762-00d156b924df",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T17:31:16.551Z",
+      "updatedAt": "2026-10-18T23:57:26.206Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T23:34:07.166Z",
+      "workerJobId": "2331fdab-8bf0-4aae-9bec-57fa842b2414",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_f61ee650-a9fa-410b-8762-00d156b924df\\h3q_f61ee650-a9fa-410b-8762-00d156b924df-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261020,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  1172,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  1172
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1091.5945306489998,
+          "peak_vram_gib": 2.81640625,
+          "peak_ram_gib": 24.29134750366211,
+          "peak_system_ram_gib": 24.21841812133789,
+          "peak_swap_gib": 2.8773651123046875,
+          "peak_swap_growth_gib": 2.2219314575195312,
+          "model_load_seconds": 9.403787862999707,
+          "text_encoder_seconds": 384.36077183399993,
+          "diffusion_seconds": 550.3034072589999,
+          "vae_decode_seconds": 122.54638160100012,
+          "audio_seconds": 13.642960170999686,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 3854564,
+          "output_bytes": 752249,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-18T23:57:26.206Z"
+    },
+    {
+      "title": "Кицуне S1 r3 · 06",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frames. The empty lobby stays calm and still; only the door moves.\n\nLocked-off static camera on the empty lobby. The right leaf of the glass entrance door slowly swings a little further open by itself and comes to rest. The doorway stays empty. The air is clear; daylight from the street lies in a long bright rectangle on the polished floor.\n\nSound: a faint creak of the door hinge, quiet lobby tone. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261020,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_06.png",
+          "filename": "frame_06.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_46e7e4db-e703-4a6f-8a25-2f156fbbb32b",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T17:31:16.556Z",
+      "updatedAt": "2026-10-19T00:14:26.014Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-18T23:57:26.208Z",
+      "workerJobId": "d95db240-9e47-4646-81af-f75b34528282",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_46e7e4db-e703-4a6f-8a25-2f156fbbb32b\\h3q_46e7e4db-e703-4a6f-8a25-2f156fbbb32b-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261020,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  648,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  648
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1017.2824752820002,
+          "peak_vram_gib": 2.6796875,
+          "peak_ram_gib": 23.39678192138672,
+          "peak_system_ram_gib": 23.9923095703125,
+          "peak_swap_gib": 4.1832275390625,
+          "peak_swap_growth_gib": 1.3058624267578125,
+          "model_load_seconds": 11.610345180999957,
+          "text_encoder_seconds": 565.0207475870002,
+          "diffusion_seconds": 378.5210929030004,
+          "vae_decode_seconds": 54.36166016400057,
+          "audio_seconds": 1.2547902610003803,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 2089779,
+          "output_bytes": 524253,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-19T00:14:26.014Z"
+    },
+    {
+      "title": "Кицуне S1 r3 · 07",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frames. His face and eyebrows stay exactly the same throughout.\n\nStatic extreme close-up. The concierge's eyes slowly lower and turn toward the lower right of the frame, toward the floor at his left side, then stay there. Eyebrows and face completely still.\n\nSound: quiet old hotel lobby room tone, a distant clock ticking. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261020,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\_revision3\\frame_07.png",
+          "filename": "frame_07.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_28b98330-41b9-4b4f-abff-4520513665c3",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T17:31:16.561Z",
+      "updatedAt": "2026-10-19T00:18:39.783Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-19T00:14:26.016Z",
+      "workerJobId": "642509cc-5e43-4805-8402-912c3f78752b",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_28b98330-41b9-4b4f-abff-4520513665c3\\h3q_28b98330-41b9-4b4f-abff-4520513665c3-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261020,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  631,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  631
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 252.53954483600046,
+          "peak_vram_gib": 2.6796875,
+          "peak_ram_gib": 23.897289276123047,
+          "peak_system_ram_gib": 23.317325592041016,
+          "peak_swap_gib": 4.1832275390625,
+          "peak_swap_growth_gib": 0,
+          "model_load_seconds": 11.17891026199959,
+          "text_encoder_seconds": 53.04803877300037,
+          "diffusion_seconds": 151.2613885689998,
+          "vae_decode_seconds": 24.907089221000206,
+          "audio_seconds": 1.2667961159995684,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 1926298,
+          "output_bytes": 643829,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-19T00:18:39.783Z"
+    },
+    {
+      "title": "Кицуне S1 r3 · 10",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frames. The concierge's open newspaper stays flat and rigid, its printed layout unchanged; his face, head shape, hands and arm length stay exactly the same throughout.\n\nLocked-off static camera. The concierge, newspaper lowered to chest height, keeps looking down over it toward the floor at the right side of the frame; his lips move once in a short, quiet, polite greeting, then he stays still.\n\nSound: quiet lobby room tone; the spoken line is dubbed later. No music.",
+      "duration": 4,
+      "aspectRatio": "16:9",
+      "seed": 20261020,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\_revision3\\frame_10.png",
+          "filename": "frame_10.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_86bc872d-c94f-4077-b6f2-0b87a0a01361",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T17:31:16.566Z",
+      "updatedAt": "2026-10-19T00:39:20.557Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-19T00:18:39.786Z",
+      "workerJobId": "1531fb0e-6e0e-4a9d-8b4c-91e3ade20fea",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_86bc872d-c94f-4077-b6f2-0b87a0a01361\\h3q_86bc872d-c94f-4077-b6f2-0b87a0a01361-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 107,
+          "duration_seconds": 4,
+          "steps": 6,
+          "seed": 20261020,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  660,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  660
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  32,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1238.9531644219996,
+          "peak_vram_gib": 2.6796875,
+          "peak_ram_gib": 20.215190887451172,
+          "peak_system_ram_gib": 21.001644134521484,
+          "peak_swap_gib": 7.6240081787109375,
+          "peak_swap_growth_gib": 3.4407806396484375,
+          "model_load_seconds": 23.19118443699972,
+          "text_encoder_seconds": 630.2338760770008,
+          "diffusion_seconds": 547.4650294410003,
+          "vae_decode_seconds": 23.385719066999627,
+          "audio_seconds": 1.5675544530004117,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 1797665,
+          "output_bytes": 518701,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-19T00:39:20.557Z"
+    },
+    {
+      "title": "Кицуне S1 r3 · 11",
+      "operation": "first_last_frame",
+      "prompt": "Black-and-white pictorialist cinema: soft lens, charcoal blacks, ivory highlights, slow deliberate motion. One continuous, stable shot. Keep the composition, lighting, character identity and architecture exactly as in the given frames. The concierge at the far left desk stays motionless behind his raised newspaper.\n\nVery low wide shot just above the floor. Slow pan following the small fox as it trots across the polished tiled floor from the entrance straight to the wrought-iron cage elevator just right of the doors, and stops in front of it, head raised toward the call button. The staircase stays empty.\n\nSound: light paw steps echoing in a large stone lobby. No music.",
+      "duration": 5,
+      "aspectRatio": "16:9",
+      "seed": 20261020,
+      "variants": 1,
+      "renderMode": "preview",
+      "modelVariant": "10eros_max_turbo",
+      "inferenceSteps": 6,
+      "attentionMode": "dense",
+      "assets": [
+        {
+          "slot": "firstFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\frame_11.png",
+          "filename": "frame_11.png",
+          "mimeType": "image/png"
+        },
+        {
+          "slot": "lastFrame",
+          "kind": "image",
+          "path": "Y:\\Процесс\\Амбрелла\\e02\\1\\раскадровка\\_revision3\\frame_11b.png",
+          "filename": "frame_11b.png",
+          "mimeType": "image/png"
+        }
+      ],
+      "id": "h3q_09c530e2-23a7-47c5-9f4a-16d9f28dc585",
+      "status": "succeeded",
+      "progress": 1,
+      "createdAt": "2026-10-18T17:31:16.572Z",
+      "updatedAt": "2026-10-19T01:03:37.164Z",
+      "vaeMode": "stock",
+      "selectedForRun": true,
+      "stage": "complete",
+      "startedAt": "2026-10-19T00:39:20.560Z",
+      "workerJobId": "2badc0cc-95a7-4f45-8cd1-a7bac965862a",
+      "resultPaths": [
+        "Y:\\Процесс\\SnarkRoute\\apps\\server\\data\\h3-studio\\results\\h3q_09c530e2-23a7-47c5-9f4a-16d9f28dc585\\h3q_09c530e2-23a7-47c5-9f4a-16d9f28dc585-0.mp4"
+      ],
+      "resultMetadata": {
+        "provider": "local",
+        "model": "10eros_max_turbo",
+        "provenance": {
+          "backend": "matlow_int8",
+          "backend_version": "model:8a8dffaa0cd99c6184833ae0a3b4e9b0089c17b3;comfy:f938505952476e48a12687eac696cdc94d48a3fe;kitchen:0.2.31",
+          "model_revision": "8a198588c8870ab0d613b3492a3150d091c8c2dd",
+          "variant": "fl2va",
+          "model_variant": "10eros_max_turbo",
+          "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU",
+          "vram_gib": 15.99951171875,
+          "resolution": "960x544",
+          "frames": 124,
+          "duration_seconds": 5,
+          "steps": 6,
+          "seed": 20261020,
+          "quantization": "comfy_quant:w4a8_14gb_optimized",
+          "sampler": "lcm",
+          "scheduler": "simple",
+          "flow_parameters": {
+            "shift_video": 12,
+            "shift_audio": 3
+          },
+          "guidance": {
+            "type": "basic",
+            "cfg": null
+          },
+          "attention_backend": "dense",
+          "attention": {
+            "mode": "dense",
+            "active": false,
+            "reason": "disabled by configuration"
+          },
+          "vae_tile_size": 256,
+          "lora": {
+            "enabled": true,
+            "kind": "fused_turbo"
+          },
+          "references": null,
+          "conditioning": {
+            "encoder": "MiniMaxH3ImageToVideo",
+            "slot": "keyframes",
+            "conditioning_shapes": [
+              {
+                "path": "root[0][0]",
+                "shape": [
+                  1,
+                  1171,
+                  5120
+                ]
+              },
+              {
+                "path": "root[0][1].minimax_token_tags",
+                "shape": [
+                  1171
+                ]
+              }
+            ],
+            "latent_shapes": [
+              {
+                "path": "root.samples",
+                "shape": [
+                  1,
+                  24,
+                  37,
+                  34,
+                  60
+                ]
+              }
+            ]
+          },
+          "render_time_seconds": 1455.008565186,
+          "peak_vram_gib": 3.20703125,
+          "peak_ram_gib": 17.142375946044922,
+          "peak_system_ram_gib": 18.068775177001953,
+          "peak_swap_gib": 10.429191589355469,
+          "peak_swap_growth_gib": 3.4396018981933594,
+          "model_load_seconds": 125.84210893999898,
+          "text_encoder_seconds": 846.784820416,
+          "diffusion_seconds": 446.2525049579999,
+          "vae_decode_seconds": 26.332352720999552,
+          "audio_seconds": 2.177257909000218,
+          "kernel": "comfy_kitchen.int8_linear.cuda",
+          "input_bytes": 4068777,
+          "output_bytes": 591322,
+          "verified_gpu_inference": true
+        }
+      },
+      "completedAt": "2026-10-19T01:03:37.164Z"
     }
   ],
   "session": {
-    "id": "h3s_5edb772f-b0e2-4723-b786-7e71a4f4a97a",
+    "id": "h3s_b724ec55-0dc7-4549-9e6f-415e65c9e93a",
     "mode": "saved_worker",
     "status": "completed",
     "cleanupConfirmed": true,
-    "createdAt": "2026-10-08T12:01:59.536Z",
-    "updatedAt": "2026-10-08T12:22:50.411Z",
-    "completedAt": "2026-10-08T12:22:50.411Z"
+    "createdAt": "2026-10-19T07:25:26.349Z",
+    "updatedAt": "2026-10-19T07:42:23.300Z",
+    "completedAt": "2026-10-19T07:42:23.300Z"
   }
 }

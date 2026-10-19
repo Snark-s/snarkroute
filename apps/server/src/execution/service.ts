@@ -2,6 +2,7 @@ import { createExecutor } from "@snarkroute/executor";
 import { createGeminiLlmNodeRunner, createNanoBanana2NodeRunner } from "@snarkroute/gemini";
 import { createH3HostedNodeRunner, createH3NodeRunner, parseH3ModelVariant } from "@snarkroute/h3";
 import { createLocalUpscaleNodeRunner } from "@snarkroute/local-upscale";
+import { createNativeFlux3NodeRunner } from "../providers/flux3-native";
 import { createProductionVideoUpscaleNodeRunner } from "../services/video-upscale";
 import { registerBuiltInNodeRunners } from "@snarkroute/nodes";
 import { createClarityUpscalerNodeRunner, createReplicate3DNodeRunner, createReplicateNodeRunner } from "@snarkroute/replicate";
@@ -60,6 +61,7 @@ export async function createRouteExecutor() {
   executor.registerNodeRunner("polza.video.generate", guardProviderRunner("polza", createPolzaVideoNodeRunner()));
   executor.registerNodeRunner("ai.text", createRemoteTextNodeRunner(modelResolver));
   executor.registerNodeRunner("ai.image.generate", createRemoteImageNodeRunner(modelResolver));
+  executor.registerNodeRunner("flux3.native.generate", createNativeFlux3NodeRunner());
   const openRouterVideoRunner = guardProviderRunner("openrouter", createOpenRouterVideoNodeRunner());
   const polzaVideoRunner = guardProviderRunner("polza", createPolzaVideoNodeRunner());
   const kieVideoRunner = guardProviderRunner("kie", createKieNodeRunner("video.generate"));

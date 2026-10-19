@@ -2,9 +2,16 @@ import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { join, resolve } from 'node:path';
+import { closeSync, mkdirSync, openSync, writeFileSync, writeSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { registeredPort } from './local-service-registry.mjs';
+import { rotateLogIfLarge } from './windowless-launch.mjs';
+
+/** Console output of the API server for the Мастерская terminal (rotated by the server itself). */
+export function serverLogPath(root) {
+  return join(root, 'apps', 'server', 'data', 'logs', 'snarkroute-server.log');
+}
 
 export function allowedControlOrigin(origin) {
   if (!origin) return true;
@@ -307,32 +314,40 @@ export async function startLauncherControl({
         );
       }
 
-      child = spawn(
-        launch.command,
-        launch.args,
-        {
-          cwd: launch.cwd,
+      // stdout/stderr go to a log file instead of the launcher's (hidden) console: the
+      // Мастерская terminal shows it live, and a failed start points to the real error there.
+      const logPath = serverLogPath(root);
+      mkdirSync(dirname(logPath), { recursive: true });
+      rotateLogIfLarge(logPath);
+      const log = openSync(logPath, 'a');
+      writeSync(log, `\n[${new Date().toISOString()}] ▶ SnarkRoute API: запуск из Мастерской\n`);
 
-          env: {
-            ...launch.env,
-            SNARKROUTE_LAUNCHER_CONTROL_PORT:
-              String(controlPort),
-          },
+      try {
+        child = spawn(
+          launch.command,
+          launch.args,
+          {
+            cwd: launch.cwd,
 
-          windowsHide: true,
+            env: {
+              ...launch.env,
+              SNARKROUTE_LAUNCHER_CONTROL_PORT:
+                String(controlPort),
+            },
 
-          // ВАЖНО:
-          // stdout/stderr теперь видны в консоли launcher.
-          // Если сервер снова не стартует,
-          // мы увидим настоящую ошибку сразу.
-          stdio: [
-            'ignore',
-            'inherit',
-            'inherit',
-            'ipc',
-          ],
-        }
-      );
+            windowsHide: true,
+
+            stdio: [
+              'ignore',
+              log,
+              log,
+              'ipc',
+            ],
+          }
+        );
+      } finally {
+        closeSync(log);
+      }
 
       authorized = true;
 
@@ -352,6 +367,12 @@ export async function startLauncherControl({
         current.once('spawn', resolve);
         current.once('error', reject);
       });
+
+      try {
+        writeFileSync(`${logPath}.launch.json`, JSON.stringify({
+          label: 'SnarkRoute API', pid: current.pid, startedAt: new Date().toISOString(),
+        }), 'utf8');
+      } catch {}
     },
 
     stop: async () => {

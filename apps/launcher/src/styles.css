@@ -124,3 +124,66 @@ button:disabled { opacity: .5; cursor: wait; } .spin { animation: spin 1s linear
 @media (max-width: 1200px) { .agentHeaderStatus { width: 100%; justify-content: flex-start; } }
 @media (max-width: 680px) { .launcherPage { width: min(100% - 28px, 560px); padding-top: 38px; } .hero { align-items: flex-start; flex-direction: column; } .heroRuntimes, .agentHeaderStatus { width: 100%; justify-content: flex-start; } .bonsaiRuntime { width: 100%; flex-wrap: wrap; } .bonsaiState { flex: 1 1 100%; } .launcherBrand { align-items: flex-start; gap: 14px; } .launcherBrand > img { width: 58px; height: 58px; } .appGrid { grid-template-columns: 1fr; } .personaPage { height: auto; min-height: 100vh; display: block; overflow: visible; } .taskRail { height: auto; min-height: auto; overflow: visible; border-right: 0; border-bottom: 1px solid #22283a; } .taskList { max-height: 210px; } .agentWorkspace { height: auto; min-height: 100vh; overflow: visible; padding: 28px 16px; } .agentWorkspace > header { align-items: flex-start; flex-direction: column; } .conversation { overflow: visible; } .controlPanel { grid-template-columns: 1fr; } .composer { grid-template-columns: 46px 1fr; } .composer .runButton { grid-column: 1 / -1; min-height: 48px; } }
  .restartRuntime{display:flex;flex-direction:column;gap:4px;max-width:280px}.restartRuntime button{padding:7px 12px;border:1px solid #d3d7db;border-radius:8px;cursor:pointer}.restartRuntime button:disabled{opacity:.6;cursor:wait}.restartRuntime small{font-size:11px}.restartRuntime [role="alert"]{color:#b43c32}
+.autonomousCard .status.autonomous { display:flex; align-items:center; gap:7px; }
+.autonomousDot { width:8px; height:8px; border-radius:50%; background:#687287; flex:0 0 auto; }
+.status.autonomous.ready .autonomousDot { background:#8de888; box-shadow:0 0 10px #8de88877; }
+.status.autonomous.working .autonomousDot, .status.autonomous.starting .autonomousDot, .status.autonomous.stopping .autonomousDot { background:#ffc85d; box-shadow:0 0 10px #ffc85d66; animation:pulseRuntime 1s ease-in-out infinite alternate; }
+.status.autonomous.paused .autonomousDot, .status.autonomous.paused_gpu .autonomousDot { background:#7fa8ff; }
+.status.autonomous.error .autonomousDot, .status.autonomous.unavailable .autonomousDot { background:#ff6e9f; }
+.autonomousDetail { position:relative; z-index:2; display:block; margin-top:6px; color:#8f98ad; font-size:12px; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+/* Мастерская terminals */
+.runtimeMini[data-log-alert] { position:relative; }
+.runtimeMini[data-log-alert]::after { content:""; position:absolute; top:-3px; right:-3px; width:8px; height:8px; border-radius:50%; background:#ff5f8f; box-shadow:0 0 0 2px #101522, 0 0 8px #ff5f8f99; }
+.terminalsButton { position:relative; display:flex; align-items:center; gap:5px; min-height:28px; padding:3px 9px 3px 7px; border:1px solid #2d3547; border-radius:9px; background:#171c29; color:#bac3d6; font:inherit; font-size:12px; font-weight:700; white-space:nowrap; cursor:pointer; }
+.terminalsButton:hover { color:#fff; background:#222939; }
+.terminalsButton svg { width:13px; height:13px; }
+.terminalsButton.alert::after { content:""; position:absolute; top:-3px; right:-3px; width:8px; height:8px; border-radius:50%; background:#ff5f8f; box-shadow:0 0 0 2px #101522; }
+.terminalPanel { position:relative; margin:0 0 22px; border:1px solid #2a3245; border-radius:14px; background:#0c1019; overflow:hidden; box-shadow:0 18px 50px #0007; }
+.terminalTabs { display:flex; align-items:center; gap:8px; padding:6px 8px; border-bottom:1px solid #1f2636; background:#101522; }
+.terminalPanel.collapsed .terminalTabs { border-bottom:0; }
+.terminalTabsIcon { flex:none; width:14px; height:14px; color:#7f899d; }
+.terminalTabList { display:flex; gap:4px; flex:1; min-width:0; overflow-x:auto; scrollbar-width:thin; }
+.terminalTab { position:relative; display:flex; align-items:center; gap:6px; flex:none; padding:4px 9px; border:1px solid transparent; border-radius:8px; background:transparent; color:#98a2b6; font:inherit; font-size:12px; font-weight:700; cursor:pointer; }
+.terminalTab:hover { color:#e6e9f2; background:#171c29; }
+.terminalTab.active { color:#fff; border-color:#343d52; background:#1b2131; }
+.terminalTab.nolog { opacity:.6; }
+.terminalTabDot { width:6px; height:6px; border-radius:50%; background:#3f4759; }
+.terminalTabDot.on { background:#8de888; }
+.terminalTabDot.off { background:#667084; }
+.terminalAlertDot { width:7px; height:7px; border-radius:50%; background:#ff5f8f; box-shadow:0 0 8px #ff5f8f99; }
+.terminalTabActions { display:flex; gap:4px; }
+.terminalTabActions button, .terminalToolbar > button { display:grid; place-items:center; min-width:26px; height:26px; padding:0 6px; border:1px solid #2a3245; border-radius:7px; background:#161b28; color:#aeb7ca; font:inherit; font-size:11px; font-weight:700; cursor:pointer; }
+.terminalTabActions button:hover, .terminalToolbar > button:hover { color:#fff; background:#222939; }
+.terminalToolbar > button.active { color:#ffc85d; border-color:#5e5435; }
+.terminalTabActions svg, .terminalToolbar svg { width:13px; height:13px; }
+.terminalView { display:flex; flex-direction:column; }
+.terminalToolbar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:6px 8px; border-bottom:1px solid #1a2030; }
+.terminalSources { display:flex; gap:3px; flex-wrap:wrap; }
+.terminalSources button { padding:3px 8px; border:1px solid #262e40; border-radius:999px; background:#121724; color:#8f99ad; font:inherit; font-size:11px; font-weight:700; cursor:pointer; }
+.terminalSources button.active { color:#fff; border-color:#4a5571; background:#1f2638; }
+.terminalSources button:disabled { opacity:.4; cursor:default; }
+.terminalSearch { display:flex; align-items:center; gap:5px; height:26px; padding:0 8px; border:1px solid #2a3245; border-radius:7px; background:#0f131d; color:#7f899d; }
+.terminalSearch input { width:150px; border:0; outline:0; background:transparent; color:#e6e9f2; font:inherit; font-size:12px; }
+.terminalMatchCount { color:#7f899d; font-size:11px; font-variant-numeric:tabular-nums; }
+.terminalToolbarSpacer { flex:1; }
+.terminalNote { padding:6px 10px; border-bottom:1px solid #1a2030; background:#16131c; color:#d9b98a; font-size:12px; }
+.terminalBody { overflow:auto; padding:6px 0; font:12px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace; color:#cfd5e2; background:#0a0d14; }
+.terminalLine { padding:0 12px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.terminalLine.error { color:#ff9dbb; background:#2a0f1a66; }
+.terminalLine.warn { color:#ffd88a; }
+.terminalLine.current { outline:1px solid #ffc85d66; }
+.terminalLine mark { padding:0 1px; border-radius:2px; background:#ffc85d; color:#16101c; }
+.terminalPlaceholder, .terminalEmpty { padding:18px 14px; color:#7f899d; font:12px ui-sans-serif, system-ui, sans-serif; }
+.terminalStatus { display:flex; justify-content:space-between; gap:12px; padding:4px 10px; border-top:1px solid #1a2030; color:#667084; font-size:11px; }
+.terminalStatus span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.terminalStatus span:last-child { flex:none; }
+.terminalResize { height:7px; cursor:ns-resize; background:linear-gradient(#0c1019, #0c1019) padding-box; border-top:1px solid #1a2030; }
+.terminalResize:hover { background:#232a3b; }
+.terminalMenu { position:fixed; z-index:50; padding:4px; border:1px solid #343d52; border-radius:9px; background:#141927; box-shadow:0 12px 30px #000a; }
+.terminalMenu button { display:flex; align-items:center; gap:7px; padding:6px 10px; border:0; border-radius:6px; background:transparent; color:#e6e9f2; font:inherit; font-size:12px; font-weight:700; white-space:nowrap; cursor:pointer; }
+.terminalMenu button:hover { background:#232a3b; }
+.terminalMenu svg { width:13px; height:13px; }
+.terminalPage { display:flex; flex-direction:column; height:100vh; background:#0a0d14; }
+.terminalPage .terminalView { flex:1; min-height:0; }
+.terminalView.standalone .terminalBody { flex:1; min-height:0; }
+@media (max-width: 680px) { .terminalSearch input { width:96px; } .terminalStatus span:last-child { display:none; } }

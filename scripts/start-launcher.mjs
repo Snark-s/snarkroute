@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { join } from "node:path";
 import { ensurePersonaBridge, startPersonaBridgeSupervisor } from "./persona-bridge.mjs";
-import { startLauncherControl } from "./launcher-control.mjs";
+import { serverLogPath, startLauncherControl } from "./launcher-control.mjs";
+import { launchWindowless } from "./windowless-launch.mjs";
 import { createProjectPublisherControl, defaultProjectPublisherRoot } from "./project-publisher-control.mjs";
 import { registeredPort, serviceHealthy } from "./local-service-registry.mjs";
 
@@ -18,9 +19,11 @@ const launcherPort = registeredPort('launcher', 'LAUNCHER_PORT');
 const apiUrl = `http://127.0.0.1:${apiPort}/api/health`;
 const launcherUrl = `http://127.0.0.1:${launcherPort}`;
 const controlPort = registeredPort('launcher_control', 'SNARKROUTE_LAUNCHER_CONTROL_PORT');
+const logsDir = join(process.cwd(), "apps", "server", "data", "logs");
 const projectPublisher = createProjectPublisherControl({
   root: defaultProjectPublisherRoot(process.cwd()),
-  port: registeredPort('project_publisher', 'PROJECT_PUBLISHER_PORT')
+  port: registeredPort('project_publisher', 'PROJECT_PUBLISHER_PORT'),
+  logPath: join(logsDir, "project-publisher.log")
 });
 
 const owner = await startLauncherControl({ apiPort, controlPort, projectPublisher });
@@ -34,27 +37,41 @@ if (!owner.existing) {
 }
 if (!owner.existing && !await portOpen(apiPort)) {
   await runPackageBuild("@snarkroute/server...", { API_PORT: String(apiPort) });
-  await owner.control.initialize();
+  try { await owner.control.initialize(); }
+  catch (error) { printLogTail(serverLogPath(process.cwd())); throw error; }
 }
 if (!await portOpen(launcherPort)) {
   await runPackageBuild("@snarkroute/launcher", { LAUNCHER_PORT: String(launcherPort), VITE_API_BASE_URL: `http://127.0.0.1:${apiPort}`, VITE_LAUNCHER_CONTROL_PORT: String(controlPort) });
-  startPackage("@snarkroute/launcher", "preview", { LAUNCHER_PORT: String(launcherPort), VITE_API_BASE_URL: `http://127.0.0.1:${apiPort}`, VITE_LAUNCHER_CONTROL_PORT: String(controlPort) }, ["--host", "127.0.0.1", "--port", String(launcherPort), "--strictPort"]);
+  await startPackage("@snarkroute/launcher", "preview", { LAUNCHER_PORT: String(launcherPort), VITE_API_BASE_URL: `http://127.0.0.1:${apiPort}`, VITE_LAUNCHER_CONTROL_PORT: String(controlPort) }, ["--host", "127.0.0.1", "--port", String(launcherPort), "--strictPort"]);
 }
 
 const [apiReady, launcherReady] = await Promise.all([waitForUrl(apiUrl, 'snarkroute'), waitForUrl(launcherUrl)]);
 if (!apiReady || !launcherReady) {
   console.error(`Не удалось запустить мастерскую. Проверьте сервисы и порты ${apiPort} и ${launcherPort}.`);
+  printLogTail(apiReady ? join(logsDir, "launcher-ui.log") : serverLogPath(process.cwd()));
   process.exitCode = 1;
 } else {
   if (!process.argv.includes("--no-browser")) openUrl(launcherUrl);
 }
 
-function startPackage(packageName, script, extraEnv, scriptArgs = []) {
-  const child = spawn("corepack", ["pnpm", "--filter", packageName, script, ...scriptArgs], {
-    cwd: process.cwd(), detached: true, shell: process.platform === "win32", stdio: "ignore", windowsHide: true,
-    env: { ...process.env, ...extraEnv }
-  });
-  child.unref();
+// Windowless (a detached corepack -> pnpm -> vite chain opened terminal windows); output goes
+// to the Мастерская terminal log, and the server outlives this launcher as before.
+async function startPackage(packageName, script, extraEnv, scriptArgs = []) {
+  try {
+    await launchWindowless({
+      label: `${packageName} ${script}`, command: "corepack", args: ["pnpm", "--filter", packageName, script, ...scriptArgs],
+      cwd: process.cwd(), log: join(logsDir, "launcher-ui.log")
+    }, { env: { ...process.env, ...extraEnv } });
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+function printLogTail(path, lines = 40) {
+  try {
+    const tail = readFileSync(path, "utf8").split(/\r?\n/).filter(Boolean).slice(-lines).join("\n");
+    if (tail) console.error(`--- ${path} ---\n${tail}`);
+  } catch {}
 }
 
 function runPackageBuild(packageName, extraEnv) {

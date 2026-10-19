@@ -1,8 +1,9 @@
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { repoRoot } from "../server-paths";
 import { localServicePort, localServiceUrl } from "./local-service-endpoints";
+import { decodeLogBuffer, managedLogPath, type ServiceLogContext, type ServiceLogSourceDef } from "./service-logs";
 
 type Yue2Config = {
   wslDistro: string;
@@ -15,6 +16,25 @@ type Yue2Config = {
 
 const storedConfig: Yue2Config = JSON.parse(readFileSync(join(repoRoot, "config", "yue2.local.json"), "utf8"));
 export const yue2Config: Yue2Config = { ...storedConfig, port: localServicePort('yue2'), url: localServiceUrl('yue2') };
+
+export function yue2LauncherLogPath(): string {
+  return managedLogPath("yue2-launcher");
+}
+
+/**
+ * The launcher output SnarkRoute records, and YuE2's own service log inside WSL. The WSL file is
+ * read over \\wsl.localhost only while YuE2 runs, so opening the terminal never boots the distro.
+ */
+export function yue2LogSources(context: ServiceLogContext = {}): ServiceLogSourceDef[] {
+  const linuxPath = `${yue2Config.yuePath.replace(/\/+$/, "")}/outputs/yue2-service.log`;
+  const serviceLog = `\\\\wsl.localhost\\${yue2Config.wslDistro}${linuxPath.replace(/\//g, "\\")}`;
+  return [
+    { id: "launcher", title: "Запуск из Мастерской", path: yue2LauncherLogPath(), owner: "managed" },
+    context.online
+      ? { id: "service", title: "Сервис в WSL", path: serviceLog, owner: "own-file" }
+      : { id: "service", title: "Сервис в WSL", owner: "own-file", note: "Журнал сервиса внутри WSL читается, пока YuE2 запущен." }
+  ];
+}
 
 export type Yue2Status = {
   service?: "YuE2";
@@ -60,13 +80,21 @@ export async function startYue2(): Promise<Yue2Status> {
     shell: false
   });
 
+  const logPath = yue2LauncherLogPath();
+  const record = (text: string) => {
+    try { mkdirSync(dirname(logPath), { recursive: true }); appendFileSync(logPath, text, "utf8"); } catch {}
+  };
+  record(`\n[${new Date().toISOString()}] ▶ YuE2: start-yue2.ps1 (скрытая консоль, SnarkRoute)\n`);
   const capture = (chunk: Buffer | string) => {
     launcherOutput = boundedOutput(launcherOutput + String(chunk));
+    // Windows PowerShell writes the OEM code page into pipes; the log is kept in UTF-8.
+    record(typeof chunk === "string" ? chunk : decodeLogBuffer(chunk));
   };
   child.stdout?.on("data", capture);
   child.stderr?.on("data", capture);
   child.once("error", (error) => { launchError = error; });
   child.once("exit", (code, signal) => {
+    record(`[${new Date().toISOString()}] start-yue2.ps1 завершился: ${code ?? signal ?? "?"}\n`);
     launchExitCode = code;
     launchExitSignal = signal;
     launchExitedAt = Date.now();
