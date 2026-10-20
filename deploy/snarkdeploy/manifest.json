@@ -219,7 +219,12 @@
       "snapshot_excludes": [
         "config/secrets.*",
         "data/runtime/agent/tasks/**",
-        "data/runtime/harness/**"
+        "data/runtime/harness/**",
+        "cache",
+        "caches",
+        "tmp",
+        "temp",
+        "*.lock"
       ],
       "snapshot_ignored_paths": [
         "data",

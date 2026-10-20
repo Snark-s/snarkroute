@@ -135,6 +135,20 @@ class SnarkDeployTests(unittest.TestCase):
         self.assertTrue(SNARKDEPLOY.should_exclude("cache/file.tmp", ["*.tmp"]))
         self.assertFalse(SNARKDEPLOY.should_exclude("extension/dist/app.js", ["node_modules", "*.tmp"]))
 
+    def test_snapshot_component_filter_accepts_only_manifest_components(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            args = SimpleNamespace(output=str(output), components=["missing"])
+            with self.assertRaisesRegex(ValueError, "Unknown snapshot component"):
+                SNARKDEPLOY.snapshot(args)
+
+    def test_git_info_falls_back_for_unreadable_repository_metadata(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            (repo / ".git").mkdir()
+            with patch.object(SNARKDEPLOY, "run", side_effect=RuntimeError("dubious ownership")):
+                self.assertIsNone(SNARKDEPLOY.git_info(repo))
+
     def test_verify_bundle_accepts_valid_archive_and_sha256(self):
         with tempfile.TemporaryDirectory() as temp:
             bundle = Path(temp) / "recovery.zip"
