@@ -64,9 +64,10 @@ describe("SnarkRoute sentinel", () => {
     expect(await sentinel.checkTile(tile)).toMatchObject({ ok: false, status: "stuck", ticket: { reason: "health_failed" } });
   });
 
-  it("uses the registry watch policy and the launcher root health path", () => {
+  // vite preview answers "/" only to HTML requests; the Sentinel asks for JSON, so /index.html is the stable probe.
+  it("uses the registry watch policy and the launcher index health path", () => {
     const tiles = defaultSentinelTiles();
-    expect(tiles.find(tile => tile.id === "launcher")).toMatchObject({ healthPath: "/", watch: "always" });
+    expect(tiles.find(tile => tile.id === "launcher")).toMatchObject({ healthPath: "/index.html", watch: "always" });
     expect(tiles.find(tile => tile.id === "bonsai_inference")).toMatchObject({ watch: "when_running" });
   });
 });
