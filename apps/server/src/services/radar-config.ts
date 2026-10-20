@@ -58,5 +58,9 @@ export function configuredRadars(env: NodeJS.ProcessEnv = process.env): RadarDef
   const raw = env.SNARKROUTE_RADARS?.trim() ?? "";
   const ids = new Set(raw.split(",").map(item => item.trim()).filter(Boolean));
   const all = ids.has("all");
-  return DEFAULT_RADARS.map(radar => ({ ...radar, enabled: all || ids.has(radar.id) }));
+  // Optional provider/model switch for every radar (e.g. SNARKROUTE_RADAR_PROVIDER=polza, SNARKROUTE_RADAR_MODEL=perplexity/sonar-pro).
+  const provider = env.SNARKROUTE_RADAR_PROVIDER?.trim();
+  const model = env.SNARKROUTE_RADAR_MODEL?.trim();
+  const providerOverride = provider === "openrouter" || provider === "polza" || provider === "gemini" ? { provider: provider as RadarProvider } : {};
+  return DEFAULT_RADARS.map(radar => ({ ...radar, ...providerOverride, ...(model ? { model } : {}), enabled: all || ids.has(radar.id) }));
 }
