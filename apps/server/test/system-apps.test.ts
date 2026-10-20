@@ -10,10 +10,12 @@ import { systemAppCatalog } from "../src/routes/system";
 describe("system app launcher", () => {
   it("describes every local product from one server-owned catalog", () => {
     expect(systemAppCatalog.map((app) => app.id)).toEqual([
-      "living-canvas", "boojum", "brandeshmyg", "h3", "persona", "yue2", "beamish", "tove", "factory"
+      "living-canvas", "boojum", "brandeshmyg", "h3", "persona", "yue2", "beamish", "secretary", "tove", "factory"
     ]);
     expect(systemAppCatalog.find((app) => app.id === "beamish")).toMatchObject({ name: "Бимиш", icon: "/beamish-icon.png", service: "imaginarium" });
-    expect(systemAppCatalog.every((app) => app.url.startsWith("http://127.0.0.1:"))).toBe(true);
+    expect(systemAppCatalog.filter((app) => app.service !== "external").every((app) => app.url.startsWith("http://127.0.0.1:"))).toBe(true);
+    expect(systemAppCatalog.find((app) => app.id === "secretary")).toMatchObject({ name: "Секретарь", icon: "/secretary-icon.png", service: "external" });
+    expect(systemAppCatalog.find((app) => app.id === "secretary")!.url).toMatch(/^https:\/\/claude\.ai\//);
   });
 
   it("serves launcher cards without hardcoded model providers", async () => {

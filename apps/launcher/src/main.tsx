@@ -13,7 +13,7 @@ import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTermin
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 
-type AppCard = { id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string; controllable?: boolean };
+type AppCard = { external?: boolean; id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string; controllable?: boolean };
 type ProviderRoute = { provider: string; providerModelId: string; storedModelId?: string; inputTypes?: string[]; availability?: { status?: string; configured?: boolean } };
 type Model = { id: string; canonicalModelId?: string; displayName: string; inputTypes?: string[]; providerRoutes?: ProviderRoute[] };
 type AutoAttempt = { role: string; display_name?: string; model: string; provider: string; estimated_cost?: number | null; actual_cost?: number | null; result_status: string };
@@ -55,6 +55,8 @@ function Launcher() {
   }, []);
 
   async function openApp(app: AppCard) {
+    // A page outside this computer (Секретарь on claude.ai): just open it, nothing to start.
+    if (app.external) { window.open(app.url, `snarkroute-${app.id}`, "noopener"); return; }
     setBusy(app.id); setError("");
     const popup = window.open("about:blank", `snarkroute-${app.id}`);
     try {
@@ -88,7 +90,7 @@ function Launcher() {
           <button className="cardMain" onClick={() => void openApp(app)}>
           <span className="cardGlow" /><span className={`appIcon ${app.icon.startsWith("/") ? "branded" : ""}`}>{app.icon.startsWith("/") ? <img src={app.icon} alt="" /> : <Icon />}</span>
           <span className="appCopy"><strong>{app.name}</strong><small>{app.description}</small></span>
-          <span className="cardFooter"><span className={app.running ? "status on" : "status"}>{app.running ? <CheckCircle2 /> : <Circle />}{app.id === "yue2" ? yueStatus(app) : app.running ? "открыто" : "готово"}</span>{busy === app.id ? <LoaderCircle className="spin" /> : <ArrowUpRight />}</span>
+          <span className="cardFooter"><span className={app.running ? "status on" : "status"}>{app.running ? <CheckCircle2 /> : <Circle />}{app.id === "yue2" ? yueStatus(app) : app.external ? "claude.ai" : app.running ? "открыто" : "готово"}</span>{busy === app.id ? <LoaderCircle className="spin" /> : <ArrowUpRight />}</span>
           </button>
           {app.id === "yue2" ? <span className="cardActions"><button title="Открыть результаты" onClick={() => void yueAction("outputs")} disabled={!app.running}><FolderOpen /> Результаты</button><button title="Остановить YuE2" onClick={() => void yueAction("stop")} disabled={!app.running}><Square /> Остановить</button></span> : null}
         </div>;

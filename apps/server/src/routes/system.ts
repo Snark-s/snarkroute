@@ -29,8 +29,12 @@ type SystemAppDefinition = {
   packageName?: string;
   accent: string;
   icon: string;
-  service?: "yue2" | "imaginarium" | "autonomous";
+  /** "external": a page outside this computer (e.g. a claude.ai artifact); opened by URL, never started. */
+  service?: "yue2" | "imaginarium" | "autonomous" | "external";
 };
+
+/** Секретарь: the owner's decision inbox — a claude.ai page over the «Решения» sheet of the agent registry. */
+export const SECRETARY_URL = process.env.SECRETARY_URL ?? "https://claude.ai/artifact/H1eVbsGgwZUGksdnciKAVu";
 
 const launcherPort = Number(process.env.LAUNCHER_PORT ?? 5172);
 const studioPort = Number(process.env.STUDIO_PORT ?? 5173);
@@ -46,6 +50,7 @@ export const systemAppCatalog: readonly SystemAppDefinition[] = [
   { id: "persona", name: "Jabberwock", description: "Продолжение задач с общей памятью", url: `http://127.0.0.1:${launcherPort}/persona`, port: launcherPort, packageName: "@snarkroute/launcher", accent: "rose", icon: "/jabberwock-icon.png" },
   { id: "yue2", name: "YuE2", description: "Локальная генерация музыки", url: yue2Config.url, port: yue2Config.port, accent: "cyan", icon: "/yue2-icon.png", service: "yue2" },
   { id: "beamish", name: "Бимиш", description: "Snark’s Imaginarium · живая графика на JavaScript", url: `http://127.0.0.1:${imaginariumPort}`, port: imaginariumPort, accent: "amber", icon: "/beamish-icon.png", service: "imaginarium" },
+  { id: "secretary", name: "Секретарь", description: "Вопросы агентов, которым нужен твой ответ", url: SECRETARY_URL, port: 0, accent: "amber", icon: "/secretary-icon.png", service: "external" },
   { id: "tove", name: "Шорёк", description: "Tove · проактивный агент: цели, намерения, действия", url: `http://127.0.0.1:${autonomousApps.tove.port}`, port: autonomousApps.tove.port, accent: "amber", icon: "/tove-icon.png", service: "autonomous" },
   { id: "factory", name: "Фабрика", description: "Factory · производство и продажа цифровых товаров", url: `http://127.0.0.1:${autonomousApps.factory.port}`, port: autonomousApps.factory.port, accent: "cyan", icon: "/factory-icon.png", service: "autonomous" }
 ];
@@ -233,6 +238,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   app.get("/api/system/apps", async () => ({
     ok: true,
     apps: await Promise.all(systemAppCatalog.map(async ({ packageName: _packageName, port, service, ...entry }) => {
+      if (service === "external") return { ...entry, running: false, status: "external", generating: false, external: true };
       if (service === "autonomous" && isAutonomousAppId(entry.id)) {
         const state = await readAutonomousAppStatus(entry.id);
         return { ...entry, running: state.running, status: state.state, mode: state.mode, current: state.current, generating: state.state === "working", error: state.error, controllable: true };
@@ -249,6 +255,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   app.post<{ Params: { appId: string } }>("/api/system/apps/:appId/open", async (request, reply) => {
     const target = request.params.appId === "launcher" ? launcherApp : systemAppCatalog.find((entry) => entry.id === request.params.appId);
     if (!target) return reply.code(404).send({ ok: false, error: "Unknown local application." });
+    if (target.service === "external") return { ok: true, url: target.url, started: false, status: "external" };
     if (target.service === "autonomous" && isAutonomousAppId(target.id)) {
       if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
       try {

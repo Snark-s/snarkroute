@@ -187,3 +187,20 @@ button:disabled { opacity: .5; cursor: wait; } .spin { animation: spin 1s linear
 .terminalPage .terminalView { flex:1; min-height:0; }
 .terminalView.standalone .terminalBody { flex:1; min-height:0; }
 @media (max-width: 680px) { .terminalSearch input { width:96px; } .terminalStatus span:last-child { display:none; } }
+
+/* Compact cards (20.10.2026): smaller tiles, more per row. Kept last so it wins over the base card rules. */
+.appGrid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.appCard { grid-column: auto; min-height: 0; border-radius: 18px; }
+.appCard:hover { transform: translateY(-2px); }
+.cardMain { padding: 14px 16px 12px; }
+.cardActions { padding: 0 16px 12px; }
+.appIcon { width: 44px; height: 44px; border-radius: 13px; box-shadow: 0 8px 20px #755cff35; }
+.appIcon svg { width: 21px; height: 21px; }
+.appIcon.branded { padding: 3px; box-shadow: 0 8px 20px #0007, 0 0 0 1px #ffffff18; }
+.appCopy { gap: 3px; margin-top: 12px; }
+.appCopy strong { font-size: 19px; letter-spacing: -.02em; }
+.appCopy small { font-size: 13px; line-height: 1.35; }
+.cardFooter { padding-top: 12px; font-size: 13px; } .cardFooter > svg { width: 17px; }
+.bridgeCard .appCopy { margin-top: 12px; }
+@media (min-width: 760px) { .bridgeCard { grid-column: span 2; } }
+.cardActions { flex-wrap: wrap; gap: 6px; } .cardActions button, .autonomousCard .cardActions button { padding: 5px 9px; font-size: 12.5px; border-radius: 8px; } .cardActions button svg { width: 14px; height: 14px; }
