@@ -10,8 +10,9 @@ export const REQUIRED_LOCAL_SERVICES = [
 export type LocalServiceName = typeof REQUIRED_LOCAL_SERVICES[number];
 export type RegisteredServiceName = LocalServiceName | "persona_bridge" | "project_publisher"
   | "launcher" | "launcher_control" | "h3_worker" | "h3_sglang_fl2va" | "h3_sglang_ref2va"
-  | "local_upscale" | "yue2" | "freetoken";
-type Service = { port: number; protocol: "http" | "tcp"; healthPath?: string };
+  | "local_upscale" | "yue2" | "freetoken" | "tove" | "factory";
+export type ServiceWatch = "always" | "when_running" | "never";
+type Service = { port: number; protocol: "http" | "tcp"; healthPath?: string; watch?: ServiceWatch };
 export type ServiceEndpointRegistry = {
   schemaVersion: 1;
   host: "127.0.0.1";
@@ -40,6 +41,7 @@ export function serviceEndpointRegistry(path = process.env.SNARKROUTE_PORT_REGIS
     if (!service || !Number.isInteger(service.port) || service.port < 1024
         || service.port > 65535 || ports.has(service.port)
         || !["http","tcp"].includes(service.protocol)
+        || (service.watch !== undefined && !["always", "when_running", "never"].includes(service.watch))
         || (service.protocol === "http"
           && (typeof service.healthPath !== "string" || !service.healthPath.startsWith("/")
               || service.healthPath.includes("//")))) {

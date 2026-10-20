@@ -1,17 +1,18 @@
 import { createConnection } from "node:net";
-import { localServiceUrl, serviceEndpointRegistry } from "./local-service-endpoints";
+import { localServiceUrl, serviceEndpointRegistry, type ServiceWatch } from "./local-service-endpoints";
 
 export const SENTINEL_INTERVAL_MS = 5 * 60_000;
 export const SENTINEL_FAILURE_WINDOW_MS = 60 * 60_000;
 
 export type SentinelOwner = "snarkroute" | "tove" | "foreign" | "unknown" | "none";
-export type SentinelStatus = "ok" | "degraded" | "stuck";
+export type SentinelStatus = "ok" | "off" | "degraded" | "stuck";
 
 export type SentinelTile = {
   id: string;
   label: string;
   url: string;
   healthPath?: string;
+  watch?: ServiceWatch;
   /** The only owners the sentinel may restart. The process itself is never found or killed by port. */
   owner?: Exclude<SentinelOwner, "foreign" | "unknown" | "none">;
   restart?: () => Promise<void>;
@@ -100,6 +101,16 @@ export class Sentinel {
   async checkTile(tile: SentinelTile): Promise<SentinelTileResult> {
     const checkedAt = this.now();
     const url = healthUrl(tile);
+    const watch = tile.watch ?? "when_running";
+    if (watch === "never") return offResult(tile, url, checkedAt);
+    const port = portFromUrl(url);
+    const precheckedListening = watch === "when_running" && port !== undefined
+      ? await safePortListening(this.portListening, port)
+      : undefined;
+    if (watch === "when_running" && precheckedListening === false) {
+      this.failures.delete(tile.id);
+      return offResult(tile, url, checkedAt);
+    }
     const first = await this.probe(url);
     if (first.ok) {
       this.failures.delete(tile.id);
@@ -110,8 +121,7 @@ export class Sentinel {
       };
     }
 
-    const port = portFromUrl(url);
-    const listening = port === undefined ? false : await safePortListening(this.portListening, port);
+    const listening = precheckedListening ?? (port === undefined ? false : await safePortListening(this.portListening, port));
     const portOwner = listening && port !== undefined ? await safePortOwner(this.portOwner, port) : "none";
     const portConflict = listening && portOwner !== tile.owner;
     let restarted = false;
@@ -161,7 +171,7 @@ export class Sentinel {
     for (const tile of tiles) results.push(await this.checkTile(tile));
     const tickets = results.flatMap(result => result.ticket ? [result.ticket] : []);
     const status: SentinelStatus = results.some(result => result.status === "stuck")
-      ? "stuck" : results.some(result => !result.ok) ? "degraded" : "ok";
+      ? "stuck" : results.some(result => result.status === "degraded") ? "degraded" : "ok";
     const reason = tickets.length
       ? tickets.map(ticket => `${ticket.label}: ${ticket.reason}`).join("; ")
       : results.find(result => !result.ok)?.error;
@@ -234,9 +244,11 @@ export function defaultSentinelTiles(): SentinelTile[] {
   const registry = serviceEndpointRegistry();
   return Object.entries(registry.services).flatMap(([id, service]) => {
     if (service.protocol !== "http" || !service.healthPath) return [];
+    const watch = service.watch ?? "when_running";
+    if (watch === "never") return [];
     const owner = id === "tove" || id === "factory" ? "tove" : id === "snarkroute" || id === "bonsai_inference" ? "snarkroute" : undefined;
     const url = `http://${registry.host}:${service.port}`;
-    return [{ id, label: id, url, healthPath: service.healthPath, ...(owner ? { owner } : {}) }];
+    return [{ id, label: id, url, healthPath: service.healthPath, watch, ...(owner ? { owner } : {}) }];
   });
 }
 
@@ -290,4 +302,11 @@ async function safePortOwner(resolveOwner: (port: number) => Promise<SentinelOwn
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function offResult(tile: SentinelTile, url: string, checkedAt: Date): SentinelTileResult {
+  return {
+    tileId: tile.id, label: tile.label, ok: false, status: "off", url,
+    checkedAt: checkedAt.toISOString(), restarted: false, portConflict: false, failuresInWindow: 0
+  };
 }

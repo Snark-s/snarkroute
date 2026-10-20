@@ -11,6 +11,7 @@
       "port": 4317,
       "protocol": "http",
       "healthPath": "/health",
+      "watch": "always",
       "identity": {
         "field": "service",
         "value": "snarkroute-server"
@@ -22,6 +23,7 @@
       "port": 18880,
       "protocol": "http",
       "healthPath": "/ready",
+      "watch": "when_running",
       "identity": {
         "field": "service",
         "value": "jabberwock-mixar-local"
@@ -33,6 +35,7 @@
       "port": 18767,
       "protocol": "http",
       "healthPath": "/health",
+      "watch": "when_running",
       "identity": {
         "field": "service",
         "value": "jabberwock-blender-bridge"
@@ -41,12 +44,14 @@
     },
     "mixar_watchdog": {
       "port": 18881,
-      "protocol": "tcp"
+      "protocol": "tcp",
+      "watch": "when_running"
     },
     "snarkbridge_mcp": {
       "port": 8767,
       "protocol": "http",
       "healthPath": "/health",
+      "watch": "always",
       "identity": {
         "field": "service",
         "value": "snarkbridge-mcp"
@@ -57,22 +62,26 @@
     "snarkbridge_tunnel": {
       "port": 8080,
       "protocol": "http",
-      "healthPath": "/readyz"
+      "healthPath": "/readyz",
+      "watch": "always"
     },
     "bonsai_inference": {
       "port": 8092,
       "protocol": "http",
-      "healthPath": "/v1/models"
+      "healthPath": "/v1/models",
+      "watch": "when_running"
     },
     "ollama_inference": {
       "port": 11434,
       "protocol": "http",
-      "healthPath": "/api/version"
+      "healthPath": "/api/version",
+      "watch": "when_running"
     },
     "persona_bridge": {
       "port": 8766,
       "protocol": "http",
       "healthPath": "/health",
+      "watch": "always",
       "identity": {
         "field": "service",
         "value": "PersonaCore"
@@ -82,37 +91,44 @@
     "project_publisher": {
       "port": 8765,
       "protocol": "http",
-      "healthPath": "/health"
+      "healthPath": "/health",
+      "watch": "when_running"
     },
     "launcher": {
       "port": 5172,
       "protocol": "http",
-      "healthPath": "/"
+      "healthPath": "/",
+      "watch": "always"
     },
     "launcher_control": {
       "port": 5176,
       "protocol": "http",
-      "healthPath": "/status"
+      "healthPath": "/status",
+      "watch": "always"
     },
     "h3_worker": {
       "port": 18080,
       "protocol": "http",
-      "healthPath": "/ready"
+      "healthPath": "/ready",
+      "watch": "when_running"
     },
     "h3_sglang_fl2va": {
       "port": 30010,
       "protocol": "http",
-      "healthPath": "/health"
+      "healthPath": "/health",
+      "watch": "when_running"
     },
     "h3_sglang_ref2va": {
       "port": 30011,
       "protocol": "http",
-      "healthPath": "/health"
+      "healthPath": "/health",
+      "watch": "when_running"
     },
     "local_upscale": {
       "port": 8091,
       "protocol": "http",
       "healthPath": "/health",
+      "watch": "when_running",
       "identity": {
         "field": "service",
         "value": "snarkroute-local-upscale-worker"
@@ -122,6 +138,7 @@
       "port": 7862,
       "protocol": "http",
       "healthPath": "/health",
+      "watch": "when_running",
       "identity": {
         "field": "service",
         "value": "YuE2"
@@ -131,12 +148,14 @@
       "port": 1919,
       "protocol": "http",
       "healthPath": "/v1/models",
+      "watch": "when_running",
       "enabled": false
     },
     "tove": {
       "port": 4890,
       "protocol": "http",
       "healthPath": "/api/health",
+      "watch": "always",
       "identity": {
         "field": "service",
         "value": "tove"
@@ -148,6 +167,7 @@
       "port": 4891,
       "protocol": "http",
       "healthPath": "/api/health",
+      "watch": "always",
       "identity": {
         "field": "service",
         "value": "factory"
