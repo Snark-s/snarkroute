@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { readBonsaiStatus } from "../src/services/bonsai-local";
 
 const config = {
-  baseUrl: "http://127.0.0.1:8081/v1",
+  baseUrl: "http://127.0.0.1:8092/v1",
   demoPath: "I:\\AI\\Bonsai-demo",
   modelId: "Ternary-Bonsai-2-27B-PQ2_0.gguf",
-  port: 8081
+  port: 8092
 };
 
 describe("Bonsai local runtime status", () => {

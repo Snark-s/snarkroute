@@ -60,7 +60,7 @@
       "healthPath": "/readyz"
     },
     "bonsai_inference": {
-      "port": 8081,
+      "port": 8092,
       "protocol": "http",
       "healthPath": "/v1/models"
     },

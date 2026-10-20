@@ -13,7 +13,7 @@ API недоступны. Реестр не содержит ключей или
 | Mixar watchdog | 18881 | Локальный TCP-singleton |
 | SnarkBridge MCP | 8767 | Инструменты ChatGPT |
 | SnarkBridge tunnel | 8080 | Защищённый канал ChatGPT, **не LLM** |
-| Bonsai inference | 8081 | Локальный провайдер за SnarkRoute |
+| Bonsai inference | 8092 | Локальный провайдер за SnarkRoute |
 | Ollama inference | 11434 | Локальный провайдер за SnarkRoute |
 
 ## Цепочка
@@ -42,7 +42,7 @@ Python-sidecar читает путь в порядке приоритета:
 `config.json` Mixar и не включай старый `ensure_local_llm`.
 Параметры `LOCAL_LLM_BASE_URL` и
 `LOCAL_LLM_ADDITIONAL_ENDPOINTS_JSON` относятся **только** к SnarkRoute.
-Допускаются зарегистрированные локальные inference-порты (8081, 11434);
+Допускаются зарегистрированные локальные inference-порты (8092, 11434);
 старый 8080 запрещён.
 
 ## Контроль

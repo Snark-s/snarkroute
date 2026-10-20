@@ -1,0 +1,3 @@
+Quarantined zero-byte artifact from a failed local shell probe on 2026-10-20.
+No repository or service data was read from this file; it is retained instead
+of deleted under the launch rule.
