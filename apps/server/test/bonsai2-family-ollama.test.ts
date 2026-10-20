@@ -4,6 +4,7 @@ import {
   discoverLocalOpenAiModels,
   localOpenAiConfigs
 } from "../src/providers/local-openai";
+import { localServiceUrl } from "../src/services/local-service-endpoints";
 
 const experimental = { BONSAI2_OLLAMA_EXPERIMENTAL: "1" };
 
@@ -11,12 +12,12 @@ describe("Bonsai 2 family via experimental local Ollama", () => {
   it("never automatically enables an unverified runtime", () => {
     const configs = localOpenAiConfigs({});
     expect(configs).toHaveLength(1);
-    expect(configs[0].baseUrl).toBe("http://127.0.0.1:8081/v1");
+    expect(configs[0].baseUrl).toBe(localServiceUrl("bonsai_inference", "/v1"));
   });
 
   it("offers four allowlisted routes only when experimental use is explicitly enabled", () => {
     const configs = localOpenAiConfigs(experimental);
-    expect(configs[0].baseUrl).toBe("http://127.0.0.1:8081/v1");
+    expect(configs[0].baseUrl).toBe(localServiceUrl("bonsai_inference", "/v1"));
     expect(configs[1]).toMatchObject({
       baseUrl: "http://127.0.0.1:11434/v1",
       apiKey: undefined,
