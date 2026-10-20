@@ -205,7 +205,13 @@ def git_info(path, patch_excludes=None):
     patch_excludes = patch_excludes or []
     if not (path / ".git").exists():
         return None
-    commit = clean_output(run(["git", "rev-parse", "HEAD"], cwd=path).stdout)
+    try:
+        commit = clean_output(run(["git", "rev-parse", "HEAD"], cwd=path).stdout)
+    except RuntimeError:
+        # A read-only backup must still work when Git rejects the repository
+        # owner (for example under a sandbox account). The git-or-copy
+        # component strategy can safely fall back to a filtered tree copy.
+        return None
     remote = clean_output(run(["git", "remote", "get-url", "origin"], cwd=path, check=False).stdout)
     changed = run(["git", "diff", "--name-only", "HEAD", "--", "."], cwd=path, check=False).stdout.splitlines()
     included = [name for name in changed if not should_exclude(name, patch_excludes)]
@@ -706,6 +712,12 @@ def snapshot(args):
     manifest = load_manifest()
     variables = manifest["variables"]
     excludes = manifest.get("snapshot_excludes", [])
+    requested_components = set(args.components or [])
+    all_components = manifest.get("components", [])
+    unknown_components = requested_components - {component["id"] for component in all_components}
+    if unknown_components:
+        raise ValueError("Unknown snapshot component(s): " + ", ".join(sorted(unknown_components)))
+    components = [component for component in all_components if not requested_components or component["id"] in requested_components]
     output = Path(args.output or ".").expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -713,28 +725,33 @@ def snapshot(args):
     partial = output / f"snark-recovery-{stamp}.partial"
     print("[snapshot] system inventory", flush=True)
     system = capture_system_inventory(manifest)
-    hash_cache = load_hash_cache()
-    seeded, seed_bundle = seed_hash_cache_from_latest_bundle(output, hash_cache)
-    if seeded:
-        print(
-            f"[snapshot] hash cache seeded: {seeded} entries from {seed_bundle.name}",
-            flush=True,
-        )
-    heavy = []
-    for spec in manifest.get("heavy_inventories", []):
-        print(f"[snapshot] model inventory: {spec['id']}", flush=True)
-        inventory = inventory_tree(spec, variables, hash_cache)
-        heavy.append(inventory)
-        if inventory.get("hash"):
+    if requested_components:
+        print("[snapshot] filtered component run: skipping global model and WSL inventories", flush=True)
+        heavy = []
+        wsl = []
+    else:
+        hash_cache = load_hash_cache()
+        seeded, seed_bundle = seed_hash_cache_from_latest_bundle(output, hash_cache)
+        if seeded:
             print(
-                f"[snapshot] hash cache {spec['id']}: "
-                f"{inventory.get('hash_cache_hits', 0)} hit(s), "
-                f"{inventory.get('hash_cache_misses', 0)} miss(es)",
+                f"[snapshot] hash cache seeded: {seeded} entries from {seed_bundle.name}",
                 flush=True,
             )
-    save_hash_cache(hash_cache)
-    print("[snapshot] WSL inventory", flush=True)
-    wsl = capture_wsl_inventories(manifest)
+        heavy = []
+        for spec in manifest.get("heavy_inventories", []):
+            print(f"[snapshot] model inventory: {spec['id']}", flush=True)
+            inventory = inventory_tree(spec, variables, hash_cache)
+            heavy.append(inventory)
+            if inventory.get("hash"):
+                print(
+                    f"[snapshot] hash cache {spec['id']}: "
+                    f"{inventory.get('hash_cache_hits', 0)} hit(s), "
+                    f"{inventory.get('hash_cache_misses', 0)} miss(es)",
+                    flush=True,
+                )
+        save_hash_cache(hash_cache)
+        print("[snapshot] WSL inventory", flush=True)
+        wsl = capture_wsl_inventories(manifest)
     secrets = secret_status(manifest)
     state = {
         "schema_version": 2,
@@ -745,7 +762,7 @@ def snapshot(args):
         "secret_requirements": secrets,
     }
     with zipfile.ZipFile(partial, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6, allowZip64=True) as zf:
-        for component in manifest.get("components", []):
+        for component in components:
             if not component.get("snapshot", False):
                 continue
             print(f"[snapshot] component: {component['id']}", flush=True)
@@ -801,7 +818,8 @@ def snapshot(args):
                 record["mode"] = "copy"
                 record["copy_stats"] = copy_tree_into_zip(zf, path, f"files/{component['id']}", component_excludes)
             state["components"].append(record)
-        for inventory in manifest.get("inventories", []):
+        inventory_specs = [] if requested_components else manifest.get("inventories", [])
+        for inventory in inventory_specs:
             path = Path(expand(inventory, variables))
             if path.is_file():
                 key = hashlib.sha256(str(path).encode("utf-8")).hexdigest()[:12]
@@ -1067,6 +1085,7 @@ def main():
     sub.add_parser("doctor")
     snapshot_parser = sub.add_parser("snapshot")
     snapshot_parser.add_argument("--output", default=".")
+    snapshot_parser.add_argument("--component", dest="components", action="append", default=[], metavar="ID")
     verify_parser = sub.add_parser("verify")
     verify_parser.add_argument("bundle")
     restore_parser = sub.add_parser("restore")
