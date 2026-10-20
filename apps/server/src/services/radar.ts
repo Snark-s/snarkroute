@@ -4,7 +4,7 @@ import { createGeminiClient } from "@snarkroute/gemini";
 import { createOpenRouterClient } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
 import { repoRoot } from "../server-paths";
-import { DEFAULT_RADARS, type RadarDefinition, type RadarProvider } from "./radar-config";
+import { configuredRadars, type RadarDefinition, type RadarProvider } from "./radar-config";
 
 export type RadarPulse = {
   agent: "snarkroute-radar";
@@ -87,7 +87,7 @@ export async function runRadar(
 }
 
 export async function runDueRadars(options: RadarSchedulerOptions = {}): Promise<RadarRunResult[]> {
-  const radars = options.radars ?? DEFAULT_RADARS;
+  const radars = options.radars ?? configuredRadars();
   const now = options.now ?? (() => new Date());
   const current = now();
   const results: RadarRunResult[] = [];
@@ -100,7 +100,7 @@ export async function runDueRadars(options: RadarSchedulerOptions = {}): Promise
 }
 
 export function startRadarScheduler(options: RadarSchedulerOptions = {}): () => void {
-  const radars = options.radars ?? DEFAULT_RADARS;
+  const radars = options.radars ?? configuredRadars();
   if (!radars.some(radar => radar.enabled)) return () => {};
   const interval = setInterval(() => {
     void runDueRadars(options).catch(() => undefined);

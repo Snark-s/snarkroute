@@ -49,3 +49,14 @@ export const DEFAULT_RADARS: readonly RadarDefinition[] = [
     enabled: false
   }
 ];
+
+/**
+ * The owner switches radars on in .env (re-read by the «Перезапустить SnarkRoute» button):
+ * SNARKROUTE_RADARS=all, or a comma list of radar ids; empty or absent keeps every radar off.
+ */
+export function configuredRadars(env: NodeJS.ProcessEnv = process.env): RadarDefinition[] {
+  const raw = env.SNARKROUTE_RADARS?.trim() ?? "";
+  const ids = new Set(raw.split(",").map(item => item.trim()).filter(Boolean));
+  const all = ids.has("all");
+  return DEFAULT_RADARS.map(radar => ({ ...radar, enabled: all || ids.has(radar.id) }));
+}
