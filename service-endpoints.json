@@ -97,7 +97,7 @@
     "launcher": {
       "port": 5172,
       "protocol": "http",
-      "healthPath": "/",
+      "healthPath": "/index.html",
       "watch": "always"
     },
     "launcher_control": {
