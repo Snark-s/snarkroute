@@ -36,7 +36,7 @@ describe("SnarkRoute sentinel", () => {
 
   it("writes a pulse with the required agent fields", async () => {
     const pulses: unknown[] = [];
-    const sentinel = new Sentinel({ fetchImpl: vi.fn(async () => new Response("ok", { status: 200 })), pulseSink: pulse => pulses.push(pulse) });
+    const sentinel = new Sentinel({ fetchImpl: vi.fn(async () => new Response("ok", { status: 200 })), pulseSink: pulse => { pulses.push(pulse); } });
     const result = await sentinel.runOnce([bonsaiSentinelTile()]);
     expect(result.status).toBe("ok");
     expect(pulses[0]).toMatchObject({ agent: "snarkroute-sentinel", where: "SnarkRoute", schedule: "5m", status: "ok" });

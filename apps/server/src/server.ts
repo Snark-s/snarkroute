@@ -1,6 +1,7 @@
 import { buildServer } from "./app";
 import type { FastifyInstance } from "fastify";
 import { localServicePort } from "./services/local-service-endpoints";
+import { attachSentinel } from "./services/sentinel-runtime";
 // Local mode has one port authority. API_PORT may only confirm, never override it.
 const declaredPort = localServicePort("snarkroute");
 if (process.env.API_PORT?.trim() && Number(process.env.API_PORT) !== declaredPort) {
@@ -14,6 +15,7 @@ export const host = "127.0.0.1";
 export function startServer() {
   const app = buildServer();
   if (!attachLauncherLifetime(app)) return app;
+  attachSentinel(app);
   app.listen({ port, host }).catch((error) => {
     app.log.error(error);
     process.exit(1);
