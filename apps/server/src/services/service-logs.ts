@@ -186,22 +186,28 @@ function summarizeSource(source: ServiceLogSourceDef): ServiceLogSourceSummary {
   }
 }
 
-function errorMark(path: string, size: number, mtimeMs: number): { mark?: string; line?: string } {
+export function errorMark(path: string, size: number, mtimeMs: number): { mark?: string; line?: string } {
   const cached = markCache.get(path);
   if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return cached;
   const start = Math.max(0, size - INITIAL_TAIL_BYTES);
-  const text = decodeLogBuffer(readRange(path, start, size));
-  const lines = text.split(/\r\n|\r|\n/);
-  let offset = start + Buffer.byteLength(text, "utf8");
+  const buffer = readRange(path, start, size);
   let found: { mark?: string; line?: string } = {};
-  for (let index = lines.length - 1; index >= 0; index--) {
-    const line = lines[index];
-    offset -= Buffer.byteLength(line, "utf8") + 1;
+  // Walk the raw bytes from the end, one LF-terminated line at a time. Logs are UTF-8 or a single-byte code
+  // page, so a 0x0A byte is always a line break and the line's start is its exact byte offset in the file —
+  // the mark stays stable while the file only grows (CRLF included), and a new error gets a new mark.
+  let end = buffer.length;
+  while (end >= 0) {
+    const newline = end > 0 ? buffer.lastIndexOf(0x0a, end - 1) : -1;
+    const lineStart = newline + 1;
+    // The first line of a tail read may be cut in the middle: its offset would move as the tail moves.
+    if (newline < 0 && start > 0) break;
+    const line = decodeLogBuffer(buffer.subarray(lineStart, end)).replace(/\r$/, "");
     if (isErrorLine(line)) {
-      // Keyed by the line's position and text: stable while the file only grows, new for a new error.
-      found = { mark: `${Math.max(0, offset)}:${hash(line)}`, line: redactLogText(line.trim()).slice(0, 240) };
+      found = { mark: `${start + lineStart}:${hash(line)}`, line: redactLogText(line.trim()).slice(0, 240) };
       break;
     }
+    if (newline < 0) break;
+    end = newline;
   }
   const entry = { size, mtimeMs, ...found };
   markCache.set(path, entry);

@@ -2,11 +2,31 @@ import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { closeSync, mkdirSync, openSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
+import { parseEnv } from 'node:util';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { registeredPort } from './local-service-registry.mjs';
 import { rotateLogIfLarge } from './windowless-launch.mjs';
+
+function readEnvFile(path) {
+  try { return parseEnv(readFileSync(path, 'utf8')); } catch { return {}; }
+}
+
+/**
+ * Values of the repo .env that changed since the launcher started. The launcher loads .env once at start and
+ * hands its environment to every server it spawns, so without this an edited .env (e.g. a moved port) needs a
+ * full launcher restart. A key is refreshed only while the launcher still holds the value it loaded from the
+ * file (or none) — a variable set explicitly in the environment keeps winning.
+ */
+export function refreshedEnvFileValues(envPath, current, startupValues) {
+  const fresh = readEnvFile(envPath);
+  const result = {};
+  for (const [key, value] of Object.entries(fresh)) {
+    if (current[key] === undefined || current[key] === startupValues[key]) result[key] = value;
+  }
+  return result;
+}
 
 /** Console output of the API server for the Мастерская terminal (rotated by the server itself). */
 export function serverLogPath(root) {
@@ -262,6 +282,8 @@ export async function startLauncherControl({
     apiPort,
     token
   );
+  const envFilePath = join(root, '.env');
+  const envFileAtStart = readEnvFile(envFilePath);
 
   const control = createLauncherRestartControl({
     apiPort,
@@ -331,6 +353,10 @@ export async function startLauncherControl({
 
             env: {
               ...launch.env,
+              ...refreshedEnvFileValues(envFilePath, launch.env, envFileAtStart),
+              API_PORT: launch.env.API_PORT,
+              PERSONA_BRIDGE_AUTO_START: launch.env.PERSONA_BRIDGE_AUTO_START,
+              SNARKROUTE_LAUNCHER_TOKEN: launch.env.SNARKROUTE_LAUNCHER_TOKEN,
               SNARKROUTE_LAUNCHER_CONTROL_PORT:
                 String(controlPort),
             },
