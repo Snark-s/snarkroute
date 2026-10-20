@@ -32,6 +32,7 @@ import { registerH3Routes } from "./routes/h3";
 import { registerMcpRoutes } from "./mcp/server";
 import { registerPortableToolJobRoutes } from "./routes/tool-jobs";
 import { startModelPricingRefreshScheduler } from "./billing/model-pricing-refresh-scheduler";
+import { startRadarScheduler } from "./services/radar";
 import { appMode, assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
 import { createDecisionRuntimeFromEnv } from "./services/decision-runtime";
@@ -81,6 +82,8 @@ export function buildServer() {
   void registerRunResultRoutes(app);
   void registerLedgerRoutes(app);
   startModelPricingRefreshScheduler();
+  const stopRadarScheduler = startRadarScheduler();
+  app.addHook("onClose", async () => stopRadarScheduler());
   return app;
 }
 
