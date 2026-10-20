@@ -74,3 +74,6 @@ apps/server/data/jabberwock/
 apps/server/data/h3-studio/.trash/
 artifacts/code-animation-ab-*/
 apps/server/data/h3-ref2va-eval/**/*.mp4
+
+# local native FLUX worker build (21k files), not source
+workers/flux3-native/
