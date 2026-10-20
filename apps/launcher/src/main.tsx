@@ -13,7 +13,7 @@ import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTermin
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 
-type AppCard = { external?: boolean; id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string; controllable?: boolean };
+type AppCard = { external?: boolean; pending?: number | null; id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string; controllable?: boolean };
 type ProviderRoute = { provider: string; providerModelId: string; storedModelId?: string; inputTypes?: string[]; availability?: { status?: string; configured?: boolean } };
 type Model = { id: string; canonicalModelId?: string; displayName: string; inputTypes?: string[]; providerRoutes?: ProviderRoute[] };
 type AutoAttempt = { role: string; display_name?: string; model: string; provider: string; estimated_cost?: number | null; actual_cost?: number | null; result_status: string };
@@ -51,7 +51,9 @@ function Launcher() {
   useEffect(() => {
     const changed = () => void refresh().catch((reason) => setError(message(reason)));
     window.addEventListener("snarkroute:apps-changed", changed);
-    return () => window.removeEventListener("snarkroute:apps-changed", changed);
+    // Keeps live card data (e.g. the Секретарь's open-question count) current without a page reload.
+    const timer = window.setInterval(() => { if (!document.hidden) changed(); }, 60_000);
+    return () => { window.removeEventListener("snarkroute:apps-changed", changed); window.clearInterval(timer); };
   }, []);
 
   async function openApp(app: AppCard) {
@@ -90,7 +92,9 @@ function Launcher() {
           <button className="cardMain" onClick={() => void openApp(app)}>
           <span className="cardGlow" /><span className={`appIcon ${app.icon.startsWith("/") ? "branded" : ""}`}>{app.icon.startsWith("/") ? <img src={app.icon} alt="" /> : <Icon />}</span>
           <span className="appCopy"><strong>{app.name}</strong><small>{app.description}</small></span>
-          <span className="cardFooter"><span className={app.running ? "status on" : "status"}>{app.running ? <CheckCircle2 /> : <Circle />}{app.id === "yue2" ? yueStatus(app) : app.external ? "claude.ai" : app.running ? "открыто" : "готово"}</span>{busy === app.id ? <LoaderCircle className="spin" /> : <ArrowUpRight />}</span>
+          <span className="cardFooter">{app.external && typeof app.pending === "number"
+            ? <span className={app.pending > 0 ? "status ask" : "status on"} title={app.error ? `Не удалось обновить: ${app.error}` : undefined}>{app.pending > 0 ? <span className="askCount">{app.pending}</span> : <CheckCircle2 />}{app.pending > 0 ? `${pendingWord(app.pending)} ответа` : "всё отвечено"}</span>
+            : <span className={app.running ? "status on" : "status"}>{app.running ? <CheckCircle2 /> : <Circle />}{app.id === "yue2" ? yueStatus(app) : app.external ? "claude.ai" : app.running ? "открыто" : "готово"}</span>}{busy === app.id ? <LoaderCircle className="spin" /> : <ArrowUpRight />}</span>
           </button>
           {app.id === "yue2" ? <span className="cardActions"><button title="Открыть результаты" onClick={() => void yueAction("outputs")} disabled={!app.running}><FolderOpen /> Результаты</button><button title="Остановить YuE2" onClick={() => void yueAction("stop")} disabled={!app.running}><Square /> Остановить</button></span> : null}
         </div>;
@@ -99,6 +103,14 @@ function Launcher() {
       <SnarkBridgeCard apiBase={apiBase} />
     </section>
   </main>;
+}
+
+/** "1 вопрос ждёт", "3 вопроса ждут", "5 вопросов ждут" — the number itself is drawn as a badge. */
+function pendingWord(count: number) {
+  const mod10 = count % 10, mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "вопрос ждёт";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "вопроса ждут";
+  return "вопросов ждут";
 }
 
 function yueStatus(app: AppCard) {

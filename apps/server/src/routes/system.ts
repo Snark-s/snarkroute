@@ -19,6 +19,7 @@ import { readSnarkBridgeLogs, readSnarkBridgeStatus, restartSnarkBridge } from "
 import { launchBackgroundService } from "../services/background-process";
 import { listServiceLogs, managedLogPath, readServiceLogChunk, registerServiceLogProvider, startServiceLogMaintenance, type ServiceLogSourceDef } from "../services/service-logs";
 import { recentLocalRuntimeSnapshot } from "../services/local-runtime-supervisor";
+import { readSecretaryInbox } from "../services/secretary-inbox";
 
 type SystemAppDefinition = {
   id: string;
@@ -238,7 +239,11 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   app.get("/api/system/apps", async () => ({
     ok: true,
     apps: await Promise.all(systemAppCatalog.map(async ({ packageName: _packageName, port, service, ...entry }) => {
-      if (service === "external") return { ...entry, running: false, status: "external", generating: false, external: true };
+      if (service === "external") {
+        const inbox = entry.id === "secretary" ? await readSecretaryInbox() : undefined;
+        return { ...entry, running: false, status: "external", generating: false, external: true,
+          ...(inbox ? { pending: inbox.pending, ...(inbox.error ? { error: inbox.error } : {}) } : {}) };
+      }
       if (service === "autonomous" && isAutonomousAppId(entry.id)) {
         const state = await readAutonomousAppStatus(entry.id);
         return { ...entry, running: state.running, status: state.state, mode: state.mode, current: state.current, generating: state.state === "working", error: state.error, controllable: true };
