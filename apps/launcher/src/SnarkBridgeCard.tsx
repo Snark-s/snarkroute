@@ -1,4 +1,4 @@
-import { Cable, FileText, LoaderCircle, Play, RefreshCw, RotateCw, Square } from "lucide-react";
+import { FileText, LoaderCircle, Play, RefreshCw, RotateCw, Square } from "lucide-react";
 import { useEffect, useState } from "react";
 
 // SnarkBridge (ChatGPT MCP server + OpenAI tunnel). Every action goes through the SnarkRoute API:
@@ -109,7 +109,7 @@ export function SnarkBridgeCard({ apiBase }: { apiBase: string }) {
     <div className="cardMain bridgeMain">
       <span className="cardGlow" />
       <span className="bridgeHead">
-        <span className="appIcon"><Cable /></span>
+        <span className="appIcon branded"><img src="/snarkbridge-icon.png" alt="" /></span>
         <span className={`bridgeBadge ${status ?? "checking"}`}>{busy ? <LoaderCircle className="spin" /> : null}{status ? STATE_LABELS[status] : "Проверка…"}</span>
       </span>
       <span className="appCopy"><strong>SnarkBridge</strong><small>{state?.summary ?? "MCP-мост для ChatGPT"}</small></span>
