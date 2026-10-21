@@ -89,7 +89,34 @@ export async function runNativeFlux3Process(
   });
 }
 
-export function createNativeFlux3NodeRunner(options: { pythonPath?: string; scriptPath?: string; enabled?: boolean } = {}): NodeRunner {
+/** Persistent worker path: GPU admission first, then one HTTP job on the loopback worker. */
+export async function runFlux3OnWorker(
+  payload: Record<string, unknown>,
+  signal?: AbortSignal,
+  timeoutMs = 45 * 60_000
+): Promise<{ ok: true; output: string; width: number; height: number }> {
+  const { assertLocalRuntimeAdmission } = await import("../services/local-runtime-supervisor");
+  const { ensureFlux3WorkerOnline, flux3WorkerConfig } = await import("../services/flux3-native-local");
+  await assertLocalRuntimeAdmission("flux3", FLUX3_NATIVE_MODEL_ID);
+  await ensureFlux3WorkerOnline();
+  const config = flux3WorkerConfig();
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const response = await fetch(`${config.baseUrl}/generate`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    redirect: "error"
+  });
+  const body = await response.json().catch(() => ({})) as { ok?: boolean; output?: string; width?: number; height?: number; error?: string; message?: string };
+  if (!response.ok || body.ok !== true) {
+    throw new Error(`FLUX.3 worker failed (${body.error ?? response.status}): ${(body.message ?? "no details").slice(0, 800)}`);
+  }
+  if (body.output !== payload.output || !Number.isInteger(body.width) || !Number.isInteger(body.height)) throw new Error("Invalid FLUX.3 worker result.");
+  return body as { ok: true; output: string; width: number; height: number };
+}
+
+export function createNativeFlux3NodeRunner(options: { pythonPath?: string; scriptPath?: string; enabled?: boolean; worker?: boolean } = {}): NodeRunner {
   return async ({ node, params, inputs, context }) => {
     if (!(options.enabled ?? nativeFlux3Configured())) {
       throw new Error("FLUX.3 native is not installed. Configure its dedicated Python environment and enable FLUX3_NATIVE_ENABLED=1.");
@@ -110,8 +137,13 @@ export function createNativeFlux3NodeRunner(options: { pythonPath?: string; scri
       height: validateDimension(params.height, 512),
       steps: validateInteger(params.steps, 16, 1, 50)
     };
-    const pythonPath = options.pythonPath ?? join(ROOT, "workers", "flux3-native", ".venv", "Scripts", "python.exe");
-    const result = await runNativeFlux3Process(payload, { pythonPath, scriptPath: options.scriptPath ?? FLUX3_NATIVE_SCRIPT, signal: context.signal });
+    const useWorker = options.worker ?? (!options.pythonPath && !options.scriptPath && Boolean(process.env.FLUX3_WORKER_TOKEN?.trim()));
+    const result = useWorker
+      ? await runFlux3OnWorker(payload, context.signal)
+      : await runNativeFlux3Process(payload, {
+        pythonPath: options.pythonPath ?? join(ROOT, "workers", "flux3-native", ".venv", "Scripts", "python.exe"),
+        scriptPath: options.scriptPath ?? FLUX3_NATIVE_SCRIPT, signal: context.signal
+      });
     const bytes = (await stat(result.output)).size;
     const descriptor = { path: result.output, localPath: result.output, filename: result.output.split(/[\\/]/).at(-1), mimeType: "image/png", width: result.width, height: result.height, sizeBytes: bytes };
     return {
