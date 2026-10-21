@@ -1,9 +1,11 @@
-import { mkdtemp, readFile } from "node:fs/promises";
+import { EventEmitter } from "node:events";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_RADARS, RADAR_SYSTEM_PROMPT } from "./radar-config";
-import { createDefaultRadarModelInvoker, cronMatches, runDueRadars, runRadar, startRadarScheduler } from "./radar";
+import { CLAUDE_SUBSCRIPTION_MODEL, createDefaultRadarModelInvoker, cronMatches, runClaudeCli, runDueRadars, runRadar, startRadarScheduler } from "./radar";
 
 describe("radars", () => {
   const roots: string[] = [];
@@ -35,7 +37,7 @@ describe("radars", () => {
   it.each(DEFAULT_RADARS)("uses a mocked model with Russian instructions and writes $id", async radarDefinition => {
     const root = await mkdtemp(join(tmpdir(), "radar-")); roots.push(root);
     const radar = { ...radarDefinition, enabled: true };
-    const invoker = vi.fn(async () => ({ text: "## Shortlist\n\n- Official call", provider: "openrouter" as const, model: radar.model }));
+    const invoker = vi.fn(async () => ({ text: "## Shortlist\n\n- Official call", provider: radar.provider, model: radar.model }));
     const result = await runRadar(radar, { dataRoot: root, invoker, now: () => new Date("2026-10-20T18:00:00.000Z") });
     expect(result.status).toBe("ok");
     expect(invoker).toHaveBeenCalledWith(expect.objectContaining({
@@ -74,6 +76,83 @@ describe("radars", () => {
       if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
       else process.env.OPENROUTER_API_KEY = previousKey;
     }
+  });
+
+  it.each([
+    ["402", new Error("Polza request failed (402).")],
+    ["timeout", new Error("Polza radar request timed out.")],
+    ["empty", { choices: [{ message: { content: "" } }] }]
+  ])("retries Polza once and uses Claude fallback for %s", async (_label, failure) => {
+    const root = await mkdtemp(join(tmpdir(), "radar-")); roots.push(root);
+    const polzaInvoker = vi.fn(async () => {
+      if (failure instanceof Error) throw failure;
+      return failure;
+    });
+    const claudeCli = vi.fn(async () => ({ text: "## Claude fallback\n\n- Проверено", model: CLAUDE_SUBSCRIPTION_MODEL, webSearch: true }));
+    const invoker = createDefaultRadarModelInvoker({ polzaInvoker, claudeCli });
+    const radar = { ...DEFAULT_RADARS[0], enabled: true, provider: "polza" as const };
+
+    const result = await runRadar(radar, { dataRoot: root, invoker, now: () => new Date(2026, 9, 21, 12, 0, 0) });
+
+    expect(result.status).toBe("ok");
+    expect(polzaInvoker).toHaveBeenCalledTimes(2);
+    expect(claudeCli).toHaveBeenCalledOnce();
+    expect(result.pulse).toMatchObject({ provider: "claude-subscription", model: CLAUDE_SUBSCRIPTION_MODEL, fallback: true, fallbackRuns: 1 });
+    const report = await readFile(join(root, radar.id, "2026-10-21.md"), "utf8");
+    expect(report).toContain("Provider: `claude-subscription`");
+    expect(report).toContain("- Fallback: true");
+    expect(report).toContain("Polza failed after one retry");
+  });
+
+  it("does not invoke Claude when Polza succeeds", async () => {
+    const polzaInvoker = vi.fn(async () => ({ choices: [{ message: { content: "Ответ Polza" } }] }));
+    const claudeCli = vi.fn();
+    const invoker = createDefaultRadarModelInvoker({ polzaInvoker, claudeCli });
+
+    const result = await invoker({ provider: "polza", model: "perplexity/sonar-pro", systemPrompt: RADAR_SYSTEM_PROMPT, prompt: "Проверь новости" });
+
+    expect(result).toMatchObject({ text: "Ответ Polza", provider: "polza", fallback: false });
+    expect(polzaInvoker).toHaveBeenCalledOnce();
+    expect(claudeCli).not.toHaveBeenCalled();
+  });
+
+  it("keeps the Claude OAuth token in child env only", async () => {
+    const root = await mkdtemp(join(tmpdir(), "radar-")); roots.push(root);
+    const token = "mock-oauth-secret";
+    const tokenPath = join(root, "claude-oauth-token.txt");
+    await writeFile(tokenPath, token, "utf8");
+    const calls: Array<{ command: string; args: string[]; env?: NodeJS.ProcessEnv }> = [];
+    let callNumber = 0;
+    const spawnImpl = vi.fn((command: string, args: string[], options: { env?: NodeJS.ProcessEnv }) => {
+      calls.push({ command, args, env: options.env });
+      callNumber += 1;
+      const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+      child.stdout = new PassThrough();
+      child.stderr = new PassThrough();
+      queueMicrotask(() => {
+        child.stderr.emit("data", `unknown tool WebSearch; diagnostic ${token}`);
+        if (callNumber === 1) {
+          child.stdout.emit("data", "");
+          child.emit("close", 1);
+        } else {
+          child.stdout.emit("data", JSON.stringify({ result: `Ответ без ${token}`, model: "claude-test" }));
+          child.emit("close", 0);
+        }
+      });
+      return child;
+    }) as unknown as typeof import("node:child_process").spawn;
+
+    const result = await runClaudeCli(
+      { provider: "polza", model: "perplexity/sonar-pro", systemPrompt: RADAR_SYSTEM_PROMPT, prompt: "Проверь новости" },
+      { tokenPath, env: { ANTHROPIC_API_KEY: "must-not-pass", PATH: process.env.PATH }, spawnImpl }
+    );
+
+    expect(result).toMatchObject({ text: "Ответ без [REDACTED]", model: "claude-test", webSearch: false });
+    expect(calls).toHaveLength(2);
+    expect(calls[0].command).toBe("claude");
+    expect(calls[0].args.join(" ")).not.toContain(token);
+    expect(calls[0].env?.CLAUDE_CODE_OAUTH_TOKEN).toBe(token);
+    expect(calls[0].env?.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
   it("runs only enabled radars whose cron is due", async () => {

@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { spawn, type ChildProcess } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createGeminiClient } from "@snarkroute/gemini";
 import { createOpenRouterClient } from "@snarkroute/openrouter";
@@ -17,6 +18,8 @@ export type RadarPulse = {
   enabled: boolean;
   provider: RadarProvider;
   model: string;
+  fallback: boolean;
+  fallbackRuns: number;
   outputPath?: string;
   reason?: string;
 };
@@ -28,8 +31,36 @@ export type RadarModelRequest = {
   prompt: string;
 };
 
-export type RadarModelResult = { text: string; provider: RadarProvider; model: string };
+export type RadarModelResult = {
+  text: string;
+  provider: RadarProvider;
+  model: string;
+  fallback?: boolean;
+  reason?: string;
+  webSearch?: boolean;
+};
 export type RadarModelInvoker = (request: RadarModelRequest) => Promise<RadarModelResult>;
+export type RadarPolzaInvoker = (body: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
+export type RadarClaudeCli = (request: RadarModelRequest) => Promise<RadarClaudeCliResult>;
+export type RadarClaudeCliResult = { text: string; model: string; webSearch: boolean };
+export type RadarInvokerOptions = {
+  claudeCli?: RadarClaudeCli;
+  polzaInvoker?: RadarPolzaInvoker;
+  polzaTimeoutMs?: number;
+  claudeTokenPath?: string;
+  claudeCommand?: string;
+};
+
+export type RadarClaudeCliOptions = {
+  tokenPath?: string;
+  command?: string;
+  env?: NodeJS.ProcessEnv;
+  spawnImpl?: typeof spawn;
+};
+
+export const DEFAULT_CLAUDE_OAUTH_TOKEN_PATH = "Y:\\Приложения\\Tove\\data\\secrets\\claude_oauth_token.txt";
+export const CLAUDE_SUBSCRIPTION_MODEL = "claude-code-cli";
+export const DEFAULT_RADAR_POLZA_TIMEOUT_MS = 120_000;
 
 export type RadarRunResult = {
   radarId: string;
@@ -62,9 +93,10 @@ export async function runRadar(
   const dataRoot = options.dataRoot ?? radarDataRoot();
   const radarDir = join(dataRoot, radar.id);
   await mkdir(radarDir, { recursive: true });
+  const previousFallbackRuns = await readFallbackRuns(join(radarDir, "pulse.json"));
 
   if (!radar.enabled) {
-    const pulse = makePulse(radar, timestamp, "ждёт", "disabled by config");
+    const pulse = makePulse(radar, timestamp, "ждёт", "disabled by config", undefined, undefined, previousFallbackRuns);
     await writeFile(join(radarDir, "pulse.json"), JSON.stringify(pulse, null, 2), "utf8");
     return { radarId: radar.id, status: "disabled", pulse };
   }
@@ -76,12 +108,13 @@ export async function runRadar(
     if (!text) throw new Error("Radar model returned empty text.");
     const outputPath = join(radarDir, `${dateKey(timestamp)}.md`);
     await writeFile(outputPath, markdownResult(radar, timestamp, result, text), "utf8");
-    const pulse = makePulse(radar, timestamp, "ok", undefined, outputPath);
+    const pulse = makePulse(radar, timestamp, "ok", result.reason, outputPath, result, previousFallbackRuns);
     await writeFile(join(radarDir, "pulse.json"), JSON.stringify(pulse, null, 2), "utf8");
     return { radarId: radar.id, status: "ok", pulse, outputPath };
   } catch (error) {
-    const reason = errorMessage(error);
-    const pulse = makePulse(radar, timestamp, "застрял", reason);
+    const details = invocationDetails(error);
+    const reason = details?.reason ?? errorMessage(error);
+    const pulse = makePulse(radar, timestamp, "застрял", reason, undefined, details, previousFallbackRuns);
     await writeFile(join(radarDir, "pulse.json"), JSON.stringify(pulse, null, 2), "utf8");
     return { radarId: radar.id, status: "error", pulse, error: reason };
   }
@@ -120,7 +153,14 @@ export function cronMatches(date: Date, expression: string): boolean {
     && dayOfWeekMatches(date.getDay(), fields[4]);
 }
 
-export function createDefaultRadarModelInvoker(): RadarModelInvoker {
+export function createDefaultRadarModelInvoker(options: RadarInvokerOptions = {}): RadarModelInvoker {
+  const claudeCli = options.claudeCli ?? ((request: RadarModelRequest) => runClaudeCli(request, {
+    tokenPath: options.claudeTokenPath,
+    command: options.claudeCommand
+  }));
+  const polzaInvoker = options.polzaInvoker ?? ((body: Record<string, unknown>, signal?: AbortSignal) => createPolzaClient().chatCompletions(body, signal));
+  const polzaTimeoutMs = options.polzaTimeoutMs ?? configuredPolzaTimeoutMs();
+
   return async request => {
     if (request.provider === "gemini") {
       const result = await createGeminiClient().generateText(request.model, [{ text: request.prompt }], request.systemPrompt);
@@ -133,11 +173,44 @@ export function createDefaultRadarModelInvoker(): RadarModelInvoker {
         { role: "user", content: request.prompt }
       ]
     };
-    const response = request.provider === "openrouter"
-      ? await createOpenRouterClient().chatCompletions(body)
-      : await createPolzaClient().chatCompletions(body);
+    if (request.provider === "claude-subscription") {
+      const result = await claudeCli(request);
+      return { text: result.text, provider: request.provider, model: result.model, webSearch: result.webSearch };
+    }
+    if (request.provider === "polza") {
+      return invokePolzaWithFallback(request, body, polzaInvoker, claudeCli, polzaTimeoutMs);
+    }
+    const response = await createOpenRouterClient().chatCompletions(body);
     return { text: chatText(response), provider: request.provider, model: request.model };
   };
+}
+
+export async function runClaudeCli(request: RadarModelRequest, options: RadarClaudeCliOptions = {}): Promise<RadarClaudeCliResult> {
+  const baseEnv = options.env ?? process.env;
+  const tokenPath = options.tokenPath ?? baseEnv.SNARKROUTE_CLAUDE_OAUTH_TOKEN_PATH ?? baseEnv.CLAUDE_OAUTH_TOKEN_PATH ?? DEFAULT_CLAUDE_OAUTH_TOKEN_PATH;
+  let token: string;
+  try {
+    token = (await readFile(tokenPath, "utf8")).trim();
+  } catch {
+    throw new Error("Claude subscription token file could not be read.");
+  }
+  if (!token) throw new Error("Claude subscription token file is empty.");
+
+  const childEnv: NodeJS.ProcessEnv = { ...baseEnv, CLAUDE_CODE_OAUTH_TOKEN: token };
+  for (const key of Object.keys(childEnv)) {
+    if (key.toUpperCase() === "ANTHROPIC_API_KEY") delete childEnv[key];
+  }
+  const command = options.command ?? baseEnv.SNARKROUTE_CLAUDE_COMMAND ?? "claude";
+  const prompt = `${request.systemPrompt}\n\nЗадача радара:\n${request.prompt}\n\nВерни только текст Markdown-отчёта без JSON-обёртки.`;
+  const args = ["-p", prompt, "--output-format", "json", "--allowedTools", "WebSearch"];
+  const first = await runClaudeProcess(command, args, childEnv, options.spawnImpl ?? spawn);
+  if (first.exitCode !== 0 && unsupportedWebSearch(first.stderr)) {
+    const withoutSearch = await runClaudeProcess(command, ["-p", prompt, "--output-format", "json"], childEnv, options.spawnImpl ?? spawn);
+    if (withoutSearch.exitCode !== 0) throw new Error("Claude CLI exited with an error while web search was unavailable.");
+    return parseClaudeOutput(withoutSearch.stdout, token, false, baseEnv);
+  }
+  if (first.exitCode !== 0) throw new Error("Claude CLI exited with an error.");
+  return parseClaudeOutput(first.stdout, token, first.exitCode === 0, baseEnv);
 }
 
 function fieldMatches(value: number, expression: string, min: number, max: number): boolean {
@@ -166,17 +239,150 @@ function dateKey(date: Date): string {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
 }
 
-function markdownResult(radar: RadarDefinition, timestamp: Date, result: RadarModelResult, text: string): string {
-  return `# ${radar.title}\n\n- Radar: \`${radar.id}\`\n- Generated: ${timestamp.toISOString()}\n- Provider: \`${result.provider}\`\n- Model: \`${result.model}\`\n- Schedule: \`${radar.schedule}\`\n\n---\n\n${text}\n`;
+async function invokePolzaWithFallback(
+  request: RadarModelRequest,
+  body: Record<string, unknown>,
+  polzaInvoker: RadarPolzaInvoker,
+  claudeCli: RadarClaudeCli,
+  timeoutMs: number
+): Promise<RadarModelResult> {
+  let reason = "unknown Polza error";
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await invokeWithPolzaTimeout(polzaInvoker, body, timeoutMs);
+      const text = chatText(response).trim();
+      if (!text) throw new Error("Polza radar returned empty text.");
+      return { text, provider: "polza", model: request.model, fallback: false };
+    } catch (error) {
+      reason = safeReason(error);
+    }
+  }
+
+  const fallbackReason = `Polza failed after one retry: ${reason}`;
+  try {
+    const result = await claudeCli(request);
+    const text = result.text.trim();
+    if (!text) throw new Error("Claude fallback returned empty text.");
+    return {
+      text,
+      provider: "claude-subscription",
+      model: result.model,
+      fallback: true,
+      reason: fallbackReason,
+      webSearch: result.webSearch
+    };
+  } catch {
+    throw new RadarInvocationError("Claude subscription fallback failed.", {
+      provider: "claude-subscription",
+      model: CLAUDE_SUBSCRIPTION_MODEL,
+      fallback: true,
+      reason: `${fallbackReason}; Claude fallback failed.`
+    });
+  }
 }
 
-function makePulse(radar: RadarDefinition, timestamp: Date, status: RadarPulse["status"], reason?: string, outputPath?: string): RadarPulse {
+async function invokeWithPolzaTimeout(polzaInvoker: RadarPolzaInvoker, body: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await polzaInvoker(body, controller.signal);
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("Polza radar request timed out.");
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function configuredPolzaTimeoutMs(): number {
+  const value = Number(process.env.SNARKROUTE_RADAR_POLZA_TIMEOUT_MS ?? DEFAULT_RADAR_POLZA_TIMEOUT_MS);
+  return Number.isFinite(value) && value > 0 ? value : DEFAULT_RADAR_POLZA_TIMEOUT_MS;
+}
+
+async function runClaudeProcess(
+  command: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  spawnImpl: typeof spawn
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  let child: ChildProcess;
+  try {
+    child = spawnImpl(command, args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  } catch {
+    throw new Error("Claude CLI could not be started.");
+  }
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+  child.stdout?.on("data", chunk => { stdout += String(chunk); });
+  child.stderr?.on("data", chunk => { stderr += String(chunk); });
+  return new Promise((resolve, reject) => {
+    child.once("error", () => reject(new Error("Claude CLI could not be started.")));
+    child.once("close", exitCode => resolve({ stdout, stderr, exitCode }));
+  });
+}
+
+function parseClaudeOutput(stdout: string, token: string, webSearch: boolean, env: NodeJS.ProcessEnv): RadarClaudeCliResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new Error("Claude CLI returned invalid JSON.");
+  }
+  if (!parsed || typeof parsed !== "object") throw new Error("Claude CLI returned an invalid response.");
+  const record = parsed as Record<string, unknown>;
+  if (record.is_error === true) throw new Error("Claude CLI returned an error.");
+  const rawText = typeof record.result === "string" ? record.result : typeof record.text === "string" ? record.text : "";
+  const text = rawText.replaceAll(token, "[REDACTED]").trim();
+  if (!text) throw new Error("Claude CLI returned empty text.");
+  const model = typeof record.model === "string" && record.model.trim()
+    ? record.model.trim()
+    : env.SNARKROUTE_CLAUDE_MODEL?.trim() || CLAUDE_SUBSCRIPTION_MODEL;
+  return { text, model, webSearch };
+}
+
+function unsupportedWebSearch(stderr: string): boolean {
+  return /unknown (?:option|flag|tool)|unrecognized (?:option|flag)|invalid (?:option|tool)|not supported.*web.?search|web.?search.*not found/i.test(stderr);
+}
+
+function markdownResult(radar: RadarDefinition, timestamp: Date, result: RadarModelResult, text: string): string {
+  const searchNotice = result.webSearch === false
+    ? "> Внимание: веб-поиск недоступен в неинтерактивном режиме Claude CLI; этот отчёт создан без поиска.\n\n"
+    : "";
+  const fallbackFields = result.fallback
+    ? `- Fallback: true\n- Fallback reason: ${safeReason(result.reason ?? "unknown Polza error")}\n`
+    : "- Fallback: false\n";
+  return `${searchNotice}# ${radar.title}\n\n- Radar: \`${radar.id}\`\n- Generated: ${timestamp.toISOString()}\n- Provider: \`${result.provider}\`\n- Model: \`${result.model}\`\n- Schedule: \`${radar.schedule}\`\n${fallbackFields}\n---\n\n${text}\n`;
+}
+
+function makePulse(
+  radar: RadarDefinition,
+  timestamp: Date,
+  status: RadarPulse["status"],
+  reason?: string,
+  outputPath?: string,
+  metadata?: Pick<RadarModelResult, "provider" | "model" | "fallback" | "reason">,
+  previousFallbackRuns = 0
+): RadarPulse {
   return {
     agent: "snarkroute-radar", where: "SnarkRoute", radarId: radar.id, schedule: radar.schedule,
     lastPulse: timestamp.toISOString(), result: status, status, enabled: radar.enabled,
-    provider: radar.provider, model: radar.model,
-    ...(outputPath ? { outputPath } : {}), ...(reason ? { reason } : {})
+    provider: metadata?.provider ?? radar.provider, model: metadata?.model ?? radar.model,
+    fallback: metadata?.fallback ?? false,
+    fallbackRuns: previousFallbackRuns + (metadata?.fallback ? 1 : 0),
+    ...(outputPath ? { outputPath } : {}), ...((metadata?.reason ?? reason) ? { reason: safeReason(metadata?.reason ?? reason) } : {})
   };
+}
+
+async function readFallbackRuns(path: string): Promise<number> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as { fallbackRuns?: unknown };
+    return typeof parsed.fallbackRuns === "number" && Number.isInteger(parsed.fallbackRuns) && parsed.fallbackRuns >= 0 ? parsed.fallbackRuns : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function chatText(value: unknown): string {
@@ -192,4 +398,22 @@ function chatText(value: unknown): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function safeReason(error: unknown): string {
+  const message = errorMessage(error).replace(/[\r\n]+/g, " ").trim();
+  return message.length > 500 ? `${message.slice(0, 497)}...` : message;
+}
+
+type RadarInvocationDetails = Pick<RadarModelResult, "provider" | "model" | "fallback" | "reason">;
+
+class RadarInvocationError extends Error {
+  constructor(message: string, readonly details: RadarInvocationDetails) {
+    super(message);
+    this.name = "RadarInvocationError";
+  }
+}
+
+function invocationDetails(error: unknown): RadarInvocationDetails | undefined {
+  return error instanceof RadarInvocationError ? error.details : undefined;
 }

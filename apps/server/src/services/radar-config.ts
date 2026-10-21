@@ -1,4 +1,4 @@
-export type RadarProvider = "openrouter" | "polza" | "gemini";
+export type RadarProvider = "openrouter" | "polza" | "gemini" | "claude-subscription";
 
 export type RadarDefinition = {
   id: string;
@@ -26,7 +26,7 @@ export const DEFAULT_RADARS: readonly RadarDefinition[] = [
     topic: "Open calls and festivals for fulldome, immersive media, AI video and mapping",
     schedule: "0 21 * * 1",
     prompt: "Найди актуальные и предстоящие open call, фестивали, резиденции и комиссии, релевантные fulldome cinema, immersive media, AI video, projection mapping и dome installations. Приоритизируй официальные страницы подачи заявки. Для каждой находки укажи название, тип, дедлайн, eligibility, fees, географию, требуемые материалы, принимаются ли remote или international applicants, а также ссылку на источник. Дедуплицируй повторяющиеся listings и явно помечай неуверенные сведения. Верни краткий Markdown-отчёт с сохранением полей находок, ссылок и дедлайнов и короткий shortlist для независимого режиссёра. Итоговый текст отчёта и пояснения напиши на русском языке; названия, термины и ссылки можно оставлять в оригинале.",
-    provider: "openrouter",
+    provider: "polza",
     model: WEB_SEARCH_MODEL,
     enabled: false
   },
@@ -36,7 +36,7 @@ export const DEFAULT_RADARS: readonly RadarDefinition[] = [
     topic: "AI-video, dome, mapping and model news",
     schedule: "0 21 * * 1",
     prompt: "Подготовь еженедельный brief о значимых новостях за последние семь дней в областях AI video, fulldome и dome production, immersive media, projection mapping, creative tools и релизов моделей. Отдавай приоритет первичным источникам и официальным release notes. Для каждой находки укажи дату и ссылку, отделяй verified facts от interpretation и объясняй, что важно для небольшой студии, создающей кинематографические immersive works. Сохрани краткий Markdown-формат отчёта и исходные поля находок и источников. Итоговый текст отчёта и пояснения напиши на русском языке; названия, термины и ссылки можно оставлять в оригинале.",
-    provider: "openrouter",
+    provider: "polza",
     model: WEB_SEARCH_MODEL,
     enabled: false
   },
@@ -46,7 +46,7 @@ export const DEFAULT_RADARS: readonly RadarDefinition[] = [
     topic: "Video-model and video-directing tool updates",
     schedule: "0 10 * * *",
     prompt: "Отслеживай актуальные обновления video-generation models и инструментов для режиссуры: controllable camera motion, character and reference consistency, image-to-video, editing, storyboarding, audio, изменения API, limits и licensing. Сосредоточься на изменениях, влияющих на рабочий процесс режиссёра; для каждой находки сравни новое состояние с предыдущим известным, укажи ссылку на официальный источник и явно отметь hype или unverified claims. Сохрани структуру краткого Markdown-отчёта и поля находок, источников и сравнения. Итоговый текст отчёта и пояснения напиши на русском языке; названия, термины и ссылки можно оставлять в оригинале.",
-    provider: "openrouter",
+    provider: "polza",
     model: WEB_SEARCH_MODEL,
     enabled: false
   }
