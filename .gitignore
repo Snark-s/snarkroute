@@ -76,4 +76,10 @@ artifacts/code-animation-ab-*/
 apps/server/data/h3-ref2va-eval/**/*.mp4
 
 # local native FLUX worker build (21k files), not source
-workers/flux3-native/
+# FLUX.3 worker: source is tracked (worker.py, infer.py, README, scripts); heavy local state is not.
+workers/flux3-native/.venv/
+workers/flux3-native/hf-cache/
+workers/flux3-native/results/
+workers/flux3-native/__pycache__/
+workers/flux3-native/*.log
+workers/flux3-native/overnight-status.json

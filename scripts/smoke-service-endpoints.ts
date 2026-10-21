@@ -15,7 +15,7 @@ assert.equal(ports.length,new Set(ports).size);
 assert.equal(localServicePort("snarkroute"),4317);
 assert.equal(localServicePort("snarkbridge_tunnel"),8080);
 assert.equal(localServiceUrl("ollama_inference","/v1"),"http://127.0.0.1:11434/v1");
-assertLocalInferenceEndpoint("http://127.0.0.1:8081/v1");
+assertLocalInferenceEndpoint(localServiceUrl("bonsai_inference","/v1"));
 assertLocalInferenceEndpoint("http://127.0.0.1:11434/v1");
 assert.throws(() => assertLocalInferenceEndpoint("http://127.0.0.1:8080/v1"), /Unregistered/);
 const path=join(tmpdir(),`snarkroute-port-validation-${process.pid}.json`);
