@@ -101,12 +101,15 @@ class Runtime:
             return True
 
     def idle_loop(self) -> None:
+        # Measured 2026-10-21: after unload VRAM drops 10.4 -> 2.3 GB, but the process
+        # keeps ~10 GB RAM (CPU-offloaded weights are not returned to the OS). So when
+        # idle the worker exits entirely; SnarkRoute restarts it on the next job (~30 s).
         while True:
             time.sleep(15)
             if self.pipe is not None and self.active_jobs == 0 and IDLE_UNLOAD_SEC > 0 \
                     and time.time() - self.last_used > IDLE_UNLOAD_SEC:
-                if self.unload():
-                    print(json.dumps({"event": "idle_unload"}), flush=True)
+                print(json.dumps({"event": "idle_exit", "idle_sec": IDLE_UNLOAD_SEC}), flush=True)
+                os._exit(0)
 
 
 RUNTIME = Runtime()
@@ -164,6 +167,7 @@ class Handler(BaseHTTPRequestHandler):
                 code = "cuda_oom" if "out of memory" in str(error).lower() else type(error).__name__
                 return self._send(500, {"ok": False, "error": code, "message": str(error)[:800]})
         if self.path == "/unload":
+            # Releases VRAM only; RAM is freed by /shutdown (or the idle exit).
             return self._send(200, {"ok": True, "unloaded": RUNTIME.unload()})
         if self.path == "/shutdown":
             self._send(200, {"ok": True, "stopping": True})

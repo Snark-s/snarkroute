@@ -39,10 +39,21 @@ Codex / Claude --MCP image_generate--> SnarkRoute 4317 --Model Gateway job--> ai
 5. End-to-end through MCP:
    `node <tsx cli> apps/server/scripts/mcp-image-smoke.ts "a red fox in a birch forest"`.
 
+## Measured on this laptop (2026-10-21, 512x512, 16 steps)
+
+- Denoise 18 s (~1.8 it/s); render 23 s; cold job through MCP incl. worker start
+  and model load 46-52 s. Peak VRAM ~11 GB (owner baseline ~2.3 GB).
+- First ever load downloads ~13+ GB of weights (took ~65 min at 4-17 MB/s).
+- After VRAM unload the process still holds ~10 GB RAM, so on idle
+  (`FLUX3_IDLE_UNLOAD_SEC`, default 300) the worker **exits**; the next job
+  restarts it automatically.
+- `smoke-run.ps1` must set `$OutputEncoding` to UTF-8: PowerShell 5 otherwise
+  pipes the JSON as ASCII and the Cyrillic output path becomes `???`.
+
 ## Limits
 
-- One job at a time (GPU lock). 512x512 / 16 steps is the safe start; speed and
-  peak RAM on this laptop are measured by the smoke, not assumed.
+- One job at a time (GPU lock). 512x512 / 16 steps is the measured baseline;
+  larger sizes are not measured yet.
 - References: up to 10 local PNG/JPEG/WEBP. Editing quality on complex pose changes
   and style holding is weaker than cloud models; the art-director loop is meant to
   catch that.
