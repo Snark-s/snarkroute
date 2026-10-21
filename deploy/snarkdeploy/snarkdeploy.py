@@ -22,6 +22,7 @@ HERE = Path(__file__).resolve().parent
 MANIFEST_PATH = HERE / "manifest.json"
 CHUNK_SIZE = 8 * 1024 * 1024
 SECRET_SCAN_LIMIT = 5 * 1024 * 1024
+DEFAULT_PROBE_TIMEOUT = 10.0
 TEXT_EXTENSIONS = {
     ".json", ".txt", ".md", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
     ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".ps1", ".sh", ".bat",
@@ -78,7 +79,7 @@ def run(cmd, cwd=None, check=True, timeout=None):
     if isinstance(cmd, str):
         process = subprocess.run(
             cmd, cwd=cwd, shell=True, text=True, encoding="utf-8", errors="replace",
-            capture_output=True, timeout=timeout,
+            capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
         )
     else:
         args = list(cmd)
@@ -87,23 +88,39 @@ def run(cmd, cwd=None, check=True, timeout=None):
             command_line = subprocess.list2cmdline([resolved, *map(str, args[1:])])
             process = subprocess.run(
                 command_line, cwd=cwd, shell=True, text=True, encoding="utf-8", errors="replace",
-                capture_output=True, timeout=timeout,
+                capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
             )
         else:
             process = subprocess.run(
                 args, cwd=cwd, shell=False, text=True, encoding="utf-8", errors="replace",
-                capture_output=True, timeout=timeout,
+                capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
             )
     if check and process.returncode:
         raise RuntimeError((process.stderr or process.stdout or f"command failed: {cmd}").strip())
     return process
 
 
-def run_probe(cmd, cwd=None, timeout=15):
+def run_probe(cmd, cwd=None, timeout=DEFAULT_PROBE_TIMEOUT):
     try:
-        return run(cmd, cwd=cwd, check=False, timeout=timeout)
+        process = run(cmd, cwd=cwd, check=False, timeout=timeout)
     except subprocess.TimeoutExpired:
-        return subprocess.CompletedProcess(cmd, 124, "", f"timed out after {timeout}s")
+        process = subprocess.CompletedProcess(cmd, 124, "", f"probe timed out after {timeout}s")
+        process.probe_timed_out = True
+        process.probe_timeout = timeout
+        return process
+    process.probe_timed_out = False
+    process.probe_timeout = timeout
+    return process
+
+
+def positive_timeout(value):
+    try:
+        timeout = float(value)
+    except (TypeError, ValueError) as error:
+        raise argparse.ArgumentTypeError("probe timeout must be a positive number") from error
+    if timeout <= 0:
+        raise argparse.ArgumentTypeError("probe timeout must be a positive number")
+    return timeout
 
 
 def clean_output(value):
@@ -321,7 +338,7 @@ def fetch_git_bundle(repo, bundle_path, ref="refs/snarkdeploy/recovery"):
         )
 
 
-def capture_system_inventory(manifest):
+def capture_system_inventory(manifest, probe_timeout=DEFAULT_PROBE_TIMEOUT):
     variables = manifest["variables"]
     result = {
         "captured_at": datetime.now().isoformat(timespec="seconds"),
@@ -330,6 +347,7 @@ def capture_system_inventory(manifest):
         "python": sys.version,
         "logical_roots": {key: expand("{{" + key + "}}", variables) for key in variables},
         "commands": {},
+        "probe_timeout_seconds": probe_timeout,
     }
     version_args = {
         "git": ["git", "--version"],
@@ -348,27 +366,40 @@ def capture_system_inventory(manifest):
         entry = {"present": bool(resolved), "path": resolved}
         args = version_args.get(cid)
         if resolved and args:
-            probe = run_probe(args, timeout=10)
+            probe = run_probe(args, timeout=probe_timeout)
             value = clean_output(probe.stdout or probe.stderr)
-            if value:
+            if getattr(probe, "probe_timed_out", False):
+                entry["probe"] = "probe timed out"
+                entry["probe_timeout_seconds"] = probe_timeout
+            elif value:
                 entry["version"] = value.splitlines()[0]
+            elif probe.returncode:
+                entry["probe_error"] = clean_output(probe.stderr or probe.stdout)
         result["commands"][cid] = entry
     if command_exists("nvidia-smi"):
-        probe = run([
+        probe = run_probe([
             "nvidia-smi",
             "--query-gpu=name,memory.total,memory.used,driver_version",
             "--format=csv,noheader",
-        ], check=False)
-        result["gpu"] = clean_output(probe.stdout)
+        ], timeout=probe_timeout)
+        result["gpu"] = "probe timed out" if getattr(probe, "probe_timed_out", False) else clean_output(probe.stdout)
+        if getattr(probe, "probe_timed_out", False):
+            result["gpu_probe_timeout_seconds"] = probe_timeout
     if command_exists("wsl.exe"):
-        probe = run_probe(["wsl.exe", "-l", "-v"], timeout=10)
-        result["wsl_distros"] = clean_output(probe.stdout or probe.stderr)
+        probe = run_probe(["wsl.exe", "-l", "-v"], timeout=probe_timeout)
+        result["wsl_distros"] = "probe timed out" if getattr(probe, "probe_timed_out", False) else clean_output(probe.stdout or probe.stderr)
+        if getattr(probe, "probe_timed_out", False):
+            result["wsl_probe_timeout_seconds"] = probe_timeout
     if command_exists("npm"):
-        probe = run_probe(["npm", "list", "-g", "--depth=0"], timeout=15)
-        result["npm_global"] = clean_output(probe.stdout or probe.stderr)
+        probe = run_probe(["npm", "list", "-g", "--depth=0"], timeout=probe_timeout)
+        result["npm_global"] = "probe timed out" if getattr(probe, "probe_timed_out", False) else clean_output(probe.stdout or probe.stderr)
+        if getattr(probe, "probe_timed_out", False):
+            result["npm_probe_timeout_seconds"] = probe_timeout
     if command_exists("ollama"):
-        probe = run_probe(["ollama", "list"], timeout=10)
-        result["ollama_models"] = clean_output(probe.stdout or probe.stderr)
+        probe = run_probe(["ollama", "list"], timeout=probe_timeout)
+        result["ollama_models"] = "probe timed out" if getattr(probe, "probe_timed_out", False) else clean_output(probe.stdout or probe.stderr)
+        if getattr(probe, "probe_timed_out", False):
+            result["ollama_probe_timeout_seconds"] = probe_timeout
     return result
 
 
@@ -505,7 +536,7 @@ def inventory_tree(spec, variables, hash_cache=None):
     return record
 
 
-def capture_wsl_inventories(manifest):
+def capture_wsl_inventories(manifest, probe_timeout=DEFAULT_PROBE_TIMEOUT):
     records = []
     if not command_exists("wsl.exe"):
         return records
@@ -516,14 +547,18 @@ def capture_wsl_inventories(manifest):
         if distro:
             args += ["-d", distro]
         args += ["--", "bash", "-lc", command]
-        probe = run_probe(args, timeout=30)
-        records.append({
+        probe = run_probe(args, timeout=probe_timeout)
+        record = {
             "id": spec["id"],
             "distro": distro,
             "command": command,
             "returncode": probe.returncode,
-            "output": clean_output(probe.stdout or probe.stderr),
-        })
+            "output": "probe timed out" if getattr(probe, "probe_timed_out", False) else clean_output(probe.stdout or probe.stderr),
+        }
+        if getattr(probe, "probe_timed_out", False):
+            record["error"] = "probe timed out"
+            record["probe_timeout_seconds"] = probe_timeout
+        records.append(record)
     return records
 
 
@@ -655,6 +690,7 @@ def probe_http(url, timeout=1.5, identity=None, api_version=None):
 def doctor(args):
     manifest = load_manifest()
     variables = manifest["variables"]
+    probe_timeout = getattr(args, "probe_timeout", DEFAULT_PROBE_TIMEOUT)
     bad = 0
     print("SnarkDeploy doctor")
     print("=" * 56)
@@ -694,12 +730,14 @@ def doctor(args):
             state = item["restore"]
         print(f"  {item['id']}: {state}")
     if command_exists("nvidia-smi"):
-        probe = run([
+        probe = run_probe([
             "nvidia-smi",
             "--query-gpu=name,memory.total,memory.used,driver_version",
             "--format=csv,noheader",
-        ], check=False)
-        if probe.stdout.strip():
+        ], timeout=probe_timeout)
+        if getattr(probe, "probe_timed_out", False):
+            print(f"\nGPU probe timed out after {probe_timeout}s")
+        elif probe.stdout.strip():
             print("\nGPU")
             for line in probe.stdout.strip().splitlines():
                 print(" ", line)
@@ -723,13 +761,21 @@ def snapshot(args):
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     destination = output / f"snark-recovery-{stamp}.zip"
     partial = output / f"snark-recovery-{stamp}.partial"
-    print("[snapshot] system inventory", flush=True)
-    system = capture_system_inventory(manifest)
+    probe_timeout = getattr(args, "probe_timeout", DEFAULT_PROBE_TIMEOUT)
     if requested_components:
-        print("[snapshot] filtered component run: skipping global model and WSL inventories", flush=True)
+        print("[snapshot] filtered component run: skipping system, model and WSL inventories", flush=True)
+        system = {
+            "captured_at": datetime.now().isoformat(timespec="seconds"),
+            "skipped": True,
+            "skip_reason": "component filter",
+            "components": sorted(requested_components),
+            "probe_timeout_seconds": probe_timeout,
+        }
         heavy = []
         wsl = []
     else:
+        print("[snapshot] system inventory", flush=True)
+        system = capture_system_inventory(manifest, probe_timeout=probe_timeout)
         hash_cache = load_hash_cache()
         seeded, seed_bundle = seed_hash_cache_from_latest_bundle(output, hash_cache)
         if seeded:
@@ -751,7 +797,7 @@ def snapshot(args):
                 )
         save_hash_cache(hash_cache)
         print("[snapshot] WSL inventory", flush=True)
-        wsl = capture_wsl_inventories(manifest)
+        wsl = capture_wsl_inventories(manifest, probe_timeout=probe_timeout)
     secrets = secret_status(manifest)
     state = {
         "schema_version": 2,
@@ -1082,10 +1128,12 @@ def install(args):
 def main():
     parser = argparse.ArgumentParser(prog="snarkdeploy")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("doctor")
+    doctor_parser = sub.add_parser("doctor")
+    doctor_parser.add_argument("--probe-timeout", type=positive_timeout, default=DEFAULT_PROBE_TIMEOUT)
     snapshot_parser = sub.add_parser("snapshot")
     snapshot_parser.add_argument("--output", default=".")
     snapshot_parser.add_argument("--component", dest="components", action="append", default=[], metavar="ID")
+    snapshot_parser.add_argument("--probe-timeout", type=positive_timeout, default=DEFAULT_PROBE_TIMEOUT)
     verify_parser = sub.add_parser("verify")
     verify_parser.add_argument("bundle")
     restore_parser = sub.add_parser("restore")

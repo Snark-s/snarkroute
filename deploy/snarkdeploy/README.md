@@ -41,6 +41,7 @@ After upload, SnarkDeploy checks that the logical remote recovery and secrets fi
 
     python deploy\snarkdeploy\snarkdeploy.py doctor
     python deploy\snarkdeploy\snarkdeploy.py snapshot --output X:\SnarkBackups
+    python deploy\snarkdeploy\snarkdeploy.py snapshot --output X:\SnarkBackups --probe-timeout 10
 
 The command creates:
 
@@ -50,6 +51,10 @@ The command creates:
 Verify it immediately:
 
     python deploy\snarkdeploy\snarkdeploy.py verify X:\SnarkBackups\snark-recovery-YYYYMMDD-HHMMSS.zip
+
+System inventory probes use `stdin=DEVNULL` and stop after 10 seconds by default. Use
+`--probe-timeout <seconds>` to change the limit. A filtered snapshot such as
+`snapshot --component snarkroute` skips system, model and WSL inventories.
 
 ## Restore on a clean Windows PC
 
