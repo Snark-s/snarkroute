@@ -17,16 +17,18 @@ const PREVIEW_MAX_SIDE = 1024;
 const RAW_PREVIEW_LIMIT = 4 * 1024 * 1024;
 
 export const LOCAL_IMAGE_PROVIDERS = {
-  flux3_native: { modelId: "flux3_native:flux-3-image-klein", providerModelId: "flux-3-image-klein", maxReferences: 10 }
+  flux3_native: { modelId: "flux3_native:flux-3-image-klein", providerModelId: "flux-3-image-klein", runtimeId: "flux3", maxReferences: 10, minReferences: 0, defaultSize: 512 },
+  qwen_edit_local: { modelId: "qwen_edit_local:qwen-image-edit-2511", providerModelId: "qwen-image-edit-2511", runtimeId: "qwen_edit", maxReferences: 3, minReferences: 1, defaultSize: undefined }
 } as const;
+type LocalImageProvider = keyof typeof LOCAL_IMAGE_PROVIDERS;
 
-export const IMAGE_TOOL_INSTRUCTIONS = " Image tools: image_generate submits a local generation/edit job through the Model Gateway (provider flux3_native, zero API cost, heavy GPU). Before starting, check local_runtime_admission(runtimeId=\"flux3\") and surface warnings: the owner's interactive GPU work (TouchDesigner, Mixar) has priority. Always look at the returned preview and compare it with the brief before reporting success; iterate with a corrected prompt or seed when it misses. Use image_view to inspect any local image (sources, references, earlier versions).";
+export const IMAGE_TOOL_INSTRUCTIONS = " Image tools: image_generate submits a local job through the Model Gateway (zero API cost, heavy GPU). Providers: flux3_native (FLUX.3 Klein) for generating new images and style; qwen_edit_local (Qwen-Image-Edit-2511) for precise edits of an existing image (pass it in references; 'change X, keep everything else'), text on images, keeping a character consistent; it tends to spread an edit beyond the target, so name explicitly what must NOT change (e.g. 'recolor ONLY the tail; the body stays orange'). Both are heavy and cannot share the 16 GB GPU: before starting, check local_runtime_admission with the provider's runtimeId (flux3 or qwen_edit) and surface warnings; the owner's interactive GPU work (TouchDesigner, Mixar) has priority. Always look at the returned preview and compare it with the brief before reporting success; iterate with a corrected prompt or seed when it misses. Use image_view to inspect any local image (sources, references, earlier versions).";
 
 const dim = z.number().int().min(256).max(2048).refine(v => v % 16 === 0, "must be a multiple of 16");
 
 export function registerImageTools(server: McpServer, jobs: JobService = modelGatewayJobService, sleep = defaultSleep): void {
   server.registerTool("image_generate", {
-    description: "Generate or edit an image with the local FLUX.3 Klein model through SnarkRoute's Model Gateway. Pass references (absolute local paths) to edit or guide by up to 10 images. Waits up to waitSeconds and returns the job plus a preview image when done; otherwise poll with image_job.",
+    description: "Generate or edit an image locally through SnarkRoute's Model Gateway. provider=flux3_native (default): new images, style, up to 10 guiding references. provider=qwen_edit_local: precise edit of the first reference image (1-3 absolute local paths required); output size follows the source unless width/height are given. Waits up to waitSeconds and returns the job plus a preview image when done; otherwise poll with image_job. Qwen-Edit cold start can take minutes (model preload).",
     inputSchema: {
       prompt: z.string().min(1).max(20000),
       references: z.array(z.string().min(1)).max(10).optional(),
@@ -34,28 +36,40 @@ export function registerImageTools(server: McpServer, jobs: JobService = modelGa
       height: dim.optional(),
       steps: z.number().int().min(1).max(50).optional(),
       seed: z.number().int().min(0).max(2147483647).optional(),
-      provider: z.enum(["flux3_native"]).optional(),
+      provider: z.enum(["flux3_native", "qwen_edit_local"]).optional(),
+      cfg: z.number().min(0.5).max(10).optional(),
       waitSeconds: z.number().int().min(0).max(600).optional()
     }
   }, async input => {
     try {
-      const provider = LOCAL_IMAGE_PROVIDERS[input.provider ?? "flux3_native"];
+      const providerId: LocalImageProvider = input.provider ?? "flux3_native";
+      const provider = LOCAL_IMAGE_PROVIDERS[providerId];
       const references = await validatedImagePaths(input.references ?? []);
+      if (references.length < provider.minReferences) throw new Error(`${providerId} needs at least ${provider.minReferences} reference image (the image to edit).`);
+      if (references.length > provider.maxReferences) throw new Error(`${providerId} accepts at most ${provider.maxReferences} references.`);
+      const size = provider.defaultSize;
+      const parameters: Record<string, unknown> = {
+        steps: input.steps ?? (providerId === "qwen_edit_local" ? 20 : 16),
+        seed: input.seed ?? Math.floor(Math.random() * 2147483647),
+        ...(input.width ?? size ? { width: input.width ?? size } : {}),
+        ...(input.height ?? size ? { height: input.height ?? size } : {}),
+        ...(input.cfg ? { cfg: input.cfg } : {})
+      };
       const request: GenerationJobRequest = {
         capability: references.length ? "image.edit" : "image.generate",
         nodeType: "ai.image.generate",
         outputMediaType: "image",
         modelId: provider.modelId,
         providerModelId: provider.providerModelId,
-        provider: input.provider ?? "flux3_native",
+        provider: providerId,
         prompt: input.prompt,
-        parameters: { width: input.width ?? 512, height: input.height ?? 512, steps: input.steps ?? 16, seed: input.seed ?? Math.floor(Math.random() * 2147483647) },
+        parameters,
         inputs: references.map((path, index) => ({ kind: "image" as const, role: "reference", index, assetId: `local:${basename(path)}`, path })),
         hostType: "api",
         sourceContext: { client: "mcp", tool: "image_generate" }
       };
       const job = await jobs.create(request);
-      return await jobResult(jobs, job.id, input.waitSeconds ?? 240, sleep);
+      return await jobResult(jobs, job.id, input.waitSeconds ?? (providerId === "qwen_edit_local" ? 280 : 240), sleep);
     } catch (error) {
       return failure(error);
     }

@@ -144,6 +144,12 @@
         "value": "snarkroute-flux3-worker"
       }
     },
+    "qwen_edit": {
+      "port": 8094,
+      "protocol": "http",
+      "healthPath": "/sdcpp/v1/capabilities",
+      "watch": "when_running"
+    },
     "yue2": {
       "port": 7862,
       "protocol": "http",

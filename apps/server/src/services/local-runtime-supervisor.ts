@@ -7,6 +7,7 @@ import { inspectH3Connection } from "./h3-connection";
 import { h3LocalLogPath, h3LocalWslStatus, startH3LocalWsl, stopH3LocalWsl } from "./h3-local-wsl";
 import { localUpscaleLogPath, localUpscaleRuntimeConfig, readLocalUpscaleStatus, startLocalUpscale, stopLocalUpscale } from "./local-upscale-local";
 import { flux3WorkerConfig, flux3WorkerLogPath, readFlux3WorkerStatus, startFlux3Worker, stopFlux3Worker } from "./flux3-native-local";
+import { qwenEditConfig, qwenEditLogPath, readQwenEditStatus, startQwenEdit, stopQwenEdit } from "./qwen-edit-local";
 import { ollamaLogSources, readOllamaStatus, startOllama, stopOllama } from "./ollama-local";
 import { readYue2Status, startYue2, stopYue2, yue2Config, yue2LogSources } from "./yue2-local";
 import { readSnarkBridgeStatus, snarkBridgeConfig, snarkBridgeLogSources, startSnarkBridge, stopSnarkBridge, type SnarkBridgeStatus } from "./snarkbridge-local";
@@ -372,6 +373,21 @@ function ensureRuntimeRegistrations(): void {
       }
     });
     registerServiceLogProvider({ id: "flux3", label: "FLUX.3 Klein", sources: () => [{ id: "runtime", title: "worker", path: flux3WorkerLogPath(), owner: "managed" as const }] });
+  } catch {}
+
+  // Qwen-Image-Edit-2511 on sd.cpp sd-server: heavy, stopped by its own idle watch.
+  try {
+    const qwen = qwenEditConfig();
+    registerLocalRuntimeEndpoint({ id: "qwen_edit", label: "Qwen-Image-Edit", endpoint: qwen.baseUrl, provider: "qwen_edit_local", demand: "heavy", claimsOnStart: true, recommendedFreeVramMiB: 10240, source: "builtin", modelIds: ["qwen-image-edit-2511"] });
+    registerLocalRuntimeController("qwen_edit", {
+      start: startQwenEdit,
+      stop: stopQwenEdit,
+      status: async () => {
+        const s = await readQwenEditStatus();
+        return { online: s.online, state: s.state, busy: s.activeJobs > 0, ...(s.error ? { detail: s.error } : {}) };
+      }
+    });
+    registerServiceLogProvider({ id: "qwen_edit", label: "Qwen-Image-Edit", sources: () => [{ id: "runtime", title: "sd-server", path: qwenEditLogPath(), owner: "managed" as const }] });
   } catch {}
 
   // SnarkBridge (ChatGPT MCP + tunnel) holds no GPU; it is listed so the Мастерская controls it like the others.

@@ -83,3 +83,8 @@ workers/flux3-native/results/
 workers/flux3-native/__pycache__/
 workers/flux3-native/*.log
 workers/flux3-native/overnight-status.json
+# Qwen-Image-Edit on sd.cpp: scripts and docs tracked; binaries, weights, results are not.
+workers/qwen-image-edit/bin/
+workers/qwen-image-edit/models/
+workers/qwen-image-edit/downloads/
+workers/qwen-image-edit/results/

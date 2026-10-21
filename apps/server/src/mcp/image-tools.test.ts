@@ -59,6 +59,16 @@ describe("image MCP tools", () => {
     expect(JSON.stringify(result)).toContain("CUDA OOM");
   });
 
+  it("routes precise edits to qwen_edit_local and requires the image to edit", async () => {
+    const { client, created, refPath } = await harness();
+    const missing = await client.callTool({ name: "image_generate", arguments: { prompt: "blue tail", provider: "qwen_edit_local" } });
+    expect(missing.isError).toBe(true);
+    expect(JSON.stringify(missing)).toContain("at least 1 reference");
+    await client.callTool({ name: "image_generate", arguments: { prompt: "blue tail", provider: "qwen_edit_local", references: [refPath], waitSeconds: 30 } });
+    expect(created[0]).toMatchObject({ capability: "image.edit", provider: "qwen_edit_local", providerModelId: "qwen-image-edit-2511", parameters: { steps: 20 } });
+    expect(created[0].parameters).not.toHaveProperty("width");
+  });
+
   it("refuses relative or non-image paths", async () => {
     const { client } = await harness();
     expect((await client.callTool({ name: "image_view", arguments: { path: "out.png" } })).isError).toBe(true);
