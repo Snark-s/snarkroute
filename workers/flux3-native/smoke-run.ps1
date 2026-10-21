@@ -1,4 +1,6 @@
 $ErrorActionPreference = 'Continue'
+# PowerShell 5 pipes stdin to native programs as ASCII by default; Cyrillic paths would become '?'.
+$OutputEncoding = [Text.UTF8Encoding]::new($false)
 $root = $PSScriptRoot
 $res = Join-Path $root 'results'
 New-Item -ItemType Directory -Force $res | Out-Null
