@@ -8,17 +8,20 @@ import { readFile } from "node:fs/promises";
  */
 export const SECRETARY_SHEET_ID = process.env.SECRETARY_SHEET_ID ?? "1Ti-zii3XyT8jP3PtV6-miY8HTCaEu_IcpTTbg62jas8";
 export const SECRETARY_KEY_PATH = process.env.SECRETARY_SA_KEY ?? "Y:/Приложения/Tove/data/secrets/google_service_account.json";
-const RANGE = "Решения!A2:F1000";
+const RANGE = "Решения!A2:G1000";
+/** Column G marks rows the agents closed themselves («снято…», «исполнено…»); the Секретарь page hides them too. */
+const CLOSED_RE = /^(снято|исполнено|выполнено|закрыто)/i;
 const SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
 const CACHE_MS = 60_000;
 
 type ServiceAccount = { client_email: string; private_key: string; token_uri?: string };
 export type SecretaryInbox = { pending: number | null; checkedAt: string; error?: string };
 
-/** Rows with a number in A and a question in D; open while F (the answer) is empty. */
+/** Rows with a number in A and a question in D; open while F (the answer) is empty and G is not a closing mark. */
 export function countPending(values: unknown[][] | undefined): number {
   return (values ?? []).filter(row => /^\d+$/.test(String(row[0] ?? "").trim())
-    && String(row[3] ?? "").trim() !== "" && String(row[5] ?? "").trim() === "").length;
+    && String(row[3] ?? "").trim() !== "" && String(row[5] ?? "").trim() === ""
+    && !CLOSED_RE.test(String(row[6] ?? "").trim())).length;
 }
 
 function base64url(input: Buffer | string): string {

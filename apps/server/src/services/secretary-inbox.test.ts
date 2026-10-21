@@ -17,6 +17,14 @@ describe("secretary inbox", () => {
     expect(countPending(undefined)).toBe(0);
   });
 
+  it("does not count questions the agents closed in column G", () => {
+    expect(countPending([
+      ["51", "2026-10-21", "Фабрика", "Согласовать дизайн?", "да / нет", "", "снято: создано по ошибке, отвечать не нужно"],
+      ["45", "2026-10-21", "Фабрика", "Нечем заняться?", "сделал / позже", "", "Исполнено: ответ в №75"],
+      ["76", "2026-10-21", "Фабрика", "Открытый вопрос?", "да / нет", "", "Шорёк"]
+    ])).toBe(1);
+  });
+
   it("signs a verifiable RS256 assertion and reads the count through the Sheets API", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
