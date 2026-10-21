@@ -2,8 +2,8 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_RADARS } from "./radar-config";
-import { cronMatches, runDueRadars, runRadar, startRadarScheduler } from "./radar";
+import { DEFAULT_RADARS, RADAR_SYSTEM_PROMPT } from "./radar-config";
+import { createDefaultRadarModelInvoker, cronMatches, runDueRadars, runRadar, startRadarScheduler } from "./radar";
 
 describe("radars", () => {
   const roots: string[] = [];
@@ -32,15 +32,48 @@ describe("radars", () => {
     expect(JSON.parse(await readFile(join(root, DEFAULT_RADARS[0].id, "pulse.json"), "utf8"))).toMatchObject({ status: "ждёт", enabled: false });
   });
 
-  it("uses a mocked model and writes markdown plus a pulse", async () => {
+  it.each(DEFAULT_RADARS)("uses a mocked model with Russian instructions and writes $id", async radarDefinition => {
     const root = await mkdtemp(join(tmpdir(), "radar-")); roots.push(root);
-    const radar = { ...DEFAULT_RADARS[0], enabled: true };
+    const radar = { ...radarDefinition, enabled: true };
     const invoker = vi.fn(async () => ({ text: "## Shortlist\n\n- Official call", provider: "openrouter" as const, model: radar.model }));
     const result = await runRadar(radar, { dataRoot: root, invoker, now: () => new Date("2026-10-20T18:00:00.000Z") });
     expect(result.status).toBe("ok");
-    expect(invoker).toHaveBeenCalledWith({ provider: radar.provider, model: radar.model, prompt: radar.prompt });
+    expect(invoker).toHaveBeenCalledWith(expect.objectContaining({
+      provider: radar.provider,
+      model: radar.model,
+      systemPrompt: expect.stringMatching(/русском языке/i),
+      prompt: expect.stringMatching(/русском языке/i)
+    }));
     expect(await readFile(join(root, radar.id, "2026-10-20.md"), "utf8")).toContain("Official call");
     expect(JSON.parse(await readFile(join(root, radar.id, "pulse.json"), "utf8"))).toMatchObject({ status: "ok", outputPath: result.outputPath });
+  });
+
+  it("sends the Russian system and user prompts to a mocked provider", async () => {
+    const previousKey = process.env.OPENROUTER_API_KEY;
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { messages: Array<{ role: string; content: string }> };
+      expect(body.messages).toEqual([
+        { role: "system", content: RADAR_SYSTEM_PROMPT },
+        { role: "user", content: DEFAULT_RADARS[0].prompt }
+      ]);
+      return new Response(JSON.stringify({ choices: [{ message: { content: "Ответ на русском" } }] }), { status: 200 });
+    });
+    process.env.OPENROUTER_API_KEY = "test-key";
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const result = await createDefaultRadarModelInvoker()({
+        provider: "openrouter",
+        model: DEFAULT_RADARS[0].model,
+        systemPrompt: RADAR_SYSTEM_PROMPT,
+        prompt: DEFAULT_RADARS[0].prompt
+      });
+      expect(result.text).toBe("Ответ на русском");
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+      if (previousKey === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = previousKey;
+    }
   });
 
   it("runs only enabled radars whose cron is due", async () => {

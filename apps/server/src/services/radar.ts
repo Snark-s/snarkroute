@@ -4,7 +4,7 @@ import { createGeminiClient } from "@snarkroute/gemini";
 import { createOpenRouterClient } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
 import { repoRoot } from "../server-paths";
-import { configuredRadars, type RadarDefinition, type RadarProvider } from "./radar-config";
+import { configuredRadars, RADAR_SYSTEM_PROMPT, type RadarDefinition, type RadarProvider } from "./radar-config";
 
 export type RadarPulse = {
   agent: "snarkroute-radar";
@@ -24,6 +24,7 @@ export type RadarPulse = {
 export type RadarModelRequest = {
   provider: RadarProvider;
   model: string;
+  systemPrompt: string;
   prompt: string;
 };
 
@@ -70,7 +71,7 @@ export async function runRadar(
 
   try {
     const invoker = options.invoker ?? createDefaultRadarModelInvoker();
-    const result = await invoker({ provider: radar.provider, model: radar.model, prompt: radar.prompt });
+    const result = await invoker({ provider: radar.provider, model: radar.model, systemPrompt: RADAR_SYSTEM_PROMPT, prompt: radar.prompt });
     const text = result.text.trim();
     if (!text) throw new Error("Radar model returned empty text.");
     const outputPath = join(radarDir, `${dateKey(timestamp)}.md`);
@@ -122,10 +123,16 @@ export function cronMatches(date: Date, expression: string): boolean {
 export function createDefaultRadarModelInvoker(): RadarModelInvoker {
   return async request => {
     if (request.provider === "gemini") {
-      const result = await createGeminiClient().generateText(request.model, [{ text: request.prompt }]);
+      const result = await createGeminiClient().generateText(request.model, [{ text: request.prompt }], request.systemPrompt);
       return { text: result.text ?? "", provider: request.provider, model: request.model };
     }
-    const body = { model: request.model, messages: [{ role: "user", content: request.prompt }] };
+    const body = {
+      model: request.model,
+      messages: [
+        { role: "system", content: request.systemPrompt },
+        { role: "user", content: request.prompt }
+      ]
+    };
     const response = request.provider === "openrouter"
       ? await createOpenRouterClient().chatCompletions(body)
       : await createPolzaClient().chatCompletions(body);
