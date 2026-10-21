@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /*
  * Windowless background launch for long-lived local services.
  *
