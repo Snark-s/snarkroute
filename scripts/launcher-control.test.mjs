@@ -40,7 +40,7 @@ test('a port that fails to close prevents replacement and unrelated processes ar
   let clock=0;const calls=[];
   const control=createLauncherRestartControl({apiPort:4317,owned:()=>true,serverPid:()=>123,timeoutMs:10,pollMs:5,now:()=>clock,wait:async ms=>{clock+=ms;},
     stop:async()=>calls.push('stop-owned'),start:async()=>calls.push('start'),cleanup:async()=>calls.push('cleanup'),portOpen:async()=>true,healthy:async()=>true});
-  control.restart();await control.wait();assert.deepEqual(calls,['stop-owned']);assert.equal(control.status().operation.state,'error');assert.match(control.status().operation.error,/port did not close/);
+  control.restart();await control.wait();assert.deepEqual(calls,['stop-owned']);assert.equal(control.status().operation.state,'error');assert.match(control.status().operation.error,/port .*did not close/);
 });
 test('cold startup and simultaneous restart share a single start operation',async()=>{
   let open=false,owned=false;const calls=[];

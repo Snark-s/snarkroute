@@ -80,6 +80,7 @@ export function createLauncherRestartControl({
   portOpen,
   healthy,
   timeoutMs = 60_000,
+  portTimeoutMs = Math.min(timeoutMs, 20_000),
   pollMs = 300,
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   now = Date.now,
@@ -87,8 +88,8 @@ export function createLauncherRestartControl({
   let operation = null;
   let inflight;
 
-  const until = async (predicate, message) => {
-    const deadline = now() + timeoutMs;
+  const until = async (predicate, message, waitTimeoutMs = timeoutMs) => {
+    const deadline = now() + waitTimeoutMs;
 
     while (now() < deadline) {
       if (await predicate()) return;
@@ -203,7 +204,8 @@ export function createLauncherRestartControl({
 
           await until(
             async () => !(await portOpen()),
-            'Server port did not close; replacement was not started'
+            `Server port ${apiPort} did not close within ${portTimeoutMs}ms; replacement was not started`,
+            portTimeoutMs
           );
 
           operation.state = 'starting';
@@ -330,6 +332,12 @@ export async function startLauncherControl({
     },
 
     start: async () => {
+      if (child) {
+        throw new Error(
+          'Server process is already running; refusing duplicate start'
+        );
+      }
+
       if (await portOpen(apiPort)) {
         throw new Error(
           'API port already occupied; refusing duplicate start'
@@ -383,6 +391,7 @@ export async function startLauncherControl({
         current.once('close', () => {
           if (child === current) {
             child = undefined;
+            authorized = false;
           }
 
           resolve();

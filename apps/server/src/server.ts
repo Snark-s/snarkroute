@@ -16,12 +16,44 @@ export function startServer() {
   const app = buildServer();
   if (!attachLauncherLifetime(app)) return app;
   attachSentinel(app);
-  app.listen({ port, host }).catch((error) => {
+  void listenWithPortRetry(app, { port, host }).catch((error) => {
     app.log.error(error);
     process.exit(1);
   });
   return app;
 }
+
+export const LISTEN_EADDRINUSE_RETRIES = 10;
+export const LISTEN_EADDRINUSE_DELAY_MS = 500;
+
+type ListenRetryOptions = {
+  port: number;
+  host: string;
+  retries?: number;
+  delayMs?: number;
+  wait?: (ms: number) => Promise<void>;
+};
+
+function isAddressInUseError(error: unknown): error is NodeJS.ErrnoException {
+  return typeof error === "object" && error !== null && (error as NodeJS.ErrnoException).code === "EADDRINUSE";
+}
+
+/** Give a just-shutdown process time to release the API socket before failing startup. */
+export async function listenWithPortRetry(app: FastifyInstance, options: ListenRetryOptions): Promise<string> {
+  const retries = options.retries ?? LISTEN_EADDRINUSE_RETRIES;
+  const delayMs = options.delayMs ?? LISTEN_EADDRINUSE_DELAY_MS;
+  const wait = options.wait ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await app.listen({ port: options.port, host: options.host });
+    } catch (error) {
+      if (!isAddressInUseError(error) || attempt >= retries) throw error;
+      await wait(delayMs);
+    }
+  }
+}
+
 /** Owned API processes close their existing jobs/routes if the launcher dies. */
 export function attachLauncherLifetime(app: FastifyInstance, channel = process): boolean {
   if (!process.env.SNARKROUTE_LAUNCHER_TOKEN || !channel.send) return true;
