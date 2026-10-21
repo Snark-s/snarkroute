@@ -31,6 +31,7 @@ import type { ModelIOItem } from "@snarkroute/protocol";
 /** Local FLUX.3 is opt-in. It stays unavailable until native Python dependencies are installed. */
 export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
   const configured = process.env.FLUX3_NATIVE_ENABLED === "1";
+  const qwenEditConfigured = process.env.QWEN_EDIT_ENABLED === "1";
   return [
     normalizeProviderModelToV1Input({
       provider: "flux3_native",
@@ -43,6 +44,18 @@ export function fallbackProviderModelsForCatalogV1(): ProviderModelInfoV1[] {
       roles: ["generator", "editor"],
       availability: { status: configured ? "available" : "unavailable", source: "curated", configured, reason: configured ? undefined : "Native Diffusers runtime and gated weights not installed" },
       metadata: { local: true, providerModelId: "flux-3-image-klein", license: "flux-kommunity-license", inference: "diffusers", maximumImageInputs: 10, resourceDemand: "heavy" }
+    }),
+    normalizeProviderModelToV1Input({
+      provider: "qwen_edit_local",
+      providerModelId: "qwen-image-edit-2511",
+      originVendor: "qwen",
+      displayName: "Qwen-Image-Edit-2511 (local, sd.cpp)",
+      inputTypes: ["text", "image"],
+      outputTypes: ["image"],
+      capabilities: ["image.edit", "image.reference"],
+      roles: ["editor"],
+      availability: { status: qwenEditConfigured ? "available" : "unavailable", source: "curated", configured: qwenEditConfigured, reason: qwenEditConfigured ? undefined : "sd.cpp runtime and GGUF weights not installed" },
+      metadata: { local: true, providerModelId: "qwen-image-edit-2511", license: "apache-2.0", inference: "stable-diffusion.cpp", quantization: "Q4_K_M", maximumImageInputs: 3, resourceDemand: "heavy" }
     }),
     ...baseFallbackProviderModelsForCatalogV1()
   ];

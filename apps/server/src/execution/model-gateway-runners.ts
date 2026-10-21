@@ -1,6 +1,7 @@
 import { createExperientialTextNodeRunner } from "../providers/experiential";
 import { createLocalOpenAiTextNodeRunner } from "../providers/local-openai";
 import { createNativeFlux3NodeRunner, FLUX3_NATIVE_MODEL_ID } from "../providers/flux3-native";
+import { createQwenEditNodeRunner, QWEN_EDIT_MODEL_ID, QWEN_EDIT_PROVIDER } from "../providers/qwen-edit-local";
 import { readFile } from "node:fs/promises";
 import type { PricingQuote } from "@snarkroute/core";
 import { resolveNodePricing, type NodeRunner, type PricingBreakdown } from "@snarkroute/executor";
@@ -119,10 +120,12 @@ export function createRemoteImageNodeRunner(modelResolver: ReturnType<typeof cre
   const openRouterRunner = guardProviderRunner("openrouter", createOpenRouterImageNodeRunner({ modelResolver }));
   const polzaRunner = guardProviderRunner("polza", createPolzaImageNodeRunner());
   const localFlux3Runner = createNativeFlux3NodeRunner();
+  const localQwenEditRunner = createQwenEditNodeRunner();
   return async (input) => {
     const executionProvider = stringValue(input.params.executionProvider ?? input.params.provider);
     const providerModelId = stringValue(input.params.providerModelId) ?? stringValue(input.params.model) ?? "image.nano-banana";
     if (executionProvider === "flux3_native" || providerModelId === FLUX3_NATIVE_MODEL_ID) return localFlux3Runner(input);
+    if (executionProvider === QWEN_EDIT_PROVIDER || providerModelId === QWEN_EDIT_MODEL_ID) return localQwenEditRunner(input);
     if (executionProvider === "kie") {
       const model = listDocumentedKieModels().find((entry) => entry.id === providerModelId);
       const hasImages = Array.isArray(input.params.images) && input.params.images.length > 0 || Array.isArray(input.inputs.images) && input.inputs.images.length > 0;
