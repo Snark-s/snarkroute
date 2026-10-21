@@ -85,6 +85,9 @@ export async function readQwenEditStatus(fetchImpl: typeof fetch = fetch): Promi
     if (!response.ok) return status("error", true, configured, config.baseUrl, `Port ${config.port} answered ${response.status}; not sd-server.`);
     launchStartedAt = 0;
     launchError = undefined;
+    // A SnarkRoute restart loses the in-memory idle timer while sd-server keeps running
+    // (and holding ~15 GB VRAM); any status read that sees it online re-arms the watch.
+    ensureIdleWatch();
     return status(activeJobs > 0 ? "busy" : "ready", true, configured, config.baseUrl);
   } catch {
     if (launchError) return status("error", false, configured, config.baseUrl, launchError);
