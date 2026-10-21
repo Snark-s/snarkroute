@@ -142,6 +142,83 @@ class SnarkDeployTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unknown snapshot component"):
                 SNARKDEPLOY.snapshot(args)
 
+    def test_snapshot_probe_timeout_marks_inventory_and_continues(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manifest = {
+                "variables": {},
+                "prerequisites": [{"id": "python", "command": "python"}],
+                "components": [{
+                    "id": "demo",
+                    "path": str(root / "missing"),
+                    "strategy": "copy",
+                    "snapshot": True,
+                }],
+                "heavy_inventories": [],
+                "wsl_inventories": [],
+                "inventories": [],
+                "secret_requirements": [],
+            }
+            args = SimpleNamespace(output=str(root), components=[], probe_timeout=0.01)
+            hanging_probe = subprocess.TimeoutExpired([SNARKDEPLOY.sys.executable, "--version"], 0.01)
+            with patch.object(SNARKDEPLOY, "load_manifest", return_value=manifest), \
+                    patch.object(SNARKDEPLOY.shutil, "which", return_value="python"), \
+                    patch.object(SNARKDEPLOY, "run", side_effect=hanging_probe), \
+                    patch.object(SNARKDEPLOY, "load_hash_cache", return_value={}), \
+                    patch.object(SNARKDEPLOY, "save_hash_cache"):
+                self.assertEqual(SNARKDEPLOY.snapshot(args), 0)
+
+            bundles = list(root.glob("snark-recovery-*.zip"))
+            self.assertEqual(len(bundles), 1)
+            with zipfile.ZipFile(bundles[0]) as archive:
+                system = json.loads(archive.read("system.json"))
+            self.assertEqual(system["commands"]["python"]["probe"], "probe timed out")
+            self.assertEqual(system["commands"]["python"]["probe_timeout_seconds"], 0.01)
+
+    def test_snapshot_component_filter_skips_system_probes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manifest = {
+                "variables": {},
+                "prerequisites": [{"id": "python", "command": "python"}],
+                "components": [{
+                    "id": "demo",
+                    "path": str(root / "missing"),
+                    "strategy": "copy",
+                    "snapshot": True,
+                }],
+                "heavy_inventories": [{"id": "heavy"}],
+                "wsl_inventories": [{"id": "wsl", "command": "echo test"}],
+                "inventories": [str(root / "inventory.json")],
+                "secret_requirements": [],
+            }
+            args = SimpleNamespace(output=str(root), components=["demo"], probe_timeout=0.01)
+            with patch.object(SNARKDEPLOY, "load_manifest", return_value=manifest), \
+                    patch.object(SNARKDEPLOY, "capture_system_inventory") as capture_system:
+                self.assertEqual(SNARKDEPLOY.snapshot(args), 0)
+            capture_system.assert_not_called()
+
+            bundles = list(root.glob("snark-recovery-*.zip"))
+            self.assertEqual(len(bundles), 1)
+            with zipfile.ZipFile(bundles[0]) as archive:
+                system = json.loads(archive.read("system.json"))
+            self.assertTrue(system["skipped"])
+            self.assertEqual(system["skip_reason"], "component filter")
+
+    def test_gpu_probe_timeout_is_recorded_without_running_gpu(self):
+        hanging_probe = subprocess.TimeoutExpired(["nvidia-smi"], 0.01)
+        with patch.object(SNARKDEPLOY, "command_exists", side_effect=[True, False, False, False]), \
+                patch.object(SNARKDEPLOY, "run", side_effect=hanging_probe):
+            system = SNARKDEPLOY.capture_system_inventory({"variables": {}}, probe_timeout=0.01)
+        self.assertEqual(system["gpu"], "probe timed out")
+        self.assertEqual(system["gpu_probe_timeout_seconds"], 0.01)
+
+    def test_run_always_closes_probe_stdin(self):
+        completed = subprocess.CompletedProcess(["mock-command"], 0, "", "")
+        with patch.object(SNARKDEPLOY.subprocess, "run", return_value=completed) as process:
+            SNARKDEPLOY.run(["mock-command"], check=False, timeout=1)
+        self.assertIs(process.call_args.kwargs["stdin"], subprocess.DEVNULL)
+
     def test_git_info_falls_back_for_unreadable_repository_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
             repo = Path(temp)
