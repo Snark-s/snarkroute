@@ -10,7 +10,7 @@ export const REQUIRED_LOCAL_SERVICES = [
 export type LocalServiceName = typeof REQUIRED_LOCAL_SERVICES[number];
 export type RegisteredServiceName = LocalServiceName | "persona_bridge" | "project_publisher"
   | "launcher" | "launcher_control" | "h3_worker" | "h3_sglang_fl2va" | "h3_sglang_ref2va"
-  | "local_upscale" | "yue2" | "freetoken" | "tove" | "factory";
+  | "local_upscale" | "flux3_native" | "yue2" | "freetoken" | "tove" | "factory";
 export type ServiceWatch = "always" | "when_running" | "never";
 type Service = { port: number; protocol: "http" | "tcp"; healthPath?: string; watch?: ServiceWatch };
 export type ServiceEndpointRegistry = {

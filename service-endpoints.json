@@ -134,6 +134,16 @@
         "value": "snarkroute-local-upscale-worker"
       }
     },
+    "flux3_native": {
+      "port": 8093,
+      "protocol": "http",
+      "healthPath": "/health",
+      "watch": "when_running",
+      "identity": {
+        "field": "service",
+        "value": "snarkroute-flux3-worker"
+      }
+    },
     "yue2": {
       "port": 7862,
       "protocol": "http",

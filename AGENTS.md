@@ -21,6 +21,11 @@ Use the reusable workflow in:
 docs/skills/context-budget.md
 ~~~
 
+When the task is to connect anything new to SnarkRoute (a model provider, a
+local GPU worker, MCP tools for agents, or an agent/service), read
+`docs/CONNECTING-NEW-ENTITY.md` first. It holds the owner's standing rules and
+the checklist; do not ask the owner for context that is recorded there.
+
 ## Project map
 
 Use this map to choose the smallest relevant area before reading files.
