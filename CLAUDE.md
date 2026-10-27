@@ -20,3 +20,8 @@ What you can drive right now through the `snarkroute` MCP server
 precise edits of a given image, "change X, keep the rest"; pass the image in
 `references`); `local_runtime_*` (GPU admission and runtimes: `flux3`,
 `qwen_edit`), `jabberwock_*` (routes), `ae_*` (After Effects).
+
+`models_list` shows which SnarkRoute models the owner shares with other networks,
+grouped by type. The owner sets "local only" / "selected only" in the Workshop:
+System → Models and providers (`/api/system/model-exposure`, stored in
+`apps/server/data/model-exposure.json`). Model Gateway rejects MCP jobs for hidden models.

@@ -21,6 +21,7 @@ import { listServiceLogs, managedLogPath, readServiceLogChunk, registerServiceLo
 import { recentLocalRuntimeSnapshot } from "../services/local-runtime-supervisor";
 import { readSecretaryInbox } from "../services/secretary-inbox";
 import { registerBuzhaModelGateway } from "./buzha-model-gateway";
+import { registerModelExposureRoutes } from "./model-exposure";
 import { stopAllLocalRuntimes } from "../services/local-runtime-stop-all";
 
 type SystemAppDefinition = {
@@ -70,6 +71,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     try { const origin = new URL(request.headers.origin); return origin.protocol === "http:" && isLoopbackHost(origin.hostname); } catch { return false; }
   };
   registerBuzhaModelGateway(app);
+  registerModelExposureRoutes(app, local);
   const ownerAuthorized = (authorization: string | undefined) => {
     const token = process.env.SNARKROUTE_LAUNCHER_TOKEN;
     if (!token || !authorization) return false;

@@ -9,6 +9,7 @@ import { ProjectPublisherCard, ProjectPublisherControl } from "./ProjectPublishe
 import { BeamishControl } from "./BeamishControl";
 import { AutonomousAppCard } from "./AutonomousAppCard";
 import { SnarkBridgeCard } from "./SnarkBridgeCard";
+import { ModelCatalogCard } from "./ModelCatalogCard";
 import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTerminalContextMenu } from "./ServiceTerminals";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
@@ -100,6 +101,7 @@ function Launcher() {
         </div>;
       })}
       <ProjectPublisherCard />
+      <ModelCatalogCard apiBase={apiBase} index={apps.length} />
       <SnarkBridgeCard apiBase={apiBase} />
     </section>
   </main>;
