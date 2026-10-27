@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { repoRoot } from "../server-paths";
 import { registerLocalRuntimeController, registerLocalRuntimeEndpoint } from "./local-runtime-registry";
 import { registerServiceLogProvider } from "./service-logs";
+import { localServiceHome, localServicePort } from "./local-service-endpoints";
+import { launchBackgroundService, PYTHON_LOG_ENV } from "./background-process";
 
 /*
  * Tove (Шорёк) and Factory (Фабрика): independent Python applications next to SnarkRoute.
@@ -14,7 +16,7 @@ import { registerServiceLogProvider } from "./service-logs";
  * or restarting SnarkRoute does not stop them.
  */
 
-export type AutonomousAppId = "tove" | "factory";
+export type AutonomousAppId = "tove" | "factory" | "buzha";
 export type AutonomousAppState = "stopped" | "starting" | "ready" | "working" | "paused" | "paused_gpu" | "error" | "stopping" | "unavailable";
 
 export type AutonomousAppStatus = {
@@ -23,6 +25,7 @@ export type AutonomousAppStatus = {
   running: boolean;
   url: string;
   mode?: string;
+  automation?: boolean;
   pid?: number;
   current?: { title?: string; kind?: string } | null;
   error?: string;
@@ -36,17 +39,19 @@ export const autonomousApps: Record<AutonomousAppId, Definition> = {
   tove: { id: "tove", service: "tove", label: "Шорёк", port: Number(process.env.TOVE_PORT ?? 4890),
     dir: process.env.TOVE_DIR ?? join(appsRoot(), "Tove"), module: "tove" },
   factory: { id: "factory", service: "factory", label: "Фабрика", port: Number(process.env.FACTORY_PORT ?? 4891),
-    dir: process.env.FACTORY_DIR ?? join(appsRoot(), "Factory"), module: "factory" }
+    dir: process.env.FACTORY_DIR ?? join(appsRoot(), "Factory"), module: "factory" },
+  buzha: { id: "buzha", service: "buzha", label: "Бужа", port: localServicePort("buzha"),
+    dir: localServiceHome("buzha") ?? join(appsRoot(), "Бужа"), module: "buzha" }
 };
 
 export function isAutonomousAppId(id: string): id is AutonomousAppId {
-  return id === "tove" || id === "factory";
+  return id === "tove" || id === "factory" || id === "buzha";
 }
 
 type Deps = {
   portOpen: (port: number) => Promise<boolean>;
   fetchJson: (url: string, init?: RequestInit) => Promise<{ ok: boolean; body: any }>;
-  spawnLauncher: (definition: Definition) => void;
+  spawnLauncher: (definition: Definition) => void | Promise<void>;
   installed: (definition: Definition) => boolean;
   now: () => number;
   wait: (ms: number) => Promise<void>;
@@ -69,17 +74,26 @@ const defaultDeps: Deps = {
     const response = await fetch(url, { ...init, signal: AbortSignal.timeout(3000) });
     return { ok: response.ok, body: await response.json().catch(() => ({})) };
   },
-  spawnLauncher: (definition) => {
+  spawnLauncher: async (definition) => {
     // The app's own launcher is idempotent and detaches the daemon; this child exits right away.
     const python = process.env.AUTONOMOUS_APPS_PYTHON ?? "python";
     const { SNARKROUTE_LAUNCHER_TOKEN: _token, API_PORT: _apiPort, ...env } = process.env;
+    if (definition.id === "buzha") {
+      // The bureau has no worker or provider credentials. The gateway owns inference.
+      const safeEnv = Object.fromEntries(Object.entries(env).filter(([key]) =>
+        /^(path|pathext|systemroot|windir|comspec|temp|tmp|userprofile|appdata|localappdata|home|lang|buzha_data_dir)$/i.test(key)));
+      await launchBackgroundService({ label: "Бужа", command: python, args: ["server.py", "--no-browser"],
+        cwd: definition.dir, logPath: join(definition.dir, "data", "logs", "buzha.log"),
+        env: { ...safeEnv, ...PYTHON_LOG_ENV, SNARKROUTE_PORT_REGISTRY: process.env.SNARKROUTE_PORT_REGISTRY || join(repoRoot, "service-endpoints.json") } });
+      return;
+    }
     const child = spawn(python, ["-m", `${definition.module}.launcher`, "start", "--json"], {
       cwd: definition.dir, detached: true, env, stdio: "ignore", windowsHide: true
     });
     child.on("error", () => undefined);
     child.unref();
   },
-  installed: (definition) => existsSync(join(definition.dir, definition.module, "launcher.py")),
+  installed: (definition) => existsSync(definition.id === "buzha" ? join(definition.dir, "server.py") : join(definition.dir, definition.module, "launcher.py")),
   now: () => Date.now(),
   wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 };
@@ -106,14 +120,14 @@ export async function readAutonomousAppStatus(id: AutonomousAppId): Promise<Auto
   }
   try {
     const { ok, body } = await deps.fetchJson(`${url}/api/health`);
-    if (!ok || body?.service !== definition.service) {
-      return { ...base, state: "unavailable", running: true, error: `Порт ${definition.port} занят другим процессом, не ${definition.label}` };
+    if (!ok || body?.service !== definition.service || id === "buzha" && (body.ok !== true || body.apiVersion !== 1 || body.automation !== false)) {
+      return { ...base, state: "unavailable", running: id !== "buzha", error: `Порт ${definition.port} занят другим процессом или health ${definition.label} несовместим` };
     }
     startedAt.delete(id);
     const state: AutonomousAppState = stopping ? "stopping" : HEALTH_STATES.includes(body.state) ? body.state : "error";
-    return { ...base, state, running: true, mode: body.mode, pid: body.pid, current: body.current ?? null, ...(body.error ? { error: String(body.error) } : {}) };
+    return { ...base, state, running: true, mode: body.mode, ...(id === "buzha" ? { automation: false } : {}), pid: body.pid, current: body.current ?? null, ...(body.error ? { error: String(body.error) } : {}) };
   } catch (error) {
-    return { ...base, state: starting ? "starting" : "error", running: true, error: `health не отвечает: ${error instanceof Error ? error.message : error}` };
+    return { ...base, state: starting ? "starting" : id === "buzha" ? "unavailable" : "error", running: id !== "buzha", error: `health не отвечает: ${error instanceof Error ? error.message : error}` };
   }
 }
 
@@ -125,7 +139,7 @@ export async function startAutonomousApp(id: AutonomousAppId, timeoutMs = 45_000
     if (before.state === "unavailable") throw new Error(before.error ?? "Приложение недоступно");
     if (before.running) return before;
     startedAt.set(id, deps.now());
-    deps.spawnLauncher(autonomousApps[id]);
+    await deps.spawnLauncher(autonomousApps[id]);
     const deadline = deps.now() + timeoutMs;
     while (deps.now() < deadline) {
       const status = await readAutonomousAppStatus(id);
@@ -141,10 +155,16 @@ export async function startAutonomousApp(id: AutonomousAppId, timeoutMs = 45_000
 export async function stopAutonomousApp(id: AutonomousAppId, waitMs = 20_000): Promise<AutonomousAppStatus> {
   const definition = autonomousApps[id];
   const before = await readAutonomousAppStatus(id);
-  if (!before.running) return before;
   if (before.state === "unavailable") throw new Error(before.error ?? "Порт занят другим процессом — не останавливаю чужой процесс");
+  if (!before.running) return before;
   // The app finishes its current action, journals it and exits by itself.
-  const { ok } = await deps.fetchJson(`${before.url}/api/system/shutdown`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (id === "buzha") {
+    const session = await deps.fetchJson(`${before.url}/api/session`);
+    if (!session.ok || typeof session.body?.token !== "string" || !session.body.token) throw new Error("Бужа не подтвердила свою сессию; остановка отменена");
+    headers["X-Buzha-Token"] = session.body.token;
+  }
+  const { ok } = await deps.fetchJson(`${before.url}/api/system/shutdown`, { method: "POST", headers, body: "{}" });
   if (!ok) throw new Error(`${definition.label} не принял команду остановки`);
   stoppingAt.set(id, deps.now());
   const deadline = deps.now() + waitMs;

@@ -1,6 +1,14 @@
 $ErrorActionPreference = "SilentlyContinue"
 
 $root = (Resolve-Path $PSScriptRoot).Path
+# Buzha is detached from the API process. Ask its identity-checked lifecycle to stop first.
+# If unavailable or foreign, the lifecycle refuses it; no PID or port is used to kill it.
+$registryFile = if ($env:SNARKROUTE_PORT_REGISTRY) { $env:SNARKROUTE_PORT_REGISTRY } else { Join-Path $root 'service-endpoints.json' }
+try {
+  $registry = Get-Content -LiteralPath $registryFile -Raw | ConvertFrom-Json
+  $stopApiPort = $registry.services.snarkroute.port
+  Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$stopApiPort/api/system/apps/buzha/stop" -ContentType 'application/json' -Body '{}' -TimeoutSec 25 -ErrorAction Stop | Out-Null
+} catch { Write-Warning 'Бужа: безопасная остановка через SnarkRoute не подтверждена.' }
 $apiPort = if ($env:API_PORT) { [int]$env:API_PORT } else { 4317 }
 $studioPort = if ($env:STUDIO_PORT) { [int]$env:STUDIO_PORT } else { 5173 }
 $snarkroutePort = if ($env:SNARKROUTE_PORT) { [int]$env:SNARKROUTE_PORT } else { 5174 }

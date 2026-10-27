@@ -15,7 +15,7 @@ export function registerLocalRuntimeTools(server: McpServer): void {
   const readOnly = { readOnlyHint: true, openWorldHint: false };
 
   server.registerTool("local_runtime_status", {
-    description: "Read current local GPU/runtime state before starting local inference. Includes built-in and automatically discovered loopback runtimes plus GPU/RAM pressure.",
+    description: "Read current local GPU/runtime state before starting local inference. Includes built-in and automatically discovered loopback runtimes plus GPU/RAM pressure. Runtime buzha is a local orders bureau with manual records and a chat; ready means its UI is available, automation remains false. Future executor questions must go through Secretary.",
     inputSchema: {},
     annotations: readOnly
   }, async () => output({ ok: true, snapshot: await readLocalRuntimeSnapshot() }));

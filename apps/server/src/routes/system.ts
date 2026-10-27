@@ -12,14 +12,16 @@ import { launcherControlRequest } from "../services/launcher-restart";
 import { isLoopbackAddress, isLoopbackHost } from "./after-effects";
 import { timingSafeEqual } from "node:crypto";
 import { appMode } from "../services/env";
-import { localServiceHome } from "../services/local-service-endpoints";
-import { autonomousApps, isAutonomousAppId, readAutonomousAppStatus, startAutonomousApp, stopAutonomousApp } from "../services/autonomous-apps";
+import { localServiceHome, localServicePort } from "../services/local-service-endpoints";
+import { autonomousApps, isAutonomousAppId, readAutonomousAppStatus, registerAutonomousApps, startAutonomousApp, stopAutonomousApp } from "../services/autonomous-apps";
 import { admissionForLocalRuntime, isLocalRuntimeId, LocalRuntimeAdmissionError, readLocalRuntimeSnapshot, startLocalRuntime, stopLocalRuntime } from "../services/local-runtime-supervisor";
 import { readSnarkBridgeLogs, readSnarkBridgeStatus, restartSnarkBridge } from "../services/snarkbridge-local";
 import { launchBackgroundService } from "../services/background-process";
 import { listServiceLogs, managedLogPath, readServiceLogChunk, registerServiceLogProvider, startServiceLogMaintenance, type ServiceLogSourceDef } from "../services/service-logs";
 import { recentLocalRuntimeSnapshot } from "../services/local-runtime-supervisor";
 import { readSecretaryInbox } from "../services/secretary-inbox";
+import { registerBuzhaModelGateway } from "./buzha-model-gateway";
+import { stopAllLocalRuntimes } from "../services/local-runtime-stop-all";
 
 type SystemAppDefinition = {
   id: string;
@@ -53,11 +55,13 @@ export const systemAppCatalog: readonly SystemAppDefinition[] = [
   { id: "beamish", name: "Бимиш", description: "Snark’s Imaginarium · живая графика на JavaScript", url: `http://127.0.0.1:${imaginariumPort}`, port: imaginariumPort, accent: "amber", icon: "/beamish-icon.png", service: "imaginarium" },
   { id: "secretary", name: "Секретарь", description: "Вопросы агентов, которым нужен твой ответ", url: SECRETARY_URL, port: 0, accent: "amber", icon: "/secretary-icon.png", service: "external" },
   { id: "tove", name: "Шорёк", description: "Tove · проактивный агент: цели, намерения, действия", url: `http://127.0.0.1:${autonomousApps.tove.port}`, port: autonomousApps.tove.port, accent: "amber", icon: "/tove-icon.png", service: "autonomous" },
-  { id: "factory", name: "Фабрика", description: "Factory · производство и продажа цифровых товаров", url: `http://127.0.0.1:${autonomousApps.factory.port}`, port: autonomousApps.factory.port, accent: "cyan", icon: "/factory-icon.png", service: "autonomous" }
+  { id: "factory", name: "Фабрика", description: "Factory · производство и продажа цифровых товаров", url: `http://127.0.0.1:${autonomousApps.factory.port}`, port: autonomousApps.factory.port, accent: "cyan", icon: "/factory-icon.png", service: "autonomous" },
+  { id: "buzha", name: "Бужа", description: "Бюро разовых заказов: учёт, ручные задания и чат", url: `http://127.0.0.1:${autonomousApps.buzha.port}`, port: autonomousApps.buzha.port, accent: "lime", icon: "/buzha-icon.png", service: "autonomous" }
 ];
 const launcherApp: SystemAppDefinition = { id: "launcher", name: "Мастерская", description: "Общий лаунчер", url: `http://127.0.0.1:${launcherPort}`, port: launcherPort, packageName: "@snarkroute/launcher", accent: "violet", icon: "sparkles" };
 
 export async function registerSystemRoutes(app: FastifyInstance) {
+  registerAutonomousApps();
   registerSystemLogProviders();
   startServiceLogMaintenance();
   const local = (request: { ip: string; hostname: string; headers: { origin?: string } }) => {
@@ -65,6 +69,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     if (!request.headers.origin) return true;
     try { const origin = new URL(request.headers.origin); return origin.protocol === "http:" && isLoopbackHost(origin.hostname); } catch { return false; }
   };
+  registerBuzhaModelGateway(app);
   const ownerAuthorized = (authorization: string | undefined) => {
     const token = process.env.SNARKROUTE_LAUNCHER_TOKEN;
     if (!token || !authorization) return false;
@@ -122,6 +127,12 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   app.get("/api/system/local-runtimes", async (request, reply) => {
     if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
     return { ok: true, ...await readLocalRuntimeSnapshot() };
+  });
+
+  app.post("/api/system/local-runtimes/stop-all", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required." });
+    const results = await stopAllLocalRuntimes();
+    return { ok: true, results };
   });
 
   // Мастерская terminals: read-only console output of local services; no command execution.
@@ -246,7 +257,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
       }
       if (service === "autonomous" && isAutonomousAppId(entry.id)) {
         const state = await readAutonomousAppStatus(entry.id);
-        return { ...entry, running: state.running, status: state.state, mode: state.mode, current: state.current, generating: state.state === "working", error: state.error, controllable: true };
+        return { ...entry, running: state.running, status: state.state, mode: state.mode, current: state.current, generating: state.state === "working", error: state.error, controllable: true, ...(entry.id === "buzha" ? { automation: false } : {}) };
       }
       if (service === "imaginarium") {
         const state = await readImaginariumStatus();

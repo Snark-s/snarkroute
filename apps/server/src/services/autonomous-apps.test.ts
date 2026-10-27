@@ -59,4 +59,38 @@ describe("autonomous apps (Tove/Factory) in the Мастерская", () => {
     setAutonomousAppDeps({ installed: () => false });
     expect((await readAutonomousAppStatus("factory")).state).toBe("unavailable");
   });
+
+  it("recognizes Buzha's UI readiness without claiming automation", async () => {
+    fakeWorld({ open: true, health: { service: "buzha", ok: true, apiVersion: 1, state: "ready", automation: false } });
+    expect(await readAutonomousAppStatus("buzha")).toMatchObject({ state: "ready", running: true, automation: false });
+  });
+
+  it("never reports a foreign listener or an invalid Buzha health as running", async () => {
+    for (const health of [
+      { service: "foreign", ok: true },
+      { service: "buzha", ok: false, apiVersion: 1, state: "ready", automation: false },
+      { service: "buzha", ok: true, apiVersion: 2, state: "ready", automation: false }
+    ]) {
+      const world = fakeWorld({ open: true, health });
+      expect(await readAutonomousAppStatus("buzha")).toMatchObject({ state: "unavailable", running: false });
+      await expect(stopAutonomousApp("buzha")).rejects.toThrow();
+      await expect(startAutonomousApp("buzha")).rejects.toThrow();
+      expect(world.shutdowns).toBe(0);
+      expect(world.spawned).toBe(0);
+    }
+  });
+
+  it("uses Buzha's session credential to stop only its own server", async () => {
+    fakeWorld({ open: true, health: { service: "buzha", ok: true, apiVersion: 1, state: "ready", automation: false } });
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    let open = true;
+    setAutonomousAppDeps({ installed: () => true, portOpen: async () => open, fetchJson: async (url, init) => {
+      calls.push({ url, init });
+      if (url.endsWith("/api/session")) return { ok: true, body: { token: "own-session" } };
+      if (init?.method === "POST") { open = false; return { ok: true, body: { ok: true } }; }
+      return { ok: true, body: { service: "buzha", ok: true, apiVersion: 1, state: "ready", automation: false } };
+    } });
+    expect(await stopAutonomousApp("buzha")).toMatchObject({ state: "stopped", running: false });
+    expect(calls.find(call => call.init?.method === "POST")?.init?.headers).toMatchObject({ "X-Buzha-Token": "own-session" });
+  });
 });

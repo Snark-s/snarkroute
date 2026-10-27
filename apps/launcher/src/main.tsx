@@ -189,6 +189,19 @@ function LocalRuntimeControl() {
     }
   }
 
+  async function stopAll() {
+    if (action) return;
+    setAction("all:stop"); setLocalError("");
+    try {
+      const result = await api<{ results: Array<{ id: string; ok: boolean; error?: string }> }>("/api/system/local-runtimes/stop-all", { method: "POST" });
+      await refresh();
+      const failures = result.results.filter(item => !item.ok);
+      if (failures.length) setLocalError(failures.map(item => `${item.id}: ${item.error}`).join(" · "));
+      window.dispatchEvent(new Event("snarkroute:apps-changed"));
+    } catch (reason) { setLocalError(message(reason)); }
+    finally { setAction(""); }
+  }
+
   const gpu = snapshot?.gpu;
   const gpuLabel = gpu ? `GPU ${(gpu.usedMiB / 1024).toFixed(1)}/${(gpu.totalMiB / 1024).toFixed(0)} ГБ` : "GPU ?";
   return <div className={`runtimeDeck ${snapshot?.pressure.level ?? "idle"}`} title={localError || snapshot?.pressure.summary || "Локальные процессы"}>
@@ -197,7 +210,7 @@ function LocalRuntimeControl() {
       <ProjectPublisherControl logAlert={alerts.has("publisher")} />
       <BeamishControl apiBase={apiBase} logAlert={alerts.has("beamish")} />
       {(snapshot?.runtimes ?? []).map((runtime) => {
-        const working = action.startsWith(`${runtime.id}:`);
+        const working = action === "all:stop" || action.startsWith(`${runtime.id}:`);
         const catalog = catalogs[runtime.id];
         const catalogText = catalog?.total ? `${catalog.available}/${catalog.total}` : "";
         const detail = [runtime.detail || runtime.state, catalog?.total ? `${catalog.available} из ${catalog.total} моделей готовы` : ""].filter(Boolean).join(" · ");
@@ -213,6 +226,7 @@ function LocalRuntimeControl() {
       })}
     </span>
     <TerminalsButton apiBase={apiBase} />
+    <button type="button" onClick={() => void stopAll()} disabled={Boolean(action) || !snapshot?.runtimes.some(runtime => runtime.control.canStop)} title="Остановить локальные процессы через их собственные обработчики">{action === "all:stop" ? "Останавливаю…" : "Остановить все задачи"}</button>
     {localError ? <span className="runtimeDeckError">{localError}</span> : null}
     {terminalMenu.element}
   </div>;

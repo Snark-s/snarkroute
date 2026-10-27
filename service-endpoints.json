@@ -190,6 +190,18 @@
       },
       "apiVersion": 1,
       "readyField": "ok"
+    },
+    "buzha": {
+      "port": 8796,
+      "protocol": "http",
+      "healthPath": "/api/health",
+      "watch": "always",
+      "identity": {
+        "field": "service",
+        "value": "buzha"
+      },
+      "apiVersion": 1,
+      "readyField": "ok"
     }
   },
   "paths": {
@@ -202,6 +214,7 @@
     "snarkbridge": "I:/SnarkBridge",
     "bonsai_home": "I:/AI/Bonsai-demo",
     "tove": "../../Приложения/Tove",
-    "factory": "../../Приложения/Factory"
+    "factory": "../../Приложения/Factory",
+    "buzha": "../../Приложения/Бужа"
   }
 }

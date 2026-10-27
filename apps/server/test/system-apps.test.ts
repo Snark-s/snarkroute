@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 // A port of its own for the Beamish checks, set before the routes module reads it (a real Imaginarium may run on 4870).
 vi.hoisted(() => { process.env.IMAGINARIUM_PORT = "48707"; });
+// Catalog rendering is independent of the external Secretary spreadsheet/network.
+vi.mock("../src/services/secretary-inbox", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/services/secretary-inbox")>(),
+  readSecretaryInbox: vi.fn(async () => ({ pending: 0 }))
+}));
 
 import { buildServer } from "../src/app";
 import { systemAppCatalog } from "../src/routes/system";
@@ -10,9 +15,10 @@ import { systemAppCatalog } from "../src/routes/system";
 describe("system app launcher", () => {
   it("describes every local product from one server-owned catalog", () => {
     expect(systemAppCatalog.map((app) => app.id)).toEqual([
-      "living-canvas", "boojum", "brandeshmyg", "h3", "persona", "yue2", "beamish", "secretary", "tove", "factory"
+      "living-canvas", "boojum", "brandeshmyg", "h3", "persona", "yue2", "beamish", "secretary", "tove", "factory", "buzha"
     ]);
     expect(systemAppCatalog.find((app) => app.id === "beamish")).toMatchObject({ name: "Бимиш", icon: "/beamish-icon.png", service: "imaginarium" });
+    expect(systemAppCatalog.find((app) => app.id === "buzha")).toMatchObject({ name: "Бужа", icon: "/buzha-icon.png", service: "autonomous" });
     expect(systemAppCatalog.filter((app) => app.service !== "external").every((app) => app.url.startsWith("http://127.0.0.1:"))).toBe(true);
     expect(systemAppCatalog.find((app) => app.id === "secretary")).toMatchObject({ name: "Секретарь", icon: "/secretary-icon.png", service: "external" });
     expect(systemAppCatalog.find((app) => app.id === "secretary")!.url).toMatch(/^https:\/\/claude\.ai\//);
