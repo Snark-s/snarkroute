@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_RADARS, RADAR_SYSTEM_PROMPT } from "./radar-config";
-import { CLAUDE_SUBSCRIPTION_MODEL, createDefaultRadarModelInvoker, cronMatches, runClaudeCli, runDueRadars, runRadar, startRadarScheduler } from "./radar";
+import { CLAUDE_SUBSCRIPTION_MODEL, createDefaultRadarModelInvoker, cronMatches, runClaudeCli, runCodexRadarCli, runDueRadars, runRadar, startRadarScheduler } from "./radar";
 
 describe("radars", () => {
   const roots: string[] = [];
@@ -155,6 +155,44 @@ describe("radars", () => {
     expect(calls[0].env?.ANTHROPIC_API_KEY).toBeUndefined();
   });
 
+  it("isolates source-only JSON analysis from tools, MCP, settings and paid API credentials", async () => {
+    const root = await mkdtemp(join(tmpdir(), "radar-")); roots.push(root);
+    const tokenPath = join(root, "oauth.txt"); await writeFile(tokenPath, "subscription-test-token");
+    let captured: { args: string[]; options: any; input?: string } | undefined;
+    const spawnImpl = ((_command: string, args: string[], options: any) => {
+      captured = { args, options };
+      const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough; stdin: PassThrough };
+      child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.stdin = new PassThrough();
+      child.stdin.on("data", chunk => { captured!.input = String(chunk); });
+      queueMicrotask(() => { child.stdout.emit("data", JSON.stringify({ result: '{"ok":true}' })); child.emit("close", 0); }); return child;
+    }) as unknown as typeof import("node:child_process").spawn;
+    const result = await runClaudeCli({ provider: "claude-subscription", model: "claude-code-cli", systemPrompt: "JSON", prompt: "Public sources only", readOnlyJson: true }, { tokenPath, spawnImpl, env: { PATH: process.env.PATH, ANTHROPIC_API_KEY: "secret", POLZA_API_KEY: "secret", LOCAL_LLM_API_KEY: "secret" } });
+    expect(result.text).toBe('{"ok":true}'); expect(result.webSearch).toBe(false);
+    expect(captured!.args).toEqual(expect.arrayContaining(["--safe-mode", "--tools", "", "--strict-mcp-config", "--no-session-persistence"]));
+    expect(captured!.input).toBe("Public sources only");
+    expect(captured!.options.env.ANTHROPIC_API_KEY).toBeUndefined(); expect(captured!.options.env.POLZA_API_KEY).toBeUndefined(); expect(captured!.options.env.LOCAL_LLM_API_KEY).toBeUndefined();
+    expect(captured!.options.env.CLAUDE_CONFIG_DIR).toContain("analysis-sandbox");
+  });
+
+  it("uses isolated Codex subscription auth, disables tools and removes the temporary credential", async () => {
+    const root = await mkdtemp(join(tmpdir(), "radar-")); roots.push(root);
+    await writeFile(join(root, "auth.json"), JSON.stringify({ auth_mode: "chatgpt", tokens: { access_token: "test-subscription-token" } }));
+    let captured: { args: string[]; options: any; input?: string } | undefined;
+    const spawnImpl = ((_command: string, args: string[], options: any) => {
+      captured = { args, options };
+      const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough; stdin: PassThrough };
+      child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.stdin = new PassThrough();
+      child.stdin.on("data", chunk => { captured!.input = String(chunk); });
+      queueMicrotask(() => { child.stdout.emit("data", JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: '{"ok":true}' } })); child.emit("close", 0); }); return child;
+    }) as unknown as typeof import("node:child_process").spawn;
+    const directory = join(root, "sandbox");
+    const result = await runCodexRadarCli({ provider: "codex-subscription", model: "default", systemPrompt: "JSON", prompt: "Public sources", readOnlyJson: true }, { directory, authHome: root, command: "codex", spawnImpl, env: { PATH: process.env.PATH, OPENAI_API_KEY: "must-not-pass", POLZA_API_KEY: "must-not-pass" } });
+    expect(result).toMatchObject({ provider: "codex-subscription", text: '{"ok":true}' });
+    expect(captured!.args).toEqual(expect.arrayContaining(["--ignore-user-config", "--ephemeral", "--sandbox", "read-only", 'forced_login_method="chatgpt"', 'features.shell_tool=false', 'features.apps=false', 'features.multi_agent=false']));
+    expect(captured!.input).not.toContain("test-subscription-token"); expect(captured!.options.env.OPENAI_API_KEY).toBeUndefined(); expect(captured!.options.env.POLZA_API_KEY).toBeUndefined();
+    await expect(readFile(join(directory, "codex-state", "auth.json"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("runs only enabled radars whose cron is due", async () => {
     const root = await mkdtemp(join(tmpdir(), "radar-")); roots.push(root);
     const now = new Date(2026, 9, 20, 10, 0, 0);
@@ -172,6 +210,13 @@ describe("radars", () => {
     stop();
     expect(clearInterval).not.toHaveBeenCalled();
     clearInterval.mockRestore();
+  });
+  it("runs an extra local callback without enabling any paid radar", async () => {
+    vi.useFakeTimers();
+    const onTick = vi.fn(async () => undefined);
+    const stop = startRadarScheduler({ radars: [], onTick, intervalMs: 10 });
+    try { await vi.advanceTimersByTimeAsync(11); expect(onTick).toHaveBeenCalledOnce(); }
+    finally { stop(); vi.useRealTimers(); }
   });
 
   it("matches the five cron fields used by the radar schedule", () => {

@@ -9,6 +9,9 @@ import { registerAeTools } from "./tools";
 import { registerJabberwockTools, type JabberwockMcpContext } from "./jabberwock-tools";
 import { registerLocalRuntimeTools } from "./local-runtime-tools";
 import { IMAGE_TOOL_INSTRUCTIONS, registerImageTools } from "./image-tools";
+import { COZYCLAY_TOOL_INSTRUCTIONS, registerCozyClayTools } from "./cozyclay-tools";
+import { TECH_RADAR_INSTRUCTIONS, registerTechRadarTools } from "./tech-radar-tools";
+import { MODEL_EXPOSURE_INSTRUCTIONS, registerModelExposureTools } from "./model-exposure-tools";
 
 const instructions = "This server controls local Adobe After Effects and exposes shared SnarkRoute runtime state. Before making After Effects changes, call ae_list_sessions. Before starting heavy local inference, call local_runtime_admission with intent=workload and surface any warnings or blockers instead of blindly starting another GPU-heavy runtime. If exactly one AE session is connected, tools may select it automatically; otherwise pass sessionId. For non-standard operations use ae_run_arbitrary_jsx. JSX executes directly in the currently open After Effects project through the SnarkRoute CEP panel. Arbitrary JSX is intentionally unrestricted and can access the AE DOM and ExtendScript File/Folder APIs. Timeouts stop waiting for a reply but cannot reliably interrupt ExtendScript already running.";
 const transports = new Map<string, StreamableHTTPServerTransport>();
@@ -46,10 +49,13 @@ async function handleExisting(request: FastifyRequest, reply: FastifyReply): Pro
 }
 
 export function createAeMcpServer(bridge: AeBridgeService = aeBridgeService, jabberwock?: JabberwockMcpContext): McpServer {
-  const server = new McpServer({ name: "snarkroute-after-effects", version: "0.1.0" }, { capabilities: { logging: {} }, instructions: instructions + buzhaInstructions + IMAGE_TOOL_INSTRUCTIONS + (jabberwock ? " Jabberwock routes use the jabberwock_* tools and persistent Supervisor API. Create one route; it runs without per-step client calls. Never transport route operations or results through a ChatGPT web composer." : "") });
+  const server = new McpServer({ name: "snarkroute-after-effects", version: "0.1.0" }, { capabilities: { logging: {} }, instructions: instructions + buzhaInstructions + IMAGE_TOOL_INSTRUCTIONS + MODEL_EXPOSURE_INSTRUCTIONS + COZYCLAY_TOOL_INSTRUCTIONS + TECH_RADAR_INSTRUCTIONS + (jabberwock ? " Jabberwock routes use the jabberwock_* tools and persistent Supervisor API. Create one route; it runs without per-step client calls. Never transport route operations or results through a ChatGPT web composer." : "") });
   registerAeTools(server, bridge);
   registerLocalRuntimeTools(server);
   registerImageTools(server);
+  registerModelExposureTools(server);
+  registerCozyClayTools(server);
+  registerTechRadarTools(server);
   if (jabberwock) registerJabberwockTools(server, jabberwock);
   return server;
 }

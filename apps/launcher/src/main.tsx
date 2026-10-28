@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ArrowLeft, ArrowRight, ArrowUpRight, Brain, CheckCircle2, Circle, Clock3, FolderOpen, Hexagon, LoaderCircle, Music, Paperclip, Play, Plus, Route, Send, Sparkles, Square, Trash2, Wand2, X } from "lucide-react";
 import { ApiRequestError, codexRetryFromError, confirmedCodexNotice, type CodexHandoffRetry, type CodexHandoffSuccess } from "./codexHandoff";
@@ -9,11 +9,14 @@ import { ProjectPublisherCard, ProjectPublisherControl } from "./ProjectPublishe
 import { BeamishControl } from "./BeamishControl";
 import { AutonomousAppCard } from "./AutonomousAppCard";
 import { SnarkBridgeCard } from "./SnarkBridgeCard";
-import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTerminalContextMenu } from "./ServiceTerminals";
+import { ModelCatalogCard } from "./ModelCatalogCard";
+import { TechRadarCard } from "./TechRadarCard";
+import { SecretaryPanel } from "./SecretaryPanel";
+import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTerminalContextMenu, showTerminal } from "./ServiceTerminals";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
 
-type AppCard = { external?: boolean; pending?: number | null; id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string; controllable?: boolean };
+type AppCard = { external?: boolean; managed?: boolean; pending?: number | null; id: string; name: string; description: string; url: string; running: boolean; status?: string; generating?: boolean; error?: string; accent: string; icon: string; controllable?: boolean };
 type ProviderRoute = { provider: string; providerModelId: string; storedModelId?: string; inputTypes?: string[]; availability?: { status?: string; configured?: boolean } };
 type Model = { id: string; canonicalModelId?: string; displayName: string; inputTypes?: string[]; providerRoutes?: ProviderRoute[] };
 type AutoAttempt = { role: string; display_name?: string; model: string; provider: string; estimated_cost?: number | null; actual_cost?: number | null; result_status: string };
@@ -25,11 +28,20 @@ type ProgressEvent = { at: string; kind: string; message: string };
 type RunJob = { jobId: string; taskId: string; status: "running" | "complete" | "failed" | "cancelled"; events: ProgressEvent[]; updatedAt: string; startedAt?: string; result?: { state?: Task }; error?: string };
 type BonsaiStatus = { service: "Bonsai 2 27B"; status: "stopped" | "starting" | "loading" | "ready" | "error"; model_loaded: boolean; endpoint: string; model_id?: string; error?: string };
 type LocalRuntime = { id: string; label: string; state: "stopped" | "starting" | "loading" | "ready" | "busy" | "error"; online: boolean; busy: boolean; resourceClaim: "none" | "resident" | "active" | "unknown"; control: { canStart: boolean; canStop: boolean }; detail?: string; discovered?: boolean };
+type CozyClayControl = { ok: boolean; status: string; running: boolean; managed: boolean; error?: string };
 type LocalRuntimeSnapshot = { capturedAt: string; gpu?: { name: string; totalMiB: number; usedMiB: number; freeMiB: number; utilizationPercent: number }; memory: { totalMiB: number; usedMiB: number; freeMiB: number }; runtimes: LocalRuntime[]; pressure: { level: "idle" | "busy" | "critical"; summary: string } };
 type LocalRuntimeDecision = { allowed: boolean; requiresConfirmation: boolean; blockers: string[]; warnings: string[]; summary: string };
 type RuntimeCatalogSummary = { total: number; available: number };
 
 const iconMap = { sparkles: Sparkles, route: Route, wand: Wand2, hexagon: Hexagon, brain: Brain, music: Music };
+
+const workshopTabs = [
+  { id: "secretary", label: "Секретарь", appIds: [] },
+  { id: "agents", label: "Агенты", appIds: ["tove", "factory", "buzha", "persona"] },
+  { id: "tools", label: "Инструменты", appIds: ["living-canvas", "boojum", "brandeshmyg", "h3", "yue2", "beamish", "cozyclay"] },
+  { id: "publishing", label: "Публикация", appIds: [] },
+  { id: "system", label: "Система", appIds: ["snarkroute"] }
+];
 
 function App() {
   if (location.pathname.startsWith("/logs")) return <TerminalPage apiBase={apiBase} />;
@@ -38,8 +50,12 @@ function App() {
 
 function Launcher() {
   const [apps, setApps] = useState<AppCard[]>([]);
+  const [activeTab, setActiveTab] = useState("agents");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const livingCanvas = apps.find(app => app.id === "living-canvas");
+  const secretary = apps.find(app => app.id === "secretary");
+  const updateSecretaryPending = useCallback((pending: number) => setApps(current => current.map(app => app.id === "secretary" ? { ...app, pending } : app)), []);
   const refresh = async () => setApps((await api<{ apps: AppCard[] }>("/api/system/apps")).apps);
   useEffect(() => {
     document.title = "Мастерская";
@@ -56,17 +72,20 @@ function Launcher() {
     return () => { window.removeEventListener("snarkroute:apps-changed", changed); window.clearInterval(timer); };
   }, []);
 
-  async function openApp(app: AppCard) {
+  async function openApp(app: AppCard, section?: "/tech-radar") {
     // A page outside this computer (Секретарь on claude.ai): just open it, nothing to start.
     if (app.external) { window.open(app.url, `snarkroute-${app.id}`, "noopener"); return; }
-    setBusy(app.id); setError("");
-    const popup = window.open("about:blank", `snarkroute-${app.id}`);
+    const cardId = section ? "tech-radar" : app.id;
+    setBusy(cardId); setError("");
+    const popup = window.open("about:blank", `snarkroute-${cardId}`);
     try {
       const result = await api<{ url: string; started: boolean }>(`/api/system/apps/${encodeURIComponent(app.id)}/open`, { method: "POST" });
-      if (popup) popup.location.href = result.url; else location.href = result.url;
+      const url = section ? new URL(section, result.url).href : result.url;
+      if (popup) popup.location.href = url; else location.href = url;
       window.setTimeout(() => void refresh(), 1400);
     } catch (reason) {
       popup?.close(); setError(message(reason));
+      if (app.id === "cozyclay") showTerminal("cozyclay");
     } finally { setBusy(""); }
   }
 
@@ -83,9 +102,29 @@ function Launcher() {
     </header>
     <TerminalPanel apiBase={apiBase} />
     {error ? <div className="errorBanner">{error}</div> : null}
-    <section className="appGrid">
-      {apps.map((app, index) => {
-        if (app.controllable) return <AutonomousAppCard key={app.id} app={app} apiBase={apiBase} index={index} />;
+    <div className="workshopTabs" role="tablist" aria-label="Разделы мастерской">
+      {workshopTabs.map((tab, index) => <button type="button" key={tab.id} id={`workshop-tab-${tab.id}`}
+        role="tab" aria-selected={activeTab === tab.id} aria-controls={`workshop-panel-${tab.id}`}
+        aria-label={tab.id === "secretary" ? `Секретарь, ждут ответа: ${secretary?.pending ?? "загрузка"}` : undefined}
+        tabIndex={activeTab === tab.id ? 0 : -1} onClick={() => setActiveTab(tab.id)}
+        onKeyDown={event => {
+          const nextIndex = event.key === "ArrowRight" ? (index + 1) % workshopTabs.length
+            : event.key === "ArrowLeft" ? (index + workshopTabs.length - 1) % workshopTabs.length
+            : event.key === "Home" ? 0 : event.key === "End" ? workshopTabs.length - 1 : undefined;
+          if (nextIndex === undefined) return;
+          event.preventDefault();
+          setActiveTab(workshopTabs[nextIndex].id);
+          document.getElementById(`workshop-tab-${workshopTabs[nextIndex].id}`)?.focus();
+        }}>{tab.label}{tab.id === "secretary" ? <span className={`secretaryTabCount ${secretary?.pending === 0 ? "empty" : ""}`} aria-hidden="true" title={secretary?.error}>{secretary?.pending ?? "…"}</span> : null}</button>)}
+    </div>
+    {/* Keep panels mounted so card state and status polling survive tab changes. */}
+    {workshopTabs.map(tab => <section key={tab.id} className="appGrid workshopPanel"
+      id={`workshop-panel-${tab.id}`} role="tabpanel" aria-labelledby={`workshop-tab-${tab.id}`}
+      hidden={activeTab !== tab.id}>
+      {tab.id === "secretary" ? <SecretaryPanel apiBase={apiBase} onPendingChange={updateSecretaryPending} /> : null}
+      {tab.id === "agents" && livingCanvas ? <TechRadarCard running={livingCanvas.running} busy={busy === "tech-radar"} index={0} onOpen={() => void openApp(livingCanvas, "/tech-radar")} /> : null}
+      {tab.appIds.flatMap(id => apps.filter(app => app.id === id)).map((app, appIndex) => {
+        const index = appIndex + (tab.id === "agents" ? 1 : 0);
         if (app.controllable) return <AutonomousAppCard key={app.id} app={app} apiBase={apiBase} index={index} />;
         const Icon = iconMap[app.icon as keyof typeof iconMap] ?? Sparkles;
         return <div key={app.id} className={`appCard ${app.accent}`} style={{ animationDelay: `${index * 55}ms` }}>
@@ -94,14 +133,15 @@ function Launcher() {
           <span className="appCopy"><strong>{app.name}</strong><small>{app.description}</small></span>
           <span className="cardFooter">{app.external && typeof app.pending === "number"
             ? <span className={app.pending > 0 ? "status ask" : "status on"} title={app.error ? `Не удалось обновить: ${app.error}` : undefined}>{app.pending > 0 ? <span className="askCount">{app.pending}</span> : <CheckCircle2 />}{app.pending > 0 ? `${pendingWord(app.pending)} ответа` : "всё отвечено"}</span>
-            : <span className={app.running ? "status on" : "status"}>{app.running ? <CheckCircle2 /> : <Circle />}{app.id === "yue2" ? yueStatus(app) : app.external ? "claude.ai" : app.running ? "открыто" : "готово"}</span>}{busy === app.id ? <LoaderCircle className="spin" /> : <ArrowUpRight />}</span>
+            : <span className={app.running ? "status on" : "status"}>{app.running ? <CheckCircle2 /> : <Circle />}{app.id === "cozyclay" ? (app.status === "error" || app.status === "occupied" ? "ошибка" : app.status === "unavailable" ? "нет установки" : app.status === "starting" ? "запускается" : app.running ? "работает" : "готово") : app.id === "yue2" ? yueStatus(app) : app.external ? "claude.ai" : app.running ? "открыто" : "готово"}</span>}{busy === app.id ? <LoaderCircle className="spin" /> : <ArrowUpRight />}</span>
           </button>
           {app.id === "yue2" ? <span className="cardActions"><button title="Открыть результаты" onClick={() => void yueAction("outputs")} disabled={!app.running}><FolderOpen /> Результаты</button><button title="Остановить YuE2" onClick={() => void yueAction("stop")} disabled={!app.running}><Square /> Остановить</button></span> : null}
         </div>;
       })}
-      <ProjectPublisherCard />
-      <SnarkBridgeCard apiBase={apiBase} />
-    </section>
+      {tab.id === "publishing" ? <ProjectPublisherCard /> : null}
+      {tab.id === "system" ? <ModelCatalogCard apiBase={apiBase} index={tab.appIds.length} /> : null}
+      {tab.id === "system" ? <SnarkBridgeCard apiBase={apiBase} /> : null}
+    </section>)}
   </main>;
 }
 
@@ -124,6 +164,51 @@ function LocalRuntimeControl() {
   const [localError, setLocalError] = useState("");
   const { alerts } = useServiceLogs(apiBase);
   const terminalMenu = useTerminalContextMenu();
+  const [cozyClay, setCozyClay] = useState<CozyClayControl>();
+  const [cozyClayBusy, setCozyClayBusy] = useState(false);
+  const [cozyClayError, setCozyClayError] = useState("");
+
+  async function refreshCozyClay() {
+    const next = await api<CozyClayControl>("/api/system/apps/cozyclay/status");
+    setCozyClay(next);
+    setCozyClayError("");
+  }
+
+  // CozyClay is a local Studio, not a GPU model. Poll its separate service status.
+  useEffect(() => {
+    let disposed = false;
+    const poll = async () => {
+      try {
+        const next = await api<CozyClayControl>("/api/system/apps/cozyclay/status");
+        if (!disposed) { setCozyClay(next); setCozyClayError(""); }
+      } catch (reason) { if (!disposed) setCozyClayError(message(reason)); }
+    };
+    void poll();
+    const timer = window.setInterval(() => { if (!document.hidden) void poll(); }, 3_000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
+
+  async function changeCozyClay() {
+    if (!cozyClay || cozyClayBusy) return;
+    const stop = cozyClay.running;
+    if (stop && !cozyClay.managed && !window.confirm(
+      "CozyClay запущен вручную. Сохрани сцену перед остановкой: процесс будет завершён, несохранённые изменения могут пропасть. Остановить?"
+    )) return;
+    setCozyClayBusy(true); setCozyClayError("");
+    try {
+      await api(stop ? "/api/system/apps/cozyclay/stop" : "/api/system/apps/cozyclay/open", {
+        method: "POST",
+        ...(stop && !cozyClay.managed
+          ? { headers: { "content-type": "application/json" }, body: JSON.stringify({ confirmExternalStop: true }) }
+          : {})
+      });
+      await refreshCozyClay();
+      window.dispatchEvent(new Event("snarkroute:apps-changed"));
+    } catch (reason) {
+      setCozyClayError(message(reason));
+      showTerminal("cozyclay");
+    } finally { setCozyClayBusy(false); }
+  }
 
   async function refresh() {
     const next = await api<LocalRuntimeSnapshot & { ok: boolean }>("/api/system/local-runtimes");
@@ -207,6 +292,19 @@ function LocalRuntimeControl() {
   return <div className={`runtimeDeck ${snapshot?.pressure.level ?? "idle"}`} title={localError || snapshot?.pressure.summary || "Локальные процессы"}>
     <span className="runtimeDeckSummary">{gpuLabel}</span>
     <span className="runtimeDeckItems" onContextMenu={terminalMenu.onContextMenu}>
+      <span className={`runtimeMini ${cozyClay?.running ? "ready" : cozyClay?.status === "error" || cozyClay?.status === "occupied" ? "error" : "stopped"}`}
+        data-service-id="cozyclay" data-service-label="CozyClay" data-log-alert={alerts.has("cozyclay") || undefined}
+        title={`${cozyClayError || cozyClay?.error || (cozyClay?.running ? "CozyClay работает" : "CozyClay не запущен")} · правый клик: терминал`}>
+        <span className="runtimeMiniDot" />
+        <span>CozyClay</span>
+        <button type="button" onClick={() => void changeCozyClay()}
+          disabled={!cozyClay || cozyClayBusy || (!cozyClay.running && !["stopped", "error"].includes(cozyClay.status))}
+          aria-label={cozyClay?.running ? "Остановить CozyClay" : "Запустить CozyClay"}
+          title={cozyClay?.running && !cozyClay.managed ? "Ручной запуск: остановить после подтверждения и сохранения сцены"
+            : cozyClay?.running ? "Остановить CozyClay" : "Запустить CozyClay"}>
+          {cozyClayBusy ? <LoaderCircle className="spin" /> : cozyClay?.running ? <Square /> : <Play />}
+        </button>
+      </span>
       <ProjectPublisherControl logAlert={alerts.has("publisher")} />
       <BeamishControl apiBase={apiBase} logAlert={alerts.has("beamish")} />
       {(snapshot?.runtimes ?? []).map((runtime) => {

@@ -332,7 +332,7 @@ async function openCodexDesktopThread(threadId: string): Promise<string> {
   return spec.target;
 }
 
-async function findCodexCliExecutable(): Promise<string> {
+export async function findCodexCliExecutable(): Promise<string> {
   const configured = process.env.CODEX_CLI_EXECUTABLE?.trim();
   if (configured) {
     if (!existsSync(configured)) throw new Error(`CODEX_CLI_EXECUTABLE does not exist: ${configured}`);

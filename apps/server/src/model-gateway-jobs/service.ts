@@ -7,6 +7,7 @@ import type { OpenRoute } from "@snarkroute/protocol";
 import { createRouteExecutor } from "../execution/service";
 import { modelGatewayJobsDirectory } from "../server-paths";
 import { errorMessage } from "../services/errors";
+import { assertExternalModelExposure } from "../services/model-exposure";
 
 export const generationJobStatuses = [
   "queued",
@@ -105,6 +106,7 @@ export class ModelGatewayJobService {
 
   async create(request: GenerationJobRequest, retryAttempt = request.retryOf ? 2 : 1): Promise<GenerationJob> {
     validateRequest(request);
+    await assertExternalModelExposure(request);
     const sanitized = sanitizeRequest(request);
     const idempotencyKey = sanitized.idempotencyKey;
     if (idempotencyKey) {

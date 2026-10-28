@@ -18,6 +18,7 @@ type BridgeStatus = {
   error?: string;
 };
 type LogSource = { id: string; title: string; file: string; text: string; updatedAt?: string };
+type YAccess = { ok: boolean; installed: boolean; enabled: boolean; expiresAt?: string; secondsRemaining: number; durationSeconds: number; scope: string };
 
 const STATE_LABELS: Record<BridgeStatus["status"], string> = {
   running: "Работает",
@@ -48,6 +49,9 @@ export function SnarkBridgeCard({ apiBase }: { apiBase: string }) {
   const [pollError, setPollError] = useState("");
   const [logs, setLogs] = useState<LogSource[]>();
   const [logsOpen, setLogsOpen] = useState(false);
+  const [yAccess, setYAccess] = useState<YAccess>();
+  const [accessRequest, setAccessRequest] = useState(false);
+  const [accessError, setAccessError] = useState("");
 
   async function refresh() {
     try {
@@ -72,6 +76,29 @@ export function SnarkBridgeCard({ apiBase }: { apiBase: string }) {
     const timer = window.setInterval(() => void poll(), 2500);
     return () => { disposed = true; window.clearInterval(timer); };
   }, [apiBase]);
+
+  useEffect(() => {
+    let disposed = false;
+    const poll = async () => {
+      try {
+        const next = await call<YAccess>(apiBase, "/api/system/snarkbridge/y-access");
+        if (!disposed) setYAccess(next);
+      } catch { if (!disposed) setYAccess(undefined); }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 5000);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [apiBase]);
+
+  async function toggleYAccess(next: boolean) {
+    setAccessRequest(true); setAccessError("");
+    try {
+      const action = next ? "request" : "revoke";
+      await call(apiBase, `/api/system/snarkbridge/y-access/${action}`, { method: "POST" });
+      setYAccess(await call<YAccess>(apiBase, "/api/system/snarkbridge/y-access"));
+    } catch (reason) { setAccessError(reason instanceof Error ? reason.message : "Доступ не изменён"); }
+    finally { setAccessRequest(false); }
+  }
 
   async function loadLogs() {
     try { setLogs((await call<{ sources: LogSource[] }>(apiBase, "/api/system/snarkbridge/logs")).sources); }
@@ -122,6 +149,17 @@ export function SnarkBridgeCard({ apiBase }: { apiBase: string }) {
         })}
       </ul>
       {notice ? <p className="bridgeNotice">{notice}</p> : null}
+      <div className="bridgeLease" style={{position:"relative",zIndex:2,padding:"10px 0"}}>
+        <label style={{display:"flex",alignItems:"center",gap:8,cursor:yAccess?.installed ? "pointer":"default"}}>
+          <input type="checkbox" checked={Boolean(yAccess?.enabled)} disabled={!yAccess?.installed || accessRequest} onChange={event => void toggleYAccess(event.target.checked)} />
+          <span>Расширенный доступ к Y: · 8 часов</span>
+        </label>
+        <small style={{display:"block",paddingTop:5,color:"var(--muted, #a2a2b5)"}}>
+          {yAccess?.enabled ? `Активен ещё ${Math.floor(yAccess.secondsRemaining / 3600)} ч ${Math.floor((yAccess.secondsRemaining % 3600) / 60)} мин`
+           : yAccess?.installed ? "При включении подтвердить действие в локальном окне владельца." : "Не установлен локальный модуль разрешений SnarkBridge."}
+        </small>
+        {accessError ? <p className="bridgeNotice">{accessError}</p> : null}
+      </div>
     </div>
     <span className="cardActions">
       <button type="button" onClick={() => void change("start")} disabled={busy || !control?.canStart} title="Запустить MCP-сервер и туннель">{action === "start" ? <LoaderCircle className="spin" /> : <Play />} Запустить</button>

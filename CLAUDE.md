@@ -20,3 +20,13 @@ What you can drive right now through the `snarkroute` MCP server
 precise edits of a given image, "change X, keep the rest"; pass the image in
 `references`); `local_runtime_*` (GPU admission and runtimes: `flux3`,
 `qwen_edit`), `jabberwock_*` (routes), `ae_*` (After Effects).
+
+`models_list` shows which SnarkRoute models the owner shares with other networks,
+grouped by type. The owner sets "local only" / "selected only" in the Workshop:
+System → Models and providers (`/api/system/model-exposure`, stored in
+`apps/server/data/model-exposure.json`). Model Gateway rejects MCP jobs for hidden models.
+
+`tech_radar_research` queues public GitHub research without running project code or
+using paid APIs; `tech_radar_catalog` reads results and the workshop capability map.
+Open `/tech-radar` in SnarkRoute or BoojumRoute for research, decisions and history.
+Catalog declarations never prove local readiness. Installations need a separate request.

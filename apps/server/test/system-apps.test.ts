@@ -15,10 +15,11 @@ import { systemAppCatalog } from "../src/routes/system";
 describe("system app launcher", () => {
   it("describes every local product from one server-owned catalog", () => {
     expect(systemAppCatalog.map((app) => app.id)).toEqual([
-      "living-canvas", "boojum", "brandeshmyg", "h3", "persona", "yue2", "beamish", "secretary", "tove", "factory", "buzha"
+      "living-canvas", "boojum", "brandeshmyg", "h3", "persona", "yue2", "beamish", "cozyclay", "secretary", "tove", "factory", "buzha"
     ]);
     expect(systemAppCatalog.find((app) => app.id === "beamish")).toMatchObject({ name: "Бимиш", icon: "/beamish-icon.png", service: "imaginarium" });
     expect(systemAppCatalog.find((app) => app.id === "buzha")).toMatchObject({ name: "Бужа", icon: "/buzha-icon.png", service: "autonomous" });
+    expect(systemAppCatalog.find((app) => app.id === "cozyclay")).toMatchObject({ name: "CozyClay", port: 5180, service: "cozyclay" });
     expect(systemAppCatalog.filter((app) => app.service !== "external").every((app) => app.url.startsWith("http://127.0.0.1:"))).toBe(true);
     expect(systemAppCatalog.find((app) => app.id === "secretary")).toMatchObject({ name: "Секретарь", icon: "/secretary-icon.png", service: "external" });
     expect(systemAppCatalog.find((app) => app.id === "secretary")!.url).toMatch(/^https:\/\/claude\.ai\//);

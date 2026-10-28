@@ -1,10 +1,13 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { createGeminiClient } from "@snarkroute/gemini";
 import { createOpenRouterClient } from "@snarkroute/openrouter";
 import { createPolzaClient } from "@snarkroute/polza";
 import { repoRoot } from "../server-paths";
+import { redactSecrets } from "./errors";
+import { findCodexCliExecutable } from "./codex-desktop";
 import { configuredRadars, RADAR_SYSTEM_PROMPT, type RadarDefinition, type RadarProvider } from "./radar-config";
 
 export type RadarPulse = {
@@ -29,6 +32,9 @@ export type RadarModelRequest = {
   model: string;
   systemPrompt: string;
   prompt: string;
+  /** Source-only analysis: no tools, MCP, project settings or paid fallback. */
+  readOnlyJson?: boolean;
+  outputSchema?: Record<string, unknown>;
 };
 
 export type RadarModelResult = {
@@ -76,6 +82,8 @@ export type RadarSchedulerOptions = {
   dataRoot?: string;
   now?: () => Date;
   intervalMs?: number;
+  /** Additional local work without enabling any billable radar. */
+  onTick?: () => Promise<unknown>;
 };
 
 export const RADAR_INTERVAL_MS = 60_000;
@@ -135,9 +143,10 @@ export async function runDueRadars(options: RadarSchedulerOptions = {}): Promise
 
 export function startRadarScheduler(options: RadarSchedulerOptions = {}): () => void {
   const radars = options.radars ?? configuredRadars();
-  if (!radars.some(radar => radar.enabled)) return () => {};
+  if (!radars.some(radar => radar.enabled) && !options.onTick) return () => {};
   const interval = setInterval(() => {
     void runDueRadars(options).catch(() => undefined);
+    void options.onTick?.().catch(() => undefined);
   }, options.intervalMs ?? RADAR_INTERVAL_MS);
   interval.unref?.();
   return () => clearInterval(interval);
@@ -162,6 +171,8 @@ export function createDefaultRadarModelInvoker(options: RadarInvokerOptions = {}
   const polzaTimeoutMs = options.polzaTimeoutMs ?? configuredPolzaTimeoutMs();
 
   return async request => {
+    if (request.readOnlyJson && !["claude-subscription", "codex-subscription"].includes(request.provider)) throw new Error("Source-only analysis requires a subscription provider; paid fallback is disabled.");
+    if (request.provider === "codex-subscription") return runCodexRadarCli(request);
     if (request.provider === "gemini") {
       const result = await createGeminiClient().generateText(request.model, [{ text: request.prompt }], request.systemPrompt);
       return { text: result.text ?? "", provider: request.provider, model: request.model };
@@ -185,6 +196,48 @@ export function createDefaultRadarModelInvoker(options: RadarInvokerOptions = {}
   };
 }
 
+/** Existing radar CLI transport + Codex executable discovery; subscription auth only. */
+export async function runCodexRadarCli(request: RadarModelRequest, options: { command?: string; directory?: string; authHome?: string; env?: NodeJS.ProcessEnv; spawnImpl?: typeof spawn } = {}): Promise<RadarModelResult> {
+  if (!request.readOnlyJson) throw new Error("Codex radar supports source-only JSON analysis.");
+  const command = options.command ?? await findCodexCliExecutable();
+  const cwd = options.directory ?? join(radarDataRoot(), "tech-radar", "analysis-sandbox");
+  const baseEnv = options.env ?? process.env;
+  const cliHome = join(cwd, "codex-state"); await mkdir(cliHome, { recursive: true });
+  // Isolate runtime logs/state in the project. Never load user config or pass API credentials.
+  let auth: { auth_mode?: string; tokens?: Record<string, unknown>; last_refresh?: string };
+  try { auth = JSON.parse(await readFile(join(options.authHome ?? baseEnv.CODEX_HOME ?? join(homedir(), ".codex"), "auth.json"), "utf8")); }
+  catch { throw new Error("Вход Codex по подписке недоступен. Платный API не используется."); }
+  if (auth.auth_mode !== "chatgpt" || !auth.tokens?.access_token) throw new Error("Технорадар требует вход Codex через ChatGPT, а не API-ключ.");
+  const authPath = join(cliHome, "auth.json");
+  const env: NodeJS.ProcessEnv = Object.fromEntries(Object.entries(baseEnv).filter(([key]) => /^(path|pathext|systemroot|windir|comspec|temp|tmp|userprofile|appdata|localappdata|programfiles|programfiles\(x86\)|home|lang)$/i.test(key)));
+  env.CODEX_HOME = cliHome;
+  const config = [
+    'forced_login_method="chatgpt"', 'model_provider="openai"', 'web_search="disabled"', 'mcp_servers={}',
+    'plugins._default.enabled=false', 'project_doc_max_bytes=0', 'history.persistence="none"',
+    'features.shell_tool=false', 'features.apps=false', 'features.js_repl=false', 'features.browser_use=false',
+    'features.browser_use_external=false', 'features.multi_agent=false', 'features.skill_search=false',
+    'features.view_image=false', 'features.workspace_dependencies=false'
+  ];
+  const args = ["exec", "--ignore-user-config", "--ignore-rules", "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only", "--json", "--color", "never", ...config.flatMap(value => ["-c", value]), "-"];
+  try {
+    // Do not duplicate/rotate the owner's refresh credential in an isolated CLI.
+    const tokens = { access_token: auth.tokens.access_token, id_token: auth.tokens.id_token ?? "", account_id: auth.tokens.account_id ?? "", refresh_token: "" };
+    await writeFile(authPath, JSON.stringify({ auth_mode: "chatgpt", tokens, last_refresh: auth.last_refresh }), { encoding: "utf8", mode: 0o600 });
+    if (request.outputSchema) { const path = join(cwd, "output-schema.json"); await writeFile(path, JSON.stringify(request.outputSchema)); args.splice(args.length - 1, 0, "--output-schema", path); }
+    const result = await runClaudeProcess(command, args, env, options.spawnImpl ?? spawn, { cwd, input: `${request.systemPrompt}\n\n${request.prompt}`, timeoutMs: 300_000 });
+    const events = result.stdout.split(/\r?\n/).flatMap(line => { try { return [JSON.parse(line) as Record<string, unknown>]; } catch { return []; } });
+    const messages = events.filter(e => e.type === "item.completed").map(e => e.item as Record<string, unknown>).filter(item => item?.type === "agent_message");
+    const answer = messages.at(-1)?.text;
+    if (result.exitCode !== 0 || typeof answer !== "string" || !answer.trim()) {
+      const error = events.find(e => e.type === "error")?.message;
+      let reason = typeof error === "string" ? error : result.stderr;
+      for (const secret of Object.values(auth.tokens)) if (typeof secret === "string" && secret.length > 8) reason = reason.replaceAll(secret, "[REDACTED]");
+      throw new Error(`Codex по подписке не завершил анализ. ${redactSecrets(reason).slice(0, 400)}`);
+    }
+    return { text: answer, provider: "codex-subscription", model: "codex-cli-default", webSearch: false };
+  } finally { await rm(authPath, { force: true }); }
+}
+
 export async function runClaudeCli(request: RadarModelRequest, options: RadarClaudeCliOptions = {}): Promise<RadarClaudeCliResult> {
   const baseEnv = options.env ?? process.env;
   const tokenPath = options.tokenPath ?? baseEnv.SNARKROUTE_CLAUDE_OAUTH_TOKEN_PATH ?? baseEnv.CLAUDE_OAUTH_TOKEN_PATH ?? DEFAULT_CLAUDE_OAUTH_TOKEN_PATH;
@@ -196,11 +249,28 @@ export async function runClaudeCli(request: RadarModelRequest, options: RadarCla
   }
   if (!token) throw new Error("Claude subscription token file is empty.");
 
-  const childEnv: NodeJS.ProcessEnv = { ...baseEnv, CLAUDE_CODE_OAUTH_TOKEN: token };
+  const childEnv: NodeJS.ProcessEnv = request.readOnlyJson
+    ? Object.fromEntries(Object.entries(baseEnv).filter(([key]) => /^(path|pathext|systemroot|windir|comspec|temp|tmp|userprofile|appdata|localappdata|programfiles|programfiles\(x86\)|home|lang)$/i.test(key)))
+    : { ...baseEnv };
+  childEnv.CLAUDE_CODE_OAUTH_TOKEN = token;
   for (const key of Object.keys(childEnv)) {
     if (key.toUpperCase() === "ANTHROPIC_API_KEY") delete childEnv[key];
   }
   const command = options.command ?? baseEnv.SNARKROUTE_CLAUDE_COMMAND ?? "claude";
+  if (request.readOnlyJson) {
+    const cwd = join(radarDataRoot(), "tech-radar", "analysis-sandbox");
+    await mkdir(cwd, { recursive: true });
+    childEnv.CLAUDE_CONFIG_DIR = join(cwd, "cli-state");
+    const args = ["--print", "--output-format", "json", "--safe-mode", "--tools", "", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--setting-sources", "", "--no-session-persistence", "--system-prompt", request.systemPrompt];
+    if (request.outputSchema) args.push("--json-schema", JSON.stringify(request.outputSchema));
+    const result = await runClaudeProcess(command, args, childEnv, options.spawnImpl ?? spawn, { cwd, input: request.prompt, timeoutMs: 300_000 });
+    if (result.exitCode !== 0) {
+      let reason = result.stderr;
+      try { const output = JSON.parse(result.stdout) as { result?: string }; reason ||= output.result ?? ""; } catch { /* Never expose an unparsed output dump. */ }
+      throw new Error(`Claude по подписке недоступен. Платный API не использован. ${redactSecrets(reason.replaceAll(token, "[REDACTED]")).slice(0, 500)}`.trim());
+    }
+    return parseClaudeOutput(result.stdout, token, false, baseEnv);
+  }
   const prompt = `${request.systemPrompt}\n\nЗадача радара:\n${request.prompt}\n\nВерни только текст Markdown-отчёта без JSON-обёртки.`;
   const args = ["-p", prompt, "--output-format", "json", "--allowedTools", "WebSearch"];
   const first = await runClaudeProcess(command, args, childEnv, options.spawnImpl ?? spawn);
@@ -303,22 +373,28 @@ async function runClaudeProcess(
   command: string,
   args: string[],
   env: NodeJS.ProcessEnv,
-  spawnImpl: typeof spawn
+  spawnImpl: typeof spawn,
+  options: { cwd?: string; input?: string; timeoutMs?: number } = {}
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   let child: ChildProcess;
   try {
-    child = spawnImpl(command, args, { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+    child = spawnImpl(command, args, { env, ...(options.cwd ? { cwd: options.cwd } : {}), stdio: [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"], windowsHide: true });
   } catch {
     throw new Error("Claude CLI could not be started.");
   }
 
   let stdout = "";
   let stderr = "";
+  if (options.input !== undefined) { child.stdin?.on("error", () => undefined); child.stdin?.end(options.input); }
   child.stdout?.setEncoding("utf8");
   child.stderr?.setEncoding("utf8");
   child.stdout?.on("data", chunk => { stdout += String(chunk); });
   child.stderr?.on("data", chunk => { stderr += String(chunk); });
   return new Promise((resolve, reject) => {
+    const timeout = options.timeoutMs ? setTimeout(() => { child.kill(); reject(new Error("Истекло время анализа Claude. Источники сохранены.")); }, options.timeoutMs) : undefined;
+    const clear = () => { if (timeout) clearTimeout(timeout); };
+    child.once("close", clear);
+    child.once("error", clear);
     child.once("error", () => reject(new Error("Claude CLI could not be started.")));
     child.once("close", exitCode => resolve({ stdout, stderr, exitCode }));
   });
@@ -334,7 +410,7 @@ function parseClaudeOutput(stdout: string, token: string, webSearch: boolean, en
   if (!parsed || typeof parsed !== "object") throw new Error("Claude CLI returned an invalid response.");
   const record = parsed as Record<string, unknown>;
   if (record.is_error === true) throw new Error("Claude CLI returned an error.");
-  const rawText = typeof record.result === "string" ? record.result : typeof record.text === "string" ? record.text : "";
+  const rawText = record.structured_output && typeof record.structured_output === "object" ? JSON.stringify(record.structured_output) : typeof record.result === "string" ? record.result : typeof record.text === "string" ? record.text : "";
   const text = rawText.replaceAll(token, "[REDACTED]").trim();
   if (!text) throw new Error("Claude CLI returned empty text.");
   const model = typeof record.model === "string" && record.model.trim()

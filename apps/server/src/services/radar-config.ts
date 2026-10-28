@@ -1,4 +1,4 @@
-export type RadarProvider = "openrouter" | "polza" | "gemini" | "claude-subscription";
+export type RadarProvider = "openrouter" | "polza" | "gemini" | "claude-subscription" | "codex-subscription";
 
 export type RadarDefinition = {
   id: string;

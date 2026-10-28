@@ -16,11 +16,15 @@ import { localServiceHome, localServicePort } from "../services/local-service-en
 import { autonomousApps, isAutonomousAppId, readAutonomousAppStatus, registerAutonomousApps, startAutonomousApp, stopAutonomousApp } from "../services/autonomous-apps";
 import { admissionForLocalRuntime, isLocalRuntimeId, LocalRuntimeAdmissionError, readLocalRuntimeSnapshot, startLocalRuntime, stopLocalRuntime } from "../services/local-runtime-supervisor";
 import { readSnarkBridgeLogs, readSnarkBridgeStatus, restartSnarkBridge } from "../services/snarkbridge-local";
+import { readYAccess, requestYAccessApproval, revokeYAccess } from "../services/snarkbridge-y-access";
 import { launchBackgroundService } from "../services/background-process";
+import { cozyClayUrl, cozyClayManagedLog, cozyClayManualLog, readCozyClayStatus, startCozyClay, stopCozyClay } from "../services/cozyclay-workshop";
 import { listServiceLogs, managedLogPath, readServiceLogChunk, registerServiceLogProvider, startServiceLogMaintenance, type ServiceLogSourceDef } from "../services/service-logs";
 import { recentLocalRuntimeSnapshot } from "../services/local-runtime-supervisor";
 import { readSecretaryInbox } from "../services/secretary-inbox";
+import { registerSecretaryRoutes } from "./secretary";
 import { registerBuzhaModelGateway } from "./buzha-model-gateway";
+import { registerModelExposureRoutes } from "./model-exposure";
 import { stopAllLocalRuntimes } from "../services/local-runtime-stop-all";
 
 type SystemAppDefinition = {
@@ -33,7 +37,7 @@ type SystemAppDefinition = {
   accent: string;
   icon: string;
   /** "external": a page outside this computer (e.g. a claude.ai artifact); opened by URL, never started. */
-  service?: "yue2" | "imaginarium" | "autonomous" | "external";
+  service?: "yue2" | "imaginarium" | "autonomous" | "external" | "cozyclay";
 };
 
 /** Секретарь: the owner's decision inbox — a claude.ai page over the «Решения» sheet of the agent registry. */
@@ -53,6 +57,7 @@ export const systemAppCatalog: readonly SystemAppDefinition[] = [
   { id: "persona", name: "Jabberwock", description: "Продолжение задач с общей памятью", url: `http://127.0.0.1:${launcherPort}/persona`, port: launcherPort, packageName: "@snarkroute/launcher", accent: "rose", icon: "/jabberwock-icon.png" },
   { id: "yue2", name: "YuE2", description: "Локальная генерация музыки", url: yue2Config.url, port: yue2Config.port, accent: "cyan", icon: "/yue2-icon.png", service: "yue2" },
   { id: "beamish", name: "Бимиш", description: "Snark’s Imaginarium · живая графика на JavaScript", url: `http://127.0.0.1:${imaginariumPort}`, port: imaginariumPort, accent: "amber", icon: "/beamish-icon.png", service: "imaginarium" },
+  { id: "cozyclay", name: "CozyClay", description: "3D-постановка сцен и камеры для AI-видео", url: cozyClayUrl(), port: localServicePort("cozyclay"), accent: "amber", icon: "hexagon", service: "cozyclay" },
   { id: "secretary", name: "Секретарь", description: "Вопросы агентов, которым нужен твой ответ", url: SECRETARY_URL, port: 0, accent: "amber", icon: "/secretary-icon.png", service: "external" },
   { id: "tove", name: "Шорёк", description: "Tove · проактивный агент: цели, намерения, действия", url: `http://127.0.0.1:${autonomousApps.tove.port}`, port: autonomousApps.tove.port, accent: "amber", icon: "/tove-icon.png", service: "autonomous" },
   { id: "factory", name: "Фабрика", description: "Factory · производство и продажа цифровых товаров", url: `http://127.0.0.1:${autonomousApps.factory.port}`, port: autonomousApps.factory.port, accent: "cyan", icon: "/factory-icon.png", service: "autonomous" },
@@ -69,7 +74,9 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     if (!request.headers.origin) return true;
     try { const origin = new URL(request.headers.origin); return origin.protocol === "http:" && isLoopbackHost(origin.hostname); } catch { return false; }
   };
+  registerSecretaryRoutes(app, local);
   registerBuzhaModelGateway(app);
+  registerModelExposureRoutes(app, local);
   const ownerAuthorized = (authorization: string | undefined) => {
     const token = process.env.SNARKROUTE_LAUNCHER_TOKEN;
     if (!token || !authorization) return false;
@@ -140,10 +147,14 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   app.get("/api/system/local-runtimes/logs", { logLevel: "warn" }, async (request, reply) => {
     if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
     const snapshot = recentLocalRuntimeSnapshot(6_000) ?? await readLocalRuntimeSnapshot();
-    const beamish = await readImaginariumStatus().catch(() => undefined);
+    const [beamish, cozyClay] = await Promise.all([
+      readImaginariumStatus().catch(() => undefined),
+      readCozyClayStatus().catch(() => undefined)
+    ]);
     const extras = [
       { id: "snarkroute", label: "SnarkRoute", online: true },
-      { id: "beamish", label: "Beamish", ...(beamish ? { online: beamish.running } : {}) }
+      { id: "beamish", label: "Beamish", ...(beamish ? { online: beamish.running } : {}) },
+      { id: "cozyclay", label: "CozyClay", ...(cozyClay ? { online: cozyClay.running } : {}) }
     ];
     return { ok: true, services: listServiceLogs([...extras, ...snapshot.runtimes]) };
   });
@@ -189,6 +200,20 @@ export async function registerSystemRoutes(app: FastifyInstance) {
   });
 
   // SnarkBridge: start/stop go through the local runtime routes above; these add its checks, restart and logs.
+  app.get("/api/system/snarkbridge/y-access", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false });
+    return { ok: true, ...readYAccess() };
+  });
+  app.post("/api/system/snarkbridge/y-access/request", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false });
+    try { requestYAccessApproval(); return { ok: true, pendingOwnerConfirmation: true }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
+  });
+  app.post("/api/system/snarkbridge/y-access/revoke", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false });
+    try { return { ok: true, ...revokeYAccess() }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
+  });
   app.get("/api/system/snarkbridge", async (request, reply) => {
     if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
     try { return { ok: true, ...await readSnarkBridgeStatus() }; }
@@ -259,6 +284,10 @@ export async function registerSystemRoutes(app: FastifyInstance) {
         const state = await readAutonomousAppStatus(entry.id);
         return { ...entry, running: state.running, status: state.state, mode: state.mode, current: state.current, generating: state.state === "working", error: state.error, controllable: true, ...(entry.id === "buzha" ? { automation: false } : {}) };
       }
+      if (service === "cozyclay") {
+        const state = await readCozyClayStatus();
+        return { ...entry, running: state.running, status: state.status, error: state.error, managed: state.managed, generating: false };
+      }
       if (service === "imaginarium") {
         const state = await readImaginariumStatus();
         return { ...entry, running: state.running, status: state.status, generating: false, error: state.error };
@@ -272,6 +301,16 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     const target = request.params.appId === "launcher" ? launcherApp : systemAppCatalog.find((entry) => entry.id === request.params.appId);
     if (!target) return reply.code(404).send({ ok: false, error: "Unknown local application." });
     if (target.service === "external") return { ok: true, url: target.url, started: false, status: "external" };
+    if (target.service === "cozyclay") {
+      if (!local(request)) return reply.code(403).send({ ok: false, error: "Local workshop client required" });
+      try {
+        const before = await readCozyClayStatus();
+        const state = await startCozyClay();
+        return { ok: true, url: cozyClayUrl(), started: !before.running, status: state.status };
+      } catch (error) {
+        return reply.code(503).send({ ok: false, error: errorMessage(error) });
+      }
+    }
     if (target.service === "autonomous" && isAutonomousAppId(target.id)) {
       if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
       try {
@@ -308,6 +347,15 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     return { ok: true, url: target.url, started: !open };
   });
 
+  app.get("/api/system/apps/cozyclay/status", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local workshop client required" });
+    return { ok: true, ...await readCozyClayStatus() };
+  });
+  app.post<{ Body: { confirmExternalStop?: boolean } }>("/api/system/apps/cozyclay/stop", async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local workshop client required" });
+    try { return { ok: true, ...await stopCozyClay(request.body?.confirmExternalStop === true) }; }
+    catch (error) { return reply.code(409).send({ ok: false, error: errorMessage(error) }); }
+  });
   app.get("/api/system/apps/beamish/status", async (request, reply) => {
     if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required" });
     return { ok: true, url: `http://127.0.0.1:${imaginariumPort}`, ...await readImaginariumStatus() };
@@ -389,6 +437,10 @@ function registerSystemLogProviders() {
     ];
   } });
   registerServiceLogProvider({ id: "publisher", label: "Publisher", order: 1, sources: () => [managed("server", "Project Publisher", "project-publisher")] });
+  registerServiceLogProvider({ id: "cozyclay", label: "CozyClay", order: 3, sources: () => [
+    { id: "managed", title: "Запуск из Мастерской", owner: "managed", path: cozyClayManagedLog() },
+    { id: "manual", title: "Ручной запуск", owner: "own-file", path: cozyClayManualLog() }
+  ] });
   registerServiceLogProvider({ id: "beamish", label: "Beamish", order: 2, sources: () => [
     { id: "server", title: "server.log", path: join(imaginariumDir(), "data", "server.log"), owner: "own-file" },
     managed("launch", "npm start", "imaginarium-launch")

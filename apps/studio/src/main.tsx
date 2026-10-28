@@ -1,5 +1,6 @@
 import "@xyflow/react/dist/style.css";
 import "./styles.css";
+import { TechRadar } from "./features/tech-radar/TechRadar";
 import { useClampedMenuPosition } from "@snarkroute/media-viewers";
 import defaultRouteDocument from "./default-route.orp.json";
 import {
@@ -8192,6 +8193,7 @@ function App() {
               <button className="danger" onClick={clearCanvas} disabled={nodes.length === 0 && edges.length === 0}><Eraser size={16} /> Clear</button>
             </>
           ) : null}
+          {supportsLocalFilesystem ? <button type="button" onClick={() => navigate("/tech-radar")}><Radio size={16} /> Технорадар</button> : null}
           {supportsLocalFilesystem ? <button className="danger" onClick={() => void shutdownServices()} disabled={!apiConnected || shuttingDown} title="Close BoojumRoute Lab and stop local services"><Power size={16} /> {shuttingDown ? "Closing" : "Close"}</button> : null}
           {capabilities.supportsDeveloperDiagnostics && !isProductionBuild ? (
             <div className="devIdentitySwitcher" title="Dev identity is stored per browser in a cookie.">
@@ -9377,6 +9379,7 @@ function RootApp() {
   if (path === "/admin/login") return <AdminLoginPage />;
   if (path === "/login") return <LoginPage />;
   if (path === "/h3") return <H3Studio />;
+  if (path === "/tech-radar") return <TechRadar />;
   return <App />;
 }
 

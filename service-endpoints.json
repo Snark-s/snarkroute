@@ -1,220 +1,229 @@
 {
-  "schemaVersion": 1,
-  "host": "127.0.0.1",
-  "description": "Authoritative loopback service ports. Mixar clients must call SnarkRoute for ALL model generation.",
-  "modelPolicy": {
-    "routeVia": "snarkroute",
-    "directMixarInference": false
-  },
-  "services": {
-    "snarkroute": {
-      "port": 4317,
-      "protocol": "http",
-      "healthPath": "/health",
-      "watch": "always",
-      "identity": {
-        "field": "service",
-        "value": "snarkroute-server"
-      },
-      "apiVersion": 1,
-      "readyField": "ok"
-    },
-    "mixar_sidecar": {
-      "port": 18880,
-      "protocol": "http",
-      "healthPath": "/ready",
-      "watch": "when_running",
-      "identity": {
-        "field": "service",
-        "value": "jabberwock-mixar-local"
-      },
-      "apiVersion": 1,
-      "readyField": "ready"
-    },
-    "mixar_bridge": {
-      "port": 18767,
-      "protocol": "http",
-      "healthPath": "/health",
-      "watch": "when_running",
-      "identity": {
-        "field": "service",
-        "value": "jabberwock-blender-bridge"
-      },
-      "apiVersion": 1
-    },
-    "mixar_watchdog": {
-      "port": 18881,
-      "protocol": "tcp",
-      "watch": "when_running"
-    },
-    "snarkbridge_mcp": {
-      "port": 8767,
-      "protocol": "http",
-      "healthPath": "/health",
-      "watch": "always",
-      "identity": {
-        "field": "service",
-        "value": "snarkbridge-mcp"
-      },
-      "apiVersion": 1,
-      "readyField": "ok"
-    },
-    "snarkbridge_tunnel": {
-      "port": 8080,
-      "protocol": "http",
-      "healthPath": "/readyz",
-      "watch": "always"
-    },
-    "bonsai_inference": {
-      "port": 8092,
-      "protocol": "http",
-      "healthPath": "/v1/models",
-      "watch": "when_running"
-    },
-    "ollama_inference": {
-      "port": 11434,
-      "protocol": "http",
-      "healthPath": "/api/version",
-      "watch": "when_running"
-    },
-    "persona_bridge": {
-      "port": 8766,
-      "protocol": "http",
-      "healthPath": "/health",
-      "watch": "always",
-      "identity": {
-        "field": "service",
-        "value": "PersonaCore"
-      },
-      "apiVersion": 1
-    },
-    "project_publisher": {
-      "port": 8765,
-      "protocol": "http",
-      "healthPath": "/health",
-      "watch": "when_running"
-    },
-    "launcher": {
-      "port": 5172,
-      "protocol": "http",
-      "healthPath": "/index.html",
-      "watch": "always"
-    },
-    "launcher_control": {
-      "port": 5176,
-      "protocol": "http",
-      "healthPath": "/status",
-      "watch": "always"
-    },
-    "h3_worker": {
-      "port": 18080,
-      "protocol": "http",
-      "healthPath": "/ready",
-      "watch": "when_running"
-    },
-    "h3_sglang_fl2va": {
-      "port": 30010,
-      "protocol": "http",
-      "healthPath": "/health",
-      "watch": "when_running"
-    },
-    "h3_sglang_ref2va": {
-      "port": 30011,
-      "protocol": "http",
-      "healthPath": "/health",
-      "watch": "when_running"
-    },
-    "local_upscale": {
-      "port": 8091,
-      "protocol": "http",
-      "healthPath": "/health",
-      "watch": "when_running",
-      "identity": {
-        "field": "service",
-        "value": "snarkroute-local-upscale-worker"
-      }
-    },
-    "flux3_native": {
-      "port": 8093,
-      "protocol": "http",
-      "healthPath": "/health",
-      "watch": "when_running",
-      "identity": {
-        "field": "service",
-        "value": "snarkroute-flux3-worker"
-      }
-    },
-    "qwen_edit": {
-      "port": 8094,
-      "protocol": "http",
-      "healthPath": "/sdcpp/v1/capabilities",
-      "watch": "when_running"
-    },
-    "yue2": {
-      "port": 7862,
-      "protocol": "http",
-      "healthPath": "/health",
-      "watch": "when_running",
-      "identity": {
-        "field": "service",
-        "value": "YuE2"
-      }
-    },
-    "freetoken": {
-      "port": 1919,
-      "protocol": "http",
-      "healthPath": "/v1/models",
-      "watch": "when_running",
-      "enabled": false
-    },
-    "tove": {
-      "port": 4890,
-      "protocol": "http",
-      "healthPath": "/api/health",
-      "watch": "always",
-      "identity": {
-        "field": "service",
-        "value": "tove"
-      },
-      "apiVersion": 1,
-      "readyField": "ok"
-    },
-    "factory": {
-      "port": 4891,
-      "protocol": "http",
-      "healthPath": "/api/health",
-      "watch": "always",
-      "identity": {
-        "field": "service",
-        "value": "factory"
-      },
-      "apiVersion": 1,
-      "readyField": "ok"
-    },
-    "buzha": {
-      "port": 8796,
-      "protocol": "http",
-      "healthPath": "/api/health",
-      "watch": "always",
-      "identity": {
-        "field": "service",
-        "value": "buzha"
-      },
-      "apiVersion": 1,
-      "readyField": "ok"
-    }
-  },
-  "paths": {
-    "snarkroute": ".",
-    "mixar_local": "../../Приложения/Jabberwock Mixar Local",
-    "mixar_source": "../../Приложения/Jabberwock Mixar Source",
-    "mixar_runtime": "../../Приложения/Jabberwock Mixar Runtime",
-    "mixar_startup": "C:\\Users\\serge\\AppData\\Roaming\\Mixar\\Mixar\\5.2\\scripts\\startup",
-    "personacore": "I:/PersonaCore",
-    "snarkbridge": "I:/SnarkBridge",
-    "bonsai_home": "I:/AI/Bonsai-demo",
-    "tove": "../../Приложения/Tove",
-    "factory": "../../Приложения/Factory",
-    "buzha": "../../Приложения/Бужа"
-  }
+    "schemaVersion":  1,
+    "host":  "127.0.0.1",
+    "description":  "Authoritative loopback service ports. Mixar clients must call SnarkRoute for ALL model generation.",
+    "modelPolicy":  {
+                        "routeVia":  "snarkroute",
+                        "directMixarInference":  false
+                    },
+    "services":  {
+                     "snarkroute":  {
+                                        "port":  4317,
+                                        "protocol":  "http",
+                                        "healthPath":  "/health",
+                                        "watch":  "always",
+                                        "identity":  {
+                                                         "field":  "service",
+                                                         "value":  "snarkroute-server"
+                                                     },
+                                        "apiVersion":  1,
+                                        "readyField":  "ok"
+                                    },
+                     "mixar_sidecar":  {
+                                           "port":  18880,
+                                           "protocol":  "http",
+                                           "healthPath":  "/ready",
+                                           "watch":  "when_running",
+                                           "identity":  {
+                                                            "field":  "service",
+                                                            "value":  "jabberwock-mixar-local"
+                                                        },
+                                           "apiVersion":  1,
+                                           "readyField":  "ready"
+                                       },
+                     "mixar_bridge":  {
+                                          "port":  18767,
+                                          "protocol":  "http",
+                                          "healthPath":  "/health",
+                                          "watch":  "when_running",
+                                          "identity":  {
+                                                           "field":  "service",
+                                                           "value":  "jabberwock-blender-bridge"
+                                                       },
+                                          "apiVersion":  1
+                                      },
+                     "mixar_watchdog":  {
+                                            "port":  18881,
+                                            "protocol":  "tcp",
+                                            "watch":  "when_running"
+                                        },
+                     "snarkbridge_mcp":  {
+                                             "port":  8767,
+                                             "protocol":  "http",
+                                             "healthPath":  "/health",
+                                             "watch":  "always",
+                                             "identity":  {
+                                                              "field":  "service",
+                                                              "value":  "snarkbridge-mcp"
+                                                          },
+                                             "apiVersion":  1,
+                                             "readyField":  "ok"
+                                         },
+                     "snarkbridge_tunnel":  {
+                                                "port":  8080,
+                                                "protocol":  "http",
+                                                "healthPath":  "/readyz",
+                                                "watch":  "always"
+                                            },
+                     "bonsai_inference":  {
+                                              "port":  8092,
+                                              "protocol":  "http",
+                                              "healthPath":  "/v1/models",
+                                              "watch":  "when_running"
+                                          },
+                     "ollama_inference":  {
+                                              "port":  11434,
+                                              "protocol":  "http",
+                                              "healthPath":  "/api/version",
+                                              "watch":  "when_running"
+                                          },
+                     "persona_bridge":  {
+                                            "port":  8766,
+                                            "protocol":  "http",
+                                            "healthPath":  "/health",
+                                            "watch":  "always",
+                                            "identity":  {
+                                                             "field":  "service",
+                                                             "value":  "PersonaCore"
+                                                         },
+                                            "apiVersion":  1
+                                        },
+                     "project_publisher":  {
+                                               "port":  8765,
+                                               "protocol":  "http",
+                                               "healthPath":  "/health",
+                                               "watch":  "when_running"
+                                           },
+                     "launcher":  {
+                                      "port":  5172,
+                                      "protocol":  "http",
+                                      "healthPath":  "/index.html",
+                                      "watch":  "always"
+                                  },
+                     "launcher_control":  {
+                                              "port":  5176,
+                                              "protocol":  "http",
+                                              "healthPath":  "/status",
+                                              "watch":  "always"
+                                          },
+                     "h3_worker":  {
+                                       "port":  18080,
+                                       "protocol":  "http",
+                                       "healthPath":  "/ready",
+                                       "watch":  "when_running"
+                                   },
+                     "h3_sglang_fl2va":  {
+                                             "port":  30010,
+                                             "protocol":  "http",
+                                             "healthPath":  "/health",
+                                             "watch":  "when_running"
+                                         },
+                     "h3_sglang_ref2va":  {
+                                              "port":  30011,
+                                              "protocol":  "http",
+                                              "healthPath":  "/health",
+                                              "watch":  "when_running"
+                                          },
+                     "local_upscale":  {
+                                           "port":  8091,
+                                           "protocol":  "http",
+                                           "healthPath":  "/health",
+                                           "watch":  "when_running",
+                                           "identity":  {
+                                                            "field":  "service",
+                                                            "value":  "snarkroute-local-upscale-worker"
+                                                        }
+                                       },
+                     "flux3_native":  {
+                                          "port":  8093,
+                                          "protocol":  "http",
+                                          "healthPath":  "/health",
+                                          "watch":  "when_running",
+                                          "identity":  {
+                                                           "field":  "service",
+                                                           "value":  "snarkroute-flux3-worker"
+                                                       }
+                                      },
+                     "qwen_edit":  {
+                                       "port":  8094,
+                                       "protocol":  "http",
+                                       "healthPath":  "/sdcpp/v1/capabilities",
+                                       "watch":  "when_running"
+                                   },
+                     "yue2":  {
+                                  "port":  7862,
+                                  "protocol":  "http",
+                                  "healthPath":  "/health",
+                                  "watch":  "when_running",
+                                  "identity":  {
+                                                   "field":  "service",
+                                                   "value":  "YuE2"
+                                               }
+                              },
+                     "freetoken":  {
+                                       "port":  1919,
+                                       "protocol":  "http",
+                                       "healthPath":  "/v1/models",
+                                       "watch":  "when_running",
+                                       "enabled":  false
+                                   },
+                     "tove":  {
+                                  "port":  4890,
+                                  "protocol":  "http",
+                                  "healthPath":  "/api/health",
+                                  "watch":  "always",
+                                  "identity":  {
+                                                   "field":  "service",
+                                                   "value":  "tove"
+                                               },
+                                  "apiVersion":  1,
+                                  "readyField":  "ok"
+                              },
+                     "factory":  {
+                                     "port":  4891,
+                                     "protocol":  "http",
+                                     "healthPath":  "/api/health",
+                                     "watch":  "always",
+                                     "identity":  {
+                                                      "field":  "service",
+                                                      "value":  "factory"
+                                                  },
+                                     "apiVersion":  1,
+                                     "readyField":  "ok"
+                                 },
+                     "buzha": {
+                         "port": 8796,
+                         "protocol": "http",
+                         "healthPath": "/api/health",
+                         "watch": "always",
+                         "identity": { "field": "service", "value": "buzha" },
+                         "apiVersion": 1,
+                         "readyField": "ok"
+                     },
+                     "cozyclay":  {
+                                      "port":  5180,
+                                      "protocol":  "http",
+                                      "healthPath":  "/app/",
+                                      "watch":  "when_running"
+                                  },
+                     "cozyclay_live":  {
+                                           "port":  5184,
+                                           "protocol":  "tcp",
+                                           "watch":  "when_running"
+                                       }
+                 },
+    "paths":  {
+                  "snarkroute":  ".",
+                  "mixar_local":  "../../Приложения/Jabberwock Mixar Local",
+                  "mixar_source":  "../../Приложения/Jabberwock Mixar Source",
+                  "mixar_runtime":  "../../Приложения/Jabberwock Mixar Runtime",
+                  "mixar_startup":  "C:\\Users\\serge\\AppData\\Roaming\\Mixar\\Mixar\\5.2\\scripts\\startup",
+                  "personacore":  "I:/PersonaCore",
+                  "snarkbridge":  "I:/SnarkBridge",
+                  "bonsai_home":  "I:/AI/Bonsai-demo",
+                  "tove":  "../../Приложения/Tove",
+                  "factory":  "../../Приложения/Factory",
+                  "buzha": "../../Приложения/Бужа",
+                  "cozyclay":  "Y:\\Приложения\\CozyClay"
+              }
 }

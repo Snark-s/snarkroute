@@ -1,4 +1,5 @@
 import "./styles.css";
+import { TechRadar } from "../../studio/src/features/tech-radar/TechRadar";
 import { ArrowUp, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clipboard, Cog, Copy, Crop, Download, Expand, ExternalLink, FileDown, FileUp, Folder, FolderPlus, ImageIcon, ImagePlus, Layers3, Maximize2, Minimize2, Moon, Music, PanelRight, RefreshCw, Save, Scissors, Sun, Trash2, Video, Wallpaper, Wrench } from "lucide-react";
 import { Aperture, Archive, ArrowDown, ArrowLeft, ArrowRight, Bell, Bookmark, Bot, Box, Brain, Brush, Calendar, Camera, Check, ChevronsDown, ChevronsUp, Clapperboard, Clock3, Compass, Cpu, Database, Eraser, Eye, EyeOff, FileAudio, FileImage, FileJson, FileText, FileVideo, Film, Filter, Flag, FlipHorizontal, FlipVertical, FolderOpen, Globe, Grid3X3, Headphones, Heart, Link, List, Mail, Map as MapIcon, MapPin, MessageSquare, Mic, Minus, Move, Navigation, Network, Package, Palette, Pause, PenTool, Pin, Play, Plus, Radio, Repeat, RotateCcw, RotateCw, Route, Search, Send, Settings, Share2, Shuffle, SlidersHorizontal, Sparkles, Square, Star, Table, Type, Upload, Volume2, Wand2, X, Zap, ZoomIn, ZoomOut } from "lucide-react";
 import JSZip from "jszip";
@@ -3571,6 +3572,7 @@ function App() {
               <span>Living Canvas</span>
             </div>
           </div>
+          <a className="addLibraryButton" href="/tech-radar"><Radio size={15} /> Технорадар</a>
           <div className="panelTitle">
             <Folder size={17} />
             <h2>Projects</h2>
@@ -9190,6 +9192,6 @@ function chooseLocalFolderAction(scan: LocalLibraryScanResult): "open" | "image"
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    {window.location.pathname === "/tech-radar" ? <TechRadar /> : <App />}
   </React.StrictMode>
 );
