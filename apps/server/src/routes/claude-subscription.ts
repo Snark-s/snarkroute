@@ -1,0 +1,120 @@
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { ClaudeCliError, claudeCliCommand, claudeCliEnv } from "../services/claude-code-cli";
+import { claudeSubscription, isClaudeSubscriptionEnabled, modelRefForAlias, type ClaudeSubscriptionService } from "../services/claude-subscription";
+import { errorMessage } from "../services/errors";
+import { isLoopbackAddress, isLoopbackHost } from "./after-effects";
+
+const ROOT = "/api/claude-subscription";
+const CONVERSATION_ID = /^[A-Za-z0-9_-]{1,80}$/;
+
+/**
+ * The owner's Claude plan for the owner's own SnarkRoute: loopback clients only,
+ * no accounts and no forwarding to other users. Text inference for routes goes
+ * through the standard ai.text runner; this surface adds status, login, streaming
+ * and conversations.
+ */
+export function registerClaudeSubscriptionRoutes(app: FastifyInstance, service: ClaudeSubscriptionService = claudeSubscription()): void {
+  app.get<{ Querystring: { refresh?: string } }>(`${ROOT}/status`, async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ error: { message: "Local client required." } });
+    if (request.query.refresh === "1") await service.auth(true);
+    return reply.header("cache-control", "no-store").send({ ok: true, enabled: isClaudeSubscriptionEnabled(), ...(await service.status()) });
+  });
+
+  /** Opens the official `claude auth login` in its own console window; the browser sign-in is done by the owner. */
+  app.post(`${ROOT}/login`, async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ error: { message: "Local client required." } });
+    const auth = await service.auth(true);
+    if (!auth.installed) return reply.code(409).send({ ok: false, auth, install: "irm https://claude.ai/install.ps1 | iex" });
+    if (auth.subscription) return { ok: true, alreadyLoggedIn: true, auth };
+    const command = claudeCliCommand();
+    const child = process.platform === "win32"
+      ? spawn("cmd.exe", ["/c", "start", "\"Claude Code login\"", command, "auth", "login", "--claudeai"], { env: claudeCliEnv(), detached: true, stdio: "ignore", windowsVerbatimArguments: true })
+      : spawn(command, ["auth", "login", "--claudeai"], { env: claudeCliEnv(), detached: true, stdio: "ignore" });
+    child.on("error", () => undefined);
+    child.unref();
+    return { ok: true, started: true, message: "Окно входа Claude Code открыто. После входа обновите статус." };
+  });
+
+  app.post<{ Body: { seconds?: number } }>(`${ROOT}/quota/simulate-exhausted`, async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ error: { message: "Local client required." } });
+    return { ok: true, quota: service.simulateQuotaExhausted(Number(record(request.body).seconds) || 120) };
+  });
+
+  app.delete(`${ROOT}/quota/simulate-exhausted`, async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ error: { message: "Local client required." } });
+    return { ok: true, quota: service.clearSimulatedQuota() };
+  });
+
+  app.get(`${ROOT}/conversations`, async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ error: { message: "Local client required." } });
+    return { ok: true, conversations: await service.listConversations() };
+  });
+
+  app.delete<{ Params: { id: string } }>(`${ROOT}/conversations/:id`, async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ error: { message: "Local client required." } });
+    return { ok: await service.forgetConversation(request.params.id) };
+  });
+
+  app.post(`${ROOT}/chat`, { bodyLimit: 400_000 }, async (request, reply) => {
+    if (!local(request)) return reply.code(403).send({ error: { message: "Local client required." } });
+    if (!isClaudeSubscriptionEnabled()) return reply.code(409).send({ error: { code: "PROVIDER_DISABLED", message: "Claude Subscription выключен (CLAUDE_SUBSCRIPTION_ENABLED=1)." } });
+    const body = record(request.body);
+    const prompt = typeof body.prompt === "string" ? body.prompt : "";
+    const model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : modelRefForAlias("sonnet");
+    const system = typeof body.system === "string" ? body.system : undefined;
+    const conversationId = body.conversationId === "new" ? randomUUID() : typeof body.conversationId === "string" ? body.conversationId : undefined;
+    if (!prompt.trim() || prompt.length > 200_000) return reply.code(400).send({ error: { message: "prompt is required (up to 200000 characters)." } });
+    if (conversationId && !CONVERSATION_ID.test(conversationId)) return reply.code(400).send({ error: { message: "conversationId must match [A-Za-z0-9_-]{1,80} or be \"new\"." } });
+    const controller = new AbortController();
+    request.raw.once("aborted", () => controller.abort());
+    reply.raw.once("close", () => { if (!reply.raw.writableEnded) controller.abort(); });
+    const chat = (onEvent?: Parameters<ClaudeSubscriptionService["chat"]>[0]["onEvent"]) =>
+      service.chat({ modelRef: model, prompt, systemPrompt: system, conversationId, signal: controller.signal, caller: "api:claude-subscription", onEvent });
+
+    if (body.stream !== true) {
+      try { return { ok: true, ...(await chat()) }; }
+      catch (error) { return sendError(reply, error); }
+    }
+    reply.hijack();
+    reply.raw.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", connection: "keep-alive" });
+    const send = (event: string, data: unknown) => { if (!reply.raw.writableEnded) reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+    try {
+      const result = await chat(event => {
+        if (event.type === "session") send("session", { conversationId, model: event.model });
+        else if (event.type === "delta") send("delta", { text: event.text });
+        else if (event.type === "rate_limit") send("rate_limit", { status: event.info.status, resetsAt: event.info.resetsAt, type: event.info.rateLimitType });
+      });
+      send("done", result);
+    } catch (error) {
+      send("error", errorBody(error));
+    } finally {
+      reply.raw.end();
+    }
+  });
+}
+
+function sendError(reply: FastifyReply, error: unknown) {
+  const body = errorBody(error);
+  const status = body.code === "SUBSCRIPTION_LIMIT_REACHED" ? 429
+    : body.code === "NOT_LOGGED_IN" || body.code === "NOT_SUBSCRIPTION" ? 401
+      : body.code === "CANCELLED" ? 499 : body.code === "MODEL_UNAVAILABLE" ? 404 : 502;
+  return reply.code(status).send({ ok: false, error: body });
+}
+
+function errorBody(error: unknown): { code: string; message: string; resetsAt?: string; retryable: boolean } {
+  if (error instanceof ClaudeCliError) return { code: error.code, message: error.message, resetsAt: error.details.resetsAt, retryable: error.retryable };
+  return { code: "CLI_ERROR", message: errorMessage(error), retryable: false };
+}
+
+function local(request: FastifyRequest): boolean {
+  if (!isLoopbackAddress(request.ip) || !isLoopbackHost(request.hostname)) return false;
+  if (!request.headers.origin) return true;
+  try { const url = new URL(request.headers.origin); return url.protocol === "http:" && isLoopbackHost(url.hostname); }
+  catch { return false; }
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}

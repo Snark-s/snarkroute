@@ -1,4 +1,5 @@
 import { createExperientialClient, experientialConfigured } from "../providers/experiential";
+import { claudeSubscriptionModelsForCatalogV1 } from "../providers/claude-subscription";
 import { discoverLocalOpenAiModels } from "../providers/local-openai";
 import type { FastifyInstance } from "fastify";
 import { readOpenRouterModelCatalogCache, refreshOpenRouterModelCatalog } from "@snarkroute/openrouter";
@@ -203,14 +204,15 @@ function legacyModelFromV1(model: ReturnType<typeof assembleModelCatalogV1>[numb
 
 export async function loadLiveModelCatalogV1(nodeType?: string) {
   const polzaTypes = polzaTypesForCatalogV1(nodeType);
-  const [localOpenAiModels, experientialModels, openRouterModels, polzaModels, localUpscaleModels, localVideoUpscaleModels, h3Models] = await Promise.all([
+  const [localOpenAiModels, experientialModels, openRouterModels, polzaModels, localUpscaleModels, localVideoUpscaleModels, h3Models, claudeSubscriptionModels] = await Promise.all([
     nodeType === undefined || nodeType === "ai.text" ? discoverLocalOpenAiModels() : Promise.resolve([]),
     experientialConfigured() && (nodeType === undefined || nodeType === "ai.text") ? createExperientialClient().getModels().catch(() => []) : Promise.resolve([]),
     nodeType?.startsWith("polza.") ? Promise.resolve([]) : loadOpenRouterModelsForCatalogV1(),
     isPolzaEnabled() && polzaTypes.length > 0 ? loadPolzaModelsForCatalogV1(polzaTypes).catch(() => []) : Promise.resolve([]),
     nodeType === undefined || nodeType === "local_upscale" ? loadLocalUpscaleModelsForCatalogV1().catch(() => []) : Promise.resolve([]),
     nodeType === undefined || nodeType === "local_video_upscale" ? loadLocalVideoUpscaleModelsForCatalogV1().catch(() => []) : Promise.resolve([]),
-    nodeType === undefined || nodeType === "ai.video.generate" || nodeType === "minimax.h3.generate" ? loadH3ModelsForCatalogV1().catch(() => []) : Promise.resolve([])
+    nodeType === undefined || nodeType === "ai.video.generate" || nodeType === "minimax.h3.generate" ? loadH3ModelsForCatalogV1().catch(() => []) : Promise.resolve([]),
+    nodeType === undefined || nodeType === "ai.text" ? claudeSubscriptionModelsForCatalogV1().catch(() => []) : Promise.resolve([])
   ]);
   const kieModels = nodeType === undefined || nodeType === "ai.text" || nodeType === "ai.image.generate" || nodeType === "ai.video.generate"
     ? documentedKieModelsForCatalogV1()
@@ -224,7 +226,7 @@ export async function loadLiveModelCatalogV1(nodeType?: string) {
     localVideoUpscaleModels,
     kieModels,
     rutronixModels: nodeType === undefined || nodeType === "ai.text" ? documentedRuTronixModels() : [],
-    fallbackModels: [...fallbackProviderModelsForCatalogV1(), ...h3Models]
+    fallbackModels: [...fallbackProviderModelsForCatalogV1(), ...h3Models, ...claudeSubscriptionModels]
   });
   registerLocalRuntimesFromModels(catalog);
   return catalog;

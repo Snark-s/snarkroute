@@ -21,6 +21,13 @@ precise edits of a given image, "change X, keep the rest"; pass the image in
 `references`); `local_runtime_*` (GPU admission and runtimes: `flux3`,
 `qwen_edit`), `jabberwock_*` (routes), `ae_*` (After Effects).
 
+Text through the owner's Claude Pro/Max plan: provider `claude_subscription`,
+models `subscriptions/anthropic/{opus,sonnet,haiku}` in the shared catalog, run by
+the official Claude Code CLI (`claude -p`, no tools, no API key, quota-aware;
+cost tier `subscription` between local and free). Status, login, streaming and
+conversations: `/api/claude-subscription/*`; live check
+`apps/server/scripts/claude-subscription-smoke.ts`; details `docs/claude-subscription.md`.
+
 `models_list` shows which SnarkRoute models the owner shares with other networks,
 grouped by type. The owner sets "local only" / "selected only" in the Workshop:
 System → Models and providers (`/api/system/model-exposure`, stored in

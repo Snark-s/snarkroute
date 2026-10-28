@@ -5,9 +5,12 @@ import { appMode } from "./env";
 export interface ModelRoutingPolicy {
   allowPaid?: boolean;
   localModels?: "allow" | "exclude";
+  /** Owner's flat-rate plans (Claude Code CLI): no per-request charge, but a usage quota. */
+  subscriptionModels?: "allow" | "exclude";
   excludeModelRefs?: string[];
 }
-export type ModelCostTier = "local" | "free" | "paid_or_unknown";
+export type ModelCostTier = "local" | "subscription" | "free" | "paid_or_unknown";
+export const SUBSCRIPTION_PROVIDERS = new Set(["claude_subscription"]);
 
 export class ModelRoutingPolicyError extends Error {
   readonly retryable = false;
@@ -25,6 +28,7 @@ export function modelRoutingPolicy(value: unknown): ModelRoutingPolicy {
   return {
     allowPaid: record.allowPaid === true,
     localModels: record.localModels === "exclude" ? "exclude" : "allow",
+    subscriptionModels: record.subscriptionModels === "exclude" ? "exclude" : "allow",
     excludeModelRefs: Array.isArray(record.excludeModelRefs)
       ? record.excludeModelRefs.filter((ref): ref is string => typeof ref === "string" && Boolean(ref.trim())).slice(0, 64)
       : []
@@ -34,6 +38,7 @@ export function modelRoutingPolicy(value: unknown): ModelRoutingPolicy {
 export function modelCostTier(provider: string, modelId: string, metadata: Record<string, unknown>, pricing: ModelPricingInfoV1 | undefined, outputs: string[]): ModelCostTier {
   if (provider === "local_openai" || provider === "local_upscale" || provider === "local_video_upscale"
     || provider === "minimax-h3" && metadata.local === true && !["h3_max", "h3_max_turbo"].includes(modelId)) return "local";
+  if (SUBSCRIPTION_PROVIDERS.has(provider)) return "subscription";
   if (pricing?.status !== "fresh" || pricing.source === "unknown" || !pricing.pricing
     || pricing.expiresAt && (!Number.isFinite(Date.parse(pricing.expiresAt)) || Date.parse(pricing.expiresAt) <= Date.now())) return "paid_or_unknown";
   const prices = pricing.pricing;
@@ -80,6 +85,10 @@ export async function assertModelInvocationPolicy(
   if (local === "local") {
     if (policy.localModels === "exclude") throw new ModelRoutingPolicyError("LOCAL_MODEL_EXCLUDED", "Local models are excluded for this task.", provider);
     return;
+  }
+  if (local === "subscription") {
+    if (policy.subscriptionModels === "exclude") throw new ModelRoutingPolicyError("SUBSCRIPTION_MODEL_EXCLUDED", "Subscription models are excluded for this task.", provider);
+    return; // The adapter itself refuses API keys and paid extra usage.
   }
   if (policy.allowPaid) return;
   const models = loadCatalog ? await loadCatalog() : (await import("./model-catalog-v1")).modelOptionsForNodeV1(nodeType,

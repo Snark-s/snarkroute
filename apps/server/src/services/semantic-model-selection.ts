@@ -103,12 +103,13 @@ export async function selectSemanticModelOptionV1(
     return !providerBalanceUnavailable(projection.engine.providerId)
       && !policy.excludeModelRefs?.some(ref => refs.includes(ref))
       && !(tier === "local" && policy.localModels === "exclude")
+      && !(tier === "subscription" && policy.subscriptionModels === "exclude")
       && (tier !== "paid_or_unknown" || policy.allowPaid);
   });
   const manualProjectionId = input.manualModelRef ? resolveManualEngineId(input.manualModelRef, allProjections) : undefined;
   // Selection still runs capability validation inside each tier, so an incapable
   // local engine cannot hide a suitable free engine. Manual never changes tiers.
-  const groups = !applies || input.manualModelRef ? [permitted] : ["local", "free", "paid_or_unknown"]
+  const groups = !applies || input.manualModelRef ? [permitted] : ["local", "subscription", "free", "paid_or_unknown"]
     .map(tier => permitted.filter(projection => costTier(projection) === tier));
   let result: SemanticModelSelectionResultV1 | undefined;
   for (const projections of groups) {
@@ -117,7 +118,7 @@ export async function selectSemanticModelOptionV1(
     if (result.status === "ok") break;
   }
   result ??= await selectProjected(options, input, [], decisionExecutor, manualProjectionId);
-  if (applies) result.trace.policyReasons.unshift(input.manualModelRef ? "Manual provider/model pin" : "Local First", "Free Available", "Paid With Explicit Permission");
+  if (applies) result.trace.policyReasons.unshift(input.manualModelRef ? "Manual provider/model pin" : "Local First", "Subscription Next", "Free Available", "Paid With Explicit Permission");
   if (result.status !== "ok") {
     const deniedPaid = allProjections.some(projection => costTier(projection) === "paid_or_unknown" && !policy.allowPaid
       && (!input.manualModelRef || projection.engine.id === manualProjectionId));

@@ -35,6 +35,7 @@ import { registerPortableToolJobRoutes } from "./routes/tool-jobs";
 import { startModelPricingRefreshScheduler } from "./billing/model-pricing-refresh-scheduler";
 import { startRadarScheduler } from "./services/radar";
 import { registerTechRadarRoutes } from "./routes/tech-radar";
+import { registerClaudeSubscriptionRoutes } from "./routes/claude-subscription";
 import { appMode, assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
 import { createDecisionRuntimeFromEnv } from "./services/decision-runtime";
@@ -63,6 +64,7 @@ export function buildServer() {
   void registerH3Routes(app);
   void registerSystemRoutes(app);
   if (appMode() === "local") registerTechRadarRoutes(app);
+  if (appMode() === "local") registerClaudeSubscriptionRoutes(app);
   void registerPersonaAgentRoutes(app);
   const routeRunner = jabberwockMemory && supervisorBridge ? registerJabberwockSupervisorRoutes(app, jabberwockMemory, supervisorBridge) : null;
   void registerMcpRoutes(app, jabberwockMemory && supervisorBridge && routeRunner ? { memory: jabberwockMemory, bridge: supervisorBridge, runner: routeRunner } : undefined);

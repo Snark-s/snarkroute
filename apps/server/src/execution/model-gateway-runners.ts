@@ -2,6 +2,8 @@ import { createExperientialTextNodeRunner } from "../providers/experiential";
 import { createLocalOpenAiTextNodeRunner } from "../providers/local-openai";
 import { createNativeFlux3NodeRunner, FLUX3_NATIVE_MODEL_ID } from "../providers/flux3-native";
 import { createQwenEditNodeRunner, QWEN_EDIT_MODEL_ID, QWEN_EDIT_PROVIDER } from "../providers/qwen-edit-local";
+import { createClaudeSubscriptionTextNodeRunner } from "../providers/claude-subscription";
+import { CLAUDE_SUBSCRIPTION_PROVIDER, isClaudeSubscriptionModelRef } from "../services/claude-subscription";
 import { readFile } from "node:fs/promises";
 import type { PricingQuote } from "@snarkroute/core";
 import { resolveNodePricing, type NodeRunner, type PricingBreakdown } from "@snarkroute/executor";
@@ -64,10 +66,12 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
   const polzaRunner = guardProviderRunner("polza", createPolzaTextNodeRunner());
   const rutronixRunner = guardProviderRunner("rutronix", createRuTronixTextNodeRunner());
   const localOpenAiRunner = createLocalOpenAiTextNodeRunner();
-  return async (input) => {
+  const claudeSubscriptionRunner = guardProviderRunner(CLAUDE_SUBSCRIPTION_PROVIDER, createClaudeSubscriptionTextNodeRunner());
+  const dispatch = async (input: Parameters<NodeRunner>[0]) => {
     let params = decodeOpaquePromptParams(input.params);
     let executionProvider = stringValue(params.executionProvider ?? params.provider);
-    if ((!executionProvider || executionProvider === "auto") && providerModeParam(params.providerMode) === "auto") {
+    const auto = (!executionProvider || executionProvider === "auto") && providerModeParam(params.providerMode) === "auto";
+    if (auto) {
       const { loadLiveModelCatalogV1 } = await import("../routes/models");
       const { modelOptionsForNodeV1 } = await import("../services/model-catalog-v1");
       const { selectSemanticModelOptionV1 } = await import("../services/semantic-model-selection");
@@ -84,6 +88,11 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
       params = { ...params, model: selection.selection.storedModelId, executionProvider, providerModelId: selection.selection.providerModelId };
     }
     const providerModelId = stringValue(params.providerModelId);
+    // Before any slash-model check: subscription ids contain "/" and must never fall through to OpenRouter.
+    if (executionProvider === CLAUDE_SUBSCRIPTION_PROVIDER || isClaudeSubscriptionModelRef(providerModelId) || !executionProvider && isClaudeSubscriptionModelRef(stringValue(params.model))) {
+      const modelRef = isClaudeSubscriptionModelRef(providerModelId) ? providerModelId : stringValue(params.model);
+      return claudeSubscriptionRunner({ ...input, params: { ...params, executionProvider: CLAUDE_SUBSCRIPTION_PROVIDER, providerModelId: modelRef, model: params.model ?? modelRef } });
+    }
     if (executionProvider === "local_openai") {
       const localModelId = providerModelId ?? stringValue(params.model);
       return localOpenAiRunner({ ...input, params: { ...params, model: params.model, providerModelId: localModelId } });
@@ -104,6 +113,22 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
       return geminiRunner({ ...input, params: { ...params, model: resolution.model } });
     }
     throw new Error(resolution.provider === "direct" ? "Direct provider is not configured." : "Local provider is not available.");
+  };
+  return async (input) => {
+    try { return await dispatch(input); }
+    catch (error) {
+      // Automatic routing only: when the subscription quota runs out, the catalog already marks it
+      // unavailable, so one re-selection lands on the next permitted tier (never paid without permission).
+      const params = decodeOpaquePromptParams(input.params);
+      const executionProvider = stringValue(params.executionProvider ?? params.provider);
+      const auto = (!executionProvider || executionProvider === "auto") && providerModeParam(params.providerMode) === "auto";
+      const code = error instanceof ModelRoutingPolicyError ? error.code : undefined;
+      if (!auto || error instanceof ModelRoutingPolicyError && error.providerId !== CLAUDE_SUBSCRIPTION_PROVIDER
+        || !code || !["SUBSCRIPTION_LIMIT_REACHED", "MODEL_UNAVAILABLE", "NOT_LOGGED_IN", "NOT_SUBSCRIPTION", "CLI_NOT_INSTALLED"].includes(code)) throw error;
+      input.context.log(`Claude Subscription unavailable (${code}); automatic routing falls back to the next permitted model.`, input.node.id);
+      const policy = modelRoutingPolicy(params.routingPolicy);
+      return dispatch({ ...input, params: { ...input.params, routingPolicy: { ...policy, subscriptionModels: "exclude" } } });
+    }
   };
 }
 
@@ -225,6 +250,11 @@ export async function quoteModelExecutingNode(options: {
   if (options.nodeType === "ai.text") {
     const executionProvider = stringValue(params.executionProvider ?? params.provider);
     const providerModelId = stringValue(params.providerModelId) ?? stringValue(params.model) ?? "gpt-5-2";
+    if (executionProvider === CLAUDE_SUBSCRIPTION_PROVIDER || isClaudeSubscriptionModelRef(providerModelId)) {
+      const quote: PricingQuote = { ...localOpenAiQuote(stringValue(params.model) ?? providerModelId, providerModelId, params), provider: CLAUDE_SUBSCRIPTION_PROVIDER, pricingSource: "subscription",
+        breakdown: { requestedParams: Object.keys(params).filter((key) => !/api[_-]?key|token|secret|password/i.test(key)), subscription: true, apiCost: 0 } };
+      return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings: ["Covered by the Claude subscription quota; no per-request charge."] };
+    }
     if (executionProvider === "local_openai") {
       const quote = localOpenAiQuote(stringValue(params.model) ?? providerModelId, providerModelId, params);
       return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings };
