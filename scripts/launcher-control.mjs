@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { closeSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
+import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -109,7 +109,7 @@ export function createLauncherRestartControl({
     operation: operation ? { ...operation } : null,
   });
 
-  return {
+  const control = {
     status,
 
     wait: async () => {
@@ -241,7 +241,22 @@ export function createLauncherRestartControl({
 
       return { ...operation };
     },
+
+    /**
+     * Restart button: after a failed restart the launcher may hold no server while the port is free.
+     * Then a fresh start is the only sane action; an occupied port still goes through restart() and is refused.
+     */
+    restartOrStart: async () => {
+      if (!inflight && !owned() && !(await portOpen())) {
+        const starting = control.initialize();
+        starting.catch(() => {});
+        return { ...operation };
+      }
+      return control.restart();
+    },
   };
+
+  return control;
 }
 
 const portOpen = (port) =>
@@ -286,6 +301,9 @@ export async function startLauncherControl({
   );
   const envFilePath = join(root, '.env');
   const envFileAtStart = readEnvFile(envFilePath);
+  const writeServerLog = (line) => {
+    try { appendFileSync(serverLogPath(root), `\n[${new Date().toISOString()}] ${line}\n`); } catch {}
+  };
 
   const control = createLauncherRestartControl({
     apiPort,
@@ -437,28 +455,30 @@ export async function startLauncherControl({
         );
       }
 
-      let timer;
+      const exitedWithin = async (ms) => {
+        let timer;
+        try {
+          return await Promise.race([
+            exited.then(() => true),
+            new Promise((resolve) => { timer = setTimeout(() => resolve(false), ms); }),
+          ]);
+        } finally {
+          clearTimeout(timer);
+        }
+      };
 
-      try {
-        await Promise.race([
-          exited,
+      if (await exitedWithin(30_000)) return;
 
-          new Promise((_, reject) => {
-            timer = setTimeout(
-              () =>
-                reject(
-                  requestError ??
-                    new Error(
-                      'Graceful stop timeout'
-                    )
-                ),
-              30_000
-            );
-          }),
-        ]);
-      } finally {
-        clearTimeout(timer);
+      // The process is our own spawned child, verified by pid; a graceful stop that closed the port
+      // but never exited (seen 25.10, 27.10, 28.10) would otherwise leave Мастерская without an API.
+      const stuck = child;
+      if (stuck) {
+        writeServerLog(`▶ SnarkRoute API: PID ${stuck.pid} не завершился за 30 с после остановки, завершаю принудительно`);
+        stuck.kill();
       }
+      if (await exitedWithin(10_000)) return;
+
+      throw requestError ?? new Error('Graceful stop timeout');
     },
 
     cleanup: async () => {
@@ -583,10 +603,11 @@ export async function startLauncherControl({
         ) {
           if (!await requireJson()) return;
 
+          const restartOperation = await control.restartOrStart();
           return reply(202, {
             ok: true,
             ...control.status(),
-            operation: control.restart(),
+            operation: restartOperation,
           });
         }
 

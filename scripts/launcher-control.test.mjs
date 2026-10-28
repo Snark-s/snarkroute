@@ -48,6 +48,15 @@ test('cold startup and simultaneous restart share a single start operation',asyn
     start:async()=>{calls.push('start');open=true;owned=true;},stop:async()=>calls.push('stop'),cleanup:async()=>{}});
   const starting=control.initialize();const job=control.restart();await starting;await control.wait();assert.equal(job.state,'starting');assert.deepEqual(calls,['start']);
 });
+test('restart button starts a fresh server when a failed restart left no owned server and the port is free',async()=>{
+  const calls=[];
+  const control=createLauncherRestartControl({apiPort:4317,timeoutMs:20,pollMs:5,owned:()=>false,serverPid:()=>undefined,
+    portOpen:async()=>false,healthy:async()=>true,stop:async()=>calls.push('stop'),start:async()=>calls.push('start'),cleanup:async()=>calls.push('cleanup')});
+  const job=await control.restartOrStart();assert.equal(job.action,'start');await control.wait();assert.deepEqual(calls,['start']);
+});
+test('restart button still refuses an unmanaged server that holds the port',async()=>{
+  const f=fixture();f.setOwned(false);await assert.rejects(f.control.restartOrStart(),/owned/);assert.deepEqual(f.calls,[]);
+});
 test('launcher shutdown stops its owned API without starting a replacement',async()=>{
   const f=fixture();await f.control.shutdown();assert.deepEqual(f.calls,['stop']);
 });

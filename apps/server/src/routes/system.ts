@@ -105,7 +105,12 @@ export async function registerSystemRoutes(app: FastifyInstance) {
         || !["restart", "shutdown"].includes(owner.operation.action ?? "")) return reply.code(409).send({ ok: false, error: "Active external launcher stop command not confirmed" });
       // The owning launcher remains alive and is waiting for this exact process.
       // Fastify closes jobs, route ownership and memory before the process exits.
-      const timer = setTimeout(() => { void app.close().then(() => process.exit(0)).catch(error => app.log.error(error)); }, 100);
+      // app.close() waits for open connections (e.g. long-lived MCP streams); the launcher gives up after 30 s,
+      // so exit on our own well before that even if close never settles.
+      const timer = setTimeout(() => {
+        setTimeout(() => process.exit(0), 15_000).unref();
+        void app.close().then(() => process.exit(0)).catch(error => { app.log.error(error); process.exit(1); });
+      }, 100);
       timer.unref(); return reply.code(202).send({ ok: true });
     } catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
   });
