@@ -39,3 +39,16 @@ it("acknowledges before closing and only exits after confirmed owner and gracefu
     await vi.advanceTimersByTimeAsync(100);expect(close).toHaveBeenCalledOnce();expect(exit).toHaveBeenCalledWith(0);
   }finally{vi.useRealTimers();vi.restoreAllMocks();await app.close();}
 });
+it("exits on its own when graceful close hangs on open connections",async()=>{
+  vi.stubEnv("SNARKROUTE_LAUNCHER_TOKEN","test-token");
+  vi.stubGlobal("fetch",vi.fn(async()=>new Response(JSON.stringify({ok:true,service:"snarkroute-launcher-control",apiPort:4317,managed:true,serverPid:process.pid,operation:{state:"stopping",action:"restart"}}))));
+  const app=Fastify();await registerSystemRoutes(app);
+  const close=vi.spyOn(app,"close").mockReturnValue(new Promise(()=>{}) as never);
+  const exit=vi.spyOn(process,"exit").mockImplementation((()=>undefined) as never);
+  vi.useFakeTimers();
+  try{
+    expect((await app.inject({method:"POST",url:"/api/system/restart/shutdown",headers:{authorization:"Bearer test-token"}})).statusCode).toBe(202);
+    await vi.advanceTimersByTimeAsync(100);expect(close).toHaveBeenCalledOnce();expect(exit).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(15_000);expect(exit).toHaveBeenCalledWith(0);
+  }finally{vi.useRealTimers();vi.restoreAllMocks();await app.close();}
+});
