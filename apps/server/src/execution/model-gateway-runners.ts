@@ -4,6 +4,8 @@ import { createNativeFlux3NodeRunner, FLUX3_NATIVE_MODEL_ID } from "../providers
 import { createQwenEditNodeRunner, QWEN_EDIT_MODEL_ID, QWEN_EDIT_PROVIDER } from "../providers/qwen-edit-local";
 import { createClaudeSubscriptionTextNodeRunner } from "../providers/claude-subscription";
 import { CLAUDE_SUBSCRIPTION_PROVIDER, isClaudeSubscriptionModelRef } from "../services/claude-subscription";
+import { createChatGptSubscriptionTextNodeRunner } from "../providers/chatgpt-subscription";
+import { CHATGPT_SUBSCRIPTION_PROVIDER, isChatGptSubscriptionModelRef } from "../services/chatgpt-subscription";
 import { readFile } from "node:fs/promises";
 import type { PricingQuote } from "@snarkroute/core";
 import { resolveNodePricing, type NodeRunner, type PricingBreakdown } from "@snarkroute/executor";
@@ -42,7 +44,7 @@ type PricingCatalog = {
 };
 import { openRouterCatalogCachePath, openRouterMappingsPath } from "../server-paths";
 import { isGeminiEnabled, isOpenRouterEnabled } from "../services/env";
-import { assertModelInvocationPolicy, ModelRoutingPolicyError, modelRoutingPolicy, recordModelProviderFailure } from "../services/model-routing-policy";
+import { assertModelInvocationPolicy, ModelRoutingPolicyError, modelRoutingPolicy, recordModelProviderFailure, SUBSCRIPTION_PROVIDERS } from "../services/model-routing-policy";
 
 export function guardProviderRunner(provider: string, runner: NodeRunner): NodeRunner {
   return async input => {
@@ -59,6 +61,9 @@ export async function loadModelRouteMappings(): Promise<ModelMapping[]> {
   return Array.isArray(parsed.models) ? parsed.models.filter((entry): entry is ModelMapping => Boolean(entry && typeof entry === "object" && typeof (entry as ModelMapping).id === "string")) : [];
 }
 
+/** Subscription failures that make automatic routing pick another model instead of failing the node. */
+const SUBSCRIPTION_FALLBACK_CODES = new Set(["SUBSCRIPTION_LIMIT_REACHED", "MODEL_UNAVAILABLE", "NOT_LOGGED_IN", "NOT_SUBSCRIPTION", "CLI_NOT_INSTALLED", "PROVIDER_DISABLED"]);
+
 export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof createModelResolver>): NodeRunner {
   const openRouterRunner = guardProviderRunner("openrouter", createOpenRouterTextNodeRunner({ modelResolver }));
   const rawOpenRouterRunner = guardProviderRunner("openrouter", createOpenRouterTextNodeRunner());
@@ -67,6 +72,7 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
   const rutronixRunner = guardProviderRunner("rutronix", createRuTronixTextNodeRunner());
   const localOpenAiRunner = createLocalOpenAiTextNodeRunner();
   const claudeSubscriptionRunner = guardProviderRunner(CLAUDE_SUBSCRIPTION_PROVIDER, createClaudeSubscriptionTextNodeRunner());
+  const chatGptSubscriptionRunner = guardProviderRunner(CHATGPT_SUBSCRIPTION_PROVIDER, createChatGptSubscriptionTextNodeRunner());
   const dispatch = async (input: Parameters<NodeRunner>[0]) => {
     let params = decodeOpaquePromptParams(input.params);
     let executionProvider = stringValue(params.executionProvider ?? params.provider);
@@ -93,6 +99,10 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
       const modelRef = isClaudeSubscriptionModelRef(providerModelId) ? providerModelId : stringValue(params.model);
       return claudeSubscriptionRunner({ ...input, params: { ...params, executionProvider: CLAUDE_SUBSCRIPTION_PROVIDER, providerModelId: modelRef, model: params.model ?? modelRef } });
     }
+    if (executionProvider === CHATGPT_SUBSCRIPTION_PROVIDER || isChatGptSubscriptionModelRef(providerModelId) || !executionProvider && isChatGptSubscriptionModelRef(stringValue(params.model))) {
+      const modelRef = isChatGptSubscriptionModelRef(providerModelId) ? providerModelId : stringValue(params.model);
+      return chatGptSubscriptionRunner({ ...input, params: { ...params, executionProvider: CHATGPT_SUBSCRIPTION_PROVIDER, providerModelId: modelRef, model: params.model ?? modelRef } });
+    }
     if (executionProvider === "local_openai") {
       const localModelId = providerModelId ?? stringValue(params.model);
       return localOpenAiRunner({ ...input, params: { ...params, model: params.model, providerModelId: localModelId } });
@@ -115,19 +125,26 @@ export function createRemoteTextNodeRunner(modelResolver: ReturnType<typeof crea
     throw new Error(resolution.provider === "direct" ? "Direct provider is not configured." : "Local provider is not available.");
   };
   return async (input) => {
-    try { return await dispatch(input); }
-    catch (error) {
-      // Automatic routing only: when the subscription quota runs out, the catalog already marks it
-      // unavailable, so one re-selection lands on the next permitted tier (never paid without permission).
-      const params = decodeOpaquePromptParams(input.params);
-      const executionProvider = stringValue(params.executionProvider ?? params.provider);
-      const auto = (!executionProvider || executionProvider === "auto") && providerModeParam(params.providerMode) === "auto";
-      const code = error instanceof ModelRoutingPolicyError ? error.code : undefined;
-      if (!auto || error instanceof ModelRoutingPolicyError && error.providerId !== CLAUDE_SUBSCRIPTION_PROVIDER
-        || !code || !["SUBSCRIPTION_LIMIT_REACHED", "MODEL_UNAVAILABLE", "NOT_LOGGED_IN", "NOT_SUBSCRIPTION", "CLI_NOT_INSTALLED"].includes(code)) throw error;
-      input.context.log(`Claude Subscription unavailable (${code}); automatic routing falls back to the next permitted model.`, input.node.id);
-      const policy = modelRoutingPolicy(params.routingPolicy);
-      return dispatch({ ...input, params: { ...input.params, routingPolicy: { ...policy, subscriptionModels: "exclude" } } });
+    let attemptInput = input;
+    for (let attempt = 0; ; attempt += 1) {
+      try { return await dispatch(attemptInput); }
+      catch (error) {
+        // Automatic routing only: when a subscription's quota runs out (or it is logged out), the catalog
+        // already marks it unavailable. The first retry skips just the failed model, so the other
+        // subscription can answer; the second leaves the subscription tier (never paid without permission).
+        const params = decodeOpaquePromptParams(attemptInput.params);
+        const executionProvider = stringValue(params.executionProvider ?? params.provider);
+        const auto = (!executionProvider || executionProvider === "auto") && providerModeParam(params.providerMode) === "auto";
+        if (!auto || attempt >= 2 || !(error instanceof ModelRoutingPolicyError) || !SUBSCRIPTION_PROVIDERS.has(error.providerId ?? "")
+          || !SUBSCRIPTION_FALLBACK_CODES.has(error.code)) throw error;
+        const policy = modelRoutingPolicy(params.routingPolicy);
+        const failedRef = typeof error.details.modelRef === "string" ? `model://${error.providerId}/${error.details.modelRef}` : undefined;
+        const next = attempt === 0 && failedRef
+          ? { ...policy, excludeModelRefs: [...(policy.excludeModelRefs ?? []), failedRef] }
+          : { ...policy, subscriptionModels: "exclude" as const };
+        input.context.log(`${error.providerId} unavailable (${error.code}); automatic routing falls back to the next permitted model.`, input.node.id);
+        attemptInput = { ...attemptInput, params: { ...attemptInput.params, routingPolicy: next } };
+      }
     }
   };
 }
@@ -254,6 +271,11 @@ export async function quoteModelExecutingNode(options: {
       const quote: PricingQuote = { ...localOpenAiQuote(stringValue(params.model) ?? providerModelId, providerModelId, params), provider: CLAUDE_SUBSCRIPTION_PROVIDER, pricingSource: "subscription",
         breakdown: { requestedParams: Object.keys(params).filter((key) => !/api[_-]?key|token|secret|password/i.test(key)), subscription: true, apiCost: 0 } };
       return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings: ["Covered by the Claude subscription quota; no per-request charge."] };
+    }
+    if (executionProvider === CHATGPT_SUBSCRIPTION_PROVIDER || isChatGptSubscriptionModelRef(providerModelId)) {
+      const quote: PricingQuote = { ...localOpenAiQuote(stringValue(params.model) ?? providerModelId, providerModelId, params), provider: CHATGPT_SUBSCRIPTION_PROVIDER, pricingSource: "subscription",
+        breakdown: { requestedParams: Object.keys(params).filter((key) => !/api[_-]?key|token|secret|password/i.test(key)), subscription: true, apiCost: 0 } };
+      return { selected: withResolvedPricing(quote, options.nodeType, params, pricingState.providerCatalog), alternatives: [], warnings: ["Covered by the ChatGPT subscription quota; no per-request charge."] };
     }
     if (executionProvider === "local_openai") {
       const quote = localOpenAiQuote(stringValue(params.model) ?? providerModelId, providerModelId, params);

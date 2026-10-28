@@ -17,7 +17,7 @@ const ROOT = "/api/system/buzha";
 export async function buzhaModels(): Promise<BuzhaModel[]> {
   const [catalog, cache] = await Promise.all([loadLiveModelCatalogV1("ai.text"), readOpenRouterModelCatalogCache(openRouterCatalogCachePath)]);
   const prices = new Map(cache?.models.map(model => [model.id, model.pricing]));
-  return catalog.filter(model => ["openrouter", "local_openai", "claude_subscription"].includes(model.provider)
+  return catalog.filter(model => ["openrouter", "local_openai", "claude_subscription", "chatgpt_subscription"].includes(model.provider)
     && model.availability.status === "available" && model.availability.configured !== false
     && model.inputTypes.includes("text") && model.outputTypes.includes("text"))
     .map(model => ({ id: `${model.provider}:${model.providerModelId}`, name: model.displayName,

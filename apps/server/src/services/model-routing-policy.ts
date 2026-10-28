@@ -5,12 +5,12 @@ import { appMode } from "./env";
 export interface ModelRoutingPolicy {
   allowPaid?: boolean;
   localModels?: "allow" | "exclude";
-  /** Owner's flat-rate plans (Claude Code CLI): no per-request charge, but a usage quota. */
+  /** Owner's flat-rate plans (Claude Code CLI, Codex CLI): no per-request charge, but a usage quota. */
   subscriptionModels?: "allow" | "exclude";
   excludeModelRefs?: string[];
 }
 export type ModelCostTier = "local" | "subscription" | "free" | "paid_or_unknown";
-export const SUBSCRIPTION_PROVIDERS = new Set(["claude_subscription"]);
+export const SUBSCRIPTION_PROVIDERS = new Set(["claude_subscription", "chatgpt_subscription"]);
 
 export class ModelRoutingPolicyError extends Error {
   readonly retryable = false;

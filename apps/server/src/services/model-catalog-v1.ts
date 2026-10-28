@@ -618,7 +618,7 @@ function isModelStructurallyCompatibleWithNodeV1(nodeType: string, entry: ModelC
       && entry.capabilities.includes("model.rig");
   }
   if (nodeType === "ai.text") {
-    return (entry.provider === "experiential" || entry.provider === "local_openai" || entry.provider === "claude_subscription" || entry.provider === "openrouter" || entry.provider === "rutronix" || entry.provider === "kie" || entry.provider === "polza" || entry.provider === "gemini") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
+    return (entry.provider === "experiential" || entry.provider === "local_openai" || entry.provider === "claude_subscription" || entry.provider === "chatgpt_subscription" || entry.provider === "openrouter" || entry.provider === "rutronix" || entry.provider === "kie" || entry.provider === "polza" || entry.provider === "gemini") && hasOutputType(entry, "text") && hasOnlyOutputTypes(entry, ["text", "json"]);
   }
   if (nodeType === "ai.audio.generate") {
     return hasOutputType(entry, "audio") && !entry.roles.includes("upscaler");

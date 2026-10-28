@@ -28,6 +28,13 @@ cost tier `subscription` between local and free). Status, login, streaming and
 conversations: `/api/claude-subscription/*`; live check
 `apps/server/scripts/claude-subscription-smoke.ts`; details `docs/claude-subscription.md`.
 
+Text through the owner's ChatGPT Plus/Pro plan: provider `chatgpt_subscription`,
+models `subscriptions/openai/default` plus the live `codex debug models` list, run by the
+official Codex CLI (`codex exec` with the ChatGPT login, no tools, no API key, quota from
+Codex's own session file; same `subscription` tier, no streaming deltas). Status, login and
+conversations: `/api/chatgpt-subscription/*`; live check
+`apps/server/scripts/chatgpt-subscription-smoke.ts`; details `docs/chatgpt-subscription.md`.
+
 `models_list` shows which SnarkRoute models the owner shares with other networks,
 grouped by type. The owner sets "local only" / "selected only" in the Workshop:
 System → Models and providers (`/api/system/model-exposure`, stored in

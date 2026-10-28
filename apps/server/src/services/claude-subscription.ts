@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
   claudeAuthStatus,
   ClaudeCliError,
@@ -11,6 +10,7 @@ import {
   type ClaudeRateLimitInfo,
   type ClaudeStreamEvent
 } from "./claude-code-cli";
+import { boundedConcurrency, ConcurrencyGate, JsonConversationFile, JsonHistoryFile, KeyedSerializer } from "./subscription-common";
 
 /**
  * Claude Subscription: the owner's Pro/Max plan used through the official
@@ -73,11 +73,10 @@ export class ClaudeSubscriptionService {
   private quota: ClaudeSubscriptionQuota = { exhausted: false };
   private unavailableModels = new Map<string, { until: number; reason: string }>();
   private resolvedModels = new Map<string, string>();
-  private history?: ClaudeSubscriptionHistoryEntry[];
-  private conversations?: Map<string, ClaudeConversation>;
-  private conversationLocks = new Map<string, Promise<unknown>>();
-  private active = 0;
-  private waiters: Array<() => void> = [];
+  private readonly gate = new ConcurrencyGate(maxConcurrency, () => new ClaudeCliError("CANCELLED", "Запрос к Claude отменён в очереди."));
+  private readonly serializer = new KeyedSerializer();
+  private readonly history = new JsonHistoryFile<ClaudeSubscriptionHistoryEntry>(() => join(this.dataDirectory(), "history.json"), HISTORY_LIMIT);
+  private readonly conversations = new JsonConversationFile<ClaudeConversation>(() => join(this.dataDirectory(), "conversations.json"));
 
   constructor(private readonly deps: Deps = {}) {}
 
@@ -122,7 +121,7 @@ export class ClaudeSubscriptionService {
   }
 
   async status() {
-    const [auth, history] = await Promise.all([this.auth(), this.loadHistory()]);
+    const [auth, history] = await Promise.all([this.auth(), this.history.load()]);
     const day = this.now() - 24 * 60 * 60_000;
     const recent = history.filter(entry => Date.parse(entry.at) >= day);
     return {
@@ -131,7 +130,7 @@ export class ClaudeSubscriptionService {
       auth,
       quota: this.quotaState(),
       models: this.aliases().map(alias => ({ id: modelRefForAlias(alias), alias, ...this.modelState(alias) })),
-      concurrency: { active: this.active, queued: this.waiters.length, limit: maxConcurrency() },
+      concurrency: { active: this.gate.active, queued: this.gate.queued, limit: maxConcurrency() },
       usage24h: {
         requests: recent.length,
         succeeded: recent.filter(entry => entry.status === "succeeded").length,
@@ -163,30 +162,24 @@ export class ClaudeSubscriptionService {
       const fresh = await this.auth(true);
       if (!fresh.subscription) throw new ClaudeCliError(fresh.loggedIn ? "NOT_SUBSCRIPTION" : "NOT_LOGGED_IN", fresh.reason ?? "Подписка Claude не подтверждена.");
     }
-    const run = () => this.withSlot(request.signal, () => this.runTurn(request, alias));
-    if (!request.conversationId) return run();
     // Turns of one conversation never interleave; different conversations run independently.
-    const previous = this.conversationLocks.get(request.conversationId) ?? Promise.resolve();
-    const next = previous.catch(() => undefined).then(run);
-    this.conversationLocks.set(request.conversationId, next);
-    try { return await next; }
-    finally { if (this.conversationLocks.get(request.conversationId) === next) this.conversationLocks.delete(request.conversationId); }
+    return this.serializer.run(request.conversationId, () => this.gate.run(request.signal, () => this.runTurn(request, alias)));
   }
 
   async listConversations(): Promise<ClaudeConversation[]> {
-    return [...(await this.loadConversations()).values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return this.conversations.list();
   }
 
   async forgetConversation(id: string): Promise<boolean> {
-    const conversations = await this.loadConversations();
+    const conversations = await this.conversations.load();
     const removed = conversations.delete(id);
-    if (removed) await this.saveConversations();
+    if (removed) await this.conversations.save();
     return removed;
   }
 
   private async runTurn(request: ClaudeSubscriptionChatRequest, alias: string): Promise<ClaudeSubscriptionChatResult> {
     const startedAt = this.now();
-    const conversations = request.conversationId ? await this.loadConversations() : undefined;
+    const conversations = request.conversationId ? await this.conversations.load() : undefined;
     const existing = request.conversationId ? conversations?.get(request.conversationId) : undefined;
     const newSessionId = request.conversationId && !existing ? randomUUID() : undefined;
     try {
@@ -215,16 +208,16 @@ export class ClaudeSubscriptionService {
           updatedAt: at,
           turns: (existing?.turns ?? 0) + 1
         });
-        await this.saveConversations();
+        await this.conversations.save();
       }
-      await this.recordHistory({ at: new Date(startedAt).toISOString(), model: alias, resolvedModel: result.model, status: "succeeded", durationMs: result.durationMs,
+      await this.history.record({ at: new Date(startedAt).toISOString(), model: alias, resolvedModel: result.model, status: "succeeded", durationMs: result.durationMs,
         inputTokens: result.usage.inputTokens + result.usage.cacheReadInputTokens + result.usage.cacheCreationInputTokens, outputTokens: result.usage.outputTokens,
         apiEquivalentCostUsd: result.apiEquivalentCostUsd, conversation: Boolean(request.conversationId), caller: request.caller });
       return { ...result, conversationId: request.conversationId, modelRef: modelRefForAlias(alias), alias };
     } catch (error) {
       const code = error instanceof ClaudeCliError ? error.code : "CLI_ERROR";
       if (error instanceof ClaudeCliError) this.observeFailure(error, alias);
-      await this.recordHistory({ at: new Date(startedAt).toISOString(), model: alias, status: code === "CANCELLED" ? "cancelled" : "failed", errorCode: code,
+      await this.history.record({ at: new Date(startedAt).toISOString(), model: alias, status: code === "CANCELLED" ? "cancelled" : "failed", errorCode: code,
         durationMs: this.now() - startedAt, conversation: Boolean(request.conversationId), caller: request.caller });
       throw error;
     }
@@ -247,50 +240,6 @@ export class ClaudeSubscriptionService {
       this.authCache = undefined;
     }
   }
-
-  private async withSlot<T>(signal: AbortSignal | undefined, task: () => Promise<T>): Promise<T> {
-    while (this.active >= maxConcurrency()) {
-      await new Promise<void>((resolve, reject) => {
-        const onAbort = () => { this.waiters = this.waiters.filter(waiter => waiter !== wake); reject(new ClaudeCliError("CANCELLED", "Запрос к Claude отменён в очереди.")); };
-        const wake = () => { signal?.removeEventListener("abort", onAbort); resolve(); };
-        if (signal?.aborted) { onAbort(); return; }
-        signal?.addEventListener("abort", onAbort, { once: true });
-        this.waiters.push(wake);
-      });
-    }
-    this.active += 1;
-    try { return await task(); }
-    finally { this.active -= 1; this.waiters.shift()?.(); }
-  }
-
-  private async loadHistory(): Promise<ClaudeSubscriptionHistoryEntry[]> {
-    if (this.history) return this.history;
-    try {
-      const parsed = JSON.parse(await readFile(join(this.dataDirectory(), "history.json"), "utf8")) as unknown;
-      this.history = Array.isArray(parsed) ? parsed.slice(-HISTORY_LIMIT) as ClaudeSubscriptionHistoryEntry[] : [];
-    } catch { this.history = []; }
-    return this.history;
-  }
-
-  private async recordHistory(entry: ClaudeSubscriptionHistoryEntry): Promise<void> {
-    const history = await this.loadHistory();
-    history.push(entry);
-    if (history.length > HISTORY_LIMIT) history.splice(0, history.length - HISTORY_LIMIT);
-    await writeJsonAtomic(join(this.dataDirectory(), "history.json"), history).catch(() => undefined);
-  }
-
-  private async loadConversations(): Promise<Map<string, ClaudeConversation>> {
-    if (this.conversations) return this.conversations;
-    try {
-      const parsed = JSON.parse(await readFile(join(this.dataDirectory(), "conversations.json"), "utf8")) as unknown;
-      this.conversations = new Map((Array.isArray(parsed) ? parsed as ClaudeConversation[] : []).filter(item => item?.id && item.sessionId).map(item => [item.id, item]));
-    } catch { this.conversations = new Map(); }
-    return this.conversations;
-  }
-
-  private async saveConversations(): Promise<void> {
-    await writeJsonAtomic(join(this.dataDirectory(), "conversations.json"), [...(this.conversations ?? new Map()).values()]);
-  }
 }
 
 export function modelRefForAlias(alias: string): string {
@@ -308,15 +257,7 @@ export function isClaudeSubscriptionModelRef(value: string | undefined): boolean
 }
 
 function maxConcurrency(): number {
-  const value = Number(process.env.CLAUDE_SUBSCRIPTION_MAX_CONCURRENCY ?? 2);
-  return Number.isInteger(value) && value >= 1 && value <= 8 ? value : 2;
-}
-
-async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify(value, null, 2), "utf8");
-  await rename(temporary, path);
+  return boundedConcurrency(process.env.CLAUDE_SUBSCRIPTION_MAX_CONCURRENCY);
 }
 
 let shared: ClaudeSubscriptionService | undefined;

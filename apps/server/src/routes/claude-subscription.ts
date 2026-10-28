@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import { ClaudeCliError, claudeCliCommand, claudeCliEnv } from "../services/claude-code-cli";
 import { claudeSubscription, isClaudeSubscriptionEnabled, modelRefForAlias, type ClaudeSubscriptionService } from "../services/claude-subscription";
 import { errorMessage } from "../services/errors";
-import { isLoopbackAddress, isLoopbackHost } from "./after-effects";
+import { isLocalClient as local } from "./subscription-common";
 
 const ROOT = "/api/claude-subscription";
 const CONVERSATION_ID = /^[A-Za-z0-9_-]{1,80}$/;
@@ -106,13 +106,6 @@ function sendError(reply: FastifyReply, error: unknown) {
 function errorBody(error: unknown): { code: string; message: string; resetsAt?: string; retryable: boolean } {
   if (error instanceof ClaudeCliError) return { code: error.code, message: error.message, resetsAt: error.details.resetsAt, retryable: error.retryable };
   return { code: "CLI_ERROR", message: errorMessage(error), retryable: false };
-}
-
-function local(request: FastifyRequest): boolean {
-  if (!isLoopbackAddress(request.ip) || !isLoopbackHost(request.hostname)) return false;
-  if (!request.headers.origin) return true;
-  try { const url = new URL(request.headers.origin); return url.protocol === "http:" && isLoopbackHost(url.hostname); }
-  catch { return false; }
 }
 
 function record(value: unknown): Record<string, unknown> {
