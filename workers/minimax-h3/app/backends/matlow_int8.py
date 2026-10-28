@@ -183,6 +183,13 @@ class MatlowInt8Backend:
                 request.requested_capability,
                 "matlow_int8 accepts T2VA, FL2VA and visual Ref2VA only",
             )
+        if request.seamless_loop and (
+            request.task not in {"t2va", "ref2va"}
+            or request.output_mode != "video"
+            or request.vae_mode != "stock"
+            or (request.target and request.target.duration_seconds > 12.75)
+        ):
+            raise CapabilityUnavailable("seamless_loop", "Cyclic H3 requires T2VA/visual Ref2VA, stock video VAE, and duration <= 12.75s")
         if request.output_mode == "still" and (request.task not in {"t2va", "ref2va"} or request.vae_mode != "stock" or any(c.get("type") != "image" for c in request.conditions)):
             raise CapabilityUnavailable("still", "Experimental stills support text or image-only Ref2VA with the stock VAE")
         if (request.output_mode == "still" or request.vae_mode == "x2") and request.model_variant != "h3_base":

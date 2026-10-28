@@ -45,6 +45,9 @@ export type H3QueueItem = {
   vaeMode?: "stock" | "x2";
   modelVariant: "h3_base" | "10eros_max" | "10eros_max_turbo" | "h3_max" | "h3_max_turbo";
   inferenceSteps?: number;
+  seamlessLoop?: boolean;
+  loopViews?: 1 | 2;
+  loopPadClips?: 1 | 2;
   attentionMode?: "auto" | "veda" | "dense";
   identityTransfer?: { enabled: true; strength: number };
   visualModifier?: { id: "authentic_cinematic_texture"; enabled: true; strength: number; includeTrigger: boolean };
@@ -131,7 +134,7 @@ export class H3ManagedInstanceError extends Error {
   constructor(message: string, readonly managedInstanceId: number) { super(message); }
 }
 
-type CreateH3QueueItem = Pick<H3QueueItem, "title" | "operation" | "prompt"> & Partial<Pick<H3QueueItem, "promptJson" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "vaeMode" | "modelVariant" | "inferenceSteps" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode" | "assets">> & { videoUpscale?: Record<string, unknown> };
+type CreateH3QueueItem = Pick<H3QueueItem, "title" | "operation" | "prompt"> & Partial<Pick<H3QueueItem, "promptJson" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "vaeMode" | "modelVariant" | "inferenceSteps" | "seamlessLoop" | "loopViews" | "loopPadClips" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode" | "assets">> & { videoUpscale?: Record<string, unknown> };
 
 const IDLE_SESSION: H3QueueSession = {
   id: "session_idle",
@@ -649,6 +652,9 @@ function normalizeItem(value: Omit<Partial<H3QueueItem>, "videoUpscale"> & { vid
     modelVariant,
     ...(inferenceSteps === undefined ? {} : { inferenceSteps }),
     attentionMode,
+    seamlessLoop: value.seamlessLoop === true,
+    loopViews: value.loopViews === 1 ? 1 : 2,
+    loopPadClips: value.loopPadClips === 2 ? 2 : 1,
     ...(identityTransfer ? { identityTransfer } : {}),
     ...(visualModifier ? { visualModifier } : {}),
     ...(cameraPath ? { cameraPath, cameraControlMode } : {}),

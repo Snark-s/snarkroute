@@ -86,6 +86,9 @@ export async function registerH3Routes(app: FastifyInstance) {
         renderMode: request.body?.renderMode,
         modelVariant: request.body?.modelVariant,
         inferenceSteps: request.body?.inferenceSteps,
+        seamlessLoop: request.body?.seamlessLoop,
+        loopViews: request.body?.loopViews,
+        loopPadClips: request.body?.loopPadClips,
         attentionMode: request.body?.attentionMode,
         identityTransfer: request.body?.identityTransfer,
         visualModifier: request.body?.visualModifier ?? undefined,
@@ -114,6 +117,9 @@ export async function registerH3Routes(app: FastifyInstance) {
         ...(body.renderMode === undefined ? {} : { renderMode: body.renderMode }),
         ...(body.modelVariant === undefined ? {} : { modelVariant: body.modelVariant }),
         ...(body.inferenceSteps === undefined ? {} : { inferenceSteps: body.inferenceSteps }),
+        ...(body.seamlessLoop === undefined ? {} : { seamlessLoop: body.seamlessLoop }),
+        ...(body.loopViews === undefined ? {} : { loopViews: body.loopViews }),
+        ...(body.loopPadClips === undefined ? {} : { loopPadClips: body.loopPadClips }),
         ...(body.attentionMode === undefined ? {} : { attentionMode: body.attentionMode }),
         ...(body.identityTransfer === undefined ? {} : { identityTransfer: body.identityTransfer }),
         ...(body.visualModifier === undefined ? {} : { visualModifier: body.visualModifier ?? undefined }),
@@ -320,6 +326,9 @@ type H3QueueItemBody = {
   renderMode?: "preview" | "final";
   modelVariant?: "h3_base" | "10eros_max" | "10eros_max_turbo" | "h3_max" | "h3_max_turbo";
   inferenceSteps?: number;
+  seamlessLoop?: boolean;
+  loopViews?: 1 | 2;
+  loopPadClips?: 1 | 2;
   attentionMode?: "auto" | "veda" | "dense";
   identityTransfer?: { enabled: true; strength: number };
   visualModifier?: { id: "authentic_cinematic_texture"; enabled: true; strength: number; includeTrigger: boolean } | null;

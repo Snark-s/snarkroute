@@ -402,7 +402,12 @@ class MatlowRuntime:
             try:
                 # A direct AV continuation has no pixels to encode. Do not load
                 # either VAE while sampling this experimental path.
-                if experiment is not None and not request.conditions:
+                if (experiment is not None or (request.seamless_loop and request.task == "t2va")) and not request.conditions:
+                    # Text-only cyclic H3 never encodes input images. The ComfyUI
+                    # MiniMaxH3ImageToVideo node does not access its VAE unless
+                    # keyframes exist. Defer loading both VAE weights until
+                    # post-diffusion decode to avoid several GiB of host RAM
+                    # being resident alongside the 32B text encoder.
                     models, model_load_seconds = {"video_vae": None, "audio_vae": None}, 0.0
                 else:
                     models, model_load_seconds = self._load_models()
@@ -411,6 +416,18 @@ class MatlowRuntime:
                 width, height = _dimensions(request.target.aspect_ratio if request.target else "16:9")
                 duration = request.target.duration_seconds if request.target else 5.0
                 frames = 5 if request.output_mode == "still" else _frame_count(duration)
+                if request.seamless_loop:
+                    if request.task not in {"t2va", "ref2va"} or request.output_mode != "video" or request.vae_mode != "stock" or experiment is not None:
+                        raise ValueError("Seamless H3 loop supports standard video T2VA/visual Ref2VA only")
+                    from .h3_cyclic import loop_frame_count
+                    frames = loop_frame_count(duration)
+                    # Preview-only lower-memory profile: padded cyclic context
+                    # otherwise pushes this 16 GiB GPU / 32 GiB RAM workstation
+                    # into host swap before the first denoising step.
+                    width = max(256, round(width * 5 / 6 / 32) * 32)
+                    height = max(256, round(height * 5 / 6 / 32) * 32)
+                    logging.info("H3 seamless preview geometry: %sx%s, input_frames=%s, views=%s, pad_clips=%s",
+                                 width, height, frames, request.loop_views, request.loop_pad_clips)
                 if experiment is not None:
                     width, height, frames = experiment["width"], experiment["height"], experiment["frames"]
                 seed = (
@@ -573,6 +590,9 @@ class MatlowRuntime:
                 shifted = modules["MiniMaxH3SigmaShift"].execute(model, shift_video=12.0, shift_audio=3.0)[0]
                 sampler = modules["KSamplerSelect"].execute(model_spec["sampler"])[0]
                 sigmas = modules["BasicScheduler"].execute(shifted, model_spec["scheduler"], steps, 1.0)[0]
+                if request.seamless_loop:
+                    from .h3_cyclic import attach_cyclic_sampler
+                    shifted = attach_cyclic_sampler(shifted, pad_clips=request.loop_pad_clips, views=request.loop_views)
                 guider = modules["BasicGuider"].execute(shifted, conditioning)[0]
                 noise = modules["RandomNoise"].execute(seed)[0]
                 diffusion_started = time.perf_counter()
@@ -676,7 +696,11 @@ class MatlowRuntime:
                         images = decode_x2_video(torch, model_management, models["video_vae"], sampled,
                                                  self.settings.matlow_vae_tile_size, self.settings.matlow_vae_tile_overlap)
                     else:
-                        images = modules["VAEDecode"]().decode(models["video_vae"], sampled)[0]
+                        if request.seamless_loop:
+                            from .h3_cyclic import decode_cyclic_video
+                            images = decode_cyclic_video(models["video_vae"], sampled, request.loop_pad_clips)
+                        else:
+                            images = modules["VAEDecode"]().decode(models["video_vae"], sampled)[0]
                 torch.cuda.synchronize()
                 vae_decode_seconds = time.perf_counter() - vae_started
                 _report(stage_callback, 0.86, "video_decoded")
@@ -685,7 +709,11 @@ class MatlowRuntime:
                 if self.settings.matlow_native_audio and request.output_mode == "video":
                     audio_started = time.perf_counter()
                     with torch.inference_mode():
-                        audio = modules["VAEDecodeAudio"].execute(models["audio_vae"], sampled)[0]
+                        if request.seamless_loop:
+                            from .h3_cyclic import decode_cyclic_audio
+                            audio = decode_cyclic_audio(modules["VAEDecodeAudio"], models["audio_vae"], sampled, request.loop_pad_clips)
+                        else:
+                            audio = modules["VAEDecodeAudio"].execute(models["audio_vae"], sampled)[0]
                     torch.cuda.synchronize()
                     audio_seconds = time.perf_counter() - audio_started
 

@@ -1,5 +1,20 @@
 # SnarkRoute MiniMax H3 worker
 
+## Experimental seamless-loop mode (not yet GPU-verified)
+
+Local `matlow_int8` requests can opt in with `seamless_loop: true`, optional
+`loop_views: 1|2` (default 2), and `loop_pad_clips: 1|2` (default 1).
+Only video T2VA and visual Ref2VA with stock VAE are supported. The loop
+rounds to H3-compatible 17k+5 input frames and returns 17k frames. This
+increases render duration and VRAM use; do not enable in unattended workloads
+before an end-to-end test on the target GPU. Hosted and SGLang paths do not
+implement it. The H3 Studio checkbox is opt-in. This code is adapted from
+[pxl-pshr/ComfyUI-MiniMaxH3-Loop](https://github.com/pxl-pshr/ComfyUI-MiniMaxH3-Loop)
+under GPL-3.0 (see `app/backends/h3_cyclic.py`). Note that the upstream project
+requires ComfyUI 0.42+, while this worker has its own pinned ComfyUI core;
+compatibility must be confirmed before calling it production-ready.
+
+
 Versioned, authenticated, backend-neutral worker for MiniMax H3. The normal API and SGLang images have no ComfyUI runtime, custom nodes, or ComfyUI container. The optional local `matlow_int8` backend imports a pinned ComfyUI core checkout strictly as a headless Python model-loading/sampling library for the checkpoint's native `comfy_quant` format. It does not start ComfyUI's GUI, HTTP server, or workflow engine.
 
 The stable facade owns validation, asynchronous jobs, idempotency, cancellation, metadata and result storage. Select the runtime with `H3_BACKEND=mock|sglang|matlow_int8|diffusers|vdn`. `matlow_int8` exposes the GPU-verified `local_fast` T2VA, FL2VA and visual Ref2VA preview paths with native generated audio; audio references and final-quality mode remain fail-closed. Its attention mode is `H3_MATLOW_ATTENTION=auto|veda|dense`: `auto` uses the vendored Veda learned sparse-attention runtime when the predictor and Triton self-test pass, otherwise it keeps dense attention; `veda` fails closed instead of falling back. `diffusers` and `vdn` remain unavailable boundaries.

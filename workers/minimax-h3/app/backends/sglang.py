@@ -81,6 +81,8 @@ class SGLangBackend:
     async def execute(
         self, request: GenerateRequest, work_dir: Path, progress: ProgressCallback
     ) -> list[BackendOutput]:
+        if request.seamless_loop:
+            raise ValueError("Seamless H3 Loop requires the local matlow_int8 backend")
         started = perf_counter()
         upstream = self.settings.ref2va_url if request.task == "ref2va" else self.settings.fl2va_url
         await progress(0.03, "submitting_backend")

@@ -35,6 +35,7 @@ type QueueItem = {
   renderMode: "preview" | "final";
   modelVariant: ModelVariant;
   inferenceSteps?: number;
+  seamlessLoop?: boolean;
   attentionMode?: AttentionMode;
   identityTransfer?: { enabled: true; strength: number };
   visualModifier?: { id: "authentic_cinematic_texture"; enabled: true; strength: number; includeTrigger: boolean };
@@ -100,6 +101,7 @@ type ComposerDraft = {
   renderMode: "preview" | "final";
   modelVariant: ModelVariant;
   inferenceSteps: number;
+  seamlessLoop?: boolean;
   attentionMode: AttentionMode;
   identityEnabled: boolean;
   identityStrength: number;
@@ -115,6 +117,7 @@ type ComposerDraft = {
 };
 
 type QueueSubmissionInput = {
+  seamlessLoop?: boolean;
   taskFamily: TaskFamily;
   title: string;
   operation: Operation;
@@ -230,6 +233,7 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
   const [renderMode, setRenderMode] = useState<"preview" | "final">(draft.renderMode);
   const [modelVariant, setModelVariant] = useState<ModelVariant>(draft.modelVariant);
   const [inferenceSteps, setInferenceSteps] = useState(draft.inferenceSteps);
+  const [seamlessLoop, setSeamlessLoop] = useState(Boolean(draft.seamlessLoop));
   const [attentionMode, setAttentionMode] = useState<AttentionMode>(draft.attentionMode);
   const [identityEnabled, setIdentityEnabled] = useState(draft.identityEnabled);
   const [identityStrength, setIdentityStrength] = useState(draft.identityStrength);
@@ -297,11 +301,11 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
   useEffect(() => {
     const snapshot: ComposerDraft = {
       version: 1, taskFamily, recipeOperation, title, prompt, contextInstruction, contextPreset, promptJson,
-      duration, aspectRatio, variants, seed, renderMode, modelVariant, inferenceSteps, attentionMode,
+      duration, aspectRatio, variants, seed, renderMode, modelVariant, inferenceSteps, seamlessLoop, attentionMode,
       identityEnabled, identityStrength, visualModifierEnabled, visualModifierId, visualModifierStrength, visualModifierTrigger, cameraEnabled, cameraMode, cameraPath, assets, importedWorkflow,
     };
     try { window.localStorage.setItem(COMPOSER_DRAFT_KEY, JSON.stringify(snapshot)); } catch { /* persistence is best-effort in restricted browser contexts */ }
-  }, [taskFamily, recipeOperation, title, prompt, contextInstruction, contextPreset, promptJson, duration, aspectRatio, variants, seed, renderMode, modelVariant, inferenceSteps, attentionMode, identityEnabled, identityStrength, visualModifierEnabled, visualModifierId, visualModifierStrength, visualModifierTrigger, cameraEnabled, cameraMode, cameraPath, assets, importedWorkflow]);
+  }, [taskFamily, recipeOperation, title, prompt, contextInstruction, contextPreset, promptJson, duration, aspectRatio, variants, seed, renderMode, modelVariant, inferenceSteps, seamlessLoop, attentionMode, identityEnabled, identityStrength, visualModifierEnabled, visualModifierId, visualModifierStrength, visualModifierTrigger, cameraEnabled, cameraMode, cameraPath, assets, importedWorkflow]);
   useEffect(() => {
     if (!sessionActive) return;
     const timer = window.setInterval(() => void refresh(false), 2_000);
@@ -423,7 +427,7 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
     setMessage("");
     setEnqueueError("");
     try {
-      const request = buildQueueSubmission({ taskFamily, title, operation, prompt, finalRequest, promptJson, contextInstruction, contextPreset, duration, aspectRatio, variants, seed, renderMode, modelVariant, inferenceSteps, attentionMode, assets, importedWorkflow, identityEnabled, identityStrength, visualModifierEnabled, visualModifierId, visualModifierStrength, visualModifierTrigger, cameraEnabled, cameraMode, cameraPath });
+      const request = buildQueueSubmission({ taskFamily, title, operation, prompt, finalRequest, promptJson, contextInstruction, contextPreset, duration, aspectRatio, variants, seed, renderMode, modelVariant, inferenceSteps, seamlessLoop, attentionMode, assets, importedWorkflow, identityEnabled, identityStrength, visualModifierEnabled, visualModifierId, visualModifierStrength, visualModifierTrigger, cameraEnabled, cameraMode, cameraPath });
       const response = await apiFetch(`${apiBase}/api/h3/queue${editingId ? `/${editingId}` : ""}`, {
         method: editingId ? "PUT" : "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(request)
@@ -487,6 +491,7 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
     setRenderMode(item.modelVariant === "h3_base" ? "preview" : finalAvailable ? item.renderMode : "preview");
     setModelVariant(item.modelVariant ?? "h3_base");
     setInferenceSteps(item.inferenceSteps ?? (item.modelVariant === "10eros_max" ? 8 : item.modelVariant === "10eros_max_turbo" ? 6 : 4));
+    setSeamlessLoop(Boolean(item.seamlessLoop));
     setAttentionMode(item.attentionMode ?? "auto");
     setIdentityEnabled(item.identityTransfer?.enabled === true);
     setIdentityStrength(item.identityTransfer?.strength ?? 1);
@@ -813,7 +818,7 @@ export function H3QueuePanel({ finalAvailable = false }: { finalAvailable?: bool
 
         <aside className="h3ComposerSettings">
           <section><div className="h3Subheading"><div><strong>Model / Profile</strong><span>Independent from task family.</span></div></div><label><span>Model</span><select value={modelVariant} onChange={(event) => { const value = event.target.value as ModelVariant; const model = models.find((item) => item.id === value); setModelVariant(value); setRenderMode(value === "10eros_max" || value === "h3_max" ? "final" : "preview"); setInferenceSteps(model?.default_steps ?? (value === "10eros_max" ? 8 : value === "10eros_max_turbo" ? 6 : 4)); if (isHostedModel(value)) { setVariants(1); setIdentityEnabled(false); setAttentionMode("auto"); } if (value !== "h3_base") setVisualModifierEnabled(false); if (value === "h3_max_turbo") setCameraEnabled(false); }}>{(models.length ? models : fallbackModels()).map((model) => <option value={model.id} key={model.id} disabled={model.selectable === false}>{model.display_name}{model.recommended_for_16gb ? " · 16 GB" : ""}{model.local_unavailable ? " · offline" : model.hosted ? model.weights_installed ? " · ready" : " · key required" : model.weights_installed ? " · ready" : " · not downloaded"}</option>)}</select></label><label><span>Profile</span><select value={renderMode} onChange={(event) => setRenderMode(modelVariant === "h3_base" ? "preview" : event.target.value as "preview" | "final")}><option value="preview">Preview</option><option value="final" disabled={modelVariant === "h3_base" || (!finalAvailable && modelVariant !== "h3_max")}>{finalAvailable || modelVariant === "h3_max" ? "Final" : "Final · unavailable"}</option></select></label>{modelVariant === "h3_max" ? <p>Hosted · fal · 768P · ≈ ${(duration * composerHostedRate).toFixed(2)} USD output. Semantic reference tokens can add cost. First/last frame and image/video/audio references are verified; local FaceSwap is unavailable.</p> : modelVariant === "h3_max_turbo" ? <p>Hosted · fal · 768P · ≈ ${(duration * composerHostedRate).toFixed(2)} USD output. T2V and first/last-frame I2V are available; semantic references, FaceSwap, and CameraPath controls are unavailable.</p> : <p>Local · saved worker or managed Vast. H3 Base keeps its existing FL2VA/Ref2VA path.</p>}{(() => { const model = models.find((item) => item.id === modelVariant); if (!model || model.hosted || model.local_unavailable || model.weights_installed || modelVariant === "h3_base") return null; return <button type="button" disabled={busy || model.downloading} onClick={() => void downloadModel()}>{model.downloading ? <LoaderCircle className="h3Spin" size={15} /> : <Cloud size={15} />} {model.downloading ? `Download ${Math.round((model.progress ?? 0) * 100)}%` : `Download ${model.display_name}`}</button>; })()}</section>
-          <section><div className="h3Subheading"><div><strong>Generation Settings</strong><span>Only parameters used by the current queue/runtime.</span></div></div><div className="h3SettingsGrid"><label><span>Duration</span><input type="number" min={isHostedModel(modelVariant) ? 5 : 4} max={15} value={duration} onChange={(event) => setDuration(Number(event.target.value))} /></label><label><span>Ratio</span><select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}><option>16:9</option><option>9:16</option><option>1:1</option><option>4:3</option><option>3:4</option><option>21:9</option><option>auto</option><option>adaptive</option></select></label><label><span>Output count</span><input type="number" min={1} max={isHostedModel(modelVariant) ? 1 : 10} value={variants} onChange={(event) => setVariants(Number(event.target.value))} /></label><label><span>Attention</span><select disabled={isHostedModel(modelVariant)} value={isHostedModel(modelVariant) ? "auto" : attentionMode} onChange={(event) => setAttentionMode(event.target.value as AttentionMode)}><option value="auto">Auto · Veda with fallback</option><option value="veda">Veda · strict</option><option value="dense">Dense · off</option></select></label></div><details className="h3AdvancedSettings"><summary>Advanced</summary>{!isHostedModel(modelVariant) ? <label><span>Steps</span><input type="number" min={models.find((model) => model.id === modelVariant)?.minimum_steps ?? 4} max={modelVariant === "h3_base" ? 10 : models.find((model) => model.id === modelVariant)?.maximum_steps ?? 8} value={inferenceSteps} onChange={(event) => setInferenceSteps(Number(event.target.value))} /></label> : null}{modelVariant === "h3_base" && inferenceSteps !== 4 ? <p className="h3InlineWarning">H3 Base рассчитана и проверена на 4 шагах. {inferenceSteps} шагов: экспериментальный режим; качество может ухудшиться.</p> : null}<label><span>Seed · empty = auto</span><div className="h3SeedField"><input type="number" min={0} max={2147483647} value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="Auto" /><button type="button" title="New random seed" onClick={() => setSeed(String(randomSeed()))}><Dices size={15} /></button></div></label></details></section>
+          <section><div className="h3Subheading"><div><strong>Generation Settings</strong><span>Only parameters used by the current queue/runtime.</span></div></div><label className="h3Toggle"><input type="checkbox" checked={seamlessLoop} onChange={(event) => setSeamlessLoop(event.target.checked)} disabled={isHostedModel(modelVariant) || recipeOperation === "first_last_frame"} /> Бесшовный цикл (экспериментально; на 32 ГБ RAM не прошёл GPU-тест, рекомендуется 64 ГБ)</label><div className="h3SettingsGrid"><label><span>Duration</span><input type="number" min={isHostedModel(modelVariant) ? 5 : 4} max={15} value={duration} onChange={(event) => setDuration(Number(event.target.value))} /></label><label><span>Ratio</span><select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}><option>16:9</option><option>9:16</option><option>1:1</option><option>4:3</option><option>3:4</option><option>21:9</option><option>auto</option><option>adaptive</option></select></label><label><span>Output count</span><input type="number" min={1} max={isHostedModel(modelVariant) ? 1 : 10} value={variants} onChange={(event) => setVariants(Number(event.target.value))} /></label><label><span>Attention</span><select disabled={isHostedModel(modelVariant)} value={isHostedModel(modelVariant) ? "auto" : attentionMode} onChange={(event) => setAttentionMode(event.target.value as AttentionMode)}><option value="auto">Auto · Veda with fallback</option><option value="veda">Veda · strict</option><option value="dense">Dense · off</option></select></label></div><details className="h3AdvancedSettings"><summary>Advanced</summary>{!isHostedModel(modelVariant) ? <label><span>Steps</span><input type="number" min={models.find((model) => model.id === modelVariant)?.minimum_steps ?? 4} max={modelVariant === "h3_base" ? 10 : models.find((model) => model.id === modelVariant)?.maximum_steps ?? 8} value={inferenceSteps} onChange={(event) => setInferenceSteps(Number(event.target.value))} /></label> : null}{modelVariant === "h3_base" && inferenceSteps !== 4 ? <p className="h3InlineWarning">H3 Base рассчитана и проверена на 4 шагах. {inferenceSteps} шагов: экспериментальный режим; качество может ухудшиться.</p> : null}<label><span>Seed · empty = auto</span><div className="h3SeedField"><input type="number" min={0} max={2147483647} value={seed} onChange={(event) => setSeed(event.target.value)} placeholder="Auto" /><button type="button" title="New random seed" onClick={() => setSeed(String(randomSeed()))}><Dices size={15} /></button></div></label></details></section>
 <section><div className="h3Subheading"><div><strong>Optional Modifiers</strong><span>Capability-aware controls, not task families.</span></div></div>{!isHostedModel(modelVariant) ? <><label><span>Identity Transfer / FaceSwap</span><select disabled={taskFamily !== "Ref2VA" || visualModifierEnabled} value={identityEnabled ? "on" : "off"} onChange={(event) => setIdentityEnabled(event.target.value === "on")}><option value="off">Off</option><option value="on">On · H3 Base Ref2VA</option></select></label>{identityEnabled ? <label><span>Identity strength</span><input type="number" min={0} max={2} step={0.05} value={identityStrength} onChange={(event) => setIdentityStrength(Number(event.target.value))} /></label> : null}{identityEnabled && !modifiers.find((item) => item.id === "faceswap_ref2va")?.weights_installed ? <button type="button" disabled={busy || modifiers.find((item) => item.id === "faceswap_ref2va")?.downloading} onClick={() => void downloadIdentityModifier()}><Cloud size={15} /> {modifiers.find((item) => item.id === "faceswap_ref2va")?.downloading ? `FaceSwap ${Math.round((modifiers.find((item) => item.id === "faceswap_ref2va")?.progress ?? 0) * 100)}%` : "Download FaceSwap Ref2VA LoRA"}</button> : null}<VisualModifierControls modifiers={modifiers} id={visualModifierId} enabled={visualModifierEnabled} strength={visualModifierStrength} includeTrigger={visualModifierTrigger} disabled={modelVariant !== "h3_base" || identityEnabled} busy={busy} onId={setVisualModifierId} onEnabled={setVisualModifierEnabled} onStrength={setVisualModifierStrength} onTrigger={setVisualModifierTrigger} onDownload={() => void downloadVisualModifier()} /></> : <p>Hosted profiles do not load local LoRA modifiers.</p>}
             {modelVariant !== "h3_max_turbo" ? <details className="h3CameraControl" open={cameraEnabled}><summary>Camera Control · CameraPath 1.0</summary><label><span>Enabled</span><select value={cameraEnabled ? "on" : "off"} onChange={(event) => setCameraEnabled(event.target.value === "on")}><option value="off">Off</option><option value="on">On</option></select></label><label><span>Mode</span><select disabled={!cameraEnabled} value={cameraMode} onChange={(event) => setCameraMode(event.target.value as typeof cameraMode)}><option value="auto">Auto</option><option value="native">Native · hosted H3 Max only</option><option value="prompt">Prompt fallback</option></select></label><label><span>Preset</span><select disabled={!cameraEnabled} defaultValue="static" onChange={(event) => setCameraPath(cameraPreset(event.target.value))}><option value="static">Static</option><option value="orbitLeft">Orbit left</option><option value="orbitRight">Orbit right</option><option value="orbit360">360 orbit</option><option value="rise">Rise</option><option value="fall">Fall</option><option value="dollyIn">Dolly in</option><option value="dollyOut">Dolly out</option></select></label><p>Local H3 uses the existing prompt fallback. Native orbit remains hosted H3 Max only.</p></details> : null}
           </section>
@@ -1068,8 +1073,9 @@ export function composerSeedFromImported(seed: number | undefined): { value: str
   return { value: "", warning: `Imported seed ${seed} is outside the H3 runtime range 0–2147483647 and was kept only in workflow metadata.` };
 }
 
-export function queueSubmissionError(input: Pick<QueueSubmissionInput, "taskFamily" | "operation" | "modelVariant" | "variants" | "identityEnabled" | "visualModifierEnabled" | "cameraEnabled" | "finalRequest" | "assets" | "seed">): string | null {
+export function queueSubmissionError(input: Pick<QueueSubmissionInput, "taskFamily" | "operation" | "modelVariant" | "variants" | "identityEnabled" | "visualModifierEnabled" | "cameraEnabled" | "finalRequest" | "assets" | "seed" | "seamlessLoop" | "duration">): string | null {
   if (!input.finalRequest.trim()) return "Cannot add to queue: Prompt is empty.";
+  if (input.seamlessLoop && (input.modelVariant.startsWith("h3_max") || input.operation === "first_last_frame" || input.duration > 12.75)) return "Бесшовный цикл доступен только локально без FL2VA-кадров, до 12,75 с.";
   if (isHostedModel(input.modelVariant) && input.variants !== 1) return "Cannot add to queue: hosted H3 profiles produce one output per job.";
   if (isHostedModel(input.modelVariant) && input.identityEnabled) return "Cannot add to queue: hosted H3 profiles cannot load the local FaceSwap LoRA.";
   if (input.visualModifierEnabled && input.modelVariant !== "h3_base") return "Cannot add to queue: Authentic Cinematic Texture requires H3 Base.";
@@ -1114,6 +1120,7 @@ export function buildQueueSubmission(input: QueueSubmissionInput) {
     renderMode: input.renderMode,
     modelVariant: input.modelVariant,
     inferenceSteps: input.inferenceSteps,
+    seamlessLoop: input.seamlessLoop === true,
     attentionMode: input.attentionMode ?? "auto",
     assets: input.assets.map(({ composerId: _composerId, missing: _missing, sourceFilename: _sourceFilename, importNodeId: _importNodeId, ...asset }) => asset),
     ...(input.identityEnabled ? { identityTransfer: { enabled: true as const, strength: input.identityStrength } } : {}),

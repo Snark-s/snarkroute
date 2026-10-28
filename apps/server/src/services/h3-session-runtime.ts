@@ -179,7 +179,10 @@ async function acquire(mode: H3SessionMode, onLease: (lease: H3QueueLease) => Pr
 
 async function render(item: H3QueueItem, lease: H3QueueLease, onProgress: (progress: number, stage?: string) => Promise<void>, onJobCreated: ((workerJobId: string) => Promise<void>) | undefined, resultsDirectory: string, fetchImpl: typeof fetch) {
   if (item.operation === "video_upscale") return renderVideoUpscale(item,resultsDirectory,onProgress,onJobCreated);
-  if (isHostedH3Variant(item.modelVariant)) return renderHosted(item, onProgress, onJobCreated, resultsDirectory, fetchImpl);
+  if (isHostedH3Variant(item.modelVariant)) {
+      if (item.seamlessLoop) throw new H3QueueBlockedError("Seamless Loop is available only for the local MATLOW H3 worker.");
+      return renderHosted(item, onProgress, onJobCreated, resultsDirectory, fetchImpl);
+    }
   if (item.cameraPath && item.cameraControlMode === "native") throw new H3QueueBlockedError("Native CameraPath requires the hosted H3 Max Model Gateway route; this queue targets a local H3 worker. Choose Auto or Prompt fallback.");
   const requiredCapability = item.operation === "still_image" && item.assets.some(asset => asset.slot === "referenceImage") ? "ref2va" : capabilityFor(item.operation);
   if (!requiredCapability) throw new H3QueueBlockedError(blockedReason(item.operation));
@@ -359,7 +362,7 @@ function isHostedH3Variant(value: H3QueueItem["modelVariant"]): value is "h3_max
 }
 
 export function idempotencyKeyForQueueItem(
-  item: Pick<H3QueueItem, "id" | "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "inferenceSteps" | "assets" | "startedAt"> & Partial<Pick<H3QueueItem, "modelVariant" | "vaeMode" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode">>
+  item: Pick<H3QueueItem, "id" | "operation" | "prompt" | "duration" | "aspectRatio" | "seed" | "variants" | "renderMode" | "inferenceSteps" | "assets" | "startedAt"> & Partial<Pick<H3QueueItem, "modelVariant" | "vaeMode" | "attentionMode" | "identityTransfer" | "visualModifier" | "cameraPath" | "cameraControlMode" | "seamlessLoop" | "loopViews" | "loopPadClips">>
 ): string {
   const renderRevision = JSON.stringify({
     attemptStartedAt: item.startedAt,
@@ -373,6 +376,9 @@ export function idempotencyKeyForQueueItem(
     modelVariant: item.modelVariant,
     vaeMode: item.vaeMode,
     inferenceSteps: item.inferenceSteps,
+    seamlessLoop: item.seamlessLoop,
+    loopViews: item.loopViews,
+    loopPadClips: item.loopPadClips,
     attentionMode: item.attentionMode,
     identityTransfer: item.identityTransfer,
     visualModifier: item.visualModifier,

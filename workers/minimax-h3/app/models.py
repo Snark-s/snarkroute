@@ -122,6 +122,9 @@ class GenerateRequest(BaseModel):
     turbo_lora: bool = False
     lora_scale: float = Field(default=1.0, ge=0, le=2)
     model_variant: H3ModelVariant = "h3_base"
+    seamless_loop: bool = False
+    loop_views: Literal[1, 2] = 2
+    loop_pad_clips: int = Field(default=1, ge=1, le=2)
     attention_mode: Literal["auto", "veda", "dense"] | None = None
     identity_transfer: IdentityTransfer | None = None
     visual_modifier: VisualModifier | None = None
