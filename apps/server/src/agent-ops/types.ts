@@ -36,8 +36,8 @@ export const TASK_STATE_LABELS: Record<TaskState, string> = {
   failed: "ошибка",
   cancelled: "отменена",
   unknown_outcome: "неизвестный исход",
-  awaiting_verification: "ждёт проверки",
-  verified: "проверена"
+  awaiting_verification: "исполнитель закончил, ждёт приёмки",
+  verified: "принята"
 };
 
 export const TERMINAL_STATES = new Set<TaskState>(["failed", "cancelled", "verified"]);
@@ -104,6 +104,8 @@ export type TaskSpec = {
   constraints?: string[];
   permissions?: { fileWrite?: boolean; shell?: "none" | "tests" | "workspace"; network?: boolean };
   budget?: { wallMinutes?: number; subscriptionRuns?: number; maxTurns?: number; providerCost?: number };
+  /** Optional wall-clock deadline (ISO). Unlike budget.wallMinutes (active execution), it keeps running while the task waits. */
+  deadline?: string;
   priority?: number;
   executor?: string;
   allowedExecutors?: string[];
@@ -196,11 +198,13 @@ export type AgentTask = {
   nextStep?: string;
   strategy?: string;
   dependsOn?: string[];
+  /** Waiting vs active time; see time-budget.ts. */
+  timing?: { activeMs: number; waitingMs: number; since: string; phase: "active" | "waiting" | "done" };
 };
 
 export type TaskEvent = { at: string; type: string; message: string; data?: Record<string, unknown> };
 
-export type AgentKind = "owner" | "mcp" | "persona" | "app" | "task";
+export type AgentKind = "owner" | "mcp" | "persona" | "app" | "task" | "anonymous";
 
 export type AgentPolicy = {
   id: string;

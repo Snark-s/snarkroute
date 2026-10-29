@@ -1,8 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { COMPUTER_MODE_LABELS, type ComputerMode } from "./types";
 
-const execFileAsync = promisify(execFile);
 export const OWNER_TIMEZONE = "Europe/Moscow";
 
 /** One weekly window in Europe/Moscow. `days` are ISO weekdays (1 = Monday) of the window's start; to < from spans midnight. */
@@ -48,8 +45,8 @@ export const DEFAULT_MODE_LIMITS: Record<ComputerMode, ModeLimits> = {
 };
 
 export const DEFAULT_OWNER_APPS = [
-  // GPU-heavy creative apps. Photoshop is left out: it is usually open all day and is itself a SnarkRoute client.
-  "blender", "unrealeditor", "ue4editor", "touchdesigner", "afterfx", "aerender", "adobe premiere pro",
+  // Creative apps watched by their measured load: an open but idle app never blocks work by itself.
+  "blender", "unrealeditor", "ue4editor", "touchdesigner", "afterfx", "aerender", "adobe premiere pro", "photoshop",
   "resolve", "houdini", "houdinifx", "cinema 4d", "maya", "3dsmax", "substance painter", "obs64", "mixar"
 ];
 
@@ -114,21 +111,4 @@ export function effectiveComputerMode(state: ComputerModeState, now = new Date()
 
 export function formatOwnerTime(iso: string): string {
   return new Intl.DateTimeFormat("ru-RU", { timeZone: OWNER_TIMEZONE, day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
-}
-
-let ownerAppCache: { at: number; running: string[] } | undefined;
-
-/** Which of the owner's heavy applications are running. Input idleness is deliberately not used: a render runs without a mouse. */
-export async function runningOwnerApps(names: string[], maxAgeMs = 15_000): Promise<string[]> {
-  if (ownerAppCache && Date.now() - ownerAppCache.at < maxAgeMs) return ownerAppCache.running.filter(name => names.includes(name));
-  let running: string[] = [];
-  if (process.platform === "win32") {
-    try {
-      const { stdout } = await execFileAsync("tasklist", ["/fo", "csv", "/nh"], { windowsHide: true, timeout: 4000, maxBuffer: 4 * 1024 * 1024 });
-      const images = new Set(stdout.split(/\r?\n/).map(line => /^"([^"]+)"/.exec(line)?.[1]?.toLowerCase().replace(/\.exe$/, "")).filter((name): name is string => Boolean(name)));
-      running = names.filter(name => images.has(name));
-    } catch { running = []; }
-  }
-  ownerAppCache = { at: Date.now(), running };
-  return running;
 }

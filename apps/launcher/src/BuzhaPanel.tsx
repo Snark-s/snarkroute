@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Send, Play, Square, LoaderCircle } from "lucide-react";
-import { AgentOpsStatusBar } from "./AgentOpsPanel";
+import { AgentOpsStatusBar, ownerHeaders } from "./AgentOpsPanel";
 
 type Work = { id: string; title: string; state: string; reason: string; executor?: string; nextStep?: string; attempts: Array<{ n: number; model?: string; provider?: string; requestedModel?: string; toolCalls?: Array<{ id: string; tool: string; ok: boolean; at: string; result: unknown }> }>;
   contract?: { criteria: Array<{ id: string; description: string }> }; reviews?: Array<{ at: string; decision: string; reason: string; nextStep: string; criteria: Array<{ criterionId: string; status: string; reason: string }> }>;
@@ -9,7 +9,8 @@ type Work = { id: string; title: string; state: string; reason: string; executor
 type Status = { connected: boolean; configuredModel: string; configuredModelNote: string; actualModel: string | null; actualProvider: string | null; executor: string | null; reason: string; memory: string; identitySource: string;
   messages: Array<{ id: number; role: string; content: string }>; tasks: Work[]; executors: Array<{ id: string; installed: boolean; detail?: string; model?: string }>; tools: string[];
   schedules: { owner: string; localEnabled: boolean; timezone: string; reason: string; flows: Array<{ name: string; automationId: string; enabled: boolean; schedule: { sourceLabel: string; sourceTimezone: string; mode: string; moscowLabel: string; currentMoscow: string } }> }; limitations: string[]; error?: string };
-async function call<T>(apiBase: string, path: string, body?: unknown): Promise<T> { const r = await fetch(apiBase + path, { method: body ? "POST" : "GET", headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(25000) }); const data = await r.json(); if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`); return data; }
+// The Workshop acts as the owner only with its owner session (see AgentOpsPanel); without it Бужа answers read-only.
+async function call<T>(apiBase: string, path: string, body?: unknown): Promise<T> { const r = await fetch(apiBase + path, { method: body ? "POST" : "GET", headers: { ...await ownerHeaders(), ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(25000) }); const data = await r.json(); if (!r.ok) throw new Error(data.error ?? `HTTP ${r.status}`); return data; }
 const labels: Record<string, string> = { queued: "в очереди", running: "выполняется", awaiting_verification: "проверяется", verified: "принята", blocked: "заблокирована", cancelled: "отменена", paused: "приостановлена", waiting_resources: "ждёт ресурсов", waiting_executor: "ждёт исполнителя", waiting_window: "ждёт рабочего окна", unknown_outcome: "исход требует сверки", failed: "ошибка" };
 const decisions: Record<string, string> = { accept: "принять", continue: "продолжить", change_approach: "изменить подход", wait_resource: "дождаться ресурса", blocked: "заблокировано", owner_action: "требуется действие владельца" };
 const draftKey = "snarkroute:buzha:pending-request";

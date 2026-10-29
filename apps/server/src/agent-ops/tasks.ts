@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { agentBrief, workspaceAllowed, type AgentRegistry } from "./agents";
+import { accrue, activeMinutes, deadlineLeftMs, waitingMinutes } from "./time-budget";
 import { contractFor, evidenceFor, machineVerdicts, makeReview, mergeModelVerdicts } from "./acceptor";
 import type { AcceptanceReviewer } from "./acceptor-reviewer";
 import { opsContext } from "./context";
@@ -104,8 +105,23 @@ export class AgentTaskService {
 
   // ---------------------------------------------------------------- submission
 
+  /** Owner, the submitting agent, and agents of the same delegation chain may read a task; nobody else. */
+  canRead(task: AgentTask, identity: AgentIdentity): boolean {
+    if (identity.kind === "owner" || task.agentId === identity.id || task.chain.agents.includes(identity.id)) return true;
+    const own = identity.taskId ? this.tasks.get(identity.taskId) : undefined;
+    return Boolean(own && own.chain.rootTaskId === task.chain.rootTaskId);
+  }
+
+  requireReadable(id: string, identity: AgentIdentity): AgentTask {
+    const task = this.require(id);
+    if (!this.canRead(task, identity)) throw new AgentOpsError("NOT_YOUR_TASK", `Задача ${id} принадлежит другому агенту.`, {}, 403);
+    return task;
+  }
+
   async submit(identity: AgentIdentity, input: TaskSpec, options: { inspectExisting?: boolean } = {}): Promise<{ task: AgentTask; deduplicated: boolean }> {
+    if (identity.kind === "anonymous") throw new AgentOpsError("IDENTITY_REQUIRED", "Поручения принимаются только от агента с токеном или от владельца.", {}, 401);
     const spec = normalizeSpec(input);
+    if (spec.deadline && Date.parse(spec.deadline) <= this.now()) throw new AgentOpsError("BAD_SPEC", "Дедлайн уже прошёл.", {}, 400);
     if (spec.idempotencyKey) {
       const existing = [...this.tasks.values()].find(task => task.spec.idempotencyKey === spec.idempotencyKey && task.agentId === identity.id);
       if (existing) return { task: existing, deduplicated: true };
@@ -160,7 +176,8 @@ export class AgentTaskService {
       agentId: identity.id,
       chain: { rootTaskId: parent?.chain.rootTaskId ?? id, parentTaskId: parent?.id, depth, agents: chainAgents, fingerprints: [...(parent?.chain.fingerprints ?? []), fingerprint] },
       fingerprint, priority: Math.max(0, Math.min(policy.maxPriority, spec.priority ?? 50)), createdAt: at, updatedAt: at,
-      excludedExecutors: {}, attempts: [], workdir, lockKeys: []
+      excludedExecutors: {}, attempts: [], workdir, lockKeys: [],
+      timing: { activeMs: 0, waitingMs: 0, since: at, phase: "waiting" }
     };
     task.contract = contractFor(spec);
     task.evidence = []; task.reviews = []; task.reviewRuns = [];
@@ -188,19 +205,32 @@ export class AgentTaskService {
     };
     const subscriptionRuns = members.reduce((sum, task) => sum + task.attempts.reduce((runs, attempt) => runs + (attempt.modelCalls ? attempt.modelCalls.filter(call => call.tier === "subscription").length : this.adapter(attempt.executor)?.profile.costTier === "subscription" ? 1 : 0), 0)
       + (task.reviewRuns ?? []).filter(run => this.adapter(run.executor)?.profile.costTier === "subscription").length, 0);
-    const until = members.length && members.every(task => TERMINAL_STATES.has(task.state)) ? Math.max(...members.map(task => Date.parse(task.finishedAt ?? task.updatedAt))) : this.now();
-    const wallMinutes = root ? (until - Date.parse(root.createdAt)) / 60_000 : 0;
+    // Active execution of the whole chain (executors, acceptor runs, continuations); waiting for a window, resources or quota is free.
+    const wallMinutes = members.reduce((sum, task) => sum + activeMinutes(task, this.now()), 0);
     return { limits, tasksUsed: members.length, tasksLeft: limits.tasks - members.length, subscriptionRunsUsed: subscriptionRuns,
       subscriptionRunsLeft: limits.subscriptionRuns - subscriptionRuns, wallMinutesUsed: Math.round(wallMinutes), wallMinutesLeft: Math.round(limits.wallMinutes - wallMinutes) };
   }
 
   budgetUsage(task: AgentTask) {
-    const until = TERMINAL_STATES.has(task.state) ? Date.parse(task.finishedAt ?? task.updatedAt) : this.now();
-    const wall = Math.max(0, (until - Date.parse(task.createdAt)) / 60000), limit = task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES;
+    const wall = activeMinutes(task, this.now()), limit = task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES;
     const runs = task.attempts.reduce((sum, attempt) => sum + (attempt.modelCalls ? attempt.modelCalls.filter(call => call.tier === "subscription").length : this.adapter(attempt.executor)?.profile.costTier === "subscription" ? 1 : 0), 0) + (task.reviewRuns ?? []).filter(run => this.adapter(run.executor)?.profile.costTier === "subscription").length;
     return { wallMinutesUsed: Math.round(wall * 10) / 10, wallMinutesLeft: Math.max(0, Math.round((limit - wall) * 10) / 10), wallMinutesLimit: limit,
       subscriptionRunsUsed: runs, subscriptionRunsLimit: task.spec.budget?.subscriptionRuns ?? this.chainBudget(task.chain.rootTaskId).limits.subscriptionRuns,
-      attemptsUsed: task.attempts.filter(attempt => attempt.executor !== "external").length, attemptsLimit: task.spec.retry?.maxAttempts ?? 4, providerCost: 0 };
+      attemptsUsed: task.attempts.filter(attempt => attempt.executor !== "external").length, attemptsLimit: task.spec.retry?.maxAttempts ?? 4, providerCost: 0,
+      waitingMinutes: Math.round(waitingMinutes(task, this.now()) * 10) / 10, deadline: task.spec.deadline ?? null };
+  }
+
+  /** What may still be spent on this task now: its own active budget, the chain's, and the explicit deadline. */
+  timeLeftMs(task: AgentTask): { ms: number; reason: string } {
+    const own = ((task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES) - activeMinutes(task, this.now())) * 60_000;
+    const chain = (this.chainBudget(task.chain.rootTaskId).limits.wallMinutes
+      - [...this.tasks.values()].filter(item => item.chain.rootTaskId === task.chain.rootTaskId).reduce((sum, item) => sum + activeMinutes(item, this.now()), 0)) * 60_000;
+    const deadline = deadlineLeftMs(task, this.now());
+    return [
+      { ms: own, reason: "Исчерпан бюджет выполнения задачи (активное время исполнителя и Приёмщика); результат ещё не принят." },
+      { ms: chain, reason: "Исчерпан бюджет выполнения цепочки поручений (активное время исполнителей, Приёмщика и продолжений)." },
+      ...(deadline !== undefined ? [{ ms: deadline, reason: "Наступил явный дедлайн задачи; результат ещё не принят." }] : [])
+    ].sort((a, b) => a.ms - b.ms)[0];
   }
 
   // ---------------------------------------------------------------- control
@@ -428,7 +458,7 @@ export class AgentTaskService {
     return task.priority + Math.min(40, this.waitedMinutes(task) * AGING_POINTS_PER_MINUTE) + affinity;
   }
 
-  private waitedMinutes(task: AgentTask): number { return (this.now() - Date.parse(task.createdAt)) / 60_000; }
+  private waitedMinutes(task: AgentTask): number { return waitingMinutes(task, this.now()); }
   private isHeavy(task: AgentTask): boolean {
     const adapter = this.adapter(task.executor) ?? this.adapter(this.rank(task).find(candidate => candidate.suitable)?.executorId);
     return adapter ? adapter.resourceRequest(task, this.probes.get(adapter.id)).class === "heavy" : false;
@@ -451,7 +481,8 @@ export class AgentTaskService {
     }
     if (task.attempts.filter(attempt => !attempt.resourceWait).length >= (task.spec.retry?.maxAttempts ?? 4)) { await this.blockBudget(task, "Исчерпан бюджет попыток; результат ещё не принят."); return; }
     const budget = this.chainBudget(task.chain.rootTaskId);
-    if (budget.wallMinutesLeft <= 0 || this.now() - Date.parse(task.createdAt) > (task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES) * 60000) { await this.blockBudget(task, "Истёк бюджет времени поручения или цепочки; результат ещё не принят."); return; }
+    const timeLeft = this.timeLeftMs(task);
+    if (timeLeft.ms <= 0) { await this.blockBudget(task, timeLeft.reason); return; }
 
     const candidates = this.rank(task);
     const suitable = candidates.filter(candidate => candidate.suitable);
@@ -541,7 +572,7 @@ export class AgentTaskService {
     await this.setState(task, "running", `Выполняет ${adapter.label}.`, "started", { executor: adapter.id, leaseId: lease.id, attempt: attempt.n });
 
     const budget = this.chainBudget(task.chain.rootTaskId);
-    const wallMinutes = Math.max(1 / 60, Math.min((task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES) - (this.now() - Date.parse(task.createdAt)) / 60000, budget.wallMinutesLeft));
+    const wallMinutes = Math.max(1 / 60, this.timeLeftMs(task).ms / 60_000);
     const childIdentity = this.deps.registry.taskAgent(task.id, `${adapter.label} · ${task.title}`);
     const token = this.deps.registry.issueTaskToken(task.id, (wallMinutes + 30) * 60_000);
     const brief = agentBrief(childIdentity, { taskId: task.id, chainDepth: task.chain.depth, apiUrl: this.deps.apiUrl,
@@ -588,6 +619,7 @@ export class AgentTaskService {
     attempt.changedFiles = changedPaths(attempt.baseline, await this.snapshot(task.workdir));
     const adapter = this.adapter(attempt.executor)!;
     if (outcome.quotaReport) this.deps.ledger.recordQuotaReport(adapter.id, outcome.quotaReport);
+    this.deps.ledger.recordMeasuredRun(adapter.id, { kind: "delegated", inputTokens: outcome.usage?.inputTokens, outputTokens: outcome.usage?.outputTokens });
     if (outcome.budgetExhausted) { attempt.outcome = "failed"; attempt.failureClass = "budget"; attempt.error = outcome.budgetExhausted; await this.blockBudget(task, outcome.budgetExhausted); return; }
     if (outcome.waitForResources) { attempt.outcome = "unknown"; attempt.resourceWait = !attempt.modelCalls?.some(call => call.ok) && !attempt.toolCalls?.length; task.nextAttemptAt = this.retryAt(task, 30000); this.deps.locks.releaseOwner(task.id); task.lockKeys = []; await this.setState(task, "waiting_resources", outcome.waitForResources, "resource_wait"); await this.recordWaiting(task); return; }
     if (outcome.waitForTaskIds?.length) {
@@ -658,12 +690,12 @@ export class AgentTaskService {
   private async runVerification(task: AgentTask): Promise<void> {
     if (this.verifying.has(task.id) || task.cancelRequestedAt || TERMINAL_STATES.has(task.state) && task.state !== "failed") return;
     task.contract ??= contractFor(task.spec); task.reviewPending = true;
-    if (this.chainBudget(task.chain.rootTaskId).wallMinutesLeft <= 0 || this.now() - Date.parse(task.createdAt) > (task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES) * 60000
+    if (this.timeLeftMs(task).ms <= 0
       || (task.reviewRuns?.length ?? 0) >= (task.spec.review?.maxRuns ?? 12)) { await this.blockBudget(task, "Исчерпан бюджет времени или запусков Приёмщика; результат не принят."); return; }
     if (task.pauseRequestedAt) { await this.setState(task, "paused", "Приостановлена перед проверкой."); return; }
     // Separate claim processing from execution, including when the previous session crashed.
     const controller = new AbortController(); this.verifying.set(task.id, controller);
-    const deadline = setTimeout(() => controller.abort(), Math.max(1000, (task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES) * 60000 - (this.now() - Date.parse(task.createdAt))));
+    const deadline = setTimeout(() => controller.abort(), Math.max(1000, this.timeLeftMs(task).ms));
     const lock = this.deps.locks.tryAcquire(task.workdir ? [workspaceLockKey(task.workdir)] : [], { taskId: task.id, agentId: `acceptor:${task.id}` });
     if (!lock.ok) { clearTimeout(deadline); this.verifying.delete(task.id); task.nextAttemptAt = this.retryAt(task); await this.setState(task, "awaiting_verification", "Приёмщик ждёт блокировку рабочей папки."); return; }
     try {
@@ -850,6 +882,8 @@ export class AgentTaskService {
 
   private async setState(task: AgentTask, state: TaskState, reason: string, eventType = "state", data?: Record<string, unknown>): Promise<void> {
     task.state = state;
+    // Close the previous phase into its bucket (waiting or active) and open the new one; persisted with the task.
+    accrue(task, this.now());
     task.reason = reason;
     await this.persist(task, eventType, reason, { state, ...(data ?? {}) });
   }
@@ -875,6 +909,7 @@ export class AgentTaskService {
 
 export function normalizeSpec(input: TaskSpec): TaskSpec {
   if (!input || typeof input.goal !== "string" || !input.goal.trim()) throw new AgentOpsError("BAD_SPEC", "Нужна цель поручения (goal).", {}, 400);
+  if (input.deadline !== undefined && !Number.isFinite(Date.parse(input.deadline))) throw new AgentOpsError("BAD_SPEC", "deadline должен быть датой ISO.", {}, 400);
   if (input.goal.length > 40_000) throw new AgentOpsError("BAD_SPEC", "Цель слишком длинная (больше 40 000 символов).", {}, 400);
   if (input.criteria && (!Array.isArray(input.criteria) || !input.criteria.length || input.criteria.length > 30)) throw new AgentOpsError("BAD_SPEC", "Нужны 1–30 критериев.", {}, 400);
   if (input.checks && (!Array.isArray(input.checks) || input.checks.length > 30)) throw new AgentOpsError("BAD_SPEC", "Слишком много проверок (максимум 30).", {}, 400);

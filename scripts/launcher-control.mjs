@@ -285,6 +285,8 @@ export async function startLauncherControl({
   apiPort = registeredPort('snarkroute', 'API_PORT'),
   controlPort = registeredPort('launcher_control', 'SNARKROUTE_LAUNCHER_CONTROL_PORT'),
   projectPublisher = null,
+  openOwnerUrl = null,
+  launcherUrl = null,
 } = {}) {
   root = resolve(root);
 
@@ -611,6 +613,16 @@ export async function startLauncherControl({
           });
         }
 
+        // Owner login: only this process holds the launcher token. It asks SnarkRoute for a one-time
+        // code and opens the Workshop with it in the URL fragment; the caller never receives the code.
+        if (req.method === 'POST' && req.url === '/owner-login') {
+          if (!await requireJson()) return;
+          const url = await ownerLoginUrl();
+          if (!url) return reply(503, { ok: false, error: 'SnarkRoute не выдал код входа' });
+          openOwnerUrl?.(url);
+          return reply(202, { ok: true, opened: Boolean(openOwnerUrl) });
+        }
+
         if (
           req.method === 'GET' &&
           req.url === '/project-publisher/status'
@@ -700,10 +712,25 @@ export async function startLauncherControl({
     };
   }
 
+  async function ownerLoginUrl() {
+    if (!launcherUrl) return null;
+    try {
+      const response = await fetch(`http://127.0.0.1:${apiPort}/api/agent-ops/owner-login/code`, {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: '{}',
+        signal: AbortSignal.timeout(5000), redirect: 'error',
+      });
+      const body = await response.json();
+      return response.ok && body.code ? `${launcherUrl}#owner-code=${encodeURIComponent(body.code)}` : null;
+    } catch {
+      return null;
+    }
+  }
+
   return {
     existing: false,
     control,
     server,
+    ownerLoginUrl,
 
     close: async () => {
       await projectPublisher?.shutdown();

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { cpus } from "node:os";
+import type { OwnerActivity } from "./activity";
 import type { EffectiveMode } from "./computer-mode";
 
 /**
@@ -60,7 +61,8 @@ export type RuntimeAdmissionCheck = (runtimeId: string, modelId?: string) => Pro
 export type DispatcherDeps = {
   telemetry: () => Promise<Telemetry>;
   mode: () => Promise<EffectiveMode>;
-  ownerApps: () => Promise<string[]>;
+  /** Measured load of the computer (owner apps, renders, other heavy processes). */
+  ownerActivity: (context: { heavyLeaseActive: boolean }) => Promise<OwnerActivity>;
   runtimeAdmission?: RuntimeAdmissionCheck;
   declaredVramMiB?: (runtimeId: string) => number | undefined;
   /** Is the work behind an expired lease still alive (task process, runtime busy)? */
@@ -118,14 +120,26 @@ export class ResourceDispatcher {
     return { vramMiB: 0, ramMiB: request.ramMiB ?? 0, source: "none", profileKey: key };
   }
 
+  /** The decision acquire() would make now, without reserving anything. */
+  async preview(request: ResourceRequest): Promise<Extract<Decision, { granted: false }> | { granted: true; estimate: ReturnType<ResourceDispatcher["estimate"]> }> {
+    const [telemetry, mode, activity] = await Promise.all([this.deps.telemetry(), this.deps.mode(), this.activityFor(request)]);
+    const denial = this.check(request, telemetry, mode, activity);
+    return denial ?? { granted: true, estimate: this.estimate(request) };
+  }
+
+  private activityFor(request: ResourceRequest): Promise<OwnerActivity | undefined> {
+    if (request.class !== "heavy" || request.origin !== "agent") return Promise.resolve(undefined);
+    return this.deps.ownerActivity({ heavyLeaseActive: this.list().some(lease => lease.class === "heavy") }).catch(() => ({ busy: true, confidence: "unknown" as const, reasons: ["Нагрузку определить нельзя."], signals: [] }));
+  }
+
   async acquire(request: ResourceRequest): Promise<Decision> {
-    const [telemetry, mode, ownerApps] = await Promise.all([this.deps.telemetry(), this.deps.mode(), this.deps.ownerApps()]);
+    const [telemetry, mode, activity] = await Promise.all([this.deps.telemetry(), this.deps.mode(), this.activityFor(request)]);
     const admission = request.runtimeId && request.class === "heavy" && this.deps.runtimeAdmission
       ? await this.deps.runtimeAdmission(request.runtimeId, request.modelId).catch(error => ({ allowed: false, requiresConfirmation: false, summary: String(error instanceof Error ? error.message : error), blockers: [], warnings: [] }))
       : undefined;
     await this.expireStale();
     // Everything below is synchronous: the check and the insert cannot interleave with another caller.
-    const denial = this.check(request, telemetry, mode, ownerApps, admission);
+    const denial = this.check(request, telemetry, mode, activity, admission);
     if (denial) return denial;
     const estimate = this.estimate(request);
     const at = new Date(this.now()).toISOString();
@@ -141,15 +155,16 @@ export class ResourceDispatcher {
     return { granted: true, lease };
   }
 
-  private check(request: ResourceRequest, telemetry: Telemetry, mode: EffectiveMode, ownerApps: string[],
+  private check(request: ResourceRequest, telemetry: Telemetry, mode: EffectiveMode, activity: OwnerActivity | undefined,
     admission?: { allowed: boolean; requiresConfirmation: boolean; summary: string }): Extract<Decision, { granted: false }> | undefined {
     const limits = mode.limits;
     const active = this.list();
     const heavyActive = active.filter(lease => lease.class === "heavy");
     if (request.class === "heavy") {
       if (!limits.heavy && request.origin === "agent") return { granted: false, waitFor: "window", reason: `Режим «${mode.label}»: тяжёлые фоновые задачи ждут (${mode.reason}).` };
-      if (request.origin === "agent" && mode.mode === "background" && ownerApps.length) {
-        return { granted: false, waitFor: "window", reason: `Запущены приложения владельца (${ownerApps.join(", ")}): в фоновом режиме тяжёлые задачи ждут.` };
+      // Load decides, not an open window: an idle Blender does not block, a render or a busy GPU does — also at night.
+      if (activity && (activity.confidence === "measured" ? activity.busy : mode.mode !== "free")) {
+        return { granted: false, waitFor: "window", reason: `${mode.mode === "free" ? "Окно «Компьютер свободен», но компьютер занят" : "Компьютер занят"}: ${activity.reasons.join(" ")}` };
       }
       if (heavyActive.length >= Math.max(limits.maxHeavy, request.origin === "owner" ? 1 : 0)) {
         return { granted: false, waitFor: "resources", reason: `Тяжёлый слот занят: ${heavyActive.map(lease => lease.purpose).join(", ")}.` };

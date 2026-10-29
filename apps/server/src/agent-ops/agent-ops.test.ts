@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentRegistry } from "./agents";
+import { assessOwnerActivity, type ActivitySample } from "./activity";
+
 import { defaultComputerModeState, effectiveComputerMode, ownerClock, ruleMatches, type ComputerModeState } from "./computer-mode";
 import { claudeAllowedTools, type ExecutorAdapter, type ExecutorOutcome, type ExecutorProfile, type ExecutorRunContext } from "./executors";
 import { LockManager, lockKeysOverlap, workspaceLockKey } from "./locks";
@@ -52,7 +54,7 @@ describe("resource dispatcher", () => {
   const modeOf = (mode: "owner_busy" | "background" | "free") => async () => effectiveComputerMode({ ...defaultComputerModeState(), manual: { mode, setAt: "", by: "t" } });
 
   it("never lets two agents count the same free VRAM", async () => {
-    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(2 * GiB), mode: modeOf("free"), ownerApps: async () => [] });
+    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(2 * GiB), mode: modeOf("free"), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }) });
     const request = { agentId: "a", purpose: "p", class: "light" as const, origin: "agent" as const, vramMiB: 9 * GiB };
     const [first, second] = await Promise.all([dispatcher.acquire({ ...request, holder: "one" }), dispatcher.acquire({ ...request, holder: "two" })]);
     expect([first.granted, second.granted].sort()).toEqual([false, true]);
@@ -61,22 +63,37 @@ describe("resource dispatcher", () => {
   });
 
   it("keeps heavy agent work out while the owner needs the computer, but lets the owner run", async () => {
-    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("owner_busy"), ownerApps: async () => [] });
+    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("owner_busy"), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }) });
     const agent = await dispatcher.acquire({ holder: "t", agentId: "a", purpose: "flux", class: "heavy", origin: "agent", vramMiB: 4 * GiB });
     expect(agent).toMatchObject({ granted: false, waitFor: "window" });
     const owner = await dispatcher.acquire({ holder: "o", agentId: "owner", purpose: "flux", class: "heavy", origin: "owner", vramMiB: 4 * GiB });
     expect(owner.granted).toBe(true);
   });
 
-  it("holds background heavy work while the owner's Blender runs", async () => {
-    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("background"), ownerApps: async () => ["blender"] });
-    expect(await dispatcher.acquire({ holder: "t", agentId: "a", purpose: "x", class: "heavy", origin: "agent", vramMiB: GiB })).toMatchObject({ granted: false, waitFor: "window" });
+  it("holds heavy agent work when the computer is measurably busy, even in the free night window", async () => {
+    const busy = async () => ({ busy: true, confidence: "measured" as const, reasons: ["Идёт рендер After Effects (aerender) (pid 1)."], signals: [] });
+    const night = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("free"), ownerActivity: busy });
+    const decision = await night.acquire({ holder: "t", agentId: "a", purpose: "x", class: "heavy", origin: "agent", vramMiB: GiB });
+    expect(decision).toMatchObject({ granted: false, waitFor: "window" });
+    expect(!decision.granted && decision.reason).toMatch(/Окно «Компьютер свободен», но компьютер занят: Идёт рендер/);
+    // The owner's own interactive request is not held back by this signal.
+    expect((await night.acquire({ holder: "o", agentId: "owner", purpose: "x", class: "heavy", origin: "owner", vramMiB: GiB })).granted).toBe(true);
+    // Unknown load: conservative in background, allowed in the window the owner declared free.
+    const unknown = async () => ({ busy: true, confidence: "unknown" as const, reasons: ["Нагрузку определить нельзя."], signals: [] });
+    expect(await new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("background"), ownerActivity: unknown }).acquire({ holder: "u", agentId: "a", purpose: "x", class: "heavy", origin: "agent", vramMiB: GiB })).toMatchObject({ granted: false, waitFor: "window" });
+    expect((await new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("free"), ownerActivity: unknown }).acquire({ holder: "u", agentId: "a", purpose: "x", class: "heavy", origin: "agent", vramMiB: GiB })).granted).toBe(true);
+  });
+
+  it("previews a decision without reserving", async () => {
+    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("free"), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }) });
+    expect((await dispatcher.preview({ holder: "p", agentId: "a", purpose: "x", class: "heavy", origin: "agent", vramMiB: GiB })).granted).toBe(true);
+    expect(dispatcher.list()).toHaveLength(0);
   });
 
   it("verifies an expired lease before freeing it and learns from measured peaks", async () => {
     let now = 1_000_000;
     let alive = true;
-    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("free"), ownerApps: async () => [], now: () => now, stillActive: async () => alive, declaredVramMiB: () => 10 * GiB });
+    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("free"), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }), now: () => now, stillActive: async () => alive, declaredVramMiB: () => 10 * GiB });
     const decision = await dispatcher.acquire({ holder: "t", agentId: "a", purpose: "x", class: "heavy", origin: "agent", runtimeId: "flux3", ttlMs: 1000 });
     expect(decision.granted && decision.lease.estimateSource).toBe("declared");
     now += 5000;
@@ -199,7 +216,7 @@ describe("delegated task queue", () => {
     for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
-  async function setup(options: { mode?: "owner_busy" | "background" | "free"; directory?: string; alive?: boolean; ledger?: QuotaLedger; adapters?: FakeExecutor[]; locks?: LockManager } = {}) {
+  async function setup(options: { mode?: "owner_busy" | "background" | "free"; directory?: string; alive?: boolean; ledger?: QuotaLedger; adapters?: FakeExecutor[]; locks?: LockManager; clock?: { now: number } } = {}) {
     const directory = options.directory ?? await mkdtemp(join(tmpdir(), "agent-ops-"));
     if (!options.directory) directories.push(directory);
     const workspace = join(directory, "sandbox", "project");
@@ -213,12 +230,13 @@ describe("delegated task queue", () => {
       new FakeExecutor("claude_code", "claude", profile("subscription", 2, ["code_edit", "text", "analysis"], true))
     ];
     let tasksRef: AgentTaskService | undefined;
-    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode, ownerApps: async () => [],
+    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode, ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }),
       stillActive: async lease => { const task = tasksRef?.get(lease.holder); return Boolean(task && task.state === "running"); } });
     const registry = new AgentRegistry([join(directory, "sandbox")], { secret: Buffer.alloc(32, 7) });
     const ledger = options.ledger ?? new QuotaLedger();
     const locks = options.locks ?? new LockManager();
     const service = new AgentTaskService({ store, registry, ledger, locks, dispatcher, adapters, mode, apiUrl: "http://127.0.0.1:1", worktreeRoot: join(directory, "worktrees"), tickMs: 60_000,
+      ...(options.clock ? { now: () => options.clock!.now } : {}),
       workspace: options.alive === undefined ? undefined : { alive: async () => options.alive! } });
     tasksRef = service;
     await service.init();
@@ -372,6 +390,37 @@ describe("delegated task queue", () => {
     await expect(service.submit(agent, { goal: "x", workspace: tmpdir() })).rejects.toBeInstanceOf(AgentOpsError);
   });
 
+  it("does not spend the execution budget while waiting for the window, keeps it across a restart, and honours an explicit deadline", async () => {
+    const clock = { now: Date.parse("2026-10-29T21:00:00Z") };
+    const first = await setup({ mode: "owner_busy", clock });
+    const night = await first.service.submit(first.agent, { goal: "summarize at night", executor: "local_route", allowedExecutors: ["local_route"], budget: { wallMinutes: 5 } });
+    const strict = await first.service.submit(first.agent, { goal: "summarize before 23:00", executor: "local_route", allowedExecutors: ["local_route"], deadline: "2026-10-29T23:00:00Z" });
+    await until(first.service, night.task.id, ["waiting_window"]);
+    clock.now += 5 * 3_600_000;
+    await first.service.drain();
+    first.service.close();
+    // Restart five hours later, then the owner frees the computer.
+    const second = await setup({ directory: first.directory, mode: "free", clock });
+    const done = await until(second.service, night.task.id, ["awaiting_verification", "failed"]);
+    expect(done.state).toBe("awaiting_verification");
+    expect(done.timing!.waitingMs).toBeGreaterThanOrEqual(5 * 3_600_000);
+    expect(done.timing!.activeMs).toBeLessThan(60_000);
+    const expired = await until(second.service, strict.task.id, ["failed", "blocked"]);
+    expect(expired.reason).toMatch(/дедлайн/);
+    expect(expired.attempts).toHaveLength(0);
+  });
+
+  it("refuses anonymous callers and hides other agents' tasks", async () => {
+    const { service, workspace, agent, registry } = await setup({ mode: "owner_busy" });
+    await expect(service.submit(registry.anonymous(), { goal: "x" })).rejects.toMatchObject({ code: "IDENTITY_REQUIRED" });
+    const { task } = await service.submit(agent, { goal: "private summary", workspace, requirements: { kind: "text" }, executor: "local_route" });
+    const stranger = registry.mcpClient("someone-else");
+    expect(service.canRead(task, stranger)).toBe(false);
+    expect(() => service.requireReadable(task.id, stranger)).toThrow(/принадлежит другому агенту/);
+    expect(service.canRead(task, registry.owner())).toBe(true);
+    await expect(service.cancel(task.id, stranger)).rejects.toMatchObject({ code: "NOT_OWNER" });
+  });
+
   it("keeps the queue across a restart and never reruns a live or finished execution blindly", async () => {
     const first = await setup();
     let release!: () => void;
@@ -448,8 +497,66 @@ function restoreLocks(previous: LockManager): LockManager {
 describe("owner reserve calibration", () => {
   it("lets light work run on a busy machine but keeps heavy work behind the full RAM reserve", async () => {
     const busyMachine = async (): Promise<Telemetry> => ({ ...telemetry(), memory: { totalMiB: 32 * GiB, usedMiB: 27.5 * GiB, freeMiB: 4.5 * GiB } });
-    const dispatcher = new ResourceDispatcher({ telemetry: busyMachine, mode: async () => effectiveComputerMode(defaultComputerModeState()), ownerApps: async () => [] });
+    const dispatcher = new ResourceDispatcher({ telemetry: busyMachine, mode: async () => effectiveComputerMode(defaultComputerModeState()), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }) });
     expect((await dispatcher.acquire({ holder: "cli", agentId: "a", purpose: "codex", class: "light", origin: "agent", ramMiB: 512 })).granted).toBe(true);
     expect(await dispatcher.acquire({ holder: "llm", agentId: "a", purpose: "model", class: "heavy", origin: "agent", ramMiB: 2 * GiB, vramMiB: GiB })).toMatchObject({ granted: false, waitFor: "resources" });
+  });
+});
+
+describe("computer activity", () => {
+  const sample = (processes: ActivitySample["processes"], extra: Partial<ActivitySample> = {}): ActivitySample => ({ at: new Date().toISOString(), ok: true, totalCpuPercent: 10, processes, renders: [], ...extra });
+  const assess = (samples: ActivitySample[], heavyLeaseActive = false) => assessOwnerActivity(samples, { ownerApps: ["blender", "photoshop", "touchdesigner"], ownProcessNames: ["ollama"], heavyLeaseActive });
+
+  it("treats an open but idle application as a signal, not a block", () => {
+    const result = assess([sample([{ pid: 1, name: "blender", gpuPercent: 1, vramMiB: 900, cpuPercent: 0.4 }])]);
+    expect(result).toMatchObject({ busy: false, confidence: "measured" });
+    expect(result.signals[0]).toMatch(/blender открыт и простаивает/);
+  });
+
+  it("detects a render and a busy owner application", () => {
+    expect(assess([sample([], { renders: [{ pid: 7, name: "aerender", detail: "рендер After Effects (aerender)" }] })]).reasons[0]).toMatch(/Идёт рендер After Effects/);
+    const photoshop = assess([sample([{ pid: 2, name: "photoshop", gpuPercent: 35, vramMiB: 4000, cpuPercent: 30 }])]);
+    expect(photoshop.busy).toBe(true);
+    expect(photoshop.reasons[0]).toMatch(/photoshop активно работает/);
+  });
+
+  it("notices high load from an application that is not on the list, but not from SnarkRoute's own runtimes", () => {
+    expect(assess([sample([{ pid: 3, name: "obscuregame", gpuPercent: 80, vramMiB: 6000, cpuPercent: 20 }])]).reasons[0]).toMatch(/Высокая нагрузка от obscuregame/);
+    expect(assess([sample([{ pid: 4, name: "ollama", gpuPercent: 95, vramMiB: 8000, cpuPercent: 20 }])]).busy).toBe(false);
+  });
+
+  it("averages samples and is conservative without fresh data", () => {
+    const spike = [sample([{ pid: 5, name: "chrome", gpuPercent: 0, vramMiB: 300, cpuPercent: 1 }]), sample([{ pid: 5, name: "chrome", gpuPercent: 0, vramMiB: 300, cpuPercent: 1 }]), sample([{ pid: 5, name: "chrome", gpuPercent: 90, vramMiB: 300, cpuPercent: 1 }])];
+    expect(assess(spike).busy).toBe(false);
+    expect(assess([{ at: new Date(Date.now() - 10 * 60_000).toISOString(), ok: true, processes: [], renders: [] }])).toMatchObject({ busy: true, confidence: "unknown" });
+  });
+});
+
+
+describe("ledger coverage", () => {
+  it("separates SnarkRoute's own runs, the provider's plan-wide report and unobserved outside use", () => {
+    const ledger = new QuotaLedger();
+    ledger.recordMeasuredRun("codex_cli", { kind: "delegated", inputTokens: 100, outputTokens: 20 });
+    ledger.recordMeasuredRun("codex_cli", { kind: "chat" });
+    ledger.recordQuotaReport("codex_cli", { usedPercent: 36, source: "codex session file" });
+    const coverage = ledger.coverage("codex_cli", "subscription");
+    expect(coverage.measuredBySnarkRoute).toMatchObject({ delegatedRuns: 1, chatTurns: 1, inputTokens: 100, outputTokens: 20 });
+    expect(coverage.providerReport).toMatchObject({ usedPercent: 36, stale: false, scope: expect.stringMatching(/включая использование вне SnarkRoute/) });
+    expect(coverage.externalUsage.observed).toBe(false);
+    expect(ledger.coverage("claude_code", "subscription").providerReport).toBeNull();
+  });
+});
+
+
+describe("owner sessions", () => {
+  it("are never accepted as agent tokens and expire", () => {
+    let now = 1000;
+    const registry = new AgentRegistry([], { secret: Buffer.alloc(32, 3), now: () => now });
+    const session = registry.issueOwnerSession(60_000);
+    expect(registry.verifyOwnerSession(session)).toBe(true);
+    expect(registry.identityFromToken(session.slice("owner.".length))).toBeUndefined();
+    expect(registry.verifyOwnerSession(registry.issueAgentToken({ id: "app:tove", kind: "app", label: "Tove" }, 60_000))).toBe(false);
+    now += 61_000;
+    expect(registry.verifyOwnerSession(session)).toBe(false);
   });
 });

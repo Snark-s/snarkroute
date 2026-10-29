@@ -33,7 +33,7 @@ async function fixture(options: { dir?: string; review?: any; run?: ExecutorAdap
     run: async context => { calls++; return options.run ? options.run(context) : { ok: true, message: "готово", summary: "Tests pass. Profile published." }; }
   };
   const mode = async () => effectiveComputerMode(defaultComputerModeState());
-  const dispatcher = new ResourceDispatcher({ mode, telemetry: async () => ({ memory: { totalMiB: 64000, usedMiB: 8000, freeMiB: 56000 }, cpuCount: 16, capturedAt: new Date().toISOString() }), ownerApps: async () => [] });
+  const dispatcher = new ResourceDispatcher({ mode, telemetry: async () => ({ memory: { totalMiB: 64000, usedMiB: 8000, freeMiB: 56000 }, cpuCount: 16, capturedAt: new Date().toISOString() }), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }) });
   const service = new AgentTaskService({ store, registry, ledger: new QuotaLedger(), locks: new LockManager(), dispatcher, adapters: [adapter], mode, apiUrl: "http://127.0.0.1:1", worktreeRoot: join(dir, "worktrees"), tickMs: 60000,
     reviewer: options.review, workspace: { alive: async () => options.alive ?? false } });
   await service.init(); services.push(service);

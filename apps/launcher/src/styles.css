@@ -337,3 +337,7 @@ button:disabled { opacity: .5; cursor: wait; } .spin { animation: spin 1s linear
 .buzhaPage .hero { margin-bottom: 18px; }
 .buzhaPage h1 { margin: 0 0 8px; font-size: 28px; }
 .buzhaPage .opsExecutor p { margin: 5px 0; }
+.opsCoverage { color:#8a93a8; line-height:1.4; }
+.opsBusy { color:#ffc85d; }
+
+.opsLogin { padding:4px 9px; border:1px solid #6d61a9; border-radius:8px; background:#755cff30; color:#f4f5fb; font-size:12px; cursor:pointer; }

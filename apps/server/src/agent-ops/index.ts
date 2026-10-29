@@ -3,8 +3,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { AgentRegistry, agentBrief, type AgentRecord } from "./agents";
+import { ActivityMonitor, assessOwnerActivity, type OwnerActivity } from "./activity";
+import { CallerAttribution } from "./caller-process";
 import { CapabilityCatalog, type ToolGroup } from "./catalog";
-import { defaultComputerModeState, effectiveComputerMode, runningOwnerApps, validateScheduleRule, type ComputerModeState, type ManualMode, type ModeLimits, type ScheduleRule } from "./computer-mode";
+import { defaultComputerModeState, effectiveComputerMode, validateScheduleRule, type ComputerModeState, type ManualMode, type ModeLimits, type ScheduleRule } from "./computer-mode";
 import { currentOpsContext, opsContext } from "./context";
 import { ClaudeCodeExecutor, CodexExecutor, LocalRouteExecutor, type ExecutorAdapter, type LocalTextModel } from "./executors";
 import { agentOpsDataDirectory, sharedQuotaLedgerReady } from "./ledger-instance";
@@ -30,13 +32,16 @@ import type { AgentIdentity, ComputerMode } from "./types";
 
 export type AgentOps = Awaited<ReturnType<typeof createAgentOps>>;
 
-type TextRunner = (model: LocalTextModel, prompt: string, signal: AbortSignal) => Promise<BuzhaTextResult>;
+type TextRunner = (model: LocalTextModel, prompt: string, signal: AbortSignal, options?: { title?: string; maxTokens?: number }) => Promise<BuzhaTextResult>;
 let textRunner: TextRunner | undefined;
 
 /** The route executor lives in the Fastify app; the local executor reaches it through this hook. */
 export function setAgentOpsTextRunner(runner: TextRunner): void { textRunner = runner; }
 
-export async function createAgentOps(options: { directory?: string; apiUrl?: string; adapters?: ExecutorAdapter[]; tickMs?: number; telemetry?: () => Promise<Telemetry>; workspaceRoots?: string[]; ledger?: QuotaLedger } = {}) {
+/** SnarkRoute's own runtime processes: their load is our leased work, not the owner's. */
+const OWN_PROCESS_NAMES = ["ollama", "ollama app", "ollama_llama_server", "llama-server", "sd-server", "codex", "claude"];
+
+export async function createAgentOps(options: { directory?: string; apiUrl?: string; adapters?: ExecutorAdapter[]; tickMs?: number; telemetry?: () => Promise<Telemetry>; workspaceRoots?: string[]; ledger?: QuotaLedger; activity?: ActivityMonitor } = {}) {
   const directory = options.directory ?? agentOpsDataDirectory();
   const store = new AgentOpsStore(directory);
   const supervisor = await import("../services/local-runtime-supervisor");
@@ -54,12 +59,39 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     return { ...(gpu ? { gpu } : {}), memory: { totalMiB: total, usedMiB: total - free, freeMiB: free }, cpuCount: defaultCpuCount(), capturedAt: new Date().toISOString() };
   });
 
+  // Processes SnarkRoute started for agents: tokenless requests from their trees are still that agent's work.
+  const appPids = new Map<number, string>();
+  const refreshAppPids = async () => {
+    const apps = await import("../services/autonomous-apps");
+    for (const id of ["tove", "factory", "buzha"] as const) {
+      const status = await apps.readAutonomousAppStatus(id).catch(() => undefined);
+      for (const [pid, agent] of appPids) if (agent === `app:${id}`) appPids.delete(pid);
+      if (status?.pid) appPids.set(status.pid, `app:${id}`);
+    }
+  };
+  void refreshAppPids();
+  const appPidTimer = setInterval(() => void refreshAppPids(), 60_000);
+  appPidTimer.unref?.();
+  const callers = new CallerAttribution({ agentRoots: () => {
+    const roots = new Map<number, string>([...appPids, ...agentProcesses]);
+    for (const task of tasks?.list({ states: ["running", "unknown_outcome"], limit: 200 }) ?? []) {
+      const pid = task.attempts.at(-1)?.pid;
+      if (pid) roots.set(pid, `task:${task.id}`);
+    }
+    return roots;
+  } });
+
+  const activityMonitor = options.activity ?? new ActivityMonitor();
+  activityMonitor.start();
+  const ownerActivity = async (context: { heavyLeaseActive: boolean }): Promise<OwnerActivity> =>
+    assessOwnerActivity(activityMonitor.recent(), { ownerApps: modeState.ownerApps, ownProcessNames: OWN_PROCESS_NAMES, heavyLeaseActive: context.heavyLeaseActive });
+
   const inlineHolders = new Set<string>();
   let tasks: AgentTaskService | undefined;
   const dispatcher = new ResourceDispatcher({
     telemetry,
     mode,
-    ownerApps: () => runningOwnerApps(modeState.ownerApps),
+    ownerActivity,
     runtimeAdmission: async (runtimeId, modelId) => (await supervisor.admissionForLocalRuntime(runtimeId, "workload", modelId)).decision,
     declaredVramMiB: runtimeId => registryModule.getRegisteredLocalRuntime(runtimeId)?.recommendedFreeVramMiB,
     stillActive: async lease => {
@@ -150,6 +182,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
 
   /** A lease an agent holds for its own heavy work (a script, a render) outside the delegation queue. */
   async function acquireAgentLease(identity: AgentIdentity, request: Omit<ResourceRequest, "holder" | "agentId" | "origin">): Promise<Decision> {
+    if (identity.kind === "anonymous") return { granted: false, waitFor: "resources", reason: "Резервы выдаются только агенту с токеном или владельцу." };
     if (request.class === "heavy" && !identity.policy.canUseHeavyGpu) return { granted: false, waitFor: "resources", reason: "Политика агента не разрешает тяжёлую работу с GPU." };
     return dispatcher.acquire({ ...request, holder: `agent-lease:${identity.id}:${randomUUID().slice(0, 8)}`, agentId: identity.id, origin: identity.kind === "owner" ? "owner" : "agent", ttlMs: Math.min(request.ttlMs ?? 15 * 60_000, 2 * 60 * 60_000) });
   }
@@ -185,7 +218,8 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
   }
 
   async function status() {
-    const [effective, resources, ownerApps] = await Promise.all([mode(), telemetry().catch(() => undefined), runningOwnerApps(modeState.ownerApps)]);
+    const [effective, resources, activity] = await Promise.all([mode(), telemetry().catch(() => undefined),
+      ownerActivity({ heavyLeaseActive: dispatcher.list().some(lease => lease.class === "heavy") })]);
     const all = taskService.list({ limit: 10_000 });
     const counts = all.reduce<Record<string, number>>((sum, task) => { sum[task.state] = (sum[task.state] ?? 0) + 1; return sum; }, {});
     return {
@@ -193,13 +227,15 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
       schedule: modeState.schedule,
       manual: modeState.manual ?? null,
       limits: modeState.limits,
-      ownerApps,
+      ownerActivity: activity,
+      tokenlessCalls: callers.recentCalls().slice(-12),
+      ownerApps: activity.reasons.length ? activity.reasons : [],
       resources: resources ?? null,
       leases: dispatcher.list(),
       locks: locks.list(),
       queue: { counts, active: all.filter(task => !["verified", "failed", "cancelled"].includes(task.state)).length },
       executors: adapters.map(adapter => ({ id: adapter.id, label: adapter.label, tier: adapter.profile.costTier, probe: taskService.probeSnapshot().get(adapter.id) ?? null,
-        ledger: ledger.view(adapter.id), availability: ledger.availability(adapter.id, adapter.profile.costTier) })),
+        ledger: ledger.view(adapter.id), coverage: ledger.coverage(adapter.id, adapter.profile.costTier), availability: ledger.availability(adapter.id, adapter.profile.costTier) })),
       ledgerLimits: ledger.limits
     };
   }
@@ -235,9 +271,9 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     taskService.kick();
   }
 
-  function close(): void { clearInterval(sampler); taskService.close(); buzha.close(); void buzhaTools.close(); }
+  function close(): void { clearInterval(sampler); clearInterval(appPidTimer); activityMonitor.stop(); taskService.close(); buzha.close(); void buzhaTools.close(); }
 
-  return { apiUrl, store, registry, ledger, locks, dispatcher, tasks: taskService, catalog, adapters, buzha, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
+  return { apiUrl, callers, store, registry, ledger, locks, dispatcher, tasks: taskService, catalog, adapters, buzha, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
     modeState: () => modeState };
 }
 
@@ -253,6 +289,11 @@ export class ResourceLeaseDeniedError extends Error {
 }
 
 let instance: Promise<AgentOps> | undefined;
+
+/** pid → agent id for processes started outside the queue for an agent (PersonaCore runs). */
+const agentProcesses = new Map<number, string>();
+export function registerAgentProcess(pid: number | undefined, agentId: string): void { if (pid) agentProcesses.set(pid, agentId); }
+export function unregisterAgentProcess(pid: number | undefined): void { if (pid) agentProcesses.delete(pid); }
 
 export function startAgentOps(options?: Parameters<typeof createAgentOps>[0]): Promise<AgentOps> {
   return instance ??= createAgentOps(options);

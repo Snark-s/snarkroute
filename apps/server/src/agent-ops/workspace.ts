@@ -71,6 +71,21 @@ export function changedPaths(before: WorkspaceSnapshot | undefined, after: Works
   return [...changed].sort();
 }
 
+/** Evidence for the acceptance reviewer: the diff of a git folder, or excerpts of changed plain files. */
+export async function collectDiff(workdir: string | undefined, changedFiles: string[], limit = 14_000): Promise<string> {
+  if (!workdir || !changedFiles.length) return "";
+  const parts: string[] = [];
+  if (await gitTopLevel(workdir)) {
+    parts.push(await git(workdir, ["diff", "HEAD", "--stat"]).catch(() => ""));
+    parts.push(await git(workdir, ["diff", "HEAD"]).catch(() => ""));
+    const untracked = (await git(workdir, ["ls-files", "--others", "--exclude-standard"]).catch(() => "")).split(/\r?\n/).filter(Boolean).slice(0, 10);
+    for (const file of untracked) parts.push(`--- new file ${file}\n${(await readFile(join(workdir, file), "utf8").catch(() => "")).slice(0, 3000)}`);
+  } else {
+    for (const file of changedFiles.slice(0, 10)) parts.push(`--- ${file}\n${(await readFile(join(workdir, file), "utf8").catch(() => "(not readable)")).slice(0, 3000)}`);
+  }
+  return parts.join("\n").slice(0, limit);
+}
+
 export async function createWorktree(repo: string, path: string, branch: string): Promise<void> {
   await git(repo, ["worktree", "add", "-b", branch, path, "HEAD"], 120_000);
 }
@@ -120,7 +135,8 @@ export async function runCheck(check: TaskCheck, workdir: string | undefined, si
     const timeoutMs = Math.min(Math.max(check.timeoutMs ?? 120_000, 1000), 15 * 60_000);
     const needsShell = process.platform === "win32" && /^(npm|pnpm|npx|yarn)$|\.(cmd|bat)$/i.test(check.command);
     return await new Promise<CheckResult>(resolvePromise => {
-      const child = spawn(check.command, check.args ?? [], { cwd: workdir, shell: needsShell, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CI: "1", NO_COLOR: "1" } });
+      const { SNARKROUTE_LAUNCHER_TOKEN: _launcher, SNARKROUTE_MCP_TOKEN: _mcp, ...env } = process.env;
+      const child = spawn(check.command, check.args ?? [], { cwd: workdir, shell: needsShell, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...env, CI: "1", NO_COLOR: "1" } });
       let output = "";
       let interrupted = false;
       const append = (chunk: unknown) => { const next = output + String(chunk); outputTruncated ||= next.length > 12000; output = next.slice(-16_000); };

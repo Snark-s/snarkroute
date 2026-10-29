@@ -219,6 +219,7 @@ export class ClaudeSubscriptionService {
         });
         await this.conversations.save();
       }
+      sharedQuotaLedger().recordMeasuredRun("claude_code", { kind: "chat", inputTokens: result.usage.inputTokens + result.usage.cacheReadInputTokens + result.usage.cacheCreationInputTokens, outputTokens: result.usage.outputTokens });
       await this.history.record({ at: new Date(startedAt).toISOString(), model: alias, resolvedModel: result.model, status: "succeeded", durationMs: result.durationMs,
         inputTokens: result.usage.inputTokens + result.usage.cacheReadInputTokens + result.usage.cacheCreationInputTokens, outputTokens: result.usage.outputTokens,
         apiEquivalentCostUsd: result.apiEquivalentCostUsd, conversation: Boolean(request.conversationId), caller: request.caller });
@@ -226,6 +227,7 @@ export class ClaudeSubscriptionService {
     } catch (error) {
       const code = error instanceof ClaudeCliError ? error.code : "CLI_ERROR";
       if (error instanceof ClaudeCliError) this.observeFailure(error, alias);
+      if (code !== "CANCELLED") sharedQuotaLedger().recordMeasuredRun("claude_code", { kind: "chat" });
       await this.history.record({ at: new Date(startedAt).toISOString(), model: alias, status: code === "CANCELLED" ? "cancelled" : "failed", errorCode: code,
         durationMs: this.now() - startedAt, conversation: Boolean(request.conversationId), caller: request.caller });
       throw error;

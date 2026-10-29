@@ -17,7 +17,7 @@ async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), "acceptor-reviewer-")); dirs.push(dir);
   const store = new AgentOpsStore(dir), registry = new AgentRegistry([dir], { secret: Buffer.alloc(32, 1) }), ledger = new QuotaLedger();
   let mode: "background" | "owner_busy" = "background", calls = 0, observed: any;
-  const dispatcher = new ResourceDispatcher({ mode: async () => effectiveComputerMode({ ...defaultComputerModeState(), manual: { mode, setAt: "", by: "test" } }), ownerApps: async () => [],
+  const dispatcher = new ResourceDispatcher({ mode: async () => effectiveComputerMode({ ...defaultComputerModeState(), manual: { mode, setAt: "", by: "test" } }), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }),
     telemetry: async () => ({ memory: { totalMiB: 64000, usedMiB: 8000, freeMiB: 56000 }, gpu: { name: "test", totalMiB: 24000, freeMiB: 24000, usedMiB: 0, utilizationPercent: 0 }, cpuCount: 16, capturedAt: new Date().toISOString() }) });
   const answer = JSON.stringify({ decision: "accept", reason: "Read content", nextStep: "done", criteria: [{ criterionId: "content", status: "confirmed", evidenceIds: ["proof"], reason: "Complete" }] });
   const adapter: ExecutorAdapter = { id: "codex_cli", label: "strong", profile: { kinds: ["analysis"], editsFiles: true, shell: true, maxContextTokens: 200000, quality: "high", pause: "none", costTier: "subscription", order: 0 },
