@@ -6,7 +6,7 @@ import { extname, join, resolve, sep } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { CodexDesktopTransferError, transferToCodexDesktop } from "../services/codex-desktop";
 import { errorMessage } from "../services/errors";
-import { agentOpsLaunchEnv } from "../agent-ops";
+import { agentOpsLaunchEnv, registerAgentProcess, unregisterAgentProcess } from "../agent-ops";
 
 type JsonObject = Record<string, unknown>;
 const taskIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
@@ -244,6 +244,8 @@ function startPersonaJob(home: string, taskId: string, [script, ...args]: string
     stdio: ["ignore", "pipe", "pipe"]
   });
   personaJobProcesses.set(job.jobId, child);
+  registerAgentProcess(child.pid, `persona:${taskId}`);
+  child.once("exit", () => unregisterAgentProcess(child.pid));
   const watchdog = setInterval(() => {
     if (job.status !== "running") return;
     if (Date.now() - Date.parse(job.clientHeartbeatAt) > personaClientLeaseMs) {

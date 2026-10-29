@@ -3,6 +3,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { agentOpsInstance, setAgentOpsTextRunner, startAgentOps, type AgentOps } from "../agent-ops";
 import { agentBrief } from "../agent-ops/agents";
 import { opsContext } from "../agent-ops/context";
+import { isModelWorkRequest } from "../agent-ops/caller-process";
 import { rankExecutors } from "../agent-ops/router";
 import { AgentOpsError, normalizeSpec } from "../agent-ops/tasks";
 import type { AgentIdentity, FailureClass, TaskSpec, TaskState } from "../agent-ops/types";
@@ -88,9 +89,23 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
   // dispatched as background agent work, whatever endpoint it uses (routes, Model Gateway, tools).
   app.addHook("onRequest", (request, reply, done) => {
     const token = header(request, "x-snarkroute-agent-token");
-    if (!token) { done(); return; }
     const ops = options.ops ?? agentOpsInstance();
     if (!ops) { done(); return; }
+    if (!token) {
+      // Tokenless model/GPU work is attributed by the calling process, never by headers; internal
+      // calls (app.inject inside a task) already carry their context.
+      const socket = request.raw.socket;
+      if (opsContext.getStore() || !isModelWorkRequest(request.method, request.url) || !socket?.remotePort || !socket.localPort) { done(); return; }
+      void ops.then(async instance => {
+        const attribution = await instance.callers.attribute(socket.remotePort!, socket.localPort!);
+        instance.callers.note(request.url.split("?")[0], attribution);
+        if (attribution.kind === "agent") opsContext.run({ origin: "agent", agentId: attribution.agentId }, done);
+        else if (attribution.kind === "interactive") opsContext.run({ origin: "owner", agentId: `interactive:${attribution.client}` }, done);
+        // Unknown caller: treated as background work, the conservative side.
+        else opsContext.run({ origin: "agent", agentId: "unidentified" }, done);
+      }, () => done());
+      return;
+    }
     void ops.then(instance => {
       const identity = instance.registry.identityFromToken(token);
       if (!identity) { void reply.code(401).send({ ok: false, code: "BAD_AGENT_TOKEN", error: "Токен агента недействителен или истёк." }); return; }

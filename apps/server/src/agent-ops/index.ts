@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { parseReviewReply, reviewPrompt, type Reviewer } from "./acceptance";
 import { AgentRegistry, agentBrief, type AgentRecord } from "./agents";
 import { ActivityMonitor, assessOwnerActivity, type OwnerActivity } from "./activity";
+import { CallerAttribution } from "./caller-process";
 import { CapabilityCatalog, type ToolGroup } from "./catalog";
 import { defaultComputerModeState, effectiveComputerMode, validateScheduleRule, type ComputerModeState, type ManualMode, type ModeLimits, type ScheduleRule } from "./computer-mode";
 import { currentOpsContext, opsContext } from "./context";
@@ -51,6 +52,28 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     const total = Math.round(totalmem() / 1024 ** 2), free = Math.round(freemem() / 1024 ** 2);
     return { ...(gpu ? { gpu } : {}), memory: { totalMiB: total, usedMiB: total - free, freeMiB: free }, cpuCount: defaultCpuCount(), capturedAt: new Date().toISOString() };
   });
+
+  // Processes SnarkRoute started for agents: tokenless requests from their trees are still that agent's work.
+  const appPids = new Map<number, string>();
+  const refreshAppPids = async () => {
+    const apps = await import("../services/autonomous-apps");
+    for (const id of ["tove", "factory", "buzha"] as const) {
+      const status = await apps.readAutonomousAppStatus(id).catch(() => undefined);
+      for (const [pid, agent] of appPids) if (agent === `app:${id}`) appPids.delete(pid);
+      if (status?.pid) appPids.set(status.pid, `app:${id}`);
+    }
+  };
+  void refreshAppPids();
+  const appPidTimer = setInterval(() => void refreshAppPids(), 60_000);
+  appPidTimer.unref?.();
+  const callers = new CallerAttribution({ agentRoots: () => {
+    const roots = new Map<number, string>([...appPids, ...agentProcesses]);
+    for (const task of tasks?.list({ states: ["running", "unknown_outcome"], limit: 200 }) ?? []) {
+      const pid = task.attempts.at(-1)?.pid;
+      if (pid) roots.set(pid, `task:${task.id}`);
+    }
+    return roots;
+  } });
 
   const activityMonitor = options.activity ?? new ActivityMonitor();
   activityMonitor.start();
@@ -184,6 +207,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
       manual: modeState.manual ?? null,
       limits: modeState.limits,
       ownerActivity: activity,
+      tokenlessCalls: callers.recentCalls().slice(-12),
       ownerApps: activity.reasons.length ? activity.reasons : [],
       resources: resources ?? null,
       leases: dispatcher.list(),
@@ -226,9 +250,9 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     taskService.kick();
   }
 
-  function close(): void { clearInterval(sampler); activityMonitor.stop(); taskService.close(); }
+  function close(): void { clearInterval(sampler); clearInterval(appPidTimer); activityMonitor.stop(); taskService.close(); }
 
-  return { apiUrl, store, registry, ledger, locks, dispatcher, tasks: taskService, catalog, adapters, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
+  return { apiUrl, callers, store, registry, ledger, locks, dispatcher, tasks: taskService, catalog, adapters, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
     modeState: () => modeState };
 }
 
@@ -244,6 +268,11 @@ export class ResourceLeaseDeniedError extends Error {
 }
 
 let instance: Promise<AgentOps> | undefined;
+
+/** pid → agent id for processes started outside the queue for an agent (PersonaCore runs). */
+const agentProcesses = new Map<number, string>();
+export function registerAgentProcess(pid: number | undefined, agentId: string): void { if (pid) agentProcesses.set(pid, agentId); }
+export function unregisterAgentProcess(pid: number | undefined): void { if (pid) agentProcesses.delete(pid); }
 
 export function startAgentOps(options?: Parameters<typeof createAgentOps>[0]): Promise<AgentOps> {
   return instance ??= createAgentOps(options);
