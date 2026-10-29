@@ -6,6 +6,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 from urllib.parse import urlparse
 from urllib.error import HTTPError
+from snarkroute_agent_ops import AgentOpsError, TERMINAL as TASK_TERMINAL, client as agent_ops_client, snarkroute_headers
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.environ.get('BUZHA_DATA_DIR', ROOT / 'data'))
@@ -33,7 +34,8 @@ def route_request(path, data=None):
     # This is the only model transport. No URL, key or provider is accepted from the app.
     endpoint=f'http://127.0.0.1:{registered_port("snarkroute")}{path}'
     blob=None if data is None else json.dumps(data,ensure_ascii=False).encode('utf-8')
-    req=Request(endpoint,data=blob,headers={'Content-Type':'application/json'})
+    # The agent token identifies Бужа to SnarkRoute: its model calls count as this agent's work.
+    req=Request(endpoint,data=blob,headers={'Content-Type':'application/json',**snarkroute_headers(endpoint)})
     try:
         with build_opener(ProxyHandler({}),NoRedirect()).open(req,timeout=180) as result:
             raw=result.read(2_000_001)
@@ -68,7 +70,10 @@ def initialize():
         CREATE TABLE IF NOT EXISTS messages(id INTEGER PRIMARY KEY, role TEXT NOT NULL, content TEXT NOT NULL, created TEXT DEFAULT CURRENT_TIMESTAMP);
         CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, kind TEXT NOT NULL, detail TEXT NOT NULL, created TEXT DEFAULT CURRENT_TIMESTAMP);
         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS model_calls(id INTEGER PRIMARY KEY, message_id INTEGER, metadata TEXT NOT NULL, created TEXT DEFAULT CURRENT_TIMESTAMP);''')
+        CREATE TABLE IF NOT EXISTS model_calls(id INTEGER PRIMARY KEY, message_id INTEGER, metadata TEXT NOT NULL, created TEXT DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS delegations(task_id TEXT PRIMARY KEY, title TEXT NOT NULL, job_id INTEGER, executor TEXT NOT NULL DEFAULT 'auto', state TEXT NOT NULL DEFAULT 'queued', reason TEXT NOT NULL DEFAULT '', created TEXT DEFAULT CURRENT_TIMESTAMP, updated TEXT DEFAULT CURRENT_TIMESTAMP);''')
+        db.execute('''CREATE TABLE IF NOT EXISTS agent_work(request_key TEXT PRIMARY KEY, user_message_id INTEGER NOT NULL, assistant_message_id INTEGER, task_id TEXT UNIQUE, payload TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', snapshot TEXT, created TEXT DEFAULT CURRENT_TIMESTAMP, updated TEXT DEFAULT CURRENT_TIMESTAMP)''')
+        db.execute('CREATE UNIQUE INDEX IF NOT EXISTS agent_work_one_per_message ON agent_work(user_message_id)')
 
 def event(db, kind, detail):
     db.execute('INSERT INTO events(kind,detail) VALUES (?,?)', (kind,detail))
@@ -85,7 +90,101 @@ def state():
         for message in messages:
             if message['id'] in calls: message['call']=calls[message['id']]
         last_call=db.execute('SELECT metadata FROM model_calls ORDER BY id DESC LIMIT 1').fetchone()
-        return {'jobs':rows(db,'jobs'), 'tasks':rows(db,'tasks'), 'messages':messages, 'events':rows(db,'events')[:100], 'model_connected':bool(model), 'model':model, 'last_model_call':json.loads(last_call['metadata']) if last_call else None, 'automation':False}
+        delegations=[dict(r) for r in db.execute('SELECT * FROM delegations ORDER BY created DESC LIMIT 50')]
+        agent_work=[dict(r) for r in db.execute('SELECT * FROM agent_work ORDER BY created DESC LIMIT 100')]
+        schedule=db.execute('SELECT value FROM settings WHERE key=?',('agent_schedule',)).fetchone()
+        agent=agent_ops_client()
+        return {'jobs':rows(db,'jobs'), 'tasks':rows(db,'tasks'), 'messages':messages, 'events':rows(db,'events')[:100], 'model_connected':bool(model), 'model':model, 'last_model_call':json.loads(last_call['metadata']) if last_call else None, 'automation':False,
+                'delegations':delegations, 'agent_work':agent_work, 'agent_schedule':schedule['value'] if schedule else None, 'agent_ops':{'connected':agent.connected,'agent_id':agent.agent_id}}
+
+def agent_memory(path,data):
+    """Canonical inbox/outbox. The shared SnarkRoute queue owns execution, not this UI process."""
+    with connect() as db:
+        if path=='/api/agent/schedules':
+            if data.get('owner')!='chatgpt' or data.get('localEnabled') is not False:
+                raise ValueError('Передача расписания не согласована; локальный запуск запрещён')
+            if not isinstance(data.get('flows'),list) or len(data['flows'])!=2:
+                raise ValueError('Ожидаются две внешние автоматизации')
+            db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)',('agent_schedule',json.dumps(data,ensure_ascii=False)))
+            event(db,'schedule_metadata','Владелец ChatGPT; локальное исполнение выключено')
+            return {'ok':True,'localEnabled':False}
+        if path=='/api/agent/inbox':
+            key=text(data.get('requestKey',''),200); content=text(data.get('content',''),40000)
+            if not key or not content: raise ValueError('Нужны requestKey и content')
+            previous=db.execute('SELECT * FROM agent_work WHERE request_key=?',(key,)).fetchone()
+            if previous:
+                if json.loads(previous['payload'])['content']!=content: raise ValueError('Ключ запроса уже связан с другим поручением')
+                return dict(previous)
+            existing_id=data.get('existingMessageId')
+            if existing_id:
+                linked=db.execute('SELECT * FROM agent_work WHERE user_message_id=?',(int(existing_id),)).fetchone()
+                if linked: return dict(linked)
+                existing=db.execute('SELECT * FROM messages WHERE id=? AND role=?',(int(existing_id),'user')).fetchone()
+                if not existing or existing['content']!=content: raise ValueError('Сообщение не совпадает с исходным поручением')
+                message_id=existing['id']
+            else: message_id=db.execute('INSERT INTO messages(role,content) VALUES (?,?)',('user',content)).lastrowid
+            payload={key:value for key,value in data.items() if key in ('content','quality','demo','contract','scheduleKey','requesterId')}
+            db.execute('INSERT INTO agent_work(request_key,user_message_id,payload) VALUES (?,?,?)',(key,message_id,json.dumps(payload,ensure_ascii=False)))
+            event(db,'agent_inbox','Поручение сохранено для общей очереди: '+key)
+            return dict(db.execute('SELECT * FROM agent_work WHERE request_key=?',(key,)).fetchone())
+        if path=='/api/agent/bind':
+            key=text(data['requestKey'],200); task_id=text(data['taskId'],100)
+            row=db.execute('SELECT * FROM agent_work WHERE request_key=?',(key,)).fetchone()
+            if not row: raise ValueError('Поручение не найдено')
+            if row['task_id'] and row['task_id']!=task_id: raise ValueError('Поручение уже связано с другой задачей')
+            db.execute('UPDATE agent_work SET task_id=?,state=?,updated=CURRENT_TIMESTAMP WHERE request_key=?',(task_id,'queued',key))
+            return {'ok':True}
+        if path=='/api/agent/update':
+            task=data['task']; row=db.execute('SELECT * FROM agent_work WHERE task_id=?',(task['id'],)).fetchone()
+            if not row: raise ValueError('Чужая задача не меняет память Бужи')
+            review=(task.get('reviews') or [{}])[-1]; attempt=(task.get('attempts') or [{}])[-1]
+            content='Задача '+task['id']+' · '+task['state']+'\n'+task.get('reason','')
+            if attempt.get('model'): content+='\nФактическая модель: '+attempt['model']+' · '+attempt.get('provider',attempt.get('executor',''))
+            if task.get('result',{}).get('summary'): content+='\nРезультат: '+task['result']['summary'][:12000]
+            if review.get('decision'): content+='\nПриёмщик: '+review['decision']+'\n'+'\n'.join(c['criterionId']+': '+c['status'] for c in review.get('criteria',[]))
+            if task.get('nextStep'): content+='\nСледующий шаг: '+task['nextStep']
+            if task.get('evidence'): content+='\nНезависимые доказательства: '+', '.join(e['id'] for e in task['evidence'][-10:])
+            snapshot=json.dumps({'state':task['state'],'content':content},ensure_ascii=False)
+            if snapshot==row['snapshot']: return {'ok':True,'deduplicated':True}
+            message_id=row['assistant_message_id']
+            if message_id: db.execute('UPDATE messages SET content=? WHERE id=?',(content,message_id))
+            else: message_id=db.execute('INSERT INTO messages(role,content) VALUES (?,?)',('assistant',content)).lastrowid
+            db.execute('UPDATE agent_work SET assistant_message_id=?,state=?,snapshot=?,updated=CURRENT_TIMESTAMP WHERE task_id=?',(message_id,task['state'],snapshot,task['id']))
+            event(db,'acceptor','Общая задача '+task['id']+': '+task['state'])
+            return {'ok':True}
+        raise ValueError('Неизвестная операция памяти агента')
+
+# Delegation through SnarkRoute's shared queue: the router picks the executor, the dispatcher
+# decides when it may run, acceptance checks the result. Бужа only records what it handed over.
+def delegation_status(task_id):
+    task=agent_ops_client().status(task_id)['task']
+    with connect() as db:
+        db.execute('UPDATE delegations SET state=?,reason=?,executor=?,updated=CURRENT_TIMESTAMP WHERE task_id=?',(task['state'],task.get('reason','')[:1000],task.get('executor') or 'auto',task_id))
+    return task
+
+def refresh_delegations(limit=20):
+    with connect() as db:
+        open_ids=[r['task_id'] for r in db.execute('SELECT task_id FROM delegations WHERE state NOT IN (%s) ORDER BY created DESC LIMIT ?'%(','.join('?'*len(TASK_TERMINAL))),(*TASK_TERMINAL,limit))]
+    for task_id in open_ids:
+        try: delegation_status(task_id)
+        except AgentOpsError: pass
+
+def delegate(data):
+    agent=agent_ops_client()
+    if not agent.connected: raise ValueError('Бужа не подключена к SnarkRoute (нет токена агента): запусти её из Мастерской.')
+    goal=text(data.get('goal',''),40000)
+    if not goal: raise ValueError('Опиши задачу для исполнителя')
+    spec={'title':text(data.get('title','') or goal.splitlines()[0][:90],120),'goal':goal}
+    for key in ('workspace','executor','idempotencyKey'):
+        if data.get(key): spec[key]=text(str(data[key]),1000)
+    for key in ('acceptance','checks','permissions','budget','requirements'):
+        if data.get(key) is not None: spec[key]=data[key]
+    try: task=agent.submit(spec)
+    except AgentOpsError as error: raise ValueError(f'SnarkRoute не принял поручение: {error}') from None
+    with connect() as db:
+        db.execute('INSERT OR IGNORE INTO delegations(task_id,title,job_id,executor,state,reason) VALUES (?,?,?,?,?,?)',(task['id'],spec['title'],data.get('job_id'),spec.get('executor','auto'),task['state'],task.get('reason','')))
+        event(db,'delegation',f"Передано в SnarkRoute: {task['id']} · {spec['title']}")
+    return task
 
 def text(value, maximum=10000):
     if not isinstance(value, str) or len(value)>maximum:
@@ -121,6 +220,22 @@ class Handler(BaseHTTPRequestHandler):
         if path=='/api/state': return self.reply(state())
         if path=='/api/session': return self.reply({'token':TOKEN})
         if path=='/api/export': return self.reply(state())
+        if path=='/api/agent/context':
+            identity=(ROOT/'identity.md').read_text(encoding='utf-8')[:18000] if (ROOT/'identity.md').is_file() else SYSTEM
+            current=state(); current['messages']=current['messages'][-30:]; current['identity']=identity
+            return self.reply(current)
+        if path=='/api/agent-ops':
+            agent=agent_ops_client()
+            if not agent.connected: return self.reply({'connected':False,'reason':'нет SNARKROUTE_AGENT_TOKEN: Бужа запущена не из Мастерской'})
+            try:
+                refresh_delegations()
+                who=agent.whoami()
+                return self.reply({'connected':True,'agent_id':agent.agent_id,'mode':who.get('mode'),'policy':(who.get('identity') or {}).get('policy'),
+                                   'executors':agent.catalog(kind='executor'),'delegations':state()['delegations']})
+            except AgentOpsError as error: return self.reply({'connected':True,'error':str(error)},503)
+        if path.startswith('/api/delegations/'):
+            try: return self.reply({'task':delegation_status(path.rsplit('/',1)[1])})
+            except AgentOpsError as error: return self.reply({'error':str(error)},error.status or 503)
         if path=='/api/models':
             try: return self.reply(route_request('/api/system/buzha/models'))
             except Exception as error: return self.reply({'error':str(error)[:1000]},503)
@@ -141,6 +256,7 @@ class Handler(BaseHTTPRequestHandler):
             data=json.loads(self.rfile.read(size))
             if not isinstance(data,dict): raise ValueError('Ожидается объект')
             path=urlparse(self.path).path
+            if path.startswith('/api/agent/'): return self.reply(agent_memory(path,data))
             with connect() as db:
                 if path=='/api/jobs':
                     v=job_values(data)
@@ -160,16 +276,19 @@ class Handler(BaseHTTPRequestHandler):
                     msg=text(data.get('content',''))
                     if not msg: raise ValueError('Напиши сообщение')
                     db.execute('INSERT INTO messages(role,content) VALUES (?,?)',('user',msg)); event(db,'message','Сообщение сохранено')
+                elif path=='/api/delegate':
+                    pass
                 elif path=='/api/model':
                     model=text(data.get('model',''),300)
                     db.execute('INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)',('model',model))
                     event(db,'model','Выбрана модель SnarkRoute: '+(model or 'не выбрана'))
                 else: return self.reply({'error':'Не найдено'},404)
+            if path=='/api/delegate': return self.reply({'ok':True,'task':delegate(data)},202)
             return self.reply({'ok':True})
         except (ValueError,TypeError,KeyError,OverflowError) as e: return self.reply({'error':str(e)},400)
         except Exception: return self.reply({'error':'Не удалось сохранить. Подробности смотри в консоли сервера.'},500)
 
-# Chat is an explicit request. No worker, scraping, external messaging or payment actions.
+# The UI keeps canonical memory; actual work belongs to the durable SnarkRoute queue.
 CHAT_LOCK=threading.Lock()
 class App(Handler):
     def do_POST(self):
@@ -178,34 +297,19 @@ class App(Handler):
         try: size=int(self.headers.get('Content-Length','0'))
         except ValueError: return self.reply({'error':'Некорректный размер запроса'},400)
         if size<1 or size>LIMIT: return self.reply({'error':'Некорректный запрос'},400)
-        self.rfile.read(size)
-        model=state()['model']
-        if not model: return self.reply({'error':'Сначала выбери модель в Подключениях. Сообщение сохранено.'},409)
-        if not CHAT_LOCK.acquire(blocking=False): return self.reply({'error':'Бужа уже отвечает'},409)
         try:
+            data=json.loads(self.rfile.read(size))
             with connect() as db:
-                history=list(reversed(rows(db,'messages'))) [-30:]
-                context={'jobs':rows(db,'jobs')[:30],'tasks':rows(db,'tasks')[:30]}
-            messages=[{'role':'system','content':SYSTEM+'\nДанные: '+json.dumps(context,ensure_ascii=False)}]+[{'role':m['role'],'content':m['content']} for m in history]
-            if len(messages[0]['content'])>30000: messages[0]['content']=messages[0]['content'][:30000]+'\n[Данные сокращены]'
-            while len(json.dumps(messages,ensure_ascii=False).encode())>175000 and len(messages)>2: messages.pop(1)
-            result=route_request('/api/system/buzha/chat/completions',{'model':model,'messages':messages,'stream':False})
-            content=result['choices'][0]['message']['content']
-            if not isinstance(content,str) or not content.strip(): raise ValueError('empty response')
-            metadata={key:result.get(key) for key in ('model','costs','costSummary','economics','provenance','usage')}
-            with connect() as db:
-                cursor=db.execute('INSERT INTO messages(role,content) VALUES (?,?)',('assistant',content))
-                db.execute('INSERT INTO model_calls(message_id,metadata) VALUES (?,?)',(cursor.lastrowid,json.dumps(metadata,ensure_ascii=False)))
-                event(db,'model_response','Ответ через SnarkRoute: '+str(result.get('model',model)))
-            return self.reply({'ok':True})
+                message=db.execute('SELECT * FROM messages WHERE role=? ORDER BY id DESC LIMIT 1',('user',)).fetchone()
+            if not message: raise ValueError('Сначала сохрани поручение')
+            result=route_request('/api/agents/buzha/messages',{'content':message['content'],'requestKey':data.get('requestKey') or 'buzha-canonical-message-'+str(message['id']),'existingMessageId':message['id'],'quality':data.get('quality','normal')})
+            return self.reply({'ok':True,'task':result['task'],'deduplicated':result.get('deduplicated',False)},202)
         except Exception as e:
             print('Chat failed:',type(e).__name__,flush=True)
             detail=str(e)[:1000] if isinstance(e,ValueError) else 'SnarkRoute не вернул ответ'
             with connect() as db:
-                event(db,'model_error',detail+' · автоматического повтора нет')
-                if isinstance(e,GatewayError): db.execute('INSERT INTO model_calls(metadata) VALUES (?)',(json.dumps({**e.metadata,'model':model,'error':detail},ensure_ascii=False),))
-            return self.reply({'error':detail+'. Сообщение сохранено; автоматического повтора нет.'},502)
-        finally: CHAT_LOCK.release()
+                event(db,'queue_error',detail+' · поручение сохранено, повтор с тем же ключом безопасен')
+            return self.reply({'error':detail+'. Поручение сохранено; проверь общую очередь перед повтором.'},502)
 
 if __name__=='__main__':
     initialize()

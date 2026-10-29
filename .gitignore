@@ -93,3 +93,5 @@ workers/qwen-image-edit/results/
 
 apps/server/data/agent-ops/
 apps/server/data/agent-ops-smoke/
+apps/server/data/agent-acceptor-demo/
+apps/server/data/acceptor-test-tmp/

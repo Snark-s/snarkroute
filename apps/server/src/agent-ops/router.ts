@@ -27,7 +27,8 @@ export function rankExecutors(input: RoutingInput): RouteCandidate[] {
   const quality = input.spec.requirements?.quality ?? (kind === "code_edit" || kind === "code_review" ? "high" : "normal");
   const context = input.spec.requirements?.contextTokens ?? estimateTokens(input.spec);
   const needsEdits = kind === "code_edit" && input.spec.permissions?.fileWrite !== false;
-  const allowed = new Set(input.spec.allowedExecutors?.length ? input.spec.allowedExecutors.filter(id => input.policy.allowedExecutors.includes(id)) : input.policy.allowedExecutors);
+  const permitted = input.adapters.filter(adapter => input.policy.allowedExecutors.includes(adapter.id) || adapter.profile.permissionBase && input.policy.allowedExecutors.includes(adapter.profile.permissionBase)).map(adapter => adapter.id);
+  const allowed = new Set(input.spec.allowedExecutors?.length ? input.spec.allowedExecutors.filter(id => permitted.includes(id)) : permitted);
   const preferred = input.spec.executor && input.spec.executor !== "auto" ? input.spec.executor : undefined;
 
   const candidates = input.adapters.map(adapter => {

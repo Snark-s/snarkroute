@@ -82,11 +82,12 @@ export class AgentOpsStore {
 
   /** Writes to one file are serialized; rename keeps a crash from leaving half a document. */
   private writeJson(file: string, value: unknown): Promise<void> {
+    const serialized = JSON.stringify(value, null, 2);
     const previous = this.writes.get(file) ?? Promise.resolve();
     const next = previous.catch(() => undefined).then(async () => {
       await mkdir(join(file, ".."), { recursive: true });
       const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-      await writeFile(temporary, JSON.stringify(value, null, 2), "utf8");
+      await writeFile(temporary, serialized, "utf8");
       for (let attempt = 0; ; attempt += 1) {
         try { await rename(temporary, file); return; }
         catch (error) {

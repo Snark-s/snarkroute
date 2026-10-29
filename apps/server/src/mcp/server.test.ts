@@ -13,7 +13,7 @@ describe("After Effects MCP", () => {
     const server = createAeMcpServer(); const client = new Client({ name: "test", version: "1" });
     await server.connect(serverTransport); await client.connect(clientTransport);
     const tools = await client.listTools();
-    expect(tools.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ae_list_sessions", "ae_get_project", "ae_run_arbitrary_jsx", "ae_import_subtitles"]));
+    expect(tools.tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["ae_list_sessions", "ae_get_project", "ae_run_arbitrary_jsx", "ae_import_subtitles", "agent_acceptor_inspect", "agent_acceptor_status", "agent_delegate_pause", "agent_delegate_resume", "agent_task_effect", "agent_task_amend", "buzha_message", "buzha_status", "buzha_task", "buzha_control"]));
     const preview = await client.callTool({ name: "ae_run_arbitrary_jsx", arguments: { code: "Привет\nreturn 1;", mode: "preview" } });
     expect(JSON.stringify(preview)).toContain("Preview only"); expect(JSON.stringify(preview)).toContain("Привет");
     await client.close(); await server.close();

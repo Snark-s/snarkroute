@@ -6,6 +6,7 @@ import { rankExecutors } from "../agent-ops/router";
 import { AgentOpsError, normalizeSpec } from "../agent-ops/tasks";
 import type { AgentIdentity, FailureClass, TaskSpec, TaskState } from "../agent-ops/types";
 import { errorMessage } from "../services/errors";
+import { registerBuzhaAgentRoutes } from "./buzha-agent";
 
 const ROOT = "/api/agent-ops";
 
@@ -28,9 +29,10 @@ export function resolveHttpIdentity(ops: AgentOps, request: FastifyRequest): Age
   return ops.registry.owner("http");
 }
 
-export function registerAgentOpsRoutes(app: FastifyInstance): void {
-  const ready = startAgentOps({ apiUrl: `http://127.0.0.1:${process.env.SNARKROUTE_API_PORT_FOR_AGENTS ?? "4317"}` });
+export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Promise<AgentOps> } = {}): void {
+  const ready = options.ops ?? startAgentOps({ apiUrl: `http://127.0.0.1:${process.env.SNARKROUTE_API_PORT_FOR_AGENTS ?? "4317"}` });
   ready.catch(error => app.log.error({ err: error }, "agent-ops failed to start"));
+  registerBuzhaAgentRoutes(app, ready);
   app.addHook("onClose", async () => { (await ready.catch(() => undefined))?.close(); });
 
   // The local executor runs ai.text through the regular route executor: routing policy, admission and ledger stay authoritative.
@@ -38,13 +40,13 @@ export function registerAgentOpsRoutes(app: FastifyInstance): void {
     const response = await app.inject({ method: "POST", url: "/api/routes/run", signal: AbortSignal.any([signal, AbortSignal.timeout(15 * 60_000)]), payload: { route: {
       routeVersion: "0.1", route: { id: `agent-ops-${randomUUID()}`, title: "Agent ops · local text", author: { name: "SnarkRoute" } },
       nodes: [{ id: "answer", type: "ai.text", params: { model: model.providerModelId, providerModelId: model.providerModelId, executionProvider: model.provider,
-        promptBase64: Buffer.from(prompt, "utf8").toString("base64"), max_tokens: 2048, routingPolicy: { allowPaid: false, subscriptionModels: "exclude" } } }], edges: []
+        promptBase64: Buffer.from(prompt, "utf8").toString("base64"), max_tokens: 2048, routingPolicy: { allowPaid: false, subscriptionModels: model.provider === "local_openai" ? "exclude" : "allow" } } }], edges: []
     } } });
     const result = response.json() as Record<string, any>;
     const node = result.nodeResults?.answer ?? {};
     const text = node.output?.text;
     if (response.statusCode !== 200 || result.status !== "succeeded" || typeof text !== "string") return { ok: false, error: errorMessage(node.error ?? result.error ?? `HTTP ${response.statusCode}`) };
-    return { ok: true, text, usage: node.output?.actualUsage ?? undefined };
+    return { ok: true, text, usage: node.output?.actualUsage ?? undefined, actualModel: node.output?.model ?? node.provenance?.model ?? model.providerModelId, actualProvider: node.provenance?.provider ?? model.provider, runId: result.runId, sessionId: node.output?.sessionId };
   });
 
   const handle = (fn: (ops: AgentOps, identity: AgentIdentity, request: FastifyRequest, reply: FastifyReply) => Promise<unknown>) =>
@@ -60,7 +62,8 @@ export function registerAgentOpsRoutes(app: FastifyInstance): void {
 
   app.get(`${ROOT}/status`, handle(async ops => ({ ok: true, ...await ops.status(),
     tasks: ops.tasks.list({ limit: 60 }).map(task => ({ id: task.id, title: task.title, state: task.state, reason: task.reason, executor: task.executor, agentId: task.agentId,
-      priority: task.priority, depth: task.chain.depth, createdAt: task.createdAt, updatedAt: task.updatedAt, workdir: task.workdir, attempts: task.attempts.length })) })));
+      priority: task.priority, depth: task.chain.depth, createdAt: task.createdAt, updatedAt: task.updatedAt, workdir: task.workdir, attempts: task.attempts.length,
+      nextStep: task.nextStep, nextAttemptAt: task.nextAttemptAt, lastDecision: task.reviews?.at(-1), criteria: task.contract?.criteria, chainBudget: ops.tasks.chainBudget(task.chain.rootTaskId), taskBudget: ops.tasks.budgetUsage(task) })) })));
 
   app.get(`${ROOT}/whoami`, handle(async (ops, identity) => ({ ok: true, identity: { id: identity.id, kind: identity.kind, policy: identity.policy, taskId: identity.taskId },
     brief: agentBrief(identity), mode: await ops.mode() })));
@@ -96,13 +99,13 @@ export function registerAgentOpsRoutes(app: FastifyInstance): void {
   app.get<{ Params: { id: string } }>(`${ROOT}/tasks/:id`, handle(async (ops, _identity, request, reply) => {
     const task = ops.tasks.get((request.params as { id: string }).id);
     if (!task) return reply.code(404).send({ ok: false, error: "Задача не найдена." });
-    return { ok: true, task, chainBudget: ops.tasks.chainBudget(task.chain.rootTaskId), events: await ops.tasks.events(task.id) };
+    return { ok: true, task, chainBudget: ops.tasks.chainBudget(task.chain.rootTaskId), taskBudget: ops.tasks.budgetUsage(task), events: await ops.tasks.events(task.id) };
   }));
 
   app.get<{ Params: { id: string } }>(`${ROOT}/tasks/:id/result`, handle(async (ops, _identity, request, reply) => {
     const task = ops.tasks.get((request.params as { id: string }).id);
     if (!task) return reply.code(404).send({ ok: false, error: "Задача не найдена." });
-    return { ok: true, id: task.id, state: task.state, reason: task.reason, verified: task.state === "verified", result: task.result ?? null };
+    return { ok: true, id: task.id, state: task.state, reason: task.reason, verified: task.state === "verified", result: task.result ?? null, contract: task.contract, decisions: task.reviews, evidence: task.evidence };
   }));
 
   app.get<{ Params: { id: string } }>(`${ROOT}/tasks/:id/log`, handle(async (ops, _identity, request) => ({ ok: true, log: await ops.tasks.log((request.params as { id: string }).id) })));
@@ -116,6 +119,22 @@ export function registerAgentOpsRoutes(app: FastifyInstance): void {
   }));
 
   app.post<{ Params: { id: string } }>(`${ROOT}/tasks/:id/verify`, handle(async (ops, identity, request) => ({ ok: true, task: await ops.tasks.verify((request.params as { id: string }).id, identity) })));
+
+  for (const action of ["pause", "resume"] as const) app.post(`${ROOT}/tasks/:id/${action}`, handle(async (ops, identity, request) => ({ ok: true, task: await ops.tasks[action]((request.params as { id: string }).id, identity) })));
+  app.post(`${ROOT}/tasks/:id/amend`, handle(async (ops, identity, request) => {
+    const { note, ...patch } = request.body as Partial<TaskSpec> & { note: string };
+    return { ok: true, task: await ops.tasks.amend((request.params as { id: string }).id, identity, patch, note) };
+  }));
+  app.post(`${ROOT}/tasks/:id/effects/:key`, handle(async (ops, identity, request) => {
+    const { id, key } = request.params as { id: string; key: string }, body = request.body as { action: "begin" | "reconcile" | "not_performed"; note?: string };
+    if (!["begin", "reconcile", "not_performed"].includes(body.action)) throw new AgentOpsError("BAD_REQUEST", "Нужно begin/reconcile/not_performed.");
+    return { ok: true, ...await ops.tasks.effect(id, identity, key, body.action, body.note) };
+  }));
+  app.get(`${ROOT}/acceptor`, handle(async ops => ({ ok: true, calibration: await ops.store.readState("acceptor-calibration", {}), tasks: ops.tasks.list({ limit: 100 }).map(task => ({ id: task.id, state: task.state, contract: task.contract, lastDecision: task.reviews?.at(-1), nextStep: task.nextStep })) })));
+  app.post(`${ROOT}/acceptor/inspect`, handle(async (ops, identity, request, reply) => {
+    const result = await ops.tasks.submit(identity, request.body as TaskSpec, { inspectExisting: true });
+    return reply.code(result.deduplicated ? 200 : 202).send({ ok: true, ...result });
+  }));
 
   app.put(`${ROOT}/mode`, handle(async (ops, identity, request) => {
     const body = (request.body ?? {}) as { mode?: "owner_busy" | "background" | "free" | null; until?: string | null; minutes?: number };

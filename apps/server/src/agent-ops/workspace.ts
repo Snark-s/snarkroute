@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { CheckResult, TaskCheck, WorkspaceSnapshot } from "./types";
@@ -22,7 +22,8 @@ export async function gitTopLevel(dir: string): Promise<string | undefined> {
 export async function snapshotWorkspace(dir: string | undefined): Promise<WorkspaceSnapshot> {
   const capturedAt = new Date().toISOString();
   if (!dir) return { kind: "none", entries: {}, capturedAt };
-  if (await gitTopLevel(dir)) {
+  // A subfolder must not snapshot unrelated files from its parent repository.
+  if (await gitTopLevel(dir) === resolve(dir)) {
     const head = await git(dir, ["rev-parse", "HEAD"]).then(value => value.trim()).catch(() => undefined);
     const status = await git(dir, ["status", "--porcelain=v1", "-z", "--untracked-files=all"]).catch(() => "");
     const entries: Record<string, string> = {};
@@ -84,31 +85,52 @@ function insideWorkdir(workdir: string, path: string): string {
 /** Runs one acceptance check in the task's folder. Commands come only from the submitted contract, never from executor output. */
 export async function runCheck(check: TaskCheck, workdir: string | undefined, signal?: AbortSignal): Promise<CheckResult> {
   const startedAt = Date.now();
-  const done = (ok: boolean, detail: string): CheckResult => ({ check, ok, detail: detail.slice(-4000), durationMs: Date.now() - startedAt });
+  let outputTruncated = false;
+  const done = (ok: boolean, detail: string, content?: string): CheckResult => ({ check, ok, detail: detail.slice(-4000), content: content?.slice(0, 12000), truncated: outputTruncated || (content?.length ?? 0) > 12000, durationMs: Date.now() - startedAt, observedAt: new Date().toISOString(), source: JSON.stringify(check) });
   try {
-    if (check.type === "file_exists") {
-      if (!workdir) return done(false, "Нет рабочей папки.");
-      const info = await stat(insideWorkdir(workdir, check.path)).catch(() => undefined);
-      return done(Boolean(info), info ? "Файл существует." : "Файл не найден.");
+    if (signal?.aborted) return done(false, "Проверка отменена.");
+    if (check.type === "tool" || check.type === "tool_used" || check.type === "tool_observations" || check.type === "acceptor_cycle" || check.type === "tool_scope") return done(false, "Проверка инструмента требует общего agent-ops контекста.");
+    if (check.type === "http") {
+      const url = new URL(check.url);
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return done(false, "Разрешены только HTTP(S) URL без учётных данных.");
+      // The contract authorizes this exact read. Redirects cannot silently expand scope.
+      const response = await fetch(url, { redirect: "error", signal: AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(Math.min(check.timeoutMs ?? 10000, 60000))]) });
+      const reader = response.body?.getReader(); let body = "", bytes = 0;
+      if (reader) try { for (;;) { const chunk = await reader.read(); if (chunk.done) break; bytes += chunk.value.length; if (bytes > 1024 * 1024) throw new Error("Ответ проверки больше 1 МБ."); body += Buffer.from(chunk.value).toString("utf8"); } } finally { await reader.cancel().catch(() => undefined); }
+      let ok = response.status === (check.status ?? 200);
+      if (check.text !== undefined) ok &&= body.includes(check.text);
+      if (check.json) { let value: any = JSON.parse(body); for (const part of check.json.path.split(".")) value = value?.[part]; ok &&= value === check.json.equals; }
+      return done(ok, `HTTP ${response.status}; ${ok ? "условия подтверждены" : "условия не подтверждены"}`, body);
     }
-    if (check.type === "file_contains") {
+    if (check.type === "process") return done(await processAlive(check.pid, check.image), `process ${check.pid}${check.image ? ` (${check.image})` : ""}`);
+    if (check.type === "file_exists" || check.type === "file_contains" || check.type === "file_content") {
       if (!workdir) return done(false, "Нет рабочей папки.");
-      const text = await readFile(insideWorkdir(workdir, check.path), "utf8").catch(() => undefined);
-      return done(Boolean(text?.includes(check.text)), text === undefined ? "Файл не найден." : text.includes(check.text) ? "Текст найден." : "Текст не найден.");
+      const path = insideWorkdir(workdir, check.path);
+      const canonical = await realpath(path).catch(() => undefined);
+      if (!canonical) return done(false, "Файл не найден.");
+      insideWorkdir(await realpath(workdir), canonical);
+      const info = await stat(canonical);
+      if (!info.isFile()) return done(false, "Ожидался файл.");
+      if (check.type === "file_exists") return done(true, "Файл существует; содержимое этим не проверено.");
+      if (info.size > 1024 * 1024) return done(false, "Файл больше 1 МБ; нужна специализированная проверка содержимого.");
+      const text = await readFile(canonical, "utf8");
+      const ok = check.type === "file_content" ? Boolean(text.trim()) : text.includes(check.text);
+      return done(ok, ok ? "Содержимое прочитано; условие выполнено." : "Условие содержимого не выполнено.", text);
     }
     const timeoutMs = Math.min(Math.max(check.timeoutMs ?? 120_000, 1000), 15 * 60_000);
     const needsShell = process.platform === "win32" && /^(npm|pnpm|npx|yarn)$|\.(cmd|bat)$/i.test(check.command);
     return await new Promise<CheckResult>(resolvePromise => {
       const child = spawn(check.command, check.args ?? [], { cwd: workdir, shell: needsShell, windowsHide: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CI: "1", NO_COLOR: "1" } });
       let output = "";
-      const append = (chunk: unknown) => { output = (output + String(chunk)).slice(-16_000); };
+      let interrupted = false;
+      const append = (chunk: unknown) => { const next = output + String(chunk); outputTruncated ||= next.length > 12000; output = next.slice(-16_000); };
       child.stdout?.on("data", append);
       child.stderr?.on("data", append);
-      const kill = () => { if (child.pid) killProcessTree(child.pid); };
+      const kill = () => { interrupted = true; if (child.pid) killProcessTree(child.pid); };
       const timer = setTimeout(() => { output += `\n[timeout ${timeoutMs} ms]`; kill(); }, timeoutMs);
       signal?.addEventListener("abort", kill, { once: true });
       child.once("error", error => { clearTimeout(timer); resolvePromise(done(false, `Команда не запустилась: ${error.message}`)); });
-      child.once("close", code => { clearTimeout(timer); signal?.removeEventListener("abort", kill); resolvePromise(done(code === 0, `exit ${code}\n${output}`)); });
+      child.once("close", code => { clearTimeout(timer); signal?.removeEventListener("abort", kill); resolvePromise(done(code === 0 && !interrupted, `exit ${code}\n${output}`, `exit ${code}\n${output}`)); });
     });
   } catch (error) {
     return done(false, error instanceof Error ? error.message : String(error));

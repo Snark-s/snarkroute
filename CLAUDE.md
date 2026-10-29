@@ -48,6 +48,19 @@ Workshop: top status bar on every tab and "Диспетчер задач аге�
 `apps/server/scripts/agent-ops-mcp-smoke.ts`, `apps/server/scripts/agent-ops-smoke.ts`; details
 `docs/agent-capabilities-and-delegation.md`.
 
+Acceptor (`agent_acceptor_status`, `agent_delegate_verify`, `agent_delegate_pause/resume`,
+`agent_task_effect`, `agent_task_amend`): session completion never closes the task.
+Submit immutable criteria with independent checks; rejection enqueues concrete continuation.
+Reserve external effects before acting and reconcile uncertain results before retrying.
+Model review waits for permissions, quota and GPU/RAM instead of claiming success.
+Details: `docs/agent-acceptor.md`; controlled end-to-end: `apps/server/scripts/agent-acceptor-smoke.ts`.
+
+Buzha is a persistent `app:buzha` agent using her existing SQLite and identity.
+Discover `tools:buzha`; use `buzha_message` with a stable requestKey and
+`buzha_status/task/control`. Her structured model/tool loop uses the shared
+queue and Acceptor, scoped SnarkBridge and paired Chrome Profile 13. ChatGPT
+retains both schedule owners; no duplicate local jobs. See `docs/buzha-agent.md`.
+
 `tech_radar_research` queues public GitHub research without running project code or
 using paid APIs; `tech_radar_catalog` reads results and the workshop capability map.
 Open `/tech-radar` in SnarkRoute or BoojumRoute for research, decisions and history.

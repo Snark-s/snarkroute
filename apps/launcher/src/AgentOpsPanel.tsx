@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { Ban, CalendarClock, Cpu, FileText, ListChecks, LoaderCircle, Lock, Plus, ScrollText, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Ban, CalendarClock, Cpu, FileText, ListChecks, LoaderCircle, Lock, Plus, ScrollText, Trash2 } from "lucide-react";
 
 type Mode = "owner_busy" | "background" | "free";
 type ScheduleRule = { id: string; days: number[]; from: string; to: string; mode: Mode; label?: string };
-type TaskSummary = { id: string; title: string; state: string; reason: string; executor?: string; agentId: string; priority: number; depth: number; createdAt: string; updatedAt: string; workdir?: string; attempts: number };
+type Criterion = { id: string; description: string; required?: boolean; review: string; unverifiableReason?: string };
+type Review = { at: string; attempt: number; decision: string; reason: string; nextStep: string; criteria: Array<{ criterionId: string; status: string; reason: string; evidenceIds: string[] }>; reviewer?: { executor: string; model?: string; level: string } };
+type ChainBudget = { subscriptionRunsUsed: number; subscriptionRunsLeft: number; wallMinutesUsed: number; wallMinutesLeft: number };
+type TaskBudget = { wallMinutesUsed: number; wallMinutesLeft: number; wallMinutesLimit: number; subscriptionRunsUsed: number; subscriptionRunsLimit: number; attemptsUsed: number; attemptsLimit: number; providerCost: number };
+type TaskSummary = { id: string; title: string; state: string; reason: string; executor?: string; agentId: string; priority: number; depth: number; createdAt: string; updatedAt: string; workdir?: string; attempts: number; nextStep?: string; nextAttemptAt?: string; lastDecision?: Review; criteria?: Criterion[]; chainBudget?: ChainBudget; taskBudget?: TaskBudget };
 type Lease = { id: string; purpose: string; class: "heavy" | "light"; vramMiB: number; agentId: string; state: string; estimateSource: string };
 type LockRecord = { key: string; ownerTaskId: string; ownerAgentId: string; state: "held" | "suspect" };
 type ExecutorStatus = { id: string; label: string; tier: string; probe: { installed: boolean; authenticated: boolean | null; detail?: string; checkedAt: string } | null;
@@ -21,14 +25,20 @@ export type AgentOpsStatus = {
   executors: ExecutorStatus[];
   tasks: TaskSummary[];
 };
-type TaskDetail = { task: TaskSummary & { result?: { summary: string; changedFiles: string[]; checks: Array<{ ok: boolean; detail: string; check: { type: string; command?: string; path?: string } }>; branch?: string; artifactPath?: string } };
+type TaskDetail = { task: TaskSummary & { contract?: { originalGoal: string; expectedResult: string; revision: number; criteria: Criterion[] }; reviews?: Review[];
+  evidence?: Array<{ id: string; attempt: number; criterionId: string; observedAt: string; source: string; ok: boolean; detail: string; content?: string; digest: string }>;
+  effects?: Array<{ key: string; state: string; detail?: string }>; reviewRuns?: Array<{ executor: string; model?: string; level: string; outcome?: string; error?: string }>;
+  result?: { summary: string; changedFiles: string[]; checks: Array<{ ok: boolean; detail: string; check: { type: string; command?: string; path?: string } }>; branch?: string; artifactPath?: string } };
+  chainBudget?: ChainBudget;
   events: Array<{ at: string; type: string; message: string }> };
 
 export const MODE_LABELS: Record<Mode, string> = { owner_busy: "Компьютер нужен мне", background: "Можно работать в фоне", free: "Компьютер свободен" };
 const STATE_LABELS: Record<string, string> = {
   queued: "в очереди", waiting_window: "ждёт рабочего окна", waiting_resources: "ждёт ресурсов", waiting_executor: "ждёт исполнителя", running: "выполняется",
-  blocked: "заблокирована", failed: "ошибка", cancelled: "отменена", unknown_outcome: "неизвестный исход", awaiting_verification: "ждёт проверки", verified: "проверена"
+  blocked: "заблокирована", failed: "ошибка", cancelled: "отменена", paused: "приостановлена", unknown_outcome: "неизвестный исход", awaiting_verification: "ждёт проверки", verified: "принята"
 };
+const DECISIONS: Record<string, string> = { accept: "принять", continue: "продолжить", change_approach: "сменить подход или исполнителя", wait_resource: "ожидать ресурс", blocked: "заблокировано", owner_action: "требуется действие владельца" };
+const VERDICTS: Record<string, string> = { confirmed: "подтверждён", missing: "не выполнен", unverifiable: "не проверен" };
 const DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 const TERMINAL = new Set(["verified", "failed", "cancelled"]);
 
@@ -76,6 +86,19 @@ function executorUsable(executor: ExecutorStatus): { usable: boolean; reason: st
 
 function gb(mib: number) { return (mib / 1024).toFixed(1); }
 
+export function AgentOpsCard({ apiBase }: { apiBase: string }) {
+  const { status, error } = useAgentOpsStatus(apiBase);
+  return <div className="appCard cyan"><button className="cardMain" title="Открыть диспетчер задач агентов" onClick={() => { location.href = "/agent-ops"; }}>
+    <span className="cardGlow" /><span className="appIcon"><ListChecks /></span>
+    <span className="appCopy"><strong>Диспетчер задач агентов</strong><small>Очередь, Приёмщик, доказательства и ресурсы</small></span>
+    <span className="cardFooter"><span className={status ? "status on" : "status"}>{status ? `${status.queue.active} незавершённых` : error ? "недоступен" : "подключается"}</span><ArrowUpRight /></span>
+  </button></div>;
+}
+
+export function AgentOpsPage({ apiBase }: { apiBase: string }) {
+  return <main className="launcherPage"><header className="hero"><a className="secretaryButton" href="/"><ArrowLeft /> Мастерская</a><AgentOpsStatusBar apiBase={apiBase} /></header><AgentOpsPanel apiBase={apiBase} /></main>;
+}
+
 /** Visible in every section: mode, load, queue, locks, subscriptions. */
 export function AgentOpsStatusBar({ apiBase }: { apiBase: string }) {
   const { status, error } = useAgentOpsStatus(apiBase);
@@ -103,7 +126,7 @@ export function AgentOpsStatusBar({ apiBase }: { apiBase: string }) {
     {status.resources ? <span className="opsMetric">RAM {gb(status.resources.memory.usedMiB)}/{gb(status.resources.memory.totalMiB)}</span> : null}
     <span className="opsMetric" title="Выполняются / ждут / нужен ответ"><ListChecks /> {status.queue.counts.running ?? 0} · {waiting}{attention ? <b className="opsAttention"> · {attention}!</b> : null}</span>
     {status.locks.length ? <span className="opsMetric" title={status.locks.map(lock => `${lock.key} → ${lock.ownerTaskId}`).join("\n")}><Lock /> {status.locks.length}</span> : null}
-    {status.executors.filter(executor => executor.tier === "subscription").map(executor => { const state = executorUsable(executor); return <span key={executor.id} className={`opsMetric ${state.usable ? "" : "warn"}`}
+    {status.executors.filter(executor => ["codex_cli", "claude_code"].includes(executor.id)).map(executor => { const state = executorUsable(executor); return <span key={executor.id} className={`opsMetric ${state.usable ? "" : "warn"}`}
       title={`${executor.label}: ${state.reason} · квота ${executor.ledger.quota.state}${executor.ledger.quota.source ? ` (${executor.ledger.quota.source})` : ""}`}>
       {executor.id === "codex_cli" ? "Codex" : "Claude"} {state.usable ? "✓" : "⏸"}
     </span>; })}
@@ -150,10 +173,14 @@ export function AgentOpsPanel({ apiBase }: { apiBase: string }) {
       <span className="opsState">{STATE_LABELS[task.state] ?? task.state}</span>
     </div>
     <p className="opsReason">{task.reason}</p>
+    {task.lastDecision ? <p className="secretaryContext"><strong>Приёмщик: {DECISIONS[task.lastDecision.decision] ?? task.lastDecision.decision}</strong> · попытка {task.lastDecision.attempt} · {task.lastDecision.criteria.filter(c => c.status === "confirmed").length}/{task.criteria?.length ?? task.lastDecision.criteria.length} критериев подтверждено</p> : null}
+    {task.nextStep ? <p className="secretaryContext">Следующий шаг: {task.nextStep}</p> : null}
+    <p className="secretaryContext">{task.taskBudget ? `Попыток исполнения: ${task.taskBudget.attemptsUsed}/${task.taskBudget.attemptsLimit} · подписочные запуски: ${task.taskBudget.subscriptionRunsUsed}/${task.taskBudget.subscriptionRunsLimit} · время: ${task.taskBudget.wallMinutesUsed}/${task.taskBudget.wallMinutesLimit} мин · расходы API: ${task.taskBudget.providerCost}` : `Попыток: ${task.attempts}`}{task.nextAttemptAt && !TERMINAL.has(task.state) ? ` · повтор не раньше ${new Date(task.nextAttemptAt).toLocaleTimeString("ru-RU")}` : ""}</p>
     <div className="secretaryMeta"><span>{task.id} · {task.agentId}{task.executor ? ` → ${task.executor}` : ""}{task.depth > 1 ? ` · глубина ${task.depth}` : ""}</span><span>{new Date(task.updatedAt).toLocaleString("ru-RU")}</span></div>
     <div className="opsActions">
       <button type="button" className="secretaryButton" onClick={() => setOpen(open === task.id ? undefined : task.id)}><FileText /> {open === task.id ? "Скрыть" : "Результат и журнал"}</button>
       {!TERMINAL.has(task.state) ? <button type="button" className="secretaryButton" disabled={action === `cancel:${task.id}`} onClick={() => void act(`cancel:${task.id}`, () => call(apiBase, `/tasks/${task.id}/cancel`, { method: "POST", body: "{}" }))}><Ban /> Отменить</button> : null}
+      {!TERMINAL.has(task.state) ? <button type="button" className="secretaryButton" disabled={Boolean(action)} onClick={() => void act(`pause:${task.id}`, () => call(apiBase, `/tasks/${task.id}/${task.state === "paused" ? "resume" : "pause"}`, { method: "POST", body: "{}" }))}>{task.state === "paused" ? "Возобновить" : "Приостановить"}</button> : null}
       {["blocked", "unknown_outcome"].includes(task.state) ? <>
         <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "continue" }) }))}>Продолжить с текущего состояния</button>
         <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "mark_failed" }) }))}>Отметить ошибкой</button>
@@ -161,6 +188,20 @@ export function AgentOpsPanel({ apiBase }: { apiBase: string }) {
       {["awaiting_verification", "unknown_outcome"].includes(task.state) ? <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "mark_verified", note: "проверено владельцем в Мастерской" }) }))}>Я проверил: принять</button> : null}
     </div>
     {open === task.id && detail?.task.id === task.id ? <div className="opsDetail">
+      {detail.task.contract ? <>
+        <p className="secretaryContext"><strong>Ожидаемый результат:</strong> {detail.task.contract.expectedResult} · версия {detail.task.contract.revision}</p>
+        <ul className="opsChecks">{detail.task.contract.criteria.map(criterion => { const verdict = detail.task.reviews?.at(-1)?.criteria.find(v => v.criterionId === criterion.id); return <li key={criterion.id} className={verdict?.status === "confirmed" ? "ok" : "bad"}>
+          <strong>{criterion.id}: {criterion.description}</strong> ({criterion.required === false ? "необязательный" : "обязательный"}) — {verdict ? VERDICTS[verdict.status] : "ожидает проверки"}
+          <p>{verdict?.reason ?? criterion.unverifiableReason ?? `Способ проверки: ${criterion.review}`}</p>
+        </li>; })}</ul>
+      </> : null}
+      {detail.task.evidence?.length ? <details><summary>Независимые доказательства ({detail.task.evidence.length})</summary>{detail.task.evidence.map(item => <div key={item.id} className="secretaryContext">
+        <strong>{item.ok ? "✓" : "✗"} {item.criterionId} · попытка {item.attempt}</strong> · {new Date(item.observedAt).toLocaleString("ru-RU")}<p>Источник: {item.source}</p><p>{item.detail}</p>
+        {item.content ? <pre className="opsLog">{item.content}</pre> : null}<small>SHA-256: {item.digest}</small>
+      </div>)}</details> : null}
+      {detail.task.reviews?.length ? <details><summary>Решения Приёмщика ({detail.task.reviews.length})</summary><ol className="opsEvents">{detail.task.reviews.map((review, i) => <li key={i}>{new Date(review.at).toLocaleString("ru-RU")} · попытка {review.attempt} · <strong>{DECISIONS[review.decision]}</strong><p>{review.reason}</p><p>{review.nextStep}</p>{review.reviewer ? <small>{review.reviewer.level} · {review.reviewer.executor} · {review.reviewer.model}</small> : null}</li>)}</ol></details> : null}
+      {detail.task.effects?.length ? <details><summary>Внешние действия</summary>{detail.task.effects.map(effect => <p className="secretaryContext" key={effect.key}>{effect.key}: {effect.state} · {effect.detail}</p>)}</details> : null}
+      {detail.task.reviewRuns?.length ? <details><summary>Запуски проверяющей модели ({detail.task.reviewRuns.length})</summary>{detail.task.reviewRuns.map((run, i) => <p className="secretaryContext" key={i}>{run.level} · {run.executor} · {run.model ?? "модель не сообщена"} · {run.outcome ?? "выполняется"} {run.error}</p>)}</details> : null}
       {detail.task.result ? <>
         <p className="secretaryContext"><strong>Итог исполнителя:</strong> {detail.task.result.summary || "—"}</p>
         {detail.task.result.checks.length ? <ul className="opsChecks">{detail.task.result.checks.map((check, index) => <li key={index} className={check.ok ? "ok" : "bad"}>{check.ok ? "✓" : "✗"} {check.check.command ?? check.check.path ?? check.check.type}: {check.detail.split("\n").slice(0, 3).join(" ")}</li>)}</ul> : null}

@@ -19,7 +19,7 @@ async function call(apiBase: string, path: string, init?: RequestInit): Promise<
   return body;
 }
 
-export function AutonomousAppCard({ app, apiBase, index }: { app: CardApp; apiBase: string; index: number }) {
+export function AutonomousAppCard({ app, apiBase, index, openPath }: { app: CardApp; apiBase: string; index: number; openPath?: string }) {
   const [status, setStatus] = useState<AutonomousStatus>();
   const [action, setAction] = useState<"start" | "stop" | "open" | "">("");
   const [error, setError] = useState("");
@@ -52,6 +52,7 @@ export function AutonomousAppCard({ app, apiBase, index }: { app: CardApp; apiBa
   async function open() {
     if (action) return;
     setAction("open"); setError("");
+    if (openPath) { try { await call(apiBase, `/api/system/apps/${app.id}/open`, { method: "POST", signal: AbortSignal.timeout(70000) }); location.href = openPath; } catch (reason) { setError(String(reason)); } finally { setAction(""); } return; }
     const popup = window.open("about:blank", `snarkroute-${app.id}`);
     try {
       const result = await call(apiBase, `/api/system/apps/${app.id}/open`, { method: "POST", signal: AbortSignal.timeout(70_000) });

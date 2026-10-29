@@ -64,21 +64,26 @@ class BureauTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.app.registered_port('buzha')
 
-    def test_model_selection_persists_and_chat_retains_accounting(self):
+    def test_model_selection_and_old_accounting_survive_queue_chat(self):
         self.request('/api/model', {'model': 'openrouter:from-catalog'})
+        with self.app.connect() as db:
+            row=db.execute('INSERT INTO messages(role,content) VALUES (?,?)',('assistant','Existing answer'))
+            db.execute('INSERT INTO model_calls(message_id,metadata) VALUES (?,?)',(row.lastrowid,json.dumps({'costs':{'providerCost':0.001},'provenance':{'runId':'old-run'}})))
         self.request('/api/message', {'content': 'hello'})
-        answer = {'choices': [{'message': {'content': 'answer'}}], 'model': 'from-catalog',
-                  'costs': {'providerCost': 0.001, 'baseCost': 0.001, 'currency': 'USD'}, 'provenance': {'runId': 'run-1'}}
+        answer = {'task':{'id':'t-persisted','state':'queued'},'deduplicated':False}
         with patch.object(self.app, 'route_request', return_value=answer) as gateway:
-            self.request('/api/chat', {})
+            result=self.request('/api/chat', {})
+        self.assertEqual(result['task']['id'],'t-persisted')
         self.assertEqual(gateway.call_count, 1)
-        self.assertEqual(gateway.call_args.args[0], '/api/system/buzha/chat/completions')
+        self.assertEqual(gateway.call_args.args[0], '/api/agents/buzha/messages')
+        self.assertEqual(gateway.call_args.args[1]['content'],'hello')
+        self.assertTrue(gateway.call_args.args[1]['requestKey'].startswith('buzha-canonical-message-'))
         self.app.initialize()
         state = self.request('/api/state')
         self.assertEqual(state['model'], 'openrouter:from-catalog')
-        self.assertEqual(state['messages'][-1]['content'], 'answer')
-        self.assertEqual(state['messages'][-1]['call']['costs']['providerCost'], 0.001)
-        self.assertEqual(state['messages'][-1]['call']['provenance']['runId'], 'run-1')
+        self.assertEqual(state['messages'][0]['content'], 'Existing answer')
+        self.assertEqual(state['messages'][0]['call']['costs']['providerCost'], 0.001)
+        self.assertEqual(state['messages'][0]['call']['provenance']['runId'], 'old-run')
         self.assertEqual(state['last_model_call']['costs']['providerCost'], 0.001)
 
     def test_model_error_is_recorded_without_retry(self):

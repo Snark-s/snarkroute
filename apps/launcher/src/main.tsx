@@ -12,7 +12,8 @@ import { SnarkBridgeCard } from "./SnarkBridgeCard";
 import { ModelCatalogCard } from "./ModelCatalogCard";
 import { TechRadarCard } from "./TechRadarCard";
 import { SecretaryPanel } from "./SecretaryPanel";
-import { AgentOpsPanel, AgentOpsStatusBar, useAgentOpsStatus } from "./AgentOpsPanel";
+import { AgentOpsCard, AgentOpsPage, AgentOpsStatusBar, useAgentOpsStatus } from "./AgentOpsPanel";
+import { BuzhaPage } from "./BuzhaPanel";
 import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTerminalContextMenu, showTerminal } from "./ServiceTerminals";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
@@ -46,6 +47,8 @@ const workshopTabs = [
 
 function App() {
   if (location.pathname.startsWith("/logs")) return <TerminalPage apiBase={apiBase} />;
+  if (location.pathname.startsWith("/agent-ops")) return <AgentOpsPage apiBase={apiBase} />;
+  if (location.pathname.startsWith("/buzha")) return <BuzhaPage apiBase={apiBase} />;
   return location.pathname.startsWith("/persona") ? <PersonaAgent /> : <Launcher />;
 }
 
@@ -123,11 +126,11 @@ function Launcher() {
       id={`workshop-panel-${tab.id}`} role="tabpanel" aria-labelledby={`workshop-tab-${tab.id}`}
       hidden={activeTab !== tab.id}>
       {tab.id === "secretary" ? <SecretaryPanel apiBase={apiBase} onPendingChange={updateSecretaryPending} /> : null}
-      {tab.id === "agents" ? <AgentOpsPanel apiBase={apiBase} /> : null}
+      {tab.id === "agents" ? <AgentOpsCard apiBase={apiBase} /> : null}
       {tab.id === "agents" && livingCanvas ? <TechRadarCard running={livingCanvas.running} busy={busy === "tech-radar"} index={0} onOpen={() => void openApp(livingCanvas, "/tech-radar")} /> : null}
       {tab.appIds.flatMap(id => apps.filter(app => app.id === id)).map((app, appIndex) => {
         const index = appIndex + (tab.id === "agents" ? 1 : 0);
-        if (app.controllable) return <AutonomousAppCard key={app.id} app={app} apiBase={apiBase} index={index} />;
+        if (app.controllable) return <AutonomousAppCard key={app.id} app={app.id === "buzha" ? { ...app, description: "Поручения, постоянная память, инструменты и Приёмщик" } : app} apiBase={apiBase} index={index} openPath={app.id === "buzha" ? "/buzha" : undefined} />;
         const Icon = iconMap[app.icon as keyof typeof iconMap] ?? Sparkles;
         return <div key={app.id} className={`appCard ${app.accent}`} style={{ animationDelay: `${index * 55}ms` }}>
           <button className="cardMain" onClick={() => void openApp(app)}>

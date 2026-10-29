@@ -17,6 +17,7 @@ export type TaskState =
   | "waiting_resources"
   | "waiting_executor"
   | "running"
+  | "paused"
   | "blocked"
   | "failed"
   | "cancelled"
@@ -30,6 +31,7 @@ export const TASK_STATE_LABELS: Record<TaskState, string> = {
   waiting_resources: "ждёт ресурсов",
   waiting_executor: "ждёт исполнителя",
   running: "выполняется",
+  paused: "приостановлена",
   blocked: "заблокирована",
   failed: "ошибка",
   cancelled: "отменена",
@@ -51,19 +53,49 @@ export type FailureClass =
   | "timeout"
   | "model_unavailable"
   | "cancelled"
-  | "verification";
+  | "verification"
+  | "budget";
 
 export type TaskCheck =
   | { type: "command"; command: string; args?: string[]; timeoutMs?: number }
   | { type: "file_exists"; path: string }
-  | { type: "file_contains"; path: string; text: string };
+  | { type: "file_contains"; path: string; text: string }
+  | { type: "file_content"; path: string }
+  | { type: "http"; url: string; status?: number; text?: string; json?: { path: string; equals: string | number | boolean | null }; timeoutMs?: number }
+  | { type: "process"; pid: number; image?: string }
+  | { type: "tool"; tool: string; arguments?: Record<string, unknown>; json: { path: string; equals: string | number | boolean | null } }
+  | { type: "tool_used"; tool: string }
+  | { type: "tool_observations" }
+  | { type: "acceptor_cycle" }
+  | { type: "tool_scope"; allowed: string[] };
+// Re-observe the read tools used by an actor, rather than trusting its saved report.
+export type AgentToolCall = { id: string; attempt: number; at: string; tool: string; arguments: Record<string, unknown>; ok: boolean; result: unknown; provider?: string; model?: string };
+export type ModelCall = { id?: string; at: string; provider: string; model: string; tier: "local" | "subscription"; ok: boolean; runId?: string; sessionId?: string };
 
-export type TaskKind = "code_edit" | "code_review" | "text" | "analysis";
+export type TaskCriterion = { id: string; description: string; required?: boolean; checkIndexes?: number[]; review: "machine" | "model" | "unverifiable"; unverifiableReason?: string; maxAgeMs?: number };
+export type TaskContract = { version: 1; revision: number; originalGoal: string; expectedResult: string; criteria: TaskCriterion[]; amendments: Array<{ at: string; by: string; note: string; previous: TaskSpec }> };
+export type CriterionVerdict = { criterionId: string; status: "confirmed" | "missing" | "unverifiable"; evidenceIds: string[]; reason: string };
+export type TaskEvidence = { id: string; attempt: number; revision: number; criterionId: string; checkIndex: number; source: string; observedAt: string; independent: true; ok: boolean; detail: string; content?: string; truncated?: boolean; digest: string };
+export type AcceptorDecision = "accept" | "continue" | "change_approach" | "wait_resource" | "blocked" | "owner_action";
+export type AcceptanceReview = { id: string; at: string; attempt: number; revision: number; decision: AcceptorDecision; reason: string; nextStep: string; criteria: CriterionVerdict[]; failureSignature: string; resultFingerprint: string; strategy: string; reviewer?: { executor: string; model?: string; level: "local" | "strong" }; evidenceIds: string[] };
+export type TaskEffect = { key: string; description: string; check: TaskCheck };
+export type EffectRecord = TaskEffect & { state: "pending" | "started" | "unknown" | "confirmed"; attempt?: number; startedAt?: string; checkedAt?: string; detail?: string };
+export type ReviewRun = { id: string; executor: string; model?: string; level: "local" | "strong"; startedAt: string; endedAt?: string; outcome?: string; pid?: number; pidImage?: string; error?: string; response?: string; leaseId?: string; usage?: Record<string, number>; cost?: { tier: "local" | "subscription"; providerCost: 0 } };
+
+export type TaskKind = "code_edit" | "code_review" | "text" | "analysis" | "agent_tool";
 
 /** The delegation contract an agent submits. */
 export type TaskSpec = {
   title?: string;
   goal: string;
+  expectedResult?: string;
+  criteria?: TaskCriterion[];
+  effects?: TaskEffect[];
+  retry?: { maxAttempts?: number; sameFailureLimit?: number; delayMs?: number; maxDelayMs?: number };
+  review?: { forceStrong?: boolean; timeoutMs?: number; maxRuns?: number; allowUnknownSubscriptionQuota?: boolean };
+  resourceLimits?: { vramMiB?: number; ramMiB?: number; cpuSlots?: number };
+  actor?: string;
+  tools?: string[];
   acceptance?: string[];
   checks?: TaskCheck[];
   inputs?: string[];
@@ -71,7 +103,7 @@ export type TaskSpec = {
   isolation?: "shared" | "worktree";
   constraints?: string[];
   permissions?: { fileWrite?: boolean; shell?: "none" | "tests" | "workspace"; network?: boolean };
-  budget?: { wallMinutes?: number; subscriptionRuns?: number; maxTurns?: number };
+  budget?: { wallMinutes?: number; subscriptionRuns?: number; maxTurns?: number; providerCost?: number };
   priority?: number;
   executor?: string;
   allowedExecutors?: string[];
@@ -82,7 +114,7 @@ export type TaskSpec = {
   allowDuplicate?: boolean;
 };
 
-export type CheckResult = { check: TaskCheck; ok: boolean; detail: string; durationMs: number };
+export type CheckResult = { check: TaskCheck; ok: boolean; detail: string; durationMs: number; content?: string; truncated?: boolean; observedAt?: string; source?: string };
 
 export type Attempt = {
   n: number;
@@ -98,6 +130,12 @@ export type Attempt = {
   model?: string;
   baseline?: WorkspaceSnapshot;
   changedFiles?: string[];
+  strategy?: string;
+  provider?: string;
+  modelCalls?: ModelCall[];
+  toolCalls?: AgentToolCall[];
+  requestedModel?: string;
+  resourceWait?: boolean;
 };
 
 export type WorkspaceSnapshot = { kind: "git" | "files" | "none"; head?: string; entries: Record<string, string>; capturedAt: string; truncated?: boolean };
@@ -114,6 +152,7 @@ export type TaskResult = {
   summary: string;
   executor: string;
   model?: string;
+  provider?: string;
   changedFiles: string[];
   checks: CheckResult[];
   workdir?: string;
@@ -146,6 +185,17 @@ export type AgentTask = {
   leaseId?: string;
   cancelRequestedAt?: string;
   result?: TaskResult;
+  contract?: TaskContract;
+  evidence?: TaskEvidence[];
+  reviews?: AcceptanceReview[];
+  reviewRuns?: ReviewRun[];
+  effects?: EffectRecord[];
+  nextAttemptAt?: string;
+  reviewPending?: boolean;
+  pauseRequestedAt?: string;
+  nextStep?: string;
+  strategy?: string;
+  dependsOn?: string[];
 };
 
 export type TaskEvent = { at: string; type: string; message: string; data?: Record<string, unknown> };

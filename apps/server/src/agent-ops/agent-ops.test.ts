@@ -254,13 +254,15 @@ describe("delegated task queue", () => {
     expect(adapters[1].runs).toBe(1);
   });
 
-  it("fails verification when the executor only claims success", async () => {
+  it("continues when the executor only claims success and accepts only the repaired result", async () => {
     const { service, workspace, agent, adapters } = await setup();
     adapters[1].next.push(async () => ({ ok: true, message: "ok", summary: "All done, tests pass!" }));
     const { task } = await service.submit(agent, codeTask(workspace));
     const done = await until(service, task.id, ["verified", "failed"]);
-    expect(done.state).toBe("failed");
-    expect(done.reason).toMatch(/Проверка не прошла/);
+    expect(done.state).toBe("verified");
+    expect(done.attempts).toHaveLength(2);
+    expect(done.reviews?.[0].decision).toBe("continue");
+    expect(done.reviews?.at(-1)?.decision).toBe("accept");
   });
 
   it("returns the same task for a repeated idempotency key and rejects a duplicate goal", async () => {

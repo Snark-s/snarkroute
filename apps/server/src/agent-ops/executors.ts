@@ -1,7 +1,7 @@
 import { CodexCliError, codexWindowsSandboxMode, runCodexExec, type CodexExecResult } from "../services/codex-cli";
 import { ClaudeCliError, runClaudeCode, type ClaudeCodeResult } from "../services/claude-code-cli";
 import type { ResourceRequest } from "./resources";
-import type { AgentTask, FailureClass, TaskKind } from "./types";
+import type { AgentTask, FailureClass, TaskKind, AgentToolCall, ModelCall } from "./types";
 
 /**
  * Executor adapters: one transport each, no routing or queue logic. Any new
@@ -19,6 +19,8 @@ export type ExecutorProfile = {
   costTier: "local" | "subscription";
   /** Lower runs first among equally suitable executors of one tier. */
   order: number;
+  permissionBase?: string;
+  gatewayManaged?: boolean;
 };
 
 export type ExecutorProbe = { installed: boolean; authenticated: boolean | null; detail?: string; checkedAt: string; source: string; model?: string; runtimeId?: string };
@@ -32,6 +34,10 @@ export type ExecutorRunContext = {
   signal: AbortSignal;
   timeoutMs: number;
   maxTurns: number;
+  expectedModel?: string;
+  remainingSubscriptionRuns?: number;
+  onToolCall?: (call: AgentToolCall) => Promise<void>;
+  onModelCall?: (call: ModelCall) => Promise<void>;
   log: (line: string) => void;
   onPid: (pid: number) => void;
 };
@@ -47,6 +53,10 @@ export type ExecutorOutcome = {
   resetsAt?: string;
   quotaReport?: { usedPercent?: number; resetsAt?: string; exhausted?: boolean; source: string; detail?: string };
   artifactText?: string;
+  provider?: string;
+  waitForTaskIds?: string[];
+  waitForResources?: string;
+  budgetExhausted?: string;
 };
 
 export interface ExecutorAdapter {
@@ -198,6 +208,7 @@ export class LocalRouteExecutor implements ExecutorAdapter {
   async run(context: ExecutorRunContext): Promise<ExecutorOutcome> {
     const model = await this.deps.pickModel(context.prompt);
     if (!model) return { ok: false, failureClass: "model_unavailable", message: "Локальная текстовая модель недоступна." };
+    if (context.expectedModel && model.providerModelId !== context.expectedModel) return { ok: false, failureClass: "model_unavailable", message: "Кандидат модели изменился после выдачи ресурса; требуется новый выбор и резерв." };
     context.log(`[local] ${model.displayName} via ${model.provider}`);
     const result = await this.deps.runText(model, `${context.brief}\n\n---\n\n${context.prompt}`, context.signal);
     if (context.signal.aborted) return { ok: false, failureClass: "cancelled", message: "Отменено." };

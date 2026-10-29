@@ -169,6 +169,15 @@ export class QuotaLedger {
   }
 
   /** Clears a simulated limit (live tests must never leave a fake block behind). */
+  correctTaskBudgetFailure(executorId: string): boolean {
+    // Narrow upgrade repair for an internal task-budget stop, never a provider report.
+    const entry = this.entry(executorId);
+    if (!executorId.startsWith("buzha_") || !entry.quota.source?.startsWith("delegated run ") || !entry.lastFailure?.message.startsWith("Бюджет подписочных модельных шагов задачи исчерпан")) return false;
+    entry.quota = { state: "unknown", source: "task-budget-correction", observedAt: new Date(this.now()).toISOString(), detail: "Исчерпался бюджет задачи; состояние провайдерской квоты неизвестно." };
+    entry.nextAttemptAt = undefined; entry.lastFailure = { ...entry.lastFailure, class: "budget" }; void this.save(); return true;
+  }
+
+  /** Clears a simulated limit (live tests must never leave a fake block behind). */
   clearSimulation(executorId: string): void {
     const entry = this.entry(executorId);
     if (entry.quota.simulated) { entry.quota = { state: "unknown" }; entry.nextAttemptAt = undefined; }

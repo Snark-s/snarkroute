@@ -119,7 +119,7 @@ export class CapabilityCatalog {
           source: probe?.source ?? "ещё не проверялся",
           detail: !availability.usable ? availability.reason : probe?.detail
         },
-        permitted: identity.policy.allowedExecutors.includes(adapter.id),
+        permitted: identity.policy.allowedExecutors.includes(adapter.id) || Boolean(adapter.profile.permissionBase && identity.policy.allowedExecutors.includes(adapter.profile.permissionBase)),
         cost: adapter.profile.costTier,
         resources: adapter.profile.costTier === "local" ? "GPU/VRAM через диспетчер" : "1 поток CPU и диск локально; модель в облаке по подписке",
         invoke: `agent_delegate_submit (executor: ${adapter.id} или auto)`

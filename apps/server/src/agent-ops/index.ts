@@ -12,6 +12,14 @@ import { LockManager } from "./locks";
 import { defaultCpuCount, ResourceDispatcher, type Decision, type Lease, type ResourceRequest, type Telemetry } from "./resources";
 import { AgentOpsStore } from "./store";
 import { AgentTaskService } from "./tasks";
+import { CatalogAcceptanceReviewer } from "./acceptor-reviewer";
+import type { QuotaLedger } from "./quota-ledger";
+import { processAlive } from "./workspace";
+import { BuzhaTools } from "../buzha/tools";
+import { BuzhaExecutor, type BuzhaTextResult } from "../buzha/executor";
+import { BuzhaAgentService } from "../buzha/service";
+import { buzhaMemory } from "../buzha/memory";
+import { chooseBuzhaSubscription } from "../buzha/models";
 import type { AgentIdentity, ComputerMode } from "./types";
 
 /**
@@ -22,13 +30,13 @@ import type { AgentIdentity, ComputerMode } from "./types";
 
 export type AgentOps = Awaited<ReturnType<typeof createAgentOps>>;
 
-type TextRunner = (model: LocalTextModel, prompt: string, signal: AbortSignal) => Promise<{ ok: boolean; text?: string; error?: string; usage?: Record<string, number> }>;
+type TextRunner = (model: LocalTextModel, prompt: string, signal: AbortSignal) => Promise<BuzhaTextResult>;
 let textRunner: TextRunner | undefined;
 
 /** The route executor lives in the Fastify app; the local executor reaches it through this hook. */
 export function setAgentOpsTextRunner(runner: TextRunner): void { textRunner = runner; }
 
-export async function createAgentOps(options: { directory?: string; apiUrl?: string; adapters?: ExecutorAdapter[]; tickMs?: number; telemetry?: () => Promise<Telemetry>; workspaceRoots?: string[] } = {}) {
+export async function createAgentOps(options: { directory?: string; apiUrl?: string; adapters?: ExecutorAdapter[]; tickMs?: number; telemetry?: () => Promise<Telemetry>; workspaceRoots?: string[]; ledger?: QuotaLedger } = {}) {
   const directory = options.directory ?? agentOpsDataDirectory();
   const store = new AgentOpsStore(directory);
   const supervisor = await import("../services/local-runtime-supervisor");
@@ -63,13 +71,17 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
       }
       if (lease.holder.startsWith("agent-lease:")) return false;
       const task = tasks?.get(lease.holder);
+      const review = task?.reviewRuns?.find(run => !run.endedAt && run.leaseId === lease.id);
+      if (review?.pid) return processAlive(review.pid, review.pidImage);
+      if (review && lease.runtimeId) { const snapshot = supervisor.recentLocalRuntimeSnapshot(10000) ?? await supervisor.readLocalRuntimeSnapshot().catch(() => undefined); return Boolean(snapshot?.runtimes.find(runtime => runtime.id === lease.runtimeId)?.busy); }
       return Boolean(task && (task.state === "running" || task.state === "unknown_outcome"));
     },
     persist: state => store.writeState("leases", state)
   });
   dispatcher.restore(await store.readState("leases", {}));
 
-  const ledger = await sharedQuotaLedgerReady();
+  const ledger = options.ledger ?? await sharedQuotaLedgerReady();
+  for (const id of ["buzha_codex", "buzha_claude"]) ledger.correctTaskBudgetFailure(id);
   const subscriptions = await Promise.all([import("../services/claude-subscription"), import("../services/chatgpt-subscription")]);
   ledger.registerExternalActivity("claude_code", () => subscriptions[0].claudeSubscription().activeTurns);
   ledger.registerExternalActivity("codex_cli", () => subscriptions[1].chatGptSubscription().activeTurns);
@@ -85,11 +97,34 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     new CodexExecutor({ auth: force => subscriptions[1].chatGptSubscription().auth(force), model: () => process.env.AGENT_OPS_CODEX_MODEL?.trim() || undefined }),
     new ClaudeCodeExecutor({ auth: force => subscriptions[0].claudeSubscription().auth(force), model: () => process.env.AGENT_OPS_CLAUDE_MODEL?.trim() || "sonnet" })
   ];
+  const buzhaTools = new BuzhaTools({ delegate: async (task, args) => {
+    if (!tasks || !task.workdir || typeof args.goal !== "string" || !args.goal.trim() || args.goal.length > 10000) throw new Error("Нужна конкретная подзадача и общая очередь.");
+    const { createHash } = await import("node:crypto");
+    const key = createHash("sha256").update(args.goal).digest("hex").slice(0, 16), workspace = join(task.workdir, "subtasks", key);
+    await import("node:fs/promises").then(fs => fs.mkdir(workspace, { recursive: true }));
+    const { task: child } = await tasks.submit(registry.taskAgent(task.id, "Бужа · делегирование"), {
+      goal: args.goal, workspace, requirements: { kind: "code_edit", quality: "high" }, allowedExecutors: ["codex_cli", "claude_code"],
+      acceptance: Array.isArray(args.acceptance) ? args.acceptance.filter((v): v is string => typeof v === "string").slice(0, 15) : [args.goal],
+      checks: [{ type: "file_content", path: "answer.md" }], permissions: { fileWrite: true, shell: "tests", network: false },
+      constraints: ["Работай только внутри этой папки. Запиши проверяемый результат и конкретную сводку в answer.md. Не отправляй сообщения и не меняй аккаунты."],
+      review: { forceStrong: true }, budget: { wallMinutes: 10, subscriptionRuns: 2, maxTurns: 15 }, idempotencyKey: `buzha:${task.id}:subtask:${key}`
+    });
+    return { taskId: child.id, state: child.state, workdir: workspace, result: child.state === "verified" ? child.result : undefined, next: child.state === "verified" ? "Результат принят общим Приёмщиком." : "Общая очередь ждёт независимой приёмки подзадачи." };
+  } });
+  if (!options.adapters) for (const tier of ["local", "codex", "claude"] as const) adapters.push(new BuzhaExecutor(tier, {
+    model: pickBuzhaTextModel, runText: (model, prompt, signal) => textRunner ? textRunner(model, prompt, signal) : Promise.resolve({ ok: false, error: "Model Gateway ещё не подключён." }), memory: () => buzhaMemory(), tools: buzhaTools
+  }));
 
   tasks = new AgentTaskService({ store, registry, ledger, locks, dispatcher, adapters, mode, apiUrl: options.apiUrl ?? "http://127.0.0.1:4317",
-    worktreeRoot: join(directory, "worktrees"), tickMs: options.tickMs });
+    worktreeRoot: join(directory, "worktrees"), tickMs: options.tickMs,
+    toolCheck: (task, check) => buzhaTools.check(task, check),
+    toolObservations: task => buzhaTools.observations(task),
+    reviewer: new CatalogAcceptanceReviewer({ adapters, registry, ledger, dispatcher, store,
+      local: new LocalRouteExecutor({ pickModel: prompt => pickLocalTextModel(prompt, process.env.AGENT_OPS_REVIEW_MODEL ?? "qwen"), runText: (model, prompt, signal) => textRunner ? textRunner(model, prompt, signal) : Promise.resolve({ ok: false, error: "Исполнитель маршрутов ещё не подключён." }) }) }) });
   await tasks.init();
   const taskService = tasks;
+  const buzha = new BuzhaAgentService({ tasks: taskService, registry });
+  if (!options.adapters) buzha.start();
   const apiUrl = options.apiUrl ?? "http://127.0.0.1:4317";
 
   // Measured peaks refine the next estimate; sampling runs only while something holds a lease.
@@ -200,9 +235,9 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     taskService.kick();
   }
 
-  function close(): void { clearInterval(sampler); taskService.close(); }
+  function close(): void { clearInterval(sampler); taskService.close(); buzha.close(); void buzhaTools.close(); }
 
-  return { apiUrl, store, registry, ledger, locks, dispatcher, tasks: taskService, catalog, adapters, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
+  return { apiUrl, store, registry, ledger, locks, dispatcher, tasks: taskService, catalog, adapters, buzha, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
     modeState: () => modeState };
 }
 
@@ -291,18 +326,28 @@ function tokenSecret(directory: string): Buffer {
 }
 
 /** The existing semantic router picks the model; only a local tier result counts for the local executor. */
-async function pickLocalTextModel(prompt: string): Promise<LocalTextModel | undefined> {
+async function pickLocalTextModel(prompt: string, preferred?: string): Promise<LocalTextModel | undefined> {
   const [{ loadLiveModelCatalogV1 }, { modelOptionsForNodeV1 }, { selectSemanticModelOptionV1 }, registry] = await Promise.all([
     import("../routes/models"), import("../services/model-catalog-v1"), import("../services/semantic-model-selection"), import("../services/local-runtime-registry")
   ]);
   const options = modelOptionsForNodeV1("ai.text", await loadLiveModelCatalogV1("ai.text"));
-  const result = await selectSemanticModelOptionV1(options, { nodeType: "ai.text", prompt, routingPolicy: { allowPaid: false, subscriptionModels: "exclude", localModels: "allow" } });
+  const preferredOptions = preferred ? options.filter(option => `${option.id} ${option.displayName}`.toLowerCase().includes(preferred.toLowerCase())) : [];
+  const result = await selectSemanticModelOptionV1(preferredOptions.length ? preferredOptions : options, { nodeType: "ai.text", prompt, routingPolicy: { allowPaid: false, subscriptionModels: "exclude", localModels: "allow" } });
   if (result.status !== "ok" || result.selectedProvider !== "local_openai" || !result.selectedProviderModelId) return undefined;
   const option = result.models.find(model => model.id === result.selectedModelId);
   const runtime = registry.listRegisteredLocalRuntimes().find(item => item.modelIds.includes(result.selectedProviderModelId!)) ;
   const contextTokens = Number((option?.metadata as Record<string, unknown> | undefined)?.contextLength ?? 8192);
   return { provider: "local_openai", providerModelId: result.selectedProviderModelId, displayName: option?.displayName ?? result.selectedProviderModelId,
     runtimeId: runtime?.id ?? "ollama", contextTokens: Number.isFinite(contextTokens) ? contextTokens : 8192 };
+}
+
+async function pickBuzhaTextModel(tier: "local" | "codex" | "claude", prompt: string): Promise<LocalTextModel | undefined> {
+  const memory = await buzhaMemory();
+  if (tier === "local") return pickLocalTextModel(prompt, memory.model?.startsWith("local_openai:") ? memory.model.slice("local_openai:".length) : process.env.BUZHA_LOCAL_MODEL ?? "qwen");
+  const provider = tier === "codex" ? "chatgpt_subscription" : "claude_subscription";
+  const { buzhaModels } = await import("../routes/buzha-model-gateway");
+  const chosen = chooseBuzhaSubscription(await buzhaModels(), provider, memory.model);
+  return chosen ? { provider, providerModelId: chosen.providerModelId, displayName: chosen.name, runtimeId: "subscription", contextTokens: 100000 } : undefined;
 }
 
 async function loadModelGroups() {
@@ -320,7 +365,7 @@ async function loadAgentApps() {
   const describe: Record<string, { title: string; summary: string; invoke: string }> = {
     tove: { title: "Шорёк (Tove)", summary: "Проактивный агент: цели, намерения, действия. Своё приложение и UI.", invoke: "Мастерская → Агенты; вопросы владельцу только через Секретаря" },
     factory: { title: "Фабрика (Factory)", summary: "Производство цифровых товаров; новые дизайны сначала на одобрение через Секретаря.", invoke: "Мастерская → Агенты" },
-    buzha: { title: "Бужа", summary: "Бюро разовых заказов: ручной учёт и чат через Model Gateway; automation=false.", invoke: "local_runtime_start buzha; заказы вводятся вручную" }
+    buzha: { title: "Бужа", summary: "Постоянная личность и SQLite; поручения исполняет общая очередь через модели и ограниченные инструменты, принимает общий Приёмщик. Расписания отдельно от доступности UI.", invoke: "buzha_message / buzha_status; Мастерская → Агенты → Бужа" }
   };
   const autonomous = await Promise.all((["tove", "factory", "buzha"] as const).map(async id => {
     const status = await apps.readAutonomousAppStatus(id).catch(() => undefined);
@@ -335,6 +380,9 @@ async function loadAgentApps() {
 
 function defaultToolGroups(): ToolGroup[] {
   return [
+    { id: "acceptor", title: "Приёмщик", summary: "Долговечная приёмка по критериям и независимым доказательствам; продолжение через общую очередь, пауза, отмена, журнал внешних действий. Модельная проверка может ждать ресурсов.", cost: "mixed",
+      tools: ["agent_acceptor_inspect", "agent_acceptor_status", "agent_delegate_verify", "agent_delegate_pause", "agent_delegate_resume", "agent_task_effect", "agent_task_amend"], available: async () => true },
+    { id: "buzha", title: "Бужа · постоянный агент", summary: "Общая очередь, личность и история из существующей SQLite, Profile 13 через SnarkBridge, ограниченные инструменты, общий Приёмщик. Чат действительно создаёт задачу.", cost: "mixed", tools: ["buzha_message", "buzha_status", "buzha_task", "buzha_control"], available: async () => true },
     { id: "agent_ops", title: "Делегирование и ресурсы", summary: "Каталог, поручения исполнителям, резервы GPU/RAM, режим компьютера.", cost: "none",
       tools: ["agent_whoami", "agent_capabilities", "agent_capability_detail", "agent_delegate_submit", "agent_delegate_status", "agent_delegate_result", "agent_delegate_cancel", "agent_delegate_list", "agent_resource_acquire", "agent_resource_release", "computer_mode_status"], available: async () => true },
     { id: "images", title: "Изображения (FLUX.3, Qwen edit)", summary: "Генерация и точная правка изображений локально через Model Gateway.", cost: "local", resources: "тяжёлая GPU-задача, резерв через диспетчер",

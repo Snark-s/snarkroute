@@ -8,7 +8,7 @@ import { loadLiveModelCatalogV1 } from "./models";
 import { readOpenRouterModelCatalogCache } from "@snarkroute/openrouter";
 import { openRouterCatalogCachePath } from "../server-paths";
 
-export type BuzhaModel = { id: string; name: string; provider: string; providerModelId: string; pricing?: ModelPricingInfoV1 };
+export type BuzhaModel = { id: string; name: string; provider: string; providerModelId: string; pricing?: ModelPricingInfoV1; metadata?: Record<string, unknown> };
 const ROOT = "/api/system/buzha";
 
 /** These existing text transports make a single inference POST, with no paid retry or fallback.
@@ -21,7 +21,7 @@ export async function buzhaModels(): Promise<BuzhaModel[]> {
     && model.availability.status === "available" && model.availability.configured !== false
     && model.inputTypes.includes("text") && model.outputTypes.includes("text"))
     .map(model => ({ id: `${model.provider}:${model.providerModelId}`, name: model.displayName,
-      provider: model.provider, providerModelId: model.providerModelId, pricing: model.pricing ?? (model.provider === "local_openai"
+      provider: model.provider, providerModelId: model.providerModelId, metadata: model.metadata as Record<string, unknown> | undefined, pricing: model.pricing ?? (model.provider === "local_openai"
         ? { status: "fresh" as const, source: "manual" as const, currency: "USD", unit: "token", pricing: { prompt: 0, completion: 0 } }
         : prices.get(model.providerModelId) ? { status: "unknown" as const,
           source: "provider-cache" as const, currency: "USD", unit: "token", pricing: prices.get(model.providerModelId), refreshedAt: cache?.refreshedAt } : undefined) }))

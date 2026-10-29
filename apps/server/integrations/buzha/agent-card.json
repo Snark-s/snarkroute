@@ -1,0 +1,17 @@
+{
+  "id": "buzha",
+  "name": "Бужа",
+  "category": "agents",
+  "description": "Постоянная помощница: общий исполнитель, чат, задачи, история и Приёмщик",
+  "working_directory": "Y:\\Приложения\\Бужа",
+  "launch": "Start.cmd",
+  "url": "http://127.0.0.1:8796/",
+  "icon": "assets/buzha.png",
+  "integration_status": "live_verified",
+  "note": "30.10.2026: проверены запуск из карточки Бужи, реальные gpt-5.6-sol и SnarkBridge/Profile 13, возврат и приёмка общей очередью, API/MCP с дедупликацией, сохранение истории и паузы после перезапуска. Локальный Qwen обнаружен, пригодность не подтверждена из-за ресурсов. Расписания остаются у ChatGPT, локальных дублей нет.",
+  "shared_agent": "app:buzha",
+  "agent_ui_path": "/buzha",
+  "agent_api": "/api/agents/buzha",
+  "automation": false,
+  "schedule_owner": "chatgpt"
+}

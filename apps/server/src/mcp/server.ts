@@ -14,12 +14,13 @@ import { TECH_RADAR_INSTRUCTIONS, registerTechRadarTools } from "./tech-radar-to
 import { MODEL_EXPOSURE_INSTRUCTIONS, registerModelExposureTools } from "./model-exposure-tools";
 import { AGENT_OPS_INSTRUCTIONS, registerAgentOpsTools } from "./agent-ops-tools";
 import { opsContext } from "../agent-ops/context";
+import { BUZHA_INSTRUCTIONS, registerBuzhaTools } from "./buzha-tools";
 
 const instructions = "This server controls local Adobe After Effects and exposes shared SnarkRoute runtime state. Before making After Effects changes, call ae_list_sessions. Before starting heavy local inference, call local_runtime_admission with intent=workload and surface any warnings or blockers instead of blindly starting another GPU-heavy runtime. If exactly one AE session is connected, tools may select it automatically; otherwise pass sessionId. For non-standard operations use ae_run_arbitrary_jsx. JSX executes directly in the currently open After Effects project through the SnarkRoute CEP panel. Arbitrary JSX is intentionally unrestricted and can access the AE DOM and ExtendScript File/Folder APIs. Timeouts stop waiting for a reply but cannot reliably interrupt ExtendScript already running.";
 const transports = new Map<string, StreamableHTTPServerTransport>();
 /** Agent id of each MCP session, from the client's initialize clientInfo. */
 const sessionAgents = new Map<string, () => string>();
-const buzhaInstructions = " Buzha is runtime buzha in local_runtime_status/start/stop: a local orders bureau with manual records and a chat through SnarkRoute. Ready means the UI is available, not autonomous execution; automation is false. Future executor questions must go through Secretary.";
+const buzhaInstructions = BUZHA_INSTRUCTIONS;
 
 export async function registerMcpRoutes(app: FastifyInstance, jabberwock?: JabberwockMcpContext): Promise<void> {
   if (!process.env.SNARKROUTE_MCP_TOKEN?.trim()) app.log.warn("SNARKROUTE_MCP_TOKEN is not configured; /mcp is disabled. Other SnarkRoute routes remain available.");
@@ -65,6 +66,7 @@ export function createAeMcpServer(bridge: AeBridgeService = aeBridgeService, jab
   registerCozyClayTools(server);
   registerTechRadarTools(server);
   registerAgentOpsTools(server, ops => ops.registry.mcpClient(server.server.getClientVersion()?.name, server.server.getClientVersion()?.title as string | undefined));
+  registerBuzhaTools(server, ops => ops.registry.mcpClient(server.server.getClientVersion()?.name, server.server.getClientVersion()?.title as string | undefined));
   if (jabberwock) registerJabberwockTools(server, jabberwock);
   return server;
 }
