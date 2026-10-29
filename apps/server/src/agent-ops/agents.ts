@@ -72,11 +72,33 @@ export class AgentRegistry {
   }
 
   issueTaskToken(taskId: string, ttlMs: number): string {
-    const payload = Buffer.from(JSON.stringify({ t: taskId, e: this.time() + ttlMs })).toString("base64url");
-    return `${payload}.${this.sign(payload)}`;
+    return this.issue({ t: taskId }, ttlMs);
+  }
+
+  /** For agents SnarkRoute launches itself (PersonaCore runs, autonomous apps): their own identity, agent policy. */
+  issueAgentToken(identity: Pick<AgentIdentity, "id" | "kind" | "label">, ttlMs: number): string {
+    return this.issue({ a: identity.id, k: identity.kind, l: identity.label }, ttlMs);
   }
 
   verifyTaskToken(token: string | undefined): string | undefined {
+    return this.verify(token)?.t;
+  }
+
+  /** Identity carried by a token this server signed, or undefined for a bad or expired token. */
+  identityFromToken(token: string | undefined): AgentIdentity | undefined {
+    const payload = this.verify(token);
+    if (!payload) return undefined;
+    if (payload.t) return this.taskAgent(payload.t, `task ${payload.t}`);
+    if (!payload.a || !["persona", "app"].includes(payload.k ?? "")) return undefined;
+    return this.touch(payload.a, payload.k as AgentKind, payload.l ?? payload.a, "token");
+  }
+
+  private issue(claims: { t?: string; a?: string; k?: string; l?: string }, ttlMs: number): string {
+    const payload = Buffer.from(JSON.stringify({ ...claims, e: this.time() + ttlMs })).toString("base64url");
+    return `${payload}.${this.sign(payload)}`;
+  }
+
+  private verify(token: string | undefined): { t?: string; a?: string; k?: string; l?: string } | undefined {
     if (!token) return undefined;
     const [payload, signature] = token.split(".");
     if (!payload || !signature) return undefined;
@@ -84,8 +106,8 @@ export class AgentRegistry {
     const given = Buffer.from(signature);
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) return undefined;
     try {
-      const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { t?: string; e?: number };
-      return typeof parsed.t === "string" && typeof parsed.e === "number" && parsed.e > this.time() ? parsed.t : undefined;
+      const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { t?: string; a?: string; k?: string; l?: string; e?: number };
+      return typeof parsed.e === "number" && parsed.e > this.time() && (typeof parsed.t === "string" || typeof parsed.a === "string") ? parsed : undefined;
     } catch { return undefined; }
   }
 
@@ -136,6 +158,7 @@ export function agentBrief(identity: AgentIdentity, extra?: { taskId?: string; c
     `Your SnarkRoute agent id: ${identity.id} (policy ${identity.policy.id}; delegation depth limit ${identity.policy.maxDelegationDepth}).`,
     AGENT_OPS_BRIEF
   ];
+  if (extra?.apiUrl && !extra.taskId) lines.push(`Without MCP: ${extra.apiUrl}/api/agent-ops (catalog, tasks, leases) with header "x-snarkroute-agent-token: $SNARKROUTE_AGENT_TOKEN".`);
   if (extra?.taskId) {
     lines.push(`You are executing delegated task ${extra.taskId} at depth ${extra.chainDepth ?? 1}.${extra.budget ? ` Remaining chain budget: ${extra.budget}.` : ""}`);
     if (extra.apiUrl) lines.push(`To delegate a sub-task or read the catalog without MCP, call ${extra.apiUrl}/api/agent-ops (catalog, tasks) with header "x-snarkroute-agent-token: $SNARKROUTE_AGENT_TOKEN"; sub-tasks share this task's budget, and delegating the same goal back up the chain is refused.`);

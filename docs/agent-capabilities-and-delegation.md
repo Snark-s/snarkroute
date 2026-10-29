@@ -1,92 +1,193 @@
-# SnarkRoute: Agent Capability Registry and Delegation
+# SnarkRoute: возможности агентов, делегирование и ресурсы компьютера
 
-Status as of 2026-10-29: **Phase 1 implemented and typechecked** (read-only coding-agent discovery); durable task delegation is **not implemented**. Never treat the presence of a CLI as an already-running delegated job.
+Статус на 2026-10-29: **реализовано** (`apps/server/src/agent-ops`). Фаза 1 (`coding_agents_discover`
+через PowerShell) заменена живым каталогом; имя инструмента сохранено для совместимости.
 
-## Purpose
+Главное правило: агент сам находит подходящего исполнителя, получает ресурсы в разрешённое время,
+не мешает другим и возвращает результат, проверенный по файлам и тестам.
 
-Every connected agent should be able to ask SnarkRoute what it is able to do, then delegate an appropriate complex task to a specialist without inventing capabilities, guessing subscription limits, repeatedly asking the owner for the same permission, or bypassing local sandbox rules.
+## Что из чего сделано
 
-Existing infrastructure:
-- SnarkRoute's model gateway, ORP routes, node and portable tools, specialized MCP tools (Adobe AE, local runtime, images, model exposure, CozyClay, Jabberwock, Tech Radar).
-- `apps/server/src/routes/persona-agent.ts` already has a PersonaCore-to-Codex Desktop handoff; this is not a general result-returning executor.
-- SnarkBridge has its own file/process/browser/mail/agent scopes and approved workflows; only a connecting agent with a matching MCP client and permissions can call those.
-- Codex CLI and Claude Code CLI are installed and authenticated on this owner's machine as of 2026-10-29, **but remaining quota was not available from auth status**.
+| Часть | Файл | Что делает |
+| --- | --- | --- |
+| Каталог | `agent-ops/catalog.ts` | исполнители, группы моделей, группы MCP-инструментов, локальные сервисы, агенты-приложения; у каждой записи отдельно `registered` / `discovered` / `available` / `verified`, источник и время проверки |
+| Маршрутизатор исполнителей | `agent-ops/router.ts` | кто подходит по типу задачи, качеству, контексту и правам (жёсткий фильтр), затем локальный → подписки; Codex раньше Claude |
+| Выбор модели | `services/semantic-model-selection.ts` (существующий) | локальный исполнитель берёт модель через семантический маршрутизатор с политикой `allowPaid:false, subscriptionModels:"exclude"` |
+| Учёт квот | `agent-ops/quota-ledger.ts`, `ledger-instance.ts` | вход, квота, ограничения частоты, следующая попытка, источник и время; общий для поручений и чатов по подписке |
+| Диспетчер ресурсов | `agent-ops/resources.ts` | атомарные резервы GPU/VRAM, RAM, CPU, тяжёлого диска; резерв владельца; уточнение оценок по измерениям |
+| Режимы компьютера | `agent-ops/computer-mode.ts` | три режима, расписание в Europe/Moscow, ручное переключение, приложения владельца |
+| Блокировки | `agent-ops/locks.ts` | рабочие копии, файлы, браузерные профили, сервисы; переживают сбой без второго владельца |
+| Очередь поручений | `agent-ops/tasks.ts` | контракт, приоритеты со старением, цепочки, бюджеты, проверка результата, восстановление после перезапуска |
+| Исполнители | `agent-ops/executors.ts` | `local_route` (ORP-маршрут `ai.text`), `codex_cli` (`codex exec`, workspace-write), `claude_code` (`claude -p`, только разрешённые инструменты) |
+| MCP | `mcp/agent-ops-tools.ts` | `agent_*`, `computer_mode_status`, `coding_agents_discover` |
+| HTTP | `routes/agent-ops.ts` | `/api/agent-ops/*` |
+| UI | `apps/launcher/src/AgentOpsPanel.tsx` | статус в шапке (все вкладки) и «Диспетчер задач агентов» во вкладке «Агенты» |
 
-## Phase 1: Discover, not delegate (implemented)
+Данные: `apps/server/data/agent-ops/` (не в git): `tasks/<id>/{task.json,events.jsonl,executor.log,result.md}`,
+`computer-mode.json`, `quota-ledger.json`, `leases.json`, `locks.json`, `agents.json`, `policies.json`, `secret.key`.
 
-SnarkRoute MCP now registers `coding_agents_discover`, accessible to clients with the existing authenticated local MCP connection. It runs the read-only `scripts/discover-coding-agents.ps1` and returns:
+## Каталог: четыре разных факта
+
+- **registered** — SnarkRoute знает об этой сущности (код, реестр).
+- **discovered** — найдена на компьютере (CLI установлен, рантайм отвечает).
+- **available** — можно использовать сейчас (вход по подписке, нет лимита/паузы, есть свободный слот).
+- **verified** — есть запись об успешном поручении, прошедшем проверки (дата).
+
+Установленный и авторизованный CLI — это `discovered`, а не обещание выполнить задачу. Остаток квоты
+без отчёта провайдера — `unknown`; отчёт старше 30 минут тоже становится `unknown`.
+`agent_capabilities` отдаёт короткие строки, `agent_capability_detail` — подробности одной записи.
+
+## Маршрутизатор и диспетчер
+
+Маршрутизатор решает, **кто** подходит: тип (`code_edit`, `code_review`, `analysis`, `text`), качество,
+контекст, умение менять файлы, разрешения политики. Локальная модель не выбирается для правки кода
+или задачи выше её качества только потому, что бесплатна. Предпочтённый исполнитель, который не подходит,
+не подменяется молча: причина пишется в события задачи.
+
+Диспетчер решает, **можно ли сейчас**: квота и вход (журнал квот), общий предел одновременных
+подписочных запусков (по умолчанию 2 на все подписки, включая чаты), предел на исполнителя (1),
+дневные пределы, режим компьютера, ресурсы, блокировки. Платные API не используются никогда:
+Codex и Claude запускаются без API-ключей (переменные вычищаются), локальный маршрут — с
+`allowPaid:false`.
+
+## Квоты и сбои
+
+Классы отказов разделены: `quota_exhausted`, `rate_limited`, `auth`, `network`, `process`, `timeout`,
+`model_unavailable`. Лимит одного исполнителя → задача возвращается в очередь и идёт к следующему
+подходящему, **только если** процесс завершился и в рабочей папке нет изменений относительно снимка
+перед запуском. Если изменения есть — задача `blocked` с перечнем файлов и ждёт решения
+(`continue` — другой исполнитель продолжает с текущего состояния; `requeue`; `mark_failed`).
+Лимиты проверяются симуляцией: `POST /api/agent-ops/simulate {executor, failure, seconds}`
+(только владелец, помечается как симуляция), снятие — `DELETE /api/agent-ops/simulate/<executor>`.
+
+## Ресурсы
+
+Резерв (lease) выдаётся синхронно после чтения телеметрии, поэтому два агента не могут рассчитывать
+на одну и ту же свободную VRAM. Учитываются: резерв владельца по режиму, чужие резервы, ещё не
+проявившиеся в `nvidia-smi`, совместимость рантаймов (существующий admission из
+`local-runtime-supervisor`), один тяжёлый слот GPU, лимит CPU-потоков, один тяжёлый дисковый поток.
+
+Оценка VRAM: измеренный пик прошлых запусков ×1.15 (ключ: рантайм, модель, размер контекста 8k/32k/128k)
+важнее заявленного `recommendedFreeVramMiB`, а тот — оценки по умолчанию. Источник оценки виден
+(`measured` / `declared` / `default`). Это оценка, не гарантия.
+
+Истёкший резерв не освобождается сам: сначала проверяется, жив ли процесс задачи или занят ли рантайм.
+Модели других агентов не выгружаются; агент через MCP не может остановить рантайм, который используют
+другие, и не может запустить модель, занимающую GPU, в режиме «Компьютер нужен мне».
+
+Штатные пути запуска подключены технически: FLUX.3 (`providers/flux3-native.ts`), Qwen edit
+(`providers/qwen-edit-local.ts`), локальные LLM (`providers/local-openai.ts`), H3 и апскейл
+(`execution/service.ts`) работают внутри `withLocalRuntimeLease`, который включает прежний admission.
+Запросы из MCP идут как работа агента; запросы из Мастерской/BoojumRoute — как интерактивные запросы
+владельца (они тоже проходят admission и не обходят занятый слот).
+
+## Режимы компьютера
+
+| Режим | Тяжёлые задачи агентов | Лёгкие | Резерв для владельца |
+| --- | --- | --- | --- |
+| Компьютер нужен мне | ждут | 1 | вся VRAM, 12 ГБ RAM, 60 % CPU |
+| Можно работать в фоне | 1, если не запущены Blender/UE/TouchDesigner/AE и т. п. | 2 | 4 ГБ VRAM, 8 ГБ RAM, 40 % CPU |
+| Компьютер свободен | 1 | 3 | 1 ГБ VRAM, 4 ГБ RAM, 15 % CPU |
+
+Резерв RAM целиком защищает от тяжёлых задач; лёгким (CLI-исполнитель, прогон тестов) достаточно, чтобы
+после них оставалось не меньше 2 ГБ свободной памяти. Пределы меняются `PUT /api/agent-ops/limits`. Порядок: ручной режим (с `until` или до переключения) →
+окно расписания (пересечения решаются в пользу более бережного режима) → «Можно работать в фоне».
+Ночь сама по себе ничего не разрешает; отсутствие мыши и клавиатуры не считается свободным компьютером.
+
+При переходе в «Компьютер нужен мне» новые тяжёлые этапы не выдаются; текущий этап (одна генерация
+локальной модели) завершается сам; запуски Codex/Claude (облачная модель, лёгкая локальная нагрузка)
+продолжаются. Сохранение состояния посреди генерации не обещается — рантаймы его не поддерживают.
+
+Переключение: шапка Мастерской (выпадающий список на всех вкладках) или вкладка «Агенты» → кнопки режимов,
+«на 1 час / на 4 часа», «По расписанию». API: `PUT /api/agent-ops/mode {mode, minutes|until}`,
+`{mode:null}` — вернуться к расписанию. Расписание: вкладка «Агенты» → «Расписание», или
+`PUT /api/agent-ops/schedule {rules:[{id, days:[1..7], from:"HH:MM", to:"HH:MM", mode, label}]}`.
+Агенты режим не меняют (`canSetComputerMode` только у владельца).
+
+## Поручение (контракт)
 
 ```json
 {
-  "schema_version": 1,
-  "executors": [
-    {"id": "codex", "installed": true, "authenticated": true, "version": "...", "quota": "unknown", "callable": true, "launch": "codex exec"},
-    {"id": "claude-code", "installed": true, "authenticated": true, "version": "...", "quota": "unknown", "callable": true, "launch": "claude -p"}
-  ],
-  "delegation": {"status": "not_yet_implemented"}
+  "goal": "что сделать (самодостаточно)",
+  "acceptance": ["критерии готовности"],
+  "checks": [{"type": "command", "command": "node", "args": ["--test"]}, {"type": "file_contains", "path": "x.js", "text": "..."}],
+  "inputs": ["исходные материалы"],
+  "workspace": "Y:\\...\\папка",
+  "isolation": "shared | worktree",
+  "constraints": ["ограничения"],
+  "permissions": {"fileWrite": true, "shell": "none | tests | workspace", "network": false},
+  "budget": {"wallMinutes": 30, "subscriptionRuns": 2, "maxTurns": 40},
+  "priority": 50,
+  "executor": "auto | local_route | codex_cli | claude_code",
+  "idempotencyKey": "ключ защиты от повторного запуска",
+  "parentTaskId": "для явной подзадачи"
 }
 ```
 
-No prompts, provider API calls, account secrets, or paid tasks are involved in discovery. The result can change at runtime; do not copy these values into a static agent persona.
+Владелец задачи — отправивший агент; цепочка хранит `rootTaskId`, глубину, агентов и отпечатки целей.
+Запрещены: глубина больше политики (3 для агентов), цель, уже встречающаяся выше в цепочке (цикл),
+превышение бюджета цепочки (задачи, подписочные запуски, минуты), дубликат активной задачи с той же
+целью и папкой. Повтор с тем же `idempotencyKey` возвращает существующую задачу.
 
-Implementation:
-- `scripts/discover-coding-agents.ps1`
-- `apps/server/src/mcp/coding-agent-tools.ts`
-- Registration and tool instructions in `apps/server/src/mcp/server.ts`
+Состояния: `queued`, `waiting_window`, `waiting_resources`, `waiting_executor`, `running`, `blocked`,
+`failed`, `cancelled`, `unknown_outcome`, `awaiting_verification`, `verified`. У каждого ожидания есть
+понятная причина. `verified` ставится только после прохождения проверок SnarkRoute (или подтверждения
+владельца); слова исполнителя проверкой не считаются.
 
-Validation: `pnpm --filter @snarkroute/server exec tsc --noEmit -p tsconfig.json` passed on 2026-10-29. Existing running server may need a normal restart/hot reload to load newly registered tool; the MCP endpoint itself has not been live-smoke-tested.
+Ресурсы не удерживаются во время ожидания: рабочая копия блокируется только на время запуска и
+проверки, GPU освобождается сразу после этапа исполнителя. Для независимой работы в git-репозитории
+`isolation:"worktree"` создаёт отдельный worktree и ветку `agent/<id>`; слияние решает поручивший агент.
 
-## Phase 2: Universal delegation (required)
+### Перезапуск и обрыв связи
 
-Expose the same contract through both authenticated MCP and the local SnarkRoute HTTP API, and make it available to every authorized agent runtime:
+Задачи, события и журналы — на диске. После перезапуска сервера задача `running`:
+- процесс исполнителя жив (pid и имя образа сверяются) → `unknown_outcome`, ждём его завершения, блокировка
+  сохраняется, повторного запуска нет;
+- процесс завершён → решают файлы и проверки: изменения есть и проверки прошли → `verified`;
+  изменений нет и сеть не разрешалась → безопасно обратно в очередь; иначе `unknown_outcome` с решением
+  через `agent_delegate_resolve`.
 
-- `agent_capabilities`: discover actions, providers, cost class, security scope, real availability, and whether proof of a successful action exists. Live discovery should be the source of truth. Tool registry entries are not proof of function.
-- `agent_delegate_submit`: accept purpose, task description, evidence/artefacts, target workspace, constraints, cost/time budget, preferred executor. Return durable job id and state; never report completed on submission.
-- `agent_delegate_status`: persisted state and whether the provider is running, waiting, blocked, failed or complete.
-- `agent_delegate_result`: result text, changed file summary, test outcome, actual provider, costs where measurable and independently verified acceptance criteria.
-- `agent_delegate_cancel`: cancel an owned active job, without killing arbitrary user processes.
+Обрыв связи клиента не влияет на задачу: клиент читает `agent_delegate_status` или повторяет отправку
+с тем же `idempotencyKey`.
 
-Executors:
-1. Local SnarkRoute model route for cheap tasks, **local first** if capable.
-2. Codex CLI (subscription credentials), best for coding and repository edits.
-3. Claude Code CLI (subscription credentials), alternate when Codex unavailable/unsuited/at limit.
-4. Extension for specialized agents via registered adapters, not by hardcoded brand names.
+## Как каждый агент узнаёт об этом автоматически
 
-Subscription limits:
-- `authenticated=true` is NOT `quota_available=true`.
-- Use `quota=unknown` until a supported provider status gives reliable availability. Do not scrape local auth tokens, quotas, private UI or approximate remaining message count.
-- On an actual explicit rate-limit/usage-limit response, mark that executor as `exhausted` or `cooldown`; store provider-provided retry timing if available. Do not confuse authentication failures, network errors and quotas.
-- Never silently switch to pay-per-token API or change billing provider. Prefer local, then permitted subscriptions; stop if no eligible quota remains.
-- Add conservative max jobs per agent, per workspace, and per day, so multiple agents do not exhaust the same subscription simultaneously.
+| Путь создания/запуска агента | Что он получает |
+| --- | --- |
+| Любой MCP-клиент (Codex, Claude Code, Claude Desktop/claude.ai через мост, новые) | короткая инструкция в `instructions` MCP-сервера при подключении; идентичность `mcp:<clientInfo.name>` и политика при первом вызове; `agent_whoami` |
+| Дочерний исполнитель поручения (Codex/Claude, запущенные очередью) | в промпте: свой id `task:<id>`, глубина, остаток бюджета, инструкция; в окружении `SNARKROUTE_AGENT_TOKEN` (подписанный, привязан к задаче и сроку), `SNARKROUTE_TASK_ID`, `SNARKROUTE_API_URL`; подзадачи — через HTTP с заголовком `x-snarkroute-agent-token` |
+| Процессы MCP-сессии (их GPU-работа) | контекст агента: диспетчер видит в них фоновую работу агента |
+| Задачи PersonaCore (`/api/persona/tasks/:id/run[/start]`) и автономные приложения Шорёк, Фабрика, Бужа (запуск из Мастерской) | при каждом штатном запуске в окружении: `SNARKROUTE_AGENT_ID` (`persona:<task>`, `app:<id>`), `SNARKROUTE_AGENT_TOKEN` (подписан сервером, политика агента), `SNARKROUTE_API_URL`, `SNARKROUTE_AGENT_BRIEF` |
+| HTTP-клиенты | `x-snarkroute-agent-token` (исполнитель, PersonaCore, приложение) или Bearer MCP + `x-snarkroute-agent: <имя>`; иначе — Мастерская (владелец) |
 
-Execution controls:
-- Owner-controlled policy and workspace allowlists; no arbitrary shell from untrusted prompts.
-- `codex exec` with workspace-write and safe approvals, not dangerous bypass flags.
-- `claude -p` with appropriate workspace permission constraints and bounded turns. No blanket bypass-permissions mode.
-- Persistent idempotency keys, per-workspace mutexes, timeouts, bounded logs and output, cancellation, and no retry on unknown outcomes without explicit safety.
-- Clear chain of responsibility: delegator -> executing specialist -> evaluator; protect against infinite self-delegation and circular delegation.
-- All model routing and economics respect `docs/CONNECTING-NEW-ENTITY.md` and SnarkRoute's centralized policy.
-- Owner authority is represented by actual configured policy, not by claims in a prompt. Only the owner changes protected policies.
-- No claim of success until independently verified in files, tests, website or external artifact, as appropriate.
+Список моделей в персоны не копируется: текущие возможности агент берёт из каталога.
+Проверка «новым агентом без ручных инструкций»: `apps/server/scripts/agent-ops-mcp-smoke.ts`.
 
-## Agent awareness: disclose abilities, not exhaust the context
+## Добавить нового исполнителя
 
-Each agent's startup message should include only a tiny stable hint:
-> Before refusing a task you might be able to delegate, call the SnarkRoute capability catalog. Choose the cheapest suitable permitted executor. Do not guess availability, permissions or subscription quotas; submit through durable jobs and verify results.
+Реализовать `ExecutorAdapter` (`id`, `label`, `profile` — типы задач, правка файлов, контекст, качество,
+тир стоимости, порядок; `probe()`; `resourceRequest()`; `run()` → `ExecutorOutcome` с классом отказа)
+и передать его в `createAgentOps({ adapters })` (или добавить в список по умолчанию в `agent-ops/index.ts`).
+Маршрутизация, очередь, квоты, ресурсы, проверки и UI подхватят его без изменений.
 
-The registry returns compact descriptions and where/how to discover details on demand. Agents should never need a multi-page list of all tools in their permanent prompt.
+## Проверки
 
-## Acceptance tests for Phase 2
+- Юнит/интеграционные: `pnpm --filter @snarkroute/server exec vitest run src/agent-ops` (режимы и
+  Europe/Moscow, атомарность резервов, режим владельца, приложения владельца, измерения, квоты, блокировки,
+  маршрутизация, очередь: проверка по файлам, идемпотентность, дубликаты, одна рабочая копия, один GPU,
+  «Компьютер нужен мне», fallback после лимита без двойного выполнения, частичные изменения, честное ожидание,
+  циклы/глубина/бюджет, перезапуск).
+- Живые с реальными CLI на одноразовом проекте: `tsx apps/server/scripts/agent-ops-smoke.ts [codex|claude|both]`.
+- Живые через MCP на работающем сервере: `tsx apps/server/scripts/agent-ops-mcp-smoke.ts [delegate|restart]`.
 
-- Agent A asks for capabilities and finds two coding executors without calling either model.
-- Agent A cannot complete a scoped code task, submits it to Codex; receives job id; the resulting changed files and tests are visible.
-- Codex returns a confirmed quota limit: Claude Code is selected only if authorized, quota not explicitly exhausted, and the task's budget permits it. No paid API fallback.
-- Both coding subscriptions unavailable: explicit no-capacity status, no claim of delegation.
-- Two agents target same repository: one job waits; no simultaneous writes.
-- Restart midway: job status and logs persist; no duplicate execution.
-- Unauthorized directory, credential, payment, identity-verification or destructive operations remain blocked.
-- MCP instructions and the capability registry are visible to agents that connect to SnarkRoute, without requiring owner to repeat the same explanation.
+## Границы
 
-## Notes on scope
-
-Phase 1 detects coders only. Model gateway, media tools, desktop workflows and external apps require their own dynamic health/permission probes for a complete catalog. Avoid equating an installed tool or previously documented capability with confirmed permission to run it.
+- Локальный HTTP API, как и раньше, доверяет любому процессу на loopback: вызов без токена агента
+  считается владельцем. Дочерним исполнителям токен выдаётся, но технически они могут его не передать.
+- PersonaCore (`I:\PersonaCore`) и приложения Tove/Factory/Buzha — отдельные репозитории: SnarkRoute
+  передаёт им идентичность, токен и инструкцию в окружении, но их собственный код пока эти переменные
+  не читает. Чтобы их модели видели инструкцию, этим приложениям нужно добавить `SNARKROUTE_AGENT_BRIEF`
+  в свой системный промпт (их код в этой работе не менялся).
+- Пауза с сохранением состояния посреди генерации не реализована (рантаймы её не дают); останавливается
+  выдача новых этапов.
+- Измерение CPU — по слотам, без живой телеметрии загрузки процессора.

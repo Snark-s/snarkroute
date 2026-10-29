@@ -40,6 +40,14 @@ grouped by type. The owner sets "local only" / "selected only" in the Workshop:
 System → Models and providers (`/api/system/model-exposure`, stored in
 `apps/server/data/model-exposure.json`). Model Gateway rejects MCP jobs for hidden models.
 
+Agent operations (`agent_*`, `computer_mode_status`; HTTP `/api/agent-ops/*`): capability
+catalog with registered/discovered/available/verified status, delegation of durable tasks to
+`local_route`, `codex_cli` or `claude_code` with checks run by SnarkRoute itself, GPU/RAM leases,
+the owner's computer modes (Europe/Moscow schedule, manual override) and a shared quota ledger.
+Workshop: top status bar on every tab and "Диспетчер задач агентов" in the Agents tab. Live checks:
+`apps/server/scripts/agent-ops-mcp-smoke.ts`, `apps/server/scripts/agent-ops-smoke.ts`; details
+`docs/agent-capabilities-and-delegation.md`.
+
 `tech_radar_research` queues public GitHub research without running project code or
 using paid APIs; `tech_radar_catalog` reads results and the workshop capability map.
 Open `/tech-radar` in SnarkRoute or BoojumRoute for research, decisions and history.

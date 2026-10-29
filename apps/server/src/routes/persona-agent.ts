@@ -6,6 +6,7 @@ import { extname, join, resolve, sep } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { CodexDesktopTransferError, transferToCodexDesktop } from "../services/codex-desktop";
 import { errorMessage } from "../services/errors";
+import { agentOpsLaunchEnv } from "../agent-ops";
 
 type JsonObject = Record<string, unknown>;
 const taskIdPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
@@ -166,7 +167,7 @@ export async function registerPersonaAgentRoutes(app: FastifyInstance) {
     try {
       const imagePaths = await savePersonaImages(home, request.params.taskId, request.body?.attachments ?? []);
       for (const imagePath of imagePaths) args.push("--image", imagePath);
-      return await runPython(home, args);
+      return await runPython(home, args, await agentOpsLaunchEnv("persona", request.params.taskId, `PersonaCore ${request.params.taskId}`));
     } catch (error) {
       return reply.code(400).send({ ok: false, error: errorMessage(error) });
     }
@@ -184,7 +185,7 @@ export async function registerPersonaAgentRoutes(app: FastifyInstance) {
       const args = personaRunArgs(request.params.taskId, request.body ?? {}, true);
       const imagePaths = await savePersonaImages(home, request.params.taskId, request.body?.attachments ?? []);
       for (const imagePath of imagePaths) args.push("--image", imagePath);
-      const job = startPersonaJob(home, request.params.taskId, args);
+      const job = startPersonaJob(home, request.params.taskId, args, await agentOpsLaunchEnv("persona", request.params.taskId, `PersonaCore ${request.params.taskId}`));
       return { ok: true, jobId: job.jobId, status: job.status };
     } catch (error) {
       return reply.code(400).send({ ok: false, error: errorMessage(error) });
@@ -232,13 +233,13 @@ export function personaRunArgs(taskId: string, body: PersonaRunBody, progressJso
   return args;
 }
 
-function startPersonaJob(home: string, taskId: string, [script, ...args]: string[]): PersonaJob {
+function startPersonaJob(home: string, taskId: string, [script, ...args]: string[], agentEnv: Record<string, string> = {}): PersonaJob {
   const now = new Date().toISOString();
   const job: PersonaJob = { jobId: randomUUID(), taskId, status: "running", events: [], startedAt: now, updatedAt: now, clientHeartbeatAt: now };
   personaJobs.set(job.jobId, job);
   const child = spawn(process.env.PERSONA_PYTHON ?? "python", [join(home, "scripts", script), ...args], {
     cwd: home,
-    env: { ...process.env, PERSONA_HOME: home, PYTHONUTF8: "1" },
+    env: { ...process.env, PERSONA_HOME: home, PYTHONUTF8: "1", ...agentEnv },
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -432,12 +433,12 @@ async function personaCall(reply: { code(status: number): { send(value: unknown)
   }
 }
 
-function runPython(home: string, [script, ...args]: string[]): Promise<JsonObject | unknown[]> {
+function runPython(home: string, [script, ...args]: string[], agentEnv: Record<string, string> = {}): Promise<JsonObject | unknown[]> {
   return new Promise((resolvePromise, reject) => {
     execFile(
       process.env.PERSONA_PYTHON ?? "python",
       [join(home, "scripts", script), ...args],
-      { cwd: home, env: { ...process.env, PERSONA_HOME: home, PYTHONUTF8: "1" }, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 },
+      { cwd: home, env: { ...process.env, PERSONA_HOME: home, PYTHONUTF8: "1", ...agentEnv }, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error) return reject(new Error(String(stderr || stdout || error.message).trim()));
         try { resolvePromise(JSON.parse(stdout)); }

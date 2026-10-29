@@ -285,3 +285,49 @@ button:disabled { opacity: .5; cursor: wait; } .spin { animation: spin 1s linear
 .modelsState { flex: 0 0 auto; color: #6f7990; font-size: 12px; } .modelsList li.shared .modelsState { color: #8de888; } .modelsList li.offline { opacity: .55; }
 .modelsMore { justify-content: center !important; padding-top: 6px !important; } .modelsEmpty { color: #8f98ac; margin: 6px 0; }
 @media (max-width: 680px) { .modelsOverlay { padding: 12px; } .modelsDialog { padding: 16px; } .modelsList { padding-left: 12px; } .modelsList code { display: none; } .modelsCount { margin-left: 0; flex-basis: 100%; padding-left: 34px; } .modelsSave { margin-left: 0; } }
+
+/* Agent operations: top status bar and the Agents dispatcher panel. */
+.opsBar { display:flex; align-items:center; gap:6px; flex-wrap:wrap; max-width:100%; padding:5px 8px; border:1px solid #30384b; border-radius:14px; background:#101522e8; color:#aeb7ca; font-size:12px; }
+.opsBar.mode-owner_busy { border-color:#7e3b54; }
+.opsBar.mode-free { border-color:#3b7e5a; }
+.opsModeSelect { display:flex; align-items:center; gap:6px; }
+.opsModeSelect select { max-width:220px; padding:4px 6px; border:1px solid #343b50; border-radius:8px; background:#0c1019; color:#f4f5fb; font-size:12px; }
+.opsDot { width:8px; height:8px; border-radius:50%; background:#d6b45c; }
+.mode-owner_busy .opsDot { background:#ff6b8b; }
+.mode-free .opsDot { background:#8de888; }
+.opsMetric { display:inline-flex; align-items:center; gap:4px; padding:3px 7px; border-radius:8px; background:#171c2a; white-space:nowrap; }
+.opsMetric svg { width:13px; height:13px; }
+.opsMetric.warn { color:#ffc85d; }
+.opsAttention { color:#ff8b6b; }
+.opsWorkspace { grid-column:1 / -1; display:grid; gap:14px; min-width:0; margin-bottom:10px; }
+.opsModeButtons { display:flex; gap:8px; flex-wrap:wrap; }
+.opsModeNow { font-size:16px !important; }
+.opsColumns { display:grid; grid-template-columns:minmax(0, 3fr) minmax(0, 2fr); gap:18px; }
+.opsColumn { display:grid; gap:10px; align-content:start; min-width:0; }
+.opsColumn h3 { margin:6px 0 0; font-size:15px; color:#cbd2e2; }
+.opsTask { padding:14px 16px; border:1px solid #293044; border-radius:14px; background:linear-gradient(145deg, #151927ee, #0f121cdd); overflow-wrap:anywhere; }
+.opsTask.state-running { border-color:#6d61a9; }
+.opsTask.state-blocked, .opsTask.state-unknown_outcome, .opsTask.state-failed { border-color:#7e3b54; }
+.opsTask.state-verified { border-color:#3b7e5a; }
+.opsTaskHead { display:flex; justify-content:space-between; gap:10px; }
+.opsState { flex:none; padding:2px 8px; border-radius:999px; background:#252c3c; color:#cbd2e2; font-size:12px; }
+.opsReason { margin:8px 0; color:#b9c1d2; font-size:13px; line-height:1.45; }
+.opsActions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.opsDetail { margin-top:10px; display:grid; gap:8px; }
+.opsDetail summary { display:flex; align-items:center; gap:6px; color:#9ba3b7; cursor:pointer; }
+.opsDetail summary svg, .opsColumn .secretaryContext svg { width:14px; height:14px; vertical-align:-2px; }
+.opsChecks { margin:0; padding-left:18px; font-size:13px; }
+.opsChecks .ok { color:#b9f2c4; } .opsChecks .bad { color:#ff9b8b; }
+.opsEvents { margin:6px 0 0; padding-left:18px; color:#9ba3b7; font-size:12px; line-height:1.5; }
+.opsEvents time { color:#6f7890; }
+.opsLog { max-height:280px; overflow:auto; padding:10px; border-radius:10px; background:#0a0d14; color:#aeb7ca; font-size:11px; white-space:pre-wrap; }
+.opsExecutor { display:grid; gap:3px; padding:10px 12px; border:1px solid #293044; border-radius:12px; background:#111522aa; font-size:13px; }
+.opsExecutor .ok { color:#b9f2c4; } .opsExecutor .bad { color:#ffc85d; }
+.opsExecutor small { color:#8a93a8; line-height:1.4; }
+.opsRule { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:13px; color:#cbd2e2; }
+.opsRule svg { width:14px; height:14px; }
+.opsRuleForm { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.opsRuleForm input, .opsRuleForm select { padding:5px 7px; border:1px solid #343b50; border-radius:8px; background:#0c1019; color:#f4f5fb; font-size:12px; }
+.opsDays { display:flex; gap:4px; flex-wrap:wrap; font-size:12px; color:#b9c1d2; }
+.opsDays label { display:inline-flex; align-items:center; gap:2px; }
+@media (max-width: 950px) { .opsColumns { grid-template-columns:1fr; } }

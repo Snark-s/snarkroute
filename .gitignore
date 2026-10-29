@@ -92,3 +92,4 @@ workers/qwen-image-edit/downloads/
 workers/qwen-image-edit/results/
 
 apps/server/data/agent-ops/
+apps/server/data/agent-ops-smoke/

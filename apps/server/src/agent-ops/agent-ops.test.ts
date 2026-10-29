@@ -402,6 +402,22 @@ describe("delegated task queue", () => {
   });
 });
 
+describe("agent identity tokens", () => {
+  it("gives launched agents their own identity and rejects forged or expired tokens", () => {
+    let now = 1_000;
+    const registry = new AgentRegistry([], { secret: Buffer.alloc(32, 1), now: () => now });
+    const token = registry.issueAgentToken({ id: "app:tove", kind: "app", label: "Tove" }, 60_000);
+    expect(registry.identityFromToken(token)).toMatchObject({ id: "app:tove", kind: "app", policy: { id: "agent", canSetComputerMode: false } });
+    expect(registry.identityFromToken(registry.issueTaskToken("t-1", 60_000))).toMatchObject({ id: "task:t-1", taskId: "t-1", policy: { id: "child" } });
+    const [payload] = token.split(".");
+    const forged = Buffer.from(JSON.stringify({ a: "owner", k: "app", e: now + 60_000 })).toString("base64url");
+    expect(registry.identityFromToken(`${forged}.${token.split(".")[1]}`)).toBeUndefined();
+    expect(new AgentRegistry([], { secret: Buffer.alloc(32, 2) }).identityFromToken(token)).toBeUndefined();
+    now += 61_000;
+    expect(registry.identityFromToken(`${payload}.${token.split(".")[1]}`)).toBeUndefined();
+  });
+});
+
 describe("executor command lines", () => {
   it("runs Codex in a workspace-write sandbox without MCP, web or bypass flags", () => {
     const args = codexAgentExecArgs({}, { workdir: "C:/w" });
@@ -424,3 +440,12 @@ function restoreLocks(previous: LockManager): LockManager {
   locks.restore({ locks: previous.list() });
   return locks;
 }
+
+describe("owner reserve calibration", () => {
+  it("lets light work run on a busy machine but keeps heavy work behind the full RAM reserve", async () => {
+    const busyMachine = async (): Promise<Telemetry> => ({ ...telemetry(), memory: { totalMiB: 32 * GiB, usedMiB: 27.5 * GiB, freeMiB: 4.5 * GiB } });
+    const dispatcher = new ResourceDispatcher({ telemetry: busyMachine, mode: async () => effectiveComputerMode(defaultComputerModeState()), ownerApps: async () => [] });
+    expect((await dispatcher.acquire({ holder: "cli", agentId: "a", purpose: "codex", class: "light", origin: "agent", ramMiB: 512 })).granted).toBe(true);
+    expect(await dispatcher.acquire({ holder: "llm", agentId: "a", purpose: "model", class: "heavy", origin: "agent", ramMiB: 2 * GiB, vramMiB: GiB })).toMatchObject({ granted: false, waitFor: "resources" });
+  });
+});

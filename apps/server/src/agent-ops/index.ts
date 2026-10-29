@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem, totalmem } from "node:os";
 import { dirname, join } from "node:path";
-import { AgentRegistry, type AgentRecord } from "./agents";
+import { AgentRegistry, agentBrief, type AgentRecord } from "./agents";
 import { CapabilityCatalog, type ToolGroup } from "./catalog";
 import { defaultComputerModeState, effectiveComputerMode, runningOwnerApps, validateScheduleRule, type ComputerModeState, type ManualMode, type ModeLimits, type ScheduleRule } from "./computer-mode";
 import { currentOpsContext, opsContext } from "./context";
@@ -89,6 +89,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     worktreeRoot: join(directory, "worktrees"), tickMs: options.tickMs });
   await tasks.init();
   const taskService = tasks;
+  const apiUrl = options.apiUrl ?? "http://127.0.0.1:4317";
 
   // Measured peaks refine the next estimate; sampling runs only while something holds a lease.
   const sampler = setInterval(() => {
@@ -200,7 +201,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
 
   function close(): void { clearInterval(sampler); taskService.close(); }
 
-  return { store, registry, ledger, locks, dispatcher, tasks: taskService, catalog, adapters, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
+  return { apiUrl, store, registry, ledger, locks, dispatcher, tasks: taskService, catalog, adapters, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
     modeState: () => modeState };
 }
 
@@ -242,6 +243,23 @@ export async function withLocalRuntimeLease<T>(runtimeId: string, modelId: strin
     return run();
   }
   return ops.withRuntimeLease(runtimeId, modelId, run);
+}
+
+/**
+ * Environment for an agent SnarkRoute starts through its regular launch paths:
+ * who it is, the short brief, where the catalog is, and a token that makes its
+ * HTTP calls count as that agent (agent policy, not the owner's).
+ */
+export async function agentOpsLaunchEnv(kind: "persona" | "app", id: string, label: string): Promise<Record<string, string>> {
+  const ops = instance ? await instance.catch(() => undefined) : undefined;
+  if (!ops) return {};
+  const identity = kind === "persona" ? ops.registry.persona(id) : ops.registry.app(id, label);
+  return {
+    SNARKROUTE_AGENT_ID: identity.id,
+    SNARKROUTE_AGENT_TOKEN: ops.registry.issueAgentToken(identity, 7 * 24 * 60 * 60_000),
+    SNARKROUTE_API_URL: ops.apiUrl,
+    SNARKROUTE_AGENT_BRIEF: agentBrief(identity, { apiUrl: ops.apiUrl })
+  };
 }
 
 function sanitizeLimits(value: Partial<ModeLimits>): Partial<ModeLimits> {

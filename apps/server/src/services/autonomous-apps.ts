@@ -78,17 +78,20 @@ const defaultDeps: Deps = {
     // The app's own launcher is idempotent and detaches the daemon; this child exits right away.
     const python = process.env.AUTONOMOUS_APPS_PYTHON ?? "python";
     const { SNARKROUTE_LAUNCHER_TOKEN: _token, API_PORT: _apiPort, ...env } = process.env;
+    // Every app agent learns at start who it is in SnarkRoute and where the capability catalog lives.
+    const { agentOpsLaunchEnv } = await import("../agent-ops");
+    const agentEnv = await agentOpsLaunchEnv("app", definition.id, definition.id);
     if (definition.id === "buzha") {
       // The bureau has no worker or provider credentials. The gateway owns inference.
       const safeEnv = Object.fromEntries(Object.entries(env).filter(([key]) =>
         /^(path|pathext|systemroot|windir|comspec|temp|tmp|userprofile|appdata|localappdata|home|lang|buzha_data_dir)$/i.test(key)));
       await launchBackgroundService({ label: "Бужа", command: python, args: ["server.py", "--no-browser"],
         cwd: definition.dir, logPath: join(definition.dir, "data", "logs", "buzha.log"),
-        env: { ...safeEnv, ...PYTHON_LOG_ENV, SNARKROUTE_PORT_REGISTRY: process.env.SNARKROUTE_PORT_REGISTRY || join(repoRoot, "service-endpoints.json") } });
+        env: { ...safeEnv, ...PYTHON_LOG_ENV, ...agentEnv, SNARKROUTE_PORT_REGISTRY: process.env.SNARKROUTE_PORT_REGISTRY || join(repoRoot, "service-endpoints.json") } });
       return;
     }
     const child = spawn(python, ["-m", `${definition.module}.launcher`, "start", "--json"], {
-      cwd: definition.dir, detached: true, env, stdio: "ignore", windowsHide: true
+      cwd: definition.dir, detached: true, env: { ...env, ...agentEnv }, stdio: "ignore", windowsHide: true
     });
     child.on("error", () => undefined);
     child.unref();

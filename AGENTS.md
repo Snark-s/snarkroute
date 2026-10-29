@@ -1,8 +1,16 @@
-﻿# Repository Instructions
+# Repository Instructions
 
-## Capability awareness
+## Capability awareness and delegation
 
-Before stating that a coding task cannot be completed with current tools, consult `docs/agent-capabilities-and-delegation.md` and, when connected to the local SnarkRoute MCP, call `coding_agents_discover`. This is a **read-only** discovery tool for local Codex and Claude Code CLIs; do not claim that task delegation has already been implemented, that a subscription has remaining quota, or that a job has run merely because a CLI is installed. Do not invoke either provider just to test availability or spend a paid API budget without authorization.
+Before stating that a task cannot be done with your tools, check the SnarkRoute capability catalog
+(MCP `agent_capabilities`, or `GET http://127.0.0.1:4317/api/agent-ops/catalog`) and, if a specialist
+fits, delegate with `agent_delegate_submit` (goal, acceptance, machine checks, workspace, idempotencyKey).
+The router picks a suitable permitted executor (local model first when it fits, then the Codex and
+Claude Code subscriptions; never paid APIs); the dispatcher decides when it may run (computer mode,
+GPU/RAM leases, locks, quota). Never claim availability, quota or success SnarkRoute has not reported:
+an installed CLI is "discovered", not "verified", and quota without provider data is "unknown".
+Heavy local GPU work needs a lease (`agent_resource_acquire`) and respects the owner's computer mode.
+Details: `docs/agent-capabilities-and-delegation.md`.
 
 ## Default mode: context-budget
 

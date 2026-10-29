@@ -18,9 +18,9 @@ const ROOT = "/api/agent-ops";
 export function resolveHttpIdentity(ops: AgentOps, request: FastifyRequest): AgentIdentity {
   const token = header(request, "x-snarkroute-agent-token");
   if (token) {
-    const taskId = ops.registry.verifyTaskToken(token);
-    if (!taskId) throw new AgentOpsError("BAD_AGENT_TOKEN", "Токен агента недействителен или истёк.", {}, 401);
-    return ops.registry.taskAgent(taskId, `task ${taskId}`);
+    const identity = ops.registry.identityFromToken(token);
+    if (!identity) throw new AgentOpsError("BAD_AGENT_TOKEN", "Токен агента недействителен или истёк.", {}, 401);
+    return identity;
   }
   const name = header(request, "x-snarkroute-agent");
   const bearer = request.headers.authorization?.startsWith("Bearer ") ? request.headers.authorization.slice(7) : undefined;

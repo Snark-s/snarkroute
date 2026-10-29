@@ -74,7 +74,7 @@ export class CodexExecutor implements ExecutorAdapter {
 
   resourceRequest(task: AgentTask): ReturnType<ExecutorAdapter["resourceRequest"]> {
     // The model runs in the cloud; tools, tests and the CLI itself use this computer's CPU and disk.
-    return { class: "light", cpuSlots: 1, ramMiB: 1024, contextTokens: task.spec.requirements?.contextTokens };
+    return { class: "light", cpuSlots: 1, ramMiB: 512, contextTokens: task.spec.requirements?.contextTokens };
   }
 
   async run(context: ExecutorRunContext): Promise<ExecutorOutcome> {
@@ -140,7 +140,7 @@ export class ClaudeCodeExecutor implements ExecutorAdapter {
   }
 
   resourceRequest(task: AgentTask): ReturnType<ExecutorAdapter["resourceRequest"]> {
-    return { class: "light", cpuSlots: 1, ramMiB: 1024, contextTokens: task.spec.requirements?.contextTokens };
+    return { class: "light", cpuSlots: 1, ramMiB: 512, contextTokens: task.spec.requirements?.contextTokens };
   }
 
   async run(context: ExecutorRunContext): Promise<ExecutorOutcome> {

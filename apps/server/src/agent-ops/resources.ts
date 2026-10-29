@@ -73,6 +73,7 @@ export type Decision = { granted: true; lease: Lease } | { granted: false; waitF
 
 const DEFAULT_HEAVY_VRAM_MiB = 8192;
 const DEFAULT_TTL_MS = 10 * 60_000;
+const LIGHT_RAM_FLOOR_MiB = 2048;
 
 export class ResourceDispatcher {
   private leases = new Map<string, Lease>();
@@ -173,7 +174,8 @@ export class ResourceDispatcher {
       }
     }
     if (estimate.ramMiB > 0) {
-      const reserve = request.origin === "owner" ? 0 : limits.reserveRamMiB;
+      // The full owner reserve guards against heavy work; light work (a CLI, a test run) only keeps the critical floor.
+      const reserve = request.origin === "owner" ? 0 : request.class === "heavy" ? limits.reserveRamMiB : Math.min(limits.reserveRamMiB, LIGHT_RAM_FLOOR_MiB);
       const free = telemetry.memory.freeMiB - this.outstandingRam(telemetry) - reserve;
       if (estimate.ramMiB > free) return { granted: false, waitFor: "resources", reason: `Нужно ~${gib(estimate.ramMiB)} RAM, доступно ${gib(Math.max(0, free))} с учётом резерва ${gib(reserve)}.` };
     }
