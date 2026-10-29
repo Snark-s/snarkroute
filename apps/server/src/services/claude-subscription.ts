@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { sharedQuotaLedger } from "../agent-ops/ledger-instance";
 import { join } from "node:path";
 import {
   claudeAuthStatus,
@@ -99,8 +100,16 @@ export class ClaudeSubscriptionService {
     if (this.quota.exhausted && this.quota.exhaustedUntil && Date.parse(this.quota.exhaustedUntil) <= this.now()) {
       this.quota = { exhausted: false, lastRateLimit: this.quota.lastRateLimit };
     }
+    // A limit seen by a delegated coding run (or any other SnarkRoute path) applies to chat as well.
+    const shared = sharedQuotaLedger().view("claude_code");
+    if (!this.quota.exhausted && (shared.quota.state === "exhausted" || shared.quota.state === "rate_limited") && shared.nextAttemptAt && Date.parse(shared.nextAttemptAt) > this.now()) {
+      return { ...this.quota, exhausted: true, exhaustedUntil: shared.nextAttemptAt, lastLimitMessage: shared.quota.detail ?? "Лимит зафиксирован общим учётом SnarkRoute.", ...(shared.quota.simulated ? { simulated: true } : {}) };
+    }
     return { ...this.quota };
   }
+
+  /** Turns running right now; the shared ledger counts them against the plan's concurrency. */
+  get activeTurns(): number { return this.gate.active; }
 
   /** Live check of limit handling and fallback without spending the real quota. */
   simulateQuotaExhausted(seconds: number): ClaudeSubscriptionQuota {
@@ -225,12 +234,17 @@ export class ClaudeSubscriptionService {
 
   private observeRateLimit(info: ClaudeRateLimitInfo): void {
     this.quota = { ...this.quota, lastRateLimit: info };
-    if (info.status === "rejected" || info.usingExtraUsage && process.env.CLAUDE_SUBSCRIPTION_ALLOW_EXTRA_USAGE !== "1") {
+    const exhausted = info.status === "rejected" || info.usingExtraUsage === true && process.env.CLAUDE_SUBSCRIPTION_ALLOW_EXTRA_USAGE !== "1";
+    if (exhausted) {
       this.quota = { ...this.quota, exhausted: true, exhaustedUntil: info.resetsAt ?? new Date(this.now() + UNKNOWN_RESET_BACKOFF_MS).toISOString() };
     }
+    sharedQuotaLedger().recordQuotaReport("claude_code", { exhausted, resetsAt: info.resetsAt, source: "claude rate_limit_event (chat)", detail: info.rateLimitType,
+      usedPercent: info.utilization === undefined ? undefined : Math.round(info.utilization <= 1 ? info.utilization * 100 : info.utilization) });
   }
 
   private observeFailure(error: ClaudeCliError, alias: string): void {
+    if (error.code === "SUBSCRIPTION_LIMIT_REACHED") sharedQuotaLedger().recordFailure("claude_code", { class: "quota_exhausted", message: error.message, resetsAt: error.details.resetsAt, source: "claude chat" });
+    if (error.code === "NOT_LOGGED_IN" || error.code === "NOT_SUBSCRIPTION") sharedQuotaLedger().recordFailure("claude_code", { class: "auth", message: error.message, source: "claude chat" });
     if (error.code === "SUBSCRIPTION_LIMIT_REACHED") {
       this.quota = { ...this.quota, exhausted: true, lastLimitMessage: error.message,
         exhaustedUntil: error.details.resetsAt ?? this.quota.exhaustedUntil ?? new Date(this.now() + UNKNOWN_RESET_BACKOFF_MS).toISOString() };

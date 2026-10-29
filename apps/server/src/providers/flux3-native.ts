@@ -95,9 +95,12 @@ export async function runFlux3OnWorker(
   signal?: AbortSignal,
   timeoutMs = 45 * 60_000
 ): Promise<{ ok: true; output: string; width: number; height: number }> {
-  const { assertLocalRuntimeAdmission } = await import("../services/local-runtime-supervisor");
+  const { withLocalRuntimeLease } = await import("../agent-ops");
+  return withLocalRuntimeLease("flux3", FLUX3_NATIVE_MODEL_ID, () => runFlux3OnWorkerAdmitted(payload, signal, timeoutMs));
+}
+
+async function runFlux3OnWorkerAdmitted(payload: Record<string, unknown>, signal: AbortSignal | undefined, timeoutMs: number): Promise<{ ok: true; output: string; width: number; height: number }> {
   const { ensureFlux3WorkerOnline, flux3WorkerConfig } = await import("../services/flux3-native-local");
-  await assertLocalRuntimeAdmission("flux3", FLUX3_NATIVE_MODEL_ID);
   await ensureFlux3WorkerOnline();
   const config = flux3WorkerConfig();
   const timeout = AbortSignal.timeout(timeoutMs);

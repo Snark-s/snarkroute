@@ -74,7 +74,15 @@ export type ClaudeStreamEvent =
   | { type: "session"; sessionId: string; model: string; apiKeySource?: string }
   | { type: "delta"; text: string }
   | { type: "rate_limit"; info: ClaudeRateLimitInfo }
+  | { type: "tool"; name: string; summary: string }
   | { type: "result"; result: ClaudeCodeResult };
+
+/**
+ * A coding run in an owner-approved folder. Only the listed tools are allowed
+ * (edits auto-accepted, everything else denied in print mode); user/project
+ * settings, MCP and web tools stay off. No bypass-permissions mode.
+ */
+export type ClaudeAgentMode = { workdir: string; allowedTools: string[]; disallowedTools?: string[]; maxTurns?: number; extraEnv?: Record<string, string> };
 
 export type ClaudeCodeRequest = {
   /** CLI alias (`opus`, `sonnet`, `haiku`, ...) or a full model id. */
@@ -89,6 +97,7 @@ export type ClaudeCodeRequest = {
   timeoutMs?: number;
   signal?: AbortSignal;
   onEvent?: (event: ClaudeStreamEvent) => void;
+  agent?: ClaudeAgentMode;
 };
 
 export type ClaudeCliOptions = {
@@ -97,6 +106,7 @@ export type ClaudeCliOptions = {
   /** Empty working directory: sessions of SnarkRoute stay apart from the owner's own Claude Code projects. */
   workspace?: string;
   spawnImpl?: typeof spawn;
+  onSpawn?: (pid: number) => void;
 };
 
 export const DEFAULT_CLAUDE_TIMEOUT_MS = 600_000;
@@ -141,6 +151,25 @@ export function claudeCodeArgs(request: Pick<ClaudeCodeRequest, "model" | "sessi
   return args;
 }
 
+/** `systemPromptFile` is appended to Claude Code's own coding prompt instead of replacing it. */
+export function claudeAgentArgs(request: Pick<ClaudeCodeRequest, "model">, agent: ClaudeAgentMode, systemPromptFile: string): string[] {
+  return [
+    "-p",
+    "--output-format", "stream-json",
+    "--verbose",
+    "--model", request.model,
+    "--append-system-prompt-file", systemPromptFile,
+    "--permission-mode", "acceptEdits",
+    "--allowedTools", agent.allowedTools.join(","),
+    "--disallowedTools", (agent.disallowedTools ?? ["WebFetch", "WebSearch", "Task"]).join(","),
+    "--strict-mcp-config",
+    "--setting-sources", "",
+    "--disable-slash-commands",
+    "--max-turns", String(agent.maxTurns ?? 30),
+    "--no-session-persistence"
+  ];
+}
+
 export async function claudeAuthStatus(options: ClaudeCliOptions = {}): Promise<ClaudeAuthStatus> {
   const command = options.command ?? claudeCliCommand(options.env);
   const env = claudeCliEnv(options.env);
@@ -177,10 +206,12 @@ export function interpretAuthStatus(parsed: Record<string, unknown>, base: { com
 export async function runClaudeCode(request: ClaudeCodeRequest, options: ClaudeCliOptions = {}): Promise<ClaudeCodeResult> {
   if (request.signal?.aborted) throw new ClaudeCliError("CANCELLED", "Запрос к Claude отменён.");
   const command = options.command ?? claudeCliCommand(options.env);
-  const workspace = options.workspace ?? claudeWorkspaceDirectory();
+  const agent = request.agent;
+  const workspace = agent?.workdir ?? options.workspace ?? claudeWorkspaceDirectory();
   const spawnImpl = options.spawnImpl ?? spawn;
   await mkdir(workspace, { recursive: true });
-  const promptDirectory = join(workspace, "..", "prompts");
+  // Prompt files live with SnarkRoute's own data, never inside the folder an agent works in.
+  const promptDirectory = join(agent ? claudeWorkspaceDirectory() : workspace, "..", "prompts");
   await mkdir(promptDirectory, { recursive: true });
   // A file keeps long instructions out of the Windows command line (32K limit) and its quoting rules.
   const systemPromptFile = join(promptDirectory, `${randomUUID()}.txt`);
@@ -188,13 +219,14 @@ export async function runClaudeCode(request: ClaudeCodeRequest, options: ClaudeC
   const startedAt = Date.now();
   let child: ChildProcess;
   try {
-    child = spawnImpl(command, claudeCodeArgs(request, systemPromptFile), {
-      cwd: workspace, env: claudeCliEnv(options.env), stdio: ["pipe", "pipe", "pipe"], windowsHide: true
+    child = spawnImpl(command, agent ? claudeAgentArgs(request, agent, systemPromptFile) : claudeCodeArgs(request, systemPromptFile), {
+      cwd: workspace, env: { ...claudeCliEnv(options.env), ...(agent?.extraEnv ?? {}) }, stdio: ["pipe", "pipe", "pipe"], windowsHide: true
     });
   } catch {
     await rm(systemPromptFile, { force: true });
     throw new ClaudeCliError("CLI_NOT_INSTALLED", "Claude Code CLI не запускается. Установите его: irm https://claude.ai/install.ps1 | iex");
   }
+  if (child.pid) options.onSpawn?.(child.pid);
 
   const state: { sessionId?: string; model?: string; text: string; assistantText: string; error?: string; errorText?: string; rateLimit?: ClaudeRateLimitInfo; result?: Record<string, unknown>; stderr: string; failure?: ClaudeCliError } = { text: "", assistantText: "", stderr: "" };
   const emit = (event: ClaudeStreamEvent) => { try { request.onEvent?.(event); } catch { /* a slow client must not break the turn */ } };
@@ -231,6 +263,9 @@ export async function runClaudeCode(request: ClaudeCodeRequest, options: ClaudeC
         .map(block => record(block)).filter(block => block.type === "text").map(block => str(block.text) ?? "").join("");
       if (event.error) { state.error = str(event.error); state.errorText = text; }
       else state.assistantText += text;
+      for (const block of (Array.isArray(message.content) ? message.content : []).map(item => record(item)).filter(item => item.type === "tool_use")) {
+        emit({ type: "tool", name: str(block.name) ?? "tool", summary: JSON.stringify(block.input ?? {}).slice(0, 400) });
+      }
     } else if (type === "rate_limit_event") {
       const info = parseRateLimit(record(event.rate_limit_info));
       state.rateLimit = info;

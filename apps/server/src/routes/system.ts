@@ -26,6 +26,7 @@ import { registerSecretaryRoutes } from "./secretary";
 import { registerBuzhaModelGateway } from "./buzha-model-gateway";
 import { registerModelExposureRoutes } from "./model-exposure";
 import { stopAllLocalRuntimes } from "../services/local-runtime-stop-all";
+import { agentOpsInstance } from "../agent-ops";
 
 type SystemAppDefinition = {
   id: string;
@@ -143,8 +144,11 @@ export async function registerSystemRoutes(app: FastifyInstance) {
 
   app.post("/api/system/local-runtimes/stop-all", async (request, reply) => {
     if (!local(request)) return reply.code(403).send({ ok: false, error: "Local launcher client required." });
+    // Managed delegated tasks stop through their own executors; the owner's unrelated processes are never touched.
+    const ops = await agentOpsInstance()?.catch(() => undefined);
+    const tasks = ops ? await ops.tasks.cancelAllManaged(ops.registry.owner("stop-all")) : [];
     const results = await stopAllLocalRuntimes();
-    return { ok: true, results };
+    return { ok: true, results, tasks };
   });
 
   // Мастерская terminals: read-only console output of local services; no command execution.

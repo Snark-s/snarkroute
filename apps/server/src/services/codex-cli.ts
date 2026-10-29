@@ -81,7 +81,11 @@ export type CodexStreamEvent =
   | { type: "session"; sessionId: string }
   | { type: "warning"; message: string }
   | { type: "rate_limit"; info: CodexRateLimitInfo }
+  | { type: "item"; itemType: string; summary: string }
   | { type: "result"; result: CodexExecResult };
+
+/** A coding run in an owner-approved folder: workspace-write sandbox, no MCP, no web, Codex's own base instructions. */
+export type CodexAgentMode = { workdir: string; network?: boolean; readOnly?: boolean; shell?: boolean; extraEnv?: Record<string, string> };
 
 export type CodexExecRequest = {
   /** Model slug from `codex debug models`; undefined lets the CLI pick its default. */
@@ -95,6 +99,7 @@ export type CodexExecRequest = {
   timeoutMs?: number;
   signal?: AbortSignal;
   onEvent?: (event: CodexStreamEvent) => void;
+  agent?: CodexAgentMode;
 };
 
 export type CodexCliOptions = {
@@ -103,6 +108,8 @@ export type CodexCliOptions = {
   /** Empty working directory, apart from the owner's own projects. */
   workspace?: string;
   spawnImpl?: typeof spawn;
+  /** Receives the CLI's process id, so a supervisor can tell later whether the run is still alive. */
+  onSpawn?: (pid: number) => void;
 };
 
 export const DEFAULT_CODEX_TIMEOUT_MS = 600_000;
@@ -168,6 +175,30 @@ export function codexExecArgs(request: Pick<CodexExecRequest, "model" | "resumeS
     : ["exec", ...common, "--color", "never", "-s", "read-only", "-C", workspace, "-"];
 }
 
+/** Agent features that stay off even for coding: apps, browsers, computer use, image generation, sub-agents, memories, hooks. */
+const AGENT_DISABLED_FEATURES = [
+  "apps", "plugins", "browser_use", "browser_use_external", "computer_use", "in_app_browser", "image_generation",
+  "multi_agent", "tool_suggest", "goals", "hooks", "memories", "skill_mcp_dependency_install"
+];
+
+export function codexAgentExecArgs(request: Pick<CodexExecRequest, "model">, agent: CodexAgentMode): string[] {
+  const sandbox = agent.readOnly ? "read-only" : "workspace-write";
+  const config = [
+    'forced_login_method="chatgpt"',
+    'model_provider="openai"',
+    'approval_policy="never"',
+    `sandbox_mode="${sandbox}"`,
+    `sandbox_workspace_write.network_access=${agent.network === true}`,
+    'web_search="disabled"',
+    "mcp_servers={}",
+    'history.persistence="none"',
+    ...AGENT_DISABLED_FEATURES.map(feature => `features.${feature}=false`),
+    ...(agent.shell === false ? ["features.shell_tool=false", "features.unified_exec=false"] : [])
+  ];
+  return ["exec", "--json", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", ...(request.model ? ["-m", request.model] : []),
+    ...config.flatMap(value => ["-c", value]), "--color", "never", "-s", sandbox, "-C", agent.workdir, "-"];
+}
+
 export async function codexAuthStatus(options: CodexCliOptions = {}): Promise<CodexAuthStatus> {
   const command = options.command ?? await codexCliCommand(options.env);
   const env = codexCliEnv(options.env);
@@ -209,23 +240,29 @@ export async function codexListModels(options: CodexCliOptions = {}): Promise<Ar
 export async function runCodexExec(request: CodexExecRequest, options: CodexCliOptions = {}): Promise<CodexExecResult> {
   if (request.signal?.aborted) throw new CodexCliError("CANCELLED", "Запрос к ChatGPT отменён.");
   const command = options.command ?? await codexCliCommand(options.env);
-  const workspace = options.workspace ?? codexWorkspaceDirectory();
+  const agent = request.agent;
+  const workspace = agent?.workdir ?? options.workspace ?? codexWorkspaceDirectory();
   const spawnImpl = options.spawnImpl ?? spawn;
-  const env = codexCliEnv(options.env);
+  const env = { ...codexCliEnv(options.env), ...(agent?.extraEnv ?? {}) };
   await mkdir(workspace, { recursive: true });
-  const promptDirectory = join(workspace, "..", "prompts");
-  await mkdir(promptDirectory, { recursive: true });
-  // Replaces Codex's coding-agent base instructions; a file keeps them off the Windows command line.
-  const instructionsFile = join(promptDirectory, `${randomUUID()}.txt`);
-  await writeFile(instructionsFile, request.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT, "utf8");
+  let instructionsFile: string | undefined;
+  if (!agent) {
+    const promptDirectory = join(workspace, "..", "prompts");
+    await mkdir(promptDirectory, { recursive: true });
+    // Replaces Codex's coding-agent base instructions; a file keeps them off the Windows command line.
+    instructionsFile = join(promptDirectory, `${randomUUID()}.txt`);
+    await writeFile(instructionsFile, request.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT, "utf8");
+  }
   const startedAt = Date.now();
   let child: ChildProcess;
   try {
-    child = spawnImpl(command, codexExecArgs(request, instructionsFile, workspace), { cwd: workspace, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+    const args = agent ? codexAgentExecArgs(request, agent) : codexExecArgs(request, instructionsFile!, workspace);
+    child = spawnImpl(command, args, { cwd: workspace, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   } catch {
-    await rm(instructionsFile, { force: true });
+    if (instructionsFile) await rm(instructionsFile, { force: true });
     throw new CodexCliError("CLI_NOT_INSTALLED", "Codex CLI не запускается. Установите или обновите Codex.");
   }
+  if (child.pid) options.onSpawn?.(child.pid);
 
   const state: { sessionId?: string; messages: string[]; warnings: string[]; errors: string[]; usage?: Record<string, unknown>; completed: boolean; stderr: string; failure?: CodexCliError } =
     { messages: [], warnings: [], errors: [], completed: false, stderr: "" };
@@ -233,7 +270,8 @@ export async function runCodexExec(request: CodexExecRequest, options: CodexCliO
   const stop = (failure: CodexCliError) => { state.failure ??= failure; if (child.exitCode === null) child.kill(); };
 
   child.stdin?.on("error", () => undefined);
-  child.stdin?.end(request.prompt);
+  // Agent mode keeps Codex's own coding instructions; SnarkRoute's brief travels with the prompt.
+  child.stdin?.end(agent && request.systemPrompt?.trim() ? `${request.systemPrompt.trim()}\n\n---\n\n${request.prompt}` : request.prompt);
   child.stderr?.setEncoding("utf8");
   child.stderr?.on("data", chunk => { if (state.stderr.length < 8_000) state.stderr += String(chunk); });
   const lines = createInterface({ input: child.stdout! });
@@ -241,6 +279,12 @@ export async function runCodexExec(request: CodexExecRequest, options: CodexCliO
     let event: Record<string, unknown>;
     try { event = JSON.parse(line) as Record<string, unknown>; } catch { return; }
     const type = str(event.type);
+    if (agent && type === "item.completed") {
+      const item = record(event.item);
+      if (item.type === "agent_message" && typeof item.text === "string") state.messages.push(item.text);
+      else if (item.type && item.type !== "reasoning") emit({ type: "item", itemType: String(item.type), summary: summarizeCodexItem(item) });
+      return;
+    }
     if (type === "thread.started") {
       state.sessionId = str(event.thread_id);
       emit({ type: "session", sessionId: state.sessionId ?? "" });
@@ -276,7 +320,7 @@ export async function runCodexExec(request: CodexExecRequest, options: CodexCliO
     clearTimeout(timer);
     request.signal?.removeEventListener("abort", onAbort);
     lines.close();
-    await rm(instructionsFile, { force: true });
+    if (instructionsFile) await rm(instructionsFile, { force: true });
   }
 
   // Codex records the resolved model and the plan's windows in its own session file.
@@ -414,6 +458,14 @@ async function findCodexSessionFile(sessionId: string, env: NodeJS.ProcessEnv): 
 export async function deleteCodexSession(spawnImpl: typeof spawn, command: string, env: NodeJS.ProcessEnv, sessionId: string): Promise<boolean> {
   const result = await runShort(spawnImpl, command, ["delete", "--force", sessionId], env).catch(() => undefined);
   return result?.exitCode === 0;
+}
+
+function summarizeCodexItem(item: Record<string, unknown>): string {
+  if (typeof item.command === "string") return `${item.command}${typeof item.exit_code === "number" ? ` → ${item.exit_code}` : ""}`.slice(0, 400);
+  if (Array.isArray(item.changes)) return item.changes.map(change => `${str(record(change).kind) ?? "edit"} ${str(record(change).path) ?? ""}`).join(", ").slice(0, 400);
+  if (typeof item.message === "string") return item.message.slice(0, 400);
+  if (typeof item.text === "string") return item.text.slice(0, 400);
+  return "";
 }
 
 function withSession(error: CodexCliError, sessionId: string | undefined): CodexCliError {

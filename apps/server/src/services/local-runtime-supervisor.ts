@@ -523,7 +523,7 @@ function endpointReachable(endpoint: string): Promise<boolean> {
   });
 }
 
-async function readGpuTelemetry(): Promise<LocalRuntimeSnapshot["gpu"] | undefined> {
+export async function readGpuTelemetry(): Promise<LocalRuntimeSnapshot["gpu"] | undefined> {
   try {
     const { stdout } = await execFileAsync("nvidia-smi", [
       "--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu",

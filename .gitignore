@@ -90,3 +90,5 @@ workers/qwen-image-edit/bin/
 workers/qwen-image-edit/models/
 workers/qwen-image-edit/downloads/
 workers/qwen-image-edit/results/
+
+apps/server/data/agent-ops/

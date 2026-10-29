@@ -12,7 +12,7 @@ import { createKieNodeRunner } from "@snarkroute/kie";
 import { createTripoRetopologyNodeRunner, createTripoSegmentNodeRunner, createTripoTextureNodeRunner, createTripoRigNodeRunner } from "@snarkroute/tripo";
 import { createRemoteImageNodeRunner, createRemoteTextNodeRunner, guardProviderRunner, loadModelRouteMappings } from "./model-gateway-runners";
 import { getCanvasActionsDirectory } from "../canvas-actions/service";
-import { assertLocalRuntimeAdmission } from "../services/local-runtime-supervisor";
+import { withLocalRuntimeLease } from "../agent-ops";
 import { registerPolicyGuardedInstalledNodeRunners } from "./installed-runner-policy";
 
 export async function createRouteExecutor() {
@@ -43,18 +43,15 @@ export async function createRouteExecutor() {
     if (variant === "h3_max" || variant === "h3_max_turbo") {
       return guardProviderRunner("minimax-h3", hostedH3Runner)({ ...input, params: { ...input.params, model: variant, modelVariant: variant } });
     }
-    await assertLocalRuntimeAdmission("h3");
-    return localH3Runner({ ...input, params: { ...input.params, modelVariant: variant } });
+    return withLocalRuntimeLease("h3", undefined, async () => localH3Runner({ ...input, params: { ...input.params, modelVariant: variant } }));
   };
   executor.registerNodeRunner("minimax.h3.generate", productionH3Runner);
   executor.registerNodeRunner("local_upscale", async input => {
-    await assertLocalRuntimeAdmission("upscale");
-    return localUpscaleRunner(input);
+    return withLocalRuntimeLease("upscale", undefined, async () => localUpscaleRunner(input));
   });
   const localVideoUpscaleRunner = createProductionVideoUpscaleNodeRunner();
   executor.registerNodeRunner("local_video_upscale", async input => {
-    await assertLocalRuntimeAdmission("upscale");
-    return localVideoUpscaleRunner(input);
+    return withLocalRuntimeLease("upscale", undefined, async () => localVideoUpscaleRunner(input));
   });
   executor.registerNodeRunner("polza.text", guardProviderRunner("polza", createPolzaTextNodeRunner()));
   executor.registerNodeRunner("polza.image.generate", guardProviderRunner("polza", createPolzaImageNodeRunner()));
