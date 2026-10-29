@@ -25,6 +25,8 @@ export type ComputerModeState = {
   limits: Record<ComputerMode, ModeLimits>;
   /** Process names (lower case, without .exe) of the owner's own heavy applications. */
   ownerApps: string[];
+  /** Set when the owner edited ownerApps by hand; otherwise the current default list applies. */
+  ownerAppsCustomized?: boolean;
 };
 
 export type EffectiveMode = {
@@ -46,7 +48,8 @@ export const DEFAULT_MODE_LIMITS: Record<ComputerMode, ModeLimits> = {
 };
 
 export const DEFAULT_OWNER_APPS = [
-  "blender", "unrealeditor", "ue4editor", "touchdesigner", "afterfx", "aerender", "adobe premiere pro", "photoshop",
+  // GPU-heavy creative apps. Photoshop is left out: it is usually open all day and is itself a SnarkRoute client.
+  "blender", "unrealeditor", "ue4editor", "touchdesigner", "afterfx", "aerender", "adobe premiere pro",
   "resolve", "houdini", "houdinifx", "cinema 4d", "maya", "3dsmax", "substance painter", "obs64", "mixar"
 ];
 

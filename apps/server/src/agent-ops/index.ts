@@ -36,6 +36,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
 
   let modeState: ComputerModeState = { ...defaultComputerModeState(), ...await store.readState<Partial<ComputerModeState>>("computer-mode", {}) };
   modeState.limits = { ...defaultComputerModeState().limits, ...modeState.limits };
+  if (!modeState.ownerAppsCustomized) modeState.ownerApps = defaultComputerModeState().ownerApps;
   const saveMode = () => store.writeState("computer-mode", modeState);
   const mode = async () => effectiveComputerMode(modeState);
 

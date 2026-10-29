@@ -66,6 +66,14 @@ export function useAgentOpsStatus(apiBase: string) {
 }
 const changed = () => window.dispatchEvent(new Event("snarkroute:agent-ops-changed"));
 
+/** Usable now = found on this computer, signed in where needed, and no limit or pause in the ledger. */
+function executorUsable(executor: ExecutorStatus): { usable: boolean; reason: string } {
+  if (!executor.probe) return { usable: false, reason: "ещё не проверялся" };
+  if (!executor.probe.installed) return { usable: false, reason: executor.probe.detail ?? "не обнаружен" };
+  if (executor.probe.authenticated === false) return { usable: false, reason: executor.probe.detail ?? "нет входа по подписке" };
+  return executor.availability.usable ? { usable: true, reason: "доступен" } : { usable: false, reason: executor.availability.reason ?? "недоступен" };
+}
+
 function gb(mib: number) { return (mib / 1024).toFixed(1); }
 
 /** Visible in every section: mode, load, queue, locks, subscriptions. */
@@ -95,10 +103,10 @@ export function AgentOpsStatusBar({ apiBase }: { apiBase: string }) {
     {status.resources ? <span className="opsMetric">RAM {gb(status.resources.memory.usedMiB)}/{gb(status.resources.memory.totalMiB)}</span> : null}
     <span className="opsMetric" title="Выполняются / ждут / нужен ответ"><ListChecks /> {status.queue.counts.running ?? 0} · {waiting}{attention ? <b className="opsAttention"> · {attention}!</b> : null}</span>
     {status.locks.length ? <span className="opsMetric" title={status.locks.map(lock => `${lock.key} → ${lock.ownerTaskId}`).join("\n")}><Lock /> {status.locks.length}</span> : null}
-    {status.executors.filter(executor => executor.tier === "subscription").map(executor => <span key={executor.id} className={`opsMetric ${executor.availability.usable ? "" : "warn"}`}
-      title={`${executor.label}: ${executor.availability.reason ?? "доступен"} · квота ${executor.ledger.quota.state}${executor.ledger.quota.source ? ` (${executor.ledger.quota.source})` : ""}`}>
-      {executor.id === "codex_cli" ? "Codex" : "Claude"} {executor.availability.usable ? "✓" : "⏸"}
-    </span>)}
+    {status.executors.filter(executor => executor.tier === "subscription").map(executor => { const state = executorUsable(executor); return <span key={executor.id} className={`opsMetric ${state.usable ? "" : "warn"}`}
+      title={`${executor.label}: ${state.reason} · квота ${executor.ledger.quota.state}${executor.ledger.quota.source ? ` (${executor.ledger.quota.source})` : ""}`}>
+      {executor.id === "codex_cli" ? "Codex" : "Claude"} {state.usable ? "✓" : "⏸"}
+    </span>; })}
     {status.ownerApps.length ? <span className="opsMetric warn" title="Приложения владельца: тяжёлая фоновая работа ждёт">{status.ownerApps.join(", ")}</span> : null}
   </div>;
 }
@@ -186,7 +194,7 @@ export function AgentOpsPanel({ apiBase }: { apiBase: string }) {
         <h3>Исполнители</h3>
         {status.executors.map(executor => <div key={executor.id} className="opsExecutor">
           <strong>{executor.label}</strong>
-          <span className={executor.availability.usable ? "ok" : "bad"}>{executor.availability.usable ? "доступен" : executor.availability.reason}</span>
+          <span className={executorUsable(executor).usable ? "ok" : "bad"}>{executorUsable(executor).reason}</span>
           <small>установлен: {executor.probe ? (executor.probe.installed ? "да" : "нет") : "?"} · вход: {executor.probe?.authenticated === null ? "не нужен" : executor.probe?.authenticated ? "да" : "нет"} · квота: {executor.ledger.quota.state}
             {executor.ledger.quota.usedPercent !== undefined ? ` ${executor.ledger.quota.usedPercent}%` : ""}{executor.ledger.quota.simulated ? " (симуляция)" : ""}{executor.ledger.quota.source ? ` · ${executor.ledger.quota.source}` : ""}
             {executor.ledger.lastVerifiedAt ? ` · проверен ${new Date(executor.ledger.lastVerifiedAt).toLocaleString("ru-RU")}` : " · проверенных запусков нет"}</small>
