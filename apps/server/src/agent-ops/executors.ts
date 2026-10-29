@@ -1,4 +1,4 @@
-import { CodexCliError, runCodexExec, type CodexExecResult } from "../services/codex-cli";
+import { CodexCliError, codexWindowsSandboxMode, runCodexExec, type CodexExecResult } from "../services/codex-cli";
 import { ClaudeCliError, runClaudeCode, type ClaudeCodeResult } from "../services/claude-code-cli";
 import type { ResourceRequest } from "./resources";
 import type { AgentTask, FailureClass, TaskKind } from "./types";
@@ -86,7 +86,8 @@ export class CodexExecutor implements ExecutorAdapter {
         systemPrompt: context.brief,
         timeoutMs: context.timeoutMs,
         signal: context.signal,
-        agent: { workdir: context.workdir!, network: permissions.network === true, readOnly: permissions.fileWrite === false, shell: permissions.shell !== "none", extraEnv: context.env },
+        agent: { workdir: context.workdir!, network: permissions.network === true, readOnly: permissions.fileWrite === false, shell: permissions.shell !== "none",
+          windowsSandbox: await codexWindowsSandboxMode(), extraEnv: context.env },
         onEvent: event => {
           if (event.type === "item") context.log(`[codex ${event.itemType}] ${event.summary}`);
           else if (event.type === "warning") context.log(`[codex warning] ${event.message}`);

@@ -85,7 +85,15 @@ export type CodexStreamEvent =
   | { type: "result"; result: CodexExecResult };
 
 /** A coding run in an owner-approved folder: workspace-write sandbox, no MCP, no web, Codex's own base instructions. */
-export type CodexAgentMode = { workdir: string; network?: boolean; readOnly?: boolean; shell?: boolean; extraEnv?: Record<string, string> };
+export type CodexAgentMode = {
+  workdir: string;
+  network?: boolean;
+  readOnly?: boolean;
+  shell?: boolean;
+  /** Windows sandbox implementation (`elevated` / `unelevated`); without it workspace-write silently degrades to read-only. */
+  windowsSandbox?: string;
+  extraEnv?: Record<string, string>;
+};
 
 export type CodexExecRequest = {
   /** Model slug from `codex debug models`; undefined lets the CLI pick its default. */
@@ -193,10 +201,26 @@ export function codexAgentExecArgs(request: Pick<CodexExecRequest, "model">, age
     "mcp_servers={}",
     'history.persistence="none"',
     ...AGENT_DISABLED_FEATURES.map(feature => `features.${feature}=false`),
-    ...(agent.shell === false ? ["features.shell_tool=false", "features.unified_exec=false"] : [])
+    ...(agent.shell === false ? ["features.shell_tool=false", "features.unified_exec=false"] : []),
+    ...(agent.windowsSandbox && /^[a-z_-]+$/.test(agent.windowsSandbox) ? [`windows.sandbox="${agent.windowsSandbox}"`] : [])
   ];
   return ["exec", "--json", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", ...(request.model ? ["-m", request.model] : []),
     ...config.flatMap(value => ["-c", value]), "--color", "never", "-s", sandbox, "-C", agent.workdir, "-"];
+}
+
+/**
+ * The Windows sandbox mode the owner configured for Codex (`[windows] sandbox`).
+ * Only this one non-secret value is read; the rest of the user config stays ignored.
+ */
+export async function codexWindowsSandboxMode(env: NodeJS.ProcessEnv = process.env): Promise<string | undefined> {
+  const override = env.AGENT_OPS_CODEX_WINDOWS_SANDBOX?.trim();
+  if (override) return override;
+  if (process.platform !== "win32") return undefined;
+  try {
+    const text = await readFile(join(codexHome(env), "config.toml"), "utf8");
+    const section = /^\[windows\]\s*$([\s\S]*?)(?=^\[|(?![\s\S]))/m.exec(text)?.[1] ?? "";
+    return /^\s*sandbox\s*=\s*"([a-z_-]+)"/m.exec(section)?.[1];
+  } catch { return undefined; }
 }
 
 export async function codexAuthStatus(options: CodexCliOptions = {}): Promise<CodexAuthStatus> {

@@ -425,6 +425,8 @@ describe("executor command lines", () => {
     expect(args.join(" ")).toContain("mcp_servers={}");
     expect(args.join(" ")).not.toMatch(/dangerously|bypass|danger-full-access/);
     expect(codexAgentExecArgs({}, { workdir: "C:/w", readOnly: true, shell: false }).join(" ")).toContain("features.shell_tool=false");
+    expect(codexAgentExecArgs({}, { workdir: "C:/w", windowsSandbox: "elevated" }).join(" ")).toContain('windows.sandbox="elevated"');
+    expect(codexAgentExecArgs({}, { workdir: "C:/w", windowsSandbox: 'x" --dangerously' }).join(" ")).not.toContain("windows.sandbox");
   });
 
   it("gives Claude only file tools and test commands by default", () => {
