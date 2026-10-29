@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { criteriaOf, newAcceptanceState, reworkGate, unmetSignature, type Reviewer } from "./acceptance";
 import { agentBrief, workspaceAllowed, type AgentRegistry } from "./agents";
+import { accrue, activeMinutes, deadlineLeftMs, waitingMinutes } from "./time-budget";
 import { opsContext } from "./context";
 import type { ExecutorAdapter, ExecutorOutcome, ExecutorProbe } from "./executors";
 import { workspaceLockKey, type LockManager } from "./locks";
@@ -169,8 +170,10 @@ export class AgentTaskService {
       agentId: identity.id,
       chain: { rootTaskId: parent?.chain.rootTaskId ?? id, parentTaskId: parent?.id, depth, agents: chainAgents, fingerprints: [...(parent?.chain.fingerprints ?? []), fingerprint] },
       fingerprint, priority: Math.max(0, Math.min(policy.maxPriority, spec.priority ?? 50)), createdAt: at, updatedAt: at,
-      excludedExecutors: {}, attempts: [], workdir, lockKeys: []
+      excludedExecutors: {}, attempts: [], workdir, lockKeys: [],
+      timing: { activeMs: 0, waitingMs: 0, since: at, phase: "waiting" }
     };
+    if (spec.deadline && Date.parse(spec.deadline) <= this.now()) throw new AgentOpsError("BAD_SPEC", "Дедлайн уже прошёл.", {}, 400);
     if (spec.budget) task.spec.budget = { ...spec.budget, wallMinutes: Math.min(spec.budget.wallMinutes ?? DEFAULT_WALL_MINUTES, rootPolicy.chainBudget.wallMinutes) };
     this.tasks.set(id, task);
     await this.persist(task, "submitted", `Поручение принято от ${identity.id}${parent ? ` (подзадача ${parent.id}, глубина ${depth})` : ""}.`, { spec });
@@ -188,7 +191,8 @@ export class AgentTaskService {
       subscriptionRuns: Math.min(policy.chainBudget.subscriptionRuns, root?.spec.budget?.subscriptionRuns ?? policy.chainBudget.subscriptionRuns)
     };
     const subscriptionRuns = members.flatMap(task => task.attempts).filter(attempt => this.adapter(attempt.executor)?.profile.costTier === "subscription").length;
-    const wallMinutes = root ? (this.now() - Date.parse(root.createdAt)) / 60_000 : 0;
+    // Active execution of the whole chain (executors, acceptance, reworks); waiting for a window or resources is free.
+    const wallMinutes = members.reduce((sum, task) => sum + activeMinutes(task, this.now()), 0);
     return { limits, tasksUsed: members.length, tasksLeft: limits.tasks - members.length, subscriptionRunsUsed: subscriptionRuns,
       subscriptionRunsLeft: limits.subscriptionRuns - subscriptionRuns, wallMinutesUsed: Math.round(wallMinutes), wallMinutesLeft: Math.round(limits.wallMinutes - wallMinutes) };
   }
@@ -343,7 +347,20 @@ export class AgentTaskService {
     return task.priority + Math.min(40, this.waitedMinutes(task) * AGING_POINTS_PER_MINUTE) + affinity;
   }
 
-  private waitedMinutes(task: AgentTask): number { return (this.now() - Date.parse(task.createdAt)) / 60_000; }
+  private waitedMinutes(task: AgentTask): number { return waitingMinutes(task, this.now()); }
+
+  /** What may still be spent on this task right now: its own active budget, the chain's, and the explicit deadline. */
+  timeLeftMs(task: AgentTask): { ms: number; reason: string } {
+    const own = (task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES) * 60_000 - activeMinutes(task, this.now()) * 60_000;
+    const chain = this.chainBudget(task.chain.rootTaskId).wallMinutesLeft * 60_000;
+    const deadline = deadlineLeftMs(task, this.now());
+    const options: Array<{ ms: number; reason: string }> = [
+      { ms: own, reason: "Исчерпан бюджет выполнения задачи (активное время)." },
+      { ms: chain, reason: "Исчерпан бюджет выполнения цепочки поручений (активное время исполнителей, приёмки и доработок)." },
+      ...(deadline !== undefined ? [{ ms: deadline, reason: "Наступил явный дедлайн задачи." }] : [])
+    ];
+    return options.sort((a, b) => a.ms - b.ms)[0];
+  }
   private isHeavy(task: AgentTask): boolean {
     const adapter = this.adapter(task.executor) ?? this.adapter(this.rank(task).find(candidate => candidate.suitable)?.executorId);
     return adapter ? adapter.resourceRequest(task, this.probes.get(adapter.id)).class === "heavy" : false;
@@ -357,7 +374,8 @@ export class AgentTaskService {
   private async tryStart(task: AgentTask): Promise<void> {
     if (task.cancelRequestedAt) { await this.finish(task, "cancelled", "Отменена до запуска."); return; }
     const budget = this.chainBudget(task.chain.rootTaskId);
-    if (budget.wallMinutesLeft <= 0) { await this.finish(task, "failed", "Истёк бюджет времени цепочки поручений.", "budget"); return; }
+    const left = this.timeLeftMs(task);
+    if (left.ms <= 0) { await this.finish(task, "failed", left.reason, "budget"); return; }
 
     const candidates = this.rank(task);
     const suitable = candidates.filter(candidate => candidate.suitable);
@@ -447,7 +465,7 @@ export class AgentTaskService {
     await this.setState(task, "running", rework ? `Дорабатывает ${adapter.label} (доработка ${rework.n} из ${task.acceptance?.maxReworks}).` : `Выполняет ${adapter.label}.`, "started", { executor: adapter.id, leaseId: lease.id, attempt: attempt.n });
 
     const budget = this.chainBudget(task.chain.rootTaskId);
-    const wallMinutes = Math.max(1, Math.min(task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES, budget.wallMinutesLeft));
+    const wallMinutes = Math.max(1, this.timeLeftMs(task).ms / 60_000);
     const childIdentity = this.deps.registry.taskAgent(task.id, `${adapter.label} · ${task.title}`);
     const token = this.deps.registry.issueTaskToken(task.id, (wallMinutes + 30) * 60_000);
     const brief = agentBrief(childIdentity, { taskId: task.id, chainDepth: task.chain.depth, apiUrl: this.deps.apiUrl,
@@ -722,6 +740,8 @@ export class AgentTaskService {
 
   private async setState(task: AgentTask, state: TaskState, reason: string, eventType = "state", data?: Record<string, unknown>): Promise<void> {
     task.state = state;
+    // Close the previous phase into its bucket and open the new one (persisted with the task).
+    accrue(task, this.now());
     task.reason = reason;
     await this.persist(task, eventType, reason, { state, ...(data ?? {}) });
   }
@@ -748,6 +768,7 @@ export class AgentTaskService {
 export function normalizeSpec(input: TaskSpec): TaskSpec {
   if (!input || typeof input.goal !== "string" || !input.goal.trim()) throw new AgentOpsError("BAD_SPEC", "Нужна цель поручения (goal).", {}, 400);
   if (input.goal.length > 40_000) throw new AgentOpsError("BAD_SPEC", "Цель слишком длинная (больше 40 000 символов).", {}, 400);
+  if (input.deadline !== undefined && !Number.isFinite(Date.parse(input.deadline))) throw new AgentOpsError("BAD_SPEC", "deadline должен быть датой ISO.", {}, 400);
   const checks = (input.checks ?? []).slice(0, 12);
   for (const check of checks) {
     if (check.type === "command" && (!check.command?.trim() || /[\r\n]/.test(check.command))) throw new AgentOpsError("BAD_SPEC", "Команда проверки должна быть одной программой без переводов строк.", {}, 400);

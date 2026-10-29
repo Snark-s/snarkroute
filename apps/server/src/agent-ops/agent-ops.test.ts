@@ -345,6 +345,39 @@ describe("delegated task queue", () => {
     expect(again.adapters[1].runs).toBe(0);
   });
 
+  it("does not spend the execution budget while waiting for the window, keeps it across a restart, and honours an explicit deadline", async () => {
+    const clock = { now: Date.parse("2026-10-29T21:00:00Z") };
+    const first = await setup({ mode: "owner_busy", clock });
+    const night = await first.service.submit(first.agent, { goal: "summarize at night", executor: "local_route", allowedExecutors: ["local_route"], budget: { wallMinutes: 5 } });
+    const strict = await first.service.submit(first.agent, { goal: "summarize before 23:00", executor: "local_route", allowedExecutors: ["local_route"], deadline: "2026-10-29T23:00:00Z" });
+    await until(first.service, night.task.id, ["waiting_window"]);
+    clock.now += 5 * 3_600_000;
+    await first.service.drain();
+    first.service.close();
+    // Restart five hours later, then the owner frees the computer.
+    const second = await setup({ directory: first.directory, mode: "free", clock });
+    const done = await until(second.service, night.task.id, ["awaiting_acceptance", "failed"]);
+    expect(done.state).toBe("awaiting_acceptance");
+    expect(done.timing!.waitingMs).toBeGreaterThanOrEqual(5 * 3_600_000);
+    expect(done.timing!.activeMs).toBeLessThan(60_000);
+    const expired = await until(second.service, strict.task.id, ["failed"]);
+    expect(expired.reason).toMatch(/дедлайн/);
+    expect(expired.attempts).toHaveLength(0);
+  });
+
+  it("charges executor time and reworks to the chain's active budget", async () => {
+    const clock = { now: Date.now() };
+    const { service, workspace, agent, adapters } = await setup({ clock });
+    adapters[1].next.push(async () => { clock.now += 4 * 60_000; return { ok: true, message: "ok", summary: "Done!" }; });
+    adapters[1].next.push(async () => { clock.now += 4 * 60_000; return { ok: true, message: "ok", summary: "Done again!" }; });
+    const { task } = await service.submit(agent, codeTask(workspace, { budget: { wallMinutes: 6 } }));
+    const done = await until(service, task.id, ["verified", "failed"]);
+    expect(done.state).toBe("failed");
+    expect(done.reason).toMatch(/Исчерпан бюджет выполнения задачи|Нет прогресса/);
+    expect(done.timing!.activeMs).toBeGreaterThanOrEqual(6 * 60_000);
+    expect(service.chainBudget(task.chain.rootTaskId).wallMinutesUsed).toBeGreaterThanOrEqual(6);
+  });
+
   it("refuses anonymous callers and hides other agents' tasks", async () => {
     const { service, workspace, agent, registry } = await setup({ mode: "owner_busy" });
     await expect(service.submit(registry.anonymous(), { goal: "x" })).rejects.toMatchObject({ code: "IDENTITY_REQUIRED" });
