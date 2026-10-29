@@ -187,17 +187,19 @@ export function createLocalOpenAiTextNodeRunner(options: {
       throwIfAborted(context.signal);
       const verifiedIds = await verifiedLocalModelIds(config, fetchImpl, context.signal);
       if (!verifiedIds.includes(model)) throw new ModelRoutingPolicyError("LOCAL_MODEL_UNAVAILABLE", `Local inference service does not expose the requested model "${model}".`, LOCAL_OPENAI_PROVIDER_ID);
-      const { assertLocalRuntimeAdmission } = await import("../services/local-runtime-supervisor");
-      await assertLocalRuntimeAdmission(config.baseUrl === localServiceUrl("ollama_inference", "/v1") ? "ollama" : "bonsai", model);
-      throwIfAborted(context.signal);
-      logLocalInference("started", { requestId, stepId: node.id, promptChars, ...gate.snapshot() });
-      const { response, text: responseText } = await fetchTextWithTimeout(`${config.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: requestHeaders(config),
-        body: JSON.stringify(body),
-        redirect: "error",
-        signal: context.signal
-      }, config.timeoutMs, fetchImpl);
+      const { withLocalRuntimeLease } = await import("../agent-ops");
+      // The resource lease (admission included) covers exactly the inference call.
+      const { response, text: responseText } = await withLocalRuntimeLease(config.baseUrl === localServiceUrl("ollama_inference", "/v1") ? "ollama" : "bonsai", model, () => {
+        throwIfAborted(context.signal);
+        logLocalInference("started", { requestId, stepId: node.id, promptChars, ...gate.snapshot() });
+        return fetchTextWithTimeout(`${config.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: requestHeaders(config),
+          body: JSON.stringify(body),
+          redirect: "error",
+          signal: context.signal
+        }, config.timeoutMs, fetchImpl);
+      });
       if (!response.ok) throw providerHttpError(response.status, LOCAL_OPENAI_PROVIDER_ID, `Local OpenAI-compatible chat failed with HTTP ${response.status}: ${responseText.slice(0, 1_000)}`);
       let payload: Record<string, unknown>;
       try {

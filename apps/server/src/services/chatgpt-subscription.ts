@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { sharedQuotaLedger } from "../agent-ops/ledger-instance";
 import { join } from "node:path";
 import {
   codexAuthStatus,
@@ -126,8 +127,16 @@ export class ChatGptSubscriptionService {
     if (this.quota.exhausted && this.quota.exhaustedUntil && Date.parse(this.quota.exhaustedUntil) <= this.now()) {
       this.quota = { exhausted: false, lastRateLimit: this.quota.lastRateLimit };
     }
+    // A limit seen by a delegated coding run (or any other SnarkRoute path) applies to chat as well.
+    const shared = sharedQuotaLedger().view("codex_cli");
+    if (!this.quota.exhausted && (shared.quota.state === "exhausted" || shared.quota.state === "rate_limited") && shared.nextAttemptAt && Date.parse(shared.nextAttemptAt) > this.now()) {
+      return { ...this.quota, exhausted: true, exhaustedUntil: shared.nextAttemptAt, lastLimitMessage: shared.quota.detail ?? "Лимит зафиксирован общим учётом SnarkRoute.", ...(shared.quota.simulated ? { simulated: true } : {}) };
+    }
     return { ...this.quota };
   }
+
+  /** Turns running right now; the shared ledger counts them against the plan's concurrency. */
+  get activeTurns(): number { return this.gate.active; }
 
   /** Live check of limit handling and fallback without spending the real quota. */
   simulateQuotaExhausted(seconds: number): ChatGptSubscriptionQuota {
@@ -264,12 +273,19 @@ export class ChatGptSubscriptionService {
   private observeRateLimit(info: CodexRateLimitInfo): void {
     this.quota = { ...this.quota, lastRateLimit: info };
     // Once a window is used up Codex would fail or draw on paid ChatGPT credits; neither is wanted unless allowed.
-    if (codexLimitReached(info) && !(info.hasCredits && process.env.CHATGPT_SUBSCRIPTION_ALLOW_CREDITS === "1")) {
+    const exhausted = codexLimitReached(info) && !(info.hasCredits && process.env.CHATGPT_SUBSCRIPTION_ALLOW_CREDITS === "1");
+    if (exhausted) {
       this.quota = { ...this.quota, exhausted: true, exhaustedUntil: limitResetsAt(info) ?? new Date(this.now() + UNKNOWN_RESET_BACKOFF_MS).toISOString() };
     }
+    const windows = [info.primary, info.secondary].filter(window => window !== undefined);
+    const used = windows.length ? Math.max(...windows.map(window => window.usedPercent)) : undefined;
+    sharedQuotaLedger().recordQuotaReport("codex_cli", { exhausted, usedPercent: used, resetsAt: limitResetsAt(info) ?? windows.find(window => window.usedPercent === used)?.resetsAt,
+      source: "codex session file (chat)", detail: info.planType });
   }
 
   private observeFailure(error: CodexCliError, alias: string): void {
+    if (error.code === "SUBSCRIPTION_LIMIT_REACHED") sharedQuotaLedger().recordFailure("codex_cli", { class: "quota_exhausted", message: error.message, resetsAt: error.details.resetsAt, source: "chatgpt chat" });
+    if (error.code === "NOT_LOGGED_IN" || error.code === "NOT_SUBSCRIPTION") sharedQuotaLedger().recordFailure("codex_cli", { class: "auth", message: error.message, source: "chatgpt chat" });
     if (error.code === "SUBSCRIPTION_LIMIT_REACHED") {
       this.quota = { ...this.quota, exhausted: true, lastLimitMessage: error.message,
         exhaustedUntil: error.details.resetsAt ?? this.quota.exhaustedUntil ?? new Date(this.now() + UNKNOWN_RESET_BACKOFF_MS).toISOString() };

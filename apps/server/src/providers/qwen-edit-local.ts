@@ -21,20 +21,22 @@ export function fitSize(width: number, height: number, maxSide = 1024): { width:
 
 type Deps = { fetchImpl?: typeof fetch; sleep?: (ms: number) => Promise<void>; baseUrl?: string; skipRuntime?: boolean };
 
-export async function runQwenEditJob(
-  payload: { prompt: string; refs: string[]; width: number; height: number; steps: number; seed: number; cfg: number },
-  output: string,
-  signal?: AbortSignal,
-  deps: Deps = {}
-): Promise<{ width: number; height: number }> {
+type QwenPayload = { prompt: string; refs: string[]; width: number; height: number; steps: number; seed: number; cfg: number };
+
+/** The GPU lease (and the admission it includes) covers the whole job, from start-up to the written PNG. */
+export async function runQwenEditJob(payload: QwenPayload, output: string, signal?: AbortSignal, deps: Deps = {}): Promise<{ width: number; height: number }> {
+  if (deps.skipRuntime) return runQwenEditJobAdmitted(payload, output, signal, deps);
+  const { withLocalRuntimeLease } = await import("../agent-ops");
+  return withLocalRuntimeLease("qwen_edit", QWEN_EDIT_MODEL_ID, () => runQwenEditJobAdmitted(payload, output, signal, deps));
+}
+
+async function runQwenEditJobAdmitted(payload: QwenPayload, output: string, signal: AbortSignal | undefined, deps: Deps): Promise<{ width: number; height: number }> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const sleep = deps.sleep ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
   let baseUrl = deps.baseUrl;
   let mark: ((delta: 1 | -1) => void) | undefined;
   if (!deps.skipRuntime) {
-    const { assertLocalRuntimeAdmission } = await import("../services/local-runtime-supervisor");
     const runtime = await import("../services/qwen-edit-local");
-    await assertLocalRuntimeAdmission("qwen_edit", QWEN_EDIT_MODEL_ID);
     await runtime.ensureQwenEditOnline();
     baseUrl = runtime.qwenEditConfig().baseUrl;
     mark = runtime.markQwenEditJob;

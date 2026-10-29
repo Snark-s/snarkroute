@@ -1,5 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { agentOpsInstance } from "../agent-ops";
+import { currentOpsContext } from "../agent-ops/context";
+import { getRegisteredLocalRuntime } from "../services/local-runtime-registry";
 import {
   admissionForLocalRuntime,
   isLocalRuntimeId,
@@ -34,6 +37,8 @@ export function registerLocalRuntimeTools(server: McpServer): void {
     inputSchema: { runtimeId, force: z.boolean().optional() }
   }, async input => {
     try {
+      const refusal = await agentRuntimeRefusal(input.runtimeId, "start");
+      if (refusal) return { ...output({ ok: false, error: refusal }), isError: true };
       return output({ ok: true, ...await startLocalRuntime(input.runtimeId as LocalRuntimeId, { force: input.force === true }) });
     } catch (error) {
       return { ...output({ ok: false, error: error instanceof Error ? error.message : String(error) }), isError: true };
@@ -45,12 +50,34 @@ export function registerLocalRuntimeTools(server: McpServer): void {
     inputSchema: { runtimeId }
   }, async input => {
     if (!isLocalRuntimeId(input.runtimeId)) return { ...output({ ok: false, error: "Unknown local runtime." }), isError: true };
+    const refusal = await agentRuntimeRefusal(input.runtimeId, "stop");
+    if (refusal) return { ...output({ ok: false, error: refusal }), isError: true };
     try {
       return output({ ok: true, ...await stopLocalRuntime(input.runtimeId) });
     } catch (error) {
       return { ...output({ ok: false, error: error instanceof Error ? error.message : String(error) }), isError: true };
     }
   });
+}
+
+/**
+ * Agents may not start a model that claims GPU memory while the owner needs the
+ * computer, and may not stop a runtime another task or agent is using.
+ */
+async function agentRuntimeRefusal(runtimeId: string, action: "start" | "stop"): Promise<string | undefined> {
+  const ops = await agentOpsInstance()?.catch(() => undefined);
+  if (!ops) return undefined;
+  const context = currentOpsContext();
+  if (context.origin !== "agent") return undefined;
+  if (action === "start") {
+    const runtime = getRegisteredLocalRuntime(runtimeId);
+    const mode = await ops.mode();
+    if (runtime?.claimsOnStart && !mode.limits.heavy) return `Режим «${mode.label}»: агенты не запускают модели, занимающие GPU (${mode.reason}).`;
+    return undefined;
+  }
+  const users = ops.dispatcher.list().filter(lease => lease.runtimeId === runtimeId && lease.agentId !== context.agentId);
+  if (users.length) return `${runtimeId} используют: ${users.map(lease => `${lease.purpose} (${lease.agentId})`).join(", ")}. Остановка без согласования запрещена.`;
+  return undefined;
 }
 
 function output(value: unknown) {

@@ -12,9 +12,13 @@ import { IMAGE_TOOL_INSTRUCTIONS, registerImageTools } from "./image-tools";
 import { COZYCLAY_TOOL_INSTRUCTIONS, registerCozyClayTools } from "./cozyclay-tools";
 import { TECH_RADAR_INSTRUCTIONS, registerTechRadarTools } from "./tech-radar-tools";
 import { MODEL_EXPOSURE_INSTRUCTIONS, registerModelExposureTools } from "./model-exposure-tools";
+import { AGENT_OPS_INSTRUCTIONS, registerAgentOpsTools } from "./agent-ops-tools";
+import { opsContext } from "../agent-ops/context";
 
 const instructions = "This server controls local Adobe After Effects and exposes shared SnarkRoute runtime state. Before making After Effects changes, call ae_list_sessions. Before starting heavy local inference, call local_runtime_admission with intent=workload and surface any warnings or blockers instead of blindly starting another GPU-heavy runtime. If exactly one AE session is connected, tools may select it automatically; otherwise pass sessionId. For non-standard operations use ae_run_arbitrary_jsx. JSX executes directly in the currently open After Effects project through the SnarkRoute CEP panel. Arbitrary JSX is intentionally unrestricted and can access the AE DOM and ExtendScript File/Folder APIs. Timeouts stop waiting for a reply but cannot reliably interrupt ExtendScript already running.";
 const transports = new Map<string, StreamableHTTPServerTransport>();
+/** Agent id of each MCP session, from the client's initialize clientInfo. */
+const sessionAgents = new Map<string, () => string>();
 const buzhaInstructions = " Buzha is runtime buzha in local_runtime_status/start/stop: a local orders bureau with manual records and a chat through SnarkRoute. Ready means the UI is available, not autonomous execution; automation is false. Future executor questions must go through Secretary.";
 
 export async function registerMcpRoutes(app: FastifyInstance, jabberwock?: JabberwockMcpContext): Promise<void> {
@@ -30,13 +34,17 @@ async function handlePost(request: FastifyRequest, reply: FastifyReply, jabberwo
   const sessionId = header(request, "mcp-session-id");
   let transport = sessionId ? transports.get(sessionId) : undefined;
   if (!transport && !sessionId && isInitializeRequest(request.body)) {
-    transport = new StreamableHTTPServerTransport({ sessionIdGenerator: randomUUID, onsessioninitialized: (id) => { transports.set(id, transport!); } });
-    transport.onclose = () => { if (transport?.sessionId) transports.delete(transport.sessionId); };
-    await createAeMcpServer(aeBridgeService, jabberwock).connect(transport);
+    const server = createAeMcpServer(aeBridgeService, jabberwock);
+    const agentOf = () => `mcp:${server.server.getClientVersion()?.name ?? "unknown-client"}`;
+    transport = new StreamableHTTPServerTransport({ sessionIdGenerator: randomUUID, onsessioninitialized: (id) => { transports.set(id, transport!); sessionAgents.set(id, agentOf); } });
+    transport.onclose = () => { if (transport?.sessionId) { transports.delete(transport.sessionId); sessionAgents.delete(transport.sessionId); } };
+    await server.connect(transport);
   }
   if (!transport) return reply.code(400).send(jsonError("Invalid or missing MCP session id."));
   reply.hijack();
-  await transport.handleRequest(request.raw, reply.raw, request.body);
+  // Tool calls run as the connected agent: GPU work they start is dispatched as background agent work, not as the owner's.
+  const agentId = sessionId ? sessionAgents.get(sessionId)?.() ?? "mcp:unknown-client" : "mcp:initializing";
+  await opsContext.run({ origin: "agent", agentId }, () => transport!.handleRequest(request.raw, reply.raw, request.body));
 }
 
 async function handleExisting(request: FastifyRequest, reply: FastifyReply): Promise<unknown> {
@@ -49,13 +57,14 @@ async function handleExisting(request: FastifyRequest, reply: FastifyReply): Pro
 }
 
 export function createAeMcpServer(bridge: AeBridgeService = aeBridgeService, jabberwock?: JabberwockMcpContext): McpServer {
-  const server = new McpServer({ name: "snarkroute-after-effects", version: "0.1.0" }, { capabilities: { logging: {} }, instructions: instructions + buzhaInstructions + IMAGE_TOOL_INSTRUCTIONS + MODEL_EXPOSURE_INSTRUCTIONS + COZYCLAY_TOOL_INSTRUCTIONS + TECH_RADAR_INSTRUCTIONS + (jabberwock ? " Jabberwock routes use the jabberwock_* tools and persistent Supervisor API. Create one route; it runs without per-step client calls. Never transport route operations or results through a ChatGPT web composer." : "") });
+  const server = new McpServer({ name: "snarkroute-after-effects", version: "0.1.0" }, { capabilities: { logging: {} }, instructions: instructions + buzhaInstructions + IMAGE_TOOL_INSTRUCTIONS + MODEL_EXPOSURE_INSTRUCTIONS + COZYCLAY_TOOL_INSTRUCTIONS + TECH_RADAR_INSTRUCTIONS + AGENT_OPS_INSTRUCTIONS + (jabberwock ? " Jabberwock routes use the jabberwock_* tools and persistent Supervisor API. Create one route; it runs without per-step client calls. Never transport route operations or results through a ChatGPT web composer." : "") });
   registerAeTools(server, bridge);
   registerLocalRuntimeTools(server);
   registerImageTools(server);
   registerModelExposureTools(server);
   registerCozyClayTools(server);
   registerTechRadarTools(server);
+  registerAgentOpsTools(server, ops => ops.registry.mcpClient(server.server.getClientVersion()?.name, server.server.getClientVersion()?.title as string | undefined));
   if (jabberwock) registerJabberwockTools(server, jabberwock);
   return server;
 }

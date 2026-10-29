@@ -1,5 +1,17 @@
 # Repository Instructions
 
+## Capability awareness and delegation
+
+Before stating that a task cannot be done with your tools, check the SnarkRoute capability catalog
+(MCP `agent_capabilities`, or `GET http://127.0.0.1:4317/api/agent-ops/catalog`) and, if a specialist
+fits, delegate with `agent_delegate_submit` (goal, acceptance, machine checks, workspace, idempotencyKey).
+The router picks a suitable permitted executor (local model first when it fits, then the Codex and
+Claude Code subscriptions; never paid APIs); the dispatcher decides when it may run (computer mode,
+GPU/RAM leases, locks, quota). Never claim availability, quota or success SnarkRoute has not reported:
+an installed CLI is "discovered", not "verified", and quota without provider data is "unknown".
+Heavy local GPU work needs a lease (`agent_resource_acquire`) and respects the owner's computer mode.
+Details: `docs/agent-capabilities-and-delegation.md`.
+
 ## Default mode: context-budget
 
 Context-budget mode is mandatory for this repository unless the user explicitly requests broad analysis, architecture review, repository-wide audit, or large refactoring.

@@ -12,6 +12,7 @@ import { SnarkBridgeCard } from "./SnarkBridgeCard";
 import { ModelCatalogCard } from "./ModelCatalogCard";
 import { TechRadarCard } from "./TechRadarCard";
 import { SecretaryPanel } from "./SecretaryPanel";
+import { AgentOpsPanel, AgentOpsStatusBar, useAgentOpsStatus } from "./AgentOpsPanel";
 import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTerminalContextMenu, showTerminal } from "./ServiceTerminals";
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317";
@@ -98,7 +99,7 @@ function Launcher() {
   return <main className="launcherPage">
     <header className="hero">
       <div className="launcherBrand"><img src="/launcher-icon.png" alt="" /><div><span className="eyebrow">Локальная мастерская</span><p>Один вход во все инструменты. SnarkRoute уже держит модели и плагины на связи.</p></div></div>
-      <div className="heroRuntimes"><div className="runtimePill"><span className="pulse" /> SnarkRoute работает</div><RestartSnarkRoute apiPort={Number(new URL(apiBase).port||80)} onHealthy={()=>void refresh().catch(reason=>setError(message(reason)))}/><LocalRuntimeControl /></div>
+      <div className="heroRuntimes"><div className="runtimePill"><span className="pulse" /> SnarkRoute работает</div><AgentOpsStatusBar apiBase={apiBase} /><RestartSnarkRoute apiPort={Number(new URL(apiBase).port||80)} onHealthy={()=>void refresh().catch(reason=>setError(message(reason)))}/><LocalRuntimeControl /></div>
     </header>
     <TerminalPanel apiBase={apiBase} />
     {error ? <div className="errorBanner">{error}</div> : null}
@@ -122,6 +123,7 @@ function Launcher() {
       id={`workshop-panel-${tab.id}`} role="tabpanel" aria-labelledby={`workshop-tab-${tab.id}`}
       hidden={activeTab !== tab.id}>
       {tab.id === "secretary" ? <SecretaryPanel apiBase={apiBase} onPendingChange={updateSecretaryPending} /> : null}
+      {tab.id === "agents" ? <AgentOpsPanel apiBase={apiBase} /> : null}
       {tab.id === "agents" && livingCanvas ? <TechRadarCard running={livingCanvas.running} busy={busy === "tech-radar"} index={0} onOpen={() => void openApp(livingCanvas, "/tech-radar")} /> : null}
       {tab.appIds.flatMap(id => apps.filter(app => app.id === id)).map((app, appIndex) => {
         const index = appIndex + (tab.id === "agents" ? 1 : 0);
@@ -164,6 +166,7 @@ function LocalRuntimeControl() {
   const [localError, setLocalError] = useState("");
   const { alerts } = useServiceLogs(apiBase);
   const terminalMenu = useTerminalContextMenu();
+  const agentOps = useAgentOpsStatus(apiBase).status;
   const [cozyClay, setCozyClay] = useState<CozyClayControl>();
   const [cozyClayBusy, setCozyClayBusy] = useState(false);
   const [cozyClayError, setCozyClayError] = useState("");
@@ -278,9 +281,10 @@ function LocalRuntimeControl() {
     if (action) return;
     setAction("all:stop"); setLocalError("");
     try {
-      const result = await api<{ results: Array<{ id: string; ok: boolean; error?: string }> }>("/api/system/local-runtimes/stop-all", { method: "POST" });
+      const result = await api<{ results: Array<{ id: string; ok: boolean; error?: string }>; tasks?: Array<{ id: string; ok: boolean; error?: string }> }>("/api/system/local-runtimes/stop-all", { method: "POST" });
       await refresh();
-      const failures = result.results.filter(item => !item.ok);
+      window.dispatchEvent(new Event("snarkroute:agent-ops-changed"));
+      const failures = [...result.results, ...(result.tasks ?? [])].filter(item => !item.ok);
       if (failures.length) setLocalError(failures.map(item => `${item.id}: ${item.error}`).join(" · "));
       window.dispatchEvent(new Event("snarkroute:apps-changed"));
     } catch (reason) { setLocalError(message(reason)); }
@@ -324,7 +328,7 @@ function LocalRuntimeControl() {
       })}
     </span>
     <TerminalsButton apiBase={apiBase} />
-    <button type="button" onClick={() => void stopAll()} disabled={Boolean(action) || !snapshot?.runtimes.some(runtime => runtime.control.canStop)} title="Остановить локальные процессы через их собственные обработчики">{action === "all:stop" ? "Останавливаю…" : "Остановить все задачи"}</button>
+    <button type="button" onClick={() => void stopAll()} disabled={Boolean(action) || !snapshot?.runtimes.some(runtime => runtime.control.canStop) && !agentOps?.queue.active} title="Отменить управляемые поручения агентов и остановить локальные модели через их собственные обработчики. Посторонние процессы не затрагиваются.">{action === "all:stop" ? "Останавливаю…" : "Остановить все задачи"}</button>
     {localError ? <span className="runtimeDeckError">{localError}</span> : null}
     {terminalMenu.element}
   </div>;

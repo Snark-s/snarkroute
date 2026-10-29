@@ -37,6 +37,7 @@ import { startRadarScheduler } from "./services/radar";
 import { registerTechRadarRoutes } from "./routes/tech-radar";
 import { registerClaudeSubscriptionRoutes } from "./routes/claude-subscription";
 import { registerChatGptSubscriptionRoutes } from "./routes/chatgpt-subscription";
+import { registerAgentOpsRoutes } from "./routes/agent-ops";
 import { appMode, assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
 import { createDecisionRuntimeFromEnv } from "./services/decision-runtime";
@@ -67,6 +68,8 @@ export function buildServer() {
   if (appMode() === "local") registerTechRadarRoutes(app);
   if (appMode() === "local") registerClaudeSubscriptionRoutes(app);
   if (appMode() === "local") registerChatGptSubscriptionRoutes(app);
+  // Unit tests that build the whole server do not start background probes and schedulers.
+  if (appMode() === "local" && process.env.AGENT_OPS_DISABLED !== "1" && (!process.env.VITEST || process.env.AGENT_OPS_IN_TESTS === "1")) registerAgentOpsRoutes(app);
   void registerPersonaAgentRoutes(app);
   const routeRunner = jabberwockMemory && supervisorBridge ? registerJabberwockSupervisorRoutes(app, jabberwockMemory, supervisorBridge) : null;
   void registerMcpRoutes(app, jabberwockMemory && supervisorBridge && routeRunner ? { memory: jabberwockMemory, bridge: supervisorBridge, runner: routeRunner } : undefined);
