@@ -1,4 +1,8 @@
-# Repository Instructions
+﻿# Repository Instructions
+
+## Capability awareness
+
+Before stating that a coding task cannot be completed with current tools, consult `docs/agent-capabilities-and-delegation.md` and, when connected to the local SnarkRoute MCP, call `coding_agents_discover`. This is a **read-only** discovery tool for local Codex and Claude Code CLIs; do not claim that task delegation has already been implemented, that a subscription has remaining quota, or that a job has run merely because a CLI is installed. Do not invoke either provider just to test availability or spend a paid API budget without authorization.
 
 ## Default mode: context-budget
 
