@@ -81,6 +81,7 @@ export class CapabilityCatalog {
       details.profile = adapter?.profile;
       details.probe = this.deps.probes().get(executorId) ?? null;
       details.ledger = this.deps.ledger.view(executorId);
+      details.coverage = this.deps.ledger.coverage(executorId, adapter?.profile.costTier ?? "subscription");
       details.limits = { concurrent: this.deps.ledger.limits.maxConcurrentPerExecutor[executorId] ?? 1, dailyRuns: this.deps.ledger.limits.dailyRunsPerExecutor[executorId] ?? null,
         sharedSubscriptionConcurrency: this.deps.ledger.limits.maxConcurrentSubscriptionRuns };
       details.how = "agent_delegate_submit {goal, acceptance, checks, workspace, executor?: '" + executorId + "', idempotencyKey}";

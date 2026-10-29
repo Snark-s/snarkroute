@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { criteriaOf, newAcceptanceState, reworkGate, unmetSignature, type Reviewer } from "./acceptance";
 import { agentBrief, workspaceAllowed, type AgentRegistry } from "./agents";
 import { opsContext } from "./context";
 import type { ExecutorAdapter, ExecutorOutcome, ExecutorProbe } from "./executors";
@@ -13,7 +14,7 @@ import {
   TERMINAL_STATES, WAITING_STATES,
   type AgentIdentity, type AgentTask, type Attempt, type ComputerMode, type FailureClass, type TaskEvent, type TaskSpec, type TaskState
 } from "./types";
-import { changedPaths, createWorktree, gitTopLevel, killProcessTree, processAlive, processImage, runCheck, snapshotWorkspace } from "./workspace";
+import { changedPaths, collectDiff, createWorktree, gitTopLevel, killProcessTree, processAlive, processImage, runCheck, snapshotWorkspace } from "./workspace";
 
 export class AgentOpsError extends Error {
   constructor(readonly code: string, message: string, readonly details: Record<string, unknown> = {}, readonly status = 409) {
@@ -38,7 +39,11 @@ export type TaskServiceDeps = {
   tickMs?: number;
   /** Tests run without spawning a real `git`/checks. */
   workspace?: { snapshot?: typeof snapshotWorkspace; alive?: typeof processAlive };
+  /** Content reviewer through the model router; without it, machine checks decide alone. */
+  reviewer?: Reviewer;
 };
+
+const REVIEW_RETRY_MS = 3 * 60_000;
 
 const PROBE_TTL_MS = 60_000;
 const DEFAULT_WALL_MINUTES = 30;
@@ -55,6 +60,7 @@ export class AgentTaskService {
   private again = false;
   private timer?: NodeJS.Timeout;
   private lastMode?: ComputerMode;
+  private reviewing = new Set<string>();
 
   constructor(private readonly deps: TaskServiceDeps) {}
 
@@ -65,7 +71,11 @@ export class AgentTaskService {
   private alive(pid: number | undefined, image?: string) { return (this.deps.workspace?.alive ?? processAlive)(pid, image); }
 
   async init(): Promise<void> {
-    for (const task of await this.deps.store.loadTasks()) this.tasks.set(task.id, task);
+    for (const task of await this.deps.store.loadTasks()) {
+      // Tasks persisted before acceptance existed used "awaiting_verification" for the same moment.
+      if ((task.state as string) === "awaiting_verification") task.state = "awaiting_acceptance";
+      this.tasks.set(task.id, task);
+    }
     await this.reconcileAfterRestart();
     this.timer = setInterval(() => this.kick(), this.deps.tickMs ?? 2000);
     this.timer.unref?.();
@@ -95,7 +105,21 @@ export class AgentTaskService {
 
   // ---------------------------------------------------------------- submission
 
+  /** Owner, the submitting agent, and agents of the same delegation chain may read a task; nobody else. */
+  canRead(task: AgentTask, identity: AgentIdentity): boolean {
+    if (identity.kind === "owner" || task.agentId === identity.id || task.chain.agents.includes(identity.id)) return true;
+    const own = identity.taskId ? this.tasks.get(identity.taskId) : undefined;
+    return Boolean(own && own.chain.rootTaskId === task.chain.rootTaskId);
+  }
+
+  requireReadable(id: string, identity: AgentIdentity): AgentTask {
+    const task = this.require(id);
+    if (!this.canRead(task, identity)) throw new AgentOpsError("NOT_YOUR_TASK", `Задача ${id} принадлежит другому агенту.`, {}, 403);
+    return task;
+  }
+
   async submit(identity: AgentIdentity, input: TaskSpec): Promise<{ task: AgentTask; deduplicated: boolean }> {
+    if (identity.kind === "anonymous") throw new AgentOpsError("IDENTITY_REQUIRED", "Поручения принимаются только от агента с токеном или от владельца.", {}, 401);
     const spec = normalizeSpec(input);
     if (spec.idempotencyKey) {
       const existing = [...this.tasks.values()].find(task => task.spec.idempotencyKey === spec.idempotencyKey && task.agentId === identity.id);
@@ -207,11 +231,12 @@ export class AgentTaskService {
   async resolve(id: string, identity: AgentIdentity, action: "requeue" | "continue" | "mark_failed" | "mark_verified", note?: string): Promise<AgentTask> {
     const task = this.require(id);
     this.assertControl(task, identity);
-    if (!["unknown_outcome", "blocked", "failed", "awaiting_verification"].includes(task.state)) throw new AgentOpsError("BAD_STATE", `Задача в состоянии ${task.state}; решение не требуется.`);
+    if (!["unknown_outcome", "blocked", "failed", "awaiting_acceptance"].includes(task.state)) throw new AgentOpsError("BAD_STATE", `Задача в состоянии ${task.state}; решение не требуется.`);
     if (this.watching.has(id)) throw new AgentOpsError("STILL_RUNNING", "Процесс исполнителя ещё работает; дождитесь его завершения или отмените задачу.");
     if (action === "mark_verified") {
       if (identity.kind !== "owner") throw new AgentOpsError("OWNER_ONLY", "Подтвердить результат без проверок может только владелец.", {}, 403);
-      await this.finish(task, "verified", `Подтверждено владельцем${note ? `: ${note}` : ""}.`);
+      (task.acceptance ??= newAcceptanceState(task.spec)).decisions.push({ at: this.iso(), attempt: task.attempts.length, decision: "accept", by: "owner", unmet: [], reason: note ?? "принято владельцем" });
+      await this.finish(task, "verified", `Принято владельцем${note ? `: ${note}` : ""}.`);
     } else if (action === "mark_failed") {
       await this.finish(task, "failed", `Отмечено как ошибка (${identity.id})${note ? `: ${note}` : ""}.`);
     } else {
@@ -227,9 +252,11 @@ export class AgentTaskService {
   async verify(id: string, identity: AgentIdentity): Promise<AgentTask> {
     const task = this.require(id);
     this.assertControl(task, identity);
-    if (!["awaiting_verification", "failed", "unknown_outcome"].includes(task.state) || !task.spec.checks?.length) throw new AgentOpsError("BAD_STATE", "Проверять нечего: нет машинных проверок или задача ещё не выполнена.");
+    if (!["awaiting_acceptance", "failed", "unknown_outcome"].includes(task.state) || !task.attempts.some(attempt => attempt.outcome === "succeeded" || attempt.outcome === "unknown")) {
+      throw new AgentOpsError("BAD_STATE", "Принимать нечего: исполнитель ещё не сдал результат.");
+    }
     if (this.watching.has(id)) throw new AgentOpsError("STILL_RUNNING", "Процесс исполнителя ещё работает.");
-    await this.runVerification(task);
+    await this.runAcceptance(task);
     return task;
   }
 
@@ -294,6 +321,9 @@ export class AgentTaskService {
     }
     this.lastMode = mode.mode;
     for (const id of [...this.watching]) await this.checkWatched(id);
+    for (const task of [...this.tasks.values()].filter(item => item.state === "awaiting_acceptance" && item.acceptance?.nextReviewAt && Date.parse(item.acceptance.nextReviewAt) <= this.now())) {
+      await this.runAcceptance(task);
+    }
 
     const waiting = [...this.tasks.values()].filter(task => WAITING_STATES.has(task.state) && !this.running.has(task.id))
       .sort((a, b) => this.effectivePriority(b) - this.effectivePriority(a) || a.createdAt.localeCompare(b.createdAt));
@@ -342,6 +372,9 @@ export class AgentTaskService {
     const notes: string[] = [];
     let permanent = true;
     let chosen: RouteCandidate | undefined;
+    // A rework continues with the executor that knows the work, when it is still suitable and usable.
+    const previousExecutor = task.acceptance?.pendingRework?.previousExecutor;
+    if (previousExecutor) suitable.sort((a, b) => Number(b.executorId === previousExecutor) - Number(a.executorId === previousExecutor));
     for (const candidate of suitable) {
       const excluded = task.excludedExecutors[candidate.executorId];
       if (excluded) { notes.push(`${candidate.label}: ${excluded}`); continue; }
@@ -398,7 +431,9 @@ export class AgentTaskService {
 
   private async launch(task: AgentTask, adapter: ExecutorAdapter, lease: Lease): Promise<void> {
     const attempt: Attempt = { n: task.attempts.length + 1, executor: adapter.id, startedAt: this.iso(), baseline: await this.snapshot(task.workdir) };
-    const partial = task.attempts.at(-1)?.changedFiles?.length && task.spec.onPartial === "continue" ? task.attempts.at(-1) : undefined;
+    const partial = task.attempts.at(-1)?.changedFiles?.length && task.spec.onPartial === "continue" && task.attempts.at(-1)?.outcome !== "succeeded" ? task.attempts.at(-1) : undefined;
+    const rework = task.acceptance?.pendingRework;
+    if (rework) attempt.rework = { n: rework.n, unmet: rework.unmet };
     task.attempts.push(attempt);
     task.executor = adapter.id;
     task.leaseId = lease.id;
@@ -408,7 +443,8 @@ export class AgentTaskService {
     const heartbeat = setInterval(() => { this.deps.dispatcher.heartbeat(lease.id); }, 30_000);
     heartbeat.unref?.();
     this.running.set(task.id, { controller, heartbeat, adapter });
-    await this.setState(task, "running", `Выполняет ${adapter.label}.`, "started", { executor: adapter.id, leaseId: lease.id, attempt: attempt.n });
+    if (task.acceptance?.pendingRework) task.acceptance.pendingRework = undefined;
+    await this.setState(task, "running", rework ? `Дорабатывает ${adapter.label} (доработка ${rework.n} из ${task.acceptance?.maxReworks}).` : `Выполняет ${adapter.label}.`, "started", { executor: adapter.id, leaseId: lease.id, attempt: attempt.n });
 
     const budget = this.chainBudget(task.chain.rootTaskId);
     const wallMinutes = Math.max(1, Math.min(task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES, budget.wallMinutesLeft));
@@ -419,7 +455,7 @@ export class AgentTaskService {
     const log = (line: string) => { void this.deps.store.appendLog(task.id, `${new Date(this.now()).toISOString()} ${line}\n`); };
     const context = { origin: "agent" as const, agentId: childIdentity.id, taskId: task.id, heldRuntimes: lease.runtimeId ? [lease.runtimeId] : [] };
     const outcome = opsContext.run(context, () => adapter.run({
-      task, workdir: task.workdir, prompt: buildTaskPrompt(task, partial), brief, signal: controller.signal,
+      task, workdir: task.workdir, prompt: buildTaskPrompt(task, partial, rework), brief, signal: controller.signal,
       env: { SNARKROUTE_AGENT_TOKEN: token, SNARKROUTE_TASK_ID: task.id, SNARKROUTE_API_URL: this.deps.apiUrl },
       timeoutMs: wallMinutes * 60_000, maxTurns: task.spec.budget?.maxTurns ?? 40, log,
       onPid: pid => {
@@ -445,6 +481,7 @@ export class AgentTaskService {
     attempt.changedFiles = changedPaths(attempt.baseline, await this.snapshot(task.workdir));
     const adapter = this.adapter(attempt.executor)!;
     if (outcome.quotaReport) this.deps.ledger.recordQuotaReport(adapter.id, outcome.quotaReport);
+    this.deps.ledger.recordMeasuredRun(adapter.id, { kind: "delegated", inputTokens: outcome.usage?.inputTokens, outputTokens: outcome.usage?.outputTokens });
     if (outcome.ok) {
       attempt.outcome = "succeeded";
       this.deps.ledger.recordSuccess(adapter.id);
@@ -456,7 +493,8 @@ export class AgentTaskService {
       };
       await this.event(task, "executor_finished", `${adapter.label}: ${outcome.message} Изменено файлов: ${attempt.changedFiles.length}.`, { changedFiles: attempt.changedFiles.slice(0, 100) });
       if (task.cancelRequestedAt) { await this.finish(task, "cancelled", "Отменена; исполнитель успел завершить работу, результат сохранён без проверки."); return; }
-      await this.runVerification(task);
+      await this.setState(task, "awaiting_acceptance", `${adapter.label} закончил; результат ждёт приёмки.`, "executor_finished");
+      await this.runAcceptance(task);
       return;
     }
 
@@ -491,28 +529,116 @@ export class AgentTaskService {
     await this.finish(task, "failed", `${adapter.label}: ${failureLabel(failure)} — ${outcome.message.slice(0, 300)}`);
   }
 
-  private async runVerification(task: AgentTask): Promise<void> {
+  /**
+   * Acceptance: machine checks, then the reviewer for the original criteria. Decides
+   * accept / rework / wait / blocked / owner action. The working copy stays locked
+   * until a decision, so nothing changes under the reviewer.
+   */
+  private async runAcceptance(task: AgentTask): Promise<void> {
+    if (this.reviewing.has(task.id)) return;
+    this.reviewing.add(task.id);
+    try { await this.accept(task); }
+    finally { this.reviewing.delete(task.id); }
+  }
+
+  private async accept(task: AgentTask): Promise<void> {
+    const acceptance = task.acceptance ??= newAcceptanceState(task.spec);
+    acceptance.nextReviewAt = undefined;
+    const attemptN = task.attempts.length;
     const checks = task.spec.checks ?? [];
-    if (!checks.length) {
-      this.deps.locks.releaseOwner(task.id);
-      task.lockKeys = [];
-      await this.setState(task, "awaiting_verification", "Машинных проверок нет: результат нужно проверить (agent_delegate_verify с проверками или решение владельца).", "verification");
-      return;
-    }
-    await this.setState(task, "awaiting_verification", `Проверяю результат: ${checks.length} проверок.`, "verification");
+    await this.setState(task, "awaiting_acceptance", checks.length ? `Приёмка: машинные проверки (${checks.length}).` : "Приёмка: машинных проверок нет, оценивает приёмщик.", "acceptance");
     const results = [];
     for (const check of checks) results.push(await runCheck(check, task.workdir));
-    if (task.result) task.result.checks = results;
-    else task.result = { summary: "", executor: task.executor ?? "unknown", changedFiles: [], checks: results, workdir: task.workdir, cost: { tier: "local", providerCost: 0, note: "" } };
-    this.deps.locks.releaseOwner(task.id);
-    task.lockKeys = [];
+    task.result ??= { summary: "", executor: task.executor ?? "unknown", changedFiles: [], checks: [], workdir: task.workdir, cost: { tier: "local", providerCost: 0, note: "" } };
+    task.result.checks = results;
     const failed = results.filter(result => !result.ok);
     if (failed.length) {
-      await this.finish(task, "failed", `Проверка не прошла (${failed.length} из ${results.length}): ${failed.map(result => `${describeCheck(result.check)} — ${result.detail.split(/\r?\n/).slice(0, 2).join(" ")}`).join("; ").slice(0, 600)}`, "verification");
+      await this.decideRework(task, failed.map(result => `проверка «${describeCheck(result.check)}» не прошла: ${result.detail.split(/\r?\n/).slice(0, 2).join(" ").slice(0, 200)}`), `Машинные проверки не прошли (${failed.length} из ${results.length}).`, "checks");
       return;
     }
+    const reviewer = this.deps.reviewer;
+    if (task.spec.review === "checks_only" || !reviewer) {
+      if (checks.length) { await this.acceptResult(task, "checks", `все проверки прошли (${results.length})`); return; }
+      this.releaseWorkspace(task);
+      await this.setState(task, "awaiting_acceptance", "Исполнитель закончил, но машинных проверок нет и приёмщик не подключён: нужно решение владельца (принять или вернуть).", "acceptance");
+      return;
+    }
+    if (acceptance.reviews >= acceptance.maxReworks + 3) { await this.stopAcceptance(task, "Исчерпан лимит обращений к приёмщику.", []); return; }
+    const criteria = criteriaOf(task.spec);
+    const budget = this.chainBudget(task.chain.rootTaskId);
+    const attempt = task.attempts.at(-1);
+    acceptance.reviews += 1;
+    const verdict = await reviewer({
+      taskId: task.id, goal: task.spec.goal, criteria, executor: task.executor,
+      executorSummary: task.result.summary,
+      evidence: { changedFiles: task.attempts.flatMap(item => item.changedFiles ?? []).filter((value, index, all) => all.indexOf(value) === index),
+        checks: results.map(result => ({ check: describeCheck(result.check), ok: result.ok, detail: result.detail })),
+        diff: await collectDiff(task.workdir, attempt?.changedFiles ?? []).catch(() => ""),
+        artifact: task.result.artifactPath ? await this.deps.store.readArtifact(task.id, "result.md").catch(() => undefined) : undefined },
+      history: acceptance.decisions.map(decision => ({ attempt: decision.attempt, decision: decision.decision, unmet: decision.unmet, reason: decision.reason })),
+      budget: { reworksLeft: acceptance.maxReworks - acceptance.reworks, wallMinutesLeft: budget.wallMinutesLeft, subscriptionRunsLeft: budget.subscriptionRunsLeft }
+    }).catch(error => ({ status: "unavailable" as const, reason: error instanceof Error ? error.message : String(error) }));
+    if (verdict.status === "unavailable") {
+      if (checks.length && !(task.spec.acceptance ?? []).length) { await this.acceptResult(task, "checks", `все проверки прошли; содержательная оценка сейчас недоступна (${verdict.reason.slice(0, 160)})`); return; }
+      acceptance.nextReviewAt = new Date(this.now() + REVIEW_RETRY_MS).toISOString();
+      acceptance.decisions.push({ at: this.iso(), attempt: attemptN, decision: "wait", by: "reviewer", unmet: [], reason: verdict.reason.slice(0, 300) });
+      this.releaseWorkspace(task);
+      await this.setState(task, "awaiting_acceptance", `Приёмщик ждёт модель: ${verdict.reason.slice(0, 200)}. Повтор через ${Math.round(REVIEW_RETRY_MS / 60_000)} мин.`, "acceptance_wait");
+      return;
+    }
+    const unmet = verdict.unmet.map(index => criteria[index]);
+    if (verdict.decision === "accept" || verdict.decision === "rework" && !unmet.length) {
+      await this.acceptResult(task, "reviewer", verdict.decision === "accept" ? verdict.reason || "критерии выполнены" : `приёмщик не указал невыполненного критерия задачи (${verdict.reason.slice(0, 160)})`, verdict.reviewer);
+      return;
+    }
+    if (verdict.decision === "rework") { await this.decideRework(task, unmet, verdict.reason, "reviewer", verdict.reviewer); return; }
+    acceptance.decisions.push({ at: this.iso(), attempt: attemptN, decision: verdict.decision, by: "reviewer", unmet, reason: verdict.reason, reviewer: verdict.reviewer });
+    if (verdict.decision === "owner_action") acceptance.ownerAction = verdict.ownerAction ?? verdict.reason;
+    this.releaseWorkspace(task);
+    await this.setState(task, "blocked", verdict.decision === "owner_action"
+      ? `Нужно действие владельца: ${acceptance.ownerAction}`
+      : `Приёмщик зафиксировал блокировку: ${verdict.reason}`, "acceptance_blocked");
+  }
+
+  private async acceptResult(task: AgentTask, by: "checks" | "reviewer", reason: string, reviewer?: { provider: string; model: string }): Promise<void> {
+    const acceptance = task.acceptance ??= newAcceptanceState(task.spec);
+    acceptance.decisions.push({ at: this.iso(), attempt: task.attempts.length, decision: "accept", by, unmet: [], reason, ...(reviewer ? { reviewer } : {}) });
     if (task.executor) this.deps.ledger.recordSuccess(task.executor, { verified: true });
-    await this.finish(task, "verified", `Все проверки прошли (${results.length}).`);
+    await this.finish(task, "verified", `Принято ${by === "checks" ? "по машинным проверкам" : `приёмщиком${reviewer ? ` (${reviewer.model})` : ""}`}: ${reason}.`, "accepted");
+  }
+
+  /** Back to the queue with the concrete unmet criteria, or a stop when looping would not help. */
+  private async decideRework(task: AgentTask, unmet: string[], reason: string, by: "checks" | "reviewer", reviewer?: { provider: string; model: string }): Promise<void> {
+    const acceptance = task.acceptance ??= newAcceptanceState(task.spec);
+    const signature = unmetSignature(unmet);
+    const attempt = task.attempts.at(-1);
+    if (task.spec.permissions?.network === true && attempt?.outcome === "unknown") {
+      await this.stopAcceptance(task, "Исход прошлой попытки с внешними действиями неизвестен: повторная доработка без проверки того, что уже произошло, запрещена.", unmet);
+      return;
+    }
+    const budget = this.chainBudget(task.chain.rootTaskId);
+    const gate = reworkGate(acceptance, signature, Boolean(attempt?.changedFiles?.length), {
+      wallMinutesLeft: budget.wallMinutesLeft, subscriptionRunsLeft: budget.subscriptionRunsLeft,
+      needsSubscription: this.adapter(task.executor)?.profile.costTier === "subscription" && !this.rank(task).some(candidate => candidate.suitable && candidate.tier === "local")
+    });
+    if (!gate.allowed) { await this.stopAcceptance(task, `${gate.reason} ${reason}`, unmet, signature); return; }
+    acceptance.reworks += 1;
+    acceptance.decisions.push({ at: this.iso(), attempt: task.attempts.length, decision: "rework", by, unmet, reason, signature, ...(reviewer ? { reviewer } : {}) });
+    acceptance.pendingRework = { n: acceptance.reworks, unmet, reason, previousSummary: (task.result?.summary ?? "").slice(0, 4000), previousExecutor: task.executor ?? "" };
+    this.releaseWorkspace(task);
+    await this.setState(task, "queued", `Возвращена на доработку (${acceptance.reworks} из ${acceptance.maxReworks}): ${unmet.slice(0, 4).join("; ").slice(0, 500)}`, "rework");
+    this.kick();
+  }
+
+  private async stopAcceptance(task: AgentTask, reason: string, unmet: string[], signature?: string): Promise<void> {
+    const acceptance = task.acceptance ??= newAcceptanceState(task.spec);
+    acceptance.decisions.push({ at: this.iso(), attempt: task.attempts.length, decision: "stop", by: "limits", unmet, reason, ...(signature ? { signature } : {}) });
+    await this.finish(task, "failed", `Не принято: ${reason}${unmet.length ? ` Невыполнено: ${unmet.slice(0, 4).join("; ").slice(0, 400)}` : ""}`, "acceptance_stopped");
+  }
+
+  private releaseWorkspace(task: AgentTask): void {
+    this.deps.locks.releaseOwner(task.id);
+    task.lockKeys = [];
   }
 
   // ---------------------------------------------------------------- restart recovery
@@ -530,8 +656,9 @@ export class AgentTaskService {
         } else {
           await this.evaluateInterrupted(task, "SnarkRoute перезапущен во время выполнения, процесс исполнителя уже завершён");
         }
-      } else if (task.state === "awaiting_verification" && task.spec.checks?.length) {
-        await this.runVerification(task);
+      } else if (task.state === "awaiting_acceptance") {
+        // Acceptance survives a restart: it is re-evaluated from files, checks and the persisted history, never by rerunning the executor.
+        await this.runAcceptance(task);
       } else if (task.state === "unknown_outcome" || task.state === "blocked") {
         this.deps.locks.confirm(task.id);
       } else if (TERMINAL_STATES.has(task.state) || WAITING_STATES.has(task.state)) {
@@ -566,14 +693,14 @@ export class AgentTaskService {
       attempt.changedFiles = changedPaths(attempt.baseline, await this.snapshot(task.workdir));
     }
     const changed = attempt?.changedFiles ?? [];
-    if (task.spec.checks?.length && changed.length) {
+    if (task.spec.checks?.length && changed.length && task.spec.permissions?.network !== true) {
       const results = [];
       for (const check of task.spec.checks) results.push(await runCheck(check, task.workdir));
       task.result = { summary: "Исход восстановлен по файлам и проверкам после потери связи.", executor: task.executor ?? "unknown", changedFiles: changed, checks: results, workdir: task.workdir, branch: task.worktree?.branch,
         cost: { tier: this.adapter(task.executor)?.profile.costTier ?? "local", providerCost: 0, note: "" } };
       if (results.every(result => result.ok)) {
-        this.deps.locks.releaseOwner(task.id);
-        await this.finish(task, "verified", `${reason}; изменения есть (${changed.length}), все проверки прошли.`);
+        await this.setState(task, "awaiting_acceptance", `${reason}; изменения есть (${changed.length}), машинные проверки прошли — приёмка.`, "restart");
+        await this.runAcceptance(task);
         return;
       }
     }
@@ -642,7 +769,7 @@ export function taskFingerprint(goal: string, workdir?: string): string {
   return createHash("sha256").update(`${normalized}|${workdir ? resolve(workdir).toLowerCase() : ""}`).digest("hex").slice(0, 24);
 }
 
-export function buildTaskPrompt(task: AgentTask, partial?: Attempt): string {
+export function buildTaskPrompt(task: AgentTask, partial?: Attempt, rework?: NonNullable<AgentTask["acceptance"]>["pendingRework"]): string {
   const spec = task.spec;
   const section = (title: string, items?: string[]) => items?.length ? `\n${title}:\n${items.map(item => `- ${item}`).join("\n")}\n` : "";
   return [
@@ -656,6 +783,13 @@ export function buildTaskPrompt(task: AgentTask, partial?: Attempt): string {
     task.workdir ? `Working folder: ${task.workdir}. Stay inside it.${task.worktree ? ` It is a separate git worktree on branch ${task.worktree.branch}; commit there if the goal asks for a commit.` : ""}` : "No working folder: answer in text only.",
     section("Checks SnarkRoute will run itself after you finish (your report does not replace them)", spec.checks?.map(describeCheck)),
     partial ? `\nA previous attempt (${partial.executor}) stopped (${partial.failureClass ?? partial.outcome}) and left changes in: ${partial.changedFiles?.slice(0, 30).join(", ")}. Continue from the current state; do not redo finished work.` : "",
+    rework ? [
+      `\n## Rework ${rework.n}: the previous result was NOT accepted`,
+      `Acceptance found these criteria of the original task unmet:\n${rework.unmet.map(item => `- ${item}`).join("\n")}`,
+      rework.reason ? `Reviewer's reason: ${rework.reason}` : "",
+      `Previous result (${rework.previousExecutor}): ${rework.previousSummary.slice(0, 2000)}`,
+      "Fix exactly these points in the current files. Keep what already works; do not start over and do not add scope beyond the original task."
+    ].filter(Boolean).join("\n") : "",
     "\nWhen done, reply with a short summary: what you changed, how you checked it, and anything left undone. Do not claim checks passed unless you ran them."
   ].filter(part => part !== undefined).join("\n");
 }

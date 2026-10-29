@@ -257,6 +257,7 @@ export class ChatGptSubscriptionService {
         });
         await this.conversations.save();
       }
+      sharedQuotaLedger().recordMeasuredRun("codex_cli", { kind: "chat", inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens });
       await this.history.record({ at: new Date(startedAt).toISOString(), model: alias, resolvedModel: result.model, status: "succeeded", durationMs: result.durationMs,
         inputTokens: result.usage.inputTokens, cachedInputTokens: result.usage.cachedInputTokens, outputTokens: result.usage.outputTokens + result.usage.reasoningOutputTokens,
         conversation: Boolean(request.conversationId), caller: request.caller });
@@ -264,6 +265,7 @@ export class ChatGptSubscriptionService {
     } catch (error) {
       const code = error instanceof CodexCliError ? error.code : "CLI_ERROR";
       if (error instanceof CodexCliError) this.observeFailure(error, alias);
+      if (code !== "CANCELLED") sharedQuotaLedger().recordMeasuredRun("codex_cli", { kind: "chat" });
       await this.history.record({ at: new Date(startedAt).toISOString(), model: alias, status: code === "CANCELLED" ? "cancelled" : "failed", errorCode: code,
         durationMs: this.now() - startedAt, conversation: Boolean(request.conversationId), caller: request.caller });
       throw error;

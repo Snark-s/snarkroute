@@ -155,6 +155,8 @@ export function codexCliEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Proce
   for (const [key, value] of Object.entries(base)) {
     const upper = key.toUpperCase();
     if (upper.startsWith("OPENAI_") || upper.startsWith("AZURE_OPENAI") || upper.startsWith("CODEX_") && upper !== "CODEX_HOME" || upper === "RUST_LOG") continue;
+    // Owner credentials of SnarkRoute never reach a model's tools.
+    if (upper === "SNARKROUTE_LAUNCHER_TOKEN" || upper === "SNARKROUTE_MCP_TOKEN") continue;
     env[key] = value;
   }
   env.NO_COLOR = "1";

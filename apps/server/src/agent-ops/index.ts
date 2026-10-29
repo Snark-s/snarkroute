@@ -2,9 +2,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem, totalmem } from "node:os";
 import { dirname, join } from "node:path";
+import { parseReviewReply, reviewPrompt, type Reviewer } from "./acceptance";
 import { AgentRegistry, agentBrief, type AgentRecord } from "./agents";
+import { ActivityMonitor, assessOwnerActivity, type OwnerActivity } from "./activity";
 import { CapabilityCatalog, type ToolGroup } from "./catalog";
-import { defaultComputerModeState, effectiveComputerMode, runningOwnerApps, validateScheduleRule, type ComputerModeState, type ManualMode, type ModeLimits, type ScheduleRule } from "./computer-mode";
+import { defaultComputerModeState, effectiveComputerMode, validateScheduleRule, type ComputerModeState, type ManualMode, type ModeLimits, type ScheduleRule } from "./computer-mode";
 import { currentOpsContext, opsContext } from "./context";
 import { ClaudeCodeExecutor, CodexExecutor, LocalRouteExecutor, type ExecutorAdapter, type LocalTextModel } from "./executors";
 import { agentOpsDataDirectory, sharedQuotaLedgerReady } from "./ledger-instance";
@@ -22,13 +24,17 @@ import type { AgentIdentity, ComputerMode } from "./types";
 
 export type AgentOps = Awaited<ReturnType<typeof createAgentOps>>;
 
-type TextRunner = (model: LocalTextModel, prompt: string, signal: AbortSignal) => Promise<{ ok: boolean; text?: string; error?: string; usage?: Record<string, number> }>;
+type TextRunner = (model: LocalTextModel, prompt: string, signal: AbortSignal, options?: { title?: string; maxTokens?: number }) =>
+  Promise<{ ok: boolean; text?: string; error?: string; errorCode?: string; usage?: Record<string, number> }>;
 let textRunner: TextRunner | undefined;
 
 /** The route executor lives in the Fastify app; the local executor reaches it through this hook. */
 export function setAgentOpsTextRunner(runner: TextRunner): void { textRunner = runner; }
 
-export async function createAgentOps(options: { directory?: string; apiUrl?: string; adapters?: ExecutorAdapter[]; tickMs?: number; telemetry?: () => Promise<Telemetry>; workspaceRoots?: string[] } = {}) {
+/** SnarkRoute's own runtime processes: their load is our leased work, not the owner's. */
+const OWN_PROCESS_NAMES = ["ollama", "ollama app", "ollama_llama_server", "llama-server", "sd-server", "codex", "claude"];
+
+export async function createAgentOps(options: { directory?: string; apiUrl?: string; adapters?: ExecutorAdapter[]; tickMs?: number; telemetry?: () => Promise<Telemetry>; workspaceRoots?: string[]; activity?: ActivityMonitor; reviewer?: Reviewer | null } = {}) {
   const directory = options.directory ?? agentOpsDataDirectory();
   const store = new AgentOpsStore(directory);
   const supervisor = await import("../services/local-runtime-supervisor");
@@ -46,12 +52,17 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     return { ...(gpu ? { gpu } : {}), memory: { totalMiB: total, usedMiB: total - free, freeMiB: free }, cpuCount: defaultCpuCount(), capturedAt: new Date().toISOString() };
   });
 
+  const activityMonitor = options.activity ?? new ActivityMonitor();
+  activityMonitor.start();
+  const ownerActivity = async (context: { heavyLeaseActive: boolean }): Promise<OwnerActivity> =>
+    assessOwnerActivity(activityMonitor.recent(), { ownerApps: modeState.ownerApps, ownProcessNames: OWN_PROCESS_NAMES, heavyLeaseActive: context.heavyLeaseActive });
+
   const inlineHolders = new Set<string>();
   let tasks: AgentTaskService | undefined;
   const dispatcher = new ResourceDispatcher({
     telemetry,
     mode,
-    ownerApps: () => runningOwnerApps(modeState.ownerApps),
+    ownerActivity,
     runtimeAdmission: async (runtimeId, modelId) => (await supervisor.admissionForLocalRuntime(runtimeId, "workload", modelId)).decision,
     declaredVramMiB: runtimeId => registryModule.getRegisteredLocalRuntime(runtimeId)?.recommendedFreeVramMiB,
     stillActive: async lease => {
@@ -86,7 +97,19 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     new ClaudeCodeExecutor({ auth: force => subscriptions[0].claudeSubscription().auth(force), model: () => process.env.AGENT_OPS_CLAUDE_MODEL?.trim() || "sonnet" })
   ];
 
-  tasks = new AgentTaskService({ store, registry, ledger, locks, dispatcher, adapters, mode, apiUrl: options.apiUrl ?? "http://127.0.0.1:4317",
+  /** The content reviewer: a text model picked by the existing router (local first, then subscriptions; never paid). */
+  const reviewer: Reviewer = async input => {
+    if (!textRunner) return { status: "unavailable", reason: "исполнитель маршрутов ещё не подключён" };
+    const model = await pickReviewModel(reviewPrompt(input)).catch(() => undefined);
+    if (!model) return { status: "unavailable", reason: "нет доступной бесплатной или подписочной текстовой модели для приёмки" };
+    const reply = await textRunner(model, reviewPrompt(input), AbortSignal.timeout(10 * 60_000), { title: `Acceptance · ${input.taskId}`, maxTokens: 700 });
+    if (!reply.ok || !reply.text) return { status: "unavailable", reason: `${model.displayName}: ${reply.error ?? "пустой ответ"}` };
+    const parsed = parseReviewReply(reply.text, input.criteria.length);
+    if (!parsed) return { status: "unavailable", reason: `${model.displayName} ответил не по формату приёмки` };
+    return { status: "ok", ...parsed, reviewer: { provider: model.provider, model: model.providerModelId } };
+  };
+
+  tasks = new AgentTaskService({ store, registry, ledger, locks, dispatcher, adapters, mode, reviewer: options.reviewer === null ? undefined : options.reviewer ?? reviewer, apiUrl: options.apiUrl ?? "http://127.0.0.1:4317",
     worktreeRoot: join(directory, "worktrees"), tickMs: options.tickMs });
   await tasks.init();
   const taskService = tasks;
@@ -115,6 +138,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
 
   /** A lease an agent holds for its own heavy work (a script, a render) outside the delegation queue. */
   async function acquireAgentLease(identity: AgentIdentity, request: Omit<ResourceRequest, "holder" | "agentId" | "origin">): Promise<Decision> {
+    if (identity.kind === "anonymous") return { granted: false, waitFor: "resources", reason: "Резервы выдаются только агенту с токеном или владельцу." };
     if (request.class === "heavy" && !identity.policy.canUseHeavyGpu) return { granted: false, waitFor: "resources", reason: "Политика агента не разрешает тяжёлую работу с GPU." };
     return dispatcher.acquire({ ...request, holder: `agent-lease:${identity.id}:${randomUUID().slice(0, 8)}`, agentId: identity.id, origin: identity.kind === "owner" ? "owner" : "agent", ttlMs: Math.min(request.ttlMs ?? 15 * 60_000, 2 * 60 * 60_000) });
   }
@@ -150,7 +174,8 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
   }
 
   async function status() {
-    const [effective, resources, ownerApps] = await Promise.all([mode(), telemetry().catch(() => undefined), runningOwnerApps(modeState.ownerApps)]);
+    const [effective, resources, activity] = await Promise.all([mode(), telemetry().catch(() => undefined),
+      ownerActivity({ heavyLeaseActive: dispatcher.list().some(lease => lease.class === "heavy") })]);
     const all = taskService.list({ limit: 10_000 });
     const counts = all.reduce<Record<string, number>>((sum, task) => { sum[task.state] = (sum[task.state] ?? 0) + 1; return sum; }, {});
     return {
@@ -158,13 +183,14 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
       schedule: modeState.schedule,
       manual: modeState.manual ?? null,
       limits: modeState.limits,
-      ownerApps,
+      ownerActivity: activity,
+      ownerApps: activity.reasons.length ? activity.reasons : [],
       resources: resources ?? null,
       leases: dispatcher.list(),
       locks: locks.list(),
       queue: { counts, active: all.filter(task => !["verified", "failed", "cancelled"].includes(task.state)).length },
       executors: adapters.map(adapter => ({ id: adapter.id, label: adapter.label, tier: adapter.profile.costTier, probe: taskService.probeSnapshot().get(adapter.id) ?? null,
-        ledger: ledger.view(adapter.id), availability: ledger.availability(adapter.id, adapter.profile.costTier) })),
+        ledger: ledger.view(adapter.id), coverage: ledger.coverage(adapter.id, adapter.profile.costTier), availability: ledger.availability(adapter.id, adapter.profile.costTier) })),
       ledgerLimits: ledger.limits
     };
   }
@@ -200,7 +226,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     taskService.kick();
   }
 
-  function close(): void { clearInterval(sampler); taskService.close(); }
+  function close(): void { clearInterval(sampler); activityMonitor.stop(); taskService.close(); }
 
   return { apiUrl, store, registry, ledger, locks, dispatcher, tasks: taskService, catalog, adapters, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
     modeState: () => modeState };
@@ -303,6 +329,20 @@ async function pickLocalTextModel(prompt: string): Promise<LocalTextModel | unde
   const contextTokens = Number((option?.metadata as Record<string, unknown> | undefined)?.contextLength ?? 8192);
   return { provider: "local_openai", providerModelId: result.selectedProviderModelId, displayName: option?.displayName ?? result.selectedProviderModelId,
     runtimeId: runtime?.id ?? "ollama", contextTokens: Number.isFinite(contextTokens) ? contextTokens : 8192 };
+}
+
+/** Reviewer model: same router, subscriptions allowed (a code review needs quality), paid never. */
+async function pickReviewModel(prompt: string): Promise<LocalTextModel | undefined> {
+  const [{ loadLiveModelCatalogV1 }, { modelOptionsForNodeV1 }, { selectSemanticModelOptionV1 }, registry] = await Promise.all([
+    import("../routes/models"), import("../services/model-catalog-v1"), import("../services/semantic-model-selection"), import("../services/local-runtime-registry")
+  ]);
+  const options = modelOptionsForNodeV1("ai.text", await loadLiveModelCatalogV1("ai.text"));
+  const result = await selectSemanticModelOptionV1(options, { nodeType: "ai.text", prompt, routingPolicy: { allowPaid: false, subscriptionModels: "allow", localModels: "allow" } });
+  if (result.status !== "ok" || !result.selectedProvider || !result.selectedProviderModelId) return undefined;
+  const option = result.models.find(model => model.id === result.selectedModelId);
+  const runtime = registry.listRegisteredLocalRuntimes().find(item => item.modelIds.includes(result.selectedProviderModelId!));
+  return { provider: result.selectedProvider, providerModelId: result.selectedProviderModelId, displayName: option?.displayName ?? result.selectedProviderModelId,
+    runtimeId: runtime?.id ?? (result.selectedProvider === "local_openai" ? "ollama" : ""), contextTokens: 8192 };
 }
 
 async function loadModelGroups() {

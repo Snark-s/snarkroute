@@ -125,6 +125,8 @@ export function claudeCliEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Proc
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
     if (key.startsWith("ANTHROPIC_") || key.startsWith("CLAUDE_CODE_") || key === "CLAUDECODE" || key.startsWith("AWS_BEARER_TOKEN_BEDROCK")) continue;
+    // Owner credentials of SnarkRoute never reach a model's tools.
+    if (key === "SNARKROUTE_LAUNCHER_TOKEN" || key === "SNARKROUTE_MCP_TOKEN") continue;
     env[key] = value;
   }
   env.DISABLE_AUTOUPDATER = "1";

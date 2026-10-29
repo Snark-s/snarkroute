@@ -28,7 +28,10 @@ export function defaultAgentPolicies(roots: string[]): AgentPolicies {
     policies: {
       owner: { ...agent, id: "owner", maxDelegationDepth: 4, chainBudget: { tasks: 20, wallMinutes: 600, subscriptionRuns: 12 }, maxPriority: 100, canSetComputerMode: true, dailyTaskLimit: 200 },
       agent,
-      child: { ...agent, id: "child", maxPriority: 60, chainBudget: { tasks: 4, wallMinutes: 120, subscriptionRuns: 3 } }
+      child: { ...agent, id: "child", maxPriority: 60, chainBudget: { tasks: 4, wallMinutes: 120, subscriptionRuns: 3 } },
+      // A caller that presented no credential: it may look, never act.
+      anonymous: { ...agent, id: "anonymous", allowedExecutors: [], maxDelegationDepth: 0, chainBudget: { tasks: 0, wallMinutes: 0, subscriptionRuns: 0 },
+        workspaceRoots: [], maxPriority: 0, canSetComputerMode: false, canUseHeavyGpu: false, dailyTaskLimit: 0 }
     },
     assignments: {}
   };
@@ -55,6 +58,17 @@ export class AgentRegistry {
   policyDocument(): AgentPolicies { return structuredClone(this.policies); }
 
   owner(via = "workshop"): AgentIdentity { return this.touch("owner", "owner", "Владелец (Мастерская)", via); }
+
+  /** No credential at all. Not recorded as an agent; read-only policy. */
+  anonymous(): AgentIdentity { return { id: "anonymous", kind: "anonymous", label: "Без идентификации", policy: this.policy("anonymous") }; }
+
+  /** The Workshop's owner session; issued only to the local Workshop browser or the launcher. */
+  issueOwnerSession(ttlMs: number): string { return `owner.${this.issue({ o: 1 }, ttlMs)}`; }
+
+  verifyOwnerSession(token: string | undefined): boolean {
+    if (!token?.startsWith("owner.")) return false;
+    return this.verify(token.slice("owner.".length))?.o === 1;
+  }
 
   /** Every MCP client gets an identity on its first call; its policy is the owner's assignment or the default. */
   mcpClient(clientName: string | undefined, label?: string): AgentIdentity {
@@ -87,18 +101,19 @@ export class AgentRegistry {
   /** Identity carried by a token this server signed, or undefined for a bad or expired token. */
   identityFromToken(token: string | undefined): AgentIdentity | undefined {
     const payload = this.verify(token);
-    if (!payload) return undefined;
+    // An owner session is not an agent token: it never passes through the agent header.
+    if (!payload || payload.o) return undefined;
     if (payload.t) return this.taskAgent(payload.t, `task ${payload.t}`);
     if (!payload.a || !["persona", "app"].includes(payload.k ?? "")) return undefined;
     return this.touch(payload.a, payload.k as AgentKind, payload.l ?? payload.a, "token");
   }
 
-  private issue(claims: { t?: string; a?: string; k?: string; l?: string }, ttlMs: number): string {
+  private issue(claims: { t?: string; a?: string; k?: string; l?: string; o?: number }, ttlMs: number): string {
     const payload = Buffer.from(JSON.stringify({ ...claims, e: this.time() + ttlMs })).toString("base64url");
     return `${payload}.${this.sign(payload)}`;
   }
 
-  private verify(token: string | undefined): { t?: string; a?: string; k?: string; l?: string } | undefined {
+  private verify(token: string | undefined): { t?: string; a?: string; k?: string; l?: string; o?: number } | undefined {
     if (!token) return undefined;
     const [payload, signature] = token.split(".");
     if (!payload || !signature) return undefined;
@@ -106,8 +121,8 @@ export class AgentRegistry {
     const given = Buffer.from(signature);
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) return undefined;
     try {
-      const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { t?: string; a?: string; k?: string; l?: string; e?: number };
-      return typeof parsed.e === "number" && parsed.e > this.time() && (typeof parsed.t === "string" || typeof parsed.a === "string") ? parsed : undefined;
+      const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { t?: string; a?: string; k?: string; l?: string; o?: number; e?: number };
+      return typeof parsed.e === "number" && parsed.e > this.time() && (typeof parsed.t === "string" || typeof parsed.a === "string" || parsed.o === 1) ? parsed : undefined;
     } catch { return undefined; }
   }
 

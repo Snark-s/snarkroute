@@ -38,6 +38,7 @@ const taskSpecShape = {
 
 export function registerAgentOpsTools(server: McpServer, identityOf: (ops: AgentOps) => AgentIdentity): void {
   const run = (fn: (ops: AgentOps, identity: AgentIdentity) => Promise<unknown>) => async () => {
+    // MCP clients are agents; the owner's rights come only from the Workshop session.
     try {
       const ops = await startAgentOps();
       return text(await fn(ops, identityOf(ops)));
@@ -84,23 +85,22 @@ export function registerAgentOpsTools(server: McpServer, identityOf: (ops: Agent
   })());
 
   server.registerTool("agent_delegate_status", {
-    description: "Persisted state of a delegated task: queued, waiting_window, waiting_resources, waiting_executor, running, blocked, failed, cancelled, unknown_outcome, awaiting_verification or verified; the reason, executor, attempts, chain budget and recent events.",
+    description: "Persisted state of a delegated task: queued, waiting_window, waiting_resources, waiting_executor, running, blocked, failed, cancelled, unknown_outcome, awaiting_acceptance (executor finished, acceptance running or waiting) or verified (accepted); the reason, executor, attempts with reworks, acceptance decisions, chain budget and recent events. Only your own tasks and your chain are readable.",
     inputSchema: { taskId: z.string().min(1).max(80) }, annotations: readOnly
-  }, async input => run(async ops => {
-    const task = ops.tasks.get(input.taskId);
-    if (!task) throw new AgentOpsError("TASK_NOT_FOUND", `Задача ${input.taskId} не найдена.`);
+  }, async input => run(async (ops, identity) => {
+    const task = ops.tasks.requireReadable(input.taskId, identity);
     return { id: task.id, title: task.title, state: task.state, reason: task.reason, executor: task.executor ?? null, priority: task.priority, chain: task.chain,
-      attempts: task.attempts.map(attempt => ({ n: attempt.n, executor: attempt.executor, outcome: attempt.outcome ?? "running", failureClass: attempt.failureClass, changedFiles: attempt.changedFiles?.length ?? 0, startedAt: attempt.startedAt, endedAt: attempt.endedAt })),
+      attempts: task.attempts.map(attempt => ({ n: attempt.n, executor: attempt.executor, outcome: attempt.outcome ?? "running", failureClass: attempt.failureClass, changedFiles: attempt.changedFiles?.length ?? 0, rework: attempt.rework?.n, startedAt: attempt.startedAt, endedAt: attempt.endedAt })),
+      acceptance: task.acceptance ? { reworks: task.acceptance.reworks, maxReworks: task.acceptance.maxReworks, ownerAction: task.acceptance.ownerAction, decisions: task.acceptance.decisions.slice(-6) } : null,
       chainBudget: ops.tasks.chainBudget(task.chain.rootTaskId), events: (await ops.tasks.events(task.id)).slice(-12) };
   })());
 
   server.registerTool("agent_delegate_result", {
-    description: "Result of a delegated task: executor summary, changed files, outcomes of SnarkRoute's own checks, branch (worktree), actual executor and model, cost tier. verified=true only after checks passed or the owner confirmed.",
+    description: "Result of a delegated task: executor summary, changed files, outcomes of SnarkRoute's own checks, acceptance decisions (accepted by checks, by the reviewer or by the owner; reworks with unmet criteria), branch (worktree), actual executor and model, cost tier. accepted=true only after acceptance.",
     inputSchema: { taskId: z.string().min(1).max(80) }, annotations: readOnly
-  }, async input => run(async ops => {
-    const task = ops.tasks.get(input.taskId);
-    if (!task) throw new AgentOpsError("TASK_NOT_FOUND", `Задача ${input.taskId} не найдена.`);
-    return { id: task.id, state: task.state, reason: task.reason, verified: task.state === "verified", result: task.result ?? null };
+  }, async input => run(async (ops, identity) => {
+    const task = ops.tasks.requireReadable(input.taskId, identity);
+    return { id: task.id, state: task.state, reason: task.reason, accepted: task.state === "verified", verified: task.state === "verified", result: task.result ?? null, acceptance: task.acceptance ?? null };
   })());
 
   server.registerTool("agent_delegate_cancel", {
@@ -121,7 +121,7 @@ export function registerAgentOpsTools(server: McpServer, identityOf: (ops: Agent
   }, async input => run(async (ops, identity) => { const task = await ops.tasks.resolve(input.taskId, identity, input.action, input.note); return { id: task.id, state: task.state, reason: task.reason }; })());
 
   server.registerTool("agent_delegate_verify", {
-    description: "Re-run the task's machine checks in its working folder (for example after a manual fix).",
+    description: "Re-run acceptance (machine checks, then the reviewer) on the task's current files, for example after a manual fix.",
     inputSchema: { taskId: z.string().min(1).max(80) }, annotations: { readOnlyHint: false, openWorldHint: false }
   }, async input => run(async (ops, identity) => { const task = await ops.tasks.verify(input.taskId, identity); return { id: task.id, state: task.state, reason: task.reason, checks: task.result?.checks ?? [] }; })());
 

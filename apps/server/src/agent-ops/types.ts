@@ -21,7 +21,7 @@ export type TaskState =
   | "failed"
   | "cancelled"
   | "unknown_outcome"
-  | "awaiting_verification"
+  | "awaiting_acceptance"
   | "verified";
 
 export const TASK_STATE_LABELS: Record<TaskState, string> = {
@@ -34,8 +34,8 @@ export const TASK_STATE_LABELS: Record<TaskState, string> = {
   failed: "ошибка",
   cancelled: "отменена",
   unknown_outcome: "неизвестный исход",
-  awaiting_verification: "ждёт проверки",
-  verified: "проверена"
+  awaiting_acceptance: "ждёт приёмки",
+  verified: "принята"
 };
 
 export const TERMINAL_STATES = new Set<TaskState>(["failed", "cancelled", "verified"]);
@@ -71,7 +71,9 @@ export type TaskSpec = {
   isolation?: "shared" | "worktree";
   constraints?: string[];
   permissions?: { fileWrite?: boolean; shell?: "none" | "tests" | "workspace"; network?: boolean };
-  budget?: { wallMinutes?: number; subscriptionRuns?: number; maxTurns?: number };
+  budget?: { wallMinutes?: number; subscriptionRuns?: number; maxTurns?: number; maxReworks?: number };
+  /** "auto": machine checks, then a model reviewer for the criteria; "checks_only": machine checks decide alone. */
+  review?: "auto" | "checks_only";
   priority?: number;
   executor?: string;
   allowedExecutors?: string[];
@@ -98,6 +100,29 @@ export type Attempt = {
   model?: string;
   baseline?: WorkspaceSnapshot;
   changedFiles?: string[];
+  /** Set when this attempt was a rework after an acceptance decision. */
+  rework?: { n: number; unmet: string[] };
+};
+
+export type AcceptanceDecision = {
+  at: string;
+  attempt: number;
+  decision: "accept" | "rework" | "wait" | "blocked" | "owner_action" | "stop";
+  by: "checks" | "reviewer" | "owner" | "limits";
+  unmet: string[];
+  reason: string;
+  reviewer?: { provider: string; model: string };
+  signature?: string;
+};
+
+export type AcceptanceState = {
+  reworks: number;
+  maxReworks: number;
+  reviews: number;
+  decisions: AcceptanceDecision[];
+  pendingRework?: { n: number; unmet: string[]; reason: string; previousSummary: string; previousExecutor: string };
+  nextReviewAt?: string;
+  ownerAction?: string;
 };
 
 export type WorkspaceSnapshot = { kind: "git" | "files" | "none"; head?: string; entries: Record<string, string>; capturedAt: string; truncated?: boolean };
@@ -146,11 +171,12 @@ export type AgentTask = {
   leaseId?: string;
   cancelRequestedAt?: string;
   result?: TaskResult;
+  acceptance?: AcceptanceState;
 };
 
 export type TaskEvent = { at: string; type: string; message: string; data?: Record<string, unknown> };
 
-export type AgentKind = "owner" | "mcp" | "persona" | "app" | "task";
+export type AgentKind = "owner" | "mcp" | "persona" | "app" | "task" | "anonymous";
 
 export type AgentPolicy = {
   id: string;

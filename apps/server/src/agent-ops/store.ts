@@ -73,6 +73,10 @@ export class AgentOpsStore {
     } catch { return ""; }
   }
 
+  async readArtifact(id: string, name: string): Promise<string> {
+    return readFile(join(this.taskDirectory(id), name), "utf8");
+  }
+
   async writeArtifact(id: string, name: string, content: string): Promise<string> {
     const file = join(this.taskDirectory(id), name);
     await mkdir(this.taskDirectory(id), { recursive: true });

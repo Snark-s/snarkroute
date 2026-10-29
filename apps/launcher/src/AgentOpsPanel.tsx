@@ -3,17 +3,27 @@ import { Ban, CalendarClock, Cpu, FileText, ListChecks, LoaderCircle, Lock, Plus
 
 type Mode = "owner_busy" | "background" | "free";
 type ScheduleRule = { id: string; days: number[]; from: string; to: string; mode: Mode; label?: string };
-type TaskSummary = { id: string; title: string; state: string; reason: string; executor?: string; agentId: string; priority: number; depth: number; createdAt: string; updatedAt: string; workdir?: string; attempts: number };
+type TaskSummary = { id: string; title: string; state: string; reason: string; executor?: string; agentId: string; priority: number; depth: number; createdAt: string; updatedAt: string; workdir?: string; attempts: number; reworks?: number; maxReworks?: number | null };
 type Lease = { id: string; purpose: string; class: "heavy" | "light"; vramMiB: number; agentId: string; state: string; estimateSource: string };
 type LockRecord = { key: string; ownerTaskId: string; ownerAgentId: string; state: "held" | "suspect" };
+type Coverage = {
+  measuredBySnarkRoute: { delegatedRuns: number; chatTurns: number; inputTokens: number; outputTokens: number; lastAt?: string; scope: string };
+  providerReport: { state: string; usedPercent?: number; resetsAt?: string; source?: string; observedAt?: string; stale: boolean; scope: string } | null;
+  externalUsage: { observed: false; note: string };
+  ourLimits: { concurrent: number; sharedSubscriptionConcurrent: number; dailyRuns: number | null; activeRuns: number };
+};
 type ExecutorStatus = { id: string; label: string; tier: string; probe: { installed: boolean; authenticated: boolean | null; detail?: string; checkedAt: string } | null;
   ledger: { quota: { state: string; usedPercent?: number; source?: string; observedAt?: string; simulated?: boolean }; nextAttemptAt?: string; lastVerifiedAt?: string; activeRuns: number };
+  coverage?: Coverage;
   availability: { usable: boolean; reason?: string } };
+type OwnerActivity = { busy: boolean; confidence: "measured" | "unknown"; reasons: string[]; signals: string[]; sampledAt?: string };
+type AcceptanceDecision = { at: string; attempt: number; decision: string; by: string; unmet: string[]; reason: string; reviewer?: { model: string } };
 export type AgentOpsStatus = {
   mode: { mode: Mode; label: string; source: string; reason: string; localTime: string; until?: string };
   manual: { mode: Mode; until?: string | null } | null;
   schedule: ScheduleRule[];
   ownerApps: string[];
+  ownerActivity?: OwnerActivity;
   resources: { gpu?: { totalMiB: number; usedMiB: number; utilizationPercent: number }; memory: { totalMiB: number; usedMiB: number }; cpuCount: number } | null;
   leases: Lease[];
   locks: LockRecord[];
@@ -21,20 +31,43 @@ export type AgentOpsStatus = {
   executors: ExecutorStatus[];
   tasks: TaskSummary[];
 };
-type TaskDetail = { task: TaskSummary & { result?: { summary: string; changedFiles: string[]; checks: Array<{ ok: boolean; detail: string; check: { type: string; command?: string; path?: string } }>; branch?: string; artifactPath?: string } };
+type TaskDetail = { task: TaskSummary & { result?: { summary: string; changedFiles: string[]; checks: Array<{ ok: boolean; detail: string; check: { type: string; command?: string; path?: string } }>; branch?: string; artifactPath?: string };
+    acceptance?: { reworks: number; maxReworks: number; reviews: number; decisions: AcceptanceDecision[]; ownerAction?: string } };
+  chainBudget?: { tasksLeft: number; subscriptionRunsLeft: number; wallMinutesLeft: number; limits: { tasks: number; subscriptionRuns: number; wallMinutes: number } };
   events: Array<{ at: string; type: string; message: string }> };
 
 export const MODE_LABELS: Record<Mode, string> = { owner_busy: "Компьютер нужен мне", background: "Можно работать в фоне", free: "Компьютер свободен" };
 const STATE_LABELS: Record<string, string> = {
   queued: "в очереди", waiting_window: "ждёт рабочего окна", waiting_resources: "ждёт ресурсов", waiting_executor: "ждёт исполнителя", running: "выполняется",
-  blocked: "заблокирована", failed: "ошибка", cancelled: "отменена", unknown_outcome: "неизвестный исход", awaiting_verification: "ждёт проверки", verified: "проверена"
+  blocked: "заблокирована", failed: "не принята", cancelled: "отменена", unknown_outcome: "неизвестный исход", awaiting_acceptance: "ждёт приёмки", verified: "принята"
 };
 const DAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+const DECISION_LABELS: Record<string, string> = { accept: "принято", rework: "возврат на доработку", wait: "ждёт приёмщика", blocked: "блокировка", owner_action: "нужно действие владельца", stop: "остановлено" };
 const TERMINAL = new Set(["verified", "failed", "cancelled"]);
 
-async function call<T>(apiBase: string, path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}/api/agent-ops${path}`, { ...init, headers: init?.body ? { "content-type": "application/json" } : undefined, signal: AbortSignal.timeout(20_000) });
-  const body = await response.json().catch(() => ({})) as T & { ok?: boolean; error?: string };
+/**
+ * The Workshop page is the owner. SnarkRoute hands this page (and only a browser page on the
+ * Workshop's own origin) a short-lived owner session; every agent-ops call carries it.
+ */
+let ownerSession: Promise<string> | undefined;
+function session(apiBase: string, renew = false): Promise<string> {
+  if (renew) ownerSession = undefined;
+  ownerSession ??= fetch(`${apiBase}/api/agent-ops/owner-session`, { method: "POST", signal: AbortSignal.timeout(10_000) })
+    .then(async response => {
+      const body = await response.json().catch(() => ({})) as { session?: string; error?: string };
+      if (!response.ok || !body.session) throw new Error(body.error || `Сессия владельца не выдана (HTTP ${response.status})`);
+      return body.session;
+    })
+    .catch(error => { ownerSession = undefined; throw error; });
+  return ownerSession;
+}
+
+async function call<T>(apiBase: string, path: string, init?: RequestInit, retry = true): Promise<T> {
+  const headers: Record<string, string> = { "x-snarkroute-owner-session": await session(apiBase) };
+  if (init?.body) headers["content-type"] = "application/json";
+  const response = await fetch(`${apiBase}/api/agent-ops${path}`, { ...init, headers, signal: AbortSignal.timeout(20_000) });
+  const body = await response.json().catch(() => ({})) as T & { ok?: boolean; error?: string; code?: string };
+  if (response.status === 401 && retry) { await session(apiBase, true); return call<T>(apiBase, path, init, false); }
   if (!response.ok || body.ok === false) throw new Error(body.error || `HTTP ${response.status}`);
   return body;
 }
@@ -107,7 +140,8 @@ export function AgentOpsStatusBar({ apiBase }: { apiBase: string }) {
       title={`${executor.label}: ${state.reason} · квота ${executor.ledger.quota.state}${executor.ledger.quota.source ? ` (${executor.ledger.quota.source})` : ""}`}>
       {executor.id === "codex_cli" ? "Codex" : "Claude"} {state.usable ? "✓" : "⏸"}
     </span>; })}
-    {status.ownerApps.length ? <span className="opsMetric warn" title="Приложения владельца: тяжёлая фоновая работа ждёт">{status.ownerApps.join(", ")}</span> : null}
+    {status.ownerActivity?.busy ? <span className="opsMetric warn" title={status.ownerActivity.reasons.join("\n")}>{status.ownerActivity.confidence === "unknown" ? "нагрузка ?" : "компьютер занят"}</span>
+      : status.ownerActivity?.signals.length ? <span className="opsMetric" title={status.ownerActivity.signals.join("\n")}>приложения простаивают</span> : null}
   </div>;
 }
 
@@ -150,6 +184,7 @@ export function AgentOpsPanel({ apiBase }: { apiBase: string }) {
       <span className="opsState">{STATE_LABELS[task.state] ?? task.state}</span>
     </div>
     <p className="opsReason">{task.reason}</p>
+    {task.reworks ? <p className="secretaryContext">Доработок: {task.reworks}{task.maxReworks != null ? ` из ${task.maxReworks}` : ""}</p> : null}
     <div className="secretaryMeta"><span>{task.id} · {task.agentId}{task.executor ? ` → ${task.executor}` : ""}{task.depth > 1 ? ` · глубина ${task.depth}` : ""}</span><span>{new Date(task.updatedAt).toLocaleString("ru-RU")}</span></div>
     <div className="opsActions">
       <button type="button" className="secretaryButton" onClick={() => setOpen(open === task.id ? undefined : task.id)}><FileText /> {open === task.id ? "Скрыть" : "Результат и журнал"}</button>
@@ -158,9 +193,15 @@ export function AgentOpsPanel({ apiBase }: { apiBase: string }) {
         <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "continue" }) }))}>Продолжить с текущего состояния</button>
         <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "mark_failed" }) }))}>Отметить ошибкой</button>
       </> : null}
-      {["awaiting_verification", "unknown_outcome"].includes(task.state) ? <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "mark_verified", note: "проверено владельцем в Мастерской" }) }))}>Я проверил: принять</button> : null}
+      {["awaiting_acceptance", "unknown_outcome"].includes(task.state) ? <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "mark_verified", note: "проверено владельцем в Мастерской" }) }))}>Я проверил: принять</button> : null}
     </div>
     {open === task.id && detail?.task.id === task.id ? <div className="opsDetail">
+      {detail.task.acceptance ? <div className="opsAcceptance">
+        <strong>Приёмка: доработок {detail.task.acceptance.reworks} из {detail.task.acceptance.maxReworks}</strong>
+        {detail.chainBudget ? <small> · бюджет цепочки: подзадач {detail.chainBudget.tasksLeft}, подписочных запусков {detail.chainBudget.subscriptionRunsLeft}, минут {detail.chainBudget.wallMinutesLeft}</small> : null}
+        {detail.task.acceptance.ownerAction ? <p className="secretaryContext">Нужно от вас: {detail.task.acceptance.ownerAction}</p> : null}
+        <ol className="opsEvents">{detail.task.acceptance.decisions.map((decision, index) => <li key={index}><time>{new Date(decision.at).toLocaleTimeString("ru-RU")}</time> {DECISION_LABELS[decision.decision] ?? decision.decision} ({decision.by === "checks" ? "проверки" : decision.by === "reviewer" ? `приёмщик${decision.reviewer ? ` ${decision.reviewer.model}` : ""}` : decision.by === "owner" ? "владелец" : "ограничители"}): {decision.reason}{decision.unmet.length ? ` — невыполнено: ${decision.unmet.join("; ")}` : ""}</li>)}</ol>
+      </div> : null}
       {detail.task.result ? <>
         <p className="secretaryContext"><strong>Итог исполнителя:</strong> {detail.task.result.summary || "—"}</p>
         {detail.task.result.checks.length ? <ul className="opsChecks">{detail.task.result.checks.map((check, index) => <li key={index} className={check.ok ? "ok" : "bad"}>{check.ok ? "✓" : "✗"} {check.check.command ?? check.check.path ?? check.check.type}: {check.detail.split("\n").slice(0, 3).join(" ")}</li>)}</ul> : null}
@@ -198,7 +239,18 @@ export function AgentOpsPanel({ apiBase }: { apiBase: string }) {
           <small>установлен: {executor.probe ? (executor.probe.installed ? "да" : "нет") : "?"} · вход: {executor.probe?.authenticated === null ? "не нужен" : executor.probe?.authenticated ? "да" : "нет"} · квота: {executor.ledger.quota.state}
             {executor.ledger.quota.usedPercent !== undefined ? ` ${executor.ledger.quota.usedPercent}%` : ""}{executor.ledger.quota.simulated ? " (симуляция)" : ""}{executor.ledger.quota.source ? ` · ${executor.ledger.quota.source}` : ""}
             {executor.ledger.lastVerifiedAt ? ` · проверен ${new Date(executor.ledger.lastVerifiedAt).toLocaleString("ru-RU")}` : " · проверенных запусков нет"}</small>
+          {executor.coverage && executor.tier === "subscription" ? <small className="opsCoverage">
+            Через SnarkRoute сегодня: поручений {executor.coverage.measuredBySnarkRoute.delegatedRuns}, чатов {executor.coverage.measuredBySnarkRoute.chatTurns}, токенов {executor.coverage.measuredBySnarkRoute.inputTokens + executor.coverage.measuredBySnarkRoute.outputTokens}.
+            {" "}Провайдер: {executor.coverage.providerReport ? `${executor.coverage.providerReport.usedPercent ?? "?"}% окна тарифа${executor.coverage.providerReport.stale ? " (устарело)" : ""}, ${executor.coverage.providerReport.observedAt ? new Date(executor.coverage.providerReport.observedAt).toLocaleString("ru-RU") : ""}` : "отчёта нет"}.
+            {" "}Вне SnarkRoute: не наблюдается. Наши пределы: {executor.coverage.ourLimits.concurrent} одновременно, общий {executor.coverage.ourLimits.sharedSubscriptionConcurrent}{executor.coverage.ourLimits.dailyRuns != null ? `, ${executor.coverage.ourLimits.dailyRuns} в день` : ""}.
+          </small> : null}
         </div>)}
+        <h3>Занятость компьютера</h3>
+        {status.ownerActivity ? <>
+          <p className={`secretaryContext ${status.ownerActivity.busy ? "opsBusy" : ""}`}>{status.ownerActivity.busy ? (status.ownerActivity.confidence === "unknown" ? "Нагрузку определить нельзя — тяжёлая фоновая работа ждёт (кроме окна «Компьютер свободен»)." : "Занят: тяжёлая фоновая работа ждёт.") : "Свободен по измерениям."}
+            {status.ownerActivity.sampledAt ? ` Замер ${new Date(status.ownerActivity.sampledAt).toLocaleTimeString("ru-RU")}.` : ""}</p>
+          {[...status.ownerActivity.reasons, ...status.ownerActivity.signals].map((line, index) => <p key={index} className="secretaryContext">· {line}</p>)}
+        </> : null}
         <h3>Резервы и блокировки</h3>
         {!status.leases.length && !status.locks.length ? <p className="secretaryContext">Нет активных резервов ресурсов и блокировок.</p> : null}
         {status.leases.map(lease => <p key={lease.id} className="secretaryContext"><Cpu /> {lease.class === "heavy" ? "тяжёлая" : "лёгкая"} · {lease.purpose}{lease.vramMiB ? ` · ${gb(lease.vramMiB)} ГБ VRAM (${lease.estimateSource})` : ""}{lease.state !== "active" ? " · сверяется" : ""}</p>)}

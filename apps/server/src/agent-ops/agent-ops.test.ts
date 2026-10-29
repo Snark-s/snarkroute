@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { AgentRegistry } from "./agents";
+import { assessOwnerActivity, type ActivitySample } from "./activity";
+import { parseReviewReply, reworkGate, type Reviewer, type ReviewInput } from "./acceptance";
 import { defaultComputerModeState, effectiveComputerMode, ownerClock, ruleMatches, type ComputerModeState } from "./computer-mode";
 import { claudeAllowedTools, type ExecutorAdapter, type ExecutorOutcome, type ExecutorProfile, type ExecutorRunContext } from "./executors";
 import { LockManager, lockKeysOverlap, workspaceLockKey } from "./locks";
@@ -52,7 +54,7 @@ describe("resource dispatcher", () => {
   const modeOf = (mode: "owner_busy" | "background" | "free") => async () => effectiveComputerMode({ ...defaultComputerModeState(), manual: { mode, setAt: "", by: "t" } });
 
   it("never lets two agents count the same free VRAM", async () => {
-    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(2 * GiB), mode: modeOf("free"), ownerApps: async () => [] });
+    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(2 * GiB), mode: modeOf("free"), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }) });
     const request = { agentId: "a", purpose: "p", class: "light" as const, origin: "agent" as const, vramMiB: 9 * GiB };
     const [first, second] = await Promise.all([dispatcher.acquire({ ...request, holder: "one" }), dispatcher.acquire({ ...request, holder: "two" })]);
     expect([first.granted, second.granted].sort()).toEqual([false, true]);
@@ -61,22 +63,37 @@ describe("resource dispatcher", () => {
   });
 
   it("keeps heavy agent work out while the owner needs the computer, but lets the owner run", async () => {
-    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("owner_busy"), ownerApps: async () => [] });
+    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("owner_busy"), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }) });
     const agent = await dispatcher.acquire({ holder: "t", agentId: "a", purpose: "flux", class: "heavy", origin: "agent", vramMiB: 4 * GiB });
     expect(agent).toMatchObject({ granted: false, waitFor: "window" });
     const owner = await dispatcher.acquire({ holder: "o", agentId: "owner", purpose: "flux", class: "heavy", origin: "owner", vramMiB: 4 * GiB });
     expect(owner.granted).toBe(true);
   });
 
-  it("holds background heavy work while the owner's Blender runs", async () => {
-    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("background"), ownerApps: async () => ["blender"] });
-    expect(await dispatcher.acquire({ holder: "t", agentId: "a", purpose: "x", class: "heavy", origin: "agent", vramMiB: GiB })).toMatchObject({ granted: false, waitFor: "window" });
+  it("holds heavy agent work when the computer is measurably busy, even in the free night window", async () => {
+    const busy = async () => ({ busy: true, confidence: "measured" as const, reasons: ["Идёт рендер After Effects (aerender) (pid 1)."], signals: [] });
+    const night = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("free"), ownerActivity: busy });
+    const decision = await night.acquire({ holder: "t", agentId: "a", purpose: "x", class: "heavy", origin: "agent", vramMiB: GiB });
+    expect(decision).toMatchObject({ granted: false, waitFor: "window" });
+    expect(!decision.granted && decision.reason).toMatch(/Окно «Компьютер свободен», но компьютер занят: Идёт рендер/);
+    // The owner's own interactive request is not held back by this signal.
+    expect((await night.acquire({ holder: "o", agentId: "owner", purpose: "x", class: "heavy", origin: "owner", vramMiB: GiB })).granted).toBe(true);
+    // Unknown load: conservative in background, allowed in the window the owner declared free.
+    const unknown = async () => ({ busy: true, confidence: "unknown" as const, reasons: ["Нагрузку определить нельзя."], signals: [] });
+    expect(await new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("background"), ownerActivity: unknown }).acquire({ holder: "u", agentId: "a", purpose: "x", class: "heavy", origin: "agent", vramMiB: GiB })).toMatchObject({ granted: false, waitFor: "window" });
+    expect((await new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("free"), ownerActivity: unknown }).acquire({ holder: "u", agentId: "a", purpose: "x", class: "heavy", origin: "agent", vramMiB: GiB })).granted).toBe(true);
+  });
+
+  it("previews a decision without reserving", async () => {
+    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("free"), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }) });
+    expect((await dispatcher.preview({ holder: "p", agentId: "a", purpose: "x", class: "heavy", origin: "agent", vramMiB: GiB })).granted).toBe(true);
+    expect(dispatcher.list()).toHaveLength(0);
   });
 
   it("verifies an expired lease before freeing it and learns from measured peaks", async () => {
     let now = 1_000_000;
     let alive = true;
-    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("free"), ownerApps: async () => [], now: () => now, stillActive: async () => alive, declaredVramMiB: () => 10 * GiB });
+    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode: modeOf("free"), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }), now: () => now, stillActive: async () => alive, declaredVramMiB: () => 10 * GiB });
     const decision = await dispatcher.acquire({ holder: "t", agentId: "a", purpose: "x", class: "heavy", origin: "agent", runtimeId: "flux3", ttlMs: 1000 });
     expect(decision.granted && decision.lease.estimateSource).toBe("declared");
     now += 5000;
@@ -150,6 +167,7 @@ const policy: AgentPolicy = { id: "agent", allowedExecutors: ["local_route", "co
 
 class FakeExecutor implements ExecutorAdapter {
   runs = 0;
+  prompts: string[] = [];
   active = 0;
   maxActive = 0;
   probeResult = { installed: true, authenticated: true as boolean | null };
@@ -158,7 +176,7 @@ class FakeExecutor implements ExecutorAdapter {
   async probe() { return { ...this.probeResult, checkedAt: new Date().toISOString(), source: "fake", runtimeId: this.heavy ? "ollama" : undefined }; }
   resourceRequest() { return this.heavy ? { class: "heavy" as const, runtimeId: "ollama", vramMiB: 6 * GiB } : { class: "light" as const, cpuSlots: 1 }; }
   async run(context: ExecutorRunContext): Promise<ExecutorOutcome> {
-    this.runs += 1; this.active += 1; this.maxActive = Math.max(this.maxActive, this.active);
+    this.runs += 1; this.prompts.push(context.prompt); this.active += 1; this.maxActive = Math.max(this.maxActive, this.active);
     try {
       const step = this.next.shift();
       if (step) return await step(context);
@@ -199,7 +217,7 @@ describe("delegated task queue", () => {
     for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   });
 
-  async function setup(options: { mode?: "owner_busy" | "background" | "free"; directory?: string; alive?: boolean; ledger?: QuotaLedger; adapters?: FakeExecutor[]; locks?: LockManager } = {}) {
+  async function setup(options: { mode?: "owner_busy" | "background" | "free"; directory?: string; alive?: boolean; ledger?: QuotaLedger; adapters?: FakeExecutor[]; locks?: LockManager; reviewer?: Reviewer; clock?: { now: number } } = {}) {
     const directory = options.directory ?? await mkdtemp(join(tmpdir(), "agent-ops-"));
     if (!options.directory) directories.push(directory);
     const workspace = join(directory, "sandbox", "project");
@@ -213,12 +231,13 @@ describe("delegated task queue", () => {
       new FakeExecutor("claude_code", "claude", profile("subscription", 2, ["code_edit", "text", "analysis"], true))
     ];
     let tasksRef: AgentTaskService | undefined;
-    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode, ownerApps: async () => [],
+    const dispatcher = new ResourceDispatcher({ telemetry: async () => telemetry(), mode, ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }),
       stillActive: async lease => { const task = tasksRef?.get(lease.holder); return Boolean(task && task.state === "running"); } });
     const registry = new AgentRegistry([join(directory, "sandbox")], { secret: Buffer.alloc(32, 7) });
     const ledger = options.ledger ?? new QuotaLedger();
     const locks = options.locks ?? new LockManager();
-    const service = new AgentTaskService({ store, registry, ledger, locks, dispatcher, adapters, mode, apiUrl: "http://127.0.0.1:1", worktreeRoot: join(directory, "worktrees"), tickMs: 60_000,
+    const service = new AgentTaskService({ store, registry, ledger, locks, dispatcher, adapters, mode, reviewer: options.reviewer, apiUrl: "http://127.0.0.1:1", worktreeRoot: join(directory, "worktrees"), tickMs: 60_000,
+      ...(options.clock ? { now: () => options.clock!.now } : {}),
       workspace: options.alive === undefined ? undefined : { alive: async () => options.alive! } });
     tasksRef = service;
     await service.init();
@@ -254,13 +273,87 @@ describe("delegated task queue", () => {
     expect(adapters[1].runs).toBe(1);
   });
 
-  it("fails verification when the executor only claims success", async () => {
+  it("returns an unfinished task for rework and accepts it after the fix", async () => {
     const { service, workspace, agent, adapters } = await setup();
     adapters[1].next.push(async () => ({ ok: true, message: "ok", summary: "All done, tests pass!" }));
     const { task } = await service.submit(agent, codeTask(workspace));
     const done = await until(service, task.id, ["verified", "failed"]);
+    expect(done.state).toBe("verified");
+    expect(done.attempts.map(attempt => attempt.rework?.n ?? 0)).toEqual([0, 1]);
+    expect(done.acceptance?.decisions.map(decision => `${decision.decision}:${decision.by}`)).toEqual(["rework:checks", "accept:checks"]);
+    expect(adapters[1].prompts[1]).toMatch(/Rework 1: the previous result was NOT accepted[\s\S]*result\.txt/);
+    expect(adapters[1].runs).toBe(2);
+  });
+
+  it("stops the rework loop when there is no progress", async () => {
+    const { service, workspace, agent, adapters } = await setup();
+    for (let index = 0; index < 5; index += 1) adapters[1].next.push(async () => ({ ok: true, message: "ok", summary: "Done!" }));
+    const { task } = await service.submit(agent, codeTask(workspace));
+    const done = await until(service, task.id, ["verified", "failed"]);
     expect(done.state).toBe("failed");
-    expect(done.reason).toMatch(/Проверка не прошла/);
+    expect(done.reason).toMatch(/Нет прогресса/);
+    expect(done.attempts).toHaveLength(2);
+    expect(done.acceptance?.decisions.at(-1)?.decision).toBe("stop");
+  });
+
+  it("uses the reviewer for criteria, ignores invented requirements and asks for the owner only when needed", async () => {
+    const verdicts: Array<Awaited<ReturnType<Reviewer>>> = [
+      { status: "ok", decision: "rework", unmet: [1], reason: "README does not mention the command", reviewer: { provider: "fake", model: "judge" } },
+      { status: "ok", decision: "rework", unmet: [], reason: "would be nicer with emojis", reviewer: { provider: "fake", model: "judge" } }
+    ];
+    const inputs: ReviewInput[] = [];
+    const reviewer: Reviewer = async input => { inputs.push(input); return verdicts.shift()!; };
+    const { service, workspace, agent, adapters } = await setup({ reviewer });
+    const { task } = await service.submit(agent, codeTask(workspace, { acceptance: ["README mentions how to run it"] }));
+    const done = await until(service, task.id, ["verified", "failed", "blocked"]);
+    expect(done.state).toBe("verified");
+    expect(done.reason).toMatch(/не указал невыполненного критерия/);
+    expect(adapters[1].runs).toBe(2);
+    expect(inputs[0].criteria).toEqual(["The goal is achieved: Create result.txt", "README mentions how to run it"]);
+    expect(inputs[1].history[0]).toMatchObject({ decision: "rework", unmet: ["README mentions how to run it"] });
+    expect(adapters[1].prompts[1]).toMatch(/README mentions how to run it/);
+
+    const owner: Reviewer = async () => ({ status: "ok", decision: "owner_action", unmet: [], reason: "needs a login", ownerAction: "Войти в кабинет U2Y", reviewer: { provider: "fake", model: "judge" } });
+    const second = await setup({ reviewer: owner });
+    const blocked = await until(second.service, (await second.service.submit(second.agent, codeTask(second.workspace, { goal: "Upload the file" }))).task.id, ["blocked", "verified"]);
+    expect(blocked.reason).toMatch(/Нужно действие владельца: Войти в кабинет U2Y/);
+  });
+
+  it("waits for the reviewer when no model is available and keeps acceptance across a restart", async () => {
+    const clock = { now: Date.now() };
+    let available = false;
+    const reviewer: Reviewer = async () => available ? { status: "ok", decision: "accept", unmet: [], reason: "ok", reviewer: { provider: "fake", model: "judge" } } : { status: "unavailable", reason: "квота исчерпана" };
+    const first = await setup({ reviewer, clock });
+    const { task } = await first.service.submit(first.agent, codeTask(first.workspace, { acceptance: ["text is polite"] }));
+    let waiting = await until(first.service, task.id, ["awaiting_acceptance"]);
+    for (let index = 0; index < 100 && !/Приёмщик ждёт модель/.test(waiting.reason); index += 1) { await new Promise(resolve => setTimeout(resolve, 20)); waiting = first.service.get(task.id)!; }
+    expect(waiting.reason).toMatch(/Приёмщик ждёт модель: квота исчерпана/);
+    expect(waiting.acceptance?.nextReviewAt).toBeTruthy();
+    clock.now += 4 * 60_000;
+    await first.service.drain();
+    first.service.close();
+    available = true;
+    const restarted = await setup({ directory: first.directory, reviewer, clock });
+    const accepted = await until(restarted.service, waiting.id, ["verified"]);
+    expect(accepted.acceptance?.decisions.map(decision => decision.decision)).toEqual(["wait", "accept"]);
+    expect(restarted.adapters[1].runs).toBe(0);
+    await restarted.service.drain();
+    restarted.service.close();
+    // Accepted stays accepted: a further restart neither reruns nor re-reviews it.
+    const again = await setup({ directory: first.directory, reviewer: async () => { throw new Error("must not be called"); }, clock });
+    expect(again.service.get(task.id)?.state).toBe("verified");
+    expect(again.adapters[1].runs).toBe(0);
+  });
+
+  it("refuses anonymous callers and hides other agents' tasks", async () => {
+    const { service, workspace, agent, registry } = await setup({ mode: "owner_busy" });
+    await expect(service.submit(registry.anonymous(), { goal: "x" })).rejects.toMatchObject({ code: "IDENTITY_REQUIRED" });
+    const { task } = await service.submit(agent, { goal: "private summary", workspace, requirements: { kind: "text" }, executor: "local_route" });
+    const stranger = registry.mcpClient("someone-else");
+    expect(service.canRead(task, stranger)).toBe(false);
+    expect(() => service.requireReadable(task.id, stranger)).toThrow(/принадлежит другому агенту/);
+    expect(service.canRead(task, registry.owner())).toBe(true);
+    await expect(service.cancel(task.id, stranger)).rejects.toMatchObject({ code: "NOT_OWNER" });
   });
 
   it("returns the same task for a repeated idempotency key and rejects a duplicate goal", async () => {
@@ -300,8 +393,8 @@ describe("delegated task queue", () => {
     expect(waiting.reason).toMatch(/занят|Тяжёлый слот|параллельных/);
     expect(adapters[0].active).toBe(1);
     release();
-    await until(service, a.task.id, ["awaiting_verification"]);
-    await until(service, b.task.id, ["awaiting_verification"]);
+    await until(service, a.task.id, ["awaiting_acceptance"]);
+    await until(service, b.task.id, ["awaiting_acceptance"]);
     expect(adapters[0].maxActive).toBe(1);
   });
 
@@ -312,7 +405,7 @@ describe("delegated task queue", () => {
     expect(waiting.reason).toMatch(/Компьютер нужен мне/);
     expect(adapters[0].runs).toBe(0);
     modeState.manual = { mode: "free", setAt: "", by: "owner" };
-    await until(service, heavy.task.id, ["awaiting_verification"]);
+    await until(service, heavy.task.id, ["awaiting_acceptance"]);
   });
 
   it("falls back to Claude after a Codex quota limit without running the work twice", async () => {
@@ -386,7 +479,7 @@ describe("delegated task queue", () => {
     // Executor process still alive after the restart: wait for it, no second run.
     const alive = await setup({ directory: first.directory, alive: true, locks: restoreLocks(first.locks) });
     expect(alive.service.get(running.task.id)?.state).toBe("unknown_outcome");
-    expect(["queued", "waiting_window", "waiting_resources", "running", "awaiting_verification"]).toContain(alive.service.get(queued.task.id)?.state);
+    expect(["queued", "waiting_window", "waiting_resources", "running", "awaiting_acceptance"]).toContain(alive.service.get(queued.task.id)?.state);
     await alive.service.drain();
     alive.service.close();
 
@@ -446,8 +539,81 @@ function restoreLocks(previous: LockManager): LockManager {
 describe("owner reserve calibration", () => {
   it("lets light work run on a busy machine but keeps heavy work behind the full RAM reserve", async () => {
     const busyMachine = async (): Promise<Telemetry> => ({ ...telemetry(), memory: { totalMiB: 32 * GiB, usedMiB: 27.5 * GiB, freeMiB: 4.5 * GiB } });
-    const dispatcher = new ResourceDispatcher({ telemetry: busyMachine, mode: async () => effectiveComputerMode(defaultComputerModeState()), ownerApps: async () => [] });
+    const dispatcher = new ResourceDispatcher({ telemetry: busyMachine, mode: async () => effectiveComputerMode(defaultComputerModeState()), ownerActivity: async () => ({ busy: false, confidence: "measured" as const, reasons: [], signals: [] }) });
     expect((await dispatcher.acquire({ holder: "cli", agentId: "a", purpose: "codex", class: "light", origin: "agent", ramMiB: 512 })).granted).toBe(true);
     expect(await dispatcher.acquire({ holder: "llm", agentId: "a", purpose: "model", class: "heavy", origin: "agent", ramMiB: 2 * GiB, vramMiB: GiB })).toMatchObject({ granted: false, waitFor: "resources" });
+  });
+});
+
+describe("computer activity", () => {
+  const sample = (processes: ActivitySample["processes"], extra: Partial<ActivitySample> = {}): ActivitySample => ({ at: new Date().toISOString(), ok: true, totalCpuPercent: 10, processes, renders: [], ...extra });
+  const assess = (samples: ActivitySample[], heavyLeaseActive = false) => assessOwnerActivity(samples, { ownerApps: ["blender", "photoshop", "touchdesigner"], ownProcessNames: ["ollama"], heavyLeaseActive });
+
+  it("treats an open but idle application as a signal, not a block", () => {
+    const result = assess([sample([{ pid: 1, name: "blender", gpuPercent: 1, vramMiB: 900, cpuPercent: 0.4 }])]);
+    expect(result).toMatchObject({ busy: false, confidence: "measured" });
+    expect(result.signals[0]).toMatch(/blender открыт и простаивает/);
+  });
+
+  it("detects a render and a busy owner application", () => {
+    expect(assess([sample([], { renders: [{ pid: 7, name: "aerender", detail: "рендер After Effects (aerender)" }] })]).reasons[0]).toMatch(/Идёт рендер After Effects/);
+    const photoshop = assess([sample([{ pid: 2, name: "photoshop", gpuPercent: 35, vramMiB: 4000, cpuPercent: 30 }])]);
+    expect(photoshop.busy).toBe(true);
+    expect(photoshop.reasons[0]).toMatch(/photoshop активно работает/);
+  });
+
+  it("notices high load from an application that is not on the list, but not from SnarkRoute's own runtimes", () => {
+    expect(assess([sample([{ pid: 3, name: "obscuregame", gpuPercent: 80, vramMiB: 6000, cpuPercent: 20 }])]).reasons[0]).toMatch(/Высокая нагрузка от obscuregame/);
+    expect(assess([sample([{ pid: 4, name: "ollama", gpuPercent: 95, vramMiB: 8000, cpuPercent: 20 }])]).busy).toBe(false);
+  });
+
+  it("averages samples and is conservative without fresh data", () => {
+    const spike = [sample([{ pid: 5, name: "chrome", gpuPercent: 0, vramMiB: 300, cpuPercent: 1 }]), sample([{ pid: 5, name: "chrome", gpuPercent: 0, vramMiB: 300, cpuPercent: 1 }]), sample([{ pid: 5, name: "chrome", gpuPercent: 90, vramMiB: 300, cpuPercent: 1 }])];
+    expect(assess(spike).busy).toBe(false);
+    expect(assess([{ at: new Date(Date.now() - 10 * 60_000).toISOString(), ok: true, processes: [], renders: [] }])).toMatchObject({ busy: true, confidence: "unknown" });
+  });
+});
+
+describe("acceptance rules", () => {
+  it("keeps only real criterion numbers from a reviewer reply", () => {
+    expect(parseReviewReply('Sure! {"decision":"rework","unmet":[1, 9, "x"],"reason":"r"}', 2)).toEqual({ decision: "rework", unmet: [1], reason: "r" });
+    expect(parseReviewReply("I think it is fine", 2)).toBeUndefined();
+  });
+
+  it("bounds reworks by count, progress, repetition and budget", () => {
+    const state = { reworks: 0, maxReworks: 2, reviews: 0, decisions: [] as never[] };
+    const budget = { wallMinutesLeft: 10, subscriptionRunsLeft: 1, needsSubscription: true };
+    expect(reworkGate(state, "a", true, budget)).toEqual({ allowed: true });
+    expect(reworkGate({ ...state, reworks: 2 }, "a", true, budget)).toMatchObject({ allowed: false, reason: expect.stringMatching(/Лимит доработок/) });
+    expect(reworkGate({ ...state, decisions: [{ decision: "rework", signature: "a" }] as never[] }, "a", false, budget)).toMatchObject({ allowed: false, reason: expect.stringMatching(/Нет прогресса/) });
+    expect(reworkGate({ ...state, decisions: [{ decision: "rework", signature: "a" }, { decision: "rework", signature: "a" }] as never[] }, "a", true, budget)).toMatchObject({ allowed: false, reason: expect.stringMatching(/повторяется/) });
+    expect(reworkGate(state, "a", true, { ...budget, subscriptionRunsLeft: 0 })).toMatchObject({ allowed: false, reason: expect.stringMatching(/подписочных/) });
+  });
+});
+
+describe("ledger coverage", () => {
+  it("separates SnarkRoute's own runs, the provider's plan-wide report and unobserved outside use", () => {
+    const ledger = new QuotaLedger();
+    ledger.recordMeasuredRun("codex_cli", { kind: "delegated", inputTokens: 100, outputTokens: 20 });
+    ledger.recordMeasuredRun("codex_cli", { kind: "chat" });
+    ledger.recordQuotaReport("codex_cli", { usedPercent: 36, source: "codex session file" });
+    const coverage = ledger.coverage("codex_cli", "subscription");
+    expect(coverage.measuredBySnarkRoute).toMatchObject({ delegatedRuns: 1, chatTurns: 1, inputTokens: 100, outputTokens: 20 });
+    expect(coverage.providerReport).toMatchObject({ usedPercent: 36, stale: false, scope: expect.stringMatching(/включая использование вне SnarkRoute/) });
+    expect(coverage.externalUsage.observed).toBe(false);
+    expect(ledger.coverage("claude_code", "subscription").providerReport).toBeNull();
+  });
+});
+
+describe("owner sessions", () => {
+  it("are never accepted as agent tokens and expire", () => {
+    let now = 1000;
+    const registry = new AgentRegistry([], { secret: Buffer.alloc(32, 3), now: () => now });
+    const session = registry.issueOwnerSession(60_000);
+    expect(registry.verifyOwnerSession(session)).toBe(true);
+    expect(registry.identityFromToken(session.slice("owner.".length))).toBeUndefined();
+    expect(registry.verifyOwnerSession(registry.issueAgentToken({ id: "app:tove", kind: "app", label: "Tove" }, 60_000))).toBe(false);
+    now += 61_000;
+    expect(registry.verifyOwnerSession(session)).toBe(false);
   });
 });

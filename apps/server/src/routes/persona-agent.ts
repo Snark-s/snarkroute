@@ -239,7 +239,7 @@ function startPersonaJob(home: string, taskId: string, [script, ...args]: string
   personaJobs.set(job.jobId, job);
   const child = spawn(process.env.PERSONA_PYTHON ?? "python", [join(home, "scripts", script), ...args], {
     cwd: home,
-    env: { ...process.env, PERSONA_HOME: home, PYTHONUTF8: "1", ...agentEnv },
+    env: { ...personaEnv(), PERSONA_HOME: home, PYTHONUTF8: "1", ...agentEnv },
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -433,12 +433,18 @@ async function personaCall(reply: { code(status: number): { send(value: unknown)
   }
 }
 
+/** The persona agent runs as its own agent: the owner's launcher and MCP secrets are not inherited. */
+function personaEnv(): NodeJS.ProcessEnv {
+  const { SNARKROUTE_LAUNCHER_TOKEN: _launcher, SNARKROUTE_MCP_TOKEN: _mcp, ...env } = process.env;
+  return env;
+}
+
 function runPython(home: string, [script, ...args]: string[], agentEnv: Record<string, string> = {}): Promise<JsonObject | unknown[]> {
   return new Promise((resolvePromise, reject) => {
     execFile(
       process.env.PERSONA_PYTHON ?? "python",
       [join(home, "scripts", script), ...args],
-      { cwd: home, env: { ...process.env, PERSONA_HOME: home, PYTHONUTF8: "1", ...agentEnv }, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 },
+      { cwd: home, env: { ...personaEnv(), PERSONA_HOME: home, PYTHONUTF8: "1", ...agentEnv }, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error) return reject(new Error(String(stderr || stdout || error.message).trim()));
         try { resolvePromise(JSON.parse(stdout)); }

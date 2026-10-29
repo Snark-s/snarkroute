@@ -19,6 +19,20 @@ export type ExecutorLedgerEntry = {
   lastVerifiedAt?: string;
   day: string;
   runsToday: number;
+  /** Everything SnarkRoute itself sent to this executor today (delegated runs and chat turns). */
+  measured?: { day: string; delegatedRuns: number; chatTurns: number; inputTokens: number; outputTokens: number; lastAt?: string };
+};
+
+/**
+ * What a ledger entry does and does not know. Provider reports (Codex session
+ * windows, Claude rate-limit events) are plan-wide and include use outside
+ * SnarkRoute; SnarkRoute's own counts cover only what went through it.
+ */
+export type LedgerCoverage = {
+  measuredBySnarkRoute: { day: string; delegatedRuns: number; chatTurns: number; inputTokens: number; outputTokens: number; lastAt?: string; scope: string };
+  providerReport: { state: QuotaState; usedPercent?: number; resetsAt?: string; source?: string; observedAt?: string; stale: boolean; scope: string } | null;
+  externalUsage: { observed: false; note: string };
+  ourLimits: { concurrent: number; sharedSubscriptionConcurrent: number; dailyRuns: number | null; activeRuns: number };
 };
 
 export type LedgerLimits = {
@@ -71,6 +85,35 @@ export class QuotaLedger {
   list(): ExecutorLedgerEntry[] { return [...this.entries.keys()].map(id => this.view(id)); }
 
   /** The entry as callers should read it: expired limits cleared, stale reports downgraded to unknown. */
+  coverage(executorId: string, tier: "local" | "subscription"): LedgerCoverage {
+    const view = this.view(executorId);
+    const today = this.today();
+    const measured = view.measured?.day === today ? view.measured : { day: today, delegatedRuns: 0, chatTurns: 0, inputTokens: 0, outputTokens: 0 };
+    const raw = this.entry(executorId).quota;
+    return {
+      measuredBySnarkRoute: { ...measured, scope: "только запросы через SnarkRoute (поручения и чаты по подписке)" },
+      providerReport: tier === "subscription" && raw.observedAt ? { state: raw.state, usedPercent: raw.usedPercent, resetsAt: raw.resetsAt, source: raw.source, observedAt: raw.observedAt,
+        stale: view.quotaStale || view.quota.state === "unknown" && raw.state === "reported", scope: "сведения провайдера о всём тарифе, включая использование вне SnarkRoute" } : null,
+      externalUsage: { observed: false, note: tier === "subscription"
+        ? "Сессии Codex/Claude вне SnarkRoute (приложения, терминал) не наблюдаются; их расход виден только в отчёте провайдера и только на момент последнего запуска через SnarkRoute."
+        : "Локальный исполнитель: внешнего расхода квоты нет." },
+      ourLimits: { concurrent: this.limits.maxConcurrentPerExecutor[executorId] ?? 1, sharedSubscriptionConcurrent: this.limits.maxConcurrentSubscriptionRuns,
+        dailyRuns: this.limits.dailyRunsPerExecutor[executorId] ?? null, activeRuns: this.activeRuns(executorId) }
+    };
+  }
+
+  /** A run SnarkRoute itself made (counted whatever its outcome). */
+  recordMeasuredRun(executorId: string, run: { kind: "delegated" | "chat"; inputTokens?: number; outputTokens?: number }): void {
+    const entry = this.entry(executorId);
+    const day = this.today();
+    if (entry.measured?.day !== day) entry.measured = { day, delegatedRuns: 0, chatTurns: 0, inputTokens: 0, outputTokens: 0 };
+    if (run.kind === "delegated") entry.measured.delegatedRuns += 1; else entry.measured.chatTurns += 1;
+    entry.measured.inputTokens += Math.max(0, Math.round(run.inputTokens ?? 0));
+    entry.measured.outputTokens += Math.max(0, Math.round(run.outputTokens ?? 0));
+    entry.measured.lastAt = new Date(this.now()).toISOString();
+    void this.save();
+  }
+
   view(executorId: string): ExecutorLedgerEntry & { activeRuns: number; quotaStale: boolean } {
     const entry = this.entry(executorId);
     const now = this.now();
