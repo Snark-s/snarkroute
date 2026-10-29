@@ -46,28 +46,69 @@ const DECISION_LABELS: Record<string, string> = { accept: "принято", rewo
 const TERMINAL = new Set(["verified", "failed", "cancelled"]);
 
 /**
- * The Workshop page is the owner. SnarkRoute hands this page (and only a browser page on the
- * Workshop's own origin) a short-lived owner session; every agent-ops call carries it.
+ * Owner session of the Workshop. It is obtained only by redeeming a one-time code that the launcher
+ * (the owner's own process, holding the launcher token) puts into the URL fragment; browser headers
+ * grant nothing. The code is removed from the address bar right after the exchange.
  */
+const SESSION_KEY = "snarkroute.ownerSession";
+const controlBase = `http://127.0.0.1:${import.meta.env.VITE_LAUNCHER_CONTROL_PORT || 5176}`;
 let ownerSession: Promise<string> | undefined;
-function session(apiBase: string, renew = false): Promise<string> {
-  if (renew) ownerSession = undefined;
-  ownerSession ??= fetch(`${apiBase}/api/agent-ops/owner-session`, { method: "POST", signal: AbortSignal.timeout(10_000) })
-    .then(async response => {
-      const body = await response.json().catch(() => ({})) as { session?: string; error?: string };
-      if (!response.ok || !body.session) throw new Error(body.error || `Сессия владельца не выдана (HTTP ${response.status})`);
-      return body.session;
-    })
-    .catch(error => { ownerSession = undefined; throw error; });
-  return ownerSession;
+
+function storedSession(): string | undefined {
+  try { return localStorage.getItem(SESSION_KEY) ?? undefined; } catch { return undefined; }
+}
+function storeSession(value: string | undefined): void {
+  try { if (value) localStorage.setItem(SESSION_KEY, value); else localStorage.removeItem(SESSION_KEY); } catch { /* private mode: session lives in memory only */ }
+}
+
+/** Runs once on load: exchange `#owner-code=` for a session and drop the code from the URL and history. */
+export async function redeemOwnerCode(apiBase: string): Promise<void> {
+  const match = /(?:^#|&)owner-code=([^&]+)/.exec(location.hash);
+  if (!match) return;
+  history.replaceState(null, "", location.pathname + location.search);
+  const response = await fetch(`${apiBase}/api/agent-ops/owner-session`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: decodeURIComponent(match[1]) }), signal: AbortSignal.timeout(10_000) });
+  const body = await response.json().catch(() => ({})) as { session?: string; error?: string };
+  if (!response.ok || !body.session) throw new Error(body.error || "Код входа не принят");
+  storeSession(body.session);
+  ownerSession = Promise.resolve(body.session);
+  window.dispatchEvent(new Event("snarkroute:agent-ops-changed"));
+}
+
+/** Asks the launcher to open a signed-in Workshop tab; this tab picks the session up through localStorage. */
+export async function requestOwnerLogin(): Promise<void> {
+  const response = await fetch(`${controlBase}/owner-login`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}", signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) throw new Error("Лаунчер не открыл вход: перезапустите его ярлыком Мастерской");
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", event => {
+    if (event.key !== SESSION_KEY) return;
+    ownerSession = event.newValue ? Promise.resolve(event.newValue) : undefined;
+    window.dispatchEvent(new Event("snarkroute:agent-ops-changed"));
+  });
+}
+
+function session(_apiBase: string, renew = false): Promise<string> {
+  if (renew) { ownerSession = undefined; storeSession(undefined); }
+  const stored = storedSession();
+  ownerSession ??= stored ? Promise.resolve(stored) : Promise.reject(new OwnerLoginRequired());
+  return ownerSession.catch(error => { ownerSession = undefined; throw error; });
+}
+
+export class OwnerLoginRequired extends Error {
+  constructor() { super("Нужен вход владельца: нажмите «Войти как владелец»."); this.name = "OwnerLoginRequired"; }
 }
 
 async function call<T>(apiBase: string, path: string, init?: RequestInit, retry = true): Promise<T> {
-  const headers: Record<string, string> = { "x-snarkroute-owner-session": await session(apiBase) };
+  const headers: Record<string, string> = {};
+  const signedIn = await session(apiBase).then(value => { headers["x-snarkroute-owner-session"] = value; return true; }, () => false);
+  // Without a session the Workshop still reads the public status; actions answer 401 and ask for login.
+  if (!signedIn && (init?.method ?? "GET") !== "GET") throw new OwnerLoginRequired();
   if (init?.body) headers["content-type"] = "application/json";
   const response = await fetch(`${apiBase}/api/agent-ops${path}`, { ...init, headers, signal: AbortSignal.timeout(20_000) });
   const body = await response.json().catch(() => ({})) as T & { ok?: boolean; error?: string; code?: string };
-  if (response.status === 401 && retry) { await session(apiBase, true); return call<T>(apiBase, path, init, false); }
+  if (response.status === 401 && signedIn && retry) { storeSession(undefined); ownerSession = undefined; throw new OwnerLoginRequired(); }
   if (!response.ok || body.ok === false) throw new Error(body.error || `HTTP ${response.status}`);
   return body;
 }
@@ -78,6 +119,7 @@ let pollTimer: number | undefined;
 let lastStatus: AgentOpsStatus | undefined;
 function startPolling(apiBase: string) {
   if (pollTimer) return;
+  void redeemOwnerCode(apiBase).catch(reason => listeners.forEach(listener => listener(lastStatus, reason instanceof Error ? reason.message : String(reason))));
   const poll = async () => {
     if (document.hidden && lastStatus) return;
     try { lastStatus = await call<AgentOpsStatus>(apiBase, "/status"); listeners.forEach(listener => listener(lastStatus, "")); }
@@ -121,13 +163,15 @@ export function AgentOpsStatusBar({ apiBase }: { apiBase: string }) {
     finally { setBusy(false); }
   }
   if (!status) return <div className="opsBar" title={error}>{error ? "Диспетчер задач недоступен" : "Диспетчер задач…"}</div>;
+  const owner = (status as AgentOpsStatus & { identity?: { kind: string } }).identity?.kind === "owner";
   const waiting = (status.queue.counts.queued ?? 0) + (status.queue.counts.waiting_window ?? 0) + (status.queue.counts.waiting_resources ?? 0) + (status.queue.counts.waiting_executor ?? 0);
   const attention = (status.queue.counts.blocked ?? 0) + (status.queue.counts.unknown_outcome ?? 0) + (status.queue.counts.awaiting_verification ?? 0);
   const gpu = status.resources?.gpu;
   return <div className={`opsBar mode-${status.mode.mode}`} title={localError || error || `${status.mode.reason} · ${status.mode.localTime} МСК`}>
+    {!owner ? <button type="button" className="opsLogin" onClick={() => void requestOwnerLogin().catch(reason => setLocalError(reason instanceof Error ? reason.message : String(reason)))}>Войти как владелец</button> : null}
     <label className="opsModeSelect">
       <span className="opsDot" />
-      <select aria-label="Режим компьютера" value={status.manual ? status.manual.mode : "schedule"} disabled={busy} onChange={event => void setMode(event.target.value)}>
+      <select aria-label="Режим компьютера" value={status.manual ? status.manual.mode : "schedule"} disabled={busy || !owner} title={owner ? undefined : "Переключает только владелец: войдите"} onChange={event => void setMode(event.target.value)}>
         <option value="schedule">Авто: {status.mode.source === "schedule" ? MODE_LABELS[status.mode.mode] : "фон (по умолчанию)"}</option>
         {(Object.keys(MODE_LABELS) as Mode[]).map(mode => <option key={mode} value={mode}>{MODE_LABELS[mode]}</option>)}
       </select>

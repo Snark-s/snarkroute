@@ -62,12 +62,13 @@ export class AgentRegistry {
   /** No credential at all. Not recorded as an agent; read-only policy. */
   anonymous(): AgentIdentity { return { id: "anonymous", kind: "anonymous", label: "Без идентификации", policy: this.policy("anonymous") }; }
 
-  /** The Workshop's owner session; issued only to the local Workshop browser or the launcher. */
-  issueOwnerSession(ttlMs: number): string { return `owner.${this.issue({ o: 1 }, ttlMs)}`; }
+  /** The Workshop's owner session, issued only against a one-time code from the launcher. `epoch` revokes all older sessions. */
+  issueOwnerSession(ttlMs: number, epoch = 0): string { return `owner.${this.issue({ o: 1, ep: epoch }, ttlMs)}`; }
 
-  verifyOwnerSession(token: string | undefined): boolean {
+  verifyOwnerSession(token: string | undefined, epoch = 0): boolean {
     if (!token?.startsWith("owner.")) return false;
-    return this.verify(token.slice("owner.".length))?.o === 1;
+    const payload = this.verify(token.slice("owner.".length));
+    return payload?.o === 1 && (payload.ep ?? 0) === epoch;
   }
 
   /** Every MCP client gets an identity on its first call; its policy is the owner's assignment or the default. */
@@ -108,12 +109,12 @@ export class AgentRegistry {
     return this.touch(payload.a, payload.k as AgentKind, payload.l ?? payload.a, "token");
   }
 
-  private issue(claims: { t?: string; a?: string; k?: string; l?: string; o?: number }, ttlMs: number): string {
+  private issue(claims: { t?: string; a?: string; k?: string; l?: string; o?: number; ep?: number }, ttlMs: number): string {
     const payload = Buffer.from(JSON.stringify({ ...claims, e: this.time() + ttlMs })).toString("base64url");
     return `${payload}.${this.sign(payload)}`;
   }
 
-  private verify(token: string | undefined): { t?: string; a?: string; k?: string; l?: string; o?: number } | undefined {
+  private verify(token: string | undefined): { t?: string; a?: string; k?: string; l?: string; o?: number; ep?: number } | undefined {
     if (!token) return undefined;
     const [payload, signature] = token.split(".");
     if (!payload || !signature) return undefined;
@@ -121,7 +122,7 @@ export class AgentRegistry {
     const given = Buffer.from(signature);
     if (expected.length !== given.length || !timingSafeEqual(expected, given)) return undefined;
     try {
-      const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { t?: string; a?: string; k?: string; l?: string; o?: number; e?: number };
+      const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { t?: string; a?: string; k?: string; l?: string; o?: number; ep?: number; e?: number };
       return typeof parsed.e === "number" && parsed.e > this.time() && (typeof parsed.t === "string" || typeof parsed.a === "string" || parsed.o === 1) ? parsed : undefined;
     } catch { return undefined; }
   }

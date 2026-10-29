@@ -8,7 +8,7 @@ import { ActivityMonitor } from "../agent-ops/activity";
 import { currentOpsContext } from "../agent-ops/context";
 import type { ExecutorAdapter, ExecutorProfile } from "../agent-ops/executors";
 import { localServicePort } from "../services/local-service-endpoints";
-import { registerAgentOpsRoutes } from "./agent-ops";
+import { OwnerLoginCodes, registerAgentOpsRoutes } from "./agent-ops";
 
 const profile: ExecutorProfile = { kinds: ["text", "analysis", "code_edit"], editsFiles: true, shell: true, maxContextTokens: 100_000, quality: "high", pause: "none", costTier: "subscription", order: 1 };
 const idleExecutor: ExecutorAdapter = {
@@ -63,19 +63,37 @@ describe("agent-ops HTTP authorization", () => {
     expect(status.json().identity).toEqual({ id: "anonymous", kind: "anonymous" });
   });
 
-  it("hands the owner session only to the Workshop page and accepts it afterwards", async () => {
-    expect((await call("POST", "/owner-session")).statusCode).toBe(403);
-    expect((await call("POST", "/owner-session", { origin: "http://127.0.0.1:9999", "sec-fetch-mode": "cors" })).statusCode).toBe(403);
-    expect((await call("POST", "/owner-session", { origin: launcherOrigin })).statusCode).toBe(403);
-    const granted = await call("POST", "/owner-session", { origin: launcherOrigin, "sec-fetch-mode": "cors" });
+  it("grants the owner session only against a launcher-issued one-time code, never for browser headers", async () => {
+    process.env.SNARKROUTE_LAUNCHER_TOKEN = "launcher-secret-for-test";
+    const browserLike = { origin: launcherOrigin, "sec-fetch-mode": "cors", referer: `${launcherOrigin}/`, host: "127.0.0.1:4317" };
+    expect((await call("POST", "/owner-session", browserLike, {})).statusCode).toBe(401);
+    expect((await call("POST", "/owner-login/code", browserLike, {})).statusCode).toBe(403);
+    expect((await call("POST", "/owner-login/code", { "x-snarkroute-agent-token": tove }, {})).statusCode).toBe(403);
+    const issued = await call("POST", "/owner-login/code", { authorization: "Bearer launcher-secret-for-test" }, {});
+    expect(issued.statusCode).toBe(200);
+    const code = issued.json().code as string;
+    const granted = await call("POST", "/owner-session", {}, { code });
     expect(granted.statusCode).toBe(200);
+    expect((await call("POST", "/owner-session", {}, { code })).statusCode).toBe(401);
     const session = granted.json().session as string;
     expect((await call("PUT", "/mode", { "x-snarkroute-owner-session": session }, { mode: "owner_busy", minutes: 5 })).statusCode).toBe(200);
     expect((await call("PUT", "/mode", { "x-snarkroute-owner-session": `${session}x` }, { mode: "free" })).statusCode).toBe(401);
     expect((await call("GET", "/agents", { "x-snarkroute-owner-session": session })).statusCode).toBe(200);
-    // An agent cannot turn its own token into an owner session.
-    expect((await call("POST", "/owner-session", { "x-snarkroute-agent-token": tove })).statusCode).toBe(403);
     expect((await call("PUT", "/mode", { "x-snarkroute-owner-session": session }, { mode: null })).statusCode).toBe(200);
+    // Revoking ends every session issued so far.
+    expect((await call("POST", "/owner-session/revoke-all", { "x-snarkroute-owner-session": session }, {})).statusCode).toBe(200);
+    expect((await call("GET", "/agents", { "x-snarkroute-owner-session": session })).statusCode).toBe(401);
+  });
+
+  it("expires codes after two minutes", () => {
+    let now = 0;
+    const codes = new OwnerLoginCodes(() => now);
+    const code = codes.issue();
+    now += 121_000;
+    expect(codes.redeem(code)).toBe(false);
+    const next = codes.issue();
+    expect(codes.redeem(next)).toBe(true);
+    expect(codes.redeem(next)).toBe(false);
   });
 
   it("applies the same limits to an agent over HTTP as over MCP", async () => {

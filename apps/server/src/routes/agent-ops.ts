@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { agentOpsInstance, setAgentOpsTextRunner, startAgentOps, type AgentOps } from "../agent-ops";
 import { agentBrief } from "../agent-ops/agents";
@@ -8,10 +8,10 @@ import { AgentOpsError, normalizeSpec } from "../agent-ops/tasks";
 import type { AgentIdentity, FailureClass, TaskSpec, TaskState } from "../agent-ops/types";
 import { SUBSCRIPTION_PROVIDERS } from "../services/model-routing-policy";
 import { errorMessage } from "../services/errors";
-import { localServicePort } from "../services/local-service-endpoints";
 
 const ROOT = "/api/agent-ops";
-const OWNER_SESSION_TTL_MS = 12 * 60 * 60_000;
+const OWNER_SESSION_TTL_MS = 30 * 24 * 60 * 60_000;
+const OWNER_CODE_TTL_MS = 2 * 60_000;
 const AGENT_TOKEN_TTL_MS = 7 * 24 * 60 * 60_000;
 
 /**
@@ -32,7 +32,7 @@ export function resolveHttpIdentity(ops: AgentOps, request: FastifyRequest): Age
   const bearer = request.headers.authorization?.startsWith("Bearer ") ? request.headers.authorization.slice(7).trim() : undefined;
   const session = header(request, "x-snarkroute-owner-session") ?? (bearer?.startsWith("owner.") ? bearer : undefined);
   if (session) {
-    if (!ops.registry.verifyOwnerSession(session)) throw new AgentOpsError("BAD_OWNER_SESSION", "Сессия Мастерской истекла: обновите страницу.", {}, 401);
+    if (!ops.registry.verifyOwnerSession(session, ownerEpoch(ops))) throw new AgentOpsError("BAD_OWNER_SESSION", "Сессия владельца недействительна или отозвана: войдите через Мастерскую.", {}, 401);
     return ops.registry.owner("workshop");
   }
   if (bearer && sameSecret(bearer, process.env.SNARKROUTE_LAUNCHER_TOKEN)) return ops.registry.owner("launcher");
@@ -41,22 +41,45 @@ export function resolveHttpIdentity(ops: AgentOps, request: FastifyRequest): Age
   return ops.registry.anonymous();
 }
 
-/** The Workshop page itself: a browser fetch from the registered launcher origin on loopback. */
-export function isWorkshopBrowser(request: FastifyRequest, launcherPort = safePort("launcher")): boolean {
-  const origin = header(request, "origin");
-  if (!origin || !launcherPort) return false;
-  let url: URL;
-  try { url = new URL(origin); } catch { return false; }
-  const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
-  // Sec-Fetch-* are set by browsers and cannot be set by page scripts; a CLI caller has to forge them on purpose.
-  return loopback && url.protocol === "http:" && Number(url.port) === launcherPort && header(request, "sec-fetch-mode") === "cors";
+/**
+ * One-time owner login codes: minted only for the launcher (which holds the owner's launcher token),
+ * valid for two minutes, redeemed once, stored as hashes and never logged (they travel in a POST body
+ * and in the URL fragment, which browsers do not send to servers).
+ */
+export class OwnerLoginCodes {
+  private codes = new Map<string, number>();
+  private failures: number[] = [];
+
+  constructor(private readonly now: () => number = Date.now) {}
+
+  issue(): string {
+    this.sweep();
+    const code = randomBytes(24).toString("base64url");
+    this.codes.set(hashCode(code), this.now() + OWNER_CODE_TTL_MS);
+    return code;
+  }
+
+  redeem(code: string | undefined): boolean {
+    this.sweep();
+    // A brute-force guard on top of 192-bit codes: at most 10 wrong codes a minute.
+    this.failures = this.failures.filter(at => this.now() - at < 60_000);
+    if (this.failures.length >= 10) return false;
+    const key = code ? hashCode(code) : "";
+    const expires = this.codes.get(key);
+    this.codes.delete(key);
+    if (expires === undefined || expires < this.now()) { this.failures.push(this.now()); return false; }
+    return true;
+  }
+
+  private sweep(): void { for (const [key, expires] of this.codes) if (expires < this.now()) this.codes.delete(key); }
 }
 
-function safePort(service: "launcher"): number | undefined {
-  try { return localServicePort(service); } catch { return undefined; }
-}
+function hashCode(code: string): string { return createHash("sha256").update(code).digest("hex"); }
 
-export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Promise<AgentOps> } = {}): void {
+const ownerEpochs = new WeakMap<object, number>();
+export function ownerEpoch(ops: AgentOps): number { return ownerEpochs.get(ops) ?? 0; }
+
+export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Promise<AgentOps>; codes?: OwnerLoginCodes } = {}): void {
   const ready = options.ops ?? startAgentOps({ apiUrl: `http://127.0.0.1:${process.env.SNARKROUTE_API_PORT_FOR_AGENTS ?? "4317"}` });
   ready.catch(error => app.log.error({ err: error }, "agent-ops failed to start"));
   app.addHook("onClose", async () => { (await ready.catch(() => undefined))?.close(); });
@@ -110,12 +133,32 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
     if (identity.kind === "anonymous") throw new AgentOpsError("IDENTITY_REQUIRED", "Нужна идентификация: токен агента (x-snarkroute-agent-token) или сессия Мастерской.", {}, 401);
   };
 
-  /** The Workshop page asks for its owner session; nobody else gets one. */
-  app.post(`${ROOT}/owner-session`, handle(async (ops, identity, request, reply) => {
-    if (identity.kind !== "owner" && !isWorkshopBrowser(request)) {
-      return reply.code(403).send({ ok: false, code: "WORKSHOP_ONLY", error: "Сессия владельца выдаётся только странице Мастерской." });
+  const codes = options.codes ?? new OwnerLoginCodes();
+  void ready.then(async ops => { ownerEpochs.set(ops, (await ops.store.readState<{ epoch?: number }>("owner-sessions", {})).epoch ?? 0); }).catch(() => undefined);
+
+  /** The launcher (Bearer launcher token) asks for a one-time code and opens the Workshop with it. */
+  app.post(`${ROOT}/owner-login/code`, handle(async (_ops, identity, request, reply) => {
+    const bearer = request.headers.authorization?.startsWith("Bearer ") ? request.headers.authorization.slice(7).trim() : undefined;
+    if (identity.kind !== "owner" || !sameSecret(bearer, process.env.SNARKROUTE_LAUNCHER_TOKEN)) {
+      return reply.code(403).send({ ok: false, code: "LAUNCHER_ONLY", error: "Одноразовый код выдаётся только лаунчеру." });
     }
-    return { ok: true, session: ops.registry.issueOwnerSession(OWNER_SESSION_TTL_MS), expiresInMs: OWNER_SESSION_TTL_MS };
+    return { ok: true, code: codes.issue(), expiresInMs: OWNER_CODE_TTL_MS };
+  }));
+
+  /** The Workshop page redeems the code for a session. No browser header is trusted here. */
+  app.post(`${ROOT}/owner-session`, handle(async (ops, _identity, request, reply) => {
+    const code = ((request.body ?? {}) as { code?: string }).code;
+    if (typeof code !== "string" || !codes.redeem(code)) return reply.code(401).send({ ok: false, code: "BAD_OWNER_CODE", error: "Код входа недействителен, истёк или уже использован: нажмите «Войти» ещё раз." });
+    return { ok: true, session: ops.registry.issueOwnerSession(OWNER_SESSION_TTL_MS, ownerEpoch(ops)), expiresInMs: OWNER_SESSION_TTL_MS };
+  }));
+
+  /** Ends every owner session at once (lost device, shared screen). */
+  app.post(`${ROOT}/owner-session/revoke-all`, handle(async (ops, identity) => {
+    ownerOnly(identity, "Отзыв сессий");
+    const epoch = ownerEpoch(ops) + 1;
+    ownerEpochs.set(ops, epoch);
+    await ops.store.writeState("owner-sessions", { epoch, revokedAt: new Date().toISOString() });
+    return { ok: true, epoch };
   }));
 
   /** A launched agent renews its own token before it expires; the identity never changes. */

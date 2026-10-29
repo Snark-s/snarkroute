@@ -335,3 +335,5 @@ button:disabled { opacity: .5; cursor: wait; } .spin { animation: spin 1s linear
 .opsAcceptance { display:grid; gap:4px; padding:10px; border:1px solid #2c3346; border-radius:10px; background:#0f131d; font-size:13px; }
 .opsAcceptance small, .opsCoverage { color:#8a93a8; line-height:1.4; }
 .opsBusy { color:#ffc85d; }
+
+.opsLogin { padding:4px 9px; border:1px solid #6d61a9; border-radius:8px; background:#755cff30; color:#f4f5fb; font-size:12px; cursor:pointer; }

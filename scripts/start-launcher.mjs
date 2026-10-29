@@ -26,7 +26,7 @@ const projectPublisher = createProjectPublisherControl({
   logPath: join(logsDir, "project-publisher.log")
 });
 
-const owner = await startLauncherControl({ apiPort, controlPort, projectPublisher });
+const owner = await startLauncherControl({ apiPort, controlPort, projectPublisher, openOwnerUrl: url => openUrl(url), launcherUrl });
 if (!owner.existing) {
   let shuttingDown = false;
   const shutdown = () => {
@@ -51,7 +51,8 @@ if (!apiReady || !launcherReady) {
   printLogTail(apiReady ? join(logsDir, "launcher-ui.log") : serverLogPath(process.cwd()));
   process.exitCode = 1;
 } else {
-  if (!process.argv.includes("--no-browser")) openUrl(launcherUrl);
+  // The Workshop opened by the owner's own launcher arrives signed in (one-time code in the fragment).
+  if (!process.argv.includes("--no-browser")) openUrl((await owner.ownerLoginUrl?.()) ?? launcherUrl);
 }
 
 // Windowless (a detached corepack -> pnpm -> vite chain opened terminal windows); output goes
