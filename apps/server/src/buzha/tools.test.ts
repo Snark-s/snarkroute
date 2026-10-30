@@ -53,11 +53,11 @@ describe("Buzha tools use the central bridge authority", () => {
     await expect(tool.invoke(task,"browser_observe_url",{url:"https://mail.google.com/mail/u/0/#sent/ABCDEFGHIJKLMNOP"})).rejects.toThrow(/фрагмент/);
   });
   it("reads one existing Sent message through a unique visible message link, never a send button",async()=>{
-    let opened=false;const clicks:string[]=[];
+    let opened=false,finds=0;const clicks:string[]=[];
     const tool=new BuzhaTools({bridge:async(name,args)=>{
       if(name==="browser_sessions")return session;if(name==="browser_tab_action")return{action:"create",tab_id:"88"};
       if(name==="browser_snapshot")return{url:"https://mail.google.com/mail/u/0/#sent"+(opened?"/ABCDEFGHIJKLMNOP":""),readyState:"complete",text:opened?"Subject: Existing reply. Full body. From studio@example.test To client@example.test":"Sent: Existing reply",elements:[]};
-      if(name==="browser_find")return{matches:args.query==="Existing reply"?[{selector:"#message",label:"Existing reply",role:"link",tag:"div"}]:[]};
+      if(name==="browser_find")return{matches:args.query==="Existing reply"&&++finds>1?[{selector:"#message",label:"Existing reply",role:"link",tag:"div"}]:[]};
       if(name==="browser_click"){clicks.push(String(args.selector));opened=true;return{action:"clicked",status:"dispatched"};}throw Error(name);
     }});
     const result=await tool.invoke(task,"browser_observe_url",{url:"https://mail.google.com/mail/u/0/#sent",openSentSubject:"Existing reply"});

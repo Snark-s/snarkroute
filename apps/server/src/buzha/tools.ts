@@ -76,8 +76,10 @@ export class BuzhaTools {
           // Read navigation in our freshly reloaded Sent observer only. The
           // unique visible message link is obtained from the real DOM; no
           // compose/send controls, hidden state or supplied scripts are used.
-          const found=await this.bridge("browser_find",{session_id:"default",tab_id:tabId,query:subject,role:"link",limit:20});
-          const links=found?.matches?.filter((e:any)=>e.role==="link"&&typeof e.selector==="string"&&String(e.label).toLocaleLowerCase().includes(subject.toLocaleLowerCase()))??[];
+          let links:any[]=[];
+          // Gmail's document can be complete before the Sent list is hydrated.
+          // Retry only the read lookup; never retry its eventual click.
+          for(let n=0;n<7;n++){const found=await this.bridge("browser_find",{session_id:"default",tab_id:tabId,query:subject,role:"link",limit:20});links=found?.matches?.filter((e:any)=>e.role==="link"&&typeof e.selector==="string"&&String(e.label).toLocaleLowerCase().includes(subject.toLocaleLowerCase()))??[];if(links.length)break;await new Promise(r=>setTimeout(r,500));}
           if(links.length!==1) throw new Error("В Отправленных не найдена ровно одна видимая ссылка сообщения с этой темой; чтение остановлено без нажатия.");
           const click=await this.bridge("browser_click",{session_id:"default",tab_id:tabId,selector:links[0].selector});if(click?.action!=="clicked")throw new Error("Открытие существующего письма не подтверждено; повтор клика не выполнялся.");
           for(let n=0;n<7;n++){observed=await readReady();if(/^#sent\/[A-Za-z0-9_-]{10,100}$/.test(new URL(observed.url).hash)&&observed.text.includes(subject))break;await new Promise(r=>setTimeout(r,200));}
