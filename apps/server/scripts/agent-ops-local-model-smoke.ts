@@ -48,6 +48,7 @@ const before = await ollama("/api/ps");
 const submitted = reattach ? { taskId: reattach, state: "reattached" }
   : await tool("agent_delegate_submit", { goal, title: "17×23 local check", requirements: { kind: "text", quality: "basic" }, executor: "local_route", allowedExecutors: ["local_route"], idempotencyKey: `local-smoke-${Date.now()}` });
 console.log(`  submitted ${submitted.taskId}: ${submitted.state}`);
+if (!submitted.taskId) { console.log(`FAIL submit refused: ${JSON.stringify(submitted)}`); process.exit(1); }
 let leaseSeen = false;
 let modelSeen = "";
 let state = "";

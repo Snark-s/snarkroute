@@ -72,6 +72,8 @@ async function open() {
   registerAgentOpsRoutes(app, { ops: Promise.resolve(ops) }); await app.ready(); return ops;
 }
 let ops = await open();
+// Anonymous callers cannot submit or read tasks: Buzha submits with her own agent token (valid across the restart below).
+const requester = ops.registry.issueAgentToken(ops.registry.app("buzha", "Бужа"), 3_600_000);
 let id = "";
 try {
   const response = await api("POST", "/api/agent-ops/tasks", {
@@ -81,16 +83,16 @@ try {
     criteria: [{ id: "extension", description: "Extension built and tests passed", review: "machine", checkIndexes: [0] }, { id: "publication", description: "Profile actually published with complete name and bio", review: "machine", checkIndexes: [1, 2, 3] }],
     effects: [{ key: "publish", description: "Publish profile once", check: { type: "http", url: profileUrl, json: { path: "published", equals: true } } }],
     retry: { maxAttempts: 3, delayMs: 100, maxDelayMs: 500 }, budget: { wallMinutes: 5, subscriptionRuns: 3 }, idempotencyKey: "controlled-buzha-publication"
-  });
+  }, requester);
   id = response.task.id;
   const start = Date.now();
-  while (!severConnection) { if (Date.now() - start > 20000) throw new Error(JSON.stringify(await api("GET", `/api/agent-ops/tasks/${id}`))); await new Promise(r => setTimeout(r, 50)); }
+  while (!severConnection) { if (Date.now() - start > 20000) throw new Error(JSON.stringify(await api("GET", `/api/agent-ops/tasks/${id}`, undefined, requester))); await new Promise(r => setTimeout(r, 50)); }
   await ops.tasks.drain(); ops.close(); await app.close();
   assert.equal(ops.tasks.get(id)?.reviews?.[0].decision, "continue");
   assert.equal(ops.tasks.get(id)?.state, "running");
   app = Fastify(); ops = await open();
   for (let n = 0; n < 100 && ops.tasks.get(id)?.state !== "verified"; n++) await new Promise(r => setTimeout(r, 50));
-  const final = await api("GET", `/api/agent-ops/tasks/${id}`), observed = await fetch(profileUrl).then(r => r.json());
+  const final = await api("GET", `/api/agent-ops/tasks/${id}`, undefined, requester), observed = await fetch(profileUrl).then(r => r.json());
   assert.equal(final.task.state, "verified"); assert.equal(executorRuns, 2); assert.equal(publicationCount, 1); assert.equal(final.task.effects[0].state, "confirmed");
   assert.deepEqual(final.task.reviews.map((r: any) => r.decision), ["continue", "accept"]);
   const report = { controlledExecutor: true, taskId: id, state: final.task.state, executorRuns, publicationCount, restartRecovered: true, observed, decisions: final.task.reviews, evidence: final.task.evidence, events: final.events };
