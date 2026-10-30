@@ -41,7 +41,7 @@ const taskSpecShape = {
   isolation: z.enum(["shared", "worktree"]).optional().describe("worktree: a separate git worktree and branch for independent work."),
   constraints: z.array(z.string().max(2000)).max(30).optional(),
   permissions: z.object({ fileWrite: z.boolean().optional(), shell: z.enum(["none", "tests", "workspace"]).optional(), network: z.boolean().optional() }).optional(),
-  budget: z.object({ wallMinutes: z.number().int().min(1).max(600).optional(), activeMinutes: z.number().int().min(1).max(600).optional(), subscriptionRuns: z.number().int().min(0).max(20).optional(), maxTurns: z.number().int().min(1).max(200).optional(), providerCost: z.literal(0).optional() }).optional(),
+  budget: z.object({ wallMinutes: z.number().int().min(1).max(600).optional(), activeMinutes: z.number().int().min(1).max(600).optional(), subscriptionRuns: z.number().int().min(0).max(24).optional(), maxTurns: z.number().int().min(1).max(200).optional(), providerCost: z.literal(0).optional() }).optional(),
   priority: z.number().int().min(0).max(100).optional(),
   executor: z.string().max(64).optional().describe("auto (default), local_route, codex_cli, claude_code or another registered executor."),
   allowedExecutors: z.array(z.string().max(64)).max(10).optional(),

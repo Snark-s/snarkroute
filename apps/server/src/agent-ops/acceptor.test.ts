@@ -55,6 +55,14 @@ async function until(service: AgentTaskService, id: string, predicate: (task: an
 }
 
 describe("Приёмщик: durable execution → evidence → acceptance", () => {
+  it("honors a saved owner ceiling of 24 without resetting prior steps or changing retry limits",async()=>{
+    const f=await fixture();f.service.close();const {task}=await f.service.submit(f.agent,f.spec);task.state="blocked";
+    task.attempts=[{n:1,executor:"codex_cli",startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),modelCalls:Array.from({length:12},(_,i)=>({id:String(i),at:new Date().toISOString(),model:"real-id",provider:"subscription",tier:"subscription" as const,ok:true}))}];
+    f.registry.restore({policies:{policies:{owner:{...f.owner.policy,chainBudget:{...f.owner.policy.chainBudget,subscriptionRuns:24}}}}});
+    await f.service.reviseBudget(task.id,f.registry.owner(),{subscriptionRuns:24},"Explicit owner's approved ceiling");
+    expect(f.service.budgetUsage(task).subscriptionRunsUsed).toBe(12);expect(f.service.chainBudget(task.id).subscriptionRunsLeft).toBe(12);expect(task.spec.retry?.maxAttempts).toBe(3);
+    await expect(f.service.reviseBudget(task.id,f.registry.owner(),{subscriptionRuns:25},"over ceiling")).rejects.toThrow();
+  });
   it("accounts active attempts separately from resource waiting, and revises an owner's bounded allocation without resetting counters", async () => {
     const f=await fixture(); f.service.close(); const {task}=await f.service.submit(f.agent,{...f.spec,budget:{wallMinutes:90,activeMinutes:10,subscriptionRuns:6}});
     const at=Date.now(); task.attempts=[{n:1,executor:"codex_cli",startedAt:new Date(at-90*60000).toISOString(),endedAt:new Date(at-80*60000).toISOString(),resourceWait:true},{n:2,executor:"codex_cli",startedAt:new Date(at-5*60000).toISOString(),endedAt:new Date(at-3*60000).toISOString(),modelCalls:[{tier:"subscription",provider:"test",model:"test",ok:true,at:new Date(at).toISOString()}]}];
