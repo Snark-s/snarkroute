@@ -9,8 +9,8 @@ const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export const checks: TaskCheck[] = [
   { type: "file_content", path: "answer.md" },
   { type: "http", url: profile, text: "Бужа Студия" },
-  { type: "http", url: profile, text: "виртуальный ассистент творческого бюро" },
-  { type: "http", url: profile, text: "заранее согласуем сроки" },
+  { type: "http", url: profile, text: "виртуальный ассистент Бужа" },
+  { type: "http", url: profile, text: "уточняем ТЗ" },
   { type: "http", url: profile, text: "Студия Генерация изображений buzhastudio" },
   { type: "http", url: profile, absentText: "images/no_foto_b.png" },
   { type: "http", url: profile, pattern: 'src="https://st\\.fl\\.ru/[^"]+/foto/[^"]+"[^>]*class="b-layout__pic', matches: { min: 1 } },
@@ -45,8 +45,7 @@ export const content = `Оформи рабочий профиль Бужи на
 Порядок (сначала свежая загрузка профиля browser_observe_url и запись исходного состояния в answer.md; уже сохранённое не повторяй):
 1. Имя «Бужа Студия» оставить (оно допустимо).
 2. Профессиональный заголовок «${manifest.headline}»: поле «Заголовок страницы» (pname) на ${profile.replace("portfolio/", "setup/main/")} в одной форме с полем текущего пароля. Пароль не вводи. Попробуй сохранить только заголовок; если сайт требует пароль — запиши его сообщение как ограничение.
-3. Описание бюро — заменить текущее публичное описание на этот текст (как есть):
-${manifest.description}
+3. Описание бюро уже сохранено (ChatGPT, 30.10): задачи, инструменты, «уточняем ТЗ», «помогает виртуальный ассистент Бужа». Не меняй его.
 4. Основная специализация (бесплатно): ${profile.replace("portfolio/", "setup/specsetup/")} — «${manifest.specialization}». Окно «Покупка специализации» с суммой к оплате не используй.
 5. Аватар: path "${manifest.avatar}" (512×512, знак Бужи). Найди штатное место загрузки фото профиля.
 6. Обложки на странице профиля: кнопки «Загрузить обложку для ПК» и «…для мобильных устройств» (jpg/png до 5 МБ; 1940×400 и 900×300). ПК: "${manifest.coverDesktop}"; мобильная: "${manifest.coverMobile}".
