@@ -4,7 +4,7 @@
  *   node --import tsx scripts/buzha-browser-drive.ts <actions.json> [journal.json]       (from apps/server)
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { BuzhaTools, BUZHA_TOOLS } from "../src/buzha/tools";
+import { BuzhaTools, BUZHA_TOOLS, buzhaObserverFile } from "../src/buzha/tools";
 import type { AgentTask } from "../src/agent-ops/types";
 
 const [actionsFile, journalFile = "Y:/Приложения/Бужа/data/agent-work/claude-fl-2026-10-30/effects.json"] = process.argv.slice(2);
@@ -14,7 +14,7 @@ const save = () => writeFileSync(journalFile, JSON.stringify(journal, null, 1));
 // An action may carry "repeat": "<reason>" to run again a step whose earlier confirmed result is known to be gone
 // (a wizard that closed); the reason is kept in the journal. Unknown outcomes are never repeated.
 let repeat = "";
-const tools = new BuzhaTools({ effect: async (_task, key, phase, tool, reason) => {
+const tools = new BuzhaTools({ observerFile: buzhaObserverFile(), effect: async (_task, key, phase, tool, reason) => {
   const entry = journal[key];
   if (phase === "begin") {
     if (entry?.state === "confirmed" && repeat) { (entry as any).repeats = [...((entry as any).repeats ?? []), { at: new Date().toISOString(), reason: repeat }]; entry.state = "started"; save(); return { execute: true, state: "started" }; }

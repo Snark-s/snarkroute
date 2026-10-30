@@ -4,7 +4,7 @@
  *   node --import tsx scripts/buzha-fl-add-work.ts <tab_id> <section_id> <work-index> [--until=step1|step2|step3] [--publish]
  */
 import { readFileSync, writeFileSync } from "node:fs";
-import { BuzhaTools, BUZHA_TOOLS } from "../src/buzha/tools";
+import { BuzhaTools, BUZHA_TOOLS, buzhaObserverFile } from "../src/buzha/tools";
 import type { AgentTask } from "../src/agent-ops/types";
 
 const [tab, section, index] = process.argv.slice(2);
@@ -17,7 +17,7 @@ const journal = JSON.parse(readFileSync(journalFile, "utf8"));
 const save = () => writeFileSync(journalFile, JSON.stringify(journal, null, 1));
 let repeat = "";
 // Same write-ahead rule as the driver: a confirmed identical action is not repeated without a stated reason; unknown never.
-const tools = new BuzhaTools({ effect: async (_task, key, phase, tool, reason) => {
+const tools = new BuzhaTools({ observerFile: buzhaObserverFile(), effect: async (_task, key, phase, tool, reason) => {
   const entry = journal[key];
   if (phase === "begin") {
     if (entry?.state === "confirmed" && repeat) { entry.repeats = [...(entry.repeats ?? []), { at: new Date().toISOString(), reason: repeat }]; entry.state = "started"; save(); return { execute: true, state: "started" }; }

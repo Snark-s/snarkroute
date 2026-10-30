@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { BuzhaTools, BUZHA_TOOLS } from "../src/buzha/tools";
+import { BuzhaTools, BUZHA_TOOLS, buzhaObserverFile } from "../src/buzha/tools";
 import type { AgentTask } from "../src/agent-ops/types";
-const tools = new BuzhaTools();
+const tools = new BuzhaTools({ observerFile: buzhaObserverFile() });
 const task = { agentId: "app:buzha", spec: { actor: "buzha", tools: BUZHA_TOOLS } } as AgentTask;
 try {
   const bridge = await tools.invoke(task, "bridge_status", {}), sessions = await tools.invoke(task, "browser_sessions", {});

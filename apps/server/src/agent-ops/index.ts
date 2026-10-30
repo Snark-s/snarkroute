@@ -18,7 +18,7 @@ import { AgentTaskService } from "./tasks";
 import { CatalogAcceptanceReviewer } from "./acceptor-reviewer";
 import type { QuotaLedger } from "./quota-ledger";
 import { processAlive } from "./workspace";
-import { BuzhaTools } from "../buzha/tools";
+import { BuzhaTools, buzhaObserverFile } from "../buzha/tools";
 import { BuzhaExecutor, type BuzhaTextResult } from "../buzha/executor";
 import { BuzhaAgentService } from "../buzha/service";
 import { buzhaMemory } from "../buzha/memory";
@@ -136,7 +136,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     new CodexExecutor({ auth: force => subscriptions[1].chatGptSubscription().auth(force), refreshQuota: () => subscriptions[1].chatGptSubscription().refreshQuota(), model: () => process.env.AGENT_OPS_CODEX_MODEL?.trim() || undefined }),
     new ClaudeCodeExecutor({ auth: force => subscriptions[0].claudeSubscription().auth(force), model: () => process.env.AGENT_OPS_CLAUDE_MODEL?.trim() || "sonnet" })
   ];
-  const buzhaTools = new BuzhaTools({ effect: (task, key, phase, tool, reason) => { if (!tasks) throw new Error("Общая очередь ещё не подключена."); return tasks.toolEffect(task.id, tool, key, phase, reason); }, delegate: async (task, args) => {
+  const buzhaTools = new BuzhaTools({ observerFile: buzhaObserverFile(), effect: (task, key, phase, tool, reason) => { if (!tasks) throw new Error("Общая очередь ещё не подключена."); return tasks.toolEffect(task.id, tool, key, phase, reason); }, delegate: async (task, args) => {
     if (!tasks || !task.workdir || typeof args.goal !== "string" || !args.goal.trim() || args.goal.length > 10000) throw new Error("Нужна конкретная подзадача и общая очередь.");
     const { createHash } = await import("node:crypto");
     const key = createHash("sha256").update(args.goal).digest("hex").slice(0, 16), workspace = join(task.workdir, "subtasks", key);

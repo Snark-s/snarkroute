@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { readFile, realpath, mkdir, writeFile, stat, readdir } from "node:fs/promises";
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { isAbsolute, relative, resolve, dirname, join } from "node:path";
 import { localServiceHome, localServicePort } from "../services/local-service-endpoints";
@@ -20,12 +21,23 @@ export function scopedTools(task: AgentTask): string[] {
 }
 function stable(value: unknown): unknown { return Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k,v]) => [k,stable(v)])) : value; }
 
+export const buzhaObserverFile = () => join(buzhaHome(), "data", "snarkroute-observer-tabs.json");
+
 /** Tool exposure is not a second permission policy: the existing authenticated
  * SnarkBridge authority evaluates every routine or protected browser action. */
 export class BuzhaTools {
   private client?: Promise<Client>;
-  private observerTabs = new Map<string, string>();
-  constructor(private readonly deps: { bridge?: (name: string, args: Record<string, unknown>) => Promise<unknown>; memory?: typeof buzhaMemory; delegate?: (task: AgentTask, args: Record<string, unknown>) => Promise<unknown>; effect?: ToolEffect } = {}) {}
+  // One observer tab per site. With observerFile (the server, scripts) it is persisted, so restarts and one-off
+  // runs reuse it instead of opening more tabs; without it (tests) it lives in memory.
+  private observerMemory: Record<string, string> = {};
+  private observerTabs = {
+    read: (): Record<string, string> => { if (!this.deps.observerFile) return this.observerMemory; try { return JSON.parse(readFileSync(this.deps.observerFile, "utf8")); } catch { return {}; } },
+    write: (all: Record<string, string>) => { if (!this.deps.observerFile) { this.observerMemory = all; return; } mkdirSync(dirname(this.deps.observerFile), { recursive: true }); writeFileSync(this.deps.observerFile, JSON.stringify(all, null, 1)); },
+    get: (origin: string): string | undefined => this.observerTabs.read()[origin],
+    set: (origin: string, tab: string) => this.observerTabs.write({ ...this.observerTabs.read(), [origin]: tab }),
+    delete: (origin: string) => { const all = { ...this.observerTabs.read() }; delete all[origin]; this.observerTabs.write(all); }
+  };
+  constructor(private readonly deps: { bridge?: (name: string, args: Record<string, unknown>) => Promise<unknown>; memory?: typeof buzhaMemory; delegate?: (task: AgentTask, args: Record<string, unknown>) => Promise<unknown>; effect?: ToolEffect; observerFile?: string } = {}) {}
   private async bridge(name: string, args: Record<string, unknown>): Promise<any> {
     if (![...BRIDGE_READ_TOOLS, ...BUZHA_ACTION_TOOLS].includes(name)) throw new Error("Транспорт инструмента не подключён.");
     if (this.deps.bridge) return this.deps.bridge(name, args);
@@ -62,12 +74,16 @@ export class BuzhaTools {
         const url = new URL(args.url); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error("Только обычный HTTP(S) URL без учётных данных.");
         const subject=args.openSentSubject;
         if(subject!==undefined && (typeof subject!=="string"||!subject.trim()||subject.length>250||url.origin!=="https://mail.google.com"||!/^\/mail\/u\/\d+\/$/.test(url.pathname)||url.hash!=="#sent")) throw new Error("Чтение существующего письма доступно только из Отправленных рабочего Gmail с точной темой.");
-        let tabId = this.observerTabs.get(url.href);
+        let tabId: string | undefined = this.observerTabs.get(url.origin);
         if(tabId) {
           try { const navigation=await this.bridge("browser_navigate",{tab_id:tabId,url:url.href,session_id:"default"}); if(!navigation?.action) throw new Error("Неподтверждённая навигация наблюдателя."); }
-          catch(error) { if(!/operation_refused_or_unknown|tab_changed|not found|closed|Неподтверждённая навигация/i.test(String(error))) throw error; this.observerTabs.delete(url.href); tabId=undefined; }
+          catch(error) { if(!/operation_refused_or_unknown|tab_changed|not found|closed|Неподтверждённая навигация|numeric|Unknown tab/i.test(String(error))) throw error; this.observerTabs.delete(url.origin); tabId=undefined; }
         }
-        if (!tabId) { const created = await this.bridge("browser_tab_action", { action: "create", session_id: "default", url: url.href }); tabId = String(created?.tab_id ?? ""); if (!/^\d+$/.test(tabId)) throw new Error("SnarkBridge не подтвердил вкладку независимого чтения."); this.observerTabs.set(url.href, tabId); }
+        if (!tabId) {
+          // The marker keeps the bridge from handing a caller's working tab to the observer (it reloads its tab).
+          const marked = new URL(url.href); marked.searchParams.set("snarkroute_observer", "1");
+          const created = await this.bridge("browser_tab_action", { action: "create", session_id: "default", url: marked.href }); tabId = String(created?.tab_id ?? ""); if (!/^\d+$/.test(tabId)) throw new Error("SnarkBridge не подтвердил вкладку независимого чтения."); this.observerTabs.set(url.origin, tabId);
+        }
         const readReady=async()=>{let observed:any,lastError:unknown;
         // tab_info can briefly see an empty URL while Chrome commits a new
         // document. Retry only bounded READS, never click/fill/upload/send.

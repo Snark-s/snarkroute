@@ -2,9 +2,9 @@
  * Uses browser_prepare_action (describe only; nothing is selected, clicked or saved).
  * Run from apps/server: node --import tsx scripts/buzha-fl-upload-probe.ts [selector ...]
  */
-import { BuzhaTools, BUZHA_TOOLS } from "../src/buzha/tools";
+import { BuzhaTools, BUZHA_TOOLS, buzhaObserverFile } from "../src/buzha/tools";
 import type { AgentTask } from "../src/agent-ops/types";
-const tools = new BuzhaTools();
+const tools = new BuzhaTools({ observerFile: buzhaObserverFile() });
 const task = { agentId: "app:buzha", spec: { actor: "buzha", tools: BUZHA_TOOLS } } as AgentTask;
 const selectors = process.argv.slice(2).length ? process.argv.slice(2) : ["input[type=file]"];
 try {

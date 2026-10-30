@@ -1,10 +1,10 @@
 /** Read-only DOM walk in Buzha's browser by describe-only prepare_action labels: finds a CSS path to an element by text.
  *   node --import tsx scripts/buzha-dom-walk.ts <tab_id> <root selector> <text> [maxDepth]      (from apps/server)
  */
-import { BuzhaTools, BUZHA_TOOLS } from "../src/buzha/tools";
+import { BuzhaTools, BUZHA_TOOLS, buzhaObserverFile } from "../src/buzha/tools";
 import type { AgentTask } from "../src/agent-ops/types";
 const [tab, root, wanted, depthArg] = process.argv.slice(2);
-const tools = new BuzhaTools();
+const tools = new BuzhaTools({ observerFile: buzhaObserverFile() });
 const task = { agentId: "app:buzha", spec: { actor: "buzha", tools: BUZHA_TOOLS } } as AgentTask;
 const label = async (selector: string) => { try { const r = await tools.invoke(task, "browser_prepare_action", { action: "click", tab_id: tab, selector }); return String(r?.payload?.target?.label ?? "").replace(/\s+/g, " ").trim(); } catch { return undefined; } };
 try {

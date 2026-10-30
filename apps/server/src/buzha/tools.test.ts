@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BuzhaTools, BUZHA_TOOLS } from "./tools";
 import type { AgentTask } from "../agent-ops/types";
@@ -52,6 +53,22 @@ describe("Buzha tools use the central bridge authority", () => {
     let reads=0,creates=0;
     const tool=new BuzhaTools({bridge:async name=>{if(name==="browser_sessions") return session;if(name==="browser_tab_action"){creates++;return {action:"create",tab_id:"99"};}if(name==="browser_snapshot"){reads++;if(reads<3) throw new Error("Browser command operation_refused_or_unknown; inspect the page before another attempt");return {url:"https://www.fl.ru/users/buzhastudio/portfolio/",readyState:"complete",text:"Бужа Студия",elements:[]};}throw new Error("unexpected command");}});
     const result=await tool.invoke(task,"browser_observe_url",{url:"https://www.fl.ru/users/buzhastudio/portfolio/"}); expect(result.independentReload).toBe(true);expect(reads).toBe(3);expect(creates).toBe(1);
+  });
+  it("keeps one marked observer tab per site across restarts instead of opening new tabs", async () => {
+    const { mkdtemp } = await import("node:fs/promises"); const { tmpdir } = await import("node:os");
+    const observerFile = join(await mkdtemp(join(tmpdir(), "buzha-observer-")), "tabs.json");
+    const created: string[] = [], navigated: string[] = [];
+    const bridge = async (name: string, args: Record<string, unknown>) => {
+      if (name === "browser_sessions") return session;
+      if (name === "browser_tab_action") { created.push(String(args.url)); return { action: "create", tab_id: "88" }; }
+      if (name === "browser_navigate") { navigated.push(String(args.url)); return { action: "navigation_started" }; }
+      return { url: "https://www.fl.ru/users/buzhastudio/setup/main/", text: "ok", elements: [] };
+    };
+    const check = (url: string) => ({ type: "tool" as const, tool: "browser_observe_url", arguments: { url }, text: "ok" });
+    expect((await new BuzhaTools({ bridge, observerFile }).check(task, check("https://www.fl.ru/users/buzhastudio/portfolio/"))).ok).toBe(false);
+    await new BuzhaTools({ bridge, observerFile }).check(task, check("https://www.fl.ru/users/buzhastudio/setup/main/"));
+    expect(created).toEqual(["https://www.fl.ru/users/buzhastudio/portfolio/?snarkroute_observer=1"]);
+    expect(navigated).toEqual(["https://www.fl.ru/users/buzhastudio/setup/main/"]);
   });
   it("independently reloads an observer tab without navigating another worker's tab", async () => {
     const commands: string[] = [];
