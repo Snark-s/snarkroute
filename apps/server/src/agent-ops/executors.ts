@@ -2,6 +2,8 @@ import { CodexCliError, codexWindowsSandboxMode, runCodexExec, type CodexExecRes
 import { ClaudeCliError, runClaudeCode, type ClaudeCodeResult } from "../services/claude-code-cli";
 import type { ResourceRequest } from "./resources";
 import type { AgentTask, FailureClass, TaskKind, AgentToolCall, ModelCall } from "./types";
+import {randomUUID} from "node:crypto";
+import {basename} from "node:path";
 
 /**
  * Executor adapters: one transport each, no routing or queue logic. Any new
@@ -89,6 +91,7 @@ export class CodexExecutor implements ExecutorAdapter {
 
   async run(context: ExecutorRunContext): Promise<ExecutorOutcome> {
     const permissions = context.task.spec.permissions ?? {};
+    const nativeToolWrites:Promise<void>[]=[];
     try {
       const result: CodexExecResult = await (this.deps.run ?? runCodexExec)({
         model: this.deps.model?.(),
@@ -99,11 +102,15 @@ export class CodexExecutor implements ExecutorAdapter {
         agent: { workdir: context.workdir!, network: permissions.network === true, readOnly: permissions.fileWrite === false, shell: permissions.shell !== "none",
           windowsSandbox: await codexWindowsSandboxMode(), extraEnv: context.env },
         onEvent: event => {
-          if (event.type === "item") context.log(`[codex ${event.itemType}] ${event.summary}`);
+          if (event.type === "item") {
+            context.log(`[codex ${event.itemType}] ${event.summary}`);
+            if(event.itemType==="image_view"&&event.summary&&context.onToolCall)nativeToolWrites.push(Promise.resolve(context.onToolCall({id:randomUUID(),attempt:context.task.attempts.at(-1)?.n??1,at:new Date().toISOString(),tool:"view_image",effectKey:`native-image:${basename(event.summary)}`,arguments:{path:event.summary},ok:true,result:{completed:true,source:"Codex CLI item.completed"}})));
+          }
           else if (event.type === "warning") context.log(`[codex warning] ${event.message}`);
           else if (event.type === "session") context.log(`[codex session] ${event.sessionId}`);
         }
       }, { onSpawn: context.onPid });
+      await Promise.all(nativeToolWrites);
       const windows = [result.rateLimit?.primary, result.rateLimit?.secondary].filter(Boolean);
       const used = windows.length ? Math.max(...windows.map(window => window!.usedPercent)) : undefined;
       return {

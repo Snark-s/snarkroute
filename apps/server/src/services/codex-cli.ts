@@ -485,6 +485,7 @@ export async function deleteCodexSession(spawnImpl: typeof spawn, command: strin
 }
 
 function summarizeCodexItem(item: Record<string, unknown>): string {
+  if(item.type==="image_view"&&typeof item.path==="string")return item.path.slice(0,1000);
   if (typeof item.command === "string") return `${item.command}${typeof item.exit_code === "number" ? ` → ${item.exit_code}` : ""}`.slice(0, 400);
   if (Array.isArray(item.changes)) return item.changes.map(change => `${str(record(change).kind) ?? "edit"} ${str(record(change).path) ?? ""}`).join(", ").slice(0, 400);
   if (typeof item.message === "string") return item.message.slice(0, 400);
