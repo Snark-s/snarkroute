@@ -7,9 +7,10 @@ import { localServiceHome, localServicePort } from "../services/local-service-en
 import { buzhaHome, buzhaMemory } from "./memory";
 import type { AgentTask, TaskCheck, CheckResult } from "../agent-ops/types";
 
-export const BUZHA_READ_TOOLS = ["bridge_status", "bridge_capabilities", "browser_sessions", "browser_tabs", "browser_snapshot", "browser_find", "browser_observe_url", "browser_prepare_action", "browser_wait"];
+const BRIDGE_READ_TOOLS = ["bridge_status", "bridge_capabilities", "browser_sessions", "browser_tabs", "browser_snapshot", "browser_find", "browser_observe_url", "browser_prepare_action", "browser_wait"];
+export const BUZHA_READ_TOOLS = [...BRIDGE_READ_TOOLS,"material_read"];
 export const BUZHA_ACTION_TOOLS = ["browser_navigate", "browser_tab_action", "browser_fill", "browser_click", "browser_upload"];
-export const BUZHA_TOOLS = [...BUZHA_READ_TOOLS, ...BUZHA_ACTION_TOOLS, "material_list", "material_read", "memory_read", "workspace_read", "workspace_write", "delegate"];
+export const BUZHA_TOOLS = [...BUZHA_READ_TOOLS, ...BUZHA_ACTION_TOOLS, "material_list", "memory_read", "workspace_read", "workspace_write", "delegate"];
 type ToolEffect = (task: AgentTask, key: string, phase: "begin" | "reconcile" | "refused", tool: string, reason?: string) => Promise<{ execute: boolean; state: string; result?: unknown }>;
 const admissionRefusals = ["Protected form or unaccepted legal consent requires the owner directly", "Credentials, verification and payment fields require the owner directly", "Payment, security, legal, identity and account deletion actions require the owner directly", "Sensitive browser action requires an owner-issued one-use approval"];
 function stable(value: unknown): unknown { return Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k,v]) => [k,stable(v)])) : value; }
@@ -21,7 +22,7 @@ export class BuzhaTools {
   private observerTabs = new Map<string, string>();
   constructor(private readonly deps: { bridge?: (name: string, args: Record<string, unknown>) => Promise<unknown>; memory?: typeof buzhaMemory; delegate?: (task: AgentTask, args: Record<string, unknown>) => Promise<unknown>; effect?: ToolEffect } = {}) {}
   private async bridge(name: string, args: Record<string, unknown>): Promise<any> {
-    if (![...BUZHA_READ_TOOLS, ...BUZHA_ACTION_TOOLS].includes(name)) throw new Error("Транспорт инструмента не подключён.");
+    if (![...BRIDGE_READ_TOOLS, ...BUZHA_ACTION_TOOLS].includes(name)) throw new Error("Транспорт инструмента не подключён.");
     if (this.deps.bridge) return this.deps.bridge(name, args);
     this.client ??= (async () => {
       const root = localServiceHome("snarkbridge"); if (!root) throw new Error("SnarkBridge не зарегистрирован.");
@@ -147,7 +148,7 @@ export class BuzhaTools {
   }
   async reconcile(task: AgentTask, tool: string, result: any) { if (result?.effectKey && this.deps.effect) await this.deps.effect(task, result.effectKey, "reconcile", tool); }
   async check(task: AgentTask, check: Extract<TaskCheck, { type: "tool" }>): Promise<CheckResult> {
-    const at = Date.now(), source = `SnarkBridge/MCP:${check.tool}`;
+    const at = Date.now(), source = check.tool==="material_read"?`Buzha/canonical-material:${check.arguments?.name??""}`:`SnarkBridge/MCP:${check.tool}`;
     try {
       if (!BUZHA_READ_TOOLS.includes(check.tool)) throw new Error("Приёмщик использует только разрешённые инструменты чтения.");
       const result = await this.invoke(task, check.tool, check.arguments ?? {});

@@ -65,6 +65,7 @@ describe("Приёмщик: durable execution → evidence → acceptance", () =
     const {task:child}=await f.service.submit(f.owner,{...f.spec,goal:"Independent direct child fixture",parentTaskId:parent.id},{inspectExisting:true});
     await f.service.verify(child.id,f.owner);expect(child.state).toBe("verified");
     await f.service.amend(parent.id,f.owner,{checks:[{type:"task_verified",taskId:child.id}]},"Use the accepted direct child evidence");await f.service.verify(parent.id,f.owner);expect(parent.state).toBe("verified");
+    child.evidence?.forEach(e=>e.observedAt=new Date(Date.now()-3600000).toISOString());await f.service.amend(parent.id,f.owner,{expectedResult:parent.spec.expectedResult},"Do not relabel stale child evidence as fresh");await f.service.verify(parent.id,f.owner);expect(parent.result?.checks[0].ok).toBe(false);expect(parent.state).not.toBe("verified");
     const {task:other}=await f.service.submit(f.owner,{...f.spec,goal:"Unrelated independently accepted fixture"},{inspectExisting:true});await f.service.verify(other.id,f.owner);
     await f.service.amend(parent.id,f.owner,{checks:[{type:"task_verified",taskId:other.id}]},"An unrelated task is not proof");await f.service.verify(parent.id,f.owner);expect(parent.state).not.toBe("verified");expect(parent.result?.checks[0].ok).toBe(false);expect(f.calls()).toBe(0);
   });
