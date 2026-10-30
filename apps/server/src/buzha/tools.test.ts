@@ -10,6 +10,24 @@ function fixture(reply: unknown = { action: "clicked", status: "dispatched" }) {
   return { tools, calls, effects };
 }
 describe("Buzha tools use the central bridge authority", () => {
+  it("refuses a tool outside the contract's tool_scope before any bridge call or delegation", async () => {
+    let delegated = 0; const calls: string[] = [];
+    const tools = new BuzhaTools({ bridge: async name => { calls.push(name); return session; }, delegate: async () => { delegated++; return { taskId: "child" }; } });
+    const scoped = { ...task, spec: { ...task.spec, checks: [{ type: "tool_scope", allowed: ["browser_sessions", "workspace_write"] }] } } as AgentTask;
+    await expect(tools.invoke(scoped, "delegate", { goal: "browser work" })).rejects.toThrow(/tool_scope/);
+    await expect(tools.invoke(scoped, "browser_click", { tab_id: "12", selector: "#save" })).rejects.toThrow(/tool_scope/);
+    expect(delegated).toBe(0); expect(calls).toHaveLength(0);
+    await tools.invoke(scoped, "browser_sessions", {}); expect(calls).toEqual(["browser_sessions"]);
+  });
+  it.each(["browser_upload","browser_prepare_action"])("rejects incomplete %s upload arguments before calling the bridge or reserving an effect",async name=>{
+    const f=fixture();
+    for(const args of [{},{root:"y_apps"},{path:"Бужа/assets/avatar.png"}])await expect(f.tools.invoke(task,name,{action:"upload",tab_id:"12",selector:"#file",...args})).rejects.toThrow(/root.*path/);
+    expect(f.calls).toHaveLength(0);expect(f.effects).toHaveLength(0);
+  });
+  it("passes complete upload preparation to the central policy without reserving or uploading",async()=>{
+    const f=fixture();const args={action:"upload",tab_id:"12",selector:"#file",root:"y_apps",path:"Бужа/assets/avatar.png"};
+    await f.tools.invoke(task,"browser_prepare_action",args);expect(f.calls.at(-1)).toEqual({name:"browser_prepare_action",args:{...args,session_id:"default"}});expect(f.effects).toHaveLength(0);
+  });
   it("connects routine writes without fabricating approvals, always to Profile 13", async () => {
     const f = fixture({ action: "fill", filled: true }); const result = await f.tools.invoke(task, "browser_fill", { tab_id: "12", selector: "input[name=name]", value: "Бужа", session_id: "another" });
     expect(result.action).toBe("fill"); expect(result.effectKey).toMatch(/^tool:/);

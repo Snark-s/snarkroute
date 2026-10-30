@@ -13,6 +13,11 @@ export const BUZHA_ACTION_TOOLS = ["browser_navigate", "browser_tab_action", "br
 export const BUZHA_TOOLS = [...BUZHA_READ_TOOLS, ...BUZHA_ACTION_TOOLS, "material_list", "memory_read", "workspace_read", "workspace_write", "delegate"];
 type ToolEffect = (task: AgentTask, key: string, phase: "begin" | "reconcile" | "refused", tool: string, reason?: string) => Promise<{ execute: boolean; state: string; result?: unknown }>;
 const admissionRefusals = ["Protected form or unaccepted legal consent requires the owner directly", "Credentials, verification and payment fields require the owner directly", "Payment, security, legal, identity and account deletion actions require the owner directly", "Sensitive browser action requires an owner-issued one-use approval"];
+/** Tools the task may actually call: its fixed toolset narrowed by every tool_scope check of the owner's contract. */
+export function scopedTools(task: AgentTask): string[] {
+  const scopes = (task.spec.checks ?? []).filter((check): check is Extract<TaskCheck, { type: "tool_scope" }> => check.type === "tool_scope").map(check => check.allowed);
+  return (task.spec.tools ?? []).filter(tool => scopes.every(allowed => allowed.includes(tool)));
+}
 function stable(value: unknown): unknown { return Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k,v]) => [k,stable(v)])) : value; }
 
 /** Tool exposure is not a second permission policy: the existing authenticated
@@ -42,8 +47,12 @@ export class BuzhaTools {
   }
   async invoke(task: AgentTask, name: string, args: Record<string, unknown>): Promise<any> {
     if (task.spec.actor !== "buzha" || task.agentId !== "app:buzha" || !BUZHA_TOOLS.includes(name) || !task.spec.tools?.includes(name)) throw new Error("Инструмент вне полномочий задачи Бужи.");
+    // The contract's declared tool scope is enforced before the call, not only judged after the attempt.
+    if (!scopedTools(task).includes(name)) throw new Error(`Инструмент ${name} вне области этого контракта (tool_scope); вызов не выполнялся.`);
     if (name === "bridge_status" || name === "bridge_capabilities") return this.bridge(name, {});
     if (name.startsWith("browser_")) {
+      if((name==="browser_upload"||name==="browser_prepare_action"&&args.action==="upload")&&
+        (typeof args.root!=="string"||!args.root.trim()||typeof args.path!=="string"||!args.path.trim()))throw new Error("Для upload обязательны root и path разрешённого файла. Передай оба аргумента из поручения; подготовка команды ничего не загружает и не расширяет разрешённые папки.");
       const sessions = await this.bridge("browser_sessions", {});
       const selected = sessions?.sessions?.find((s: any) => s.id === "default" && s.profile_directory === "Profile 13");
       if (!selected?.available) throw new Error("Рабочая сессия Бужи Chrome Profile 13 не подтверждена; другой профиль не используется.");
