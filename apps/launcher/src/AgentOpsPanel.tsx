@@ -23,6 +23,7 @@ type ExecutorStatus = { id: string; label: string; tier: string; probe: { instal
   availability: { usable: boolean; reason?: string } };
 type OwnerActivity = { busy: boolean; confidence: "measured" | "unknown"; reasons: string[]; signals: string[]; sampledAt?: string };
 export type AgentOpsStatus = {
+  identity?: {kind:string};
   mode: { mode: Mode; label: string; source: string; reason: string; localTime: string; until?: string };
   manual: { mode: Mode; until?: string | null } | null;
   schedule: ScheduleRule[];
@@ -129,7 +130,7 @@ export function AdditionalAttemptControl({apiBase,task,onDone}:{apiBase:string;t
   const [note,setNote]=useState("Продолжи эту же задачу с сохранением истории, использованных шагов, квитанций и защиты от повторов. Сначала заново проверь фактическое состояние разрешёнными инструментами. Заверши незакрытые критерии исходного поручения; защищённый пункт не отменяет работу над независимыми разрешёнными пунктами. Старый отчёт и квитанция команды не доказывают сохранённый результат. Не расширяй полномочия и не создавай новую задачу для обнуления бюджета. Работай в пределах оставшихся подписочных шагов, сохрани минимум один шаг общему Приёмщику и передай результат на независимую проверку."),[busy,setBusy]=useState(false),[error,setError]=useState("");
   if(task.state!=="blocked"||!task.taskBudget)return null;
   const budget=task.taskBudget,extra=budget.attemptsUsed>=budget.attemptsLimit;
-  return <details><summary>{extra?"Разрешить одну дополнительную попытку":"Продолжить с уточнением"}</summary>
+  return <details open className="opsTask" id={`attempt-${task.id}`}><summary><strong>{extra?"Разрешить одну дополнительную попытку":"Продолжить с уточнением"}</strong></summary>
     <p>Использовано попыток: {budget.attemptsUsed}/{budget.attemptsLimit}. Подписочные шаги: {budget.subscriptionRunsUsed}/{budget.subscriptionRunsLimit}.</p>
     <p>{extra?`Предел попыток станет ${budget.attemptsLimit+1}. `:"Выделенная попытка ещё доступна. "}История, использованные шаги и общий подписочный лимит сохранятся. Результат проверит общий Приёмщик.</p>
     <form onSubmit={event=>{event.preventDefault();if(busy)return;setBusy(true);setError("");void continueWithAdditionalAttempt(task.id,note,(path,init)=>call(apiBase,path,init)).catch(reason=>setError(reason instanceof Error?reason.message:String(reason))).finally(()=>{setBusy(false);onDone();});}}>
@@ -277,7 +278,7 @@ export function AgentOpsPanel({ apiBase }: { apiBase: string }) {
       {!TERMINAL.has(task.state) ? <button type="button" className="secretaryButton" disabled={action === `cancel:${task.id}`} onClick={() => void act(`cancel:${task.id}`, () => call(apiBase, `/tasks/${task.id}/cancel`, { method: "POST", body: "{}" }))}><Ban /> Отменить</button> : null}
       {!TERMINAL.has(task.state) ? <button type="button" className="secretaryButton" disabled={Boolean(action)} onClick={() => void act(`pause:${task.id}`, () => call(apiBase, `/tasks/${task.id}/${task.state === "paused" ? "resume" : "pause"}`, { method: "POST", body: "{}" }))}>{task.state === "paused" ? "Возобновить" : "Приостановить"}</button> : null}
       {["blocked", "unknown_outcome"].includes(task.state) ? <>
-        <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "continue" }) }))}>Продолжить с текущего состояния</button>
+        {task.state!=="blocked"||!task.taskBudget||task.taskBudget.attemptsUsed<task.taskBudget.attemptsLimit?<button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "continue" }) }))}>Продолжить с текущего состояния</button>:null}
         <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "mark_failed" }) }))}>Отметить ошибкой</button>
       </> : null}
       {["awaiting_verification", "unknown_outcome"].includes(task.state) ? <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "mark_verified", note: "проверено владельцем в Мастерской" }) }))}>Я проверил: принять</button> : null}
