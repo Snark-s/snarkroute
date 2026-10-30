@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { agentBrief, workspaceAllowed, type AgentRegistry } from "./agents";
-import { accrue, activeMinutes, deadlineLeftMs, waitingMinutes } from "./time-budget";
+import { deadlineLeftMs } from "./time-budget";
 import { contractFor, evidenceFor, machineVerdicts, makeReview, mergeModelVerdicts } from "./acceptor";
 import type { AcceptanceReviewer } from "./acceptor-reviewer";
 import { opsContext } from "./context";
@@ -150,7 +150,8 @@ export class AgentTaskService {
     const fingerprint = taskFingerprint(spec.goal, workdir);
     const chainAgents = parent ? [...parent.chain.agents, identity.id] : [identity.id];
     const depth = parent ? parent.chain.depth + 1 : 1;
-    const rootPolicy = parent ? this.deps.registry.policyForAgent(this.tasks.get(parent.chain.rootTaskId)?.agentId ?? parent.agentId) : policy;
+    const rootTask = parent ? this.tasks.get(parent.chain.rootTaskId) : undefined;
+    const rootPolicy = rootTask?.budgetPolicyId ? this.deps.registry.policy(rootTask.budgetPolicyId) : parent ? this.deps.registry.policyForAgent(rootTask?.agentId ?? parent.agentId) : policy;
     const maxDepth = Math.min(policy.maxDelegationDepth, rootPolicy.maxDelegationDepth);
     if (depth > maxDepth) throw new AgentOpsError("DELEGATION_TOO_DEEP", `Глубина делегирования ${depth} больше разрешённой ${maxDepth}.`, { depth, maxDepth });
     if (parent && parent.chain.fingerprints.includes(fingerprint)) {
@@ -159,7 +160,7 @@ export class AgentTaskService {
     if (parent) {
       const budget = this.chainBudget(parent.chain.rootTaskId);
       if (budget.tasksLeft <= 0) throw new AgentOpsError("CHAIN_BUDGET_EXCEEDED", `Бюджет цепочки исчерпан: задач ${budget.tasksUsed} из ${budget.limits.tasks}.`, { budget });
-      if (budget.wallMinutesLeft <= 0) throw new AgentOpsError("CHAIN_BUDGET_EXCEEDED", "Бюджет времени цепочки исчерпан.", { budget });
+      if (budget.activeMinutesLeft <= 0) throw new AgentOpsError("CHAIN_BUDGET_EXCEEDED", "Бюджет выполнения цепочки исчерпан.", { budget });
     }
     if (!spec.allowDuplicate) {
       const duplicate = [...this.tasks.values()].find(task => task.fingerprint === fingerprint && !TERMINAL_STATES.has(task.state));
@@ -176,8 +177,7 @@ export class AgentTaskService {
       agentId: identity.id,
       chain: { rootTaskId: parent?.chain.rootTaskId ?? id, parentTaskId: parent?.id, depth, agents: chainAgents, fingerprints: [...(parent?.chain.fingerprints ?? []), fingerprint] },
       fingerprint, priority: Math.max(0, Math.min(policy.maxPriority, spec.priority ?? 50)), createdAt: at, updatedAt: at,
-      excludedExecutors: {}, attempts: [], workdir, lockKeys: [],
-      timing: { activeMs: 0, waitingMs: 0, since: at, phase: "waiting" }
+      excludedExecutors: {}, attempts: [], workdir, lockKeys: [], waiting: {since:at,minutes:0,resourceMinutes:0,pausedMinutes:0}
     };
     task.contract = contractFor(spec);
     task.evidence = []; task.reviews = []; task.reviewRuns = [];
@@ -197,7 +197,7 @@ export class AgentTaskService {
   chainBudget(rootTaskId: string) {
     const root = this.tasks.get(rootTaskId);
     const members = [...this.tasks.values()].filter(task => task.chain.rootTaskId === rootTaskId);
-    const policy = this.deps.registry.policyForAgent(root?.agentId ?? "unknown");
+    const policy = root?.budgetPolicyId ? this.deps.registry.policy(root.budgetPolicyId) : this.deps.registry.policyForAgent(root?.agentId ?? "unknown");
     const limits = {
       tasks: policy.chainBudget.tasks,
       wallMinutes: Math.min(policy.chainBudget.wallMinutes, root?.spec.budget?.wallMinutes ? root.spec.budget.wallMinutes * 4 : policy.chainBudget.wallMinutes),
@@ -205,35 +205,65 @@ export class AgentTaskService {
     };
     const subscriptionRuns = members.reduce((sum, task) => sum + task.attempts.reduce((runs, attempt) => runs + (attempt.modelCalls ? attempt.modelCalls.filter(call => call.tier === "subscription").length : this.adapter(attempt.executor)?.profile.costTier === "subscription" ? 1 : 0), 0)
       + (task.reviewRuns ?? []).filter(run => this.adapter(run.executor)?.profile.costTier === "subscription").length, 0);
-    // Active execution of the whole chain (executors, acceptor runs, continuations); waiting for a window, resources or quota is free.
-    const wallMinutes = members.reduce((sum, task) => sum + activeMinutes(task, this.now()), 0);
+    const activeMinutes = members.reduce((sum, task) => sum + this.activeMinutes(task), 0);
+    const activeLimit = root?.spec.budget?.activeMinutes ?? limits.wallMinutes;
+    const until = members.length && members.every(task => TERMINAL_STATES.has(task.state)) ? Math.max(...members.map(task => Date.parse(task.finishedAt ?? task.updatedAt))) : this.now();
+    const wallMinutes = root ? (until - Date.parse(root.createdAt)) / 60_000 : 0;
     return { limits, tasksUsed: members.length, tasksLeft: limits.tasks - members.length, subscriptionRunsUsed: subscriptionRuns,
-      subscriptionRunsLeft: limits.subscriptionRuns - subscriptionRuns, wallMinutesUsed: Math.round(wallMinutes), wallMinutesLeft: Math.round(limits.wallMinutes - wallMinutes) };
+      subscriptionRunsLeft: limits.subscriptionRuns - subscriptionRuns, wallMinutesUsed: Math.round(wallMinutes), wallMinutesLeft: Math.round(limits.wallMinutes - wallMinutes), activeMinutesUsed: activeMinutes, activeMinutesLeft: Math.max(0, activeLimit-activeMinutes) };
+  }
+
+  private activeMinutes(task: AgentTask) {
+    const duration = (start: string, end?: string) => Math.max(0, (end ? Date.parse(end) : this.now()) - Date.parse(start));
+    return (task.attempts.filter(a => a.executor !== "external" && (!a.resourceWait || a.modelCalls?.some(call=>call.ok) || a.toolCalls?.length)).reduce((sum,a) => sum + duration(a.startedAt,a.endedAt),0) + (task.reviewRuns ?? []).reduce((sum,r) => sum + duration(r.startedAt,r.endedAt),0))/60000;
   }
 
   budgetUsage(task: AgentTask) {
-    const wall = activeMinutes(task, this.now()), limit = task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES;
+    const until = TERMINAL_STATES.has(task.state) ? Date.parse(task.finishedAt ?? task.updatedAt) : this.now();
+    const wall = Math.max(0, (until - Date.parse(task.createdAt)) / 60000), limit = task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES;
     const runs = task.attempts.reduce((sum, attempt) => sum + (attempt.modelCalls ? attempt.modelCalls.filter(call => call.tier === "subscription").length : this.adapter(attempt.executor)?.profile.costTier === "subscription" ? 1 : 0), 0) + (task.reviewRuns ?? []).filter(run => this.adapter(run.executor)?.profile.costTier === "subscription").length;
+    const active = this.activeMinutes(task), activeLimit = task.spec.budget?.activeMinutes ?? limit;
+    const interval = task.waiting ? Math.max(0,(this.now()-Date.parse(task.waiting.since))/60000) : 0;
+    const resourceWait = task.attempts.filter(a=>a.resourceWait && !a.modelCalls?.some(call=>call.ok) && !a.toolCalls?.length).reduce((sum,a)=>sum+Math.max(0,(Date.parse(a.endedAt??a.startedAt)-Date.parse(a.startedAt))/60000),0);
     return { wallMinutesUsed: Math.round(wall * 10) / 10, wallMinutesLeft: Math.max(0, Math.round((limit - wall) * 10) / 10), wallMinutesLimit: limit,
+      activeMinutesUsed: active, activeMinutesLeft: Math.max(0,activeLimit-active), activeMinutesLimit: activeLimit,
+      waitingMinutes: (task.waiting?.minutes??0)+(WAITING_STATES.has(task.state)||task.waiting?.reason?interval:0), resourceWaitingMinutes: (task.waiting?.resourceMinutes??0)+(task.state==="waiting_resources"||task.waiting?.reason==="resource"?interval:0)+resourceWait,
+      pausedMinutes: (task.waiting?.pausedMinutes??0)+(task.state==="paused"?interval:0),
       subscriptionRunsUsed: runs, subscriptionRunsLimit: task.spec.budget?.subscriptionRuns ?? this.chainBudget(task.chain.rootTaskId).limits.subscriptionRuns,
       attemptsUsed: task.attempts.filter(attempt => attempt.executor !== "external").length, attemptsLimit: task.spec.retry?.maxAttempts ?? 4, providerCost: 0,
-      waitingMinutes: Math.round(waitingMinutes(task, this.now()) * 10) / 10, deadline: task.spec.deadline ?? null };
+      deadline: task.spec.deadline ?? null };
   }
 
-  /** What may still be spent on this task now: its own active budget, the chain's, and the explicit deadline. */
+  /**
+   * What may still be spent on this task now: its own active budget, the chain's, and the explicit deadline.
+   * Waiting (queue, work window, resources, quota) is not active time, so wall-clock age since submission
+   * (wallMinutesUsed) is reported but never blocks; only `deadline` is a wall-clock limit.
+   */
   timeLeftMs(task: AgentTask): { ms: number; reason: string } {
-    const own = ((task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES) - activeMinutes(task, this.now())) * 60_000;
-    const chain = (this.chainBudget(task.chain.rootTaskId).limits.wallMinutes
-      - [...this.tasks.values()].filter(item => item.chain.rootTaskId === task.chain.rootTaskId).reduce((sum, item) => sum + activeMinutes(item, this.now()), 0)) * 60_000;
+    const own = (task.spec.budget?.activeMinutes ?? task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES) - this.activeMinutes(task);
+    const chain = this.chainBudget(task.chain.rootTaskId).activeMinutesLeft;
     const deadline = deadlineLeftMs(task, this.now());
     return [
-      { ms: own, reason: "Исчерпан бюджет выполнения задачи (активное время исполнителя и Приёмщика); результат ещё не принят." },
-      { ms: chain, reason: "Исчерпан бюджет выполнения цепочки поручений (активное время исполнителей, Приёмщика и продолжений)." },
+      { ms: own * 60_000, reason: "Исчерпан бюджет выполнения задачи (активное время исполнителя и Приёмщика); результат ещё не принят." },
+      { ms: chain * 60_000, reason: "Исчерпан бюджет выполнения цепочки поручений (активное время исполнителей, Приёмщика и продолжений)." },
       ...(deadline !== undefined ? [{ ms: deadline, reason: "Наступил явный дедлайн задачи; результат ещё не принят." }] : [])
     ].sort((a, b) => a.ms - b.ms)[0];
   }
 
   // ---------------------------------------------------------------- control
+
+  async reviseBudget(id: string, identity: AgentIdentity, patch: { wallMinutes?: number; activeMinutes?: number; subscriptionRuns?: number }, reason: string) {
+    if (identity.kind !== "owner" || !reason?.trim()) throw new AgentOpsError("OWNER_ONLY", "Пересмотреть бюджет может только владелец с основанием; счётчики сохраняются.", {}, 403);
+    const task=this.require(id); if (this.running.has(id) || this.verifying.has(id) || this.watching.has(id)) throw new AgentOpsError("STILL_RUNNING", "Бюджет меняется между этапами.");
+    if (Object.keys(patch).some(key=>!["wallMinutes","activeMinutes","subscriptionRuns"].includes(key))) throw new AgentOpsError("BAD_SPEC", "Меняется только распределение времени и подписочных шагов, не полномочия или защита от циклов.");
+    const next={...task.spec.budget,...patch}; normalizeSpec({...task.spec,budget:next});
+    if ((next.wallMinutes??DEFAULT_WALL_MINUTES)>identity.policy.chainBudget.wallMinutes || (next.activeMinutes??0)>identity.policy.chainBudget.wallMinutes || (next.subscriptionRuns??0)>identity.policy.chainBudget.subscriptionRuns) throw new AgentOpsError("CHAIN_BUDGET_EXCEEDED", "Пересмотр не может превышать действующий лимит владельца.");
+    const used=this.budgetUsage(task).subscriptionRunsUsed;
+    (task.budgetHistory??=[]).push({at:this.iso(),by:identity.id,reason,previous:structuredClone(task.spec.budget),next:structuredClone(next),subscriptionRunsUsed:used});
+    task.spec.budget=next; task.budgetPolicyId=identity.policy.id;
+    await this.persist(task,"budget_revised",`${reason}; использовано ${used} подписочных шагов, счётчики не обнулены.`);
+    return task;
+  }
 
   async cancel(id: string, identity: AgentIdentity, reason = "Отмена"): Promise<AgentTask> {
     const task = this.require(id);
@@ -297,6 +327,22 @@ export class AgentTaskService {
   }
 
   /** Write-ahead external-effect receipt. A duplicate reservation never grants execution. */
+  async toolEffect(taskId: string, tool: string, key: string, action: "begin" | "reconcile" | "refused", reason?: string) {
+    const task = this.require(taskId);
+    if (task.agentId !== "app:buzha" || task.spec.actor !== "buzha" || !task.spec.tools?.includes(tool) || !task.executor?.startsWith("buzha_") || !key.startsWith("tool:")) throw new AgentOpsError("BAD_EFFECT", "Действие должно принадлежать действующему инструментальному исполнителю.");
+    let record = task.effects?.find(effect => effect.key === key);
+    if (action === "begin" && !record) {
+      if (task.effects?.some(effect => ["started", "unknown"].includes(effect.state))) throw new AgentOpsError("UNKNOWN_EFFECT", "Есть внешнее действие с неизвестным исходом. Сначала независимая сверка; новые действия не запускаются.");
+      record = { key, description: `Доставка разрешённого действия ${tool}; публикация или отправка требуют отдельной независимой приёмки.`, check: { type: "tool_used", tool, effectKey: key }, state: "pending" };
+      (task.effects ??= []).push(record);
+    }
+    if (!record) throw new AgentOpsError("BAD_EFFECT", "Нет резервации инструмента.");
+    if (action === "refused") { record.state = "refused"; record.detail = `SnarkBridge отказал до исполнения: ${reason}`; record.checkedAt = this.iso(); await this.persist(task, "effect_refused", record.detail); return { execute: false, state: record.state }; }
+    const result = await this.effect(taskId, this.deps.registry.app("buzha", "Бужа"), key, action);
+    const receipt = task.attempts.flatMap(attempt => attempt.toolCalls ?? []).find(call => call.effectKey === key && call.ok);
+    return { execute: result.execute, state: result.effect.state, result: receipt?.result };
+  }
+
   async effect(id: string, identity: AgentIdentity, key: string, action: "begin" | "reconcile" | "not_performed", note?: string): Promise<{ execute: boolean; effect: NonNullable<AgentTask["effects"]>[number] }> {
     const task = this.require(id);
     if (identity.taskId !== id) this.assertControl(task, identity);
@@ -317,7 +363,7 @@ export class AgentTaskService {
 
   private async reconcileEffects(task: AgentTask): Promise<boolean> {
     for (const effect of task.effects ?? []) {
-      if (effect.state === "pending") continue;
+      if (effect.state === "pending" || effect.state === "refused") continue;
       const result = await this.check(task, effect.check);
       effect.checkedAt = this.iso(); effect.detail = result.detail;
       effect.state = result.ok ? "confirmed" : "unknown";
@@ -458,7 +504,11 @@ export class AgentTaskService {
     return task.priority + Math.min(40, this.waitedMinutes(task) * AGING_POINTS_PER_MINUTE) + affinity;
   }
 
-  private waitedMinutes(task: AgentTask): number { return waitingMinutes(task, this.now()); }
+  /** Time spent waiting (not executing): queue aging and starvation count this, not age since submission. */
+  private waitedMinutes(task: AgentTask): number {
+    const current = task.waiting && WAITING_STATES.has(task.state) ? Math.max(0, (this.now() - Date.parse(task.waiting.since)) / 60_000) : 0;
+    return (task.waiting?.minutes ?? (task.waiting ? 0 : (this.now() - Date.parse(task.createdAt)) / 60_000)) + current;
+  }
   private isHeavy(task: AgentTask): boolean {
     const adapter = this.adapter(task.executor) ?? this.adapter(this.rank(task).find(candidate => candidate.suitable)?.executorId);
     return adapter ? adapter.resourceRequest(task, this.probes.get(adapter.id)).class === "heavy" : false;
@@ -576,7 +626,7 @@ export class AgentTaskService {
     const childIdentity = this.deps.registry.taskAgent(task.id, `${adapter.label} · ${task.title}`);
     const token = this.deps.registry.issueTaskToken(task.id, (wallMinutes + 30) * 60_000);
     const brief = agentBrief(childIdentity, { taskId: task.id, chainDepth: task.chain.depth, apiUrl: this.deps.apiUrl,
-      budget: `${budget.tasksLeft} sub-tasks, ${budget.subscriptionRunsLeft} subscription runs, ${budget.wallMinutesLeft} min` });
+      budget: `${budget.tasksLeft} sub-tasks, ${budget.subscriptionRunsLeft} subscription runs, ${Math.round(budget.activeMinutesLeft)} active min` });
     const log = (line: string) => { void this.deps.store.appendLog(task.id, `${new Date(this.now()).toISOString()} ${line}\n`); };
     const context = { origin: "agent" as const, agentId: childIdentity.id, taskId: task.id, heldRuntimes: lease.runtimeId ? [lease.runtimeId] : [] };
     let timeout: NodeJS.Timeout | undefined;
@@ -731,9 +781,13 @@ export class AgentTaskService {
         }
         if (controller.signal.aborted) return;
         if (assessment.status !== "reviewed") {
+          if(assessment.status==="waiting" && subscriptionRunsLeft()<=0 && /бюджет подписочных/i.test(assessment.reason)) {
+            await this.saveReview(task,makeReview(task,verdicts,"blocked",assessment.reason,"Сохранить результат; поручитель должен пересмотреть распределение бюджета. Новое исполнение или повторная отправка не разрешены.",this.iso()));
+            await this.blockBudget(task,"Исчерпан бюджет подписочных шагов для обязательной независимой проверки; результат не принят.");return;
+          }
           const decision = makeReview(task, verdicts, "wait_resource", assessment.reason, "Дождаться разрешённой проверяющей модели; исполнитель повторно не запускается.", this.iso());
           await this.saveReview(task, decision); task.nextAttemptAt = this.retryAt(task, 30000);
-          await this.setState(task, "awaiting_verification", assessment.reason, "review_waiting"); return;
+          await this.setState(task, "awaiting_verification", assessment.reason, "review_waiting", {waitingFor:"resourceWait" in assessment && assessment.resourceWait ? "resource":"executor"}); return;
         }
         verdicts = mergeModelVerdicts(task, verdicts, assessment.review, evidence);
         reviewer = assessment.reviewer; modelDecision = assessment.review.decision; reason = assessment.review.reason; nextStep = assessment.review.nextStep;
@@ -785,14 +839,15 @@ export class AgentTaskService {
     if (check.type === "tool_scope") {
       const calls = task.attempts.flatMap(a => a.toolCalls ?? []), unexpected = calls.filter(call => !check.allowed.includes(call.tool));
       const boundedBuzha = task.agentId === "app:buzha" && task.spec.actor === "buzha" && task.attempts.every(a => a.executor.startsWith("buzha_"));
-      return { check, ok: unexpected.length === 0, detail: unexpected.length ? "Есть вызов вне заявленной области." : "Серверный журнал подтверждает имена всех действий внутри инструментального контура; проверка не утверждает состояние других процессов.", content: JSON.stringify({ allowed: check.allowed, boundary: boundedBuzha ? "Buzha structured actions are mediated by trusted server code. Model transport is text-only without native tools. Exposed browser tools only read the paired Profile 13; no navigation, message sending, account mutation or payment tool is exposed. workspace_write only writes this task's local directory. This receipt is generated from server state, not the model report." : "Only the named mediated tools are audited; native executor activity is not covered by this check.", calls: calls.map(c => ({ id: c.id, at: c.at, tool: c.tool, arguments: c.arguments, ok: c.ok })) }), source: "SnarkRoute:server-mediated-tool-receipts", observedAt: this.iso(), durationMs: 0 };
+      return { check, ok: unexpected.length === 0, detail: unexpected.length ? "Есть вызов вне заявленной области." : "Серверный журнал подтверждает имена всех действий внутри инструментального контура; проверка не утверждает состояние других процессов.", content: JSON.stringify({ allowed: check.allowed, boundary: boundedBuzha ? "Buzha structured actions are mediated by trusted server code. Model transport is text-only without native tools. Browser actions use the paired Profile 13 and the existing central SnarkBridge work policy. Protected actions remain refused centrally. A delivered click/upload is not proof of publication or sending. workspace_write only writes this task's local directory. This receipt is generated from server state, not the model report." : "Only the named mediated tools are audited; native executor activity is not covered by this check.", calls: calls.map(c => ({ id: c.id, at: c.at, tool: c.tool, arguments: c.arguments, ok: c.ok })) }), source: "SnarkRoute:server-mediated-tool-receipts", observedAt: this.iso(), durationMs: 0 };
     }
     if (check.type === "tool_observations") return this.deps.toolObservations ? this.deps.toolObservations(task) : { check, ok: false, detail: "Транспорт независимого наблюдения инструментов не подключён.", source: "actor-tool-observations", durationMs: 0, observedAt: this.iso() };
     if (check.type === "tool" || check.type === "tool_used") {
       const observedAt = this.iso(), source = `agent-tool:${check.tool}`;
       if (!task.spec.tools?.includes(check.tool)) return { check, ok: false, detail: "Инструмент не разрешён контрактом.", durationMs: 0, observedAt, source };
       if (check.type === "tool_used") {
-        const calls = task.attempts.at(-1)?.toolCalls?.filter(call => call.tool === check.tool && call.ok) ?? [];
+        const candidates = check.effectKey ? task.attempts.flatMap(attempt => attempt.toolCalls ?? []) : task.attempts.at(-1)?.toolCalls ?? [];
+        const calls = candidates.filter(call => call.tool === check.tool && call.ok && (!check.effectKey || call.effectKey === check.effectKey));
         return { check, ok: calls.length > 0, detail: calls.length ? "Фактический вызов и ответ инструмента сохранены сервером." : "В этой попытке нет успешного вызова инструмента.", content: JSON.stringify(calls), durationMs: 0, observedAt, source };
       }
       return this.deps.toolCheck ? this.deps.toolCheck(task, check) : { check, ok: false, detail: "Разрешённый транспорт проверки инструмента недоступен.", durationMs: 0, observedAt, source };
@@ -881,9 +936,14 @@ export class AgentTaskService {
   }
 
   private async setState(task: AgentTask, state: TaskState, reason: string, eventType = "state", data?: Record<string, unknown>): Promise<void> {
+    if (!task.waiting) task.waiting={since:this.iso(),minutes:0,resourceMinutes:0,pausedMinutes:0};
+    const elapsed=Math.max(0,(this.now()-Date.parse(task.waiting.since))/60000);
+    if (WAITING_STATES.has(task.state)||task.waiting.reason) task.waiting.minutes+=elapsed;
+    if (task.state==="waiting_resources"||task.waiting.reason==="resource") task.waiting.resourceMinutes+=elapsed;
+    if (task.state==="paused") task.waiting.pausedMinutes+=elapsed;
+    task.waiting.since=this.iso();
+    task.waiting.reason=data?.waitingFor as "resource"|"executor"|undefined;
     task.state = state;
-    // Close the previous phase into its bucket (waiting or active) and open the new one; persisted with the task.
-    accrue(task, this.now());
     task.reason = reason;
     await this.persist(task, eventType, reason, { state, ...(data ?? {}) });
   }
@@ -928,7 +988,7 @@ export function normalizeSpec(input: TaskSpec): TaskSpec {
   }
   const positive = (value: number | undefined, min: number, max: number) => value === undefined || Number.isFinite(value) && value >= min && value <= max;
   if (!positive(input.retry?.maxAttempts, 1, 100) || !positive(input.retry?.sameFailureLimit, 1, 20) || !positive(input.retry?.delayMs, 10, 3600000) || !positive(input.retry?.maxDelayMs, 10, 3600000)
-    || !positive(input.budget?.wallMinutes, 1, 600) || !positive(input.budget?.subscriptionRuns, 0, 20) || !positive(input.budget?.maxTurns, 1, 200) || !positive(input.review?.maxRuns, 1, 100) || !positive(input.review?.timeoutMs, 1000, 900000)) throw new AgentOpsError("BAD_SPEC", "Некорректный бюджет или настройка повторов.", {}, 400);
+    || !positive(input.budget?.wallMinutes, 1, 600) || !positive(input.budget?.activeMinutes, 1, 600) || !positive(input.budget?.subscriptionRuns, 0, 20) || !positive(input.budget?.maxTurns, 1, 200) || !positive(input.review?.maxRuns, 1, 100) || !positive(input.review?.timeoutMs, 1000, 900000)) throw new AgentOpsError("BAD_SPEC", "Некорректный бюджет или настройка повторов.", {}, 400);
   if (input.budget?.providerCost !== undefined && input.budget.providerCost !== 0) throw new AgentOpsError("BAD_SPEC", "Приёмщик не разрешает платные API; providerCost должен быть 0.", {}, 400);
   if (Object.values(input.resourceLimits ?? {}).some(value => !positive(value, 0, 1000000))) throw new AgentOpsError("BAD_SPEC", "Некорректные ограничения ресурсов.", {}, 400);
   if (input.effects && (input.effects.length > 30 || new Set(input.effects.map(e => e.key)).size !== input.effects.length || input.effects.some(e => !/^[a-zA-Z0-9_.-]{1,80}$/.test(e.key) || !e.description?.trim() || !e.check))) throw new AgentOpsError("BAD_SPEC", "Некорректный журнал внешних действий.", {}, 400);
@@ -977,7 +1037,7 @@ export function describeCheck(check: NonNullable<TaskSpec["checks"]>[number]): s
   if (check.type === "file_contains") return `file ${check.path} contains "${check.text.slice(0, 80)}"`;
   if (check.type === "file_content") return `read file content for independent review: ${check.path}`;
   if (check.type === "http") return `read ${check.url}: HTTP ${check.status ?? 200}${check.json ? `; ${check.json.path} = ${JSON.stringify(check.json.equals)}` : ""}${check.text ? `; contains ${check.text}` : ""}`;
-  if (check.type === "tool") return `independent tool ${check.tool}: ${check.json.path} = ${JSON.stringify(check.json.equals)}`;
+  if (check.type === "tool") return `independent tool ${check.tool}: ${check.json ? `${check.json.path} = ${JSON.stringify(check.json.equals)}` : ""}${check.text ? ` contains ${check.text}` : ""}`;
   if (check.type === "tool_used") return `actual model tool call and response recorded: ${check.tool}`;
   if (check.type === "tool_observations") return "independently repeat permitted read tools and observe their current results";
   if (check.type === "acceptor_cycle") return "server-recorded rejection followed by actual automatic continuation";

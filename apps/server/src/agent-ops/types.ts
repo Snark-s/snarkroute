@@ -63,13 +63,13 @@ export type TaskCheck =
   | { type: "file_content"; path: string }
   | { type: "http"; url: string; status?: number; text?: string; json?: { path: string; equals: string | number | boolean | null }; timeoutMs?: number }
   | { type: "process"; pid: number; image?: string }
-  | { type: "tool"; tool: string; arguments?: Record<string, unknown>; json: { path: string; equals: string | number | boolean | null } }
-  | { type: "tool_used"; tool: string }
+  | { type: "tool"; tool: string; arguments?: Record<string, unknown>; json?: { path: string; equals: string | number | boolean | null }; text?: string }
+  | { type: "tool_used"; tool: string; effectKey?: string }
   | { type: "tool_observations" }
   | { type: "acceptor_cycle" }
   | { type: "tool_scope"; allowed: string[] };
 // Re-observe the read tools used by an actor, rather than trusting its saved report.
-export type AgentToolCall = { id: string; attempt: number; at: string; tool: string; arguments: Record<string, unknown>; ok: boolean; result: unknown; provider?: string; model?: string };
+export type AgentToolCall = { id: string; attempt: number; at: string; tool: string; arguments: Record<string, unknown>; ok: boolean; result: unknown; provider?: string; model?: string; effectKey?: string };
 export type ModelCall = { id?: string; at: string; provider: string; model: string; tier: "local" | "subscription"; ok: boolean; runId?: string; sessionId?: string };
 
 export type TaskCriterion = { id: string; description: string; required?: boolean; checkIndexes?: number[]; review: "machine" | "model" | "unverifiable"; unverifiableReason?: string; maxAgeMs?: number };
@@ -79,7 +79,7 @@ export type TaskEvidence = { id: string; attempt: number; revision: number; crit
 export type AcceptorDecision = "accept" | "continue" | "change_approach" | "wait_resource" | "blocked" | "owner_action";
 export type AcceptanceReview = { id: string; at: string; attempt: number; revision: number; decision: AcceptorDecision; reason: string; nextStep: string; criteria: CriterionVerdict[]; failureSignature: string; resultFingerprint: string; strategy: string; reviewer?: { executor: string; model?: string; level: "local" | "strong" }; evidenceIds: string[] };
 export type TaskEffect = { key: string; description: string; check: TaskCheck };
-export type EffectRecord = TaskEffect & { state: "pending" | "started" | "unknown" | "confirmed"; attempt?: number; startedAt?: string; checkedAt?: string; detail?: string };
+export type EffectRecord = TaskEffect & { state: "pending" | "started" | "unknown" | "confirmed" | "refused"; attempt?: number; startedAt?: string; checkedAt?: string; detail?: string };
 export type ReviewRun = { id: string; executor: string; model?: string; level: "local" | "strong"; startedAt: string; endedAt?: string; outcome?: string; pid?: number; pidImage?: string; error?: string; response?: string; leaseId?: string; usage?: Record<string, number>; cost?: { tier: "local" | "subscription"; providerCost: 0 } };
 
 export type TaskKind = "code_edit" | "code_review" | "text" | "analysis" | "agent_tool";
@@ -103,8 +103,8 @@ export type TaskSpec = {
   isolation?: "shared" | "worktree";
   constraints?: string[];
   permissions?: { fileWrite?: boolean; shell?: "none" | "tests" | "workspace"; network?: boolean };
-  budget?: { wallMinutes?: number; subscriptionRuns?: number; maxTurns?: number; providerCost?: number };
-  /** Optional wall-clock deadline (ISO). Unlike budget.wallMinutes (active execution), it keeps running while the task waits. */
+  budget?: { wallMinutes?: number; activeMinutes?: number; subscriptionRuns?: number; maxTurns?: number; providerCost?: number };
+  /** Optional wall-clock deadline (ISO). Unlike the active budget (activeMinutes, or wallMinutes when absent), it keeps running while the task waits. */
   deadline?: string;
   priority?: number;
   executor?: string;
@@ -198,8 +198,9 @@ export type AgentTask = {
   nextStep?: string;
   strategy?: string;
   dependsOn?: string[];
-  /** Waiting vs active time; see time-budget.ts. */
-  timing?: { activeMs: number; waitingMs: number; since: string; phase: "active" | "waiting" | "done" };
+  budgetPolicyId?: string;
+  budgetHistory?: Array<{ at: string; by: string; reason: string; previous: TaskSpec["budget"]; next: TaskSpec["budget"]; subscriptionRunsUsed: number }>;
+  waiting?: { since: string; minutes: number; resourceMinutes: number; pausedMinutes: number; reason?: "resource"|"executor" };
 };
 
 export type TaskEvent = { at: string; type: string; message: string; data?: Record<string, unknown> };

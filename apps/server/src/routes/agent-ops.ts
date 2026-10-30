@@ -192,7 +192,7 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
       tasks: tasks.map(task => ({ id: task.id, title: task.title, state: task.state, reason: task.reason, executor: task.executor, agentId: task.agentId,
         priority: task.priority, depth: task.chain.depth, createdAt: task.createdAt, updatedAt: task.updatedAt, workdir: task.workdir, attempts: task.attempts.length,
         nextStep: task.nextStep, nextAttemptAt: task.nextAttemptAt, lastDecision: task.reviews?.at(-1), criteria: task.contract?.criteria,
-        chainBudget: ops.tasks.chainBudget(task.chain.rootTaskId), taskBudget: ops.tasks.budgetUsage(task), timing: task.timing })) };
+        chainBudget: ops.tasks.chainBudget(task.chain.rootTaskId), taskBudget: ops.tasks.budgetUsage(task) })) };
   }));
 
   app.get(`${ROOT}/whoami`, handle(async (ops, identity) => ({ ok: true, identity: { id: identity.id, kind: identity.kind, policy: identity.policy, taskId: identity.taskId },
@@ -251,7 +251,8 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
     return { ok: true, log: await ops.tasks.log(task.id) };
   }));
 
-  app.post(`${ROOT}/tasks/:id/cancel`, handle(async (ops, identity, request) => ({ ok: true, task: await ops.tasks.cancel((request.params as { id: string }).id, identity) })));
+  app.post<{ Params: { id: string } }>(`${ROOT}/tasks/:id/cancel`, handle(async (ops, identity, request) => ({ ok: true, task: await ops.tasks.cancel((request.params as { id: string }).id, identity) })));
+  app.post<{ Params: { id: string } }>(`${ROOT}/tasks/:id/budget`, handle(async (ops, identity, request) => { const body=request.body as { budget: { wallMinutes?: number; activeMinutes?: number; subscriptionRuns?: number }; reason: string }; return {ok:true,task:await ops.tasks.reviseBudget((request.params as {id:string}).id,identity,body.budget,body.reason)}; }));
 
   app.post(`${ROOT}/tasks/:id/resolve`, handle(async (ops, identity, request) => {
     const body = (request.body ?? {}) as { action?: "requeue" | "continue" | "mark_failed" | "mark_verified"; note?: string };

@@ -403,8 +403,10 @@ describe("delegated task queue", () => {
     const second = await setup({ directory: first.directory, mode: "free", clock });
     const done = await until(second.service, night.task.id, ["awaiting_verification", "failed"]);
     expect(done.state).toBe("awaiting_verification");
-    expect(done.timing!.waitingMs).toBeGreaterThanOrEqual(5 * 3_600_000);
-    expect(done.timing!.activeMs).toBeLessThan(60_000);
+    const usage = second.service.budgetUsage(done);
+    expect(usage.waitingMinutes).toBeGreaterThanOrEqual(5 * 60);
+    expect(usage.activeMinutesUsed).toBeLessThan(1);
+    expect(usage.wallMinutesUsed).toBeGreaterThanOrEqual(5 * 60);
     const expired = await until(second.service, strict.task.id, ["failed", "blocked"]);
     expect(expired.reason).toMatch(/дедлайн/);
     expect(expired.attempts).toHaveLength(0);

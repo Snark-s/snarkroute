@@ -16,8 +16,8 @@ const check = z.discriminatedUnion("type", [
   z.object({ type: z.literal("file_content"), path: z.string().min(1).max(1000) }),
   z.object({ type: z.literal("http"), url: z.string().url().max(2000), status: z.number().int().min(100).max(599).optional(), text: z.string().max(2000).optional(), json: z.object({ path: z.string().min(1), equals: z.union([z.string(), z.number(), z.boolean(), z.null()]) }).optional(), timeoutMs: z.number().int().min(1000).max(60000).optional() }),
   z.object({ type: z.literal("process"), pid: z.number().int().positive(), image: z.string().max(200).optional() }),
-  z.object({ type: z.literal("tool"), tool: z.string().min(1).max(80), arguments: z.record(z.unknown()).optional(), json: z.object({ path: z.string().min(1).max(200), equals: z.union([z.string(), z.number(), z.boolean(), z.null()]) }) }),
-  z.object({ type: z.literal("tool_used"), tool: z.string().min(1).max(80) }),
+  z.object({ type: z.literal("tool"), tool: z.string().min(1).max(80), arguments: z.record(z.unknown()).optional(), json: z.object({ path: z.string().min(1).max(200), equals: z.union([z.string(), z.number(), z.boolean(), z.null()]) }).optional(), text: z.string().min(1).max(2000).optional() }),
+  z.object({ type: z.literal("tool_used"), tool: z.string().min(1).max(80), effectKey: z.string().max(80).optional() }),
   z.object({ type: z.literal("tool_observations") }),
   z.object({ type: z.literal("acceptor_cycle") }),
   z.object({ type: z.literal("tool_scope"), allowed: z.array(z.string().min(1).max(80)).max(30) })
@@ -41,7 +41,8 @@ const taskSpecShape = {
   isolation: z.enum(["shared", "worktree"]).optional().describe("worktree: a separate git worktree and branch for independent work."),
   constraints: z.array(z.string().max(2000)).max(30).optional(),
   permissions: z.object({ fileWrite: z.boolean().optional(), shell: z.enum(["none", "tests", "workspace"]).optional(), network: z.boolean().optional() }).optional(),
-  budget: z.object({ wallMinutes: z.number().int().min(1).max(600).optional().describe("Active execution minutes (executor, acceptance, reworks); waiting for a window or resources is not counted."),
+  budget: z.object({ wallMinutes: z.number().int().min(1).max(600).optional().describe("Active execution minutes when activeMinutes is absent; waiting for a window, resources or quota is not counted."),
+    activeMinutes: z.number().int().min(1).max(600).optional().describe("Active execution minutes (executor runs, acceptor reviews, reworks)."),
     subscriptionRuns: z.number().int().min(0).max(20).optional(), maxTurns: z.number().int().min(1).max(200).optional(), providerCost: z.literal(0).optional() }).optional(),
   deadline: z.string().max(40).optional().describe("Optional wall-clock deadline (ISO); it keeps running while the task waits."),
   priority: z.number().int().min(0).max(100).optional(),
@@ -103,13 +104,13 @@ export function registerAgentOpsTools(server: McpServer, identityOf: (ops: Agent
   })());
 
   server.registerTool("agent_delegate_status", {
-    description: "Persisted state of a delegated task: queued, waiting_window, waiting_resources, waiting_executor, running, blocked, failed, cancelled, unknown_outcome, awaiting_acceptance (executor finished, acceptance running or waiting) or verified (accepted); the reason, executor, attempts with reworks, acceptance decisions, chain budget and recent events. Only your own tasks and your chain are readable.",
+    description: "Persisted state of a delegated task: queued, waiting_window, waiting_resources, waiting_executor, running, blocked, failed, cancelled, unknown_outcome, awaiting_verification (executor finished, acceptance running or waiting) or verified (accepted); the reason, executor, attempts with reworks, acceptance decisions, chain budget and recent events. Only your own tasks and your chain are readable.",
     inputSchema: { taskId: z.string().min(1).max(80) }, annotations: readOnly
   }, async input => run(async (ops, identity) => {
     const task = ops.tasks.requireReadable(input.taskId, identity);
     return { id: task.id, title: task.title, state: task.state, reason: task.reason, executor: task.executor ?? null, priority: task.priority, chain: task.chain,
       attempts: task.attempts.map(attempt => ({ n: attempt.n, executor: attempt.executor, outcome: attempt.outcome ?? "running", failureClass: attempt.failureClass, changedFiles: attempt.changedFiles?.length ?? 0, startedAt: attempt.startedAt, endedAt: attempt.endedAt })),
-      timing: task.timing, chainBudget: ops.tasks.chainBudget(task.chain.rootTaskId), lastDecision: task.reviews?.at(-1), nextStep: task.nextStep, nextAttemptAt: task.nextAttemptAt, events: (await ops.tasks.events(task.id)).slice(-12) };
+      taskBudget: ops.tasks.budgetUsage(task), chainBudget: ops.tasks.chainBudget(task.chain.rootTaskId), lastDecision: task.reviews?.at(-1), nextStep: task.nextStep, nextAttemptAt: task.nextAttemptAt, events: (await ops.tasks.events(task.id)).slice(-12) };
   })());
 
   server.registerTool("agent_delegate_result", {

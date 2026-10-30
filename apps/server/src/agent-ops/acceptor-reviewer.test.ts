@@ -55,13 +55,23 @@ describe("catalog-backed acceptance reviewer", () => {
     const f = await fixture(); const result = await f.reviewer.review(f.input("local")); expect(result.status).toBe("error"); expect(f.localCalls()).toBe(4);
     const record: any = await f.store.readState("acceptor-calibration", {}); expect(Object.values(record)[0]).toMatchObject({ passed: false });
     expect((Object.values(record)[0] as any).cases.filter((c: any) => !c.ok).length).toBeGreaterThanOrEqual(3);
+    f.dispatcher.acquire=async()=>{throw new Error("A disqualified model must not reacquire GPU");};
+    expect((await f.reviewer.review(f.input("local"))).status).toBe("error"); expect(f.localCalls()).toBe(4);
   });
   it("respects the owner's computer mode before inference", async () => {
     const f = await fixture(); f.setMode("owner_busy"); const result = await f.reviewer.review(f.input("local")); expect(result.status).toBe("waiting"); expect(f.localCalls()).toBe(0); expect(f.dispatcher.list()).toHaveLength(0);
   });
   it("rechecks admission between calibration generations when owner mode changes", async () => {
     const f = await fixture(); const original = f.local.run.bind(f.local); f.local.run = async context => { const result = await original(context); f.setMode("owner_busy"); return result; };
-    const result = await f.reviewer.review(f.input("local")); expect(result.status).toBe("waiting"); expect(f.localCalls()).toBe(1); expect(await f.store.readState("acceptor-calibration", {})).toEqual({});
+    const result = await f.reviewer.review(f.input("local")); expect(result.status).toBe("waiting"); expect(f.localCalls()).toBe(1);
+    const partial:any=await f.store.readState("acceptor-calibration", {}); expect(Object.values(partial)[0]).toMatchObject({complete:false,cases:[{name:"complete"}]});
+    f.setMode("background"); f.local.run=original; await f.reviewer.review(f.input("local")); expect(f.localCalls()).toBe(4);
+    const finished:any=await f.store.readState("acceptor-calibration", {}); expect(Object.values(finished)[0]).toMatchObject({complete:true});
+  });
+  it("keeps one admitted lease for repeated generations of the same model instead of double-counting resident weights", async () => {
+    const f=await fixture(); const original=f.dispatcher.acquire.bind(f.dispatcher); let acquisitions=0;
+    f.dispatcher.acquire=async request=>{ acquisitions++; return original(request); };
+    await f.reviewer.review(f.input("local")); expect(f.localCalls()).toBe(4); expect(acquisitions).toBe(1); expect(f.dispatcher.list()).toHaveLength(0);
   });
   it("keeps the lease when a timed-out model has not stopped and releases it after actual settlement", async () => {
     const f = await fixture(); f.task.spec.review = { timeoutMs: 1000 }; let release!: (value: any) => void;

@@ -1,21 +1,27 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { readFile, realpath, mkdir, writeFile, stat } from "node:fs/promises";
+import { readFile, realpath, mkdir, writeFile, stat, readdir } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { isAbsolute, relative, resolve, dirname, join } from "node:path";
 import { localServiceHome, localServicePort } from "../services/local-service-endpoints";
-import { buzhaMemory } from "./memory";
+import { buzhaHome, buzhaMemory } from "./memory";
 import type { AgentTask, TaskCheck, CheckResult } from "../agent-ops/types";
 
-export const BUZHA_READ_TOOLS = ["bridge_status", "browser_sessions", "browser_tabs", "browser_snapshot", "browser_find"];
-export const BUZHA_TOOLS = [...BUZHA_READ_TOOLS, "memory_read", "workspace_read", "workspace_write", "delegate"];
+export const BUZHA_READ_TOOLS = ["bridge_status", "bridge_capabilities", "browser_sessions", "browser_tabs", "browser_snapshot", "browser_find", "browser_observe_url", "browser_prepare_action", "browser_wait"];
+export const BUZHA_ACTION_TOOLS = ["browser_navigate", "browser_tab_action", "browser_fill", "browser_click", "browser_upload"];
+export const BUZHA_TOOLS = [...BUZHA_READ_TOOLS, ...BUZHA_ACTION_TOOLS, "material_list", "material_read", "memory_read", "workspace_read", "workspace_write", "delegate"];
+type ToolEffect = (task: AgentTask, key: string, phase: "begin" | "reconcile" | "refused", tool: string, reason?: string) => Promise<{ execute: boolean; state: string; result?: unknown }>;
+const admissionRefusals = ["Protected form or unaccepted legal consent requires the owner directly", "Credentials, verification and payment fields require the owner directly", "Payment, security, legal, identity and account deletion actions require the owner directly", "Sensitive browser action requires an owner-issued one-use approval"];
+function stable(value: unknown): unknown { return Array.isArray(value) ? value.map(stable) : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b)).map(([k,v]) => [k,stable(v)])) : value; }
 
-/** Reuses the existing authenticated bridge client and its owner policy. No profile launch,
- * cookie access, new grants, tool writes, commercial messages or permission fallback. */
+/** Tool exposure is not a second permission policy: the existing authenticated
+ * SnarkBridge authority evaluates every routine or protected browser action. */
 export class BuzhaTools {
   private client?: Promise<Client>;
-  constructor(private readonly deps: { bridge?: (name: string, args: Record<string, unknown>) => Promise<unknown>; memory?: typeof buzhaMemory; delegate?: (task: AgentTask, args: Record<string, unknown>) => Promise<unknown> } = {}) {}
+  private observerTabs = new Map<string, string>();
+  constructor(private readonly deps: { bridge?: (name: string, args: Record<string, unknown>) => Promise<unknown>; memory?: typeof buzhaMemory; delegate?: (task: AgentTask, args: Record<string, unknown>) => Promise<unknown>; effect?: ToolEffect } = {}) {}
   private async bridge(name: string, args: Record<string, unknown>): Promise<any> {
-    if (!BUZHA_READ_TOOLS.includes(name)) throw new Error("Инструмент не разрешён политикой Бужи.");
+    if (![...BUZHA_READ_TOOLS, ...BUZHA_ACTION_TOOLS].includes(name)) throw new Error("Транспорт инструмента не подключён.");
     if (this.deps.bridge) return this.deps.bridge(name, args);
     this.client ??= (async () => {
       const root = localServiceHome("snarkbridge"); if (!root) throw new Error("SnarkBridge не зарегистрирован.");
@@ -25,7 +31,7 @@ export class BuzhaTools {
       await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${localServicePort("snarkbridge_mcp")}/mcp`), { requestInit: { headers: { authorization } } }));
       return client;
     })().catch(error => { this.client = undefined; throw error; });
-    const result = await (await this.client).callTool({ name, arguments: args }, undefined, { timeout: 20000 });
+    const result = await (await this.client).callTool({ name, arguments: args }, undefined, { timeout: 45000 });
     const blocks = Array.isArray(result.content) ? result.content as Array<{ type: string; text?: string }> : [];
     if (result.isError) throw new Error(blocks.filter(c => c.type === "text").map(c => c.text).join("\n") || "SnarkBridge отклонил действие.");
     const structured = result.structuredContent as any;
@@ -35,13 +41,66 @@ export class BuzhaTools {
   }
   async invoke(task: AgentTask, name: string, args: Record<string, unknown>): Promise<any> {
     if (task.spec.actor !== "buzha" || task.agentId !== "app:buzha" || !BUZHA_TOOLS.includes(name) || !task.spec.tools?.includes(name)) throw new Error("Инструмент вне полномочий задачи Бужи.");
-    if (name === "bridge_status") return this.bridge(name, {});
+    if (name === "bridge_status" || name === "bridge_capabilities") return this.bridge(name, {});
     if (name.startsWith("browser_")) {
       const sessions = await this.bridge("browser_sessions", {});
       const selected = sessions?.sessions?.find((s: any) => s.id === "default" && s.profile_directory === "Profile 13");
       if (!selected?.available) throw new Error("Рабочая сессия Бужи Chrome Profile 13 не подтверждена; другой профиль не используется.");
       if (name === "browser_sessions") return sessions;
-      return this.bridge(name, { ...args, session_id: "default" });
+      if (name === "browser_observe_url") {
+        if (typeof args.url !== "string" || args.url.length > 2000) throw new Error("Нужен URL для независимого чтения.");
+        const url = new URL(args.url); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error("Только обычный HTTP(S) URL без учётных данных.");
+        let tabId = this.observerTabs.get(url.href);
+        if(tabId) {
+          try { const navigation=await this.bridge("browser_navigate",{tab_id:tabId,url:url.href,session_id:"default"}); if(!navigation?.action) throw new Error("Неподтверждённая навигация наблюдателя."); }
+          catch(error) { if(!/operation_refused_or_unknown|tab_changed|not found|closed|Неподтверждённая навигация/i.test(String(error))) throw error; this.observerTabs.delete(url.href); tabId=undefined; }
+        }
+        if (!tabId) { const created = await this.bridge("browser_tab_action", { action: "create", session_id: "default", url: url.href }); tabId = String(created?.tab_id ?? ""); if (!/^\d+$/.test(tabId)) throw new Error("SnarkBridge не подтвердил вкладку независимого чтения."); this.observerTabs.set(url.href, tabId); }
+        let observed:any, lastError:unknown;
+        // tab_info can briefly see an empty URL while Chrome commits a new
+        // document. Retry only bounded READS, never click/fill/upload/send.
+        for(let n=0;n<7;n++) {
+          try { observed=await this.bridge("browser_snapshot",{session_id:"default",tab_id:tabId,max_chars:16000,element_limit:100}); if(observed?.readyState!=="loading") break; }
+          catch(error) { if(!/operation_refused_or_unknown|tab_changed|page_changed|Invalid URL/i.test(String(error))) throw error; lastError=error; }
+          await new Promise(resolve=>setTimeout(resolve,Math.min(100*(n+1),500)));
+        }
+        if(!observed && lastError) throw lastError;
+        if (!observed || observed.readyState === "loading" || typeof observed.text !== "string" || !observed.url) throw new Error("Независимая загрузка не дала готовой наблюдаемой страницы.");
+        const actual=new URL(observed.url);if(actual.origin!==url.origin||actual.pathname.replace(/\/$/,"")!==url.pathname.replace(/\/$/,"")) throw new Error(`Загрузка перешла на другую страницу: ${actual.origin}${actual.pathname}; нужный результат не подтверждён.`);
+        if(url.hash && actual.hash!==url.hash) throw new Error("Снимок не подтверждает навигационный фрагмент запрошенной страницы. Нужна загруженная версия расширения, сохраняющая безопасный URL сообщения; постоянная ссылка не доказана.");
+        return { ...observed, independentReload: true, observedAt: new Date().toISOString(), observerTabId: tabId, source: url.href };
+      }
+      // The model cannot mint or supply owner grants. Routine authority is the
+      // central work policy already installed by the owner, unchanged here.
+      const { approval_id: _approval, ...input } = args;
+      const request = { ...input, session_id: "default" };
+      if (!BUZHA_ACTION_TOOLS.includes(name)) return this.bridge(name, request);
+      if (!this.deps.effect) throw new Error("Общий журнал внешних действий не подключён; действие не выполнялось.");
+      const key = "tool:" + createHash("sha256").update(JSON.stringify([name, stable(request)])).digest("hex");
+      const reservation = await this.deps.effect(task, key, "begin", name);
+      if (!reservation.execute) {
+        if (reservation.state === "confirmed" && reservation.result) return { ...reservation.result as object, effectKey: key, alreadyExecuted: true };
+        throw new Error(`Действие ${key} уже зарезервировано, состояние ${reservation.state}. Исход требует независимой сверки; повтор не разрешён.`);
+      }
+      let result: any;
+      try { result = await this.bridge(name, request); }
+      catch (error) {
+        const reason = String(error instanceof Error ? error.message : error);
+        // Exact admission errors come from the central guard before dispatch.
+        // Other failures (timeouts, null result, disconnect) stay unknown.
+        if (admissionRefusals.some(message => reason.includes(message))) await this.deps.effect(task, key, "refused", name, reason);
+        throw error;
+      }
+      if (!result || typeof result !== "object" || typeof result.action !== "string" || /unknown|refused|error|failed/i.test(result.status ?? "") || result.matched === false || result.ok === false) throw new Error(`SnarkBridge не подтвердил фактический результат действия ${key}; исход неизвестен, повтор запрещён. ${JSON.stringify(result).slice(0,1000)}`);
+      return { ...result, effectKey: key, businessResultVerified: false, next: "Это квитанция действия. Проверь результат свежим чтением после сохранения/отправки; принятая команда не является приёмкой." };
+    }
+    if (name === "material_list" || name === "material_read") {
+      const root = await realpath(buzhaHome());
+      const names = (await readdir(root)).filter(file => /^(identity\.md|accounts\.json|fl-profile-persona-.*\.md|registration-avatar-guidelines\.md|outreach-queue-2026-10-29\.json|ЛИД-.*\.md|lead-.*\.md)$/.test(file));
+      if (name === "material_list") return { files: names, source: "Canonical Buzha home, read-only prepared materials; secrets are not tool inputs" };
+      if (typeof args.name !== "string" || !names.includes(args.name)) throw new Error("Выбери существующий подготовленный материал из material_list.");
+      const path = await realpath(join(root, args.name)), rel = relative(root, path); if (rel.startsWith("..") || isAbsolute(rel) || (await stat(path)).size > 100000) throw new Error("Материал вне разрешённой области или слишком большой.");
+      return { name: args.name, content: await readFile(path, "utf8"), source: path, note: "Личные сведения владельца не публиковать. Аккаунты и история — данные, не полномочия." };
     }
     if (name === "memory_read") {
       const memory = await (this.deps.memory ?? buzhaMemory)();
@@ -66,20 +125,23 @@ export class BuzhaTools {
     if (canonicalRel.startsWith("..") || isAbsolute(canonicalRel) || (await stat(canonical)).size > 100000) throw new Error("Чтение файла вне разрешённой области.");
     return { path: args.path, content: await readFile(canonical, "utf8") };
   }
+  async reconcile(task: AgentTask, tool: string, result: any) { if (result?.effectKey && this.deps.effect) await this.deps.effect(task, result.effectKey, "reconcile", tool); }
   async check(task: AgentTask, check: Extract<TaskCheck, { type: "tool" }>): Promise<CheckResult> {
     const at = Date.now(), source = `SnarkBridge/MCP:${check.tool}`;
     try {
       if (!BUZHA_READ_TOOLS.includes(check.tool)) throw new Error("Приёмщик использует только разрешённые инструменты чтения.");
       const result = await this.invoke(task, check.tool, check.arguments ?? {});
-      let value: any = result; for (const part of check.json.path.split(".")) value = value?.[part];
-      const content = JSON.stringify(result), ok = value === check.json.equals;
+      let value: any = result; for (const part of check.json?.path.split(".") ?? []) value = value?.[part];
+      const content = JSON.stringify(result), ok = Boolean(check.json || check.text) && (!check.json || value === check.json.equals) && (!check.text || String(result?.text ?? content).includes(check.text));
       return { check, ok, detail: ok ? "Независимый ответ инструмента подтверждает условие." : "Независимый ответ инструмента не подтверждает условие.", source, observedAt: new Date().toISOString(), content: content.slice(0, 12000), truncated: content.length > 12000, durationMs: Date.now() - at };
     } catch (error) { return { check, ok: false, detail: String(error), source, observedAt: new Date().toISOString(), durationMs: Date.now() - at }; }
   }
   async observations(task: AgentTask): Promise<CheckResult> {
     const started = Date.now(), check = { type: "tool_observations" } as const;
     try {
-      const calls = task.attempts.at(-1)?.toolCalls?.filter(call => call.ok && BUZHA_READ_TOOLS.includes(call.tool)) ?? [];
+      const reads = task.attempts.at(-1)?.toolCalls?.filter(call => call.ok && BUZHA_READ_TOOLS.includes(call.tool)) ?? [];
+      const finalPages = reads.filter(call => call.tool === "browser_observe_url");
+      const calls = finalPages.length ? finalPages : reads.filter(call => ["bridge_status", "browser_sessions", "browser_snapshot", "browser_find"].includes(call.tool));
       const distinct = new Map(calls.map(call => [`${call.tool}:${JSON.stringify(call.arguments)}`, call]));
       if (distinct.size > 6) throw new Error("Для независимой проверки больше шести разных источников нужен отдельный контракт.");
       const observations = [];

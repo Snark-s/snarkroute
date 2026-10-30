@@ -11,7 +11,7 @@ import type { AgentTask, CriterionVerdict, TaskEvidence } from "./types";
 import { killProcessTree, processAlive, processImage } from "./workspace";
 
 export type ReviewInput = { task: AgentTask; evidence: TaskEvidence[]; verdicts: CriterionVerdict[]; level: "local" | "strong"; signal: AbortSignal; save: () => Promise<void>; subscriptionRunsLeft?: () => number };
-export type ReviewerResult = { status: "reviewed"; review: ModelReview; reviewer: { executor: string; model?: string; level: "local" | "strong" } } | { status: "waiting"; reason: string } | { status: "error"; reason: string };
+export type ReviewerResult = { status: "reviewed"; review: ModelReview; reviewer: { executor: string; model?: string; level: "local" | "strong" } } | { status: "waiting"; reason: string; resourceWait?: boolean } | { status: "error"; reason: string };
 export interface AcceptanceReviewer { review(input: ReviewInput): Promise<ReviewerResult> }
 class ReviewerResourceWait extends Error {}
 
@@ -34,10 +34,15 @@ export class CatalogAcceptanceReviewer implements AcceptanceReviewer {
     const probes = new Map<string, ExecutorProbe>(await Promise.all(adapters.map(async adapter => [adapter.id, await adapter.probe().catch(() => ({ installed: false, authenticated: false, checkedAt: new Date().toISOString(), source: "probe-error" }))] as const)));
     const policy = this.deps.registry.policyForAgent(task.agentId);
     const candidates = rankExecutors({ spec: readonlyTask.spec, policy, adapters, probes });
-    const notes: string[] = [];
+    const notes: string[] = []; let resourceWait=false;
     for (const candidate of candidates) {
       const probe = probes.get(candidate.executorId)!;
       if (!candidate.suitable || !probe.installed || probe.authenticated === false) { notes.push(`${candidate.label}: ${candidate.suitable ? probe.detail ?? "недоступен" : candidate.reasons.join("; ")}`); continue; }
+      if(level==="local") {
+        const key=`${probe.model??"unknown"}|${probe.source}|acceptor-v1`;
+        const saved=await this.deps.store.readState<Record<string,{passed:boolean;complete?:boolean}>>("acceptor-calibration",{});
+        if(saved[key] && saved[key].complete!==false && !saved[key].passed) return {status:"error",reason:`Пригодность локальной модели ${probe.model??"?"} не подтверждена сохранёнными контрольными примерами; требуется сильная модель. Новая аренда и повторная калибровка не выполнялись (${key}).`};
+      }
       const adapter = adapters.find(item => item.id === candidate.executorId)!;
       if (adapter.resourceRequest(readonlyTask, probe).class === "heavy" && !policy.canUseHeavyGpu) { notes.push(`${adapter.label}: политика поручителя не разрешает тяжёлую работу GPU`); continue; }
       const availability = this.deps.ledger.availability(adapter.id, adapter.profile.costTier);
@@ -49,7 +54,7 @@ export class CatalogAcceptanceReviewer implements AcceptanceReviewer {
         if (subscriptionRunsLeft() <= 0) { notes.push(`${adapter.label}: бюджет подписочных запусков исчерпан`); continue; }
       }
       const resources = await this.deps.dispatcher.acquire({ ...adapter.resourceRequest(readonlyTask, probe), holder: task.id, agentId: `acceptor:${task.id}`, origin: "agent", purpose: `Приёмщик · ${task.id} · ${level}`, ttlMs: 300000 });
-      if (!resources.granted) { notes.push(resources.reason); continue; }
+      if (!resources.granted) { notes.push(resources.reason); resourceWait=true; continue; }
       if (Object.entries(task.spec.resourceLimits ?? {}).some(([key, limit]) => resources.lease[key as "vramMiB" | "ramMiB" | "cpuSlots"] > limit)) { this.deps.dispatcher.release(resources.lease.id); notes.push("Оценка ресурсов Приёмщика превышает ограничения контракта."); continue; }
       const end = this.deps.ledger.begin(adapter.id);
       let activeLease: typeof resources.lease | undefined = resources.lease;
@@ -64,6 +69,8 @@ export class CatalogAcceptanceReviewer implements AcceptanceReviewer {
             if (!next.granted) throw new ReviewerResourceWait(next.reason);
             activeLease = next.lease;
           }
+          const continued=await this.deps.dispatcher.continueLease(activeLease.id);
+          if (!continued.allowed) { this.deps.dispatcher.release(activeLease.id); activeLease=undefined; throw new ReviewerResourceWait(continued.reason??"Жду разрешённого окна продолжения."); }
           const lease = activeLease;
           const record = { id: randomUUID(), executor: adapter.id, level, startedAt: new Date().toISOString(), leaseId: lease.id, cost: { tier: adapter.profile.costTier, providerCost: 0 } } as NonNullable<AgentTask["reviewRuns"]>[number];
           (task.reviewRuns ??= []).push(record); await input.save();
@@ -91,31 +98,34 @@ export class CatalogAcceptanceReviewer implements AcceptanceReviewer {
             if (!record.endedAt) throw new ReviewerResourceWait("Проверяющая генерация или процесс ещё не завершились; ресурс сохранён до сверки, повтор запрещён.");
             throw error;
           }
-          finally { clearTimeout(timeout); signal.removeEventListener("abort", abort); detached = !record.endedAt && !executionSettled; if (record.endedAt) this.deps.dispatcher.release(lease.id); activeLease = undefined; await input.save(); }
+          finally { clearTimeout(timeout); signal.removeEventListener("abort", abort); detached = !record.endedAt && !executionSettled; if (record.endedAt && level!=="local") this.deps.dispatcher.release(lease.id); if (!record.endedAt || level!=="local") activeLease = undefined; await input.save(); }
         };
         if (level === "local") {
           const key = `${probe.model ?? "unknown"}|${probe.source}|acceptor-v1`;
-          const calibration = await this.deps.store.readState<Record<string, { passed: boolean; at: string; cases: unknown[] }>>("acceptor-calibration", {});
-          if (!calibration[key]) {
-            const cases: unknown[] = [];
+          const calibration = await this.deps.store.readState<Record<string, { passed: boolean; complete?:boolean; at: string; cases: unknown[] }>>("acceptor-calibration", {});
+          if (!calibration[key] || calibration[key].complete===false) {
+            const cases: unknown[] = calibration[key]?.cases??[];
             // Use this task's criterion IDs but replace all actual claims/evidence with controlled examples.
             for (const example of calibrationCases(task)) {
+              if (cases.some((item:any)=>item.name===example.name)) continue;
               try { const result = await run(example.prompt); const got = result.parsed.decision; const statuses = result.parsed.criteria.map(c => c.status);
                 const citationsValid = result.parsed.criteria.every(c => c.status !== "confirmed" || c.evidenceIds.length > 0 && c.evidenceIds.every(id => id === `control-${task.contract!.criteria.findIndex(criterion => criterion.id === c.criterionId)}`));
                 cases.push({ name: example.name, expected: example.expected, got, ok: citationsValid && got === example.expected && (example.expected === "accept" ? statuses.every(s => s === "confirmed") : statuses.some(s => s !== "confirmed")), model: result.model, review: result.parsed }); }
               catch (error) { if (input.signal.aborted || error instanceof ReviewerResourceWait) throw error; cases.push({ name: example.name, expected: example.expected, ok: false, error: String(error) }); }
+              calibration[key]={passed:false,complete:false,at:new Date().toISOString(),cases};
+              await this.deps.store.writeState("acceptor-calibration",calibration);
             }
-            calibration[key] = { passed: cases.every((c: any) => c.ok), at: new Date().toISOString(), cases };
+            calibration[key] = { passed: cases.every((c: any) => c.ok), complete:true, at: new Date().toISOString(), cases };
             await this.deps.store.writeState("acceptor-calibration", calibration);
           }
           if (!calibration[key].passed) return { status: "error", reason: `Пригодность локальной модели ${probe.model ?? "?"} не подтверждена контрольными примерами; требуется сильная модель. Результаты: acceptor-calibration.json (${key}).` };
         }
         const result = await run(prompt);
         return { status: "reviewed", review: result.parsed, reviewer: { executor: adapter.id, model: result.model, level } };
-      } catch (error) { return { status: error instanceof ReviewerResourceWait ? "waiting" : "error", reason: String(error instanceof Error ? error.message : error) }; }
+      } catch (error) { return error instanceof ReviewerResourceWait ? { status:"waiting",reason:error.message,resourceWait:!(/Бюджет|бюджет/.test(error.message)) } : {status:"error",reason:String(error instanceof Error?error.message:error)}; }
       finally { clearInterval(heartbeat); end(); if (activeLease) this.deps.dispatcher.release(activeLease.id); }
     }
-    return { status: "waiting", reason: `Проверяющая модель (${level}) ожидается: ${notes.join("; ") || "нет разрешённых кандидатов"}.` };
+    return { status: "waiting", reason: `Проверяющая модель (${level}) ожидается: ${notes.join("; ") || "нет разрешённых кандидатов"}.`,resourceWait };
   }
 }
 

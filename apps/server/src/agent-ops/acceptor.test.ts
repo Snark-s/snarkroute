@@ -55,10 +55,30 @@ async function until(service: AgentTaskService, id: string, predicate: (task: an
 }
 
 describe("Приёмщик: durable execution → evidence → acceptance", () => {
+  it("accounts active attempts separately from resource waiting, and revises an owner's bounded allocation without resetting counters", async () => {
+    const f=await fixture(); f.service.close(); const {task}=await f.service.submit(f.agent,{...f.spec,budget:{wallMinutes:90,activeMinutes:10,subscriptionRuns:6}});
+    const at=Date.now(); task.attempts=[{n:1,executor:"codex_cli",startedAt:new Date(at-90*60000).toISOString(),endedAt:new Date(at-80*60000).toISOString(),resourceWait:true},{n:2,executor:"codex_cli",startedAt:new Date(at-5*60000).toISOString(),endedAt:new Date(at-3*60000).toISOString(),modelCalls:[{tier:"subscription",provider:"test",model:"test",ok:true,at:new Date(at).toISOString()}]}];
+    task.state="blocked";
+    expect(f.service.budgetUsage(task).activeMinutesUsed).toBe(2); expect(f.service.budgetUsage(task).resourceWaitingMinutes).toBe(10);
+    task.attempts[1].resourceWait=true;
+    expect(f.service.budgetUsage(task).activeMinutesUsed).toBe(2);expect(f.service.budgetUsage(task).resourceWaitingMinutes).toBe(10);
+    await expect(f.service.reviseBudget(task.id,f.agent,{subscriptionRuns:12},"not owner")).rejects.toThrow();
+    await expect(f.service.reviseBudget(task.id,f.owner,{subscriptionRuns:13},"above existing owner limit")).rejects.toThrow();
+    const before=f.service.budgetUsage(task).subscriptionRunsUsed;
+    await f.service.reviseBudget(task.id,f.owner,{subscriptionRuns:12},"Owner-requested complex night work; retain all counters");
+    expect(f.service.budgetUsage(task).subscriptionRunsUsed).toBe(before); expect(task.attempts).toHaveLength(2); expect(task.budgetHistory?.[0].subscriptionRunsUsed).toBe(before);
+    expect(f.service.chainBudget(task.id).limits.subscriptionRuns).toBe(12); expect(task.contract?.originalGoal).toBe(f.spec.goal); expect(task.spec.permissions?.network).toBe(false);
+  });
   it("independently inspects existing output without scheduling an executor", async () => {
     const f = await fixture(); await writeFile(join(f.workspace, "profile.json"), '{"published":true}');
     const { task } = await f.service.submit(f.agent, f.spec, { inspectExisting: true });
     await until(f.service, task.id, t => t.state === "verified"); expect(f.calls()).toBe(0); expect(task.attempts[0].executor).toBe("external");
+  });
+  it("blocks a mandatory strong review at the exhausted task budget instead of repeatedly polling",async()=>{
+    const f=await fixture({review:{review:async()=>({status:"waiting",resourceWait:false,reason:"Проверяющая модель strong: бюджет подписочных запусков исчерпан"})}});
+    await writeFile(join(f.workspace,"profile.json"),'{"published":true}');
+    const {task}=await f.service.submit(f.agent,{...f.spec,budget:{wallMinutes:5,subscriptionRuns:0},review:{forceStrong:true},criteria:[{...f.spec.criteria![0],review:"model"}]},{inspectExisting:true});
+    const done=await until(f.service,task.id,t=>t.state==="blocked");expect(done.reason).toContain("бюджет");expect(f.calls()).toBe(0);expect(done.attempts).toHaveLength(1);
   });
   it("rejects evidence from an earlier attempt, stale observations and unrelated citations", async () => {
     const f = await fixture();

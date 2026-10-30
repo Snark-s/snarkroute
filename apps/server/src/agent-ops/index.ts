@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { freemem, totalmem } from "node:os";
 import { dirname, join } from "node:path";
@@ -44,6 +45,12 @@ const OWN_PROCESS_NAMES = ["ollama", "ollama app", "ollama_llama_server", "llama
 export async function createAgentOps(options: { directory?: string; apiUrl?: string; adapters?: ExecutorAdapter[]; tickMs?: number; telemetry?: () => Promise<Telemetry>; workspaceRoots?: string[]; ledger?: QuotaLedger; activity?: ActivityMonitor } = {}) {
   const directory = options.directory ?? agentOpsDataDirectory();
   const store = new AgentOpsStore(directory);
+  const runtimeVersion:{pid:number;startedAt:string;node:string;gitRevision?:string;branch?:string;dirtySourceFiles:string[];source:string}={pid:process.pid,startedAt:new Date().toISOString(),node:process.version,dirtySourceFiles:[],source:"captured at agent-ops initialization"};
+  if(!options.adapters) try {
+    const git=(args:string[])=>execFileSync("git",args,{cwd:process.cwd(),encoding:"utf8",timeout:5000,windowsHide:true}).trim();
+    runtimeVersion.gitRevision=git(["rev-parse","HEAD"]);runtimeVersion.branch=git(["branch","--show-current"]);
+    runtimeVersion.dirtySourceFiles=git(["diff","--name-only","--","src","apps/server/src"]).split(/\r?\n/).filter(Boolean).slice(0,50);
+  }catch{/* Git metadata unavailable does not imply another loaded revision. */}
   const supervisor = await import("../services/local-runtime-supervisor");
   const registryModule = await import("../services/local-runtime-registry");
 
@@ -129,7 +136,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     new CodexExecutor({ auth: force => subscriptions[1].chatGptSubscription().auth(force), model: () => process.env.AGENT_OPS_CODEX_MODEL?.trim() || undefined }),
     new ClaudeCodeExecutor({ auth: force => subscriptions[0].claudeSubscription().auth(force), model: () => process.env.AGENT_OPS_CLAUDE_MODEL?.trim() || "sonnet" })
   ];
-  const buzhaTools = new BuzhaTools({ delegate: async (task, args) => {
+  const buzhaTools = new BuzhaTools({ effect: (task, key, phase, tool, reason) => { if (!tasks) throw new Error("Общая очередь ещё не подключена."); return tasks.toolEffect(task.id, tool, key, phase, reason); }, delegate: async (task, args) => {
     if (!tasks || !task.workdir || typeof args.goal !== "string" || !args.goal.trim() || args.goal.length > 10000) throw new Error("Нужна конкретная подзадача и общая очередь.");
     const { createHash } = await import("node:crypto");
     const key = createHash("sha256").update(args.goal).digest("hex").slice(0, 16), workspace = join(task.workdir, "subtasks", key);
@@ -144,7 +151,8 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     return { taskId: child.id, state: child.state, workdir: workspace, result: child.state === "verified" ? child.result : undefined, next: child.state === "verified" ? "Результат принят общим Приёмщиком." : "Общая очередь ждёт независимой приёмки подзадачи." };
   } });
   if (!options.adapters) for (const tier of ["local", "codex", "claude"] as const) adapters.push(new BuzhaExecutor(tier, {
-    model: pickBuzhaTextModel, runText: (model, prompt, signal) => textRunner ? textRunner(model, prompt, signal) : Promise.resolve({ ok: false, error: "Model Gateway ещё не подключён." }), memory: () => buzhaMemory(), tools: buzhaTools
+    model: pickBuzhaTextModel, runText: (model, prompt, signal) => textRunner ? textRunner(model, prompt, signal) : Promise.resolve({ ok: false, error: "Model Gateway ещё не подключён." }), memory: () => buzhaMemory(), tools: buzhaTools,
+    beforeInference:task=>task.leaseId?dispatcher.continueLease(task.leaseId):Promise.resolve({allowed:false,reason:"Резерв задачи не подтверждён."})
   }));
 
   tasks = new AgentTaskService({ store, registry, ledger, locks, dispatcher, adapters, mode, apiUrl: options.apiUrl ?? "http://127.0.0.1:4317",
@@ -155,7 +163,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
       local: new LocalRouteExecutor({ pickModel: prompt => pickLocalTextModel(prompt, process.env.AGENT_OPS_REVIEW_MODEL ?? "qwen"), runText: (model, prompt, signal) => textRunner ? textRunner(model, prompt, signal) : Promise.resolve({ ok: false, error: "Исполнитель маршрутов ещё не подключён." }) }) }) });
   await tasks.init();
   const taskService = tasks;
-  const buzha = new BuzhaAgentService({ tasks: taskService, registry });
+  const buzha = new BuzhaAgentService({ tasks: taskService, registry, runtimeVersion });
   if (!options.adapters) buzha.start();
   const apiUrl = options.apiUrl ?? "http://127.0.0.1:4317";
 
@@ -223,6 +231,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     const all = taskService.list({ limit: 10_000 });
     const counts = all.reduce<Record<string, number>>((sum, task) => { sum[task.state] = (sum[task.state] ?? 0) + 1; return sum; }, {});
     return {
+      runtimeVersion,
       mode: effective,
       schedule: modeState.schedule,
       manual: modeState.manual ?? null,
@@ -423,7 +432,7 @@ function defaultToolGroups(): ToolGroup[] {
   return [
     { id: "acceptor", title: "Приёмщик", summary: "Долговечная приёмка по критериям и независимым доказательствам; продолжение через общую очередь, пауза, отмена, журнал внешних действий. Модельная проверка может ждать ресурсов.", cost: "mixed",
       tools: ["agent_acceptor_inspect", "agent_acceptor_status", "agent_delegate_verify", "agent_delegate_pause", "agent_delegate_resume", "agent_task_effect", "agent_task_amend"], available: async () => true },
-    { id: "buzha", title: "Бужа · постоянный агент", summary: "Общая очередь, личность и история из существующей SQLite, Profile 13 через SnarkBridge, ограниченные инструменты, общий Приёмщик. Чат действительно создаёт задачу.", cost: "mixed", tools: ["buzha_message", "buzha_status", "buzha_task", "buzha_control"], available: async () => true },
+    { id: "buzha", title: "Бужа · постоянный агент", summary: "Общая очередь, каноническая SQLite, Profile 13 и рабочие инструменты через централизованную политику SnarkBridge, общий Приёмщик. Чат создаёт задачу. Вход планового события подготовлен; без подтверждения обеих сторон не активен.", cost: "mixed", tools: ["buzha_message", "buzha_status", "buzha_task", "buzha_control","buzha_schedule_trigger"], available: async () => true },
     { id: "agent_ops", title: "Делегирование и ресурсы", summary: "Каталог, поручения исполнителям, резервы GPU/RAM, режим компьютера.", cost: "none",
       tools: ["agent_whoami", "agent_capabilities", "agent_capability_detail", "agent_delegate_submit", "agent_delegate_status", "agent_delegate_result", "agent_delegate_cancel", "agent_delegate_list", "agent_resource_acquire", "agent_resource_release", "computer_mode_status"], available: async () => true },
     { id: "images", title: "Изображения (FLUX.3, Qwen edit)", summary: "Генерация и точная правка изображений локально через Model Gateway.", cost: "local", resources: "тяжёлая GPU-задача, резерв через диспетчер",

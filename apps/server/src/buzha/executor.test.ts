@@ -40,6 +40,29 @@ async function fixture() {
 }
 async function until(service: AgentTaskService, id: string) { for (let n = 0; n < 500; n++) { service.kick(); await service.settle(); const task = service.get(id)!; if (["verified", "blocked", "failed"].includes(task.state)) return task; await new Promise(r => setTimeout(r, 10)); } throw new Error(service.get(id)?.reason); }
 describe("persistent Buzha executor and shared Acceptor", () => {
+  it("reserves the actual local runtime once and rechecks owner priority before every generation",async()=>{
+    const f=await fixture();let admitted=0,generated=0;
+    const actor=new BuzhaExecutor("local",{model:async()=>({provider:"local_openai",providerModelId:"qwen",displayName:"Qwen",runtimeId:"ollama",contextTokens:8192}),tools:f.tools,memory:async()=>({}),beforeInference:async()=>++admitted===1?{allowed:true}:{allowed:false,reason:"Owner needs GPU"},runText:async()=>{generated++;return {ok:true,text:JSON.stringify({actions:[{tool:"bridge_status",arguments:{}}],done:false,summary:"Read"})};}});
+    expect(actor.resourceRequest({} as AgentTask,{installed:true,authenticated:true,runtimeId:"ollama",source:"test",checkedAt:""})).toMatchObject({class:"heavy",runtimeId:"ollama"});
+    const result=await actor.run({task:{id:"test",agentId:"app:buzha",spec:f.spec,attempts:[{n:1}]} as AgentTask,prompt:"Read bridge",brief:"",workdir:f.workspace,env:{},signal:new AbortController().signal,timeoutMs:10000,maxTurns:3,log:()=>{},onPid:()=>{}});
+    expect(result.waitForResources).toBe("Owner needs GPU");expect(generated).toBe(1);expect(admitted).toBe(2);
+  });
+  it("persists action reservations before dispatch and prevents a new action while outcome is unknown", async () => {
+    const f = await fixture(); f.service.close();
+    const { task } = await f.service.submit(f.registry.app("buzha", "Бужа"), f.spec);
+    // Controlled service-state fixture; no actual executor or external action.
+    task.state = "running"; task.executor = "buzha_codex"; task.attempts = [{ n: 1, executor: "buzha_codex", startedAt: new Date().toISOString(), toolCalls: [] }];
+    expect((await f.service.toolEffect(task.id, "browser_click", "tool:first", "begin")).execute).toBe(true);
+    expect((await f.service.toolEffect(task.id, "browser_click", "tool:first", "begin")).execute).toBe(false);
+    await expect(f.service.toolEffect(task.id, "browser_click", "tool:second", "begin")).rejects.toThrow(/неизвестным исходом/);
+    await f.service.toolEffect(task.id, "browser_click", "tool:first", "reconcile"); expect(task.effects?.[0].state).toBe("unknown");
+    await f.service.toolEffect(task.id, "browser_click", "tool:first", "refused", "Central guard proved no dispatch");
+    expect((await f.service.toolEffect(task.id, "browser_click", "tool:second", "begin")).execute).toBe(true);
+    task.attempts[0].toolCalls!.push({ id: "receipt", effectKey: "tool:second", attempt: 1, tool: "browser_click", arguments: {}, at: new Date().toISOString(), ok: true, result: { action: "clicked" } });
+    await f.service.toolEffect(task.id, "browser_click", "tool:second", "reconcile");
+    const repeated = await f.service.toolEffect(task.id, "browser_click", "tool:second", "begin"); expect(repeated.execute).toBe(false); expect(repeated.state).toBe("confirmed"); expect(repeated.result).toEqual({ action: "clicked" });
+    const saved = JSON.parse(await readFile(join(f.workspace, "..", "store", "tasks", task.id, "task.json"), "utf8")); expect(saved.effects.map((e: any) => e.state)).toEqual(["refused", "confirmed"]);
+  });
   it("performs tools, consumes observations, automatically repairs and is independently accepted", async () => {
     const f = await fixture(); const { task } = await f.service.submit(f.registry.app("buzha", "Бужа"), f.spec);
     const final = await until(f.service, task.id); expect(final.state).toBe("verified"); expect(final.attempts).toHaveLength(2); expect(final.reviews?.map(r => r.decision)).toEqual(["continue", "accept"]);
