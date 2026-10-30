@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, ArrowUpRight, Ban, CalendarClock, Cpu, FileText, ListChecks, LoaderCircle, Lock, Plus, ScrollText, Trash2 } from "lucide-react";
+import { continueWithAdditionalAttempt } from "./task-attempt-control";
 
 type Mode = "owner_busy" | "background" | "free";
 type ScheduleRule = { id: string; days: number[]; from: string; to: string; mode: Mode; label?: string };
@@ -122,6 +123,21 @@ async function call<T>(apiBase: string, path: string, init?: RequestInit, retry 
   if (response.status === 401 && signedIn && retry) { storeSession(undefined); ownerSession = undefined; throw new OwnerLoginRequired(); }
   if (!response.ok || body.ok === false) throw new Error(body.error || `HTTP ${response.status}`);
   return body;
+}
+
+export function AdditionalAttemptControl({apiBase,task,onDone}:{apiBase:string;task:{id:string;state:string;taskBudget?:{attemptsUsed:number;attemptsLimit:number;subscriptionRunsUsed:number;subscriptionRunsLimit:number}};onDone:()=>void}) {
+  const [note,setNote]=useState("Продолжи эту же задачу с сохранением истории, использованных шагов, квитанций и защиты от повторов. Сначала заново проверь фактическое состояние разрешёнными инструментами. Заверши незакрытые критерии исходного поручения; защищённый пункт не отменяет работу над независимыми разрешёнными пунктами. Старый отчёт и квитанция команды не доказывают сохранённый результат. Не расширяй полномочия и не создавай новую задачу для обнуления бюджета. Работай в пределах оставшихся подписочных шагов, сохрани минимум один шаг общему Приёмщику и передай результат на независимую проверку."),[busy,setBusy]=useState(false),[error,setError]=useState("");
+  if(task.state!=="blocked"||!task.taskBudget)return null;
+  const budget=task.taskBudget,extra=budget.attemptsUsed>=budget.attemptsLimit;
+  return <details><summary>{extra?"Разрешить одну дополнительную попытку":"Продолжить с уточнением"}</summary>
+    <p>Использовано попыток: {budget.attemptsUsed}/{budget.attemptsLimit}. Подписочные шаги: {budget.subscriptionRunsUsed}/{budget.subscriptionRunsLimit}.</p>
+    <p>{extra?`Предел попыток станет ${budget.attemptsLimit+1}. `:"Выделенная попытка ещё доступна. "}История, использованные шаги и общий подписочный лимит сохранятся. Результат проверит общий Приёмщик.</p>
+    <form onSubmit={event=>{event.preventDefault();if(busy)return;setBusy(true);setError("");void continueWithAdditionalAttempt(task.id,note,(path,init)=>call(apiBase,path,init)).catch(reason=>setError(reason instanceof Error?reason.message:String(reason))).finally(()=>{setBusy(false);onDone();});}}>
+      <textarea aria-label={`Уточнение владельца для ${task.id}`} placeholder="Основание владельца и конкретный следующий шаг исполнителю" rows={5} maxLength={6000} required value={note} onChange={event=>setNote(event.target.value)} />
+      <button type="submit" className="secretaryButton" disabled={busy||!note.trim()}>{busy?"Сохраняю решение…":extra?"Разрешить одну попытку и продолжить":"Продолжить с уточнением"}</button>
+      {error?<p className="errorBanner" role="alert">{error}</p>:null}
+    </form>
+  </details>;
 }
 
 /** One poller shared by the top bar and the Agents panel. */
@@ -266,6 +282,7 @@ export function AgentOpsPanel({ apiBase }: { apiBase: string }) {
       </> : null}
       {["awaiting_verification", "unknown_outcome"].includes(task.state) ? <button type="button" className="secretaryButton" onClick={() => void act(`resolve:${task.id}`, () => call(apiBase, `/tasks/${task.id}/resolve`, { method: "POST", body: JSON.stringify({ action: "mark_verified", note: "проверено владельцем в Мастерской" }) }))}>Я проверил: принять</button> : null}
     </div>
+    <AdditionalAttemptControl apiBase={apiBase} task={task} onDone={()=>{changed();if(open===task.id)void loadDetail(task.id).catch(reason=>setNotice(String(reason)));}} />
     {open === task.id && detail?.task.id === task.id ? <div className="opsDetail">
       {detail.task.contract ? <>
         <p className="secretaryContext"><strong>Ожидаемый результат:</strong> {detail.task.contract.expectedResult} · версия {detail.task.contract.revision}</p>
