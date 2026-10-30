@@ -5,12 +5,14 @@ import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 const root='Y:/Приложения/Бужа/browser-extension-review-2026-10-29';
 const {pageOperation}=await import(pathToFileURL(root+'/src/page-operation.js'));
-const {publicUrl}=await import(pathToFileURL(root+'/src/guard.js'));
+const {publicUrl,publicTitle}=await import(pathToFileURL(root+'/src/guard.js'));
 const {chromium}=createRequire('I:/PersonaCore/extension/package.json')('playwright');
 test('visible submit labels, image metadata and safe Gmail message URLs; private input values stay excluded',async()=>{
   assert.equal(publicUrl('https://mail.google.com/mail/u/0/#sent/ABCDEFGHIJKLMNOP'),'https://mail.google.com/mail/u/0/#sent/ABCDEFGHIJKLMNOP');
   assert.equal(publicUrl('https://mail.google.com/mail/u/0/#access_token=secret'),'https://mail.google.com/mail/u/0/');
   assert.equal(publicUrl('https://accounts.google.com/#sent/ABCDEFGHIJKLMNOP'),'https://accounts.google.com/');
+  assert.equal(publicTitle('accounts.google.com/info/sessionexpired?TL=private-auth-marker&rart=private-secondary-marker'),'https://accounts.google.com/info/sessionexpired');
+  assert.equal(publicTitle('Портфолио Бужи'),'Портфолио Бужи');
   const browser=await chromium.launch({channel:'chrome',headless:true});
   try{
     const page=await browser.newPage();

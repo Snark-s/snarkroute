@@ -55,6 +55,41 @@ async function until(service: AgentTaskService, id: string, predicate: (task: an
 }
 
 describe("Приёмщик: durable execution → evidence → acceptance", () => {
+  it("escalates creative judgement from local to strong without forcing strong to escalate forever",async()=>{
+    const f=await fixture();f.service.close();const {task}=await f.service.submit(f.agent,f.spec);
+    expect(reviewPrompt(task,[],[],"local")).toContain("escalate");expect(reviewPrompt(task,[],[],"strong")).toContain("strong review level");expect(reviewPrompt(task,[],[],"strong")).not.toContain("Ambiguity or creative/high-stakes evaluation requires escalate");
+  });
+  it("uses an independently accepted direct child in the same chain, rejecting an unrelated accepted task",async()=>{
+    const f=await fixture();f.service.close();await writeFile(join(f.workspace,"profile.json"),'{"published":true}');
+    const {task:parent}=await f.service.submit(f.agent,f.spec,{inspectExisting:true});
+    const {task:child}=await f.service.submit(f.owner,{...f.spec,goal:"Independent direct child fixture",parentTaskId:parent.id},{inspectExisting:true});
+    await f.service.verify(child.id,f.owner);expect(child.state).toBe("verified");
+    await f.service.amend(parent.id,f.owner,{checks:[{type:"task_verified",taskId:child.id}]},"Use the accepted direct child evidence");await f.service.verify(parent.id,f.owner);expect(parent.state).toBe("verified");
+    child.evidence?.forEach(e=>e.observedAt=new Date(Date.now()-3600000).toISOString());await f.service.amend(parent.id,f.owner,{expectedResult:parent.spec.expectedResult},"Do not relabel stale child evidence as fresh");await f.service.verify(parent.id,f.owner);expect(parent.result?.checks[0].ok).toBe(false);expect(parent.state).not.toBe("verified");
+    const {task:other}=await f.service.submit(f.owner,{...f.spec,goal:"Unrelated independently accepted fixture"},{inspectExisting:true});await f.service.verify(other.id,f.owner);
+    await f.service.amend(parent.id,f.owner,{checks:[{type:"task_verified",taskId:other.id}]},"An unrelated task is not proof");await f.service.verify(parent.id,f.owner);expect(parent.state).not.toBe("verified");expect(parent.result?.checks[0].ok).toBe(false);expect(f.calls()).toBe(0);
+  });
+  it("passes the submitting owner's new continuation into execution without removing earlier feedback",async()=>{
+    const f=await fixture();f.service.close();const {task}=await f.service.submit(f.agent,f.spec);task.state="blocked";task.nextStep="Earlier independent review";
+    await f.service.resolve(task.id,f.owner,"continue","Extension reloaded; use new selectors and continue independent fields");
+    expect(task.nextStep).toContain("Extension reloaded");expect(task.nextStep).toContain("Earlier independent review");
+  });
+  it("allows only an explicitly requested single extra owner attempt, preserving attempts and repeat detection",async()=>{
+    const f=await fixture();f.service.close();const {task}=await f.service.submit(f.agent,f.spec);task.state="blocked";
+    task.attempts=[{n:1,executor:"codex_cli",startedAt:new Date().toISOString(),endedAt:new Date().toISOString()}];
+    await f.service.reviseBudget(task.id,f.owner,{maxAttempts:4},"Explicit owner authorization for one corrected approach");
+    expect(task.attempts).toHaveLength(1);expect(task.spec.retry?.maxAttempts).toBe(4);expect(task.spec.retry?.sameFailureLimit).toBe(2);
+    expect(task.budgetHistory?.at(-1)).toMatchObject({previousMaxAttempts:3,nextMaxAttempts:4,attemptsUsed:1});
+    await expect(f.service.reviseBudget(task.id,f.owner,{maxAttempts:9},"unbounded jump")).rejects.toThrow();
+  });
+  it("honors a saved owner ceiling of 24 without resetting prior steps or changing retry limits",async()=>{
+    const f=await fixture();f.service.close();const {task}=await f.service.submit(f.agent,f.spec);task.state="blocked";
+    task.attempts=[{n:1,executor:"codex_cli",startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),modelCalls:Array.from({length:12},(_,i)=>({id:String(i),at:new Date().toISOString(),model:"real-id",provider:"subscription",tier:"subscription" as const,ok:true}))}];
+    f.registry.restore({policies:{policies:{owner:{...f.owner.policy,chainBudget:{...f.owner.policy.chainBudget,subscriptionRuns:24}}}}});
+    await f.service.reviseBudget(task.id,f.registry.owner(),{subscriptionRuns:24},"Explicit owner's approved ceiling");
+    expect(f.service.budgetUsage(task).subscriptionRunsUsed).toBe(12);expect(f.service.chainBudget(task.id).subscriptionRunsLeft).toBe(12);expect(task.spec.retry?.maxAttempts).toBe(3);
+    await expect(f.service.reviseBudget(task.id,f.registry.owner(),{subscriptionRuns:25},"over ceiling")).rejects.toThrow();
+  });
   it("accounts active attempts separately from resource waiting, and revises an owner's bounded allocation without resetting counters", async () => {
     const f=await fixture(); f.service.close(); const {task}=await f.service.submit(f.agent,{...f.spec,budget:{wallMinutes:90,activeMinutes:10,subscriptionRuns:6}});
     const at=Date.now(); task.attempts=[{n:1,executor:"codex_cli",startedAt:new Date(at-90*60000).toISOString(),endedAt:new Date(at-80*60000).toISOString(),resourceWait:true},{n:2,executor:"codex_cli",startedAt:new Date(at-5*60000).toISOString(),endedAt:new Date(at-3*60000).toISOString(),modelCalls:[{tier:"subscription",provider:"test",model:"test",ok:true,at:new Date(at).toISOString()}]}];

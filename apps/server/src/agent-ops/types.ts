@@ -61,12 +61,14 @@ export type TaskCheck =
   | { type: "file_exists"; path: string }
   | { type: "file_contains"; path: string; text: string }
   | { type: "file_content"; path: string }
+  | { type: "image"; path:string }
   | { type: "http"; url: string; status?: number; text?: string; json?: { path: string; equals: string | number | boolean | null }; timeoutMs?: number }
   | { type: "process"; pid: number; image?: string }
   | { type: "tool"; tool: string; arguments?: Record<string, unknown>; json?: { path: string; equals: string | number | boolean | null }; text?: string }
   | { type: "tool_used"; tool: string; effectKey?: string }
   | { type: "tool_observations" }
   | { type: "acceptor_cycle" }
+  | { type: "task_verified"; taskId:string }
   | { type: "tool_scope"; allowed: string[] };
 // Re-observe the read tools used by an actor, rather than trusting its saved report.
 export type AgentToolCall = { id: string; attempt: number; at: string; tool: string; arguments: Record<string, unknown>; ok: boolean; result: unknown; provider?: string; model?: string; effectKey?: string };
@@ -75,12 +77,13 @@ export type ModelCall = { id?: string; at: string; provider: string; model: stri
 export type TaskCriterion = { id: string; description: string; required?: boolean; checkIndexes?: number[]; review: "machine" | "model" | "unverifiable"; unverifiableReason?: string; maxAgeMs?: number };
 export type TaskContract = { version: 1; revision: number; originalGoal: string; expectedResult: string; criteria: TaskCriterion[]; amendments: Array<{ at: string; by: string; note: string; previous: TaskSpec }> };
 export type CriterionVerdict = { criterionId: string; status: "confirmed" | "missing" | "unverifiable"; evidenceIds: string[]; reason: string };
-export type TaskEvidence = { id: string; attempt: number; revision: number; criterionId: string; checkIndex: number; source: string; observedAt: string; independent: true; ok: boolean; detail: string; content?: string; truncated?: boolean; digest: string };
+export type ImageInput={path:string;sha256:string;mime:"image/png"|"image/jpeg"};
+export type TaskEvidence = { id: string; attempt: number; revision: number; criterionId: string; checkIndex: number; source: string; observedAt: string; independent: true; ok: boolean; detail: string; content?: string; truncated?: boolean; digest: string;imageInput?:ImageInput };
 export type AcceptorDecision = "accept" | "continue" | "change_approach" | "wait_resource" | "blocked" | "owner_action";
 export type AcceptanceReview = { id: string; at: string; attempt: number; revision: number; decision: AcceptorDecision; reason: string; nextStep: string; criteria: CriterionVerdict[]; failureSignature: string; resultFingerprint: string; strategy: string; reviewer?: { executor: string; model?: string; level: "local" | "strong" }; evidenceIds: string[] };
 export type TaskEffect = { key: string; description: string; check: TaskCheck };
 export type EffectRecord = TaskEffect & { state: "pending" | "started" | "unknown" | "confirmed" | "refused"; attempt?: number; startedAt?: string; checkedAt?: string; detail?: string };
-export type ReviewRun = { id: string; executor: string; model?: string; level: "local" | "strong"; startedAt: string; endedAt?: string; outcome?: string; pid?: number; pidImage?: string; error?: string; response?: string; leaseId?: string; usage?: Record<string, number>; cost?: { tier: "local" | "subscription"; providerCost: 0 } };
+export type ReviewRun = { id: string; executor: string; model?: string; level: "local" | "strong"; startedAt: string; endedAt?: string; outcome?: string; pid?: number; pidImage?: string; error?: string; response?: string; leaseId?: string; usage?: Record<string, number>; cost?: { tier: "local" | "subscription"; providerCost: 0 };images?:ImageInput[] };
 
 export type TaskKind = "code_edit" | "code_review" | "text" | "analysis" | "agent_tool";
 
@@ -116,7 +119,7 @@ export type TaskSpec = {
   allowDuplicate?: boolean;
 };
 
-export type CheckResult = { check: TaskCheck; ok: boolean; detail: string; durationMs: number; content?: string; truncated?: boolean; observedAt?: string; source?: string };
+export type CheckResult = { check: TaskCheck; ok: boolean; detail: string; durationMs: number; content?: string; truncated?: boolean; observedAt?: string; source?: string;imageInput?:ImageInput };
 
 export type Attempt = {
   n: number;
@@ -199,7 +202,7 @@ export type AgentTask = {
   strategy?: string;
   dependsOn?: string[];
   budgetPolicyId?: string;
-  budgetHistory?: Array<{ at: string; by: string; reason: string; previous: TaskSpec["budget"]; next: TaskSpec["budget"]; subscriptionRunsUsed: number }>;
+  budgetHistory?: Array<{ at: string; by: string; reason: string; previous: TaskSpec["budget"]; next: TaskSpec["budget"]; subscriptionRunsUsed: number;previousMaxAttempts?:number;nextMaxAttempts?:number;attemptsUsed?:number }>;
   waiting?: { since: string; minutes: number; resourceMinutes: number; pausedMinutes: number; reason?: "resource"|"executor" };
 };
 

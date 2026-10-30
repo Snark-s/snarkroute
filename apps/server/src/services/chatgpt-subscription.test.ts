@@ -19,6 +19,11 @@ import {
 import { ChatGptSubscriptionService } from "./chatgpt-subscription";
 import { modelCostTier } from "./model-routing-policy";
 
+it("attaches review images as explicit inputs while all native tools remain disabled",()=>{
+  const args=codexExecArgs({images:["C:/fixture/cover.jpg","C:/fixture/sticker.png"]},"C:/fixture/instructions.md","C:/fixture");
+  expect(args.filter(a=>a==="--image")).toHaveLength(2);expect(args).toContain("C:/fixture/cover.jpg");expect(args).toContain("features.view_image=false");expect(args).toContain("features.shell_tool=false");
+});
+
 type Call = { command: string; args: string[]; env: NodeJS.ProcessEnv; stdin: string };
 
 function fakeSpawn(lines: (call: Call) => unknown[], calls: Call[] = [], options: { hang?: boolean; exitCode?: number } = {}) {

@@ -252,15 +252,18 @@ export class AgentTaskService {
 
   // ---------------------------------------------------------------- control
 
-  async reviseBudget(id: string, identity: AgentIdentity, patch: { wallMinutes?: number; activeMinutes?: number; subscriptionRuns?: number }, reason: string) {
+  async reviseBudget(id: string, identity: AgentIdentity, patch: { wallMinutes?: number; activeMinutes?: number; subscriptionRuns?: number; maxAttempts?:number }, reason: string) {
     if (identity.kind !== "owner" || !reason?.trim()) throw new AgentOpsError("OWNER_ONLY", "Пересмотреть бюджет может только владелец с основанием; счётчики сохраняются.", {}, 403);
     const task=this.require(id); if (this.running.has(id) || this.verifying.has(id) || this.watching.has(id)) throw new AgentOpsError("STILL_RUNNING", "Бюджет меняется между этапами.");
-    if (Object.keys(patch).some(key=>!["wallMinutes","activeMinutes","subscriptionRuns"].includes(key))) throw new AgentOpsError("BAD_SPEC", "Меняется только распределение времени и подписочных шагов, не полномочия или защита от циклов.");
-    const next={...task.spec.budget,...patch}; normalizeSpec({...task.spec,budget:next});
+    if (Object.keys(patch).some(key=>!["wallMinutes","activeMinutes","subscriptionRuns","maxAttempts"].includes(key))) throw new AgentOpsError("BAD_SPEC", "Меняется только бюджет, не полномочия или правила выявления повторов.");
+    const {maxAttempts,...allocation}=patch, previousMaxAttempts=task.spec.retry?.maxAttempts??4;
+    if(maxAttempts!==undefined && maxAttempts!==previousMaxAttempts+1)throw new AgentOpsError("BAD_SPEC","Владелец может явно выделить только одну дополнительную попытку за пересмотр; история и защита повторов сохраняются.");
+    const next={...task.spec.budget,...allocation}; normalizeSpec({...task.spec,budget:next,retry:{...task.spec.retry,maxAttempts:maxAttempts??previousMaxAttempts}});
     if ((next.wallMinutes??DEFAULT_WALL_MINUTES)>identity.policy.chainBudget.wallMinutes || (next.activeMinutes??0)>identity.policy.chainBudget.wallMinutes || (next.subscriptionRuns??0)>identity.policy.chainBudget.subscriptionRuns) throw new AgentOpsError("CHAIN_BUDGET_EXCEEDED", "Пересмотр не может превышать действующий лимит владельца.");
     const used=this.budgetUsage(task).subscriptionRunsUsed;
-    (task.budgetHistory??=[]).push({at:this.iso(),by:identity.id,reason,previous:structuredClone(task.spec.budget),next:structuredClone(next),subscriptionRunsUsed:used});
+    (task.budgetHistory??=[]).push({at:this.iso(),by:identity.id,reason,previous:structuredClone(task.spec.budget),next:structuredClone(next),subscriptionRunsUsed:used,...(maxAttempts!==undefined?{previousMaxAttempts,nextMaxAttempts:maxAttempts,attemptsUsed:task.attempts.filter(a=>!a.resourceWait&&a.executor!=="external").length}:{})});
     task.spec.budget=next; task.budgetPolicyId=identity.policy.id;
+    if(maxAttempts!==undefined)task.spec.retry={...task.spec.retry,maxAttempts};
     await this.persist(task,"budget_revised",`${reason}; использовано ${used} подписочных шагов, счётчики не обнулены.`);
     return task;
   }
@@ -403,6 +406,7 @@ export class AgentTaskService {
     } else {
       if (!(await this.reconcileEffects(task))) throw new AgentOpsError("UNKNOWN_EFFECT", "Исход внешнего действия неизвестен. Сначала восстановите его состояние через журнал действий.");
       if (action === "continue") task.spec.onPartial = "continue";
+      if(note?.trim())task.nextStep=`Уточнение поручителя (${identity.id}): ${note.trim()}${task.nextStep?`\nПредыдущий следующий шаг и незавершённые требования: ${task.nextStep}`:""}`;
       if (action === "requeue") task.excludedExecutors = {};
       this.deps.locks.releaseOwner(task.id);
       await this.setState(task, "queued", `Возвращена в очередь (${identity.id})${note ? `: ${note}` : ""}.`, "resolved");
@@ -831,6 +835,14 @@ export class AgentTaskService {
   }
 
   private async check(task: AgentTask, check: NonNullable<TaskSpec["checks"]>[number], signal?: AbortSignal) {
+    if(check.type==="task_verified"){
+      const child=this.tasks.get(check.taskId),related=Boolean(child&&child.chain.parentTaskId===task.id&&child.chain.rootTaskId===task.chain.rootTaskId);
+      const acceptedIds=new Set(child?.reviews?.at(-1)?.evidenceIds??[]),acceptedEvidence=child?.evidence?.filter(e=>acceptedIds.has(e.id)&&e.revision===child.contract?.revision&&e.attempt===child.attempts.at(-1)?.n)??[];
+      const index=task.spec.checks?.indexOf(check)??-1,ages=task.contract?.criteria.filter(c=>c.checkIndexes?.includes(index)).map(c=>c.maxAgeMs??300000)??[],maxAge=ages.length?Math.min(...ages):300000;
+      const fresh=acceptedEvidence.length>0&&acceptedEvidence.every(e=>e.ok&&this.now()-Date.parse(e.observedAt)<=maxAge),ok=related&&child?.state==="verified"&&fresh;
+      const content=JSON.stringify({child:related?{id:child!.id,state:child!.state,reason:child!.reason,finishedAt:child!.finishedAt,summary:child!.result?.summary.slice(0,6000),actualModel:child!.attempts.at(-1)?.model,imageViews:child!.attempts.flatMap(a=>a.toolCalls??[]).filter(c=>c.tool==="view_image").map(c=>({source:c.result,arguments:c.arguments,ok:c.ok})),criteria:child!.reviews?.at(-1)?.criteria,evidence:acceptedEvidence.map(e=>({id:e.id,source:e.source,observedAt:e.observedAt,ok:e.ok,detail:e.detail,content:e.content?.slice(0,2000)}))}:null,note:"Only fresh evidence cited by the current acceptance of a direct child in this chain is valid; no executor permissions or budget are granted."});
+      return {check,ok,detail:ok?"Прямая подзадача принята; её текущие доказательства свежие, общий бюджет сохранён.":related&&child?.state==="verified"&&!fresh?"Доказательства принятой подзадачи устарели; перепроверить её источники без повторного исполнения.":"Прямая подзадача той же цепочки ещё не принята либо не принадлежит этому поручению.",content:content.slice(0,12000),truncated:content.length>12000,source:"SnarkRoute:verified-child-evidence",observedAt:this.iso(),durationMs:0};
+    }
     if (check.type === "acceptor_cycle") {
       const current = task.attempts.at(-1)!, prior = task.reviews?.find(review => ["continue", "change_approach"].includes(review.decision) && review.attempt < current.n && review.criteria.some(c => c.status !== "confirmed"));
       const ok = Boolean(prior && Date.parse(current.startedAt) >= Date.parse(prior.at));
@@ -976,7 +988,7 @@ export function normalizeSpec(input: TaskSpec): TaskSpec {
   const checks = structuredClone(input.checks ?? []);
   for (const check of checks) {
     if (check.type === "command" && (!check.command?.trim() || /[\r\n]/.test(check.command))) throw new AgentOpsError("BAD_SPEC", "Команда проверки должна быть одной программой без переводов строк.", {}, 400);
-    if (!["command", "file_exists", "file_contains", "file_content", "http", "process", "tool", "tool_used", "tool_observations", "acceptor_cycle", "tool_scope"].includes(check.type)) throw new AgentOpsError("BAD_SPEC", "Неизвестный тип проверки.", {}, 400);
+    if (!["command", "file_exists", "file_contains", "file_content", "image", "http", "process", "tool", "tool_used", "tool_observations", "acceptor_cycle", "tool_scope", "task_verified"].includes(check.type)) throw new AgentOpsError("BAD_SPEC", "Неизвестный тип проверки.", {}, 400);
     if (check.type === "http") { const url = new URL(check.url); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new AgentOpsError("BAD_SPEC", "HTTP проверка требует URL без учётных данных.", {}, 400); }
   }
   const ids = new Set<string>();
@@ -988,7 +1000,7 @@ export function normalizeSpec(input: TaskSpec): TaskSpec {
   }
   const positive = (value: number | undefined, min: number, max: number) => value === undefined || Number.isFinite(value) && value >= min && value <= max;
   if (!positive(input.retry?.maxAttempts, 1, 100) || !positive(input.retry?.sameFailureLimit, 1, 20) || !positive(input.retry?.delayMs, 10, 3600000) || !positive(input.retry?.maxDelayMs, 10, 3600000)
-    || !positive(input.budget?.wallMinutes, 1, 600) || !positive(input.budget?.activeMinutes, 1, 600) || !positive(input.budget?.subscriptionRuns, 0, 20) || !positive(input.budget?.maxTurns, 1, 200) || !positive(input.review?.maxRuns, 1, 100) || !positive(input.review?.timeoutMs, 1000, 900000)) throw new AgentOpsError("BAD_SPEC", "Некорректный бюджет или настройка повторов.", {}, 400);
+    || !positive(input.budget?.wallMinutes, 1, 600) || !positive(input.budget?.activeMinutes, 1, 600) || !positive(input.budget?.subscriptionRuns, 0, 24) || !positive(input.budget?.maxTurns, 1, 200) || !positive(input.review?.maxRuns, 1, 100) || !positive(input.review?.timeoutMs, 1000, 900000)) throw new AgentOpsError("BAD_SPEC", "Некорректный бюджет или настройка повторов.", {}, 400);
   if (input.budget?.providerCost !== undefined && input.budget.providerCost !== 0) throw new AgentOpsError("BAD_SPEC", "Приёмщик не разрешает платные API; providerCost должен быть 0.", {}, 400);
   if (Object.values(input.resourceLimits ?? {}).some(value => !positive(value, 0, 1000000))) throw new AgentOpsError("BAD_SPEC", "Некорректные ограничения ресурсов.", {}, 400);
   if (input.effects && (input.effects.length > 30 || new Set(input.effects.map(e => e.key)).size !== input.effects.length || input.effects.some(e => !/^[a-zA-Z0-9_.-]{1,80}$/.test(e.key) || !e.description?.trim() || !e.check))) throw new AgentOpsError("BAD_SPEC", "Некорректный журнал внешних действий.", {}, 400);
@@ -1032,9 +1044,11 @@ export function buildTaskPrompt(task: AgentTask, partial?: Attempt): string {
 }
 
 export function describeCheck(check: NonNullable<TaskSpec["checks"]>[number]): string {
+  if(check.type==="task_verified")return `independently accepted direct child in this chain: ${check.taskId}`;
   if (check.type === "command") return `run \`${[check.command, ...(check.args ?? [])].join(" ")}\` (exit code 0)`;
   if (check.type === "file_exists") return `file exists: ${check.path}`;
   if (check.type === "file_contains") return `file ${check.path} contains "${check.text.slice(0, 80)}"`;
+  if (check.type === "image") return `read scoped image for independent visual review: ${check.path}`;
   if (check.type === "file_content") return `read file content for independent review: ${check.path}`;
   if (check.type === "http") return `read ${check.url}: HTTP ${check.status ?? 200}${check.json ? `; ${check.json.path} = ${JSON.stringify(check.json.equals)}` : ""}${check.text ? `; contains ${check.text}` : ""}`;
   if (check.type === "tool") return `independent tool ${check.tool}: ${check.json ? `${check.json.path} = ${JSON.stringify(check.json.equals)}` : ""}${check.text ? ` contains ${check.text}` : ""}`;

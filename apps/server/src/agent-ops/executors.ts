@@ -2,6 +2,8 @@ import { CodexCliError, codexWindowsSandboxMode, runCodexExec, type CodexExecRes
 import { ClaudeCliError, runClaudeCode, type ClaudeCodeResult } from "../services/claude-code-cli";
 import type { ResourceRequest } from "./resources";
 import type { AgentTask, FailureClass, TaskKind, AgentToolCall, ModelCall } from "./types";
+import {randomUUID} from "node:crypto";
+import {basename} from "node:path";
 
 /**
  * Executor adapters: one transport each, no routing or queue logic. Any new
@@ -26,6 +28,7 @@ export type ExecutorProfile = {
 export type ExecutorProbe = { installed: boolean; authenticated: boolean | null; detail?: string; checkedAt: string; source: string; model?: string; runtimeId?: string };
 
 export type ExecutorRunContext = {
+  images?:string[];
   task: AgentTask;
   workdir?: string;
   prompt: string;
@@ -75,10 +78,11 @@ export class CodexExecutor implements ExecutorAdapter {
   readonly label = "Codex CLI (подписка ChatGPT)";
   readonly profile: ExecutorProfile = { kinds: ["code_edit", "code_review", "analysis", "text"], editsFiles: true, shell: true, maxContextTokens: 200_000, quality: "high", pause: "none", costTier: "subscription", order: 1 };
 
-  constructor(private readonly deps: { auth: AuthReader; run?: typeof runCodexExec; model?: () => string | undefined }) {}
+  constructor(private readonly deps: { auth: AuthReader; run?: typeof runCodexExec; model?: () => string | undefined; refreshQuota?: () => Promise<void> }) {}
 
   async probe(force = false): Promise<ExecutorProbe> {
     const auth = await this.deps.auth(force);
+    if (auth.subscription) await this.deps.refreshQuota?.();
     return { installed: auth.installed, authenticated: auth.installed ? auth.subscription : false, detail: auth.reason ?? (auth.version ? `codex-cli ${auth.version}` : undefined), checkedAt: auth.checkedAt, source: "codex login status" };
   }
 
@@ -89,21 +93,27 @@ export class CodexExecutor implements ExecutorAdapter {
 
   async run(context: ExecutorRunContext): Promise<ExecutorOutcome> {
     const permissions = context.task.spec.permissions ?? {};
+    const nativeToolWrites:Promise<void>[]=[];
     try {
       const result: CodexExecResult = await (this.deps.run ?? runCodexExec)({
         model: this.deps.model?.(),
+        images:context.images,
         prompt: context.prompt,
         systemPrompt: context.brief,
         timeoutMs: context.timeoutMs,
         signal: context.signal,
-        agent: { workdir: context.workdir!, network: permissions.network === true, readOnly: permissions.fileWrite === false, shell: permissions.shell !== "none",
+        agent: context.images?.length&&permissions.fileWrite===false&&permissions.shell==="none"?undefined:{ workdir: context.workdir!, network: permissions.network === true, readOnly: permissions.fileWrite === false, shell: permissions.shell !== "none",
           windowsSandbox: await codexWindowsSandboxMode(), extraEnv: context.env },
         onEvent: event => {
-          if (event.type === "item") context.log(`[codex ${event.itemType}] ${event.summary}`);
+          if (event.type === "item") {
+            context.log(`[codex ${event.itemType}] ${event.summary}`);
+            if(event.itemType==="image_view"&&event.summary&&context.onToolCall)nativeToolWrites.push(Promise.resolve(context.onToolCall({id:randomUUID(),attempt:context.task.attempts.at(-1)?.n??1,at:new Date().toISOString(),tool:"view_image",effectKey:`native-image:${basename(event.summary)}`,arguments:{path:event.summary},ok:true,result:{completed:true,source:"Codex CLI item.completed"}})));
+          }
           else if (event.type === "warning") context.log(`[codex warning] ${event.message}`);
           else if (event.type === "session") context.log(`[codex session] ${event.sessionId}`);
         }
       }, { onSpawn: context.onPid });
+      await Promise.all(nativeToolWrites);
       const windows = [result.rateLimit?.primary, result.rateLimit?.secondary].filter(Boolean);
       const used = windows.length ? Math.max(...windows.map(window => window!.usedPercent)) : undefined;
       return {

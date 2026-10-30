@@ -24,5 +24,6 @@ export function registerBuzhaAgentRoutes(app: FastifyInstance, ready: Promise<Ag
     const task = ops.buzha.task(request.params.id, resolveHttpIdentity(ops, request));
     return { task: ops.buzha.view(task), events: await ops.tasks.events(task.id) };
   }));
+  app.get("/api/agents/buzha/tasks/:id/conversation",handle(async(ops,request)=>ops.buzha.conversation(request.params.id,resolveHttpIdentity(ops,request))));
   for (const action of ["pause", "resume", "cancel", "continue"] as const) app.post(`/api/agents/buzha/tasks/:id/${action}`, handle(async (ops, request) => ({ task: await ops.buzha.control(request.params.id, resolveHttpIdentity(ops, request), action) })));
 }

@@ -15,7 +15,7 @@ import sys
 ROOT = Path(r"Y:\Приложения\Бужа\browser-extension-review-2026-10-29")
 BACKUP = ROOT.parent / (".backup-telemetry-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
 SOURCE = ROOT / "src/page-actions.js"
-files = ["src/page-actions.js", "src/guard.js", "extension/background.js", "extension/manifest.json"]
+files = ["src/page-actions.js", "src/guard.js", "src/background.js", "extension/background.js", "extension/manifest.json"]
 BACKUP.mkdir(exist_ok=False)
 for name in files:
     dest = BACKUP / name
@@ -39,9 +39,27 @@ after = after.replace("u.hash='';", gmail_hash, 1)
 SOURCE.write_text(after, encoding="utf-8")
 guard_path = ROOT / "src/guard.js"
 guard = guard_path.read_text(encoding="utf-8")
-guard_path.write_text(guard.replace("url.hash='';", gmail_hash.replace("u.", "url."), 1), encoding="utf-8")
+guard = guard.replace("url.hash='';", gmail_hash.replace("u.", "url."), 1)
+if "export function publicTitle(" not in guard:
+    guard += """
+export function publicTitle(value){
+  const text=String(value||'');
+  // Chrome can use a complete authentication URL as its tab title. Sanitize
+  // that value exactly like the public URL, not as ordinary page text.
+  if(/^(?:https?:\\/\\/)?(?:accounts\\.google\\.com|mail\\.google\\.com)(?:\\/|$)/i.test(text)){
+    try{return publicUrl(/^https?:/i.test(text)?text:'https://'+text);}catch{return '[redacted URL]';}
+  }
+  return text.replace(/([?&](?:token|secret|pass|auth|session|credential|signature|api.?key|TL|rart|dsh)=)[^&#\\s]+/gi,'$1[redacted]').slice(0,500);
+}
+"""
+guard_path.write_text(guard, encoding="utf-8")
+background_path = ROOT / "src/background.js"
+background = background_path.read_text(encoding="utf-8")
+background = background.replace("ORIGINS,allowedUrl,publicUrl,numericTab,once", "ORIGINS,allowedUrl,publicUrl,publicTitle,numericTab,once", 1)
+background_path.write_text(background.replace("title:value.title||''", "title:publicTitle(value.title||'')"), encoding="utf-8")
 subprocess.run([sys.executable, str(ROOT / "build.py")], check=True)
 assert (ROOT / "extension/manifest.json").read_bytes() == (BACKUP / "extension/manifest.json").read_bytes(), "Manifest changed: do not load until reviewed"
-proof = {"at": datetime.now(timezone.utc).isoformat(), "backup": str(BACKUP), "source": str(SOURCE), "beforeSha256": hashlib.sha256(before.encode()).hexdigest(), "afterSha256": hashlib.sha256(after.encode()).hexdigest(), "manifestUnchanged": True, "loadedInChrome": False, "scope": "visible labels/selectors/image metadata only; central policy unchanged"}
+source_hashes = {name: {"before": hashlib.sha256((BACKUP / name).read_bytes()).hexdigest(), "after": hashlib.sha256((ROOT / name).read_bytes()).hexdigest()} for name in files if name.startswith("src/")}
+proof = {"at": datetime.now(timezone.utc).isoformat(), "backup": str(BACKUP), "source": str(SOURCE), "beforeSha256": hashlib.sha256(before.encode()).hexdigest(), "afterSha256": hashlib.sha256(after.encode()).hexdigest(), "sourceHashes": source_hashes, "manifestUnchanged": True, "loadedInChrome": False, "scope": "visible labels/selectors/image metadata, safe Gmail routes and redacted URL titles; central policy unchanged"}
 (BACKUP / "repair.json").write_text(json.dumps(proof, ensure_ascii=False, indent=2), encoding="utf-8")
 print(json.dumps(proof, ensure_ascii=False))
