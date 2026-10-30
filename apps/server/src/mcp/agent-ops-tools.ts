@@ -14,6 +14,7 @@ const check = z.discriminatedUnion("type", [
   z.object({ type: z.literal("file_exists"), path: z.string().min(1).max(1000) }),
   z.object({ type: z.literal("file_contains"), path: z.string().min(1).max(1000), text: z.string().min(1).max(2000) }),
   z.object({ type: z.literal("file_content"), path: z.string().min(1).max(1000) }),
+  z.object({ type:z.literal("image"),path:z.string().min(1).max(1000) }),
   z.object({ type: z.literal("http"), url: z.string().url().max(2000), status: z.number().int().min(100).max(599).optional(), text: z.string().max(2000).optional(), json: z.object({ path: z.string().min(1), equals: z.union([z.string(), z.number(), z.boolean(), z.null()]) }).optional(), timeoutMs: z.number().int().min(1000).max(60000).optional() }),
   z.object({ type: z.literal("process"), pid: z.number().int().positive(), image: z.string().max(200).optional() }),
   z.object({ type: z.literal("tool"), tool: z.string().min(1).max(80), arguments: z.record(z.unknown()).optional(), json: z.object({ path: z.string().min(1).max(200), equals: z.union([z.string(), z.number(), z.boolean(), z.null()]) }).optional(), text: z.string().min(1).max(2000).optional() }),

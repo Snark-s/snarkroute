@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm,writeFile } from "node:fs/promises";
+import {createHash} from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,9 +32,16 @@ async function fixture() {
   const task = { id: "test", agentId: "mcp:test", spec: { goal: "Check content", budget: { subscriptionRuns: 2 } }, contract: { version: 1, revision: 1, originalGoal: "Check content", expectedResult: "Complete", amendments: [], criteria: [{ id: "content", description: "Complete profile", review: "model", checkIndexes: [0] }] }, attempts: [{ n: 1, executor: "external", startedAt: at, endedAt: at }], reviewRuns: [], state: "awaiting_verification" } as unknown as AgentTask;
   const evidence: TaskEvidence[] = [{ id: "proof", criterionId: "content", attempt: 1, revision: 1, checkIndex: 0, independent: true, source: "file read", observedAt: at, ok: true, detail: "read", content: '{"published":true,"name":"Buzha","bio":"Complete"}', digest: "test" }];
   const input = (level: "local" | "strong") => ({ task, evidence, verdicts: [{ criterionId: "content", status: "unverifiable" as const, evidenceIds: ["proof"], reason: "needs review" }], level, signal: new AbortController().signal, save: async () => {} });
-  return { reviewer, task, store, ledger, dispatcher, input, local, setMode: (value: typeof mode) => { mode = value; }, calls: () => calls, localCalls: () => localCalls, observed: () => observed };
+  return { reviewer, task, store, ledger, dispatcher, input, local,adapter, setMode: (value: typeof mode) => { mode = value; }, calls: () => calls, localCalls: () => localCalls, observed: () => observed };
 }
 describe("catalog-backed acceptance reviewer", () => {
+  it("attaches exact independently read images to strong review and rejects a changed image",async()=>{
+    const f=await fixture(),path=join(dirs.at(-1)!,"input.png"),data=Buffer.from([137,80,78,71,13,10,26,10]);await writeFile(path,data);f.ledger.recordQuotaReport("codex_cli",{usedPercent:25,source:"provider-test"});
+    const input=f.input("strong");input.evidence[0].imageInput={path,sha256:createHash("sha256").update(data).digest("hex"),mime:"image/png"};
+    expect((await f.reviewer.review(input)).status).toBe("reviewed");expect(f.observed().images).toEqual([path]);expect(f.task.reviewRuns?.[0].images?.[0].sha256).toBe(input.evidence[0].imageInput.sha256);
+    const original=f.adapter.run;f.adapter.run=async context=>{await writeFile(path,Buffer.from("changed"));return original(context);};
+    expect((await f.reviewer.review(input)).status).toBe("error");
+  });
   it("counts actual structured model steps and the parent chain budget before a review", async () => {
     const f = await fixture(); f.ledger.recordQuotaReport("codex_cli", { usedPercent: 25, source: "provider-test" });
     f.task.attempts[0].modelCalls = [1, 2].map(n => ({ id: String(n), at: new Date().toISOString(), model: "x", provider: "chatgpt_subscription", tier: "subscription", ok: true }));

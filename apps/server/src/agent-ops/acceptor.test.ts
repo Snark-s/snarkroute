@@ -55,6 +55,10 @@ async function until(service: AgentTaskService, id: string, predicate: (task: an
 }
 
 describe("Приёмщик: durable execution → evidence → acceptance", () => {
+  it("escalates creative judgement from local to strong without forcing strong to escalate forever",async()=>{
+    const f=await fixture();f.service.close();const {task}=await f.service.submit(f.agent,f.spec);
+    expect(reviewPrompt(task,[],[],"local")).toContain("escalate");expect(reviewPrompt(task,[],[],"strong")).toContain("strong review level");expect(reviewPrompt(task,[],[],"strong")).not.toContain("Ambiguity or creative/high-stakes evaluation requires escalate");
+  });
   it("uses an independently accepted direct child in the same chain, rejecting an unrelated accepted task",async()=>{
     const f=await fixture();f.service.close();await writeFile(join(f.workspace,"profile.json"),'{"published":true}');
     const {task:parent}=await f.service.submit(f.agent,f.spec,{inspectExisting:true});

@@ -28,6 +28,7 @@ export type ExecutorProfile = {
 export type ExecutorProbe = { installed: boolean; authenticated: boolean | null; detail?: string; checkedAt: string; source: string; model?: string; runtimeId?: string };
 
 export type ExecutorRunContext = {
+  images?:string[];
   task: AgentTask;
   workdir?: string;
   prompt: string;
@@ -95,11 +96,12 @@ export class CodexExecutor implements ExecutorAdapter {
     try {
       const result: CodexExecResult = await (this.deps.run ?? runCodexExec)({
         model: this.deps.model?.(),
+        images:context.images,
         prompt: context.prompt,
         systemPrompt: context.brief,
         timeoutMs: context.timeoutMs,
         signal: context.signal,
-        agent: { workdir: context.workdir!, network: permissions.network === true, readOnly: permissions.fileWrite === false, shell: permissions.shell !== "none",
+        agent: context.images?.length&&permissions.fileWrite===false&&permissions.shell==="none"?undefined:{ workdir: context.workdir!, network: permissions.network === true, readOnly: permissions.fileWrite === false, shell: permissions.shell !== "none",
           windowsSandbox: await codexWindowsSandboxMode(), extraEnv: context.env },
         onEvent: event => {
           if (event.type === "item") {

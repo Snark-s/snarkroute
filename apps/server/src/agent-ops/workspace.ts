@@ -103,7 +103,7 @@ export async function runCheck(check: TaskCheck, workdir: string | undefined, si
       return done(ok, `HTTP ${response.status}; ${ok ? "условия подтверждены" : "условия не подтверждены"}`, body);
     }
     if (check.type === "process") return done(await processAlive(check.pid, check.image), `process ${check.pid}${check.image ? ` (${check.image})` : ""}`);
-    if (check.type === "file_exists" || check.type === "file_contains" || check.type === "file_content") {
+    if (check.type === "file_exists" || check.type === "file_contains" || check.type === "file_content" || check.type === "image") {
       if (!workdir) return done(false, "Нет рабочей папки.");
       const path = insideWorkdir(workdir, check.path);
       const canonical = await realpath(path).catch(() => undefined);
@@ -112,6 +112,10 @@ export async function runCheck(check: TaskCheck, workdir: string | undefined, si
       const info = await stat(canonical);
       if (!info.isFile()) return done(false, "Ожидался файл.");
       if (check.type === "file_exists") return done(true, "Файл существует; содержимое этим не проверено.");
+      if(check.type==="image"){
+        if(info.size>8*1024*1024)return done(false,"Изображение больше 8 МБ.");const data=await readFile(canonical),mime=data.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]))?"image/png":data[0]===255&&data[1]===216&&data[2]===255?"image/jpeg":undefined;
+        if(!mime)return done(false,"Нужен настоящий PNG или JPEG.");const imageInput={path:canonical,sha256:createHash("sha256").update(data).digest("hex"),mime} as const;return{...done(true,"Изображение прочитано для независимой мультимодальной проверки; качество оценивает модель.",JSON.stringify({...imageInput,bytes:info.size})),imageInput};
+      }
       if (info.size > 1024 * 1024) return done(false, "Файл больше 1 МБ; нужна специализированная проверка содержимого.");
       const text = await readFile(canonical, "utf8");
       const ok = check.type === "file_content" ? Boolean(text.trim()) : text.includes(check.text);

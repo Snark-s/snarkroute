@@ -945,7 +945,7 @@ export function normalizeSpec(input: TaskSpec): TaskSpec {
   const checks = structuredClone(input.checks ?? []);
   for (const check of checks) {
     if (check.type === "command" && (!check.command?.trim() || /[\r\n]/.test(check.command))) throw new AgentOpsError("BAD_SPEC", "Команда проверки должна быть одной программой без переводов строк.", {}, 400);
-    if (!["command", "file_exists", "file_contains", "file_content", "http", "process", "tool", "tool_used", "tool_observations", "acceptor_cycle", "tool_scope", "task_verified"].includes(check.type)) throw new AgentOpsError("BAD_SPEC", "Неизвестный тип проверки.", {}, 400);
+    if (!["command", "file_exists", "file_contains", "file_content", "image", "http", "process", "tool", "tool_used", "tool_observations", "acceptor_cycle", "tool_scope", "task_verified"].includes(check.type)) throw new AgentOpsError("BAD_SPEC", "Неизвестный тип проверки.", {}, 400);
     if (check.type === "http") { const url = new URL(check.url); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new AgentOpsError("BAD_SPEC", "HTTP проверка требует URL без учётных данных.", {}, 400); }
   }
   const ids = new Set<string>();
@@ -1005,6 +1005,7 @@ export function describeCheck(check: NonNullable<TaskSpec["checks"]>[number]): s
   if (check.type === "command") return `run \`${[check.command, ...(check.args ?? [])].join(" ")}\` (exit code 0)`;
   if (check.type === "file_exists") return `file exists: ${check.path}`;
   if (check.type === "file_contains") return `file ${check.path} contains "${check.text.slice(0, 80)}"`;
+  if (check.type === "image") return `read scoped image for independent visual review: ${check.path}`;
   if (check.type === "file_content") return `read file content for independent review: ${check.path}`;
   if (check.type === "http") return `read ${check.url}: HTTP ${check.status ?? 200}${check.json ? `; ${check.json.path} = ${JSON.stringify(check.json.equals)}` : ""}${check.text ? `; contains ${check.text}` : ""}`;
   if (check.type === "tool") return `independent tool ${check.tool}: ${check.json ? `${check.json.path} = ${JSON.stringify(check.json.equals)}` : ""}${check.text ? ` contains ${check.text}` : ""}`;

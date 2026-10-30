@@ -96,6 +96,8 @@ export type CodexAgentMode = {
 };
 
 export type CodexExecRequest = {
+  /** Trusted, prevalidated local image inputs; never executable tools. */
+  images?:string[];
   /** Model slug from `codex debug models`; undefined lets the CLI pick its default. */
   model?: string;
   prompt: string;
@@ -162,7 +164,7 @@ export function codexCliEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Proce
 }
 
 /** Plain text generation: user config, rules, MCP, skills, web search, shell and other tools off; read-only sandbox. */
-export function codexExecArgs(request: Pick<CodexExecRequest, "model" | "resumeSessionId">, instructionsFile: string, workspace: string): string[] {
+export function codexExecArgs(request: Pick<CodexExecRequest, "model" | "resumeSessionId" | "images">, instructionsFile: string, workspace: string): string[] {
   const config = [
     `model_instructions_file=${JSON.stringify(instructionsFile.replace(/\\/g, "/"))}`,
     'forced_login_method="chatgpt"',
@@ -176,7 +178,7 @@ export function codexExecArgs(request: Pick<CodexExecRequest, "model" | "resumeS
     'history.persistence="none"',
     ...DISABLED_FEATURES.map(feature => `features.${feature}=false`)
   ];
-  const common = ["--json", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", ...(request.model ? ["-m", request.model] : []), ...config.flatMap(value => ["-c", value])];
+  const common = ["--json", "--ignore-user-config", "--ignore-rules", "--skip-git-repo-check", ...(request.model ? ["-m", request.model] : []), ...(request.images??[]).flatMap(path=>["--image",path]), ...config.flatMap(value => ["-c", value])];
   // `exec resume` has no --sandbox/--cd/--color: the sandbox comes from the config above, the cwd from the process.
   return request.resumeSessionId
     ? ["exec", "resume", ...common, request.resumeSessionId, "-"]
