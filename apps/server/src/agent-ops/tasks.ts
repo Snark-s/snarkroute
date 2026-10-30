@@ -989,7 +989,13 @@ export function normalizeSpec(input: TaskSpec): TaskSpec {
   for (const check of checks) {
     if (check.type === "command" && (!check.command?.trim() || /[\r\n]/.test(check.command))) throw new AgentOpsError("BAD_SPEC", "Команда проверки должна быть одной программой без переводов строк.", {}, 400);
     if (!["command", "file_exists", "file_contains", "file_content", "image", "http", "process", "tool", "tool_used", "tool_observations", "acceptor_cycle", "tool_scope", "task_verified"].includes(check.type)) throw new AgentOpsError("BAD_SPEC", "Неизвестный тип проверки.", {}, 400);
-    if (check.type === "http") { const url = new URL(check.url); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new AgentOpsError("BAD_SPEC", "HTTP проверка требует URL без учётных данных.", {}, 400); }
+    if (check.type === "http") {
+      const url = new URL(check.url); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new AgentOpsError("BAD_SPEC", "HTTP проверка требует URL без учётных данных.", {}, 400);
+      if (check.absentText !== undefined && (typeof check.absentText !== "string" || !check.absentText || check.absentText.length > 1000)) throw new AgentOpsError("BAD_SPEC", "absentText должен быть непустой строкой до 1000 символов.", {}, 400);
+      if (check.pattern !== undefined) { if (typeof check.pattern !== "string" || !check.pattern || check.pattern.length > 300) throw new AgentOpsError("BAD_SPEC", "pattern должен быть регулярным выражением до 300 символов.", {}, 400); if (/\([^)]*[+*}][^)]*\)\s*[+*{]/.test(check.pattern)) throw new AgentOpsError("BAD_SPEC", "pattern с вложенными квантификаторами запрещён: он может подвесить проверку.", {}, 400); try { new RegExp(check.pattern, "g"); } catch { throw new AgentOpsError("BAD_SPEC", "pattern не является регулярным выражением.", {}, 400); } }
+      const bound = (value: unknown) => value === undefined || Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 1000;
+      if (check.matches && (!check.pattern || !bound(check.matches.min) || !bound(check.matches.max))) throw new AgentOpsError("BAD_SPEC", "matches требует pattern и целые пределы 0–1000.", {}, 400);
+    }
   }
   const ids = new Set<string>();
   for (const criterion of input.criteria ?? []) {
@@ -1050,7 +1056,7 @@ export function describeCheck(check: NonNullable<TaskSpec["checks"]>[number]): s
   if (check.type === "file_contains") return `file ${check.path} contains "${check.text.slice(0, 80)}"`;
   if (check.type === "image") return `read scoped image for independent visual review: ${check.path}`;
   if (check.type === "file_content") return `read file content for independent review: ${check.path}`;
-  if (check.type === "http") return `read ${check.url}: HTTP ${check.status ?? 200}${check.json ? `; ${check.json.path} = ${JSON.stringify(check.json.equals)}` : ""}${check.text ? `; contains ${check.text}` : ""}`;
+  if (check.type === "http") return `read ${check.url}: HTTP ${check.status ?? 200}${check.json ? `; ${check.json.path} = ${JSON.stringify(check.json.equals)}` : ""}${check.text ? `; contains ${check.text}` : ""}${check.absentText ? `; does not contain ${check.absentText}` : ""}${check.pattern ? `; /${check.pattern}/ ${check.matches?.distinct ? "distinct " : ""}matches ${check.matches?.min ?? 1}..${check.matches?.max ?? "∞"}` : ""}`;
   if (check.type === "tool") return `independent tool ${check.tool}: ${check.json ? `${check.json.path} = ${JSON.stringify(check.json.equals)}` : ""}${check.text ? ` contains ${check.text}` : ""}`;
   if (check.type === "tool_used") return `actual model tool call and response recorded: ${check.tool}`;
   if (check.type === "tool_observations") return "independently repeat permitted read tools and observe their current results";

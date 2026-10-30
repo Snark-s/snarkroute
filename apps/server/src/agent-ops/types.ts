@@ -62,7 +62,7 @@ export type TaskCheck =
   | { type: "file_contains"; path: string; text: string }
   | { type: "file_content"; path: string }
   | { type: "image"; path:string }
-  | { type: "http"; url: string; status?: number; text?: string; json?: { path: string; equals: string | number | boolean | null }; timeoutMs?: number }
+  | { type: "http"; url: string; status?: number; text?: string; absentText?: string; pattern?: string; matches?: { min?: number; max?: number; distinct?: boolean }; json?: { path: string; equals: string | number | boolean | null }; timeoutMs?: number }
   | { type: "process"; pid: number; image?: string }
   | { type: "tool"; tool: string; arguments?: Record<string, unknown>; json?: { path: string; equals: string | number | boolean | null }; text?: string }
   | { type: "tool_used"; tool: string; effectKey?: string }

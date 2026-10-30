@@ -103,7 +103,7 @@ export class BuzhaAgentService {
         { id: "tool_cycle", description: "Настоящая модель вызвала инструменты и получила ответы", review: "machine", checkIndexes: [2, 3] }, { id: "complete_answer", description: "Полный ответ после продолжения", review: "machine", checkIndexes: [4, 5, 6] },
         { id: "automatic_continuation", description: "Сервер отклонил недочёт и автоматически запустил продолжение", review: "machine", checkIndexes: [7] }, { id: "safe_scope", description: "Не было отправок, навигации и изменений аккаунтов", review: "machine", checkIndexes: [8] }];
     }
-    if (input.contract) { const allowed = new Set(["expectedResult", "checks", "criteria", "budget", "review"]); if (Object.keys(input.contract).some(key => !allowed.has(key))) throw new AgentOpsError("BAD_REQUEST", "Настраиваются только критерии, проверки и бюджет; личность, папка и инструменты остаются фиксированными."); Object.assign(spec, input.contract); }
+    if (input.contract) { const allowed = new Set(["expectedResult", "checks", "criteria", "budget", "review"]); if (Object.keys(input.contract).some(key => !allowed.has(key))) throw new AgentOpsError("BAD_REQUEST", "Настраиваются только критерии, проверки и бюджет; личность, папка и инструменты остаются фиксированными."); Object.assign(spec, input.contract); if (spec.checks?.some(check => check.type === "http")) spec.permissions = { ...spec.permissions, network: true }; }
     spec.idempotencyKey = `buzha:message:${record.user_message_id}`;
     const { task, deduplicated } = await this.deps.tasks.submit(this.deps.registry.app("buzha", "Бужа"), spec);
     await this.memory("/api/agent/bind", { requestKey: input.requestKey, taskId: task.id });

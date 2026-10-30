@@ -86,6 +86,19 @@ export async function collectDiff(workdir: string | undefined, changedFiles: str
   return parts.join("\n").slice(0, limit);
 }
 
+/** Pages may mix UTF-8 with a legacy single-byte encoding (FL.ru serves both): decode line by line, never across chunk borders. */
+function decodeBody(raw: Buffer): string {
+  const strict = new TextDecoder("utf-8", { fatal: true }), legacy = new TextDecoder("windows-1251");
+  const lines: string[] = []; let start = 0;
+  for (let index = 0; index <= raw.length; index++) {
+    if (index < raw.length && raw[index] !== 10) continue;
+    const line = raw.subarray(start, index);
+    try { lines.push(strict.decode(line)); } catch { lines.push(legacy.decode(line)); }
+    start = index + 1;
+  }
+  return lines.join("\n");
+}
+
 export async function createWorktree(repo: string, path: string, branch: string): Promise<void> {
   await git(repo, ["worktree", "add", "-b", branch, path, "HEAD"], 120_000);
 }
@@ -110,10 +123,17 @@ export async function runCheck(check: TaskCheck, workdir: string | undefined, si
       if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return done(false, "Разрешены только HTTP(S) URL без учётных данных.");
       // The contract authorizes this exact read. Redirects cannot silently expand scope.
       const response = await fetch(url, { redirect: "error", signal: AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(Math.min(check.timeoutMs ?? 10000, 60000))]) });
-      const reader = response.body?.getReader(); let body = "", bytes = 0;
-      if (reader) try { for (;;) { const chunk = await reader.read(); if (chunk.done) break; bytes += chunk.value.length; if (bytes > 1024 * 1024) throw new Error("Ответ проверки больше 1 МБ."); body += Buffer.from(chunk.value).toString("utf8"); } } finally { await reader.cancel().catch(() => undefined); }
+      const reader = response.body?.getReader(); const chunks: Buffer[] = []; let bytes = 0;
+      if (reader) try { for (;;) { const chunk = await reader.read(); if (chunk.done) break; bytes += chunk.value.length; if (bytes > 1024 * 1024) throw new Error("Ответ проверки больше 1 МБ."); chunks.push(Buffer.from(chunk.value)); } } finally { await reader.cancel().catch(() => undefined); }
+      const body = decodeBody(Buffer.concat(chunks));
       let ok = response.status === (check.status ?? 200);
       if (check.text !== undefined) ok &&= body.includes(check.text);
+      if (check.absentText !== undefined) ok &&= !body.includes(check.absentText);
+      if (check.pattern !== undefined) {
+        const found = [...body.matchAll(new RegExp(check.pattern, "g"))].slice(0, 5000).map(match => match[1] ?? match[0]);
+        const count = check.matches?.distinct ? new Set(found).size : found.length;
+        ok &&= count >= (check.matches?.min ?? 1) && count <= (check.matches?.max ?? Infinity);
+      }
       if (check.json) { let value: any = JSON.parse(body); for (const part of check.json.path.split(".")) value = value?.[part]; ok &&= value === check.json.equals; }
       return done(ok, `HTTP ${response.status}; ${ok ? "условия подтверждены" : "условия не подтверждены"}`, body);
     }
