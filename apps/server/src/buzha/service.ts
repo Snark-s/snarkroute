@@ -24,12 +24,15 @@ export class BuzhaAgentService {
     const canSeeAll = !identity || identity.kind === "owner" || identity.id === "app:buzha";
     const tasks = this.deps.tasks.list({ agentId: "app:buzha", limit: 60 }).filter(task => canSeeAll || task.spec.inputs?.includes(`requested-by:${identity!.id}`));
     const executors = [...this.deps.tasks.probeSnapshot()].filter(([id]) => id.startsWith("buzha_")).map(([id, probe]) => ({ id, ...probe }));
-    const current = tasks.find(task => !["verified", "failed", "cancelled", "blocked"].includes(task.state)) ?? tasks[0];
-    const actual = current?.attempts.flatMap(attempt => attempt.modelCalls ?? []).filter(call => call.ok).at(-1);
+    const lastCall = (task:AgentTask) => task.attempts.flatMap(attempt => attempt.modelCalls ?? []).filter(call => call.ok).at(-1);
+    const latestRun = [...tasks].sort((a,b)=>(Date.parse(lastCall(b)?.at??"")||0)-(Date.parse(lastCall(a)?.at??"")||0))[0];
+    const current = tasks.find(task => !["verified", "failed", "cancelled", "blocked"].includes(task.state)) ?? latestRun;
+    const actual = current ? lastCall(current) : undefined;
     const settings = buzhaSchedules(memory?.agent_schedule);
     const routingReason = current && Object.keys(current.excludedExecutors).length ? `Предыдущий подход недоступен: ${Object.entries(current.excludedExecutors).map(([executor, reason]) => `${executor}: ${reason}`).join("; ")}. ${current.reason}` : current?.reason;
     return { id: "buzha", name: "Бужа", persistentIdentity: true, runtimeVersion:this.deps.runtimeVersion, memory: join(buzhaHome(), "data", "buzha.sqlite3"), identitySource: join(buzhaHome(), "identity.md"),
       connected: Boolean(memory), configuredModel: memory?.model || "auto · локальная подходящая модель, затем разрешённые подписки", actualModel: actual?.model ?? null, actualProvider: actual?.provider ?? null,
+      modelObservation:actual&&current?{taskId:current.id,at:actual.at,active:current.state==="running",taskState:current.state}:null,
       configuredModelNote: memory?.model?.startsWith("openrouter:") ? "Исторический выбор OpenRouter сохранён. Постоянный исполнитель сейчас использует подходящие локальные модели и разрешённые подписки; этот API не включён в его роли. Платный API автоматически не используется." : "Маршрутизатор учитывает сложность, доступность и права. Локальная подходящая модель имеет приоритет; фактическая модель показана отдельно.",
       executor: current?.executor ?? null, reason: routingReason ?? (this.lastError || "Ожидает поручение"), executors, tools: BUZHA_TOOLS, browser: { sessionId: "default", profile: "Profile 13", policy: "existing-central-SnarkBridge-work-policy; write-ahead shared effects" },
       limitations: ["Текстовый провайдер управляет структурированным циклом инструментов; native tool calling не объявляется.", "Рабочие профили, загрузки и адресная переписка проходят существующую централизованную политику SnarkBridge. Пароли, безопасность, юридические согласия, идентификация, платежи, удаление аккаунта и CAPTCHA остаются за владельцем.", "Квитанция команды не подтверждает публикацию или отправку: Приёмщик независимо читает фактический результат. При неизвестном исходе действие не повторяется.", "Локальная модель может ожидать GPU/RAM; неизвестная квота не считается свободной, платные API не используются."],

@@ -12,7 +12,7 @@ async function fixture(){
   const registry=new AgentRegistry([dir],{secret:Buffer.alloc(32,1)}), owner=registry.owner(), source=registry.mcpClient("chatgpt-source-fixture");
   const works:any[]=[],messages:any[]=[], tasks=new Map<string,any>();let schedule=JSON.stringify(BUZHA_EXTERNAL_SCHEDULES), calls=0;
   const service=new BuzhaAgentService({registry,workspace:id=>join(dir,String(id)),tasks:{
-    list:()=>[...tasks.values()], get:(id:string)=>tasks.get(id),budgetUsage:()=>({}),chainBudget:()=>({}),
+    list:()=>[...tasks.values()], get:(id:string)=>tasks.get(id),budgetUsage:()=>({}),chainBudget:()=>({}),probeSnapshot:()=>new Map(),
     submit:async(identity:any,spec:any)=>{const old=[...tasks.values()].find(t=>t.spec.idempotencyKey===spec.idempotencyKey);if(old)return{task:old,deduplicated:true};const id=`task-${++calls}`,task={id,chain:{rootTaskId:id},agentId:identity.id,spec,state:"queued",reason:"fixture",attempts:[],effects:[]};tasks.set(task.id,task);return{task,deduplicated:false};}
   } as any,memory:async(path?:string,body?:any)=>{
     if(!path)return {agent_schedule:schedule,agent_work:works,messages};
@@ -25,6 +25,17 @@ async function fixture(){
   return {service,owner,source,input,tasks,works,messages,calls:()=>calls};
 }
 describe("ChatGPT source handoff uses the shared queue, never a second clock",()=>{
+  it("shows the latest actual worker run even when its task was created earlier",async()=>{
+    const f=await fixture();
+    const task=(id:string,model:string,at:string,state="verified")=>({id,chain:{rootTaskId:id},state,reason:id,executor:model==="qwen"?"buzha_local":"buzha_codex",excludedExecutors:{},attempts:[{modelCalls:[{ok:true,model,provider:model==="qwen"?"local_openai":"chatgpt_subscription",at}]}]});
+    f.tasks.set("new-task",task("new-task","qwen","2026-10-30T00:50:00Z"));
+    f.tasks.set("older-task",task("older-task","gpt","2026-10-30T07:00:00Z","blocked"));
+    const result=await f.service.status(f.owner);
+    expect(result.actualModel).toBe("gpt");expect(result.reason).toBe("older-task");
+    expect(result.modelObservation).toMatchObject({taskId:"older-task",at:"2026-10-30T07:00:00Z",active:false});
+    f.tasks.set("active",{...task("active","qwen","2026-10-30T00:00:00Z","queued"),attempts:[]});
+    const queued=await f.service.status(f.owner);expect(queued.actualModel).toBeNull();expect(queued.modelObservation).toBeNull();
+  });
   it("shows a sent-message link from an authoritative independent observation, not a narrative file",async()=>{
     const f=await fixture();const url="https://mail.google.com/mail/u/0/#sent/ABCDEFGHIJKLMNOP";
     const task:any={id:"mail",chain:{rootTaskId:"mail"},state:"verified",attempts:[],result:{checks:[{ok:true,check:{type:"tool",tool:"browser_observe_url"},source:"SnarkBridge/MCP:browser_observe_url",content:JSON.stringify({url,independentReload:true})}]}};
