@@ -4,6 +4,7 @@ import { AgentOpsError } from "../agent-ops/tasks";
 import { resolveHttpIdentity } from "./agent-ops";
 import { buzhaMemory } from "../buzha/memory";
 import { buzhaModels } from "./buzha-model-gateway";
+import { buzhaPrepared } from "../buzha/prepared";
 
 export function registerBuzhaAgentRoutes(app: FastifyInstance, ready: Promise<AgentOps>) {
   const handle = (fn: (ops: AgentOps, request: any) => Promise<unknown>) => async (request: any, reply: any) => {
@@ -11,6 +12,7 @@ export function registerBuzhaAgentRoutes(app: FastifyInstance, ready: Promise<Ag
     catch (error) { return reply.code(error instanceof AgentOpsError ? error.status : 503).send({ ok: false, code: error instanceof AgentOpsError ? error.code : "BUZHA_UNAVAILABLE", error: String(error instanceof Error ? error.message : error) }); }
   };
   app.get("/api/agents/buzha", handle(async (ops, request) => ops.buzha.status(resolveHttpIdentity(ops, request))));
+  app.get("/api/agents/buzha/prepared", handle(async () => ({ prepared: await buzhaPrepared() })));
   app.post("/api/agents/buzha/messages", handle(async (ops, request) => ops.buzha.submit(resolveHttpIdentity(ops, request), request.body)));
   app.post("/api/agents/buzha/schedules/trigger",handle(async(ops,request)=>ops.buzha.scheduleTrigger(resolveHttpIdentity(ops,request),request.body)));
   app.post("/api/agents/buzha/schedules/handoff",handle(async(ops,request)=>ops.buzha.acknowledgeScheduleSource(resolveHttpIdentity(ops,request),request.body)));

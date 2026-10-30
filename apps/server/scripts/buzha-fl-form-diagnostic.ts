@@ -23,7 +23,7 @@ try {
       const files: Record<string, unknown> = {};
       for (const state of ["attached", "visible"]) files[state] = await tools.invoke(task, "browser_wait", { tab_id: tab, selector: "input[type=file]", state, timeout_ms: 1500 }).catch(error => String(error));
       const fileLike = (page.elements ?? []).filter((e: any) => e.tag === "input" && e.type === "file" || /загруз|фото|обложк|аватар|изображ/i.test(String(e.label ?? "")));
-      report.push({ url, finalUrl: page.url, title: page.title, messages: page.messages, formStatus: page.formStatus, images: page.images, fileInputs: files, fileLikeElements: fileLike, elements: page.elements, text: page.text?.slice(0, 6000) });
+      report.push({ url, finalUrl: page.url, title: page.title, snapshotFileInputs: page.fileInputs ?? "absent (extension build without fileInputs)", messages: page.messages, formStatus: page.formStatus, images: page.images, fileInputs: files, fileLikeElements: fileLike, elements: page.elements, text: page.text?.slice(0, 6000) });
     } catch (error) { report.push({ url, error: String(error) }); }
   }
   const out = process.env.DIAG_OUT ?? "fl-form-diagnostic.json";
