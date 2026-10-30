@@ -197,7 +197,7 @@ export type AgentTask = {
   strategy?: string;
   dependsOn?: string[];
   budgetPolicyId?: string;
-  budgetHistory?: Array<{ at: string; by: string; reason: string; previous: TaskSpec["budget"]; next: TaskSpec["budget"]; subscriptionRunsUsed: number }>;
+  budgetHistory?: Array<{ at: string; by: string; reason: string; previous: TaskSpec["budget"]; next: TaskSpec["budget"]; subscriptionRunsUsed: number;previousMaxAttempts?:number;nextMaxAttempts?:number;attemptsUsed?:number }>;
   waiting?: { since: string; minutes: number; resourceMinutes: number; pausedMinutes: number; reason?: "resource"|"executor" };
 };
 

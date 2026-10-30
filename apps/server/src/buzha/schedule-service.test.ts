@@ -25,6 +25,12 @@ async function fixture(){
   return {service,owner,source,input,tasks,calls:()=>calls};
 }
 describe("ChatGPT source handoff uses the shared queue, never a second clock",()=>{
+  it("shows a sent-message link from an authoritative independent observation, not a narrative file",async()=>{
+    const f=await fixture();const url="https://mail.google.com/mail/u/0/#sent/ABCDEFGHIJKLMNOP";
+    const task:any={id:"mail",chain:{rootTaskId:"mail"},state:"verified",attempts:[],result:{checks:[{ok:true,check:{type:"tool",tool:"browser_observe_url"},source:"SnarkBridge/MCP:browser_observe_url",content:JSON.stringify({url,independentReload:true})}]}};
+    expect(f.service.view(task).links).toEqual([{url,label:"Подтверждение в рабочей почте",verified:true}]);
+    task.result.checks[0].source="executor's narrative";expect(f.service.view(task).links).toEqual([]);
+  });
   it("prepares an occurrence but dispatches nothing before both sides are confirmed",async()=>{const f=await fixture();const result=await f.service.scheduleTrigger(f.source,f.input);expect(result.accepted).toBe(false);expect(result.prepared).toBe(true);expect(f.calls()).toBe(0);await expect(f.service.acknowledgeScheduleSource(f.owner,{sourceClientId:f.source.id,proof:"",verifiedBothSides:true,noUnfinishedExternalEffects:true})).rejects.toThrow();});
   it("deduplicates the same verified occurrence across source and owner transports and blocks new occurrences on unknown effects",async()=>{
     const f=await fixture();

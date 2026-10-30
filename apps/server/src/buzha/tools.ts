@@ -50,13 +50,15 @@ export class BuzhaTools {
       if (name === "browser_observe_url") {
         if (typeof args.url !== "string" || args.url.length > 2000) throw new Error("Нужен URL для независимого чтения.");
         const url = new URL(args.url); if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error("Только обычный HTTP(S) URL без учётных данных.");
+        const subject=args.openSentSubject;
+        if(subject!==undefined && (typeof subject!=="string"||!subject.trim()||subject.length>250||url.origin!=="https://mail.google.com"||!/^\/mail\/u\/\d+\/$/.test(url.pathname)||url.hash!=="#sent")) throw new Error("Чтение существующего письма доступно только из Отправленных рабочего Gmail с точной темой.");
         let tabId = this.observerTabs.get(url.href);
         if(tabId) {
           try { const navigation=await this.bridge("browser_navigate",{tab_id:tabId,url:url.href,session_id:"default"}); if(!navigation?.action) throw new Error("Неподтверждённая навигация наблюдателя."); }
           catch(error) { if(!/operation_refused_or_unknown|tab_changed|not found|closed|Неподтверждённая навигация/i.test(String(error))) throw error; this.observerTabs.delete(url.href); tabId=undefined; }
         }
         if (!tabId) { const created = await this.bridge("browser_tab_action", { action: "create", session_id: "default", url: url.href }); tabId = String(created?.tab_id ?? ""); if (!/^\d+$/.test(tabId)) throw new Error("SnarkBridge не подтвердил вкладку независимого чтения."); this.observerTabs.set(url.href, tabId); }
-        let observed:any, lastError:unknown;
+        const readReady=async()=>{let observed:any,lastError:unknown;
         // tab_info can briefly see an empty URL while Chrome commits a new
         // document. Retry only bounded READS, never click/fill/upload/send.
         for(let n=0;n<7;n++) {
@@ -66,9 +68,25 @@ export class BuzhaTools {
         }
         if(!observed && lastError) throw lastError;
         if (!observed || observed.readyState === "loading" || typeof observed.text !== "string" || !observed.url) throw new Error("Независимая загрузка не дала готовой наблюдаемой страницы.");
-        const actual=new URL(observed.url);if(actual.origin!==url.origin||actual.pathname.replace(/\/$/,"")!==url.pathname.replace(/\/$/,"")) throw new Error(`Загрузка перешла на другую страницу: ${actual.origin}${actual.pathname}; нужный результат не подтверждён.`);
-        if(url.hash && actual.hash!==url.hash) throw new Error("Снимок не подтверждает навигационный фрагмент запрошенной страницы. Нужна загруженная версия расширения, сохраняющая безопасный URL сообщения; постоянная ссылка не доказана.");
-        return { ...observed, independentReload: true, observedAt: new Date().toISOString(), observerTabId: tabId, source: url.href };
+        return observed;};
+        let observed=await readReady();
+        const assertPage=(value:any,hash:string)=>{const actual=new URL(value.url);if(actual.origin!==url.origin||actual.pathname.replace(/\/$/,"")!==url.pathname.replace(/\/$/,"")) throw new Error(`Загрузка перешла на другую страницу: ${actual.origin}${actual.pathname}; нужный результат не подтверждён.`);if(hash && actual.hash!==hash) throw new Error("Снимок не подтверждает навигационный фрагмент запрошенной страницы. Нужна загруженная версия расширения, сохраняющая безопасный URL сообщения; постоянная ссылка не доказана.");};
+        assertPage(observed,url.hash);
+        if(typeof subject==="string") {
+          // Read navigation in our freshly reloaded Sent observer only. The
+          // unique visible message link is obtained from the real DOM; no
+          // compose/send controls, hidden state or supplied scripts are used.
+          const found=await this.bridge("browser_find",{session_id:"default",tab_id:tabId,query:subject,role:"link",limit:20});
+          const links=found?.matches?.filter((e:any)=>e.role==="link"&&typeof e.selector==="string"&&String(e.label).toLocaleLowerCase().includes(subject.toLocaleLowerCase()))??[];
+          if(links.length!==1) throw new Error("В Отправленных не найдена ровно одна видимая ссылка сообщения с этой темой; чтение остановлено без нажатия.");
+          const click=await this.bridge("browser_click",{session_id:"default",tab_id:tabId,selector:links[0].selector});if(click?.action!=="clicked")throw new Error("Открытие существующего письма не подтверждено; повтор клика не выполнялся.");
+          for(let n=0;n<7;n++){observed=await readReady();if(/^#sent\/[A-Za-z0-9_-]{10,100}$/.test(new URL(observed.url).hash)&&observed.text.includes(subject))break;await new Promise(r=>setTimeout(r,200));}
+          const messageHash=new URL(observed.url).hash;if(!/^#sent\/[A-Za-z0-9_-]{10,100}$/.test(messageHash)||!observed.text.includes(subject))throw new Error("Постоянный URL открытого отправленного сообщения не подтверждён.");assertPage(observed,messageHash);
+          const details=await this.bridge("browser_find",{session_id:"default",tab_id:tabId,query:"подроб",limit:20});
+          const buttons=details?.matches?.filter((e:any)=>(e.role==="button"||e.tag==="button")&&typeof e.selector==="string"&&String(e.label).length<100&&/подроб/i.test(e.label))??[];
+          if(buttons.length===1){const opened=await this.bridge("browser_click",{session_id:"default",tab_id:tabId,selector:buttons[0].selector});if(opened?.action!=="clicked")throw new Error("Чтение подробностей заголовка не подтверждено; повтор не выполнялся.");observed=await readReady();assertPage(observed,messageHash);}
+        }
+        return { ...observed, independentReload: true, observedAt: new Date().toISOString(), observerTabId: tabId, source: observed.url, requestedSource:url.href, ...(subject?{openedExistingSentSubject:subject}:{}) };
       }
       // The model cannot mint or supply owner grants. Routine authority is the
       // central work policy already installed by the owner, unchanged here.
@@ -132,7 +150,7 @@ export class BuzhaTools {
       if (!BUZHA_READ_TOOLS.includes(check.tool)) throw new Error("Приёмщик использует только разрешённые инструменты чтения.");
       const result = await this.invoke(task, check.tool, check.arguments ?? {});
       let value: any = result; for (const part of check.json?.path.split(".") ?? []) value = value?.[part];
-      const content = JSON.stringify(result), ok = Boolean(check.json || check.text) && (!check.json || value === check.json.equals) && (!check.text || String(result?.text ?? content).includes(check.text));
+      const content = JSON.stringify(check.tool==="browser_observe_url"?{...result,elements:undefined}:result), ok = Boolean(check.json || check.text) && (!check.json || value === check.json.equals) && (!check.text || String(result?.text ?? content).includes(check.text));
       return { check, ok, detail: ok ? "Независимый ответ инструмента подтверждает условие." : "Независимый ответ инструмента не подтверждает условие.", source, observedAt: new Date().toISOString(), content: content.slice(0, 12000), truncated: content.length > 12000, durationMs: Date.now() - at };
     } catch (error) { return { check, ok: false, detail: String(error), source, observedAt: new Date().toISOString(), durationMs: Date.now() - at }; }
   }

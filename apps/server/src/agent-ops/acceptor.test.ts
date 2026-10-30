@@ -55,6 +55,19 @@ async function until(service: AgentTaskService, id: string, predicate: (task: an
 }
 
 describe("Приёмщик: durable execution → evidence → acceptance", () => {
+  it("passes the submitting owner's new continuation into execution without removing earlier feedback",async()=>{
+    const f=await fixture();f.service.close();const {task}=await f.service.submit(f.agent,f.spec);task.state="blocked";task.nextStep="Earlier independent review";
+    await f.service.resolve(task.id,f.owner,"continue","Extension reloaded; use new selectors and continue independent fields");
+    expect(task.nextStep).toContain("Extension reloaded");expect(task.nextStep).toContain("Earlier independent review");
+  });
+  it("allows only an explicitly requested single extra owner attempt, preserving attempts and repeat detection",async()=>{
+    const f=await fixture();f.service.close();const {task}=await f.service.submit(f.agent,f.spec);task.state="blocked";
+    task.attempts=[{n:1,executor:"codex_cli",startedAt:new Date().toISOString(),endedAt:new Date().toISOString()}];
+    await f.service.reviseBudget(task.id,f.owner,{maxAttempts:4},"Explicit owner authorization for one corrected approach");
+    expect(task.attempts).toHaveLength(1);expect(task.spec.retry?.maxAttempts).toBe(4);expect(task.spec.retry?.sameFailureLimit).toBe(2);
+    expect(task.budgetHistory?.at(-1)).toMatchObject({previousMaxAttempts:3,nextMaxAttempts:4,attemptsUsed:1});
+    await expect(f.service.reviseBudget(task.id,f.owner,{maxAttempts:9},"unbounded jump")).rejects.toThrow();
+  });
   it("honors a saved owner ceiling of 24 without resetting prior steps or changing retry limits",async()=>{
     const f=await fixture();f.service.close();const {task}=await f.service.submit(f.agent,f.spec);task.state="blocked";
     task.attempts=[{n:1,executor:"codex_cli",startedAt:new Date().toISOString(),endedAt:new Date().toISOString(),modelCalls:Array.from({length:12},(_,i)=>({id:String(i),at:new Date().toISOString(),model:"real-id",provider:"subscription",tier:"subscription" as const,ok:true}))}];

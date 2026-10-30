@@ -219,15 +219,18 @@ export class AgentTaskService {
 
   // ---------------------------------------------------------------- control
 
-  async reviseBudget(id: string, identity: AgentIdentity, patch: { wallMinutes?: number; activeMinutes?: number; subscriptionRuns?: number }, reason: string) {
+  async reviseBudget(id: string, identity: AgentIdentity, patch: { wallMinutes?: number; activeMinutes?: number; subscriptionRuns?: number; maxAttempts?:number }, reason: string) {
     if (identity.kind !== "owner" || !reason?.trim()) throw new AgentOpsError("OWNER_ONLY", "Пересмотреть бюджет может только владелец с основанием; счётчики сохраняются.", {}, 403);
     const task=this.require(id); if (this.running.has(id) || this.verifying.has(id) || this.watching.has(id)) throw new AgentOpsError("STILL_RUNNING", "Бюджет меняется между этапами.");
-    if (Object.keys(patch).some(key=>!["wallMinutes","activeMinutes","subscriptionRuns"].includes(key))) throw new AgentOpsError("BAD_SPEC", "Меняется только распределение времени и подписочных шагов, не полномочия или защита от циклов.");
-    const next={...task.spec.budget,...patch}; normalizeSpec({...task.spec,budget:next});
+    if (Object.keys(patch).some(key=>!["wallMinutes","activeMinutes","subscriptionRuns","maxAttempts"].includes(key))) throw new AgentOpsError("BAD_SPEC", "Меняется только бюджет, не полномочия или правила выявления повторов.");
+    const {maxAttempts,...allocation}=patch, previousMaxAttempts=task.spec.retry?.maxAttempts??4;
+    if(maxAttempts!==undefined && maxAttempts!==previousMaxAttempts+1)throw new AgentOpsError("BAD_SPEC","Владелец может явно выделить только одну дополнительную попытку за пересмотр; история и защита повторов сохраняются.");
+    const next={...task.spec.budget,...allocation}; normalizeSpec({...task.spec,budget:next,retry:{...task.spec.retry,maxAttempts:maxAttempts??previousMaxAttempts}});
     if ((next.wallMinutes??DEFAULT_WALL_MINUTES)>identity.policy.chainBudget.wallMinutes || (next.activeMinutes??0)>identity.policy.chainBudget.wallMinutes || (next.subscriptionRuns??0)>identity.policy.chainBudget.subscriptionRuns) throw new AgentOpsError("CHAIN_BUDGET_EXCEEDED", "Пересмотр не может превышать действующий лимит владельца.");
     const used=this.budgetUsage(task).subscriptionRunsUsed;
-    (task.budgetHistory??=[]).push({at:this.iso(),by:identity.id,reason,previous:structuredClone(task.spec.budget),next:structuredClone(next),subscriptionRunsUsed:used});
+    (task.budgetHistory??=[]).push({at:this.iso(),by:identity.id,reason,previous:structuredClone(task.spec.budget),next:structuredClone(next),subscriptionRunsUsed:used,...(maxAttempts!==undefined?{previousMaxAttempts,nextMaxAttempts:maxAttempts,attemptsUsed:task.attempts.filter(a=>!a.resourceWait&&a.executor!=="external").length}:{})});
     task.spec.budget=next; task.budgetPolicyId=identity.policy.id;
+    if(maxAttempts!==undefined)task.spec.retry={...task.spec.retry,maxAttempts};
     await this.persist(task,"budget_revised",`${reason}; использовано ${used} подписочных шагов, счётчики не обнулены.`);
     return task;
   }
@@ -370,6 +373,7 @@ export class AgentTaskService {
     } else {
       if (!(await this.reconcileEffects(task))) throw new AgentOpsError("UNKNOWN_EFFECT", "Исход внешнего действия неизвестен. Сначала восстановите его состояние через журнал действий.");
       if (action === "continue") task.spec.onPartial = "continue";
+      if(note?.trim())task.nextStep=`Уточнение поручителя (${identity.id}): ${note.trim()}${task.nextStep?`\nПредыдущий следующий шаг и незавершённые требования: ${task.nextStep}`:""}`;
       if (action === "requeue") task.excludedExecutors = {};
       this.deps.locks.releaseOwner(task.id);
       await this.setState(task, "queued", `Возвращена в очередь (${identity.id})${note ? `: ${note}` : ""}.`, "resolved");
