@@ -78,10 +78,11 @@ export class CodexExecutor implements ExecutorAdapter {
   readonly label = "Codex CLI (подписка ChatGPT)";
   readonly profile: ExecutorProfile = { kinds: ["code_edit", "code_review", "analysis", "text"], editsFiles: true, shell: true, maxContextTokens: 200_000, quality: "high", pause: "none", costTier: "subscription", order: 1 };
 
-  constructor(private readonly deps: { auth: AuthReader; run?: typeof runCodexExec; model?: () => string | undefined }) {}
+  constructor(private readonly deps: { auth: AuthReader; run?: typeof runCodexExec; model?: () => string | undefined; refreshQuota?: () => Promise<void> }) {}
 
   async probe(force = false): Promise<ExecutorProbe> {
     const auth = await this.deps.auth(force);
+    if (auth.subscription) await this.deps.refreshQuota?.();
     return { installed: auth.installed, authenticated: auth.installed ? auth.subscription : false, detail: auth.reason ?? (auth.version ? `codex-cli ${auth.version}` : undefined), checkedAt: auth.checkedAt, source: "codex login status" };
   }
 

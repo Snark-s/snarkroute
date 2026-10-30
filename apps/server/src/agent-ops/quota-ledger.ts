@@ -134,6 +134,7 @@ export class QuotaLedger {
       entry.quota = { state: "exhausted", usedPercent: report.usedPercent, resetsAt: report.resetsAt, source: report.source, observedAt: at, detail: report.detail };
       entry.nextAttemptAt = report.resetsAt ?? new Date(this.now() + UNKNOWN_RESET_BACKOFF_MS).toISOString();
     } else {
+      if (entry.quota.state === "exhausted" || entry.quota.state === "rate_limited") entry.nextAttemptAt = undefined;
       entry.quota = { state: "reported", usedPercent: report.usedPercent, resetsAt: report.resetsAt, source: report.source, observedAt: at, detail: report.detail };
     }
     void this.save();

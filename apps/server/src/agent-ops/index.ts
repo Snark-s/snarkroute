@@ -101,7 +101,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
 
   const adapters = options.adapters ?? [
     new LocalRouteExecutor({ pickModel: pickLocalTextModel, runText: (model, prompt, signal) => textRunner ? textRunner(model, prompt, signal) : Promise.resolve({ ok: false, error: "Исполнитель маршрутов ещё не подключён." }) }),
-    new CodexExecutor({ auth: force => subscriptions[1].chatGptSubscription().auth(force), model: () => process.env.AGENT_OPS_CODEX_MODEL?.trim() || undefined }),
+    new CodexExecutor({ auth: force => subscriptions[1].chatGptSubscription().auth(force), refreshQuota: () => subscriptions[1].chatGptSubscription().refreshQuota(), model: () => process.env.AGENT_OPS_CODEX_MODEL?.trim() || undefined }),
     new ClaudeCodeExecutor({ auth: force => subscriptions[0].claudeSubscription().auth(force), model: () => process.env.AGENT_OPS_CLAUDE_MODEL?.trim() || "sonnet" })
   ];
   const buzhaTools = new BuzhaTools({ effect: (task, key, phase, tool, reason) => { if (!tasks) throw new Error("Общая очередь ещё не подключена."); return tasks.toolEffect(task.id, tool, key, phase, reason); }, delegate: async (task, args) => {

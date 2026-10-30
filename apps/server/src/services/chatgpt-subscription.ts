@@ -18,6 +18,7 @@ import {
   type CodexStreamEvent
 } from "./codex-cli";
 import { boundedConcurrency, ConcurrencyGate, JsonConversationFile, JsonHistoryFile, KeyedSerializer } from "./subscription-common";
+import { readCodexQuota } from "./codex-quota";
 
 /**
  * ChatGPT Subscription: the owner's ChatGPT Plus/Pro plan used through the
@@ -81,6 +82,7 @@ type Deps = {
   run?: typeof runCodexExec;
   authStatus?: typeof codexAuthStatus;
   listModels?: typeof codexListModels;
+  readQuota?: typeof readCodexQuota;
   deleteSession?: (sessionId: string) => Promise<boolean>;
   dataDirectory?: string;
   now?: () => number;
@@ -90,6 +92,8 @@ export class ChatGptSubscriptionService {
   private authCache?: { value: CodexAuthStatus; at: number };
   private modelsCache?: { value: ChatGptModelInfo[]; at: number };
   private quota: ChatGptSubscriptionQuota = { exhausted: false };
+  private quotaCheckedAt = -Infinity;
+  private quotaRefresh?: Promise<void>;
   private unavailableModels = new Map<string, { until: number; reason: string }>();
   private resolvedModels = new Map<string, string>();
   private readonly gate = new ConcurrencyGate(maxConcurrency, () => new CodexCliError("CANCELLED", "Запрос к ChatGPT отменён в очереди."));
@@ -133,6 +137,22 @@ export class ChatGptSubscriptionService {
       return { ...this.quota, exhausted: true, exhaustedUntil: shared.nextAttemptAt, lastLimitMessage: shared.quota.detail ?? "Лимит зафиксирован общим учётом SnarkRoute.", ...(shared.quota.simulated ? { simulated: true } : {}) };
     }
     return { ...this.quota };
+  }
+
+  /** Recheck the plan without spending a model step. Failed reads remain unknown;
+   * concurrent status/reviewer calls share one request, at most once per minute. */
+  async refreshQuota(): Promise<void> {
+    if (this.quotaState().simulated || sharedQuotaLedger().view("codex_cli").quota.simulated) return;
+    if (this.quotaRefresh) return this.quotaRefresh;
+    if (this.now() - this.quotaCheckedAt < AUTH_CACHE_MS) return;
+    this.quotaCheckedAt = this.now();
+    this.quotaRefresh = (async () => {
+      try {
+        const info = await (this.deps.readQuota ?? readCodexQuota)(this.deps.cli);
+        if (info) this.observeRateLimit(info, "codex app-server account/rateLimits/read");
+      } catch { /* No quota report is preferable to fabricated availability. */ }
+    })().finally(() => { this.quotaRefresh = undefined; });
+    return this.quotaRefresh;
   }
 
   /** Turns running right now; the shared ledger counts them against the plan's concurrency. */
@@ -270,17 +290,19 @@ export class ChatGptSubscriptionService {
     }
   }
 
-  private observeRateLimit(info: CodexRateLimitInfo): void {
+  private observeRateLimit(info: CodexRateLimitInfo, source = "codex session file (chat)"): void {
     this.quota = { ...this.quota, lastRateLimit: info };
     // Once a window is used up Codex would fail or draw on paid ChatGPT credits; neither is wanted unless allowed.
     const exhausted = codexLimitReached(info) && !(info.hasCredits && process.env.CHATGPT_SUBSCRIPTION_ALLOW_CREDITS === "1");
     if (exhausted) {
       this.quota = { ...this.quota, exhausted: true, exhaustedUntil: limitResetsAt(info) ?? new Date(this.now() + UNKNOWN_RESET_BACKOFF_MS).toISOString() };
+    } else if (!this.quota.simulated) {
+      this.quota = { exhausted: false, lastRateLimit: info };
     }
     const windows = [info.primary, info.secondary].filter(window => window !== undefined);
     const used = windows.length ? Math.max(...windows.map(window => window.usedPercent)) : undefined;
     sharedQuotaLedger().recordQuotaReport("codex_cli", { exhausted, usedPercent: used, resetsAt: limitResetsAt(info) ?? windows.find(window => window.usedPercent === used)?.resetsAt,
-      source: "codex session file (chat)", detail: info.planType });
+      source, detail: info.planType });
   }
 
   private observeFailure(error: CodexCliError, alias: string): void {
