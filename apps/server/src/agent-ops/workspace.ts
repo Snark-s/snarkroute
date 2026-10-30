@@ -89,7 +89,7 @@ export async function runCheck(check: TaskCheck, workdir: string | undefined, si
   const done = (ok: boolean, detail: string, content?: string): CheckResult => ({ check, ok, detail: detail.slice(-4000), content: content?.slice(0, 12000), truncated: outputTruncated || (content?.length ?? 0) > 12000, durationMs: Date.now() - startedAt, observedAt: new Date().toISOString(), source: JSON.stringify(check) });
   try {
     if (signal?.aborted) return done(false, "Проверка отменена.");
-    if (check.type === "tool" || check.type === "tool_used" || check.type === "tool_observations" || check.type === "acceptor_cycle" || check.type === "tool_scope") return done(false, "Проверка инструмента требует общего agent-ops контекста.");
+    if (check.type === "tool" || check.type === "tool_used" || check.type === "tool_observations" || check.type === "acceptor_cycle" || check.type === "tool_scope" || check.type === "task_verified") return done(false, "Проверка инструмента требует общего agent-ops контекста.");
     if (check.type === "http") {
       const url = new URL(check.url);
       if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return done(false, "Разрешены только HTTP(S) URL без учётных данных.");

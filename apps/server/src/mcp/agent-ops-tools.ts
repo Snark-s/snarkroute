@@ -20,6 +20,7 @@ const check = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tool_used"), tool: z.string().min(1).max(80), effectKey: z.string().max(80).optional() }),
   z.object({ type: z.literal("tool_observations") }),
   z.object({ type: z.literal("acceptor_cycle") }),
+  z.object({ type: z.literal("task_verified"), taskId:z.string().min(1).max(80) }),
   z.object({ type: z.literal("tool_scope"), allowed: z.array(z.string().min(1).max(80)).max(30) })
 ]);
 const criterion = z.object({ id: z.string().min(1).max(80), description: z.string().min(1).max(2000), required: z.boolean().optional(), checkIndexes: z.array(z.number().int().min(0).max(29)).max(30).optional(), review: z.enum(["machine", "model", "unverifiable"]), unverifiableReason: z.string().max(2000).optional(), maxAgeMs: z.number().int().min(1000).max(86400000).optional() });

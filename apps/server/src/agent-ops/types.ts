@@ -67,6 +67,7 @@ export type TaskCheck =
   | { type: "tool_used"; tool: string; effectKey?: string }
   | { type: "tool_observations" }
   | { type: "acceptor_cycle" }
+  | { type: "task_verified"; taskId:string }
   | { type: "tool_scope"; allowed: string[] };
 // Re-observe the read tools used by an actor, rather than trusting its saved report.
 export type AgentToolCall = { id: string; attempt: number; at: string; tool: string; arguments: Record<string, unknown>; ok: boolean; result: unknown; provider?: string; model?: string; effectKey?: string };

@@ -796,6 +796,11 @@ export class AgentTaskService {
   }
 
   private async check(task: AgentTask, check: NonNullable<TaskSpec["checks"]>[number], signal?: AbortSignal) {
+    if(check.type==="task_verified"){
+      const child=this.tasks.get(check.taskId),related=Boolean(child&&child.chain.parentTaskId===task.id&&child.chain.rootTaskId===task.chain.rootTaskId),ok=related&&child?.state==="verified";
+      const content=JSON.stringify({child:related?{id:child!.id,state:child!.state,reason:child!.reason,finishedAt:child!.finishedAt,criteria:child!.reviews?.at(-1)?.criteria,evidence:child!.evidence?.map(e=>({id:e.id,source:e.source,observedAt:e.observedAt,ok:e.ok,detail:e.detail,content:e.content?.slice(0,2000)}))}:null,note:"Only a direct independently accepted child in this same chain is evidence; no executor permissions or budget are granted."});
+      return {check,ok,detail:ok?"Прямая подзадача принята общим Приёмщиком; доказательства и общий бюджет сохранены.":"Прямая подзадача той же цепочки ещё не принята либо не принадлежит этому поручению.",content:content.slice(0,12000),truncated:content.length>12000,source:"SnarkRoute:verified-child-evidence",observedAt:this.iso(),durationMs:0};
+    }
     if (check.type === "acceptor_cycle") {
       const current = task.attempts.at(-1)!, prior = task.reviews?.find(review => ["continue", "change_approach"].includes(review.decision) && review.attempt < current.n && review.criteria.some(c => c.status !== "confirmed"));
       const ok = Boolean(prior && Date.parse(current.startedAt) >= Date.parse(prior.at));
@@ -940,7 +945,7 @@ export function normalizeSpec(input: TaskSpec): TaskSpec {
   const checks = structuredClone(input.checks ?? []);
   for (const check of checks) {
     if (check.type === "command" && (!check.command?.trim() || /[\r\n]/.test(check.command))) throw new AgentOpsError("BAD_SPEC", "Команда проверки должна быть одной программой без переводов строк.", {}, 400);
-    if (!["command", "file_exists", "file_contains", "file_content", "http", "process", "tool", "tool_used", "tool_observations", "acceptor_cycle", "tool_scope"].includes(check.type)) throw new AgentOpsError("BAD_SPEC", "Неизвестный тип проверки.", {}, 400);
+    if (!["command", "file_exists", "file_contains", "file_content", "http", "process", "tool", "tool_used", "tool_observations", "acceptor_cycle", "tool_scope", "task_verified"].includes(check.type)) throw new AgentOpsError("BAD_SPEC", "Неизвестный тип проверки.", {}, 400);
     if (check.type === "http") { const url = new URL(check.url); if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw new AgentOpsError("BAD_SPEC", "HTTP проверка требует URL без учётных данных.", {}, 400); }
   }
   const ids = new Set<string>();
@@ -996,6 +1001,7 @@ export function buildTaskPrompt(task: AgentTask, partial?: Attempt): string {
 }
 
 export function describeCheck(check: NonNullable<TaskSpec["checks"]>[number]): string {
+  if(check.type==="task_verified")return `independently accepted direct child in this chain: ${check.taskId}`;
   if (check.type === "command") return `run \`${[check.command, ...(check.args ?? [])].join(" ")}\` (exit code 0)`;
   if (check.type === "file_exists") return `file exists: ${check.path}`;
   if (check.type === "file_contains") return `file ${check.path} contains "${check.text.slice(0, 80)}"`;

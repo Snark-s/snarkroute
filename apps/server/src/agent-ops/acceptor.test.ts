@@ -55,6 +55,15 @@ async function until(service: AgentTaskService, id: string, predicate: (task: an
 }
 
 describe("Приёмщик: durable execution → evidence → acceptance", () => {
+  it("uses an independently accepted direct child in the same chain, rejecting an unrelated accepted task",async()=>{
+    const f=await fixture();f.service.close();await writeFile(join(f.workspace,"profile.json"),'{"published":true}');
+    const {task:parent}=await f.service.submit(f.agent,f.spec,{inspectExisting:true});
+    const {task:child}=await f.service.submit(f.owner,{...f.spec,goal:"Independent direct child fixture",parentTaskId:parent.id},{inspectExisting:true});
+    await f.service.verify(child.id,f.owner);expect(child.state).toBe("verified");
+    await f.service.amend(parent.id,f.owner,{checks:[{type:"task_verified",taskId:child.id}]},"Use the accepted direct child evidence");await f.service.verify(parent.id,f.owner);expect(parent.state).toBe("verified");
+    const {task:other}=await f.service.submit(f.owner,{...f.spec,goal:"Unrelated independently accepted fixture"},{inspectExisting:true});await f.service.verify(other.id,f.owner);
+    await f.service.amend(parent.id,f.owner,{checks:[{type:"task_verified",taskId:other.id}]},"An unrelated task is not proof");await f.service.verify(parent.id,f.owner);expect(parent.state).not.toBe("verified");expect(parent.result?.checks[0].ok).toBe(false);expect(f.calls()).toBe(0);
+  });
   it("passes the submitting owner's new continuation into execution without removing earlier feedback",async()=>{
     const f=await fixture();f.service.close();const {task}=await f.service.submit(f.agent,f.spec);task.state="blocked";task.nextStep="Earlier independent review";
     await f.service.resolve(task.id,f.owner,"continue","Extension reloaded; use new selectors and continue independent fields");
