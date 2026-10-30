@@ -6,14 +6,14 @@ import type { AgentIdentity, AgentTask, TaskSpec } from "../agent-ops/types";
 import { AgentOpsError } from "../agent-ops/tasks";
 import { buzhaHome, buzhaMemory, buzhaWorkspace } from "./memory";
 import { BUZHA_TOOLS } from "./tools";
-import { BUZHA_EXTERNAL_SCHEDULES, buzhaSchedules } from "./schedules";
+import { BUZHA_EXTERNAL_SCHEDULES, buzhaSchedules, normalizeBuzhaOccurrence } from "./schedules";
 
 export class BuzhaAgentService {
   private timer?: NodeJS.Timeout;
   private polling?: Promise<void>;
   private lastError = "";
   private pending = new Map<string, { content: string; run: Promise<any> }>();
-  constructor(private readonly deps: { tasks: AgentTaskService; registry: AgentRegistry; memory?: typeof buzhaMemory; workspace?: (id: number) => string }) {}
+  constructor(private readonly deps: { tasks: AgentTaskService; registry: AgentRegistry; memory?: typeof buzhaMemory; workspace?: (id: number) => string;runtimeVersion?:Record<string,unknown> }) {}
   private memory(path?: string, body?: unknown) { return (this.deps.memory ?? buzhaMemory)(path, body); }
   start() { this.deps.registry.app("buzha", "Бужа"); this.timer = setInterval(() => { if (!this.polling) this.polling = this.poll().catch(e => { this.lastError = String(e); }).finally(() => { this.polling = undefined; }); }, 3000); this.timer.unref?.(); }
   close() { if (this.timer) clearInterval(this.timer); }
@@ -28,15 +28,39 @@ export class BuzhaAgentService {
     const actual = current?.attempts.flatMap(attempt => attempt.modelCalls ?? []).filter(call => call.ok).at(-1);
     const settings = buzhaSchedules(memory?.agent_schedule);
     const routingReason = current && Object.keys(current.excludedExecutors).length ? `Предыдущий подход недоступен: ${Object.entries(current.excludedExecutors).map(([executor, reason]) => `${executor}: ${reason}`).join("; ")}. ${current.reason}` : current?.reason;
-    return { id: "buzha", name: "Бужа", persistentIdentity: true, memory: join(buzhaHome(), "data", "buzha.sqlite3"), identitySource: join(buzhaHome(), "identity.md"),
+    return { id: "buzha", name: "Бужа", persistentIdentity: true, runtimeVersion:this.deps.runtimeVersion, memory: join(buzhaHome(), "data", "buzha.sqlite3"), identitySource: join(buzhaHome(), "identity.md"),
       connected: Boolean(memory), configuredModel: memory?.model || "auto · локальная подходящая модель, затем разрешённые подписки", actualModel: actual?.model ?? null, actualProvider: actual?.provider ?? null,
       configuredModelNote: memory?.model?.startsWith("openrouter:") ? "Исторический выбор OpenRouter сохранён. Постоянный исполнитель сейчас использует подходящие локальные модели и разрешённые подписки; этот API не включён в его роли. Платный API автоматически не используется." : "Маршрутизатор учитывает сложность, доступность и права. Локальная подходящая модель имеет приоритет; фактическая модель показана отдельно.",
-      executor: current?.executor ?? null, reason: routingReason ?? (this.lastError || "Ожидает поручение"), executors, tools: BUZHA_TOOLS, browser: { sessionId: "default", profile: "Profile 13", policy: "existing-owner-policy; read-only tools" },
-      limitations: ["Текстовый провайдер управляет проверенным структурированным циклом инструментов; native tool calling не объявляется.", "Отправка коммерческих сообщений, смена профилей, регистрация и платежи не разрешены этим набором инструментов.", "Локальная модель может ожидать GPU/RAM; неизвестная квота не считается свободной, платные API не используются."],
+      executor: current?.executor ?? null, reason: routingReason ?? (this.lastError || "Ожидает поручение"), executors, tools: BUZHA_TOOLS, browser: { sessionId: "default", profile: "Profile 13", policy: "existing-central-SnarkBridge-work-policy; write-ahead shared effects" },
+      limitations: ["Текстовый провайдер управляет структурированным циклом инструментов; native tool calling не объявляется.", "Рабочие профили, загрузки и адресная переписка проходят существующую централизованную политику SnarkBridge. Пароли, безопасность, юридические согласия, идентификация, платежи, удаление аккаунта и CAPTCHA остаются за владельцем.", "Квитанция команды не подтверждает публикацию или отправку: Приёмщик независимо читает фактический результат. При неизвестном исходе действие не повторяется.", "Локальная модель может ожидать GPU/RAM; неизвестная квота не считается свободной, платные API не используются."],
       messages: canSeeAll ? memory?.messages?.slice(-100) ?? [] : [], schedules: settings, tasks: tasks.map(task => this.view(task)), error: this.lastError || null };
   }
   task(id: string, identity: AgentIdentity): AgentTask { const task = this.deps.tasks.get(id); if (!task || task.agentId !== "app:buzha") throw new AgentOpsError("TASK_NOT_FOUND", "Задача Бужи не найдена.", {}, 404); if (identity.kind !== "owner" && identity.id !== "app:buzha" && !task.spec.inputs?.includes(`requested-by:${identity.id}`)) throw new AgentOpsError("NOT_OWNER", "Это поручение другого отправителя.", {}, 403); return task; }
-  view(task: AgentTask) { return { ...task, taskBudget: this.deps.tasks.budgetUsage(task), chainBudget: this.deps.tasks.chainBudget(task.chain.rootTaskId) }; }
+  async acknowledgeScheduleSource(identity:AgentIdentity,input:{sourceClientId:string;proof:string;verifiedBothSides:boolean;noUnfinishedExternalEffects:boolean}) {
+    if(identity.kind!=="owner") throw new AgentOpsError("OWNER_ONLY","Владельца источника подтверждает только владелец.",{},403);
+    if(!input.verifiedBothSides||!input.noUnfinishedExternalEffects||!input.sourceClientId?.startsWith("mcp:")||typeof input.proof!=="string"||input.proof.trim().length<40) throw new AgentOpsError("SOURCE_PROOF_REQUIRED","Нужно подтверждение обеих сторон, точный MCP client id и проверка незавершённых внешних действий. Без этого источник не активируется.",{},409);
+    if(this.deps.tasks.list({agentId:"app:buzha",limit:1000}).some(t=>t.effects?.some(e=>["started","unknown"].includes(e.state)))) throw new AgentOpsError("UNKNOWN_EFFECT","Сначала независимо сверить незавершённые внешние действия Бужи.",{},409);
+    const memory=await this.memory(), settings=JSON.parse(memory.agent_schedule??JSON.stringify(BUZHA_EXTERNAL_SCHEDULES));
+    if(settings.owner!=="chatgpt"||settings.localEnabled!==false) throw new AgentOpsError("SCHEDULE_OWNER_CONFLICT","Источник должен оставаться ChatGPT без второго локального планировщика.");
+    await this.memory("/api/agent/schedules",{...settings,handoff:{verifiedByOwner:true,sourceClientId:input.sourceClientId,proof:input.proof.slice(0,6000),verifiedAt:new Date().toISOString()}});
+    return {owner:"chatgpt",localEnabled:false,sourceIntegration:"owner_verified_chatgpt_source"};
+  }
+  async scheduleTrigger(identity:AgentIdentity,input:{automationId:string;scheduledFor:string;content:string;quality?:"normal"|"high";dryRun?:boolean}) {
+    const occurrence=normalizeBuzhaOccurrence(input.automationId,input.scheduledFor), memory=await this.memory();
+    const settings=JSON.parse(memory.agent_schedule??JSON.stringify(BUZHA_EXTERNAL_SCHEDULES));
+    const verified=settings.owner==="chatgpt"&&settings.localEnabled===false&&settings.handoff?.verifiedByOwner===true;
+    if(!verified||input.dryRun) return {...occurrence,accepted:false,prepared:true,sourceVerified:verified,owner:"chatgpt",localEnabled:false,reason:verified?"Предпросмотр: задача не создавалась.":"Интеграция подготовлена, источник ChatGPT ещё не согласован с общей очередью. Требуется подтверждение обеих сторон владельцем; локальный scheduler выключен."};
+    if(identity.kind!=="owner"&&identity.id!==settings.handoff.sourceClientId) throw new AgentOpsError("WRONG_SCHEDULE_SOURCE","Это срабатывание разрешено только подтверждённому клиенту источника.",{},403);
+    const existing=memory.agent_work?.find((row:any)=>row.request_key===occurrence.requestKey);
+    if(!existing && this.deps.tasks.list({agentId:"app:buzha",limit:1000}).some(t=>t.effects?.some(e=>["started","unknown"].includes(e.state)))) throw new AgentOpsError("UNKNOWN_EFFECT","Предыдущее внешнее действие требует сверки. Новый плановый запуск не создаётся.",{},409);
+    const result=await this.submit(identity,{content:input.content,quality:input.quality??"normal",requestKey:occurrence.requestKey});
+    return {...occurrence,accepted:true,owner:"chatgpt",localEnabled:false,...result};
+  }
+  view(task: AgentTask) {
+    const observed=new Set(task.attempts.flatMap(a=>a.toolCalls??[]).filter(call=>call.ok&&call.tool==="browser_observe_url").map(call=>String(call.arguments.url??"")));
+    const links=[...observed].flatMap(url=>{try{const target=new URL(url);if(target.protocol!=="https:"||target.username||target.password)return[];if(target.hostname==="www.fl.ru"&&target.pathname.startsWith("/users/buzhastudio/"))return[{url,label:"Профиль / работа на FL.ru",verified:task.state==="verified"}];if(target.hostname==="mail.google.com"&&/#(?:sent|all)\//.test(target.hash))return[{url,label:"Подтверждение в рабочей почте",verified:task.state==="verified"}];return[];}catch{return[];}});
+    return { ...task,links, taskBudget: this.deps.tasks.budgetUsage(task), chainBudget: this.deps.tasks.chainBudget(task.chain.rootTaskId) };
+  }
   private memoryTask(task: AgentTask) { return { id: task.id, state: task.state, reason: task.reason.slice(0, 3000), nextStep: task.nextStep?.slice(0, 3000), attempts: task.attempts.slice(-1).map(a => ({ model: a.model, provider: a.provider, executor: a.executor })), result: { summary: task.result?.summary.slice(0, 12000) }, reviews: task.reviews?.slice(-1).map(r => ({ decision: r.decision, criteria: r.criteria.map(c => ({ criterionId: c.criterionId, status: c.status })) })), evidence: task.evidence?.slice(-10).map(e => ({ id: e.id })) }; }
 
   async submit(identity: AgentIdentity, input: { content: string; requestKey: string; quality?: "normal" | "high"; demo?: boolean; contract?: Partial<TaskSpec>; existingMessageId?: number }) {
@@ -61,7 +85,7 @@ export class BuzhaAgentService {
       tools: BUZHA_TOOLS, workspace, permissions: { fileWrite: true, shell: "tests", network: false },
       requirements: { kind: "agent_tool", quality }, allowedExecutors: ["buzha_local", "buzha_codex", "buzha_claude", "codex_cli", "claude_code"], executor: quality === "normal" ? "buzha_local" : "buzha_codex",
       checks: [{ type: "file_content", path: "answer.md" }, { type: "tool_observations" }, { type: "tool_scope", allowed: BUZHA_TOOLS }], criteria: [{ id: "answer", description: input.content, review: "model", checkIndexes: [0, 1, 2] }],
-      review: { forceStrong: quality === "high", maxRuns: 8 }, retry: { maxAttempts: 4, sameFailureLimit: 2, delayMs: 2000, maxDelayMs: 30000 }, budget: { wallMinutes: 30, subscriptionRuns: 6, maxTurns: 8, providerCost: 0 }
+      review: { forceStrong: quality === "high", maxRuns: 8 }, retry: { maxAttempts: 4, sameFailureLimit: 2, delayMs: 2000, maxDelayMs: 30000 }, budget: { wallMinutes: 180, activeMinutes: 30, subscriptionRuns: 6, maxTurns: 8, providerCost: 0 }
     };
     if (input.demo) {
       spec.review = { forceStrong: false, maxRuns: 8 };

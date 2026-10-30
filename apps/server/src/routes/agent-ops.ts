@@ -111,6 +111,7 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
   app.get<{ Params: { id: string } }>(`${ROOT}/tasks/:id/log`, handle(async (ops, _identity, request) => ({ ok: true, log: await ops.tasks.log((request.params as { id: string }).id) })));
 
   app.post<{ Params: { id: string } }>(`${ROOT}/tasks/:id/cancel`, handle(async (ops, identity, request) => ({ ok: true, task: await ops.tasks.cancel((request.params as { id: string }).id, identity) })));
+  app.post<{ Params: { id: string } }>(`${ROOT}/tasks/:id/budget`, handle(async (ops, identity, request) => { const body=request.body as { budget: { wallMinutes?: number; activeMinutes?: number; subscriptionRuns?: number }; reason: string }; return {ok:true,task:await ops.tasks.reviseBudget((request.params as {id:string}).id,identity,body.budget,body.reason)}; }));
 
   app.post<{ Params: { id: string } }>(`${ROOT}/tasks/:id/resolve`, handle(async (ops, identity, request) => {
     const body = (request.body ?? {}) as { action?: "requeue" | "continue" | "mark_failed" | "mark_verified"; note?: string };

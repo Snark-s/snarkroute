@@ -93,6 +93,19 @@ export class ResourceDispatcher {
   list(): Lease[] { return [...this.leases.values()]; }
   listProfiles(): ResourceProfile[] { return [...this.profiles.values()]; }
   get(id: string): Lease | undefined { return this.leases.get(id); }
+  /** Recheck the owner's mode before another generation of the SAME admitted
+   * workload. Retain its reservation; resident weights are not a new allocation. */
+  async continueLease(id: string): Promise<{allowed:boolean;reason?:string}> {
+    const lease=this.leases.get(id); if (!lease || lease.state!=="active") return {allowed:false,reason:"Резерв уже не активен; требуется новая аренда."};
+    const [mode,apps,telemetry]=await Promise.all([this.deps.mode(),this.deps.ownerApps(),this.deps.telemetry()]);
+    if (lease.origin==="agent" && lease.class==="heavy") {
+      if (!mode.limits.heavy) return {allowed:false,reason:`Режим «${mode.label}»: следующая генерация ждёт.`};
+      if (mode.mode==="background" && apps.length) return {allowed:false,reason:`Запущены приложения владельца: ${apps.join(", ")}.`};
+      if (telemetry.gpu && telemetry.gpu.freeMiB<mode.limits.reserveVramMiB) return {allowed:false,reason:"Следующая генерация ждёт восстановления резерва VRAM владельца."};
+      if (telemetry.memory.freeMiB<mode.limits.reserveRamMiB) return {allowed:false,reason:"Следующая генерация ждёт восстановления резерва RAM владельца."};
+    }
+    this.heartbeat(id); return {allowed:true};
+  }
   recentHeavyRuntime(): string | undefined {
     return this.lastHeavyRuntime && this.now() - this.lastHeavyRuntime.releasedAt < 120_000 ? this.lastHeavyRuntime.runtimeId : undefined;
   }
