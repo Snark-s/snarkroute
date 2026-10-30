@@ -46,7 +46,7 @@ export class BuzhaTools {
       const token = (await readFile(join(root, ".client-auth", "tunnel-bearer"), "utf8")).trim();
       const authorization = /^Bearer /i.test(token) ? token : `Bearer ${token}`;
       const client = new Client({ name: "SnarkRoute-Buzha", version: "1" });
-      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${localServicePort("snarkbridge_mcp")}/mcp`), { requestInit: { headers: { authorization } } }));
+      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${localServicePort("snarkbridge_mcp")}/mcp`), { requestInit: { headers: { authorization, "x-snarkbridge-initiator": "SnarkRoute-Buzha" } } }));
       return client;
     })().catch(error => { this.client = undefined; throw error; });
     const result = await (await this.client).callTool({ name, arguments: args }, undefined, { timeout: 45000 });
