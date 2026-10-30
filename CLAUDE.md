@@ -59,7 +59,8 @@ Buzha is a persistent `app:buzha` agent using her existing SQLite and identity.
 Discover `tools:buzha`; use `buzha_message` with a stable requestKey and
 `buzha_status/task/control`. Her structured model/tool loop uses the shared
 queue and Acceptor, scoped SnarkBridge and paired Chrome Profile 13. ChatGPT
-retains both schedule owners; no duplicate local jobs. See `docs/buzha-agent.md`.
+retains both schedule owners; no duplicate local jobs. ChatGPT reaches her through
+SnarkBridge `agent_routes` → route `buzha` (own sender identity, requestKey dedup). See `docs/buzha-agent.md`.
 
 `tech_radar_research` queues public GitHub research without running project code or
 using paid APIs; `tech_radar_catalog` reads results and the workshop capability map.
