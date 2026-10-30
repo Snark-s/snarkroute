@@ -6,7 +6,7 @@ import { BuzhaExecutor } from "./executor";
 import { BuzhaTools, BUZHA_TOOLS } from "./tools";
 import { AgentRegistry } from "../agent-ops/agents";
 import { AgentOpsStore } from "../agent-ops/store";
-import { AgentTaskService } from "../agent-ops/tasks";
+import { AgentTaskService, buildTaskPrompt } from "../agent-ops/tasks";
 import { LockManager } from "../agent-ops/locks";
 import { QuotaLedger } from "../agent-ops/quota-ledger";
 import { ResourceDispatcher } from "../agent-ops/resources";
@@ -81,5 +81,20 @@ describe("persistent Buzha executor and shared Acceptor", () => {
     const f = await fixture(); const actor = new BuzhaExecutor("codex", { model: async () => ({ provider: "chatgpt_subscription", providerModelId: "x", displayName: "x", runtimeId: "subscription", contextTokens: 100000 }), tools: f.tools, memory: async () => ({}), runText: async () => ({ ok: true, text: "Готово, я всё сделала" }) });
     const result = await actor.run({ task: { agentId: "app:buzha", spec: f.spec, attempts: [{ n: 1 }] } as AgentTask, prompt: "test", brief: "", workdir: f.workspace, env: {}, signal: new AbortController().signal, timeoutMs: 10000, maxTurns: 2, remainingSubscriptionRuns: 2, log: () => {}, onPid: () => {} });
     expect(result.ok).toBe(false); expect(result.message).toContain("не подтверждена"); expect(f.bridgeCalls()).toBe(0);
+  });
+  it("uses managed effect reservations inside Buzha tools without requesting an unavailable manual API",async()=>{
+    const f=await fixture(),events:string[]=[];
+    const task={id:"managed",title:"Managed write",agentId:"app:buzha",executor:"buzha_codex",spec:f.spec,attempts:[{n:5}],effects:[{key:"tool:old",state:"confirmed"}]} as AgentTask;
+    const prompt=buildTaskPrompt(task);
+    expect(prompt).not.toContain("/effects/{key}");
+    expect(buildTaskPrompt({...task,executor:"codex_cli"})).toContain("/effects/{key}");
+    const tools=new BuzhaTools({bridge:async name=>{if(name==="browser_sessions")return{sessions:[{id:"default",profile_directory:"Profile 13",available:true}]};events.push("dispatch");return{action:"clicked",status:"dispatched"};},effect:async(_task,_key,phase)=>{events.push(phase);return{execute:phase==="begin",state:phase==="begin"?"started":"confirmed"};}});
+    const actor=new BuzhaExecutor("codex",{tools,model:async()=>({provider:"chatgpt_subscription",providerModelId:"fixture",displayName:"fixture",runtimeId:"subscription",contextTokens:100000}),memory:async()=>({}),runText:async(_model,text)=>{
+      expect(text).toContain("резервирует действие автоматически");
+      expect(text).toContain('browser_prepare_action {action,tab_id,selector?,value?,root?,path?}');
+      return{ok:true,text:JSON.stringify({actions:[{tool:"browser_click",arguments:{tab_id:"12",selector:"#save"}}],done:true,summary:"Command receipt only; independent acceptance still required"})};
+    }});
+    const result=await actor.run({task,prompt,brief:"",workdir:f.workspace,env:{},signal:new AbortController().signal,timeoutMs:10000,maxTurns:1,remainingSubscriptionRuns:1,log:()=>{},onPid:()=>{}});
+    expect(result.ok).toBe(true);expect(events).toEqual(["begin","dispatch","reconcile"]);
   });
 });

@@ -1,5 +1,9 @@
 type Request = (path:string,init?:RequestInit)=>Promise<unknown>;
-type CurrentTask = {task:{state:string};taskBudget:{attemptsUsed:number;attemptsLimit:number}};
+type CurrentTask = {task:{state:string;executor?:string};taskBudget:{attemptsUsed:number;attemptsLimit:number;subscriptionRunsUsed?:number;subscriptionRunsLimit?:number}};
+
+export function subscriptionStepsExhausted(task:{executor?:string},budget?:{subscriptionRunsUsed?:number;subscriptionRunsLimit?:number}):boolean {
+  return ["buzha_codex","buzha_claude","codex_cli","claude_code"].includes(task.executor??"")&&typeof budget?.subscriptionRunsUsed==="number"&&typeof budget.subscriptionRunsLimit==="number"&&budget.subscriptionRunsUsed>=budget.subscriptionRunsLimit;
+}
 
 /** Uses the caller's existing owner session. It never creates a replacement task
  * or changes spent steps, permissions, subscription allocation or effect receipts. */
@@ -9,6 +13,7 @@ export async function continueWithAdditionalAttempt(taskId:string,note:string,re
   const path=`/tasks/${encodeURIComponent(taskId)}`;
   const current=await request(path) as CurrentTask;
   if(current.task.state!=="blocked")throw new Error("Задача изменила состояние. Обновите карточку; дополнительная попытка не выделялась.");
+  if(subscriptionStepsExhausted(current.task,current.taskBudget))throw new Error("Не осталось подписочных шагов. Одна дополнительная попытка не увеличивает этот лимит; требуется отдельное решение владельца о бюджете.");
   const {attemptsUsed,attemptsLimit}=current.taskBudget;
   if(!Number.isInteger(attemptsUsed)||!Number.isInteger(attemptsLimit)||attemptsLimit<1)throw new Error("Сервер не подтвердил текущий предел попыток.");
   if(attemptsUsed>=attemptsLimit)await request(`${path}/budget`,{method:"POST",body:JSON.stringify({budget:{maxAttempts:attemptsLimit+1},reason})});

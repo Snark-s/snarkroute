@@ -34,4 +34,9 @@ describe("owner continuation through the existing task API",()=>{
   it("requires an explicit clarification before making requests",async()=>{
     const f=fixture();await expect(continueWithAdditionalAttempt("task","  ",f.request)).rejects.toThrow(/основание/);expect(f.calls).toHaveLength(0);
   });
+  it("does not allocate another attempt to a subscription executor with no steps left",async()=>{
+    const calls:string[]=[];
+    await expect(continueWithAdditionalAttempt("task","Continue after owner approval",async path=>{calls.push(path);return{task:{state:"blocked",executor:"buzha_codex"},taskBudget:{attemptsUsed:5,attemptsLimit:5,subscriptionRunsUsed:24,subscriptionRunsLimit:24}};})).rejects.toThrow(/подписочных шагов/);
+    expect(calls).toEqual(["/tasks/task"]);
+  });
 });
