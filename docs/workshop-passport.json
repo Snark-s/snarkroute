@@ -1,0 +1,39 @@
+{
+  "passportVersion": "2026-10-31.1",
+  "verifiedAt": "2026-10-31",
+  "document": "docs/WORKSHOP-PASSPORT.md",
+  "decisions": "docs/decisions/REGISTRY.md",
+  "requiredAcceptedDecisions": ["D-01", "D-02", "D-03", "D-04", "D-05", "D-06", "D-07", "D-08", "D-09", "D-10", "D-11", "D-12"],
+  "services": {
+    "snarkroute": 4317,
+    "launcher": 5172,
+    "launcher_control": 5176,
+    "snarkbridge_mcp": 8767,
+    "snarkbridge_tunnel": 8080,
+    "persona_bridge": 8766,
+    "tove": 4890,
+    "factory": 4891,
+    "buzha": 8796,
+    "ollama_inference": 11434,
+    "bonsai_inference": 8092,
+    "flux3_native": 8093,
+    "qwen_edit": 8094,
+    "local_upscale": 8091,
+    "yue2": 7862,
+    "h3_worker": 18080
+  },
+  "repositories": [
+    { "id": "snarkroute", "path": "Y:\\Процесс\\SnarkRoute", "deployedBranch": "main" },
+    { "id": "tove", "path": "Y:\\Приложения\\Tove", "deployedBranch": "main" },
+    { "id": "factory", "path": "Y:\\Приложения\\Factory", "deployedBranch": "main" },
+    { "id": "personacore", "path": "I:\\PersonaCore", "deployedBranch": "main" }
+  ],
+  "mustReferencePassport": ["AGENTS.md", "CLAUDE.md"],
+  "staleClaims": [
+    { "text": "Ни один агент не пишет владельцу напрямую", "why": "D-04: Бужа может писать владельцу напрямую" },
+    { "text": "local orders bureau with manual records", "why": "Бужа — постоянный агент app:buzha (docs/buzha-agent.md)" },
+    { "text": "is the local orders bureau", "why": "Бужа — постоянный агент app:buzha (docs/buzha-agent.md)" },
+    { "text": "Future executor questions must go through Secretary", "why": "D-04 и D-03" }
+  ],
+  "staleClaimScan": ["AGENTS.md", "CLAUDE.md", "docs/CONNECTING-NEW-ENTITY.md", "apps/server/src/mcp"]
+}

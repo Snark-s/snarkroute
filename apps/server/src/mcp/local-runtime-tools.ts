@@ -18,7 +18,7 @@ export function registerLocalRuntimeTools(server: McpServer): void {
   const readOnly = { readOnlyHint: true, openWorldHint: false };
 
   server.registerTool("local_runtime_status", {
-    description: "Read current local GPU/runtime state before starting local inference. Includes built-in and automatically discovered loopback runtimes plus GPU/RAM pressure. Runtime buzha is a local orders bureau with manual records and a chat; ready means its UI is available, automation remains false. Future executor questions must go through Secretary.",
+    description: "Read current local GPU/runtime state before starting local inference. Includes built-in and automatically discovered loopback runtimes plus GPU/RAM pressure. Runtime buzha is the persistent app:buzha agent (shared queue, Acceptor, scoped SnarkBridge tools; use buzha_message/status/task/control); ready means her service is up. Workshop map and binding owner decisions: docs/WORKSHOP-PASSPORT.md.",
     inputSchema: {},
     annotations: readOnly
   }, async () => output({ ok: true, snapshot: await readLocalRuntimeSnapshot() }));

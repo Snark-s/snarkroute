@@ -1,5 +1,15 @@
 # Repository Instructions
 
+## Workshop passport (always in context)
+
+`docs/WORKSHOP-PASSPORT.md` is the map of the whole Workshop (agents, ports,
+repositories, layers) and `docs/decisions/REGISTRY.md` holds the owner's binding
+decisions. Read the passport before any design, before saying a task is
+impossible and before creating a new registry, subsystem or function. Accepted
+decisions are binding: propose a new decision instead of silently replacing one.
+Context-budget mode below never excludes these two files. After changing what the
+system can do, update the passport and run `node scripts/passport-check.mjs`.
+
 ## Capability awareness and delegation
 
 Before stating that a task cannot be done with your tools, check the SnarkRoute capability catalog

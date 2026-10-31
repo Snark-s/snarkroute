@@ -4,11 +4,19 @@ The repository rules are shared with Codex and live in AGENTS.md:
 
 @AGENTS.md
 
-Buzha (`buzha` in `local_runtime_status|start|stop`) is the local orders bureau
-at the registry URL, also available in the Workshop Agents tab. `ready` means
-the UI is up; automation is false. Orders/tasks are entered manually; chat has
-no tools and uses SnarkRoute's Model Gateway. Future executor questions go
-through Secretary. Setup and live checks: `docs/buzha.md`.
+Start every design, "impossible" verdict or new subsystem from the Workshop
+passport and the owner's decision registry (accepted decisions are binding):
+
+@docs/WORKSHOP-PASSPORT.md
+
+Registry: `docs/decisions/REGISTRY.md`. After changing what the system can do,
+update the passport and run `node scripts/passport-check.mjs`.
+
+Buzha is the persistent `app:buzha` agent (runtime `buzha` in
+`local_runtime_status|start|stop`; Workshop → Agents → Buzha). She works through
+the shared queue, Acceptor and scoped SnarkBridge tools, and may talk to the owner
+directly (decision D-04); everything assigned to her lands in the shared queue.
+Details below and in `docs/buzha-agent.md`.
 
 Before connecting anything new (provider, local worker, MCP tools, agent), read
 @docs/CONNECTING-NEW-ENTITY.md — it holds the owner's standing rules.
