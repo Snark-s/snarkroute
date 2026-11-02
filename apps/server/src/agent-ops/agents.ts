@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { resolve } from "node:path";
 import type { AgentIdentity, AgentKind, AgentPolicy } from "./types";
+import { passportBriefLine } from "./passport";
 
 /**
  * Who is asking and what it may do. MCP clients are identified by their
@@ -175,7 +176,8 @@ export const AGENT_OPS_BRIEF = [
 export function agentBrief(identity: AgentIdentity, extra?: { taskId?: string; chainDepth?: number; budget?: string; apiUrl?: string }): string {
   const lines = [
     `Your SnarkRoute agent id: ${identity.id} (policy ${identity.policy.id}; delegation depth limit ${identity.policy.maxDelegationDepth}).`,
-    AGENT_OPS_BRIEF
+    AGENT_OPS_BRIEF,
+    passportBriefLine()
   ];
   if (extra?.apiUrl && !extra.taskId) lines.push(`Without MCP: ${extra.apiUrl}/api/agent-ops (catalog, tasks, leases) with header "x-snarkroute-agent-token: $SNARKROUTE_AGENT_TOKEN".`);
   if (extra?.taskId) {

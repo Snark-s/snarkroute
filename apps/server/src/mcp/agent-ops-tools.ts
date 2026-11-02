@@ -2,12 +2,13 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { startAgentOps, type AgentOps } from "../agent-ops";
 import { AGENT_OPS_BRIEF, agentBrief } from "../agent-ops/agents";
+import { passportBriefLine, readPassportVersion } from "../agent-ops/passport";
 import { rankExecutors } from "../agent-ops/router";
 import { AgentOpsError, normalizeSpec } from "../agent-ops/tasks";
 import type { AgentIdentity, TaskSpec, TaskState } from "../agent-ops/types";
 import { errorMessage } from "../services/errors";
 
-export const AGENT_OPS_INSTRUCTIONS = ` ${AGENT_OPS_BRIEF} Call agent_whoami once to learn your agent id and permissions.`;
+export const AGENT_OPS_INSTRUCTIONS = ` ${AGENT_OPS_BRIEF} ${passportBriefLine()} Call agent_whoami once to learn your agent id and permissions.`;
 
 const check = z.discriminatedUnion("type", [
   z.object({ type: z.literal("command"), command: z.string().min(1).max(200), args: z.array(z.string().max(2000)).max(40).optional(), timeoutMs: z.number().int().min(1000).max(900_000).optional() }),
@@ -72,7 +73,7 @@ export function registerAgentOpsTools(server: McpServer, identityOf: (ops: Agent
   server.registerTool("agent_whoami", {
     description: "Your SnarkRoute agent identity, permissions (allowed executors, delegation depth, chain budget, workspace roots) and the short operating brief. Call once per session.",
     inputSchema: {}, annotations: readOnly
-  }, async () => run(async (ops, identity) => ({ identity: { id: identity.id, kind: identity.kind, policy: identity.policy }, brief: agentBrief(identity), mode: await ops.mode() }))());
+  }, async () => run(async (ops, identity) => ({ identity: { id: identity.id, kind: identity.kind, policy: identity.policy }, brief: agentBrief(identity), passportVersion: readPassportVersion(), mode: await ops.mode() }))());
 
   server.registerTool("agent_capabilities", {
     description: "Short catalog of executors, model groups, tool groups, local services and specialised agents, each with registered/discovered/available/verified status, source and check time, cost tier and how to invoke. Use agent_capability_detail for one entry.",
