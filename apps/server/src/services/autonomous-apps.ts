@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection } from "node:net";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { repoRoot } from "../server-paths";
 import { registerLocalRuntimeController, registerLocalRuntimeEndpoint } from "./local-runtime-registry";
 import { registerServiceLogProvider } from "./service-logs";
@@ -55,7 +56,12 @@ type Deps = {
   installed: (definition: Definition) => boolean;
   now: () => number;
   wait: (ms: number) => Promise<void>;
+  /** Where the owner's last start/stop intent is kept, so a keep-alive never overrides a deliberate stop. */
+  intentFile: () => string;
 };
+
+/** "run" unless someone deliberately stopped the app; a reboot or crash leaves the intent at "run". */
+export type AutonomousAppIntent = "run" | "stopped";
 
 const startedAt = new Map<AutonomousAppId, number>();
 const stoppingAt = new Map<AutonomousAppId, number>();
@@ -98,12 +104,31 @@ const defaultDeps: Deps = {
   },
   installed: (definition) => existsSync(definition.id === "buzha" ? join(definition.dir, "server.py") : join(definition.dir, definition.module, "launcher.py")),
   now: () => Date.now(),
-  wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+  wait: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  intentFile: () => join(repoRoot, "data", "autonomous-apps-intent.json")
 };
+
+function readIntents(): Partial<Record<AutonomousAppId, AutonomousAppIntent>> {
+  try { return JSON.parse(readFileSync(deps.intentFile(), "utf8")) ?? {}; } catch { return {}; }
+}
+
+function writeIntent(id: AutonomousAppId, intent: AutonomousAppIntent): void {
+  try {
+    const file = deps.intentFile();
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, JSON.stringify({ ...readIntents(), [id]: intent }, null, 2), "utf8");
+  } catch { /* best effort: a missing intent file means "run" */ }
+}
+
+export function autonomousAppIntent(id: AutonomousAppId): AutonomousAppIntent {
+  return readIntents()[id] === "stopped" ? "stopped" : "run";
+}
 
 let deps: Deps = defaultDeps;
 export function setAutonomousAppDeps(overrides: Partial<Deps> | null) {
-  deps = overrides ? { ...defaultDeps, ...overrides } : defaultDeps;
+  // Test doubles must never write the real owner intent: a fake "stop" would disable the keep-alive.
+  const isolatedIntent = () => join(tmpdir(), `snarkroute-autonomous-intent-${process.pid}.json`);
+  deps = overrides ? { ...defaultDeps, intentFile: isolatedIntent, ...overrides } : defaultDeps;
   startedAt.clear(); stoppingAt.clear(); inflight.clear();
 }
 
@@ -138,6 +163,7 @@ export async function startAutonomousApp(id: AutonomousAppId, timeoutMs = 45_000
   const pending = inflight.get(id);
   if (pending) return pending; // repeated clicks never start a second instance
   const run = (async () => {
+    writeIntent(id, "run");
     const before = await readAutonomousAppStatus(id);
     if (before.state === "unavailable") throw new Error(before.error ?? "Приложение недоступно");
     if (before.running) return before;
@@ -169,6 +195,7 @@ export async function stopAutonomousApp(id: AutonomousAppId, waitMs = 20_000): P
   }
   const { ok } = await deps.fetchJson(`${before.url}/api/system/shutdown`, { method: "POST", headers, body: "{}" });
   if (!ok) throw new Error(`${definition.label} не принял команду остановки`);
+  writeIntent(id, "stopped");
   stoppingAt.set(id, deps.now());
   const deadline = deps.now() + waitMs;
   while (deps.now() < deadline) {

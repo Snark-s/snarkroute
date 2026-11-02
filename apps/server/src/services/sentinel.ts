@@ -21,7 +21,7 @@ export type SentinelTile = {
 export type SentinelTicket = {
   tileId: string;
   label: string;
-  reason: "health_failed" | "port_conflict" | "restart_failed";
+  reason: "health_failed" | "port_conflict" | "restart_failed" | "passport_drift";
   status: "застрял";
   failuresInWindow: number;
   port?: number;
@@ -246,7 +246,7 @@ export function defaultSentinelTiles(): SentinelTile[] {
     if (service.protocol !== "http" || !service.healthPath) return [];
     const watch = service.watch ?? "when_running";
     if (watch === "never") return [];
-    const owner = id === "tove" || id === "factory" ? "tove" : id === "snarkroute" || id === "bonsai_inference" ? "snarkroute" : undefined;
+    const owner = id === "tove" || id === "factory" ? "tove" : id === "snarkroute" || id === "bonsai_inference" || id === "buzha" ? "snarkroute" : undefined;
     const url = `http://${registry.host}:${service.port}`;
     return [{ id, label: id, url, healthPath: service.healthPath, watch, ...(owner ? { owner } : {}) }];
   });
