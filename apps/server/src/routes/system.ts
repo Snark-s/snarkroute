@@ -27,6 +27,8 @@ import { registerBuzhaModelGateway } from "./buzha-model-gateway";
 import { registerModelExposureRoutes } from "./model-exposure";
 import { stopAllLocalRuntimes } from "../services/local-runtime-stop-all";
 import { agentOpsInstance } from "../agent-ops";
+import { resolveHttpIdentity } from "./agent-ops";
+import { AgentOpsError } from "../agent-ops/tasks";
 
 type SystemAppDefinition = {
   id: string;
@@ -75,6 +77,28 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     if (!request.headers.origin) return true;
     try { const origin = new URL(request.headers.origin); return origin.protocol === "http:" && isLoopbackHost(origin.hostname); } catch { return false; }
   };
+  app.addHook("preHandler", async (request, reply) => {
+    if (request.method === "OPTIONS") return;
+    // F-07: owner-only controls. Agents keep their own paths (e.g. local-runtimes start under
+    // admission and leases), so the guard lists the protected surfaces instead of all of /api/system.
+    const path = request.url.split("?")[0];
+    const ownerWrite = ["/api/system/apps/", "/api/system/model-exposure", "/api/system/secretary/", "/api/system/restart"].some(prefix => path.startsWith(prefix));
+    const ownerRead = path.startsWith("/api/system/secretary/");
+    if (["GET", "HEAD"].includes(request.method) ? !ownerRead : !ownerWrite) return;
+    if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
+    try {
+      if (ownerAuthorized(request.headers.authorization)) return;
+      const agentCredential = request.headers["x-snarkroute-agent-token"] || request.headers["x-snarkroute-agent"];
+      if (agentCredential) return reply.code(403).send({ ok: false, code: "OWNER_ONLY", error: "Owner authorization required." });
+      const ops = await agentOpsInstance();
+      const identity = ops ? resolveHttpIdentity(ops, request) : undefined;
+      if (identity?.kind === "owner") return;
+      return reply.code(identity?.kind === "anonymous" || !identity ? 401 : 403).send({ ok: false, code: "OWNER_ONLY", error: "Owner authorization required." });
+    } catch (error) {
+      if (error instanceof AgentOpsError) return reply.code(error.status).send({ ok: false, code: error.code, error: error.message });
+      return reply.code(401).send({ ok: false, code: "OWNER_ONLY", error: "Owner authorization required." });
+    }
+  });
   registerSecretaryRoutes(app, local);
   registerBuzhaModelGateway(app);
   registerModelExposureRoutes(app, local);

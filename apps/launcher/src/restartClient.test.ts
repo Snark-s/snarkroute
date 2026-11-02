@@ -1,4 +1,5 @@
 import {expect,it,vi} from 'vitest';
+vi.mock('./AgentOpsPanel',()=>({ownerHeaders:async()=>({'x-snarkroute-owner-session':'owner.test'})}));
 import {restartSnarkRoute,watchRestart} from './restartClient';
 const state=(phase:string)=>({ok:true,service:'snarkroute-launcher-control',apiPort:4317,managed:true,operation:{id:'job-1',state:phase}});
 it('requests one restart, reports progress and waits for owner health',async()=>{
@@ -6,6 +7,7 @@ it('requests one restart, reports progress and waits for owner health',async()=>
   const fetcher=vi.fn(async()=>new Response(JSON.stringify(responses.shift())));
   await restartSnarkRoute('http://127.0.0.1:5176',4317,status=>states.push(status.operation!.state),{fetcher,wait:async()=>{}});
   expect(fetcher.mock.calls).toHaveLength(3);expect(states).toEqual(['stopping','starting','healthy']);
+  expect((fetcher.mock.calls as unknown as Array<[unknown,RequestInit]>)[0][1]).toMatchObject({headers:{'x-snarkroute-owner-session':'owner.test'}});
 });
 it('reports owner restart failures without claiming success',async()=>{
   const fetcher=vi.fn(async()=>new Response(JSON.stringify({...state('error'),operation:{id:'job-1',state:'error',error:'health timeout'}})));

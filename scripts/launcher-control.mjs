@@ -8,6 +8,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { registeredPort } from './local-service-registry.mjs';
 import { rotateLogIfLarge } from './windowless-launch.mjs';
+import { timingSafeEqual } from 'node:crypto';
 
 function readEnvFile(path) {
   try { return parseEnv(readFileSync(path, 'utf8')); } catch { return {}; }
@@ -291,6 +292,12 @@ export async function startLauncherControl({
   root = resolve(root);
 
   const token = randomBytes(32).toString('hex');
+  const sameToken = (value) => {
+    if (!value?.startsWith('Bearer ')) return false;
+    const supplied = Buffer.from(value.slice(7).trim());
+    const expected = Buffer.from(token);
+    return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  };
 
   let child;
   let exited;
@@ -553,7 +560,7 @@ export async function startLauncherControl({
       );
       res.setHeader(
         'Access-Control-Allow-Headers',
-        'Content-Type'
+        'Content-Type, Authorization, X-SnarkRoute-Owner-Session, X-SnarkRoute-Agent-Token, X-SnarkRoute-Agent'
       );
 
       if (req.method === 'OPTIONS') {
@@ -587,6 +594,23 @@ export async function startLauncherControl({
         return true;
       };
 
+      const requireOwner = async () => {
+        if (sameToken(req.headers.authorization)) return true;
+        const ownerSession = req.headers['x-snarkroute-owner-session'];
+        if (typeof ownerSession === 'string' && ownerSession) {
+          try {
+            const response = await fetch(`http://127.0.0.1:${apiPort}/api/agent-ops/status`, {
+              headers: { 'x-snarkroute-owner-session': ownerSession }, signal: AbortSignal.timeout(3000), redirect: 'error',
+            });
+            const body = await response.json();
+            if (response.ok && body?.identity?.kind === 'owner') return true;
+          } catch {}
+        }
+        const agent = req.headers['x-snarkroute-agent-token'] || req.headers['x-snarkroute-agent'];
+        reply(agent ? 403 : 401, { ok: false, error: 'Owner authorization required' });
+        return false;
+      };
+
       try {
         if (
           req.method === 'GET' &&
@@ -603,6 +627,7 @@ export async function startLauncherControl({
           req.method === 'POST' &&
           req.url === '/restart'
         ) {
+          if (!await requireOwner()) return;
           if (!await requireJson()) return;
 
           const restartOperation = await control.restartOrStart();
@@ -616,6 +641,8 @@ export async function startLauncherControl({
         // Owner login: only this process holds the launcher token. It asks SnarkRoute for a one-time
         // code and opens the Workshop with it in the URL fragment; the caller never receives the code.
         if (req.method === 'POST' && req.url === '/owner-login') {
+          // Deliberately open: a browser without a session must be able to ask for login. The code
+          // goes only into the tab this launcher opens, never back to the caller.
           if (!await requireJson()) return;
           const url = await ownerLoginUrl();
           if (!url) return reply(503, { ok: false, error: 'SnarkRoute не выдал код входа' });
@@ -648,7 +675,7 @@ export async function startLauncherControl({
               error: 'Project Publisher control is unavailable',
             });
           }
-          if (!await requireJson()) return;
+          if (!await requireOwner() || !await requireJson()) return;
           const next = await projectPublisher[publisherAction]();
           return reply(200, { ok: true, ...next });
         }

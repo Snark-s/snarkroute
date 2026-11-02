@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, LoaderCircle, RefreshCw, Send } from "lucide-react";
+import { ownerHeaders } from "./AgentOpsPanel";
 
 type Question = { id: string; date: string; agent: string; question: string; suggestions: string; answer: string; note: string; closed: boolean };
 type Inbox = { questions: Question[]; pending: number; checkedAt: string };
 
 async function request(apiBase: string, path: string, init?: RequestInit): Promise<Inbox> {
-  const response = await fetch(`${apiBase}/api/system/secretary/questions${path}`, { ...init, signal: AbortSignal.timeout(45_000) });
+  const response = await fetch(`${apiBase}/api/system/secretary/questions${path}`, { ...init, headers: { ...await ownerHeaders(), ...Object.fromEntries(new Headers(init?.headers).entries()) }, signal: AbortSignal.timeout(45_000) });
   const body = await response.json() as Inbox & { ok: boolean; error?: string };
   if (!response.ok || !body.ok) throw new Error(body.error || "Не удалось связаться с реестром Секретаря.");
   return body;

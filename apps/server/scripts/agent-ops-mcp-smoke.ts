@@ -22,6 +22,8 @@ const repo = join(import.meta.dirname, "..", "..", "..");
 const token = process.env.SNARKROUTE_MCP_TOKEN?.trim()
   || /^SNARKROUTE_MCP_TOKEN=(.+)$/m.exec(readFileSync(join(repo, ".env"), "utf8"))?.[1]?.trim().replace(/^"|"$/g, "");
 if (!token) throw new Error("SNARKROUTE_MCP_TOKEN is not configured");
+const launcherToken = process.env.SNARKROUTE_LAUNCHER_TOKEN?.trim()
+  || /^SNARKROUTE_LAUNCHER_TOKEN=(.+)$/m.exec(readFileSync(join(repo, ".env"), "utf8"))?.[1]?.trim().replace(/^"|"$/g, "");
 const mode = process.argv[2] ?? "basic";
 const failures: string[] = [];
 const expect = (ok: boolean, label: string) => { console.log(`${ok ? "PASS" : "FAIL"} ${label}`); if (!ok) failures.push(label); };
@@ -125,8 +127,9 @@ if (mode === "delegate") {
 }
 
 if (mode === "restart" && parkedId) {
+  if (!launcherToken) throw new Error("SNARKROUTE_LAUNCHER_TOKEN is not configured");
   // The paused task must survive a restart unchanged and not start twice.
-  const restart = await fetch("http://127.0.0.1:5176/restart", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).then(response => response.json()) as { ok: boolean; operation?: { id: string } };
+  const restart = await fetch("http://127.0.0.1:5176/restart", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${launcherToken}` }, body: "{}" }).then(response => response.json()) as { ok: boolean; operation?: { id: string } };
   expect(restart.ok === true, "launcher accepted the restart");
   const deadline = Date.now() + 180_000;
   for (;;) {

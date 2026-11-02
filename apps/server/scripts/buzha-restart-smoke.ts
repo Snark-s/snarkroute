@@ -4,8 +4,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { localServicePort } from "../src/services/local-service-endpoints";
 const base = `http://127.0.0.1:${localServicePort("snarkroute")}`;
+try { process.loadEnvFile(join(import.meta.dirname, "..", "..", "..", ".env")); } catch {}
+const launcherToken = process.env.SNARKROUTE_LAUNCHER_TOKEN; if (!launcherToken) throw new Error("SNARKROUTE_LAUNCHER_TOKEN is not configured");
 async function request(path: string, body?: unknown) {
-  const response = await fetch(base + path, { method: body ? "POST" : "GET", headers: body ? { "content-type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(12000) });
+  const response = await fetch(base + path, { method: body ? "POST" : "GET", headers: body ? { "content-type": "application/json", authorization: `Bearer ${launcherToken}` } : undefined, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(12000) });
   const data: any = await response.json(); assert(response.ok, JSON.stringify(data)); return data;
 }
 const acceptedId = "t-20261029-516f5072";

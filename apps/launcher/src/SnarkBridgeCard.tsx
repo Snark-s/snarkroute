@@ -1,5 +1,6 @@
 import { FileText, LoaderCircle, Play, RefreshCw, RotateCw, Square } from "lucide-react";
 import { useEffect, useState } from "react";
+import { ownerHeaders } from "./AgentOpsPanel";
 
 // SnarkBridge (ChatGPT MCP server + OpenAI tunnel). Every action goes through the SnarkRoute API:
 // start/stop through the shared local runtime routes, restart and logs through /api/system/snarkbridge.
@@ -36,7 +37,7 @@ const CHECKS: Array<[keyof BridgeStatus["checks"], string]> = [
 ];
 
 async function call<T>(apiBase: string, path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, init);
+  const response = await fetch(`${apiBase}${path}`, { ...init, headers: { ...await ownerHeaders(), ...Object.fromEntries(new Headers(init?.headers).entries()) } });
   const body = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
   if (!response.ok || body.ok === false) throw new Error(body.error || `HTTP ${response.status}`);
   return body as T;

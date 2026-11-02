@@ -1,5 +1,6 @@
 import { LoaderCircle, Play, Square } from "lucide-react";
 import { useEffect, useState } from "react";
+import { ownerHeaders } from "./AgentOpsPanel";
 
 // Snark’s Imaginarium (creative agent Beamish): a separate project next to SnarkRoute.
 // The SnarkRoute API starts it on demand and stops it through Imaginarium's own shutdown.
@@ -8,7 +9,7 @@ type BeamishStatus = { ok: boolean; url: string; status: "stopped" | "starting" 
 const LABELS: Record<BeamishStatus["status"], string> = { ready: "работает", starting: "запускается", stopped: "остановлен", error: "ошибка" };
 
 async function call(apiBase: string, path: string, init?: RequestInit): Promise<BeamishStatus> {
-  const response = await fetch(`${apiBase}${path}`, init);
+  const response = await fetch(`${apiBase}${path}`, { ...init, headers: { ...await ownerHeaders(), ...Object.fromEntries(new Headers(init?.headers).entries()) } });
   const body = await response.json() as BeamishStatus;
   if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
   return body;

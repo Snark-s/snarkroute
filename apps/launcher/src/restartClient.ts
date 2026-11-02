@@ -1,4 +1,5 @@
 export type RestartStatus={ok:boolean;service:string;apiPort:number;managed:boolean;operation:null|{id:string;state:string;error?:string};error?:string};
+import {ownerHeaders} from './AgentOpsPanel';
 export async function readRestartStatus(base:string,apiPort:number,fetcher:typeof fetch=fetch):Promise<RestartStatus>{
   const response=await fetcher(`${base}/status`,{signal:AbortSignal.timeout(3000)});
   const result=await response.json() as RestartStatus;
@@ -8,7 +9,7 @@ export async function readRestartStatus(base:string,apiPort:number,fetcher:typeo
 }
 export async function restartSnarkRoute(base:string,apiPort:number,onProgress:(status:RestartStatus)=>void,
   {fetcher=fetch,wait=(ms:number)=>new Promise<void>(resolve=>setTimeout(resolve,ms)),timeoutMs=180000}={}){
-  const response=await fetcher(`${base}/restart`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}',signal:AbortSignal.timeout(5000)});
+  const response=await fetcher(`${base}/restart`,{method:'POST',headers:{'Content-Type':'application/json',...await ownerHeaders()},body:'{}',signal:AbortSignal.timeout(5000)});
   let status=await response.json() as RestartStatus;
   if(!response.ok||!status.ok)throw new Error(status.error||'Restart request failed');
   if(status.service!=='snarkroute-launcher-control'||status.apiPort!==apiPort)throw new Error('Launcher owns another configured API');

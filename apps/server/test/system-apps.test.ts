@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 
 // A port of its own for the Beamish checks, set before the routes module reads it (a real Imaginarium may run on 4870).
-vi.hoisted(() => { process.env.IMAGINARIUM_PORT = "48707"; });
+vi.hoisted(() => { process.env.IMAGINARIUM_PORT = "48707"; process.env.SNARKROUTE_LAUNCHER_TOKEN = "test-owner"; });
 // Catalog rendering is independent of the external Secretary spreadsheet/network.
 vi.mock("../src/services/secretary-inbox", async importOriginal => ({
   ...await importOriginal<typeof import("../src/services/secretary-inbox")>(),
@@ -63,7 +63,7 @@ describe("system app launcher", () => {
       expect(status.json()).toMatchObject({ ok: true, status: "ready", running: true });
       const listed = (await app.inject({ method: "GET", url: "/api/system/apps" })).json().apps.find((entry: { id: string }) => entry.id === "beamish");
       expect(listed).toMatchObject({ running: true, status: "ready" });
-      const stop = await app.inject({ method: "POST", url: "/api/system/apps/beamish/stop", payload: {} });
+      const stop = await app.inject({ method: "POST", url: "/api/system/apps/beamish/stop", headers: { authorization: "Bearer test-owner" }, payload: {} });
       expect(stop.json()).toMatchObject({ ok: true, status: "stopped", running: false });
       expect(calls).toContain("POST /api/system/shutdown");
     } finally {

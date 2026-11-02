@@ -1,7 +1,10 @@
 /** Verify persistence and no replay around the owner's managed restart. */
 import assert from "node:assert/strict";
 import {mkdir,writeFile} from "node:fs/promises";
+import {join} from "node:path";
 import {localServicePort} from "../src/services/local-service-endpoints";
+try { process.loadEnvFile(join(import.meta.dirname,"..","..","..",".env")); } catch {}
+const launcherToken=process.env.SNARKROUTE_LAUNCHER_TOKEN;if(!launcherToken)throw new Error("SNARKROUTE_LAUNCHER_TOKEN is not configured");
 const base=`http://127.0.0.1:${localServicePort("snarkroute")}`;
 const ids=["t-20261029-343e35f6","t-20261029-516f5072","t-20261030-ae1364a2","t-20261029-58ccc5e2","t-20261030-f59f6f33"];
 async function read(){
@@ -10,7 +13,7 @@ async function read(){
  return {runtime:status.runtimeVersion,memory:status.memory,messages:status.messages.map((m:any)=>({id:m.id,role:m.role})),owner:status.schedules.owner,localEnabled:status.schedules.localEnabled,flows:status.schedules.flows.map((f:any)=>({id:f.automationId,dtstart:f.schedule.dtstart,rrule:f.schedule.rrule,timezone:f.schedule.sourceTimezone,mode:f.schedule.mode})),tasks};
 }
 const before=await read();const live:any=await fetch(base+"/api/agent-ops/status").then(r=>r.json());assert.equal(live.leases.length,0,"Do not restart over an active lease");assert(live.executors.every((executor:any)=>executor.ledger.activeRuns===0),"Do not interrupt active executors");
-const restart=await fetch(base+"/api/system/restart",{method:"POST",headers:{"content-type":"application/json"},body:"{}"});assert(restart.ok);
+const restart=await fetch(base+"/api/system/restart",{method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${launcherToken}`},body:"{}"});assert(restart.ok);
 let after:Awaited<ReturnType<typeof read>>|undefined;
 for(let n=0;n<45;n++){await new Promise(r=>setTimeout(r,1000));try{const current=await read();if(current.runtime.pid!==before.runtime.pid){after=current;break;}}catch{}}
 assert(after,"Managed restart did not become ready");

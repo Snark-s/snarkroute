@@ -12,7 +12,7 @@ import { SnarkBridgeCard } from "./SnarkBridgeCard";
 import { ModelCatalogCard } from "./ModelCatalogCard";
 import { TechRadarCard } from "./TechRadarCard";
 import { SecretaryPanel } from "./SecretaryPanel";
-import { AgentOpsCard, AgentOpsPage, AgentOpsStatusBar, useAgentOpsStatus } from "./AgentOpsPanel";
+import { AgentOpsCard, AgentOpsPage, AgentOpsStatusBar, ownerHeaders, useAgentOpsStatus } from "./AgentOpsPanel";
 import { BuzhaPage } from "./BuzhaPanel";
 import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTerminalContextMenu, showTerminal } from "./ServiceTerminals";
 
@@ -682,7 +682,7 @@ function PersonaAgent() {
 
 const jsonHeaders = { "Content-Type": "application/json" };
 async function api<T = unknown>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, init);
+  const response = await fetch(`${apiBase}${path}`, { ...init, headers: { ...await ownerHeaders(), ...Object.fromEntries(new Headers(init?.headers).entries()) } });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new ApiRequestError(response.status, body);
   return body as T;

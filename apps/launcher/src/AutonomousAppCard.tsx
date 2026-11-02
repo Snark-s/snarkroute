@@ -1,5 +1,6 @@
 import { ArrowUpRight, LoaderCircle, Play, Square } from "lucide-react";
 import { useEffect, useState } from "react";
+import { ownerHeaders } from "./AgentOpsPanel";
 
 // Tove (Шорёк) and Factory (Фабрика) run as independent background processes next to SnarkRoute.
 // The card shows their own health state; closing the Мастерская does not stop them.
@@ -13,7 +14,7 @@ export const AUTONOMOUS_LABELS: Record<AutonomousState, string> = {
 };
 
 async function call(apiBase: string, path: string, init?: RequestInit): Promise<AutonomousStatus & { url: string }> {
-  const response = await fetch(`${apiBase}${path}`, init);
+  const response = await fetch(`${apiBase}${path}`, { ...init, headers: { ...await ownerHeaders(), ...Object.fromEntries(new Headers(init?.headers).entries()) } });
   const body = await response.json() as AutonomousStatus & { ok: boolean; error?: string };
   if (!response.ok || !body.ok) throw new Error(body.error || `HTTP ${response.status}`);
   return body;
