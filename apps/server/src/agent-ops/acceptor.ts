@@ -39,6 +39,8 @@ export function machineVerdicts(task: AgentTask, evidence: TaskEvidence[], now: 
 
 const modelReview = z.object({
   decision: z.enum(["accept", "continue", "escalate", "blocked", "owner_action"]),
+  /** Required for blocked/owner_action to reach the owner (D-03); without it the system changes approach instead. */
+  ownerReason: z.enum(["needs_money", "owner_decision", "external_barrier", "unobtainable_info"]).optional(),
   reason: z.string().min(1).max(4000), nextStep: z.string().min(1).max(4000),
   criteria: z.array(z.object({ criterionId: z.string(), status: z.enum(["confirmed", "missing", "unverifiable"]), evidenceIds: z.array(z.string()).max(100), reason: z.string().min(1).max(2000) }).strict()).max(50)
 }).strict();
@@ -59,7 +61,8 @@ export function reviewPrompt(task: AgentTask, evidence: TaskEvidence[], verdicts
     "Only cite provided fresh independent evidence IDs. Do not invent observations. Missing evidence means unverifiable. Existence does not prove content quality. Check content against the original request and expected result; identify any missing requirement even if an executor omitted it from its report.",
     "If criteria omit an original requirement not explicitly clarified by a recorded principal amendment, do not accept; choose escalate and state the missing requirement. Never weaken or delete criteria yourself. You cannot authorize actions.",
     level==="local"?"Escalate ambiguous or complex creative evaluation to the permitted strong reviewer. Clear missing requirements call for concrete continuation, not an unsupported acceptance.":"You are the permitted strong review level. Assess ambiguous or complex creative evidence when sufficient independent content is provided; do not escalate merely because the work is creative. If content or expertise is insufficient, mark it unverifiable and specify the missing evidence or required owner/professional action. Never invent observations or waive a criterion.",
-    'Return ONLY JSON: {"decision":"accept|continue|escalate|blocked|owner_action","reason":"...","nextStep":"...","criteria":[{"criterionId":"...","status":"confirmed|missing|unverifiable","evidenceIds":["..."],"reason":"..."}]}. Include EVERY criterion exactly once.',
+    "Use blocked or owner_action ONLY with ownerReason: needs_money (a payment beyond the budget), owner_decision (a choice reserved to the owner, e.g. approving a design for sale), external_barrier (CAPTCHA, 2FA, identity check, legal consent in the owner's name) or unobtainable_info (facts no available tool can obtain). A missing tool ability, a failed approach or an unavailable executor is NOT an owner matter: choose continue with a different approach.",
+    'Return ONLY JSON: {"decision":"accept|continue|escalate|blocked|owner_action","ownerReason":"needs_money|owner_decision|external_barrier|unobtainable_info (only with blocked/owner_action)","reason":"...","nextStep":"...","criteria":[{"criterionId":"...","status":"confirmed|missing|unverifiable","evidenceIds":["..."],"reason":"..."}]}. Include EVERY criterion exactly once.',
     "DATA\n" + JSON.stringify({ originalRequest: task.contract!.originalGoal, currentGoal: task.spec.goal, expectedResult: task.contract!.expectedResult, criteria: task.contract!.criteria,principalAmendments:task.contract!.amendments.map(a=>({at:a.at,by:a.by,note:a.note})),
       scope: { workspace: task.workdir, permissions: task.spec.permissions, constraints: task.spec.constraints }, attempt: task.attempts.at(-1)?.n,
       executorClaims: task.result?.summary?.slice(0, 12000) ?? "", machineVerdicts: verdicts, independentEvidence: evidence.map(item => ({ ...item, content: item.content?.slice(0, 12000) })) })].join("\n\n");

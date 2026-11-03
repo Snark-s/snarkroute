@@ -14,9 +14,19 @@ import { rankExecutors, type RouteCandidate } from "./router";
 import type { AgentOpsStore } from "./store";
 import {
   TERMINAL_STATES, WAITING_STATES,
-  type AgentIdentity, type AgentTask, type Attempt, type ComputerMode, type FailureClass, type TaskEvent, type TaskSpec, type TaskState
+  OWNER_REASONS,
+  type AgentIdentity, type AgentTask, type Attempt, type ComputerMode, type FailureClass, type OwnerReason, type TaskEvent, type TaskSpec, type TaskState
 } from "./types";
 import { changedPaths, createWorktree, gitTopLevel, killProcessTree, processAlive, processImage, runCheck, snapshotWorkspace } from "./workspace";
+
+const OWNER_REASON_LABEL: Record<OwnerReason, string> = {
+  needs_money: "Нужны деньги или квота сверх бюджета",
+  owner_decision: "Решение владельца",
+  external_barrier: "Внешний барьер (вход, CAPTCHA, 2FA, согласие)",
+  unobtainable_info: "Нужны сведения, которых не добыть"
+};
+/** How long a task without any usable executor waits before the catalog is checked again. */
+const EXECUTOR_RECHECK_MS = 30 * 60_000;
 
 export class AgentOpsError extends Error {
   constructor(readonly code: string, message: string, readonly details: Record<string, unknown> = {}, readonly status = 409) {
@@ -527,37 +537,53 @@ export class AgentTaskService {
     if (task.cancelRequestedAt) { await this.finish(task, "cancelled", "Отменена до запуска."); return; }
     if (task.pauseRequestedAt) { await this.setState(task, "paused", "Приостановлена до запуска."); return; }
     if (task.dependsOn?.length) {
-      const dependencies = task.dependsOn.map(id => this.tasks.get(id));
-      if (dependencies.some(child => !child || child.state === "failed" || child.state === "cancelled" || child.state === "blocked")) { await this.setState(task, "blocked", `Подзадача требует решения: ${task.dependsOn.join(", ")}`); return; }
-      if (dependencies.some(child => child!.state !== "verified")) { await this.wait(task, "waiting_executor", `Ждёт приёмки подзадач: ${task.dependsOn.join(", ")}`); return; }
-      task.nextStep = `Продолжить с независимо принятыми подзадачами: ${dependencies.map(child => `${child!.id}: ${child!.result?.summary ?? child!.reason}`).join("; ")}`;
+      // D-03: a failed sub-task is a failed approach, not a question to the owner. The parent goes on another way.
+      const lost = task.dependsOn.filter(id => { const child = this.tasks.get(id); return !child || child.state === "failed" || child.state === "cancelled"; });
+      if (lost.length) {
+        task.dependsOn = task.dependsOn.filter(id => !lost.includes(id));
+        await this.event(task, "dependency_lost", `Подзадачи ${lost.join(", ")} не дали результата; цель продолжается другим путём.`);
+      }
+      const dependencies = task.dependsOn.map(id => this.tasks.get(id)!);
+      if (dependencies.some(child => child.state !== "verified")) {
+        const owner = dependencies.filter(child => child.state === "blocked").map(child => child.id);
+        await this.wait(task, "waiting_executor", `Ждёт приёмки подзадач: ${task.dependsOn.join(", ")}${owner.length ? ` (у ${owner.join(", ")} вопрос к владельцу)` : ""}`);
+        return;
+      }
+      task.nextStep = [
+        dependencies.length ? `Продолжить с независимо принятыми подзадачами: ${dependencies.map(child => `${child.id}: ${child.result?.summary ?? child.reason}`).join("; ")}` : "",
+        lost.length ? `Подзадачи ${lost.join(", ")} не дали результата: достичь цели другим путём, не повторяя их.` : ""
+      ].filter(Boolean).join(" ");
       task.dependsOn = undefined;
     }
-    if (task.attempts.filter(attempt => !attempt.resourceWait).length >= (task.spec.retry?.maxAttempts ?? 4)) { await this.blockBudget(task, "Исчерпан бюджет попыток; результат ещё не принят."); return; }
+    if (this.attemptsOnStrategy(task) >= (task.spec.retry?.maxAttempts ?? 4)) {
+      if (!(await this.rotateStrategy(task, `исчерпаны попытки способа ${task.strategy ?? "approach-1"}`))) { await this.giveUp(task, "последний способ тоже исчерпал попытки"); return; }
+    }
     const budget = this.chainBudget(task.chain.rootTaskId);
     const timeLeft = this.timeLeftMs(task);
     if (timeLeft.ms <= 0) { await this.blockBudget(task, timeLeft.reason); return; }
 
     const candidates = this.rank(task);
     const suitable = candidates.filter(candidate => candidate.suitable);
-    if (suitable.length && suitable.every(candidate => candidate.tier === "subscription") && budget.subscriptionRunsLeft <= 0) { await this.blockBudget(task, "Бюджет подписочных шагов задачи исчерпан; это не утверждение о квоте провайдера."); return; }
+    if (suitable.length && suitable.every(candidate => candidate.tier === "subscription") && budget.subscriptionRunsLeft <= 0) { await this.blockBudget(task, "Бюджет подписочных шагов задачи исчерпан; это не утверждение о квоте провайдера.", "needs_money"); return; }
     const preferred = task.spec.executor && task.spec.executor !== "auto" ? candidates.find(candidate => candidate.executorId === task.spec.executor) : undefined;
     if (preferred && !preferred.suitable && !task.attempts.length && task.state === "queued") {
       await this.event(task, "routing", `Предпочтённый исполнитель ${preferred.label} не подходит: ${preferred.reasons.join("; ")}.`);
     }
     if (!suitable.length) {
-      await this.setState(task, "blocked", `Нет подходящего исполнителя: ${candidates.map(candidate => `${candidate.label} — ${candidate.reasons.join(", ")}`).join("; ")}.`, "routing");
+      // A missing capability is engineering work, not an owner question: wait and re-read the catalog.
+      await this.waitForExecutor(task, `Нет подходящего исполнителя: ${candidates.map(candidate => `${candidate.label} — ${candidate.reasons.join(", ")}`).join("; ")}.`);
       return;
     }
     const notes: string[] = [];
     let permanent = true;
+    let loginNeeded = false;
     let chosen: RouteCandidate | undefined;
     for (const candidate of suitable) {
       const excluded = task.excludedExecutors[candidate.executorId];
       if (excluded) { const temporary = /лимит|частоты/.test(excluded); if (!temporary || !this.deps.ledger.availability(candidate.executorId, candidate.tier).usable) { notes.push(`${candidate.label}: ${excluded}`); if (temporary) permanent = false; continue; } delete task.excludedExecutors[candidate.executorId]; }
       const probe = this.probes.get(candidate.executorId);
       if (!probe?.installed) { notes.push(`${candidate.label}: ${probe?.detail ?? "не обнаружен"}`); continue; }
-      if (probe.authenticated === false) { notes.push(`${candidate.label}: ${probe.detail ?? "нет входа по подписке"}`); continue; }
+      if (probe.authenticated === false) { loginNeeded = true; notes.push(`${candidate.label}: ${probe.detail ?? "нет входа по подписке"}`); continue; }
       if (candidate.tier === "subscription" && budget.subscriptionRunsLeft <= 0) { notes.push(`${candidate.label}: бюджет подписочных запусков цепочки исчерпан`); continue; }
       const availability = this.deps.ledger.availability(candidate.executorId, candidate.tier);
       if (!availability.usable) { notes.push(`${candidate.label}: ${availability.reason}`); if (!availability.permanent) permanent = false; continue; }
@@ -565,9 +591,13 @@ export class AgentTaskService {
       break;
     }
     if (!chosen) {
-      if (permanent && !Object.keys(task.excludedExecutors).length) await this.setState(task, "blocked", `Все подходящие исполнители недоступны: ${notes.join("; ")}.`, "routing");
-      else if (permanent) await this.setState(task, "blocked", `Подходящих исполнителей не осталось: ${notes.join("; ")}. Повтора вслепую не будет.`, "routing");
-      else { await this.wait(task, "waiting_executor", `Ждёт исполнителя: ${notes.join("; ")}.`); await this.recordWaiting(task); }
+      const loginExcluded = Object.values(task.excludedExecutors).some(reason => /вход|авториз/i.test(reason));
+      if (permanent && (loginNeeded || loginExcluded)) {
+        // Signing in to a subscription is the owner's own act (an external barrier), and nothing else can run the work.
+        await this.block(task, "external_barrier", `Нужен вход по подписке, других исполнителей нет: ${notes.join("; ")}. После входа (claude auth login / codex login) задачу можно продолжить.`, "routing");
+      } else if (permanent) {
+        await this.waitForExecutor(task, `Подходящих исполнителей сейчас нет: ${notes.join("; ")}.`);
+      } else { await this.wait(task, "waiting_executor", `Ждёт исполнителя: ${notes.join("; ")}.`); await this.recordWaiting(task); }
       return;
     }
 
@@ -580,7 +610,14 @@ export class AgentTaskService {
       const guard = this.deps.locks.tryAcquire([`service:git-worktree:${repo}`], { taskId: task.id, agentId: task.agentId });
       if (!guard.ok) { await this.wait(task, "waiting_resources", "Другой задаче создают worktree в этом репозитории."); return; }
       try { await createWorktree(repo, path, branch); }
-      catch (error) { this.deps.locks.releaseOwner(task.id); await this.setState(task, "blocked", `Не удалось создать worktree: ${error instanceof Error ? error.message : error}`, "worktree"); return; }
+      catch (error) {
+        // A transient git/filesystem problem: retry later instead of parking the task for the owner.
+        this.deps.locks.releaseOwner(task.id);
+        task.nextAttemptAt = new Date(this.now() + 5 * 60_000).toISOString();
+        await this.wait(task, "waiting_resources", `Не удалось создать worktree, повтор через 5 мин: ${error instanceof Error ? error.message : error}`);
+        await this.deps.store.saveTask(task);
+        return;
+      }
       this.deps.locks.releaseOwner(task.id);
       task.worktree = { path, branch, repo };
       task.workdir = path;
@@ -595,7 +632,7 @@ export class AgentTaskService {
     }
     task.lockKeys = lockKeys;
     const request = adapter.resourceRequest(task, this.probes.get(adapter.id));
-    if (request.class === "heavy" && !this.deps.registry.policyForAgent(task.agentId).canUseHeavyGpu) { this.deps.locks.releaseOwner(task.id); await this.setState(task, "blocked", "Политика поручителя не разрешает тяжёлую работу GPU.", "permissions"); return; }
+    if (request.class === "heavy" && !this.deps.registry.policyForAgent(task.agentId).canUseHeavyGpu) { this.deps.locks.releaseOwner(task.id); await this.block(task, "owner_decision", "Политика поручителя не разрешает тяжёлую работу GPU; изменить её может только владелец.", "permissions"); return; }
     const decision = await this.deps.dispatcher.acquire({ ...request, holder: task.id, agentId: task.agentId, purpose: `${task.id} · ${adapter.label}`, origin: "agent",
       ttlMs: 5 * 60_000 });
     if (!decision.granted) {
@@ -674,7 +711,7 @@ export class AgentTaskService {
     const adapter = this.adapter(attempt.executor)!;
     if (outcome.quotaReport) this.deps.ledger.recordQuotaReport(adapter.id, outcome.quotaReport);
     this.deps.ledger.recordMeasuredRun(adapter.id, { kind: "delegated", inputTokens: outcome.usage?.inputTokens, outputTokens: outcome.usage?.outputTokens });
-    if (outcome.budgetExhausted) { attempt.outcome = "failed"; attempt.failureClass = "budget"; attempt.error = outcome.budgetExhausted; await this.blockBudget(task, outcome.budgetExhausted); return; }
+    if (outcome.budgetExhausted) { attempt.outcome = "failed"; attempt.failureClass = "budget"; attempt.error = outcome.budgetExhausted; await this.blockBudget(task, outcome.budgetExhausted, /подписоч/i.test(outcome.budgetExhausted) ? "needs_money" : "owner_decision"); return; }
     if (outcome.waitForResources) { attempt.outcome = "unknown"; attempt.resourceWait = !attempt.modelCalls?.some(call => call.ok) && !attempt.toolCalls?.length; task.nextAttemptAt = this.retryAt(task, 30000); this.deps.locks.releaseOwner(task.id); task.lockKeys = []; await this.setState(task, "waiting_resources", outcome.waitForResources, "resource_wait"); await this.recordWaiting(task); return; }
     if (outcome.waitForTaskIds?.length) {
       attempt.outcome = "unknown"; task.dependsOn = outcome.waitForTaskIds; task.nextStep = outcome.message;
@@ -706,7 +743,8 @@ export class AgentTaskService {
     await this.event(task, "executor_failed", `${adapter.label}: ${failureLabel(failure)} — ${outcome.message.slice(0, 500)}`, { failureClass: failure, changedFiles: attempt.changedFiles.slice(0, 100) });
     if (failure === "cancelled" || task.cancelRequestedAt) { await this.finish(task, "cancelled", `Отменена${attempt.changedFiles.length ? `; остались изменения в ${attempt.changedFiles.length} файлах` : ""}.`); return; }
     const errorVerdict = { criterionId: "executor", status: "missing" as const, evidenceIds: [], reason: `${failure}: ${attempt.error}` };
-    const failureDecision = makeReview(task, [errorVerdict], ["quota_exhausted", "rate_limited", "model_unavailable"].includes(failure) ? "wait_resource" : failure === "auth" ? "owner_action" : "continue",
+    // An expired login sends the work to another executor first; only when none is left is it the owner's sign-in (external barrier).
+    const failureDecision = makeReview(task, [errorVerdict], ["quota_exhausted", "rate_limited", "model_unavailable"].includes(failure) ? "wait_resource" : failure === "auth" ? "change_approach" : "continue",
       `${failureLabel(failure)}: ${attempt.error}`, failure === "auth" ? "Восстановить вход исполнителя по подписке либо выбрать другого разрешённого исполнителя." : "Сохранить текущее состояние, проверить внешние действия и продолжить в рамках бюджета.", this.iso());
     failureDecision.failureSignature = createHash("sha256").update(`${failure}|${adapter.id}|${attempt.error?.replace(/\d+/g, "#")}`).digest("hex");
     failureDecision.resultFingerprint = createHash("sha256").update(JSON.stringify((await this.snapshot(task.workdir)).entries)).digest("hex");
@@ -720,10 +758,16 @@ export class AgentTaskService {
     if (task.pauseRequestedAt) { task.reviewPending = true; await this.setState(task, "paused", "Приостановлена после этапа исполнителя."); return; }
     if (!(await this.reconcileEffects(task)) || task.spec.permissions?.network && !task.effects?.length) { task.reviewPending = true; await this.setState(task, "unknown_outcome", "Исполнитель прерван после разрешённых внешних действий; сначала восстановить их состояние, без повторного запуска."); return; }
 
-    if (attempt.changedFiles.length && task.spec.onPartial !== "continue") {
-      // Partial edits stay locked: another executor must not run the same work over half-done files.
-      await this.setState(task, "blocked", `${adapter.label}: ${failureLabel(failure)} после частичных изменений (${attempt.changedFiles.slice(0, 8).join(", ")}). Нужно решение: resolve continue (продолжить другим исполнителем с текущего состояния), requeue или mark_failed.`, "partial");
+    if (attempt.changedFiles.length && task.spec.onPartial === "block") {
+      // Explicit opt-in by the delegator only: keep half-done files for its own decision.
+      await this.block(task, "owner_decision", `${adapter.label}: ${failureLabel(failure)} после частичных изменений (${attempt.changedFiles.slice(0, 8).join(", ")}); поручитель запросил ручное решение (onPartial: block).`, "partial");
       return;
+    }
+    if (attempt.changedFiles.length) {
+      // D-03: external effects are already reconciled above, so the next attempt continues from the current files.
+      task.spec.onPartial = "continue";
+      task.nextStep = `Продолжить с текущего состояния: прошлая попытка (${adapter.label}) оборвалась (${failureLabel(failure)}) после изменений в ${attempt.changedFiles.slice(0, 8).join(", ")}. Сначала прочитать их и не начинать заново.`;
+      await this.event(task, "partial_continue", task.nextStep, { changedFiles: attempt.changedFiles.slice(0, 100) });
     }
     this.deps.locks.releaseOwner(task.id);
     task.lockKeys = [];
@@ -772,6 +816,7 @@ export class AgentTaskService {
       const required = (id: string) => task.contract!.criteria.find(c => c.id === id)?.required !== false;
       const missing = () => verdicts.filter(v => required(v.criterionId) && v.status === "missing");
       let modelDecision: "accept" | "continue" | "escalate" | "blocked" | "owner_action" | undefined;
+      let modelOwnerReason: OwnerReason | undefined;
       let reason = "", nextStep = "", reviewer: import("./types").AcceptanceReview["reviewer"];
       // Deterministic failure is decisive; an LLM cannot override it or waive a criterion.
       if (!missing().length && (task.contract.criteria.some(c => c.review === "model") || task.spec.review?.forceStrong)) {
@@ -787,7 +832,7 @@ export class AgentTaskService {
         if (assessment.status !== "reviewed") {
           if(assessment.status==="waiting" && subscriptionRunsLeft()<=0 && /бюджет подписочных/i.test(assessment.reason)) {
             await this.saveReview(task,makeReview(task,verdicts,"blocked",assessment.reason,"Сохранить результат; поручитель должен пересмотреть распределение бюджета. Новое исполнение или повторная отправка не разрешены.",this.iso()));
-            await this.blockBudget(task,"Исчерпан бюджет подписочных шагов для обязательной независимой проверки; результат не принят.");return;
+            await this.blockBudget(task,"Исчерпан бюджет подписочных шагов для обязательной независимой проверки; результат не принят.","needs_money");return;
           }
           const decision = makeReview(task, verdicts, "wait_resource", assessment.reason, "Дождаться разрешённой проверяющей модели; исполнитель повторно не запускается.", this.iso());
           await this.saveReview(task, decision); task.nextAttemptAt = this.retryAt(task, 30000);
@@ -795,6 +840,8 @@ export class AgentTaskService {
         }
         verdicts = mergeModelVerdicts(task, verdicts, assessment.review, evidence);
         reviewer = assessment.reviewer; modelDecision = assessment.review.decision; reason = assessment.review.reason; nextStep = assessment.review.nextStep;
+        const claimed = (assessment.review as { ownerReason?: string }).ownerReason;
+        modelOwnerReason = claimed && (OWNER_REASONS as readonly string[]).includes(claimed) ? claimed as OwnerReason : undefined;
       }
       if (controller.signal.aborted || task.cancelRequestedAt) return;
       const unconfirmed = verdicts.filter(v => required(v.criterionId) && v.status !== "confirmed");
@@ -807,24 +854,31 @@ export class AgentTaskService {
       }
       reason ||= unconfirmed.map(v => `${v.criterionId}: ${v.reason}`).join("; ").slice(0, 3000);
       nextStep ||= `Продолжить исходное поручение. Исправить и подтвердить: ${unconfirmed.map(v => `${v.criterionId} — ${v.reason}`).join("; ")}`;
-      let decision: import("./types").AcceptorDecision = modelDecision === "blocked" || modelDecision === "owner_action" ? modelDecision
-        : unconfirmed.some(v => v.status === "unverifiable" && task.contract!.criteria.find(c => c.id === v.criterionId)?.review === "unverifiable") ? "owner_action" : "continue";
+      // D-03: the owner is asked only with one of the four allowed reasons; "can't do it this way" is a change of approach.
+      const modelStops = modelDecision === "blocked" || modelDecision === "owner_action";
+      const unverifiable = unconfirmed.some(v => v.status === "unverifiable" && task.contract!.criteria.find(c => c.id === v.criterionId)?.review === "unverifiable");
+      let ownerReason: OwnerReason | undefined = modelStops && modelOwnerReason ? modelOwnerReason : unverifiable ? "unobtainable_info" : undefined;
+      let decision: import("./types").AcceptorDecision = ownerReason ? (modelStops ? modelDecision as "blocked" | "owner_action" : "owner_action") : modelStops ? "change_approach" : "continue";
+      if (modelStops && !ownerReason) await this.event(task, "owner_reason_missing", `Приёмщик предложил остановку без допустимой причины для владельца; меняю способ. ${reason}`.slice(0, 1000));
       const review = makeReview(task, verdicts, decision, reason, nextStep, this.iso()); review.reviewer = reviewer;
       const previous = (task.reviews ?? []).filter(r => r.decision === "continue" || r.decision === "change_approach");
       const unchanged = previous.filter(r => r.failureSignature === review.failureSignature && r.resultFingerprint === review.resultFingerprint).length;
-      if (unchanged + 1 >= (task.spec.retry?.sameFailureLimit ?? 2) && decision === "continue") {
+      if (!ownerReason && (decision === "change_approach" || unchanged + 1 >= (task.spec.retry?.sameFailureLimit ?? 2) && decision === "continue")) {
         decision = "change_approach"; review.decision = decision;
         task.strategy = `strategy-${previous.filter(r => r.decision === "change_approach").length + 1}`;
         review.nextStep = `Изменить стратегию (${task.strategy}): повтор без новых данных или изменения результата запрещён. Сначала выяснить причину и получить новое доказательство. ${nextStep}`;
         // Prefer another suitable executor if one exists; one controlled strategy change is still allowed with a single executor.
         if (this.rank(task).some(c => c.suitable && c.executorId !== task.executor)) { task.excludedExecutors[task.executor!] = "Повтор без прогресса; требуется другой исполнитель"; task.spec.executor = "auto"; }
       }
-      if (task.attempts.length >= (task.spec.retry?.maxAttempts ?? 4) && !["blocked", "owner_action"].includes(decision)) { review.decision = "blocked"; review.nextStep = "Исчерпан бюджет попыток; поручителю нужно пересмотреть подход или бюджет. Невыполненные критерии сохранены."; }
       if (!(await this.reconcileEffects(task)) || task.spec.permissions?.network && !task.effects?.length) { review.decision = "blocked"; review.nextStep = "Сначала восстановить исход внешних действий; неизвестный результат запрещает повтор."; await this.saveReview(task, review); await this.setState(task, "unknown_outcome", review.nextStep); return; }
       await this.saveReview(task, review);
-      if (["blocked", "owner_action"].includes(review.decision)) { task.reviewPending = false; await this.setState(task, "blocked", `${review.reason} ${review.nextStep}`, "acceptor_blocked"); return; }
+      if (ownerReason) { task.reviewPending = false; await this.block(task, ownerReason, `${review.reason} ${review.nextStep}`, "acceptor_blocked"); return; }
+      if (this.attemptsOnStrategy(task) >= (task.spec.retry?.maxAttempts ?? 4)) {
+        task.reviewPending = false;
+        if (!(await this.rotateStrategy(task, `исчерпаны попытки способа ${task.strategy ?? "approach-1"}; не подтверждено: ${review.reason}`.slice(0, 1500)))) { await this.giveUp(task, review.reason.slice(0, 1500)); return; }
+      }
       task.reviewPending = false; task.spec.onPartial = "continue"; task.nextAttemptAt = this.retryAt(task);
-      await this.setState(task, "queued", `Приёмщик вернул в работу: ${review.nextStep}`, "acceptor_continue");
+      await this.setState(task, "queued", `Приёмщик вернул в работу: ${task.nextStep ?? review.nextStep}`, "acceptor_continue");
       this.kick();
     } finally {
       clearTimeout(deadline);
@@ -872,7 +926,8 @@ export class AgentTaskService {
     (task.reviews ??= []).push(review); task.nextStep = review.nextStep;
     await this.persist(task, "acceptor_decision", `Приёмщик: ${review.decision} — ${review.reason}`, { review });
   }
-  private async blockBudget(task: AgentTask, reason: string): Promise<void> { task.reviewPending = false; await this.saveReview(task, makeReview(task, task.reviews?.at(-1)?.criteria ?? [], "blocked", reason, "Поручителю нужно пересмотреть бюджет или подход; задача не выполнена.", this.iso())); await this.setState(task, "blocked", reason, "budget"); }
+  /** Budget envelopes are the owner's: subscription runs are money (needs_money), time/reviewer/resource limits are the owner's decision. */
+  private async blockBudget(task: AgentTask, reason: string, ownerReason: OwnerReason = "owner_decision"): Promise<void> { task.reviewPending = false; await this.saveReview(task, makeReview(task, task.reviews?.at(-1)?.criteria ?? [], "blocked", reason, ownerReason === "needs_money" ? "Нужно решение о деньгах: расширить общий бюджет подписочных шагов; задача не выполнена." : "Поручителю нужно пересмотреть бюджет времени или ресурсов; задача не выполнена.", this.iso())); await this.block(task, ownerReason, reason, "budget"); }
   private async recordWaiting(task: AgentTask): Promise<void> { if (task.reviews?.at(-1)?.decision !== "wait_resource" || task.reviews.at(-1)?.reason !== task.reason) await this.saveReview(task, makeReview(task, task.reviews?.at(-1)?.criteria ?? [], "wait_resource", task.reason, "Дождаться разрешённого исполнителя или ресурса; исходные требования сохранены.", this.iso())); }
   private async recoverVerificationError(task: AgentTask, error: unknown): Promise<void> { if (this.closed || task.cancelRequestedAt || task.state === "verified") return; task.reviewPending = true; task.nextAttemptAt = this.retryAt(task, 30000); await this.setState(task, task.pauseRequestedAt ? "paused" : "awaiting_verification", `Сбой Приёмщика; результат сохранён без приёмки: ${String(error)}`); }
 
@@ -955,9 +1010,58 @@ export class AgentTaskService {
     if (task.state==="paused") task.waiting.pausedMinutes+=elapsed;
     task.waiting.since=this.iso();
     task.waiting.reason=data?.waitingFor as "resource"|"executor"|undefined;
+    if (state !== "blocked") task.ownerReason = undefined;
     task.state = state;
     task.reason = reason;
     await this.persist(task, eventType, reason, { state, ...(data ?? {}) });
+  }
+
+  /**
+   * D-03: the ONLY way into "blocked". A task may wait for the owner solely for money, the owner's
+   * own decision, an external barrier or information nobody can obtain. Everything technical is
+   * handled by changing approach, waiting for a resource or finishing with a diagnosis.
+   */
+  private async block(task: AgentTask, ownerReason: OwnerReason, reason: string, eventType = "blocked"): Promise<void> {
+    if (!OWNER_REASONS.includes(ownerReason)) throw new AgentOpsError("BAD_OWNER_REASON", `Недопустимая причина обращения к владельцу: ${ownerReason}`);
+    task.ownerReason = ownerReason;
+    await this.setState(task, "blocked", `${OWNER_REASON_LABEL[ownerReason]}. ${reason}`, eventType, { ownerReason });
+  }
+
+  /** Attempts of the current approach only: the limit is per approach, not per goal (D-03). */
+  private attemptsOnStrategy(task: AgentTask): number {
+    const from = task.strategyStartAttempt ?? 0;
+    return task.attempts.filter(attempt => !attempt.resourceWait && attempt.n > from).length;
+  }
+
+  /** Opens the next approach; false when every allowed approach is spent. */
+  private async rotateStrategy(task: AgentTask, why: string): Promise<boolean> {
+    const rotations = task.strategyRotations ?? 0;
+    if (rotations + 1 >= (task.spec.retry?.maxStrategies ?? 3)) return false;
+    task.strategyRotations = rotations + 1;
+    task.strategy = `approach-${rotations + 2}`;
+    task.strategyStartAttempt = task.attempts.at(-1)?.n ?? 0;
+    if (task.executor && this.rank(task).some(candidate => candidate.suitable && candidate.executorId !== task.executor)) {
+      task.excludedExecutors[task.executor] = "Способ исчерпан; следующий способ — у другого исполнителя";
+      task.spec.executor = "auto";
+    }
+    const nextStep = `Новый способ (${task.strategy}): ${why}. Не повторять прежние действия: по журналу попыток выяснить причину неудачи и выбрать другой путь, инструмент или исполнителя.`;
+    await this.saveReview(task, makeReview(task, task.reviews?.at(-1)?.criteria ?? [], "change_approach", why, nextStep, this.iso()));
+    return true;
+  }
+
+  /** Every approach spent: an honest technical failure with a diagnosis request, never a question to the owner. */
+  private async giveUp(task: AgentTask, why: string): Promise<void> {
+    task.reviewPending = false;
+    const approaches = (task.strategyRotations ?? 0) + 1;
+    await this.event(task, "diagnosis_needed", `Исчерпаны все способы (${approaches}): ${why}`, { approaches, attempts: task.attempts.length });
+    await this.finish(task, "failed", `Исчерпаны все способы (${approaches}) без принятого результата: ${why}. Нужна диагностика причины, а не решение владельца.`);
+  }
+
+  /** No usable executor right now: wait and look at the catalog again later; logins and quotas come back. */
+  private async waitForExecutor(task: AgentTask, reason: string): Promise<void> {
+    task.nextAttemptAt = new Date(this.now() + EXECUTOR_RECHECK_MS).toISOString();
+    await this.wait(task, "waiting_executor", `${reason} Перепроверка каталога через ${Math.round(EXECUTOR_RECHECK_MS / 60000)} мин.`);
+    await this.deps.store.saveTask(task);
   }
 
   private async finish(task: AgentTask, state: TaskState, reason: string, eventType = "finished"): Promise<void> {
@@ -1005,7 +1109,7 @@ export function normalizeSpec(input: TaskSpec): TaskSpec {
     if (criterion.review === "machine" && !criterion.checkIndexes?.length) throw new AgentOpsError("BAD_SPEC", "Машинный критерий требует проверку; иначе укажите unverifiable.", {}, 400);
   }
   const positive = (value: number | undefined, min: number, max: number) => value === undefined || Number.isFinite(value) && value >= min && value <= max;
-  if (!positive(input.retry?.maxAttempts, 1, 100) || !positive(input.retry?.sameFailureLimit, 1, 20) || !positive(input.retry?.delayMs, 10, 3600000) || !positive(input.retry?.maxDelayMs, 10, 3600000)
+  if (!positive(input.retry?.maxAttempts, 1, 100) || !positive(input.retry?.sameFailureLimit, 1, 20) || !positive(input.retry?.maxStrategies, 1, 10) || !positive(input.retry?.delayMs, 10, 3600000) || !positive(input.retry?.maxDelayMs, 10, 3600000)
     || !positive(input.budget?.wallMinutes, 1, 600) || !positive(input.budget?.activeMinutes, 1, 600) || !positive(input.budget?.subscriptionRuns, 0, 24) || !positive(input.budget?.maxTurns, 1, 200) || !positive(input.review?.maxRuns, 1, 100) || !positive(input.review?.timeoutMs, 1000, 900000)) throw new AgentOpsError("BAD_SPEC", "Некорректный бюджет или настройка повторов.", {}, 400);
   if (input.budget?.providerCost !== undefined && input.budget.providerCost !== 0) throw new AgentOpsError("BAD_SPEC", "Приёмщик не разрешает платные API; providerCost должен быть 0.", {}, 400);
   if (Object.values(input.resourceLimits ?? {}).some(value => !positive(value, 0, 1000000))) throw new AgentOpsError("BAD_SPEC", "Некорректные ограничения ресурсов.", {}, 400);

@@ -80,6 +80,12 @@ export type CriterionVerdict = { criterionId: string; status: "confirmed" | "mis
 export type ImageInput={path:string;sha256:string;mime:"image/png"|"image/jpeg"};
 export type TaskEvidence = { id: string; attempt: number; revision: number; criterionId: string; checkIndex: number; source: string; observedAt: string; independent: true; ok: boolean; detail: string; content?: string; truncated?: boolean; digest: string;imageInput?:ImageInput };
 export type AcceptorDecision = "accept" | "continue" | "change_approach" | "wait_resource" | "blocked" | "owner_action";
+/**
+ * D-03: the only reasons a task may wait for the owner. Technical trouble (no executor, exhausted
+ * attempts of one approach, partial edits, a failed worktree) is handled by the system itself.
+ */
+export type OwnerReason = "needs_money" | "owner_decision" | "external_barrier" | "unobtainable_info";
+export const OWNER_REASONS: readonly OwnerReason[] = ["needs_money", "owner_decision", "external_barrier", "unobtainable_info"];
 export type AcceptanceReview = { id: string; at: string; attempt: number; revision: number; decision: AcceptorDecision; reason: string; nextStep: string; criteria: CriterionVerdict[]; failureSignature: string; resultFingerprint: string; strategy: string; reviewer?: { executor: string; model?: string; level: "local" | "strong" }; evidenceIds: string[] };
 export type TaskEffect = { key: string; description: string; check: TaskCheck };
 export type EffectRecord = TaskEffect & { state: "pending" | "started" | "unknown" | "confirmed" | "refused"; attempt?: number; startedAt?: string; checkedAt?: string; detail?: string };
@@ -94,7 +100,8 @@ export type TaskSpec = {
   expectedResult?: string;
   criteria?: TaskCriterion[];
   effects?: TaskEffect[];
-  retry?: { maxAttempts?: number; sameFailureLimit?: number; delayMs?: number; maxDelayMs?: number };
+  /** maxAttempts counts attempts of ONE approach (D-03); maxStrategies bounds how many approaches are tried. */
+  retry?: { maxAttempts?: number; sameFailureLimit?: number; delayMs?: number; maxDelayMs?: number; maxStrategies?: number };
   review?: { forceStrong?: boolean; timeoutMs?: number; maxRuns?: number; allowUnknownSubscriptionQuota?: boolean };
   resourceLimits?: { vramMiB?: number; ramMiB?: number; cpuSlots?: number };
   actor?: string;
@@ -200,6 +207,11 @@ export type AgentTask = {
   pauseRequestedAt?: string;
   nextStep?: string;
   strategy?: string;
+  /** Approaches opened after the first one, and the attempt number where the current one began. */
+  strategyRotations?: number;
+  strategyStartAttempt?: number;
+  /** Set only while the task is "blocked": why the owner, and nobody else, is needed. */
+  ownerReason?: OwnerReason;
   dependsOn?: string[];
   budgetPolicyId?: string;
   budgetHistory?: Array<{ at: string; by: string; reason: string; previous: TaskSpec["budget"]; next: TaskSpec["budget"]; subscriptionRunsUsed: number;previousMaxAttempts?:number;nextMaxAttempts?:number;attemptsUsed?:number }>;

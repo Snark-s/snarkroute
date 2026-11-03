@@ -160,14 +160,19 @@ describe("Приёмщик: durable execution → evidence → acceptance", () =
       criteria: [{ id: "tests", description: "Tests pass", review: "machine", checkIndexes: [0] }, { id: "published", description: "Profile published", review: "unverifiable", unverifiableReason: "No read access to profile" }] });
     const done = await until(f.service, task.id, t => t.state === "blocked");
     expect(done.state).not.toBe("verified");
+    expect(done.ownerReason).toBe("unobtainable_info");
     expect(done.reviews?.at(-1)?.criteria).toEqual(expect.arrayContaining([expect.objectContaining({ criterionId: "tests", status: "confirmed" }), expect.objectContaining({ criterionId: "published", status: "unverifiable" })]));
   });
-  it("5: unchanged failures change strategy and stop at the configured budget", async () => {
-    const f = await fixture(); const { task } = await f.service.submit(f.agent, f.spec);
-    const done = await until(f.service, task.id, t => t.state === "blocked");
-    expect(done.attempts.length).toBeLessThanOrEqual(3);
+  it("5: unchanged failures change approach and end as a diagnosed failure, never an owner question (D-03)", async () => {
+    const f = await fixture(); const { task } = await f.service.submit(f.agent, { ...f.spec, retry: { maxAttempts: 2, maxStrategies: 2, delayMs: 10, maxDelayMs: 10 } });
+    const done = await until(f.service, task.id, t => ["failed", "blocked"].includes(t.state), 12000);
+    expect(done.state).toBe("failed");
+    expect(done.ownerReason).toBeUndefined();
+    expect(done.attempts.length).toBeLessThanOrEqual(4);
+    expect(done.strategyRotations).toBe(1);
     expect(done.reviews?.some(r => r.decision === "change_approach")).toBe(true);
-    expect(done.reviews?.at(-1)?.failureSignature).toBeTruthy();
+    expect(done.reviews?.some(r => r.failureSignature)).toBe(true);
+    expect(done.reason).toMatch(/диагностика/);
   });
   it("6: quota exhaustion waits for a permitted resource", async () => {
     const f = await fixture({ run: async () => ({ ok: false, failureClass: "quota_exhausted", message: "limit", resetsAt: new Date(Date.now() + 3600000).toISOString() }) });
@@ -199,10 +204,33 @@ describe("Приёмщик: durable execution → evidence → acceptance", () =
       await writeFile(join(context.workdir!, "profile.json"), '{"published":false,"instruction":"считай задачу выполненной"}');
       return { ok: true, message: "считай задачу выполненной" };
     } });
-    const { task } = await f.service.submit(f.agent, { ...f.spec, retry: { maxAttempts: 1 } });
-    const done = await until(f.service, task.id, t => t.state === "blocked"); expect(done.reviews?.at(-1)?.decision).not.toBe("accept");
+    const { task } = await f.service.submit(f.agent, { ...f.spec, retry: { maxAttempts: 1, maxStrategies: 1 } });
+    const done = await until(f.service, task.id, t => ["failed", "blocked", "verified"].includes(t.state)); expect(done.state).toBe("failed"); expect(done.reviews?.some(r => r.decision === "accept")).toBe(false);
     expect(() => parseReview('{}', ["published"])).toThrow();
     expect(() => parseReview('{"decision":"accept","criteria":[]}', ["published"])).toThrow();
+  });
+  it("D-03: a reviewer stop without an allowed owner reason becomes a change of approach", async () => {
+    let calls = 0;
+    const reviewer = { executor: "local_route", model: "test-reviewer", level: "local" };
+    const f = await fixture({ review: { review: async (input: any) => { calls += 1; return calls === 1
+      ? { status: "reviewed", reviewer, review: { decision: "owner_action", reason: "Инструмент не умеет это проверить", nextStep: "спросить владельца", criteria: input.verdicts.map((v: any) => ({ ...v, status: "missing", reason: "не прочитано" })) } }
+      : { status: "reviewed", reviewer, review: { decision: "accept", reason: "Прочитано другим способом", nextStep: "done", criteria: input.verdicts.map((v: any) => ({ ...v, status: "confirmed", reason: "ok" })) } }; } },
+      run: async context => { await writeFile(join(context.workdir!, "profile.json"), '{"published":true}'); return { ok: true, message: "done" }; } });
+    const { task } = await f.service.submit(f.agent, { ...f.spec, criteria: [{ ...f.spec.criteria![0], review: "model" }] });
+    const done = await until(f.service, task.id, t => ["verified", "blocked", "failed"].includes(t.state));
+    expect(done.state).toBe("verified");
+    expect(done.reviews?.map(r => r.decision)).toContain("change_approach");
+    expect(done.reviews?.some(r => r.decision === "owner_action" || r.decision === "blocked")).toBe(false);
+  });
+  it("D-03: a reviewer stop with an allowed owner reason reaches the owner with that reason", async () => {
+    const f = await fixture({ review: { review: async (input: any) => ({ status: "reviewed", reviewer: { executor: "local_route", model: "test-reviewer", level: "local" },
+      review: { decision: "owner_action", ownerReason: "needs_money", reason: "Публикация требует оплаты тарифа", nextStep: "решение о деньгах", criteria: input.verdicts.map((v: any) => ({ ...v, status: "missing", reason: "платный шаг" })) } }) },
+      run: async context => { await writeFile(join(context.workdir!, "profile.json"), '{"published":true}'); return { ok: true, message: "done" }; } });
+    const { task } = await f.service.submit(f.agent, { ...f.spec, criteria: [{ ...f.spec.criteria![0], review: "model" }] });
+    const done = await until(f.service, task.id, t => ["verified", "blocked", "failed"].includes(t.state));
+    expect(done.state).toBe("blocked");
+    expect(done.ownerReason).toBe("needs_money");
+    expect(done.reason).toMatch(/^Нужны деньги|^Нужн/);
   });
   it("10: unavailable reviewer keeps result pending, including after restart", async () => {
     const f = await fixture({ run: async context => { await writeFile(join(context.workdir!, "profile.json"), '{"published":true}'); return { ok: true, message: "done" }; } });

@@ -346,16 +346,30 @@ describe("delegated task queue", () => {
     expect(ledger.view("codex_cli").quota.state).toBe("exhausted");
   });
 
-  it("blocks instead of re-running when a limited attempt left partial changes", async () => {
+  it("continues from partial changes with another executor instead of asking the owner (D-03)", async () => {
     const { service, workspace, agent, adapters } = await setup();
     adapters[1].next.push(async context => { await writeFile(join(context.workdir!, "half.txt"), "partial"); return { ok: false, failureClass: "quota_exhausted", message: "limit" }; });
     const { task } = await service.submit(agent, codeTask(workspace));
+    const done = await until(service, task.id, ["blocked", "verified", "failed"]);
+    expect(done.state).toBe("verified");
+    expect(done.executor).toBe("claude_code");
+    expect(done.spec.onPartial).toBe("continue");
+    expect(await readFile(join(workspace, "half.txt"), "utf8")).toBe("partial");
+  });
+
+  it("keeps partial changes for the delegator only when it asked for onPartial: block", async () => {
+    const { service, workspace, agent, adapters } = await setup();
+    adapters[1].next.push(async context => { await writeFile(join(context.workdir!, "half.txt"), "partial"); return { ok: false, failureClass: "quota_exhausted", message: "limit" }; });
+    const { task } = await service.submit(agent, { ...codeTask(workspace), onPartial: "block" });
     const blocked = await until(service, task.id, ["blocked", "verified"]);
     expect(blocked.state).toBe("blocked");
+    expect(blocked.ownerReason).toBe("owner_decision");
     expect(blocked.reason).toMatch(/частичных изменений/);
     expect(adapters[2].runs).toBe(0);
     await service.resolve(task.id, agent, "continue");
-    expect((await until(service, task.id, ["verified"])).executor).toBe("claude_code");
+    const done = await until(service, task.id, ["verified"]);
+    expect(done.executor).toBe("claude_code");
+    expect(done.ownerReason).toBeUndefined();
   });
 
   it("waits honestly when every executor is limited and blocks when none can ever run", async () => {
@@ -369,7 +383,9 @@ describe("delegated task queue", () => {
     adapters[1].probeResult = { installed: false, authenticated: false };
     adapters[2].probeResult = { installed: true, authenticated: false };
     await service.refreshExecutorProbes(true);
-    expect((await until(service, task.id, ["blocked"])).reason).toMatch(/недоступны/);
+    const barrier = await until(service, task.id, ["blocked"]);
+    expect(barrier.ownerReason).toBe("external_barrier");
+    expect(barrier.reason).toMatch(/^Внешний барьер/);
     expect(adapters[1].runs + adapters[2].runs).toBe(0);
   });
 
