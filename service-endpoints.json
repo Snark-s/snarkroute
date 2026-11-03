@@ -47,6 +47,18 @@
                                             "protocol":  "tcp",
                                             "watch":  "when_running"
                                         },
+                     "snarkbridge_local":  {
+                                             "port":  8769,
+                                             "protocol":  "http",
+                                             "healthPath":  "/health",
+                                             "watch":  "always",
+                                             "identity":  {
+                                                              "field":  "service",
+                                                              "value":  "snarkbridge-mcp"
+                                                          },
+                                             "apiVersion":  1,
+                                             "readyField":  "ok"
+                                         },
                      "snarkbridge_mcp":  {
                                              "port":  8767,
                                              "protocol":  "http",

@@ -23,6 +23,17 @@ function stable(value: unknown): unknown { return Array.isArray(value) ? value.m
 
 export const buzhaObserverFile = () => join(buzhaHome(), "data", "snarkroute-observer-tabs.json");
 
+/**
+ * Buzha talks to SnarkBridge through its loopback-only local listener: there the bridge grants her
+ * access level 3 (owner decision 03.11.2026). The tunnel listener caps the same client at level 2,
+ * so the old port is only a fallback for a bridge that has no local listener yet.
+ */
+export function buzhaBridgeUrl(port: (name: "snarkbridge_local" | "snarkbridge_mcp") => number = localServicePort): string {
+  let chosen: number;
+  try { chosen = port("snarkbridge_local"); } catch { chosen = port("snarkbridge_mcp"); }
+  return `http://127.0.0.1:${chosen}/mcp`;
+}
+
 /** Tool exposure is not a second permission policy: the existing authenticated
  * SnarkBridge authority evaluates every routine or protected browser action. */
 export class BuzhaTools {
@@ -46,7 +57,7 @@ export class BuzhaTools {
       const token = (await readFile(join(root, ".client-auth", "tunnel-bearer"), "utf8")).trim();
       const authorization = /^Bearer /i.test(token) ? token : `Bearer ${token}`;
       const client = new Client({ name: "SnarkRoute-Buzha", version: "1" });
-      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${localServicePort("snarkbridge_mcp")}/mcp`), { requestInit: { headers: { authorization, "x-snarkbridge-initiator": "SnarkRoute-Buzha" } } }));
+      await client.connect(new StreamableHTTPClientTransport(new URL(buzhaBridgeUrl()), { requestInit: { headers: { authorization, "x-snarkbridge-initiator": "SnarkRoute-Buzha" } } }));
       return client;
     })().catch(error => { this.client = undefined; throw error; });
     const result = await (await this.client).callTool({ name, arguments: args }, undefined, { timeout: 45000 });

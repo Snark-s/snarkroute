@@ -1,6 +1,18 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { BuzhaTools, BUZHA_TOOLS } from "./tools";
+import { BuzhaTools, BUZHA_TOOLS, buzhaBridgeUrl } from "./tools";
+
+describe("Бужа и уровень 3 в мосте", () => {
+  it("ходит в SnarkBridge через локальный вход, где мост даёт уровень 3", () => {
+    expect(buzhaBridgeUrl(name => name === "snarkbridge_local" ? 8769 : 8767)).toBe("http://127.0.0.1:8769/mcp");
+  });
+  it("без зарегистрированного локального входа остаётся на прежнем порту", () => {
+    expect(buzhaBridgeUrl(name => { if (name === "snarkbridge_local") throw new Error("Unregistered"); return 8767; })).toBe("http://127.0.0.1:8767/mcp");
+  });
+  it("в живом реестре служб локальный вход зарегистрирован", () => {
+    expect(buzhaBridgeUrl()).toBe("http://127.0.0.1:8769/mcp");
+  });
+});
 import type { AgentTask } from "../agent-ops/types";
 const task = { id: "night", agentId: "app:buzha", spec: { actor: "buzha", tools: BUZHA_TOOLS }, attempts: [{ n: 1 }] } as AgentTask;
 const session = { sessions: [{ id: "default", profile_directory: "Profile 13", available: true }] };
