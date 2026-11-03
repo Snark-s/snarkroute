@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { resolve } from "node:path";
-import type { AgentIdentity, AgentKind, AgentPolicy } from "./types";
+import { ACCESS_LEVEL_NAMES, type AgentIdentity, type AgentKind, type AgentPolicy } from "./types";
 import { passportBriefLine } from "./passport";
 
 /**
@@ -16,6 +16,8 @@ export type AgentPolicies = { policies: Record<string, AgentPolicy>; assignments
 export function defaultAgentPolicies(roots: string[]): AgentPolicies {
   const agent: AgentPolicy = {
     id: "agent",
+    // D-02: Buzha, Secretary, Shorek, Jabberwock and the delegated Codex/Claude Code are level 3.
+    level: 3,
     allowedExecutors: ["local_route", "codex_cli", "claude_code"],
     maxDelegationDepth: 3,
     chainBudget: { tasks: 8, wallMinutes: 180, subscriptionRuns: 6 },
@@ -27,11 +29,11 @@ export function defaultAgentPolicies(roots: string[]): AgentPolicies {
   };
   return {
     policies: {
-      owner: { ...agent, id: "owner", maxDelegationDepth: 4, chainBudget: { tasks: 20, wallMinutes: 600, subscriptionRuns: 12 }, maxPriority: 100, canSetComputerMode: true, dailyTaskLimit: 200 },
+      owner: { ...agent, id: "owner", level: 4, maxDelegationDepth: 4, chainBudget: { tasks: 20, wallMinutes: 600, subscriptionRuns: 12 }, maxPriority: 100, canSetComputerMode: true, dailyTaskLimit: 200 },
       agent,
       child: { ...agent, id: "child", maxPriority: 60, chainBudget: { tasks: 4, wallMinutes: 120, subscriptionRuns: 3 } },
       // A caller that presented no credential: it may look, never act.
-      anonymous: { ...agent, id: "anonymous", allowedExecutors: [], maxDelegationDepth: 0, chainBudget: { tasks: 0, wallMinutes: 0, subscriptionRuns: 0 },
+      anonymous: { ...agent, id: "anonymous", level: 0, allowedExecutors: [], maxDelegationDepth: 0, chainBudget: { tasks: 0, wallMinutes: 0, subscriptionRuns: 0 },
         workspaceRoots: [], maxPriority: 0, canSetComputerMode: false, canUseHeavyGpu: false, dailyTaskLimit: 0 }
     },
     assignments: {}
@@ -50,7 +52,12 @@ export class AgentRegistry {
 
   restore(state: { records?: AgentRecord[]; policies?: Partial<AgentPolicies> }): void {
     for (const record of state.records ?? []) this.records.set(record.id, record);
-    if (state.policies?.policies) this.policies.policies = { ...this.policies.policies, ...state.policies.policies };
+    if (state.policies?.policies) {
+      // Policies saved before D-02 have no level: owner 4, anonymous 0, everyone else 3.
+      const restored = Object.fromEntries(Object.entries(state.policies.policies).map(([id, policy]) =>
+        [id, { ...policy, level: policy.level ?? (id === "owner" ? 4 : id === "anonymous" ? 0 : 3) } as AgentPolicy]));
+      this.policies.policies = { ...this.policies.policies, ...restored };
+    }
     if (state.policies?.assignments) this.policies.assignments = { ...state.policies.assignments };
   }
 
@@ -176,6 +183,7 @@ export const AGENT_OPS_BRIEF = [
 export function agentBrief(identity: AgentIdentity, extra?: { taskId?: string; chainDepth?: number; budget?: string; apiUrl?: string }): string {
   const lines = [
     `Your SnarkRoute agent id: ${identity.id} (policy ${identity.policy.id}; delegation depth limit ${identity.policy.maxDelegationDepth}).`,
+    `Access level ${identity.policy.level} of 4 (${ACCESS_LEVEL_NAMES[identity.policy.level]}, D-02)${identity.policy.level === 3 ? ": act as the owner would, except money beyond the envelope, rights and secrets" : ""}.`,
     AGENT_OPS_BRIEF,
     passportBriefLine()
   ];

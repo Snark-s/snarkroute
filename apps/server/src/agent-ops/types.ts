@@ -222,8 +222,16 @@ export type TaskEvent = { at: string; type: string; message: string; data?: Reco
 
 export type AgentKind = "owner" | "mcp" | "persona" | "app" | "task" | "anonymous";
 
+/**
+ * D-02 access levels: 0 observer, 1 worker, 2 autonomous operator, 3 trusted representative,
+ * 4 owner. Level 3 holds almost all owner rights; money beyond the envelope, rights and secrets stay at 4.
+ */
+export type AccessLevel = 0 | 1 | 2 | 3 | 4;
+export const ACCESS_LEVEL_NAMES: Record<AccessLevel, string> = { 0: "наблюдатель", 1: "работник", 2: "автономный оператор", 3: "доверенный представитель", 4: "владелец" };
+
 export type AgentPolicy = {
   id: string;
+  level: AccessLevel;
   allowedExecutors: string[];
   maxDelegationDepth: number;
   chainBudget: { tasks: number; wallMinutes: number; subscriptionRuns: number };

@@ -163,7 +163,7 @@ describe("locks", () => {
   });
 });
 
-const policy: AgentPolicy = { id: "agent", allowedExecutors: ["local_route", "codex_cli", "claude_code"], maxDelegationDepth: 3, chainBudget: { tasks: 8, wallMinutes: 180, subscriptionRuns: 6 }, workspaceRoots: [], maxPriority: 70, canSetComputerMode: false, canUseHeavyGpu: true, dailyTaskLimit: 30 };
+const policy: AgentPolicy = { id: "agent", level: 3, allowedExecutors: ["local_route", "codex_cli", "claude_code"], maxDelegationDepth: 3, chainBudget: { tasks: 8, wallMinutes: 180, subscriptionRuns: 6 }, workspaceRoots: [], maxPriority: 70, canSetComputerMode: false, canUseHeavyGpu: true, dailyTaskLimit: 30 };
 
 class FakeExecutor implements ExecutorAdapter {
   runs = 0;
