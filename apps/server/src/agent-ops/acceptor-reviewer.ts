@@ -57,7 +57,9 @@ export class CatalogAcceptanceReviewer implements AcceptanceReviewer {
       if (candidate.tier === "subscription") {
         const quota = this.deps.ledger.view(adapter.id).quota;
         if (quota.usedPercent !== undefined && quota.usedPercent >= 100) { notes.push(`${adapter.label}: провайдер сообщил исчерпанное окно подписки`); continue; }
-        if ((quota.state !== "reported" || quota.usedPercent === undefined) && !task.spec.review?.allowUnknownSubscriptionQuota) { notes.push(`${adapter.label}: остаток подписочного лимита неизвестен; автоматическая оценка не разрешена`); continue; }
+        // P-09 (accepted 2026-11-03): agent chains get the strong reviewer within the quota ledger and chain budget;
+        // an unreported remainder is fine unless the delegator explicitly opted out.
+        if ((quota.state !== "reported" || quota.usedPercent === undefined) && task.spec.review?.allowUnknownSubscriptionQuota === false) { notes.push(`${adapter.label}: остаток подписочного лимита неизвестен, а поручитель запретил оценку без него`); continue; }
         if (subscriptionRunsLeft() <= 0) { notes.push(`${adapter.label}: бюджет подписочных запусков исчерпан`); continue; }
       }
       const resources = await this.deps.dispatcher.acquire({ ...adapter.resourceRequest(readonlyTask, probe), holder: task.id, agentId: `acceptor:${task.id}`, origin: "agent", purpose: `Приёмщик · ${task.id} · ${level}`, ttlMs: 300000 });

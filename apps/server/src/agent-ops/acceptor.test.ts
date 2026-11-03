@@ -109,11 +109,25 @@ describe("Приёмщик: durable execution → evidence → acceptance", () =
     const { task } = await f.service.submit(f.agent, f.spec, { inspectExisting: true });
     await until(f.service, task.id, t => t.state === "verified"); expect(f.calls()).toBe(0); expect(task.attempts[0].executor).toBe("external");
   });
-  it("blocks a mandatory strong review at the exhausted task budget instead of repeatedly polling",async()=>{
-    const f=await fixture({review:{review:async()=>({status:"waiting",resourceWait:false,reason:"Проверяющая модель strong: бюджет подписочных запусков исчерпан"})}});
+  const budgetAwareReviewer = { review: async (input: any) => input.subscriptionRunsLeft() > 0
+    ? { status: "reviewed", reviewer: { executor: "codex_cli", model: "strong", level: "strong" }, review: { decision: "accept", reason: "ok", nextStep: "done", criteria: input.verdicts.map((v: any) => ({ ...v, status: "confirmed", reason: "ok" })) } }
+    : { status: "waiting", resourceWait: false, reason: "Проверяющая модель strong: бюджет подписочных запусков исчерпан" } };
+  it("C4: grows an exhausted subscription allocation from the quota ledger instead of asking the owner",async()=>{
+    const f=await fixture({review:budgetAwareReviewer});
     await writeFile(join(f.workspace,"profile.json"),'{"published":true}');
     const {task}=await f.service.submit(f.agent,{...f.spec,budget:{wallMinutes:5,subscriptionRuns:0},review:{forceStrong:true},criteria:[{...f.spec.criteria![0],review:"model"}]},{inspectExisting:true});
-    const done=await until(f.service,task.id,t=>t.state==="blocked");expect(done.reason).toContain("бюджет");expect(f.calls()).toBe(0);expect(done.attempts).toHaveLength(1);
+    const done=await until(f.service,task.id,t=>["verified","blocked"].includes(t.state));
+    expect(done.state).toBe("verified");expect(f.calls()).toBe(0);
+    expect(done.budgetHistory?.at(-1)).toMatchObject({by:"auto:quota-ledger"});expect(done.spec.budget?.subscriptionRuns).toBeGreaterThan(0);
+  });
+  it("C4: stops at the owner's ceiling with owner_decision, never needs_money",async()=>{
+    const f=await fixture({review:budgetAwareReviewer});
+    f.registry.restore({policies:{policies:{[f.agent.policy.id]:{...f.agent.policy,chainBudget:{...f.agent.policy.chainBudget,subscriptionRuns:0}}}}});
+    const agent=f.registry.mcpClient("test");
+    await writeFile(join(f.workspace,"profile.json"),'{"published":true}');
+    const {task}=await f.service.submit(agent,{...f.spec,budget:{wallMinutes:5,subscriptionRuns:0},review:{forceStrong:true},criteria:[{...f.spec.criteria![0],review:"model"}]},{inspectExisting:true});
+    const done=await until(f.service,task.id,t=>t.state==="blocked");
+    expect(done.ownerReason).toBe("owner_decision");expect(done.reason).toMatch(/потолок/);expect(f.calls()).toBe(0);expect(done.attempts).toHaveLength(1);
   });
   it("rejects evidence from an earlier attempt, stale observations and unrelated citations", async () => {
     const f = await fixture();

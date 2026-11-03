@@ -27,6 +27,8 @@ const OWNER_REASON_LABEL: Record<OwnerReason, string> = {
 };
 /** How long a task without any usable executor waits before the catalog is checked again. */
 const EXECUTOR_RECHECK_MS = 30 * 60_000;
+/** Same cap as normalizeSpec's budget.subscriptionRuns. */
+const SUBSCRIPTION_RUNS_MAX = 24;
 
 export class AgentOpsError extends Error {
   constructor(readonly code: string, message: string, readonly details: Record<string, unknown> = {}, readonly status = 409) {
@@ -558,13 +560,18 @@ export class AgentTaskService {
     if (this.attemptsOnStrategy(task) >= (task.spec.retry?.maxAttempts ?? 4)) {
       if (!(await this.rotateStrategy(task, `исчерпаны попытки способа ${task.strategy ?? "approach-1"}`))) { await this.giveUp(task, "последний способ тоже исчерпал попытки"); return; }
     }
-    const budget = this.chainBudget(task.chain.rootTaskId);
+    let budget = this.chainBudget(task.chain.rootTaskId);
     const timeLeft = this.timeLeftMs(task);
     if (timeLeft.ms <= 0) { await this.blockBudget(task, timeLeft.reason); return; }
 
     const candidates = this.rank(task);
     const suitable = candidates.filter(candidate => candidate.suitable);
-    if (suitable.length && suitable.every(candidate => candidate.tier === "subscription") && budget.subscriptionRunsLeft <= 0) { await this.blockBudget(task, "Бюджет подписочных шагов задачи исчерпан; это не утверждение о квоте провайдера.", "needs_money"); return; }
+    if (budget.subscriptionRunsLeft <= 0 && suitable.some(candidate => candidate.tier === "subscription")
+      && await this.reallocateSubscriptionRuns(task, "исчерпан запас подписочных запусков цепочки")) budget = this.chainBudget(task.chain.rootTaskId);
+    if (suitable.length && suitable.every(candidate => candidate.tier === "subscription") && budget.subscriptionRunsLeft <= 0) {
+      if (suitable.some(candidate => this.deps.ledger.availability(candidate.executorId, candidate.tier).usable)) { await this.blockBudget(task, "Достигнут потолок подписочных запусков, установленный владельцем; это не квота провайдера."); return; }
+      await this.waitForExecutor(task, "Квоты подписок исчерпаны; жду сброса по журналу квот."); return;
+    }
     const preferred = task.spec.executor && task.spec.executor !== "auto" ? candidates.find(candidate => candidate.executorId === task.spec.executor) : undefined;
     if (preferred && !preferred.suitable && !task.attempts.length && task.state === "queued") {
       await this.event(task, "routing", `Предпочтённый исполнитель ${preferred.label} не подходит: ${preferred.reasons.join("; ")}.`);
@@ -711,7 +718,14 @@ export class AgentTaskService {
     const adapter = this.adapter(attempt.executor)!;
     if (outcome.quotaReport) this.deps.ledger.recordQuotaReport(adapter.id, outcome.quotaReport);
     this.deps.ledger.recordMeasuredRun(adapter.id, { kind: "delegated", inputTokens: outcome.usage?.inputTokens, outputTokens: outcome.usage?.outputTokens });
-    if (outcome.budgetExhausted) { attempt.outcome = "failed"; attempt.failureClass = "budget"; attempt.error = outcome.budgetExhausted; await this.blockBudget(task, outcome.budgetExhausted, /подписоч/i.test(outcome.budgetExhausted) ? "needs_money" : "owner_decision"); return; }
+    if (outcome.budgetExhausted) {
+      attempt.outcome = "failed"; attempt.failureClass = "budget"; attempt.error = outcome.budgetExhausted;
+      if (/подписоч/i.test(outcome.budgetExhausted) && await this.reallocateSubscriptionRuns(task, outcome.budgetExhausted)) {
+        this.deps.locks.releaseOwner(task.id); task.lockKeys = []; task.spec.onPartial = "continue";
+        await this.setState(task, "queued", "Запас подписочных шагов расширен по журналу квот; продолжаю с текущего состояния.", "budget_reallocated"); return;
+      }
+      await this.blockBudget(task, outcome.budgetExhausted); return;
+    }
     if (outcome.waitForResources) { attempt.outcome = "unknown"; attempt.resourceWait = !attempt.modelCalls?.some(call => call.ok) && !attempt.toolCalls?.length; task.nextAttemptAt = this.retryAt(task, 30000); this.deps.locks.releaseOwner(task.id); task.lockKeys = []; await this.setState(task, "waiting_resources", outcome.waitForResources, "resource_wait"); await this.recordWaiting(task); return; }
     if (outcome.waitForTaskIds?.length) {
       attempt.outcome = "unknown"; task.dependsOn = outcome.waitForTaskIds; task.nextStep = outcome.message;
@@ -831,8 +845,11 @@ export class AgentTaskService {
         if (controller.signal.aborted) return;
         if (assessment.status !== "reviewed") {
           if(assessment.status==="waiting" && subscriptionRunsLeft()<=0 && /бюджет подписочных/i.test(assessment.reason)) {
-            await this.saveReview(task,makeReview(task,verdicts,"blocked",assessment.reason,"Сохранить результат; поручитель должен пересмотреть распределение бюджета. Новое исполнение или повторная отправка не разрешены.",this.iso()));
-            await this.blockBudget(task,"Исчерпан бюджет подписочных шагов для обязательной независимой проверки; результат не принят.","needs_money");return;
+            if (await this.reallocateSubscriptionRuns(task, "нужен подписочный шаг для независимой проверки")) {
+              task.nextAttemptAt = this.retryAt(task, 1000); await this.setState(task, "awaiting_verification", "Запас подписочных шагов расширен; проверка продолжится.", "review_waiting"); return;
+            }
+            await this.saveReview(task,makeReview(task,verdicts,"blocked",assessment.reason,"Сохранить результат; повторное исполнение не разрешено.",this.iso()));
+            await this.blockBudget(task,"Достигнут потолок подписочных шагов владельца для обязательной независимой проверки; результат не принят.");return;
           }
           const decision = makeReview(task, verdicts, "wait_resource", assessment.reason, "Дождаться разрешённой проверяющей модели; исполнитель повторно не запускается.", this.iso());
           await this.saveReview(task, decision); task.nextAttemptAt = this.retryAt(task, 30000);
@@ -926,8 +943,42 @@ export class AgentTaskService {
     (task.reviews ??= []).push(review); task.nextStep = review.nextStep;
     await this.persist(task, "acceptor_decision", `Приёмщик: ${review.decision} — ${review.reason}`, { review });
   }
-  /** Budget envelopes are the owner's: subscription runs are money (needs_money), time/reviewer/resource limits are the owner's decision. */
+  /** Only the owner's own ceilings stop a task here (owner_decision); paid envelopes would be needs_money (stage E4). */
   private async blockBudget(task: AgentTask, reason: string, ownerReason: OwnerReason = "owner_decision"): Promise<void> { task.reviewPending = false; await this.saveReview(task, makeReview(task, task.reviews?.at(-1)?.criteria ?? [], "blocked", reason, ownerReason === "needs_money" ? "Нужно решение о деньгах: расширить общий бюджет подписочных шагов; задача не выполнена." : "Поручителю нужно пересмотреть бюджет времени или ресурсов; задача не выполнена.", this.iso())); await this.block(task, ownerReason, reason, "budget"); }
+  /**
+   * C4 (D-03): subscription runs are a flat-fee quota, not money. When a task or its chain runs out of its
+   * allocation while the quota ledger still has a usable subscription executor, the allocation grows by
+   * itself up to the owner's ceiling (policy.chainBudget.subscriptionRuns). Only that ceiling is the owner's.
+   */
+  private async reallocateSubscriptionRuns(task: AgentTask, why: string): Promise<boolean> {
+    const root = this.tasks.get(task.chain.rootTaskId) ?? task;
+    const policy = root.budgetPolicyId ? this.deps.registry.policy(root.budgetPolicyId) : this.deps.registry.policyForAgent(root.agentId);
+    const ceiling = Math.min(SUBSCRIPTION_RUNS_MAX, policy.chainBudget.subscriptionRuns);
+    const quotaOpen = this.rank(task).some(candidate => candidate.suitable && candidate.tier === "subscription" && this.deps.ledger.availability(candidate.executorId, candidate.tier).usable);
+    if (!quotaOpen) return false;
+    const chain = this.chainBudget(root.id);
+    const grow = async (target: AgentTask, current: number, used: number, scope: string) => {
+      const next = Math.min(ceiling, Math.max(used + 1, current + Math.max(2, Math.ceil(current / 2))));
+      if (next <= current) return false;
+      const previous = structuredClone(target.spec.budget);
+      target.spec.budget = { ...target.spec.budget, subscriptionRuns: next };
+      (target.budgetHistory ??= []).push({ at: this.iso(), by: "auto:quota-ledger", reason: `${scope}: ${why}`, previous, next: structuredClone(target.spec.budget), subscriptionRunsUsed: used });
+      await this.persist(target, "budget_reallocated", `Подписочные шаги (${scope}): ${current} → ${next} по журналу квот, потолок владельца ${ceiling}. ${why}`);
+      return true;
+    };
+    let changed = false;
+    if (chain.subscriptionRunsLeft <= 0) {
+      if (!(await grow(root, chain.limits.subscriptionRuns, chain.subscriptionRunsUsed, "цепочка"))) return false;
+      changed = true;
+    }
+    const own = this.budgetUsage(task);
+    if (task.spec.budget?.subscriptionRuns !== undefined && own.subscriptionRunsUsed >= own.subscriptionRunsLimit) {
+      const roomInChain = this.chainBudget(root.id).subscriptionRunsLeft;
+      if (roomInChain <= 0) return changed;
+      changed = (await grow(task, own.subscriptionRunsLimit, own.subscriptionRunsUsed, task.id === root.id ? "задача" : "задача из запаса цепочки")) || changed;
+    }
+    return changed;
+  }
   private async recordWaiting(task: AgentTask): Promise<void> { if (task.reviews?.at(-1)?.decision !== "wait_resource" || task.reviews.at(-1)?.reason !== task.reason) await this.saveReview(task, makeReview(task, task.reviews?.at(-1)?.criteria ?? [], "wait_resource", task.reason, "Дождаться разрешённого исполнителя или ресурса; исходные требования сохранены.", this.iso())); }
   private async recoverVerificationError(task: AgentTask, error: unknown): Promise<void> { if (this.closed || task.cancelRequestedAt || task.state === "verified") return; task.reviewPending = true; task.nextAttemptAt = this.retryAt(task, 30000); await this.setState(task, task.pauseRequestedAt ? "paused" : "awaiting_verification", `Сбой Приёмщика; результат сохранён без приёмки: ${String(error)}`); }
 

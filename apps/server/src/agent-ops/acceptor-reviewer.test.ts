@@ -49,8 +49,16 @@ describe("catalog-backed acceptance reviewer", () => {
     f.task.attempts[0].modelCalls = [];
     expect((await f.reviewer.review({ ...f.input("strong"), subscriptionRunsLeft: () => 0 })).status).toBe("waiting"); expect(f.calls()).toBe(0);
   });
-  it("does not treat unknown subscription quota as free capacity", async () => {
-    const f = await fixture(); const result = await f.reviewer.review(f.input("strong"));
+  it("P-09: strong reviewer runs for an agent chain with unreported quota, within the ledger and chain budget", async () => {
+    const f = await fixture();
+    expect((await f.reviewer.review(f.input("strong"))).status).toBe("reviewed"); expect(f.calls()).toBe(1);
+    expect((await f.reviewer.review({ ...f.input("strong"), subscriptionRunsLeft: () => 0 })).status).toBe("waiting"); expect(f.calls()).toBe(1);
+    f.ledger.recordFailure("codex_cli", { class: "quota_exhausted", message: "limit", resetsAt: new Date(Date.now() + 3600000).toISOString(), source: "test" });
+    expect((await f.reviewer.review(f.input("strong"))).status).toBe("waiting"); expect(f.calls()).toBe(1);
+  });
+  it("P-09: the delegator can still opt out of review without a reported quota", async () => {
+    const f = await fixture(); f.task.spec.review = { allowUnknownSubscriptionQuota: false };
+    const result = await f.reviewer.review(f.input("strong"));
     expect(result.status).toBe("waiting"); expect(JSON.stringify(result)).toContain("неизвестен"); expect(f.calls()).toBe(0);
   });
   it("uses a fresh read-only context and records the actual strong model with reported quota", async () => {
