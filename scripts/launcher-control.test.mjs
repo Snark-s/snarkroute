@@ -60,3 +60,33 @@ test('restart button still refuses an unmanaged server that holds the port',asyn
 test('launcher shutdown stops its owned API without starting a replacement',async()=>{
   const f=fixture();await f.control.shutdown();assert.deepEqual(f.calls,['stop']);
 });
+function dead(options={}){
+  let clock=0,open=false,owned=false,startsLeftFailing=options.failStarts??0;const calls=[];const logs=[];
+  const control=createLauncherRestartControl({apiPort:4317,timeoutMs:20,pollMs:5,now:()=>clock,wait:async ms=>{clock+=ms;},
+    owned:()=>owned,serverPid:()=>owned?123:undefined,portOpen:async()=>open,healthy:async()=>open,
+    stop:async()=>calls.push('stop'),cleanup:async()=>{calls.push('cleanup');owned=false;open=false;},
+    start:async()=>{calls.push('start');if(startsLeftFailing>0){startsLeftFailing-=1;throw new Error('agents.ts: Unexpected "\\x00"');}owned=true;open=true;}});
+  return {control,calls,logs,log:line=>logs.push(line),tick:ms=>{clock+=ms;},setOpen:v=>{open=v;}};
+}
+test('watchdog starts a dead server only after two misses in a row',async()=>{
+  const f=dead();
+  assert.equal(await f.control.watchdogTick({log:f.log}),'suspect');assert.deepEqual(f.calls,[]);
+  assert.equal(await f.control.watchdogTick({log:f.log}),'recovered');assert.deepEqual(f.calls,['start']);
+  assert.equal(await f.control.watchdogTick({log:f.log}),'alive');assert.equal(f.control.status().watchdog.lastError,null);
+  assert.match(f.logs.join('\n'),/Сторож лаунчера: сервер поднят/);
+});
+test('watchdog never touches a live server, even an unmanaged one',async()=>{
+  const f=dead();f.setOpen(true);
+  for(let i=0;i<5;i+=1)assert.equal(await f.control.watchdogTick({log:f.log}),'alive');
+  assert.deepEqual(f.calls,[]);
+});
+test('watchdog backs off after a failed start and reports the cause',async()=>{
+  const f=dead({failStarts:2});
+  await f.control.watchdogTick({log:f.log});assert.equal(await f.control.watchdogTick({log:f.log}),'failed');
+  assert.match(f.control.status().watchdog.lastError,/x00/);
+  assert.equal(await f.control.watchdogTick({log:f.log}),'backoff');assert.equal(f.calls.filter(c=>c==='start').length,1);
+  f.tick(61_000);assert.equal(await f.control.watchdogTick({log:f.log}),'failed');
+  f.tick(61_000);assert.equal(await f.control.watchdogTick({log:f.log}),'backoff');
+  f.tick(120_000);assert.equal(await f.control.watchdogTick({log:f.log}),'recovered');
+  assert.equal(f.control.status().watchdog.failures,0);
+});

@@ -1,5 +1,5 @@
 {
-  "passportVersion": "2026-11-02.1",
+  "passportVersion": "2026-11-04.1",
   "verifiedAt": "2026-11-02",
   "document": "docs/WORKSHOP-PASSPORT.md",
   "decisions": "docs/decisions/REGISTRY.md",

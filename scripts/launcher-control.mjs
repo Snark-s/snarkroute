@@ -88,6 +88,8 @@ export function createLauncherRestartControl({
 }) {
   let operation = null;
   let inflight;
+  // Watchdog: the Sentinel lives inside the server and dies with it, so the launcher revives a dead server.
+  const watchdog = { enabled: false, misses: 0, failures: 0, nextAttemptAt: 0, lastRecoveryAt: null, lastError: null, timer: null };
 
   const until = async (predicate, message, waitTimeoutMs = timeoutMs) => {
     const deadline = now() + waitTimeoutMs;
@@ -108,6 +110,9 @@ export function createLauncherRestartControl({
     managed: owned(),
     serverPid: serverPid(),
     operation: operation ? { ...operation } : null,
+    watchdog: { enabled: watchdog.enabled, misses: watchdog.misses, failures: watchdog.failures,
+      nextAttemptAt: watchdog.nextAttemptAt ? new Date(watchdog.nextAttemptAt).toISOString() : null,
+      lastRecoveryAt: watchdog.lastRecoveryAt, lastError: watchdog.lastError },
   });
 
   const control = {
@@ -254,6 +259,46 @@ export function createLauncherRestartControl({
         return { ...operation };
       }
       return control.restart();
+    },
+
+    /**
+     * One watchdog check. A dead server (port closed on `missesBeforeStart` checks in a row) is started
+     * again; repeated failures back off. An open port is never touched: a live but unmanaged server
+     * (started by the recovery script) is left alone, exactly like restart() refuses to adopt it.
+     */
+    watchdogTick: async ({ missesBeforeStart = 2, backoffMs = [60_000, 120_000, 300_000, 900_000], log = () => {} } = {}) => {
+      if (inflight) return 'busy';
+      if (await portOpen()) { watchdog.misses = 0; return 'alive'; }
+      watchdog.misses += 1;
+      if (watchdog.misses < missesBeforeStart) return 'suspect';
+      if (now() < watchdog.nextAttemptAt) return 'backoff';
+      log(`⟳ Сторож лаунчера: сервер не отвечает (${watchdog.misses} проверки подряд), запускаю заново.`);
+      try {
+        await control.initialize();
+        watchdog.failures = 0; watchdog.misses = 0; watchdog.nextAttemptAt = 0;
+        watchdog.lastRecoveryAt = new Date(now()).toISOString(); watchdog.lastError = null;
+        log('✓ Сторож лаунчера: сервер поднят и прошёл проверку здоровья.');
+        return 'recovered';
+      } catch (error) {
+        watchdog.failures += 1;
+        watchdog.lastError = error instanceof Error ? error.message : String(error);
+        const delay = backoffMs[Math.min(watchdog.failures - 1, backoffMs.length - 1)];
+        watchdog.nextAttemptAt = now() + delay;
+        log(`✗ Сторож лаунчера: запуск не удался (${watchdog.lastError}); следующая попытка через ${Math.round(delay / 60_000)} мин. Причина — в этом журнале выше.`);
+        return 'failed';
+      }
+    },
+
+    startWatchdog: ({ intervalMs = 30_000, ...options } = {}) => {
+      if (watchdog.timer) return;
+      watchdog.enabled = true;
+      watchdog.timer = setInterval(() => { void control.watchdogTick(options).catch(() => {}); }, intervalMs);
+      watchdog.timer.unref?.();
+    },
+
+    stopWatchdog: () => {
+      if (watchdog.timer) clearInterval(watchdog.timer);
+      watchdog.timer = null; watchdog.enabled = false;
     },
   };
 
@@ -753,6 +798,9 @@ export async function startLauncherControl({
     }
   }
 
+  // A server that dies later (crash, broken file after a power loss) is started again by the launcher.
+  control.startWatchdog({ log: writeServerLog });
+
   return {
     existing: false,
     control,
@@ -760,6 +808,7 @@ export async function startLauncherControl({
     ownerLoginUrl,
 
     close: async () => {
+      control.stopWatchdog();
       await projectPublisher?.shutdown();
       await control.shutdown();
 
