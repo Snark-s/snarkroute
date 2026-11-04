@@ -6,6 +6,8 @@ export default defineConfig({
     alias: snarkrouteAliases
   },
   test: {
-    environment: "node"
+    environment: "node",
+    // Each run writes temp files into its own folder, removed when the run ends.
+    globalSetup: ["../../vitest.temp-sandbox.ts"]
   }
 });
