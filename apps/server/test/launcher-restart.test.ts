@@ -8,6 +8,10 @@ it.each([
   ["Secretary answer", "/api/system/secretary/questions/1/answer", "POST"],
   ["Secretary inbox read", "/api/system/secretary/questions", "GET"],
   ["launcher restart", "/api/system/restart", "POST"],
+  ["SnarkBridge policy read", "/api/system/snarkbridge/policy", "GET"],
+  ["SnarkBridge client level", "/api/system/snarkbridge/policy/clients/chatgpt", "POST"],
+  ["SnarkBridge pending read", "/api/system/snarkbridge/pending", "GET"],
+  ["SnarkBridge approval", "/api/system/snarkbridge/pending/"+"a".repeat(64)+"/approve", "POST"],
 ] as const)("protects %s with owner credentials, not loopback or browser headers",async(_label,url,method)=>{
   vi.stubEnv("APP_MODE","local");vi.stubEnv("SNARKROUTE_LAUNCHER_TOKEN","test-owner");
   const fetcher=vi.fn(async()=>new Response(JSON.stringify({ok:true,service:"snarkroute-launcher-control",apiPort:4317,managed:true})));

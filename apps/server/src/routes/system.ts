@@ -17,6 +17,7 @@ import { autonomousApps, isAutonomousAppId, readAutonomousAppStatus, registerAut
 import { admissionForLocalRuntime, isLocalRuntimeId, LocalRuntimeAdmissionError, readLocalRuntimeSnapshot, startLocalRuntime, stopLocalRuntime } from "../services/local-runtime-supervisor";
 import { readSnarkBridgeLogs, readSnarkBridgeStatus, restartSnarkBridge } from "../services/snarkbridge-local";
 import { readYAccess, requestYAccessApproval, revokeYAccess } from "../services/snarkbridge-y-access";
+import { decideBridgePending, listBridgePending, readBridgePolicy, setBridgeClientLevel } from "../services/snarkbridge-policy";
 import { launchBackgroundService } from "../services/background-process";
 import { cozyClayUrl, cozyClayManagedLog, cozyClayManualLog, readCozyClayStatus, startCozyClay, stopCozyClay } from "../services/cozyclay-workshop";
 import { listServiceLogs, managedLogPath, readServiceLogChunk, registerServiceLogProvider, startServiceLogMaintenance, type ServiceLogSourceDef } from "../services/service-logs";
@@ -82,8 +83,10 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     // F-07: owner-only controls. Agents keep their own paths (e.g. local-runtimes start under
     // admission and leases), so the guard lists the protected surfaces instead of all of /api/system.
     const path = request.url.split("?")[0];
-    const ownerWrite = ["/api/system/apps/", "/api/system/model-exposure", "/api/system/secretary/", "/api/system/restart"].some(prefix => path.startsWith(prefix));
-    const ownerRead = path.startsWith("/api/system/secretary/");
+    // B3: SnarkBridge policy and pending approvals are owner-only for reads too (they show commands).
+    const bridgePolicy = ["/api/system/snarkbridge/policy", "/api/system/snarkbridge/pending"].some(prefix => path.startsWith(prefix));
+    const ownerWrite = bridgePolicy || ["/api/system/apps/", "/api/system/model-exposure", "/api/system/secretary/", "/api/system/restart"].some(prefix => path.startsWith(prefix));
+    const ownerRead = bridgePolicy || path.startsWith("/api/system/secretary/");
     if (["GET", "HEAD"].includes(request.method) ? !ownerRead : !ownerWrite) return;
     if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
     try {
@@ -247,6 +250,26 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     try { return { ok: true, ...revokeYAccess() }; }
     catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
   });
+  // B3: SnarkBridge policy and the owner's one-use approvals, owner session only (guard above).
+  app.get("/api/system/snarkbridge/policy", async (_request, reply) => {
+    try { return { ok: true, ...readBridgePolicy() }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
+  });
+  app.post<{ Params: { id: string }; Body: { accessLevel?: number; level3ViaTunnel?: boolean } }>("/api/system/snarkbridge/policy/clients/:id", async (request, reply) => {
+    try { return { ok: true, client: setBridgeClientLevel(request.params.id, request.body ?? {}) }; }
+    catch (error) { return reply.code(400).send({ ok: false, error: errorMessage(error) }); }
+  });
+  app.get("/api/system/snarkbridge/pending", async (_request, reply) => {
+    try { return { ok: true, pending: listBridgePending() }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
+  });
+  app.post<{ Params: { digest: string; decision: string } }>("/api/system/snarkbridge/pending/:digest/:decision", async (request, reply) => {
+    const { digest, decision } = request.params;
+    if (decision !== "approve" && decision !== "reject") return reply.code(404).send({ ok: false, error: "approve или reject." });
+    try { return { ok: true, ...decideBridgePending(digest, decision) }; }
+    catch (error) { return reply.code(400).send({ ok: false, error: errorMessage(error) }); }
+  });
+
   app.get("/api/system/snarkbridge", async (request, reply) => {
     if (!local(request)) return reply.code(403).send({ ok: false, error: "Local SnarkRoute client required." });
     try { return { ok: true, ...await readSnarkBridgeStatus() }; }
