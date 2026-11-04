@@ -194,7 +194,7 @@ export class SecretaryService {
     const ids: Record<string, string> = { ...(message.stageIds ?? {}) };
     for (const stage of stages) {
       if (ids[stage.key]) continue;
-      const workspace = join(this.deps.sandbox, "secretary", goalId, stage.key);
+      const workspace = join(this.deps.sandbox, "secretary", goalId, `p${message.planAttempts}-${stage.key}`);
       await mkdir(workspace, { recursive: true });
       const { task } = await this.deps.tasks.submit(this.identity(), {
         title: stage.title, goal: stage.goal, goalId, workspace, after: stage.after.map(key => ids[key]).filter(Boolean),
@@ -203,7 +203,7 @@ export class SecretaryService {
         checks: [{ type: "file_content", path: "answer.md" }],
         criteria: [{ id: "stage", description: `answer.md показывает: ${stage.acceptance.join("; ")}`, review: "model", checkIndexes: [0] }],
         requirements: { kind: stage.kind, quality: "normal" }, permissions: { fileWrite: true, shell: "tests", network: stage.network },
-        budget: { wallMinutes: 60, subscriptionRuns: 6 }, idempotencyKey: `secretary:stage:${goalId}:${stage.key}`, allowDuplicate: true
+        budget: { wallMinutes: 60, subscriptionRuns: 6 }, idempotencyKey: `secretary:stage:${goalId}:p${message.planAttempts}:${stage.key}`, allowDuplicate: true
       });
       ids[stage.key] = task.id;
       message.stageIds = { ...ids };
@@ -217,10 +217,13 @@ export class SecretaryService {
     const stageIds = new Set(Object.values(message.stageIds ?? {}));
     const own = this.deps.goals.stages(goalId).filter(task => stageIds.has(task.id));
     for (const stage of own) {
-      // A stage with no declared external actions has nothing to reconcile: continue it once from its current result.
-      if (stage.state === "unknown_outcome" && !stage.effects?.length && !message.resolved?.includes(stage.id)) {
-        message.resolved = [...(message.resolved ?? []), stage.id];
-        await this.deps.tasks.resolve(stage.id, this.identity(), "continue", "Этап Секретаря без внешних действий: продолжить с текущего результата.");
+      // A stage with no declared external actions has nothing to reconcile: continue it once from its
+      // current result; stuck again, it is a failed approach and the goal is re-planned around it.
+      if (stage.state === "unknown_outcome" && !stage.effects?.length) {
+        if (!message.resolved?.includes(stage.id)) {
+          message.resolved = [...(message.resolved ?? []), stage.id];
+          await this.deps.tasks.resolve(stage.id, this.identity(), "continue", "Этап Секретаря без внешних действий: продолжить с текущего результата.");
+        } else await this.deps.tasks.resolve(stage.id, this.identity(), "mark_failed", "Этап снова застрял без исхода; цель пойдёт другим планом.");
       }
       if (stage.state === "verified") this.report("stage_accepted", `Этап принят: «${stage.title}».${stage.result?.summary ? ` ${stage.result.summary.slice(0, 600)}` : ""}`, goalId, `accepted:${stage.id}`);
       if (stage.state === "blocked") this.report("needs_owner", `Нужен ты: «${stage.title}» — ${stage.reason}`, goalId, `blocked:${stage.id}:${stage.updatedAt}`);
@@ -231,6 +234,14 @@ export class SecretaryService {
       await this.deps.goals.close(goalId, this.identity(), "done", "Все этапы приняты Приёмщиком.");
       message.state = "closed";
       this.report("goal_accepted", `Цель достигнута: все этапы (${progress.verified}) приняты.`, goalId);
-    } else if (progress.status === "stalled") this.report("goal_stalled", `Цель застряла: принято ${progress.verified}, не вышло ${progress.failed}.`, goalId, `stalled:${goalId}:${progress.failed}`);
+    } else if (progress.status === "stalled") {
+      // D-03: failed stages are a failed plan, not a question to the owner. Accepted results are kept.
+      const failed = own.filter(task => task.state === "failed" || task.state === "cancelled");
+      const accepted = own.filter(task => task.state === "verified");
+      const problem = [`не вышли этапы: ${failed.map(task => `«${task.title}» — ${task.reason}`).join("; ")}`.slice(0, 3000),
+        accepted.length ? `уже приняты (не повторять): ${accepted.map(task => `«${task.title}»: ${task.result?.summary ?? ""}`).join("; ")}`.slice(0, 3000) : ""].filter(Boolean).join(". ");
+      message.stageIds = {}; message.resolved = [];
+      await this.replan(message, goalId, problem);
+    }
   }
 }

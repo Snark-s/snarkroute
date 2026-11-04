@@ -80,6 +80,25 @@ describe("D2: Secretary", () => {
     expect(ops.secretary.status().reports.map(report => report.kind).reverse()).toEqual(["goal_received", "replanned", "plan_ready", "stage_accepted", "stage_accepted", "goal_accepted"]);
   });
 
+  it("re-plans around a failed stage instead of leaving the goal stuck, and gives up after three plans", async () => {
+    const owner = ops.registry.owner("test");
+    const message = await ops.secretary.receive(owner, { text: "Цель с неудачным этапом", requestKey: "k2" });
+    const finishPlan = async (taskId: string) => { const task = ops.tasks.get(taskId)!; await writeFile(join(task.workdir!, "plan.json"), plan([stage("a")]), "utf8"); task.state = "verified"; await ops.secretary.tick(); };
+    const current = () => ops.secretary.status().messages.find(item => item.id === message.id)!;
+    for (let round = 1; round <= 3; round += 1) {
+      await finishPlan(current().planTaskId!);
+      const stageTask = ops.tasks.get(current().stageIds!.a)!;
+      expect(stageTask.spec.idempotencyKey).toContain(`:p${round}:`);
+      stageTask.state = "failed"; stageTask.reason = "нет доступа";
+      await ops.secretary.tick();
+    }
+    expect(current().state).toBe("closed");
+    expect(ops.goals.require(message.goalId!, owner).state).toBe("cancelled");
+    const kinds = ops.secretary.status().reports.filter(report => report.goalId === message.goalId).map(report => report.kind);
+    expect(kinds.filter(kind => kind === "replanned")).toHaveLength(2);
+    expect(kinds[0]).toBe("goal_stalled");
+  });
+
   it("does not take goals from anonymous callers", async () => {
     await expect(ops.secretary.receive(ops.registry.anonymous?.() ?? { id: "anonymous", kind: "anonymous", label: "", policy: ops.registry.policyForAgent("anonymous") }, { text: "x" })).rejects.toThrow(/владельца или агента/);
   });
