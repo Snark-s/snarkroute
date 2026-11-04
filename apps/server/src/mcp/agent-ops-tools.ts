@@ -123,6 +123,24 @@ export function registerAgentOpsTools(server: McpServer, identityOf: (ops: Agent
     return { reports: status.reports.slice(0, input.limit ?? 20), messages: status.messages.slice(0, 10).map(({ text, ...message }) => ({ ...message, text: text.slice(0, 300) })), error: status.error };
   })());
 
+  // D3: mail between agents.
+  server.registerTool("agent_mail_send", {
+    description: "Send a letter to another agent (app:tove, app:factory, app:buzha, app:secretary, mcp:…) or to owner. Link it to the work with taskId or goalId. The receiver acknowledges it; you see readAt/ackAt in agent_mail_inbox(sent=true). Questions to the owner that need his decision still go through the Secretary.",
+    inputSchema: { to: z.string().min(1).max(90), subject: z.string().min(1).max(200), body: z.string().min(1).max(20000), taskId: z.string().max(40).optional(), goalId: z.string().max(40).optional(), replyTo: z.string().max(60).optional() },
+    annotations: { readOnlyHint: false, openWorldHint: false }
+  }, async input => run(async (ops, identity) => { const letter = await ops.mail.send(identity, input); return { id: letter.id, to: letter.to, at: letter.at }; })());
+
+  server.registerTool("agent_mail_inbox", {
+    description: "Your mailbox. unacknowledged=true lists only letters you have not acknowledged; waitSeconds>0 waits (up to 60 s) until one arrives instead of polling. sent=true lists your sent letters with their receipts.",
+    inputSchema: { unacknowledged: z.boolean().optional(), waitSeconds: z.number().int().min(0).max(60).optional(), sent: z.boolean().optional(), limit: z.number().int().min(1).max(200).optional() }, annotations: readOnly
+  }, async input => run(async (ops, identity) => ({ letters: input.sent ? ops.mail.sent(identity, input.limit ?? 30)
+    : input.waitSeconds ? await ops.mail.wait(identity, input.waitSeconds * 1000) : ops.mail.inbox(identity, { unacknowledged: input.unacknowledged, limit: input.limit ?? 30 }) }))());
+
+  server.registerTool("agent_mail_ack", {
+    description: "Acknowledge a letter addressed to you (delivery receipt), optionally with a short note.",
+    inputSchema: { id: z.string().min(1).max(60), note: z.string().max(2000).optional() }, annotations: { readOnlyHint: false, openWorldHint: false, idempotentHint: true }
+  }, async input => run(async (ops, identity) => { const letter = await ops.mail.ack(identity, input.id, input.note); return { id: letter.id, ackAt: letter.ackAt }; })());
+
   server.registerTool("agent_goal_list", {
     description: "Goals you can see (all of them for trusted agents) with progress: stages total/accepted/failed/active, needs_owner, percent accepted.",
     inputSchema: { states: z.array(z.enum(["active", "done", "cancelled"])).max(3).optional(), limit: z.number().int().min(1).max(200).optional() }, annotations: readOnly

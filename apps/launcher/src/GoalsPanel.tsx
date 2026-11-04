@@ -5,6 +5,7 @@ import { ownerHeaders } from "./AgentOpsPanel";
 type Stage = { id: string; title: string; state: string; reason: string; after: string[]; agentId: string; updatedAt: string };
 type Progress = { total: number; verified: number; failed: number; cancelled: number; active: number; needsOwner: number; percent: number; status: string };
 type Goal = { id: string; title: string; description?: string; source: string; createdBy: string; assignee: string; state: "active" | "done" | "cancelled"; priority: number; deadline?: string; createdAt: string; updatedAt: string; note?: string; progress: Progress; stages: Stage[] };
+type Letter = { id: string; from: string; subject: string; body: string; at: string; taskId?: string; goalId?: string };
 type Report = { id: string; at: string; goalId?: string; kind: string; text: string };
 type Task = { id: string; title: string; state: string; reason: string; agentId: string; updatedAt: string; spec: { goalId?: string } };
 
@@ -31,6 +32,7 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
   const [goals, setGoals] = useState<Goal[]>();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
+  const [letters, setLetters] = useState<Letter[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState("");
@@ -42,8 +44,9 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
     try {
       const [goalList, taskList, secretary] = await Promise.all([call<{ goals: Goal[] }>(apiBase, "/goals?limit=200"), call<{ tasks: Task[] }>(apiBase, "/tasks?limit=300"),
         call<{ reports: Report[] }>(apiBase, "/secretary").catch(() => ({ reports: [] as Report[] }))]);
+      const inbox = await call<{ letters: Letter[] }>(apiBase, "/mail?unacknowledged=1").catch(() => ({ letters: [] as Letter[] }));
       if (!mounted.current) return;
-      setGoals(goalList.goals); setTasks(taskList.tasks); setReports(secretary.reports); setError("");
+      setGoals(goalList.goals); setTasks(taskList.tasks); setReports(secretary.reports); setLetters(inbox.letters); setError("");
     } catch (reason) { if (mounted.current) setError(reason instanceof Error ? reason.message : "Не удалось прочитать реестр."); }
   }, [apiBase]);
 
@@ -90,6 +93,14 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
     <p className="secretarySummary"><strong>{active.length}</strong> целей в работе · <strong>{loose.length}</strong> задач вне целей</p>
     {goals && !active.length ? <div className="secretaryEmpty"><CheckCircle2 /> Активных целей нет.</div> : null}
     {active.map(goal => <GoalCard key={goal.id} goal={goal} busy={busy} onClose={state => void close(goal, state)} />)}
+    {letters.length ? <details className="secretaryArchive" open>
+      <summary>Письма тебе ({letters.length})</summary>
+      <div className="secretaryArchiveList">{letters.map(letter => <article key={letter.id} className="secretaryQuestion">
+        <div className="secretaryMeta"><strong>{letter.subject}</strong><span>{letter.from} · {new Date(letter.at).toLocaleString("ru-RU")}{letter.taskId ? ` · ${letter.taskId}` : ""}{letter.goalId ? ` · ${letter.goalId}` : ""}</span></div>
+        <p className="secretaryContext">{letter.body}</p>
+        <div className="secretaryForm"><button type="button" className="secretaryButton" disabled={Boolean(busy)} onClick={() => void act(letter.id, async () => { await call(apiBase, `/mail/${letter.id}/ack`, "POST", {}); return "Получение подтверждено."; })}><CheckCircle2 /> Прочитано</button></div>
+      </article>)}</div>
+    </details> : null}
     {reports.length ? <details className="secretaryArchive" open>
       <summary>Отчёты Секретаря ({reports.length})</summary>
       <div className="secretaryArchiveList">{reports.slice(0, 30).map(report => <div key={report.id} className={`goalStage report-${report.kind}`}>

@@ -250,6 +250,19 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
     return { ok: true, goal: await ops.goals.close((request.params as { id: string }).id, identity, body.state, body.note) };
   }));
 
+  // D3: mail between agents; GET /mail/wait is a long poll that returns as soon as a letter arrives.
+  app.post(`${ROOT}/mail`, handle(async (ops, identity, request, reply) => reply.code(201).send({ ok: true, letter: await ops.mail.send(identity, (request.body ?? {}) as Record<string, unknown>) })));
+  app.get(`${ROOT}/mail`, handle(async (ops, identity, request) => {
+    const query = request.query as { box?: string; unacknowledged?: string; since?: string; limit?: string };
+    return { ok: true, letters: ops.mail.inbox(identity, { box: query.box, unacknowledged: query.unacknowledged === "1", since: query.since, limit: Number(query.limit) || undefined }) };
+  }));
+  app.get(`${ROOT}/mail/sent`, handle(async (ops, identity) => ({ ok: true, letters: ops.mail.sent(identity) })));
+  app.get(`${ROOT}/mail/wait`, handle(async (ops, identity, request) => {
+    const query = request.query as { timeoutMs?: string; box?: string };
+    return { ok: true, letters: await ops.mail.wait(identity, Number(query.timeoutMs) || 25_000, query.box) };
+  }));
+  app.post(`${ROOT}/mail/:id/ack`, handle(async (ops, identity, request) => ({ ok: true, letter: await ops.mail.ack(identity, (request.params as { id: string }).id, ((request.body ?? {}) as { note?: string }).note) })));
+
   // D2: a goal said to the Secretary is registered, planned into stages and handed to the queue.
   app.post(`${ROOT}/secretary/messages`, handle(async (ops, identity, request, reply) => reply.code(202).send({ ok: true, message: await ops.secretary.receive(identity, (request.body ?? {}) as Record<string, unknown>) })));
   app.get(`${ROOT}/secretary`, handle(async (ops, identity) => {
