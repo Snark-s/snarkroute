@@ -141,7 +141,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
   const adapters = options.adapters ?? [
     new LocalRouteExecutor({ pickModel: pickLocalTextModel, runText: (model, prompt, signal) => textRunner ? textRunner(model, prompt, signal) : Promise.resolve({ ok: false, error: "Исполнитель маршрутов ещё не подключён." }) }),
     new CodexExecutor({ auth: force => subscriptions[1].chatGptSubscription().auth(force), refreshQuota: () => subscriptions[1].chatGptSubscription().refreshQuota(), model: () => process.env.AGENT_OPS_CODEX_MODEL?.trim() || undefined }),
-    new ClaudeCodeExecutor({ auth: force => subscriptions[0].claudeSubscription().auth(force), model: () => process.env.AGENT_OPS_CLAUDE_MODEL?.trim() || "sonnet" }),
+    new ClaudeCodeExecutor({ auth: force => subscriptions[0].claudeSubscription().auth(force), refreshQuota: () => subscriptions[0].claudeSubscription().refreshQuota(), model: () => process.env.AGENT_OPS_CLAUDE_MODEL?.trim() || "sonnet" }),
     new JabberwockExecutor()
   ];
   const buzhaTools = new BuzhaTools({ observerFile: buzhaObserverFile(), effect: (task, key, phase, tool, reason) => { if (!tasks) throw new Error("Общая очередь ещё не подключена."); return tasks.toolEffect(task.id, tool, key, phase, reason); }, delegate: async (task, args) => {
@@ -265,6 +265,8 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
   }
 
   async function status() {
+    // The header must not show quota from hours ago: someone looking is a reason to re-read it (TTL 60 s, background).
+    void taskService.refreshExecutorProbes(false).catch(() => undefined);
     const [effective, resources, activity] = await Promise.all([mode(), telemetry().catch(() => undefined),
       ownerActivity({ heavyLeaseActive: dispatcher.list().some(lease => lease.class === "heavy") })]);
     const all = taskService.list({ limit: 10_000 });

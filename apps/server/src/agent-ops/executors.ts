@@ -155,10 +155,11 @@ export class ClaudeCodeExecutor implements ExecutorAdapter {
   readonly label = "Claude Code (подписка Claude)";
   readonly profile: ExecutorProfile = { kinds: ["code_edit", "code_review", "analysis", "text"], editsFiles: true, shell: true, maxContextTokens: 200_000, quality: "high", pause: "none", costTier: "subscription", order: 2 };
 
-  constructor(private readonly deps: { auth: AuthReader; run?: typeof runClaudeCode; model?: () => string }) {}
+  constructor(private readonly deps: { auth: AuthReader; run?: typeof runClaudeCode; model?: () => string; refreshQuota?: () => Promise<void> }) {}
 
   async probe(force = false): Promise<ExecutorProbe> {
     const auth = await this.deps.auth(force);
+    if (auth.subscription) await this.deps.refreshQuota?.();
     return { installed: auth.installed, authenticated: auth.installed ? auth.subscription : false, detail: auth.reason ?? (auth.version ? `claude ${auth.version}` : undefined), checkedAt: auth.checkedAt, source: "claude auth status" };
   }
 

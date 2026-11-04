@@ -12,6 +12,7 @@ import {
   type ClaudeStreamEvent
 } from "./claude-code-cli";
 import { boundedConcurrency, ConcurrencyGate, JsonConversationFile, JsonHistoryFile, KeyedSerializer } from "./subscription-common";
+import { claudeUsageReport, readClaudeUsage, type ClaudeUsage } from "./claude-quota";
 
 /**
  * Claude Subscription: the owner's Pro/Max plan used through the official
@@ -67,7 +68,7 @@ export type ClaudeSubscriptionChatRequest = {
 
 export type ClaudeSubscriptionChatResult = ClaudeCodeResult & { conversationId?: string; modelRef: string; alias: string };
 
-type Deps = { cli?: ClaudeCliOptions; run?: typeof runClaudeCode; authStatus?: typeof claudeAuthStatus; dataDirectory?: string; now?: () => number };
+type Deps = { cli?: ClaudeCliOptions; run?: typeof runClaudeCode; authStatus?: typeof claudeAuthStatus; dataDirectory?: string; now?: () => number; readUsage?: () => Promise<ClaudeUsage | undefined> };
 
 export class ClaudeSubscriptionService {
   private authCache?: { value: ClaudeAuthStatus; at: number };
@@ -94,6 +95,25 @@ export class ClaudeSubscriptionService {
     const value = await (this.deps.authStatus ?? claudeAuthStatus)(this.deps.cli);
     this.authCache = { value, at: this.now() };
     return value;
+  }
+
+  private quotaCheckedAt = 0;
+  private quotaRefresh?: Promise<void>;
+  /** Live plan usage (5-hour and weekly windows) into the shared ledger; silent when it cannot be read. */
+  async refreshQuota(): Promise<void> {
+    if (this.quota.simulated || sharedQuotaLedger().view("claude_code").quota.simulated) return;
+    if (this.quotaRefresh) return this.quotaRefresh;
+    if (this.now() - this.quotaCheckedAt < AUTH_CACHE_MS) return;
+    this.quotaCheckedAt = this.now();
+    this.quotaRefresh = (async () => {
+      const usage = await (this.deps.readUsage ?? readClaudeUsage)().catch(() => undefined);
+      if (!usage) return;
+      const report = claudeUsageReport(usage);
+      if (report.exhausted) this.quota = { ...this.quota, exhausted: true, exhaustedUntil: report.resetsAt ?? new Date(this.now() + UNKNOWN_RESET_BACKOFF_MS).toISOString() };
+      else if (this.quota.exhausted && !this.quota.simulated) this.quota = { exhausted: false, lastRateLimit: this.quota.lastRateLimit };
+      sharedQuotaLedger().recordQuotaReport("claude_code", { exhausted: report.exhausted, resetsAt: report.resetsAt, usedPercent: report.usedPercent, source: "claude oauth usage", detail: report.detail });
+    })().finally(() => { this.quotaRefresh = undefined; });
+    return this.quotaRefresh;
   }
 
   quotaState(): ClaudeSubscriptionQuota {
