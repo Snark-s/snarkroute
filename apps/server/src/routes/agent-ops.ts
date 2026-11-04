@@ -250,6 +250,16 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
     return { ok: true, goal: await ops.goals.close((request.params as { id: string }).id, identity, body.state, body.note) };
   }));
 
+  // D4: work kept in other systems (Tove, Factory, …), projected read-only; a system may push its own items.
+  app.get(`${ROOT}/registry`, handle(async (ops, identity, request) => {
+    if (identity.kind !== "owner" && identity.policy.level < 3) throw new AgentOpsError("OWNER_ONLY", "Общий реестр видят владелец и доверенные агенты.", {}, 403);
+    return { ok: true, ...await ops.work.list({ refresh: (request.query as { refresh?: string }).refresh === "1" }) };
+  }));
+  app.put(`${ROOT}/registry/:system/:id`, handle(async (ops, identity, request) => {
+    const params = request.params as { system: string; id: string };
+    return { ok: true, item: await ops.work.push(identity, params.system, params.id, (request.body ?? {}) as Record<string, unknown>) };
+  }));
+
   // D3: mail between agents; GET /mail/wait is a long poll that returns as soon as a letter arrives.
   app.post(`${ROOT}/mail`, handle(async (ops, identity, request, reply) => reply.code(201).send({ ok: true, letter: await ops.mail.send(identity, (request.body ?? {}) as Record<string, unknown>) })));
   app.get(`${ROOT}/mail`, handle(async (ops, identity, request) => {

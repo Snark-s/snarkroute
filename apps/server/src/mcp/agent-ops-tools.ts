@@ -123,6 +123,15 @@ export function registerAgentOpsTools(server: McpServer, identityOf: (ops: Agent
     return { reports: status.reports.slice(0, input.limit ?? 20), messages: status.messages.slice(0, 10).map(({ text, ...message }) => ({ ...message, text: text.slice(0, 300) })), error: status.error };
   })());
 
+  server.registerTool("agent_work_registry", {
+    description: "Work kept in other systems, projected read-only into one list: Tove goals, Factory sales lines and open obstacles, and items systems push themselves. States: needs_owner, stalled, active, waiting, failed, done. Trusted agents only.",
+    inputSchema: { refresh: z.boolean().optional(), system: z.string().max(40).optional() }, annotations: readOnly
+  }, async input => run(async (ops, identity) => {
+    if (identity.kind !== "owner" && identity.policy.level < 3) throw new AgentOpsError("OWNER_ONLY", "Общий реестр видят владелец и доверенные агенты.", {}, 403);
+    const view = await ops.work.list({ refresh: input.refresh });
+    return { ...view, items: input.system ? view.items.filter(item => item.system === input.system) : view.items };
+  })());
+
   // D3: mail between agents.
   server.registerTool("agent_mail_send", {
     description: "Send a letter to another agent (app:tove, app:factory, app:buzha, app:secretary, mcp:…) or to owner. Link it to the work with taskId or goalId. The receiver acknowledges it; you see readAt/ackAt in agent_mail_inbox(sent=true). Questions to the owner that need his decision still go through the Secretary.",

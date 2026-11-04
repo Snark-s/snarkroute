@@ -16,6 +16,8 @@ import { defaultCpuCount, ResourceDispatcher, type Decision, type Lease, type Re
 import { AgentOpsStore } from "./store";
 import { GoalService } from "./goals";
 import { AgentMail } from "./mail";
+import { factorySource, toveSource, WorkRegistry } from "./registry";
+import { localServicePort } from "../services/local-service-endpoints";
 import { SecretaryService } from "../secretary/service";
 import { AgentTaskService } from "./tasks";
 import { CatalogAcceptanceReviewer } from "./acceptor-reviewer";
@@ -170,6 +172,9 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
   await goals.init();
   const mail = new AgentMail({ store });
   await mail.init();
+  const port = (name: "tove" | "factory", fallback: number) => { try { return localServicePort(name); } catch { return fallback; } };
+  const work = new WorkRegistry({ store, includeRegistered: !options.adapters, sources: options.adapters ? [] : [toveSource(`http://127.0.0.1:${port("tove", 4890)}`), factorySource(`http://127.0.0.1:${port("factory", 4891)}`)] });
+  await work.init();
   const secretary = new SecretaryService({ store, tasks: taskService, goals, registry, sandbox: join(directory, "sandbox") });
   await secretary.init();
   if (!options.adapters) secretary.start();
@@ -292,7 +297,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
 
   function close(): void { clearInterval(sampler); clearInterval(appPidTimer); activityMonitor.stop(); secretary.close(); taskService.close(); buzha.close(); void buzhaTools.close(); }
 
-  return { apiUrl, callers, store, registry, ledger, locks, dispatcher, tasks: taskService, goals, secretary, mail, catalog, adapters, buzha, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
+  return { apiUrl, callers, store, registry, ledger, locks, dispatcher, tasks: taskService, goals, secretary, mail, work, catalog, adapters, buzha, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
     modeState: () => modeState };
 }
 
@@ -444,7 +449,7 @@ function defaultToolGroups(): ToolGroup[] {
       tools: ["agent_acceptor_inspect", "agent_acceptor_status", "agent_delegate_verify", "agent_delegate_pause", "agent_delegate_resume", "agent_task_effect", "agent_task_amend"], available: async () => true },
     { id: "buzha", title: "Бужа · постоянный агент", summary: "Общая очередь, каноническая SQLite, Profile 13 и рабочие инструменты через централизованную политику SnarkBridge, общий Приёмщик. Чат создаёт задачу. Вход планового события подготовлен; без подтверждения обеих сторон не активен.", cost: "mixed", tools: ["buzha_message", "buzha_status", "buzha_task", "buzha_control","buzha_schedule_trigger"], available: async () => true },
     { id: "agent_ops", title: "Делегирование и ресурсы", summary: "Каталог, поручения исполнителям, резервы GPU/RAM, режим компьютера.", cost: "none",
-      tools: ["agent_whoami", "agent_capabilities", "agent_capability_detail", "secretary_message", "secretary_reports", "agent_mail_send", "agent_mail_inbox", "agent_mail_ack", "agent_goal_create", "agent_goal_list", "agent_goal_status", "agent_goal_close", "agent_delegate_submit", "agent_delegate_status", "agent_delegate_result", "agent_delegate_cancel", "agent_delegate_list", "agent_resource_acquire", "agent_resource_release", "computer_mode_status"], available: async () => true },
+      tools: ["agent_whoami", "agent_capabilities", "agent_capability_detail", "secretary_message", "secretary_reports", "agent_mail_send", "agent_mail_inbox", "agent_mail_ack", "agent_work_registry", "agent_goal_create", "agent_goal_list", "agent_goal_status", "agent_goal_close", "agent_delegate_submit", "agent_delegate_status", "agent_delegate_result", "agent_delegate_cancel", "agent_delegate_list", "agent_resource_acquire", "agent_resource_release", "computer_mode_status"], available: async () => true },
     { id: "images", title: "Изображения (FLUX.3, Qwen edit)", summary: "Генерация и точная правка изображений локально через Model Gateway.", cost: "local", resources: "тяжёлая GPU-задача, резерв через диспетчер",
       tools: ["image_generate", "image_job", "image_cancel", "image_view"], available: async () => process.env.FLUX3_NATIVE_ENABLED === "1" || process.env.QWEN_EDIT_ENABLED === "1" ? true : null },
     { id: "local_runtime", title: "Локальные рантаймы", summary: "Статус GPU, admission, запуск и остановка локальных моделей.", cost: "local", tools: ["local_runtime_status", "local_runtime_admission", "local_runtime_start", "local_runtime_stop"], available: async () => true },

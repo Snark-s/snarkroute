@@ -26,6 +26,8 @@ describe("Jabberwock memory startup", () => {
       expect(memory.list_runs_for_step("s")[0]).toMatchObject({ response: "Old response", metadata: {} });
       const route = memory.create_route({ taskId: "t", steps: [{ title: "New", instruction: "New instruction", acceptanceCriteria: ["New criterion"] }] });
       expect(route.steps[0].sequence).toBe(2); expect(memory.list_task_steps("t")).toHaveLength(2);
+      // D4: the read-only list behind the shared work registry.
+      expect(memory.list_routes(10)).toMatchObject([{ id: route.id, objective: "Old task", status: "pending", steps: 1, done: 0 }]);
     } finally { memory.close(); rmSync(directory, { recursive: true, force: true }); }
   });
   it("initializes all tables and preserves settings and artifacts across restarts", () => {

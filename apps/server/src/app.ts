@@ -41,6 +41,7 @@ import { registerAgentOpsRoutes } from "./routes/agent-ops";
 import { appMode, assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
 import { createDecisionRuntimeFromEnv } from "./services/decision-runtime";
+import { jabberwockSource, registerProjectionSource } from "./agent-ops/registry";
 import { localBrowserOriginAllowed, registerLocalHttpBoundary } from './services/local-http-boundary';
 export function buildServer() {
   loadRootEnv();
@@ -51,6 +52,8 @@ export function buildServer() {
   const supervisorBridge = jabberwockMemory ? new SupervisorBridge(jabberwockMemory, { decisionExecutor: decisionRuntime.executor }) : null;
   app.addHook("onClose", async () => decisionRuntime.close());
   if (jabberwockMemory) app.addHook("onClose", async () => jabberwockMemory.close());
+  // D4: Jabberwock routes appear in the shared work registry (read-only projection).
+  if (jabberwockMemory) registerProjectionSource(jabberwockSource(limit => jabberwockMemory.list_routes(limit)));
   if (appMode() === 'local') registerLocalHttpBoundary(app);
   app.register(cors, { origin: appMode() === 'local'
     ? (origin, callback) => callback(null, localBrowserOriginAllowed(origin))

@@ -5,6 +5,8 @@ import { ownerHeaders } from "./AgentOpsPanel";
 type Stage = { id: string; title: string; state: string; reason: string; after: string[]; agentId: string; updatedAt: string };
 type Progress = { total: number; verified: number; failed: number; cancelled: number; active: number; needsOwner: number; percent: number; status: string };
 type Goal = { id: string; title: string; description?: string; source: string; createdBy: string; assignee: string; state: "active" | "done" | "cancelled"; priority: number; deadline?: string; createdAt: string; updatedAt: string; note?: string; progress: Progress; stages: Stage[] };
+type Projected = { system: string; externalId: string; title: string; state: string; detail?: string; progress?: string; updatedAt: string };
+const PROJECTED: Record<string, string> = { needs_owner: "нужен ты", stalled: "застряло", active: "в работе", waiting: "ждёт", failed: "не вышло", done: "готово" };
 type Letter = { id: string; from: string; subject: string; body: string; at: string; taskId?: string; goalId?: string };
 type Report = { id: string; at: string; goalId?: string; kind: string; text: string };
 type Task = { id: string; title: string; state: string; reason: string; agentId: string; updatedAt: string; spec: { goalId?: string } };
@@ -33,6 +35,7 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [letters, setLetters] = useState<Letter[]>([]);
+  const [work, setWork] = useState<{ items: Projected[]; sources: Record<string, { label: string; ok: boolean; error?: string }> }>({ items: [], sources: {} });
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState("");
@@ -44,9 +47,10 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
     try {
       const [goalList, taskList, secretary] = await Promise.all([call<{ goals: Goal[] }>(apiBase, "/goals?limit=200"), call<{ tasks: Task[] }>(apiBase, "/tasks?limit=300"),
         call<{ reports: Report[] }>(apiBase, "/secretary").catch(() => ({ reports: [] as Report[] }))]);
-      const inbox = await call<{ letters: Letter[] }>(apiBase, "/mail?unacknowledged=1").catch(() => ({ letters: [] as Letter[] }));
+      const [inbox, registry] = await Promise.all([call<{ letters: Letter[] }>(apiBase, "/mail?unacknowledged=1").catch(() => ({ letters: [] as Letter[] })),
+        call<{ items: Projected[]; sources: Record<string, { label: string; ok: boolean; error?: string }> }>(apiBase, "/registry").catch(() => ({ items: [] as Projected[], sources: {} }))]);
       if (!mounted.current) return;
-      setGoals(goalList.goals); setTasks(taskList.tasks); setReports(secretary.reports); setLetters(inbox.letters); setError("");
+      setGoals(goalList.goals); setTasks(taskList.tasks); setReports(secretary.reports); setLetters(inbox.letters); setWork(registry); setError("");
     } catch (reason) { if (mounted.current) setError(reason instanceof Error ? reason.message : "Не удалось прочитать реестр."); }
   }, [apiBase]);
 
@@ -106,6 +110,14 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
       <div className="secretaryArchiveList">{reports.slice(0, 30).map(report => <div key={report.id} className={`goalStage report-${report.kind}`}>
         <span className="goalStageState">{new Date(report.at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
         <span className="goalStageTitle">{report.text}</span>
+      </div>)}</div>
+    </details> : null}
+    {work.items.length || Object.keys(work.sources).length ? <details className="secretaryArchive" open>
+      <summary>Работа других агентов ({work.items.length}){Object.values(work.sources).some(source => !source.ok) ? ` · недоступно: ${Object.values(work.sources).filter(source => !source.ok).map(source => source.label).join(", ")}` : ""}</summary>
+      <div className="secretaryArchiveList">{work.items.map(item => <div key={`${item.system}/${item.externalId}`} className={`goalStage state-${item.state === "needs_owner" ? "blocked" : item.state}`}>
+        <span className="goalStageState">{PROJECTED[item.state] ?? item.state}</span>
+        <span className="goalStageTitle">{work.sources[item.system]?.label ?? item.system}: {item.title}{item.progress ? ` · ${item.progress}` : ""}</span>
+        {item.detail ? <small>{item.detail}</small> : null}
       </div>)}</div>
     </details> : null}
     {loose.length ? <details className="secretaryArchive" open>

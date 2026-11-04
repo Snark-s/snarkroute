@@ -32,6 +32,7 @@ export class JabberwockMemoryService {
 
   create_route(input: CreateRouteInput): WorkingRoute { return this.storage.create_route(input); }
   get_route(id: string): WorkingRoute | null { return this.storage.get_route(id); }
+  list_routes(limit?: number) { return this.storage.list_routes(limit); }
   update_route(id: string, update: RouteUpdate): void { this.storage.update_route(id, update); }
   update_route_step(id: string, update: RouteStepUpdate): void { this.storage.update_route_step(id, update); }
   update_run(id: string, update: Parameters<JabberwockMemoryStorage["update_run"]>[1]): void { this.storage.update_run(id, update); }

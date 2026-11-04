@@ -367,6 +367,15 @@ export class JabberwockMemoryStorage {
       summary: value.summary as string | null, executionConfig: json_record(value.execution_config), verificationConfig: json_record(value.verification_config), steps };
   }
 
+  /** D4: the latest routes with their task objective, for the shared work registry (read-only). */
+  list_routes(limit = 50): Array<{ id: string; taskId: string; objective: string; status: WorkingRoute["status"]; summary: string | null; blocked: string | null; updatedAt: string; steps: number; done: number }> {
+    return this.database.prepare(`SELECT r.id, r.task_id, r.status, r.summary, r.blocked_reason, COALESCE(r.completed_at, r.started_at, r.created_at) AS updated_at, t.title AS objective,
+        (SELECT COUNT(*) FROM steps s WHERE s.route_id = r.id) AS steps, (SELECT COUNT(*) FROM steps s WHERE s.route_id = r.id AND s.status = 'completed') AS done
+      FROM supervisor_routes r LEFT JOIN tasks t ON t.id = r.task_id ORDER BY r.created_at DESC LIMIT ?`).all(Math.max(1, Math.min(500, limit)))
+      .map(row => ({ id: String(row.id), taskId: String(row.task_id), objective: String(row.objective ?? row.task_id), status: row.status as WorkingRoute["status"], summary: row.summary as string | null,
+        blocked: row.blocked_reason ? String(row.blocked_reason) : null, updatedAt: String(row.updated_at), steps: Number(row.steps), done: Number(row.done) }));
+  }
+
   update_route(routeId: string, update: RouteUpdate): void {
     const columns = { status: "status", currentStep: "current_step", startedAt: "started_at", completedAt: "completed_at", blockedReason: "blocked_reason", summary: "summary", executionConfig: "execution_config", verificationConfig: "verification_config" };
     this.update_fields("supervisor_routes", routeId, update, columns, new Set(["blockedReason", "executionConfig", "verificationConfig"]));
