@@ -9,10 +9,22 @@ import type { FailureClass } from "./types";
 export type AuthState = "ok" | "not_logged_in" | "not_subscription" | "not_installed" | "unknown";
 export type QuotaState = "unknown" | "reported" | "exhausted" | "rate_limited";
 
+/** One of the plan's usage windows (5-hour session, week), as the provider reported it. */
+export type QuotaWindow = { id: string; label: string; usedPercent: number; resetsAt?: string; observedAt?: string };
+
+/** New windows replace old ones by id; a window a report did not mention keeps its last value and time. */
+export function mergeQuotaWindows(previous: QuotaWindow[] | undefined, next: Array<Omit<QuotaWindow, "observedAt">> | undefined, at: string): QuotaWindow[] | undefined {
+  if (!next?.length) return previous;
+  const merged = new Map((previous ?? []).map(window => [window.id, window]));
+  for (const window of next) merged.set(window.id, { ...window, observedAt: at });
+  return [...merged.values()].sort((a, b) => windowOrder(a.id) - windowOrder(b.id));
+}
+function windowOrder(id: string): number { return id === "five_hour" ? 0 : id === "week" ? 1 : 2; }
+
 export type ExecutorLedgerEntry = {
   executorId: string;
   auth: { state: AuthState; detail?: string; checkedAt?: string; source?: string };
-  quota: { state: QuotaState; usedPercent?: number; resetsAt?: string; source?: string; observedAt?: string; detail?: string; simulated?: boolean };
+  quota: { state: QuotaState; usedPercent?: number; resetsAt?: string; source?: string; observedAt?: string; detail?: string; simulated?: boolean; windows?: QuotaWindow[] };
   nextAttemptAt?: string;
   lastFailure?: { class: FailureClass; at: string; message: string; simulated?: boolean };
   lastSuccessAt?: string;
@@ -118,7 +130,7 @@ export class QuotaLedger {
     const entry = this.entry(executorId);
     const now = this.now();
     if ((entry.quota.state === "exhausted" || entry.quota.state === "rate_limited") && entry.nextAttemptAt && Date.parse(entry.nextAttemptAt) <= now) {
-      entry.quota = { state: "unknown", source: "expired-limit", observedAt: new Date(now).toISOString(), detail: `Предыдущее ограничение истекло ${entry.nextAttemptAt}` };
+      entry.quota = { state: "unknown", source: "expired-limit", observedAt: new Date(now).toISOString(), detail: `Предыдущее ограничение истекло ${entry.nextAttemptAt}`, ...(entry.quota.windows ? { windows: entry.quota.windows } : {}) };
       entry.nextAttemptAt = undefined;
     }
     const quotaStale = entry.quota.state === "reported" && Boolean(entry.quota.observedAt) && now - Date.parse(entry.quota.observedAt!) > QUOTA_STALE_MS;
@@ -170,15 +182,16 @@ export class QuotaLedger {
   }
 
   /** A provider-reported rate-limit window (e.g. Codex session file, Claude rate_limit_event). */
-  recordQuotaReport(executorId: string, report: { usedPercent?: number; resetsAt?: string; exhausted?: boolean; source: string; detail?: string }): void {
+  recordQuotaReport(executorId: string, report: { usedPercent?: number; resetsAt?: string; exhausted?: boolean; source: string; detail?: string; windows?: Array<Omit<QuotaWindow, "observedAt">> }): void {
     const entry = this.entry(executorId);
     const at = new Date(this.now()).toISOString();
+    const windows = mergeQuotaWindows(entry.quota.windows, report.windows, at);
     if (report.exhausted) {
-      entry.quota = { state: "exhausted", usedPercent: report.usedPercent, resetsAt: report.resetsAt, source: report.source, observedAt: at, detail: report.detail };
+      entry.quota = { state: "exhausted", usedPercent: report.usedPercent, resetsAt: report.resetsAt, source: report.source, observedAt: at, detail: report.detail, ...(windows ? { windows } : {}) };
       entry.nextAttemptAt = report.resetsAt ?? new Date(this.now() + UNKNOWN_RESET_BACKOFF_MS).toISOString();
     } else {
       if (entry.quota.state === "exhausted" || entry.quota.state === "rate_limited") entry.nextAttemptAt = undefined;
-      entry.quota = { state: "reported", usedPercent: report.usedPercent, resetsAt: report.resetsAt, source: report.source, observedAt: at, detail: report.detail };
+      entry.quota = { state: "reported", usedPercent: report.usedPercent, resetsAt: report.resetsAt, source: report.source, observedAt: at, detail: report.detail, ...(windows ? { windows } : {}) };
     }
     void this.save();
   }
@@ -199,10 +212,10 @@ export class QuotaLedger {
     const at = new Date(now).toISOString();
     entry.lastFailure = { class: failure.class, at, message: failure.message.slice(0, 500), simulated: failure.simulated };
     if (failure.class === "quota_exhausted") {
-      entry.quota = { state: "exhausted", resetsAt: failure.resetsAt, source: failure.source, observedAt: at, detail: failure.message.slice(0, 300), simulated: failure.simulated };
+      entry.quota = { state: "exhausted", resetsAt: failure.resetsAt, source: failure.source, observedAt: at, detail: failure.message.slice(0, 300), simulated: failure.simulated, ...(entry.quota.windows ? { windows: entry.quota.windows } : {}) };
       entry.nextAttemptAt = failure.resetsAt ?? new Date(now + UNKNOWN_RESET_BACKOFF_MS).toISOString();
     } else if (failure.class === "rate_limited") {
-      entry.quota = { state: "rate_limited", resetsAt: failure.resetsAt, source: failure.source, observedAt: at, detail: failure.message.slice(0, 300), simulated: failure.simulated };
+      entry.quota = { state: "rate_limited", resetsAt: failure.resetsAt, source: failure.source, observedAt: at, detail: failure.message.slice(0, 300), simulated: failure.simulated, ...(entry.quota.windows ? { windows: entry.quota.windows } : {}) };
       entry.nextAttemptAt = failure.resetsAt ?? new Date(now + RATE_LIMIT_BACKOFF_MS).toISOString();
     } else if (failure.class === "auth") {
       entry.auth = { state: "not_logged_in", source: failure.source, detail: failure.message.slice(0, 300), checkedAt: at };
@@ -217,7 +230,7 @@ export class QuotaLedger {
     // Narrow upgrade repair for an internal task-budget stop, never a provider report.
     const entry = this.entry(executorId);
     if (!executorId.startsWith("buzha_") || !entry.quota.source?.startsWith("delegated run ") || !entry.lastFailure?.message.startsWith("Бюджет подписочных модельных шагов задачи исчерпан")) return false;
-    entry.quota = { state: "unknown", source: "task-budget-correction", observedAt: new Date(this.now()).toISOString(), detail: "Исчерпался бюджет задачи; состояние провайдерской квоты неизвестно." };
+    entry.quota = { state: "unknown", source: "task-budget-correction", observedAt: new Date(this.now()).toISOString(), detail: "Исчерпался бюджет задачи; состояние провайдерской квоты неизвестно.", ...(entry.quota.windows ? { windows: entry.quota.windows } : {}) };
     entry.nextAttemptAt = undefined; entry.lastFailure = { ...entry.lastFailure, class: "budget" }; void this.save(); return true;
   }
 

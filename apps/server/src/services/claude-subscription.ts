@@ -12,7 +12,7 @@ import {
   type ClaudeStreamEvent
 } from "./claude-code-cli";
 import { boundedConcurrency, ConcurrencyGate, JsonConversationFile, JsonHistoryFile, KeyedSerializer } from "./subscription-common";
-import { claudeUsageReport, readClaudeUsage, type ClaudeUsage } from "./claude-quota";
+import { claudeEventWindow, claudeUsageReport, readClaudeUsage, type ClaudeUsage } from "./claude-quota";
 
 /**
  * Claude Subscription: the owner's Pro/Max plan used through the official
@@ -111,7 +111,7 @@ export class ClaudeSubscriptionService {
       const report = claudeUsageReport(usage);
       if (report.exhausted) this.quota = { ...this.quota, exhausted: true, exhaustedUntil: report.resetsAt ?? new Date(this.now() + UNKNOWN_RESET_BACKOFF_MS).toISOString() };
       else if (this.quota.exhausted && !this.quota.simulated) this.quota = { exhausted: false, lastRateLimit: this.quota.lastRateLimit };
-      sharedQuotaLedger().recordQuotaReport("claude_code", { exhausted: report.exhausted, resetsAt: report.resetsAt, usedPercent: report.usedPercent, source: "claude oauth usage", detail: report.detail });
+      sharedQuotaLedger().recordQuotaReport("claude_code", { exhausted: report.exhausted, resetsAt: report.resetsAt, usedPercent: report.usedPercent, source: "claude oauth usage", detail: report.detail, windows: report.windows });
     })().finally(() => { this.quotaRefresh = undefined; });
     return this.quotaRefresh;
   }
@@ -261,7 +261,8 @@ export class ClaudeSubscriptionService {
       this.quota = { ...this.quota, exhausted: true, exhaustedUntil: info.resetsAt ?? new Date(this.now() + UNKNOWN_RESET_BACKOFF_MS).toISOString() };
     }
     sharedQuotaLedger().recordQuotaReport("claude_code", { exhausted, resetsAt: info.resetsAt, source: "claude rate_limit_event (chat)", detail: info.rateLimitType,
-      usedPercent: info.utilization === undefined ? undefined : Math.round(info.utilization <= 1 ? info.utilization * 100 : info.utilization) });
+      usedPercent: info.utilization === undefined ? undefined : Math.round(info.utilization <= 1 ? info.utilization * 100 : info.utilization),
+      windows: [claudeEventWindow(info.rateLimitType, info.utilization, info.resetsAt)].filter((window): window is NonNullable<typeof window> => Boolean(window)) });
   }
 
   private observeFailure(error: ClaudeCliError, alias: string): void {

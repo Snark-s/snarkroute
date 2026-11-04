@@ -19,6 +19,7 @@ import {
 } from "./codex-cli";
 import { boundedConcurrency, ConcurrencyGate, JsonConversationFile, JsonHistoryFile, KeyedSerializer } from "./subscription-common";
 import { readCodexQuota } from "./codex-quota";
+import { codexQuotaWindows } from "./codex-windows";
 
 /**
  * ChatGPT Subscription: the owner's ChatGPT Plus/Pro plan used through the
@@ -304,7 +305,7 @@ export class ChatGptSubscriptionService {
     const windows = [info.primary, info.secondary].filter(window => window !== undefined);
     const used = windows.length ? Math.max(...windows.map(window => window.usedPercent)) : undefined;
     sharedQuotaLedger().recordQuotaReport("codex_cli", { exhausted, usedPercent: used, resetsAt: limitResetsAt(info) ?? windows.find(window => window.usedPercent === used)?.resetsAt,
-      source, detail: info.planType });
+      source, detail: info.planType, windows: codexQuotaWindows(info) });
   }
 
   private observeFailure(error: CodexCliError, alias: string): void {
@@ -347,3 +348,4 @@ export function chatGptSubscription(): ChatGptSubscriptionService {
 export function isChatGptSubscriptionEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.CHATGPT_SUBSCRIPTION_ENABLED === "1";
 }
+

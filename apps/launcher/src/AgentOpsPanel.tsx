@@ -187,20 +187,51 @@ function executorHint(executor: ExecutorStatus, usable: boolean): string {
     const sameDay = at.toDateString() === new Date().toDateString();
     return ` до ${at.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}${sameDay ? "" : ` ${at.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })}`}`;
   }
-  const quota = executor.ledger.quota as { state?: string; usedPercent?: number };
-  // Like the vendors' own pages: what is LEFT. A stale or unknown report shows no number at all.
-  if (typeof quota.usedPercent !== "number" || quota.state === "unknown") return " ?";
-  return ` ост. ${Math.max(0, 100 - quota.usedPercent)}%`;
+  return "";
+}
+
+type QuotaWindowView = { id: string; label: string; usedPercent: number; resetsAt?: string; observedAt?: string };
+type GaugeWindow = QuotaWindowView & { left: number; stale: boolean; resetSince: boolean };
+const QUOTA_FRESH_MS = 30 * 60_000;
+
+/** The plan's windows (5 h and week) as the header shows them: what is left, and whether the data is fresh. */
+function gaugeWindows(executor: ExecutorStatus, now = Date.now()): GaugeWindow[] {
+  const quota = executor.ledger.quota as { state?: string; usedPercent?: number; observedAt?: string; resetsAt?: string; windows?: QuotaWindowView[] };
+  const windows: QuotaWindowView[] = quota.windows?.length ? quota.windows
+    : typeof quota.usedPercent === "number" ? [{ id: "plan", label: "квота", usedPercent: quota.usedPercent, resetsAt: quota.resetsAt, observedAt: quota.observedAt }] : [];
+  return windows.map(window => {
+    // A window whose reset time has passed is back to full — but that is our inference, not a fresh report.
+    const resetSince = Boolean(window.resetsAt && Date.parse(window.resetsAt) <= now);
+    const stale = resetSince || !window.observedAt || now - Date.parse(window.observedAt) > QUOTA_FRESH_MS;
+    return { ...window, left: resetSince ? 100 : Math.max(0, Math.min(100, 100 - window.usedPercent)), stale, resetSince };
+  });
+}
+
+const WINDOW_SHORT: Record<string, string> = { five_hour: "5ч", week: "нед", plan: "" };
+function QuotaGauge({ executor }: { executor: ExecutorStatus }) {
+  const windows = gaugeWindows(executor);
+  if (!windows.length) return <span className="quotaUnknown" title="Квота неизвестна: данных ещё не было">?</span>;
+  const stale = windows.some(window => window.stale);
+  return <span className={`quotaGauge${stale ? " stale" : ""}`}><span className="quotaRows">
+    {windows.map(window => <span key={window.id} className="quotaRow">
+      {WINDOW_SHORT[window.id] !== "" ? <span className="quotaLabel">{WINDOW_SHORT[window.id] ?? window.label}</span> : null}
+      <span className="quotaTrack"><span className={`quotaFill ${window.stale ? "stale" : window.left > 50 ? "ok" : window.left > 20 ? "mid" : "low"}`} style={{ width: `${Math.max(window.left, 4)}%` }} /></span>
+    </span>)}</span>
+    {stale ? <span className="quotaQ">?</span> : null}
+  </span>;
 }
 
 function executorTitle(executor: ExecutorStatus, reason: string): string {
-  const quota = executor.ledger.quota as { state?: string; usedPercent?: number; detail?: string; source?: string; observedAt?: string; resetsAt?: string };
-  const when = (iso?: string) => iso ? new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
+  const quota = executor.ledger.quota as { source?: string };
+  const when = (iso?: string) => iso ? new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "?";
   const lines = [`${executor.label}: ${reason}`];
-  if (quota.state === "unknown") lines.push(quota.observedAt ? `Квота неизвестна: последние данные от ${when(quota.observedAt)} устарели.` : "Квота неизвестна: данных ещё не было.");
-  else if (typeof quota.usedPercent === "number") lines.push(`Использовано ${quota.usedPercent}% (по самому загруженному окну)${quota.observedAt ? `, данные от ${when(quota.observedAt)}` : ""}`);
-  if (quota.detail && quota.state !== "unknown") lines.push(quota.detail);
-  if (quota.resetsAt) lines.push(`Сброс: ${when(quota.resetsAt)}`);
+  const windows = gaugeWindows(executor);
+  if (!windows.length) lines.push("Квота неизвестна: данных ещё не было.");
+  for (const window of windows) {
+    const name = window.id === "five_hour" ? "5-часовое окно" : window.id === "week" ? "Неделя" : "Квота";
+    const freshness = window.resetSince ? `сброс уже прошёл (${when(window.resetsAt)}), свежих данных нет` : window.stale ? `данные от ${when(window.observedAt)} — устарели` : `данные от ${when(window.observedAt)}`;
+    lines.push(`${name}: осталось ${window.left}%${window.resetsAt && !window.resetSince ? `, сброс ${when(window.resetsAt)}` : ""} · ${freshness}`);
+  }
   if (quota.source) lines.push(`Источник: ${quota.source}`);
   return lines.join("\n");
 }
@@ -256,7 +287,7 @@ export function AgentOpsStatusBar({ apiBase }: { apiBase: string }) {
     {status.locks.length ? <span className="opsMetric" title={status.locks.map(lock => `${lock.key} → ${lock.ownerTaskId}`).join("\n")}><Lock /> {status.locks.length}</span> : null}
     {status.executors.filter(executor => ["codex_cli", "claude_code"].includes(executor.id)).map(executor => { const state = executorUsable(executor); return <span key={executor.id} className={`opsMetric ${state.usable ? "" : "warn"}`}
       title={executorTitle(executor, state.reason)}>
-      {executor.id === "codex_cli" ? "Codex" : "Claude"} {state.usable ? "✓" : "⏸"}{executorHint(executor, state.usable)}
+      {executor.id === "codex_cli" ? "Codex" : "Claude"} {state.usable ? null : "⏸"}{executorHint(executor, state.usable)} <QuotaGauge executor={executor} />
     </span>; })}
     {status.ownerActivity?.busy ? <span className="opsMetric warn" title={[...status.ownerActivity.reasons, status.mode.mode === "free" ? `Режим «${status.mode.label}» включён, но тяжёлые локальные задачи (GPU) ждут, пока нагрузка спадёт. Облачные Codex/Claude работают.` : "Тяжёлые локальные задачи ждут, пока нагрузка спадёт."].join("\n")}>{status.ownerActivity.confidence === "unknown" ? "нагрузка ?" : status.mode.mode === "free" ? loadLabel(status.ownerActivity.reasons) : "компьютер занят"}</span>
       : status.ownerActivity?.signals.length ? <span className="opsMetric" title={status.ownerActivity.signals.join("\n")}>приложения простаивают</span> : null}

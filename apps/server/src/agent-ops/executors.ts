@@ -1,5 +1,7 @@
 import { CodexCliError, codexWindowsSandboxMode, runCodexExec, type CodexExecResult } from "../services/codex-cli";
 import { ClaudeCliError, runClaudeCode, type ClaudeCodeResult } from "../services/claude-code-cli";
+import { claudeEventWindow } from "../services/claude-quota";
+import { codexQuotaWindows } from "../services/codex-windows";
 import type { ResourceRequest } from "./resources";
 import type { AgentTask, FailureClass, TaskKind, AgentToolCall, ModelCall } from "./types";
 import {randomUUID} from "node:crypto";
@@ -56,7 +58,7 @@ export type ExecutorOutcome = {
   model?: string;
   usage?: Record<string, number>;
   resetsAt?: string;
-  quotaReport?: { usedPercent?: number; resetsAt?: string; exhausted?: boolean; source: string; detail?: string };
+  quotaReport?: { usedPercent?: number; resetsAt?: string; exhausted?: boolean; source: string; detail?: string; windows?: Array<{ id: string; label: string; usedPercent: number; resetsAt?: string }> };
   artifactText?: string;
   provider?: string;
   waitForTaskIds?: string[];
@@ -121,7 +123,7 @@ export class CodexExecutor implements ExecutorAdapter {
       return {
         ok: true, message: "Codex завершил работу.", summary: result.text, sessionId: result.sessionId, model: result.model,
         usage: { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, reasoningTokens: result.usage.reasoningOutputTokens },
-        ...(used !== undefined ? { quotaReport: { usedPercent: used, resetsAt: windows.find(window => window!.usedPercent === used)?.resetsAt, source: "codex session file", detail: result.rateLimit?.planType } } : {})
+        ...(used !== undefined ? { quotaReport: { usedPercent: used, resetsAt: windows.find(window => window!.usedPercent === used)?.resetsAt, source: "codex session file", detail: result.rateLimit?.planType, windows: result.rateLimit ? codexQuotaWindows(result.rateLimit) : undefined } } : {})
       };
     } catch (error) {
       if (!(error instanceof CodexCliError)) return { ok: false, failureClass: "process", message: String(error instanceof Error ? error.message : error) };
@@ -186,7 +188,8 @@ export class ClaudeCodeExecutor implements ExecutorAdapter {
       return {
         ok: true, message: "Claude Code завершил работу.", summary: result.text, sessionId: result.sessionId, model: result.model,
         usage: { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens, turns: result.numTurns ?? 0 },
-        ...(limit ? { quotaReport: { usedPercent: limit.utilization !== undefined ? Math.round(limit.utilization * (limit.utilization <= 1 ? 100 : 1)) : undefined, resetsAt: limit.resetsAt, exhausted: limit.status === "rejected", source: "claude rate_limit_event", detail: limit.rateLimitType } } : {})
+        ...(limit ? { quotaReport: { usedPercent: limit.utilization !== undefined ? Math.round(limit.utilization * (limit.utilization <= 1 ? 100 : 1)) : undefined, resetsAt: limit.resetsAt, exhausted: limit.status === "rejected", source: "claude rate_limit_event", detail: limit.rateLimitType,
+          windows: [claudeEventWindow(limit.rateLimitType, limit.utilization, limit.resetsAt)].filter((window): window is NonNullable<typeof window> => Boolean(window)) } } : {})
       };
     } catch (error) {
       if (!(error instanceof ClaudeCliError)) return { ok: false, failureClass: "process", message: String(error instanceof Error ? error.message : error) };

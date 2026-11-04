@@ -44,14 +44,24 @@ export async function readClaudeUsage(options: { home?: string; fetchImpl?: type
 }
 
 /** The ledger keeps one number: the busiest window decides availability; both are named in the detail. */
-export function claudeUsageReport(usage: ClaudeUsage): { usedPercent: number; resetsAt?: string; exhausted: boolean; detail: string } {
-  const present: Array<{ label: string; item: ClaudeUsageWindow }> = [];
-  if (usage.fiveHour) present.push({ label: "5 ч", item: usage.fiveHour });
-  if (usage.sevenDay) present.push({ label: "неделя", item: usage.sevenDay });
-  if (!present.length) return { usedPercent: 0, exhausted: false, detail: "" };
+export function claudeUsageReport(usage: ClaudeUsage): { usedPercent: number; resetsAt?: string; exhausted: boolean; detail: string; windows: Array<{ id: string; label: string; usedPercent: number; resetsAt?: string }> } {
+  const present: Array<{ id: string; label: string; item: ClaudeUsageWindow }> = [];
+  if (usage.fiveHour) present.push({ id: "five_hour", label: "5 ч", item: usage.fiveHour });
+  if (usage.sevenDay) present.push({ id: "week", label: "неделя", item: usage.sevenDay });
+  const windows = present.map(entry => ({ id: entry.id, label: entry.label, usedPercent: entry.item.usedPercent, ...(entry.item.resetsAt ? { resetsAt: entry.item.resetsAt } : {}) }));
+  if (!present.length) return { usedPercent: 0, exhausted: false, detail: "", windows };
   const busiest = present.reduce((a, b) => (b.item.usedPercent > a.item.usedPercent ? b : a));
   const exhausted = present.filter(entry => entry.item.usedPercent >= 100);
   // When a window is used up, the plan is back only after the latest of the exhausted windows resets.
   const resetsAt = exhausted.length ? exhausted.map(entry => entry.item.resetsAt).filter((at): at is string => Boolean(at)).sort().at(-1) : busiest.item.resetsAt;
-  return { usedPercent: busiest.item.usedPercent, ...(resetsAt ? { resetsAt } : {}), exhausted: exhausted.length > 0, detail: present.map(entry => `${entry.label}: ${entry.item.usedPercent}%`).join(" · ") };
+  return { usedPercent: busiest.item.usedPercent, ...(resetsAt ? { resetsAt } : {}), exhausted: exhausted.length > 0, detail: present.map(entry => `${entry.label}: ${entry.item.usedPercent}%`).join(" · "), windows };
+}
+
+/** A rate_limit_event from a Claude Code run names its window; it refreshes that one window only. */
+export function claudeEventWindow(rateLimitType: string | undefined, utilization: number | undefined, resetsAt: string | undefined): { id: string; label: string; usedPercent: number; resetsAt?: string } | undefined {
+  if (utilization === undefined || !Number.isFinite(utilization)) return undefined;
+  const id = rateLimitType === "five_hour" ? "five_hour" : rateLimitType === "seven_day" ? "week" : undefined;
+  if (!id) return undefined;
+  const used = Math.round(utilization <= 1 ? utilization * 100 : utilization);
+  return { id, label: id === "five_hour" ? "5 ч" : "неделя", usedPercent: Math.max(0, Math.min(100, used)), ...(resetsAt ? { resetsAt } : {}) };
 }
