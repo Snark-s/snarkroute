@@ -99,6 +99,14 @@ describe("D2: Secretary", () => {
     expect(kinds[0]).toBe("goal_stalled");
   });
 
+  it("writes the morning digest on demand without touching the event reports", async () => {
+    const digest = await ops.secretary.maybeDigest(true);
+    expect(digest?.kind).toBe("daily_digest");
+    expect(digest?.text).toMatch(/^Сводка на \d{4}-\d{2}-\d{2}: целей в работе \d+\./);
+    // Without the daily flag (tests, MCP-only setups) the timer never produces one by itself.
+    expect(await ops.secretary.maybeDigest()).toBeUndefined();
+  });
+
   it("does not take goals from anonymous callers", async () => {
     await expect(ops.secretary.receive(ops.registry.anonymous?.() ?? { id: "anonymous", kind: "anonymous", label: "", policy: ops.registry.policyForAgent("anonymous") }, { text: "x" })).rejects.toThrow(/владельца или агента/);
   });

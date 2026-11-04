@@ -18,9 +18,9 @@ export type SecretaryMessage = {
   goalId?: string; planTaskId?: string; planAttempts: number; stageIds?: Record<string, string>;
   state: "received" | "planning" | "dispatched" | "closed"; note?: string; resolved?: string[];
 };
-export type SecretaryReport = { id: string; at: string; goalId?: string; kind: "goal_received" | "plan_ready" | "stage_accepted" | "needs_owner" | "goal_accepted" | "goal_stalled" | "replanned"; text: string };
+export type SecretaryReport = { id: string; at: string; goalId?: string; kind: "goal_received" | "plan_ready" | "stage_accepted" | "needs_owner" | "goal_accepted" | "goal_stalled" | "replanned" | "daily_digest"; text: string };
 export type PlannedStage = { key: string; title: string; goal: string; acceptance: string[]; after: string[]; kind: TaskKind; network: boolean };
-type State = { messages: SecretaryMessage[]; reports: SecretaryReport[]; seen: string[] };
+type State = { messages: SecretaryMessage[]; reports: SecretaryReport[]; seen: string[]; lastDigest?: string };
 
 const SECRETARY = { id: "secretary", label: "Секретарь" } as const;
 const MAX_STAGES = 12;
@@ -64,7 +64,7 @@ export class SecretaryService {
   private ticking?: Promise<void>;
   private lastError = "";
 
-  constructor(private readonly deps: { store: AgentOpsStore; tasks: AgentTaskService; goals: GoalService; registry: AgentRegistry; sandbox: string; now?: () => number; onReport?: (report: SecretaryReport) => void }) {}
+  constructor(private readonly deps: { store: AgentOpsStore; tasks: AgentTaskService; goals: GoalService; registry: AgentRegistry; sandbox: string; now?: () => number; onReport?: (report: SecretaryReport) => void; workSummary?: () => Promise<{ needsOwner: number; stalled: number; active: number }>; dailyDigest?: boolean }) {}
 
   private iso(): string { return new Date(this.deps.now?.() ?? Date.now()).toISOString(); }
   private identity(): AgentIdentity { return this.deps.registry.app(SECRETARY.id, SECRETARY.label); }
@@ -72,7 +72,7 @@ export class SecretaryService {
 
   async init(): Promise<void> {
     const saved = await this.deps.store.readState<Partial<State>>("secretary", {});
-    this.state = { messages: saved.messages ?? [], reports: saved.reports ?? [], seen: saved.seen ?? [] };
+    this.state = { messages: saved.messages ?? [], reports: saved.reports ?? [], seen: saved.seen ?? [], lastDigest: saved.lastDigest };
     this.identity();
   }
 
@@ -122,7 +122,24 @@ export class SecretaryService {
     this.deps.onReport?.(report);
   }
 
+  /** A short morning report once a day (09:00 Moscow): goals in work, what waits for the owner, what is stuck elsewhere. */
+  async maybeDigest(force = false): Promise<SecretaryReport | undefined> {
+    const moscow = new Date((this.deps.now?.() ?? Date.now()) + 3 * 3600_000);
+    const day = moscow.toISOString().slice(0, 10);
+    if (!force && (!this.deps.dailyDigest || moscow.getUTCHours() < 9 || this.state.lastDigest === day)) return undefined;
+    const goals = this.deps.goals.list(this.identity(), { states: ["active"], limit: 50 });
+    const lines = goals.map(goal => `• ${goal.title} — ${goal.progress.percent}%${goal.progress.needsOwner ? ", нужен ты" : goal.progress.status === "stalled" ? ", застряла" : ""}`);
+    const elsewhere = this.deps.workSummary ? await this.deps.workSummary().catch(() => undefined) : undefined;
+    const text = [`Сводка на ${day}: целей в работе ${goals.length}.`, ...lines,
+      elsewhere ? `У других агентов: нужен ты — ${elsewhere.needsOwner}, застряло — ${elsewhere.stalled}, в работе — ${elsewhere.active}.` : ""].filter(Boolean).join("\n");
+    this.state.lastDigest = day;
+    this.report("daily_digest", text, undefined, `digest:${day}:${force ? Date.now() : ""}`);
+    await this.save();
+    return this.state.reports.at(-1);
+  }
+
   private async advanceAll(): Promise<void> {
+    await this.maybeDigest();
     const open = this.state.messages.filter(item => item.state !== "closed");
     if (!open.length) return;
     for (const message of open) {
