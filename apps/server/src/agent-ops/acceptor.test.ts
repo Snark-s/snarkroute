@@ -112,6 +112,17 @@ describe("Приёмщик: durable execution → evidence → acceptance", () =
   const budgetAwareReviewer = { review: async (input: any) => input.subscriptionRunsLeft() > 0
     ? { status: "reviewed", reviewer: { executor: "codex_cli", model: "strong", level: "strong" }, review: { decision: "accept", reason: "ok", nextStep: "done", criteria: input.verdicts.map((v: any) => ({ ...v, status: "confirmed", reason: "ok" })) } }
     : { status: "waiting", resourceWait: false, reason: "Проверяющая модель strong: бюджет подписочных запусков исчерпан" } };
+  it("D-03: escalates to the strong reviewer when no local reviewer exists instead of waiting for one",async()=>{
+    const levels:string[]=[];
+    const reviewer={review:async(input:any)=>{levels.push(input.level);return input.level==="local"
+      ? {status:"waiting",resourceWait:levels.length>2,reason:"Нет доступной локальной текстовой модели в каталоге"}
+      : {status:"reviewed",reviewer:{executor:"codex_cli",model:"strong",level:"strong"},review:{decision:"accept",reason:"ok",nextStep:"done",criteria:input.verdicts.map((v:any)=>({...v,status:"confirmed",reason:"ok"}))}};}};
+    const f=await fixture({review:reviewer});
+    await writeFile(join(f.workspace,"profile.json"),'{"published":true}');
+    const {task}=await f.service.submit(f.agent,{...f.spec,criteria:[{...f.spec.criteria![0],review:"model"}]},{inspectExisting:true});
+    const done=await until(f.service,task.id,t=>["verified","blocked","failed"].includes(t.state));
+    expect(done.state).toBe("verified");expect(levels.slice(0,2)).toEqual(["local","strong"]);
+  });
   it("C4: grows an exhausted subscription allocation from the quota ledger instead of asking the owner",async()=>{
     const f=await fixture({review:budgetAwareReviewer});
     await writeFile(join(f.workspace,"profile.json"),'{"published":true}');

@@ -857,8 +857,10 @@ export class AgentTaskService {
         const subscriptionRunsLeft = () => { const budget = this.budgetUsage(task); return Math.min(this.chainBudget(task.chain.rootTaskId).subscriptionRunsLeft, budget.subscriptionRunsLimit - budget.subscriptionRunsUsed); };
         let assessment = this.deps.reviewer ? await this.deps.reviewer.review({ task, evidence, verdicts, level, signal: controller.signal, save: () => this.deps.store.saveTask(task), subscriptionRunsLeft }) : { status: "waiting" as const, reason: "Проверяющая модель не подключена; задача сохранена, требуется доступная модель или независимая проверка владельцем." };
         if (controller.signal.aborted) return;
-        if (level === "local" && (assessment.status === "error" || assessment.status === "reviewed" && assessment.review.decision === "escalate")) {
-          await this.event(task, "review_escalation", assessment.status === "error" ? assessment.reason : assessment.review.reason);
+        // D-03: no local model at all is not a reason to wait; only a busy GPU (resourceWait) is.
+        const noLocalReviewer = assessment.status === "waiting" && !assessment.resourceWait;
+        if (level === "local" && (assessment.status === "error" || noLocalReviewer || assessment.status === "reviewed" && assessment.review.decision === "escalate")) {
+          await this.event(task, "review_escalation", assessment.status === "reviewed" ? assessment.review.reason : assessment.reason);
           assessment = this.deps.reviewer ? await this.deps.reviewer.review({ task, evidence, verdicts, level: "strong", signal: controller.signal, save: () => this.deps.store.saveTask(task), subscriptionRunsLeft }) : assessment;
         }
         if (controller.signal.aborted) return;
