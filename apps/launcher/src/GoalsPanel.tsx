@@ -5,6 +5,7 @@ import { ownerHeaders } from "./AgentOpsPanel";
 type Stage = { id: string; title: string; state: string; reason: string; after: string[]; agentId: string; updatedAt: string };
 type Progress = { total: number; verified: number; failed: number; cancelled: number; active: number; needsOwner: number; percent: number; status: string };
 type Goal = { id: string; title: string; description?: string; source: string; createdBy: string; assignee: string; state: "active" | "done" | "cancelled"; priority: number; deadline?: string; createdAt: string; updatedAt: string; note?: string; progress: Progress; stages: Stage[] };
+type Report = { id: string; at: string; goalId?: string; kind: string; text: string };
 type Task = { id: string; title: string; state: string; reason: string; agentId: string; updatedAt: string; spec: { goalId?: string } };
 
 const STATE: Record<string, string> = {
@@ -29,6 +30,7 @@ async function call<T>(apiBase: string, path: string, method = "GET", body?: unk
 export function GoalsPanel({ apiBase }: { apiBase: string }) {
   const [goals, setGoals] = useState<Goal[]>();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [busy, setBusy] = useState("");
@@ -38,9 +40,10 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [goalList, taskList] = await Promise.all([call<{ goals: Goal[] }>(apiBase, "/goals?limit=200"), call<{ tasks: Task[] }>(apiBase, "/tasks?limit=300")]);
+      const [goalList, taskList, secretary] = await Promise.all([call<{ goals: Goal[] }>(apiBase, "/goals?limit=200"), call<{ tasks: Task[] }>(apiBase, "/tasks?limit=300"),
+        call<{ reports: Report[] }>(apiBase, "/secretary").catch(() => ({ reports: [] as Report[] }))]);
       if (!mounted.current) return;
-      setGoals(goalList.goals); setTasks(taskList.tasks); setError("");
+      setGoals(goalList.goals); setTasks(taskList.tasks); setReports(secretary.reports); setError("");
     } catch (reason) { if (mounted.current) setError(reason instanceof Error ? reason.message : "Не удалось прочитать реестр."); }
   }, [apiBase]);
 
@@ -58,9 +61,10 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
     finally { if (mounted.current) setBusy(""); }
   }
   const create = () => act("create", async () => {
-    const { goal } = await call<{ goal: Goal }>(apiBase, "/goals", "POST", { title: title.trim(), description: description.trim() || undefined, source: "workshop" });
+    const text = [title.trim(), description.trim()].filter(Boolean).join("\n");
+    await call(apiBase, "/secretary/messages", "POST", { text, source: "workshop", requestKey: `workshop:${Date.now()}` });
     setTitle(""); setDescription("");
-    return `Цель «${goal.title}» в реестре. Этапы к ней добавляют агенты (goalId ${goal.id}).`;
+    return `Секретарь принял цель «${title.trim()}»: раскладывает её на этапы и раздаёт очереди.`;
   });
   const close = (goal: Goal, state: "done" | "cancelled") => act(goal.id, async () => {
     await call(apiBase, `/goals/${goal.id}/close`, "POST", { state });
@@ -73,7 +77,7 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
 
   return <section className="secretaryWorkspace goalsPanel">
     <header className="secretaryHeader">
-      <div><h2>Задачи</h2><p>Цели и их этапы. Процент считается только по этапам, которые принял Приёмщик.</p></div>
+      <div><h2>Задачи</h2><p>Скажи цель — Секретарь разложит её на этапы и раздаст очереди. Процент считается только по этапам, которые принял Приёмщик.</p></div>
       <button type="button" className="secretaryButton" onClick={() => void refresh()} disabled={Boolean(busy)}><RefreshCw /> Обновить</button>
     </header>
     {error ? <div className="errorBanner" role="alert">{error}</div> : null}
@@ -86,6 +90,13 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
     <p className="secretarySummary"><strong>{active.length}</strong> целей в работе · <strong>{loose.length}</strong> задач вне целей</p>
     {goals && !active.length ? <div className="secretaryEmpty"><CheckCircle2 /> Активных целей нет.</div> : null}
     {active.map(goal => <GoalCard key={goal.id} goal={goal} busy={busy} onClose={state => void close(goal, state)} />)}
+    {reports.length ? <details className="secretaryArchive" open>
+      <summary>Отчёты Секретаря ({reports.length})</summary>
+      <div className="secretaryArchiveList">{reports.slice(0, 30).map(report => <div key={report.id} className={`goalStage report-${report.kind}`}>
+        <span className="goalStageState">{new Date(report.at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+        <span className="goalStageTitle">{report.text}</span>
+      </div>)}</div>
+    </details> : null}
     {loose.length ? <details className="secretaryArchive" open>
       <summary>Задачи очереди вне целей ({loose.length})</summary>
       <div className="secretaryArchiveList">{loose.map(task => <StageRow key={task.id} stage={{ ...task, after: [] }} />)}</div>

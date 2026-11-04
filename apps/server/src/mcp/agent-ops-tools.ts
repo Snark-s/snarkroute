@@ -108,6 +108,21 @@ export function registerAgentOpsTools(server: McpServer, identityOf: (ops: Agent
     annotations: { readOnlyHint: false, openWorldHint: false, idempotentHint: true }
   }, async input => run(async (ops, identity) => ops.goals.view(await ops.goals.create(identity, input)))());
 
+  server.registerTool("secretary_message", {
+    description: "Tell the Secretary a goal of the owner in plain words (from ChatGPT, Telegram or another agent). The Secretary registers it, has it planned into checkable stages, hands them to the queue in order and reports on accepted stages, questions for the owner and the end of the goal. Returns at once; follow with agent_goal_status(goalId) or secretary_reports. Resending with the same requestKey returns the same message.",
+    inputSchema: { text: z.string().min(1).max(20000), source: z.enum(["chatgpt", "telegram", "agent", "mcp"]).optional(), requestKey: z.string().max(200).optional() },
+    annotations: { readOnlyHint: false, openWorldHint: false, idempotentHint: true }
+  }, async input => run(async (ops, identity) => { const message = await ops.secretary.receive(identity, input); return { messageId: message.id, goalId: message.goalId ?? null, state: message.state, planTaskId: message.planTaskId ?? null }; })());
+
+  server.registerTool("secretary_reports", {
+    description: "The Secretary's recent reports (goal received, plan ready, stage accepted, needs the owner, goal achieved or stalled) and its inbox. Trusted agents only.",
+    inputSchema: { limit: z.number().int().min(1).max(100).optional() }, annotations: readOnly
+  }, async input => run(async (ops, identity) => {
+    if (identity.kind !== "owner" && identity.id !== "app:secretary" && identity.policy.level < 3) throw new AgentOpsError("OWNER_ONLY", "Отчёты Секретаря видят владелец и доверенные агенты.", {}, 403);
+    const status = ops.secretary.status();
+    return { reports: status.reports.slice(0, input.limit ?? 20), messages: status.messages.slice(0, 10).map(({ text, ...message }) => ({ ...message, text: text.slice(0, 300) })), error: status.error };
+  })());
+
   server.registerTool("agent_goal_list", {
     description: "Goals you can see (all of them for trusted agents) with progress: stages total/accepted/failed/active, needs_owner, percent accepted.",
     inputSchema: { states: z.array(z.enum(["active", "done", "cancelled"])).max(3).optional(), limit: z.number().int().min(1).max(200).optional() }, annotations: readOnly

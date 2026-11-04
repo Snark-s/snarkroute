@@ -250,6 +250,13 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
     return { ok: true, goal: await ops.goals.close((request.params as { id: string }).id, identity, body.state, body.note) };
   }));
 
+  // D2: a goal said to the Secretary is registered, planned into stages and handed to the queue.
+  app.post(`${ROOT}/secretary/messages`, handle(async (ops, identity, request, reply) => reply.code(202).send({ ok: true, message: await ops.secretary.receive(identity, (request.body ?? {}) as Record<string, unknown>) })));
+  app.get(`${ROOT}/secretary`, handle(async (ops, identity) => {
+    if (identity.kind !== "owner" && identity.id !== "app:secretary" && identity.policy.level < 3) throw new AgentOpsError("OWNER_ONLY", "Входящие Секретаря видят владелец и доверенные агенты.", {}, 403);
+    return { ok: true, ...ops.secretary.status() };
+  }));
+
   app.get(`${ROOT}/tasks/:id`, handle(async (ops, identity, request) => {
     const task = ops.tasks.requireReadable((request.params as { id: string }).id, identity);
     return { ok: true, task, chainBudget: ops.tasks.chainBudget(task.chain.rootTaskId), taskBudget: ops.tasks.budgetUsage(task), events: await ops.tasks.events(task.id) };
