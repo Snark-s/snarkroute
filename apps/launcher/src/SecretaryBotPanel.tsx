@@ -47,7 +47,7 @@ export function SecretaryBotPanel({ apiBase }: { apiBase: string }) {
           <input type="password" autoComplete="off" placeholder="токен бота от BotFather" value={token} onChange={event => setToken(event.target.value)} disabled={busy} />
           <button type="submit" className="secretaryButton primary" disabled={busy || !token.trim()}>{busy ? <LoaderCircle className="spin" /> : <Send />} Подключить</button>
         </form>
-      </> : !status.paired ? <p className="secretaryContext">Открой <a href={`https://t.me/${status.botName}?start=${status.pairingCode}`} target="_blank" rel="noreferrer">@{status.botName}</a> и нажми «Start» (или отправь ему <code>/start {status.pairingCode}</code>). Бот запомнит твой чат и будет слушать только его.</p>
+      </> : !status.paired ? <p className="secretaryContext">Открой <a href={`https://t.me/${status.botName}?start=${status.pairingCode}`} target="_blank" rel="noreferrer">@{status.botName}</a> и отправь ему сообщением код <strong><code>{status.pairingCode}</code></strong>. Бот запомнит твой чат и будет слушать только его.</p>
       : <div className="secretaryForm">
         <span className="secretaryContext"><CheckCircle2 /> Пиши боту цели. Сообщения от Секретаря склеиваются и приходят не чаще, чем раз в</span>
         <select value={status.minIntervalMinutes ?? 15} disabled={busy} onChange={event => void run({ minIntervalMinutes: Number(event.target.value) })}>

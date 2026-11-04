@@ -21,6 +21,7 @@ export function telegramConfigFromEnv(env: NodeJS.ProcessEnv = process.env): { t
 export class TelegramChannel {
   private offset = 0;
   private stopped = true;
+  private retired = false;
   private lastError = "";
   private pending: string[] = [];
   private lastSentAt = Number.NEGATIVE_INFINITY;
@@ -29,6 +30,8 @@ export class TelegramChannel {
   constructor(private settings: TelegramSettings, private readonly deps: { fetch?: Fetch; save?: (settings: TelegramSettings | undefined) => Promise<void>; now?: () => number } = {}) {}
 
   private now(): number { return this.deps.now?.() ?? Date.now(); }
+  /** Send failures must be visible in the Workshop, not swallowed. */
+  private remember = (error: unknown) => { this.lastError = `${new Date(this.now()).toISOString()} ${error instanceof Error ? error.message : String(error)}`; console.error(`[secretary-telegram] ${this.lastError}`); };
 
   private async api<T>(method: string, body: Record<string, unknown>, timeoutMs = 15_000): Promise<T> {
     const response = await (this.deps.fetch ?? fetch)(`https://api.telegram.org/bot${this.settings.token}/${method}`, {
@@ -85,33 +88,39 @@ export class TelegramChannel {
     if (!this.pending.length) return;
     const batch = this.pending.splice(0, this.pending.length);
     this.lastSentAt = this.now();
-    await this.sendNow(batch.join("\n\n———\n\n")).catch(error => { this.lastError = error instanceof Error ? error.message : String(error); });
+    await this.sendNow(batch.join("\n\n———\n\n")).catch(this.remember);
   }
 
   /** One long-poll round: pairs the owner's chat by code, then takes his text messages as goals. */
   async pollOnce(onGoal: (text: string, requestKey: string) => Promise<string>, timeoutSeconds = 25): Promise<number> {
     const updates = await this.api<Update[]>("getUpdates", { offset: this.offset, timeout: timeoutSeconds, allowed_updates: ["message"] }, (timeoutSeconds + 10) * 1000);
     let taken = 0;
+    // A replaced channel (token pasted again) must not act on a long poll that was already in flight.
+    if (this.retired) return 0;
     for (const update of updates) {
       this.offset = Math.max(this.offset, update.update_id + 1);
       const message = update.message;
       if (!message?.text) continue;
       const chat = String(message.chat.id);
       if (!this.settings.chatId) {
-        // Pairing: only the code shown in the Workshop binds a chat; anything else is ignored silently.
+        // Pairing: only the code shown in the Workshop binds a chat (as "/start CODE" or the bare code).
         const code = message.text.replace(/^\/start\s*/i, "").trim();
         if (this.settings.pairingCode && code === this.settings.pairingCode) {
           this.settings.chatId = chat; this.settings.pairingCode = undefined;
           await this.deps.save?.(this.settings);
-          await this.sendNow("Готово: я бот Секретаря. Пиши сюда цели — я разложу их на этапы и раздам агентам. Сюда же буду присылать, когда нужен ты, и утреннюю сводку.").catch(() => undefined);
+          await this.sendNow("Готово: я бот Секретаря. Пиши сюда цели — я разложу их на этапы и раздам агентам. Сюда же буду присылать, когда нужен ты, и утреннюю сводку.").catch(this.remember);
+        } else {
+          // Telegram drops the deep-link payload in an existing chat; ask for the code without revealing it.
+          await this.api("sendMessage", { chat_id: chat, text: "Пришли сюда шестизначный код из Мастерской (вкладка «Задачи» → «Бот Секретаря»)." }).catch(this.remember);
         }
         continue;
       }
       if (chat !== this.settings.chatId) continue;
+      if (/^\/(start|ping|help)\b/i.test(message.text.trim())) { await this.sendNow("На связи. Напиши цель обычным сообщением — я разложу её на этапы и раздам агентам.").catch(this.remember); continue; }
       const text = message.text.replace(/^\/(goal|цель)(@\w+)?\s*/i, "").trim();
       if (!text || text.startsWith("/")) continue;
       const reply = await onGoal(text, `tg:${update.update_id}`).catch(error => `Не приняла: ${error instanceof Error ? error.message : String(error)}`);
-      await this.sendNow(reply).catch(() => undefined);
+      await this.sendNow(reply).catch(this.remember);
       taken += 1;
     }
     return taken;
@@ -122,14 +131,14 @@ export class TelegramChannel {
     this.stopped = false;
     const loop = async () => {
       while (!this.stopped) {
-        try { await this.pollOnce(onGoal); this.lastError = ""; }
+        try { await this.pollOnce(onGoal); }
         catch (error) { this.lastError = error instanceof Error ? error.message : String(error); await new Promise(resolve => setTimeout(resolve, 30_000)); }
       }
     };
     void loop();
   }
 
-  stop(): void { this.stopped = true; if (this.flushTimer) clearTimeout(this.flushTimer); this.flushTimer = undefined; }
+  stop(): void { this.stopped = true; this.retired = true; if (this.flushTimer) clearTimeout(this.flushTimer); this.flushTimer = undefined; }
 }
 
 /** Keeps the bot settings in the agent-ops store (git-ignored, like the agent token secret). */

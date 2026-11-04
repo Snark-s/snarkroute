@@ -44,7 +44,9 @@ describe("D2: the Secretary's Telegram bot", () => {
       { update_id: 4, message: { message_id: 4, chat: { id: 99 }, text: "чужой" } });
     expect(await channel.pollOnce(onGoal, 0)).toBe(1);
     expect(goals).toEqual([["Найти заказ на анимацию", "tg:3"]]);
-    expect(sent.every(message => message.chat_id === "42")).toBe(true);
+    // A stranger only ever gets the request for the code, never the code itself and never goal replies.
+    expect(sent.filter(message => message.chat_id !== "42").map(message => message.text)).toEqual([expect.stringMatching(/шестизначный код/)]);
+    expect(sent.some(message => message.text.includes(code))).toBe(false);
   });
 
   it("merges notes and sends at most one message per interval", async () => {

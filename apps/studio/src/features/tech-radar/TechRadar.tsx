@@ -12,9 +12,20 @@ const labels: Record<string, string> = { skip: "Пропустить", watch: "�
 const evidence = { declared: "Заявлено", documented: "Подтверждено документацией", local_test: "Проверено локально" };
 const kinds = { fact: "Сведения источника", claim: "Заявление разработчика", inference: "Интерпретация", unknown: "Неизвестно" };
 const date = (value?: string | null) => value ? new Date(value).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) : "Неизвестно";
+const WORKSHOP_URL = import.meta.env.VITE_WORKSHOP_URL || "http://127.0.0.1:5172/";
+const RADAR_ICON = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#12261d"/><circle cx="16" cy="16" r="3" fill="#6ee7a8"/><path d="M9 9a10 10 0 0 0 0 14M23 9a10 10 0 0 1 0 14M5.5 5.5a15 15 0 0 0 0 21M26.5 5.5a15 15 0 0 1 0 21" fill="none" stroke="#6ee7a8" stroke-width="2.2" stroke-linecap="round"/></svg>')}`;
 const actions = [["skip", "Пропустить"], ["watch", "Следить"], ["test", "Подготовить тест"], ["review_integration", "Внедрение рассмотреть отдельно"]] as const;
 
 export function TechRadar({ apiBase = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:4317" }: { apiBase?: string }) {
+  // Opened from the Workshop: its own tab name and icon, not Living Canvas's.
+  useEffect(() => {
+    const previous = { title: document.title, icon: document.querySelector<HTMLLinkElement>("link[rel~='icon']")?.href };
+    document.title = "Технорадар";
+    let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+    if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
+    link.type = "image/svg+xml"; link.href = RADAR_ICON;
+    return () => { document.title = previous.title; if (previous.icon && link) link.href = previous.icon; };
+  }, []);
   const [catalog, setCatalog] = useState<CatalogResponse>();
   const [selectedId, setSelectedId] = useState<string>();
   const [detail, setDetail] = useState<{ project: PublicProject; jobs: PublicJob[] }>();
@@ -63,7 +74,7 @@ export function TechRadar({ apiBase = import.meta.env.VITE_API_BASE_URL || "http
     return [...(catalog?.jobs ?? [])].reverse().filter(job => { if (seen.has(job.projectId)) return false; seen.add(job.projectId); return true; }).slice(0, 12);
   }, [catalog]);
   return <main className="techRadar">
-    <header className="trHeader"><a href="/" className="trBack"><ArrowLeft size={17} /> К рабочему столу</a><div><h1><Radio size={26} /> Технорадар</h1><p>Коллекционируем возможности мастерской</p></div><span className="trPill">GitHub · анализ по подписке · без установок</span></header>
+    <header className="trHeader"><a href={WORKSHOP_URL} className="trBack"><ArrowLeft size={17} /> В Мастерскую</a><div><h1><Radio size={26} /> Технорадар</h1><p>Коллекционируем возможности мастерской</p></div><span className="trPill">GitHub · анализ по подписке · без установок</span></header>
     <form className="trIntake" onSubmit={e => { e.preventDefault(); void submit(); }}><label htmlFor="tr-url">GitHub-проект</label><div><input id="tr-url" type="url" required value={url} onChange={e => setUrl(e.target.value)} placeholder="https://github.com/owner/project" /><button disabled={busy || !url.trim()}>Исследовать</button></div><small>Читаем публичные источники, сравниваем с каталогом и готовим решение. Код проектов не выполняется.</small></form>
     {error && <div className="trAlert" role="alert">{error}<button type="button" onClick={() => void action(refresh)}>Обновить</button></div>}
     {notice && <p role="status" className="trNotice">{notice}</p>}

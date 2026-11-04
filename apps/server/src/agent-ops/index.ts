@@ -185,7 +185,12 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
   } });
   const notifyKinds = new Set(["needs_owner", "goal_accepted", "goal_stalled", "daily_digest"]);
   const secretary = new SecretaryService({ store, tasks: taskService, goals, registry, sandbox: join(directory, "sandbox"), dailyDigest: !options.adapters,
-    workSummary: async () => { const { items } = await work.list(); return { needsOwner: items.filter(item => item.state === "needs_owner").length, stalled: items.filter(item => item.state === "stalled").length, active: items.filter(item => item.state === "active").length }; },
+    workSummary: async () => {
+      const { items, sources } = await work.list();
+      const asks = items.filter(item => item.state === "needs_owner");
+      return { needsOwner: asks.length, stalled: items.filter(item => item.state === "stalled").length, active: items.filter(item => item.state === "active").length,
+        needsOwnerItems: asks.map(item => ({ where: sources[item.system]?.label ?? item.system, title: item.title, what: item.detail || "ждёт твоего решения", url: item.url })) };
+    },
     onReport: report => {
       if (!notifyKinds.has(report.kind)) return;
       const subject = { needs_owner: "Нужен ты", goal_accepted: "Цель достигнута", goal_stalled: "Цель застряла", daily_digest: "Утренняя сводка", plan_ready: "План готов" }[report.kind as string] ?? report.kind;

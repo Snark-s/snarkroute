@@ -115,7 +115,11 @@ export function toveSource(base = "http://127.0.0.1:4890"): ProjectionSource {
       const state: ProjectionState = status === "needs_review" ? "needs_owner" : status === "done" || status === "achieved" ? "done" : status === "failed" || status === "abandoned" ? "failed"
         : status === "paused" ? "waiting" : Number(goal.stalled) >= 3 ? "stalled" : "active";
       const progress = goal.target != null ? `${goal.last_value ?? 0} из ${goal.target}` : goal.verified_units != null ? `подтверждено ${goal.verified_units}` : undefined;
-      return { externalId: String(goal.id), title: String(goal.title ?? goal.id), state, detail: String(goal.objective ?? "").slice(0, 400), progress, updatedAt: String(goal.updated_at ?? new Date().toISOString()), url: "http://127.0.0.1:4890/" };
+      // needs_review is Tove's own question to the owner: say what is asked, not just the objective.
+      const detail = state === "needs_owner"
+        ? `Шорёк просит решить судьбу цели: ${goal.stalled ?? "?"} проверок подряд без прогресса. Варианты: продолжить, изменить или закрыть цель в Шорьке. Цель: ${String(goal.objective ?? "").slice(0, 300)}`
+        : String(goal.objective ?? "").slice(0, 400);
+      return { externalId: String(goal.id), title: String(goal.title ?? goal.id), state, detail, progress, updatedAt: String(goal.updated_at ?? new Date().toISOString()), url: base.replace(/\/$/, "") + "/" };
     });
   } };
 }

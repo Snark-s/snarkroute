@@ -64,7 +64,7 @@ export class SecretaryService {
   private ticking?: Promise<void>;
   private lastError = "";
 
-  constructor(private readonly deps: { store: AgentOpsStore; tasks: AgentTaskService; goals: GoalService; registry: AgentRegistry; sandbox: string; now?: () => number; onReport?: (report: SecretaryReport) => void; workSummary?: () => Promise<{ needsOwner: number; stalled: number; active: number }>; dailyDigest?: boolean }) {}
+  constructor(private readonly deps: { store: AgentOpsStore; tasks: AgentTaskService; goals: GoalService; registry: AgentRegistry; sandbox: string; now?: () => number; onReport?: (report: SecretaryReport) => void; workSummary?: () => Promise<{ needsOwner: number; stalled: number; active: number; needsOwnerItems?: Array<{ where: string; title: string; what: string; url?: string }> }>; dailyDigest?: boolean }) {}
 
   private iso(): string { return new Date(this.deps.now?.() ?? Date.now()).toISOString(); }
   private identity(): AgentIdentity { return this.deps.registry.app(SECRETARY.id, SECRETARY.label); }
@@ -130,8 +130,11 @@ export class SecretaryService {
     const goals = this.deps.goals.list(this.identity(), { states: ["active"], limit: 50 });
     const lines = goals.map(goal => `• ${goal.title} — ${goal.progress.percent}%${goal.progress.needsOwner ? ", нужен ты" : goal.progress.status === "stalled" ? ", застряла" : ""}`);
     const elsewhere = this.deps.workSummary ? await this.deps.workSummary().catch(() => undefined) : undefined;
+    // Every "нужен ты" names what and where, otherwise the owner cannot act on it.
+    const asks = (elsewhere?.needsOwnerItems ?? []).map(item => `• ${item.where}: «${item.title}» — ${item.what}${item.url ? ` (${item.url})` : ""}`);
     const text = [`Сводка на ${day}: целей в работе ${goals.length}.`, ...lines,
-      elsewhere ? `У других агентов: нужен ты — ${elsewhere.needsOwner}, застряло — ${elsewhere.stalled}, в работе — ${elsewhere.active}.` : ""].filter(Boolean).join("\n");
+      asks.length ? `Нужен ты у других агентов (${asks.length}):` : "", ...asks,
+      elsewhere ? `Ещё у других агентов: застряло — ${elsewhere.stalled}, в работе — ${elsewhere.active}. Подробности: Мастерская → «Задачи» → «Работа других агентов».` : ""].filter(Boolean).join("\n");
     this.state.lastDigest = day;
     this.report("daily_digest", text, undefined, `digest:${day}:${force ? Date.now() : ""}`);
     await this.save();
