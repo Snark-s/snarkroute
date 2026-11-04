@@ -349,3 +349,19 @@ button:disabled { opacity: .5; cursor: wait; } .spin { animation: spin 1s linear
 
 .bridgeSecretForm { flex-wrap: wrap; }
 .bridgeSecretForm input { flex: 1 1 12rem; min-width: 0; padding: 0.45rem 0.6rem; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: transparent; color: inherit; font: inherit; }
+
+.goalForm { flex-wrap: wrap; }
+.goalForm input, .goalForm textarea { flex: 1 1 100%; min-width: 0; padding: 0.5rem 0.65rem; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: transparent; color: inherit; font: inherit; resize: vertical; }
+.goalCard .secretaryMeta strong { display: inline-flex; align-items: center; gap: 0.4rem; }
+.goalCard .secretaryMeta svg { width: 1rem; height: 1rem; }
+.goalCard.needs_owner { border-color: rgba(230, 140, 40, 0.7); }
+.goalProgress { height: 6px; border-radius: 3px; background: rgba(127, 127, 127, 0.2); overflow: hidden; margin: 0.4rem 0; }
+.goalProgress span { display: block; height: 100%; background: #3fa66b; transition: width 0.4s ease; }
+.goalStages { display: grid; gap: 0.3rem; margin: 0.4rem 0; }
+.goalStage { display: grid; grid-template-columns: 8.5rem 1fr; gap: 0.1rem 0.6rem; padding: 0.35rem 0.5rem; border-radius: 6px; background: rgba(127, 127, 127, 0.08); }
+.goalStage small { grid-column: 2; opacity: 0.7; overflow-wrap: anywhere; }
+.goalStageState { font-size: 0.8rem; font-weight: 600; }
+.goalStage.state-verified .goalStageState { color: #3fa66b; }
+.goalStage.state-blocked .goalStageState { color: #e08a28; }
+.goalStage.state-failed .goalStageState, .goalStage.state-cancelled .goalStageState { opacity: 0.6; }
+@media (max-width: 640px) { .goalStage { grid-template-columns: 1fr; } .goalStage small { grid-column: 1; } }

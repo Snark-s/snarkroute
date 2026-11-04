@@ -13,6 +13,7 @@ import { ModelCatalogCard } from "./ModelCatalogCard";
 import { TechRadarCard } from "./TechRadarCard";
 import { SecretaryPanel } from "./SecretaryPanel";
 import { BridgePanel } from "./BridgePanel";
+import { GoalsPanel } from "./GoalsPanel";
 import { AgentOpsCard, AgentOpsPage, AgentOpsStatusBar, ownerHeaders, useAgentOpsStatus } from "./AgentOpsPanel";
 import { BuzhaPage } from "./BuzhaPanel";
 import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTerminalContextMenu, showTerminal } from "./ServiceTerminals";
@@ -40,6 +41,7 @@ const iconMap = { sparkles: Sparkles, route: Route, wand: Wand2, hexagon: Hexago
 
 const workshopTabs = [
   { id: "secretary", label: "Секретарь", appIds: [] },
+  { id: "goals", label: "Задачи", appIds: [] },
   { id: "agents", label: "Агенты", appIds: ["tove", "factory", "buzha", "persona"] },
   { id: "tools", label: "Инструменты", appIds: ["living-canvas", "boojum", "brandeshmyg", "h3", "yue2", "beamish", "cozyclay"] },
   { id: "publishing", label: "Публикация", appIds: [] },
@@ -128,6 +130,7 @@ function Launcher() {
       id={`workshop-panel-${tab.id}`} role="tabpanel" aria-labelledby={`workshop-tab-${tab.id}`}
       hidden={activeTab !== tab.id}>
       {tab.id === "secretary" ? <><SecretaryPanel apiBase={apiBase} onPendingChange={updateSecretaryPending} /><BridgePanel apiBase={apiBase} onPendingChange={setBridgePending} /></> : null}
+      {tab.id === "goals" ? <GoalsPanel apiBase={apiBase} /> : null}
       {tab.id === "agents" ? <AgentOpsCard apiBase={apiBase} /> : null}
       {tab.id === "agents" && livingCanvas ? <TechRadarCard running={livingCanvas.running} busy={busy === "tech-radar"} index={0} onOpen={() => void openApp(livingCanvas, "/tech-radar")} /> : null}
       {tab.appIds.flatMap(id => apps.filter(app => app.id === id)).map((app, appIndex) => {

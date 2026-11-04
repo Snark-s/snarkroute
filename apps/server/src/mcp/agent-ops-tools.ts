@@ -54,6 +54,8 @@ const taskSpecShape = {
   requirements: z.object({ kind: z.enum(["code_edit", "code_review", "text", "analysis", "agent_tool"]).optional(), quality: z.enum(["basic", "normal", "high"]).optional(), contextTokens: z.number().int().min(1).max(2_000_000).optional() }).optional(),
   idempotencyKey: z.string().max(200).optional().describe("Resubmitting with the same key returns the existing task instead of running it twice."),
   parentTaskId: z.string().max(80).optional(),
+  goalId: z.string().max(40).optional().describe("Goal this task is a stage of (agent_goal_create); sub-tasks inherit it."),
+  after: z.array(z.string().max(80)).max(20).optional().describe("Task ids that must be accepted before this stage starts; their accepted results are passed on."),
   onPartial: z.enum(["block", "continue"]).optional(),
   allowDuplicate: z.boolean().optional()
 };
@@ -97,6 +99,29 @@ export function registerAgentOpsTools(server: McpServer, identityOf: (ops: Agent
     return { candidates: rankExecutors({ spec, policy: identity.policy, adapters: ops.adapters, probes: ops.tasks.probeSnapshot() })
       .map(candidate => ({ ...candidate, availability: ops.ledger.availability(candidate.executorId, candidate.tier) })) };
   })());
+
+  // D1: goals. A goal is what is wanted; tasks submitted with goalId are its stages, ordered with after.
+  server.registerTool("agent_goal_create", {
+    description: "Register a goal (what should be achieved, not how) in the shared registry so it is visible in the Workshop. Then submit its stages with agent_delegate_submit + goalId, ordering them with after. Progress counts only stages the Acceptor accepted. An active goal with the same title is returned instead of a duplicate.",
+    inputSchema: { title: z.string().min(1).max(200), description: z.string().max(20000).optional(), source: z.enum(["workshop", "chatgpt", "telegram", "agent", "mcp"]).optional(),
+      assignee: z.string().max(90).optional().describe("Agent id that drives the goal (e.g. app:secretary); defaults to you."), priority: z.number().int().min(0).max(100).optional(), deadline: z.string().max(40).optional() },
+    annotations: { readOnlyHint: false, openWorldHint: false, idempotentHint: true }
+  }, async input => run(async (ops, identity) => ops.goals.view(await ops.goals.create(identity, input)))());
+
+  server.registerTool("agent_goal_list", {
+    description: "Goals you can see (all of them for trusted agents) with progress: stages total/accepted/failed/active, needs_owner, percent accepted.",
+    inputSchema: { states: z.array(z.enum(["active", "done", "cancelled"])).max(3).optional(), limit: z.number().int().min(1).max(200).optional() }, annotations: readOnly
+  }, async input => run(async (ops, identity) => ({ goals: ops.goals.list(identity, { states: input.states, limit: input.limit ?? 30 }).map(({ stages, ...goal }) => ({ ...goal, stages: stages.length })) }))());
+
+  server.registerTool("agent_goal_status", {
+    description: "One goal with its stages (task id, state, reason, after) and progress.",
+    inputSchema: { goalId: z.string().min(1).max(40) }, annotations: readOnly
+  }, async input => run(async (ops, identity) => ops.goals.view(ops.goals.require(input.goalId, identity)))());
+
+  server.registerTool("agent_goal_close", {
+    description: "Close your goal: done (every stage finished) or cancelled (unfinished stages are cancelled too).",
+    inputSchema: { goalId: z.string().min(1).max(40), state: z.enum(["done", "cancelled"]), note: z.string().max(2000).optional() }, annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false }
+  }, async input => run(async (ops, identity) => ops.goals.close(input.goalId, identity, input.state, input.note))());
 
   server.registerTool("agent_delegate_submit", {
     description: "Submit a durable task to the best suitable permitted executor (local route, Codex CLI, Claude Code; never paid APIs). Returns a task id at once; it never reports completion on submission. Waiting for resources, the work window or an executor is shown with a reason. Use an idempotencyKey; after a dropped connection call agent_delegate_status instead of resubmitting.",

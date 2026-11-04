@@ -76,7 +76,12 @@ export class AgentTaskService {
   private lastMode?: ComputerMode;
   private closed = false;
 
+  private goals?: { assertCanAttach(goalId: string, identity: AgentIdentity): void };
+
   constructor(private readonly deps: TaskServiceDeps) {}
+
+  /** D1: the goal layer checks that a stage may join its goal. */
+  attachGoals(goals: { assertCanAttach(goalId: string, identity: AgentIdentity): void }): void { this.goals = goals; }
 
   private now(): number { return this.deps.now?.() ?? Date.now(); }
   private iso(): string { return new Date(this.now()).toISOString(); }
@@ -149,6 +154,19 @@ export class AgentTaskService {
       if (parent.spec.allowedExecutors?.length) spec.allowedExecutors = (spec.allowedExecutors ?? policy.allowedExecutors).filter(executor => parent.spec.allowedExecutors!.includes(executor));
     }
 
+    if (!spec.goalId && parent?.spec.goalId) spec.goalId = parent.spec.goalId;
+    // A sub-task inherits its parent's goal without a new check: the parent was already admitted to it.
+    if (spec.goalId && spec.goalId !== parent?.spec.goalId) {
+      if (!this.goals) throw new AgentOpsError("GOALS_UNAVAILABLE", "Слой целей не подключён.", {}, 503);
+      this.goals.assertCanAttach(spec.goalId, identity);
+    }
+    for (const id of spec.after ?? []) {
+      const before = this.tasks.get(id);
+      if (!before) throw new AgentOpsError("BAD_SPEC", `Этап ${id} из after не найден.`, {}, 400);
+      if (!this.canRead(before, identity) && !(spec.goalId && before.spec.goalId === spec.goalId)) throw new AgentOpsError("NOT_YOUR_TASK", `Этап ${id} принадлежит другому агенту.`, {}, 403);
+      if (spec.goalId && before.spec.goalId !== spec.goalId) throw new AgentOpsError("BAD_SPEC", `Этап ${id} относится к другой цели.`, {}, 400);
+    }
+
     let workdir: string | undefined;
     if (spec.workspace) {
       workdir = resolve(spec.workspace);
@@ -189,7 +207,8 @@ export class AgentTaskService {
       agentId: identity.id,
       chain: { rootTaskId: parent?.chain.rootTaskId ?? id, parentTaskId: parent?.id, depth, agents: chainAgents, fingerprints: [...(parent?.chain.fingerprints ?? []), fingerprint] },
       fingerprint, priority: Math.max(0, Math.min(policy.maxPriority, spec.priority ?? 50)), createdAt: at, updatedAt: at,
-      excludedExecutors: {}, attempts: [], workdir, lockKeys: [], waiting: {since:at,minutes:0,resourceMinutes:0,pausedMinutes:0}
+      excludedExecutors: {}, attempts: [], workdir, lockKeys: [], waiting: {since:at,minutes:0,resourceMinutes:0,pausedMinutes:0},
+      ...(spec.after?.length ? { dependsOn: [...new Set(spec.after)] } : {})
     };
     task.contract = contractFor(spec);
     task.evidence = []; task.reviews = []; task.reviewRuns = [];
@@ -1165,6 +1184,8 @@ export function normalizeSpec(input: TaskSpec): TaskSpec {
   if (input.budget?.providerCost !== undefined && input.budget.providerCost !== 0) throw new AgentOpsError("BAD_SPEC", "Приёмщик не разрешает платные API; providerCost должен быть 0.", {}, 400);
   if (Object.values(input.resourceLimits ?? {}).some(value => !positive(value, 0, 1000000))) throw new AgentOpsError("BAD_SPEC", "Некорректные ограничения ресурсов.", {}, 400);
   if (input.effects && (input.effects.length > 30 || new Set(input.effects.map(e => e.key)).size !== input.effects.length || input.effects.some(e => !/^[a-zA-Z0-9_.-]{1,80}$/.test(e.key) || !e.description?.trim() || !e.check))) throw new AgentOpsError("BAD_SPEC", "Некорректный журнал внешних действий.", {}, 400);
+  if (input.goalId !== undefined && (typeof input.goalId !== "string" || !/^g-\d{8}-[0-9a-f]{8}$/.test(input.goalId))) throw new AgentOpsError("BAD_SPEC", "goalId должен быть идентификатором цели (g-ГГГГММДД-xxxxxxxx).", {}, 400);
+  if (input.after !== undefined && (!Array.isArray(input.after) || input.after.length > 20 || input.after.some(id => typeof id !== "string" || !/^t-\d{8}-[0-9a-f]{8}$/.test(id)))) throw new AgentOpsError("BAD_SPEC", "after: до 20 идентификаторов задач.", {}, 400);
   return {
     ...structuredClone(input),
     goal: input.goal.trim(),

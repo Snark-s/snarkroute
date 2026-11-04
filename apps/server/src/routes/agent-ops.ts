@@ -6,6 +6,7 @@ import { opsContext } from "../agent-ops/context";
 import { isModelWorkRequest } from "../agent-ops/caller-process";
 import { rankExecutors } from "../agent-ops/router";
 import { AgentOpsError, normalizeSpec } from "../agent-ops/tasks";
+import type { GoalState } from "../agent-ops/goals";
 import type { AgentIdentity, FailureClass, TaskSpec, TaskState } from "../agent-ops/types";
 import { SUBSCRIPTION_PROVIDERS } from "../services/model-routing-policy";
 import { errorMessage } from "../services/errors";
@@ -234,6 +235,19 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
   app.post(`${ROOT}/tasks`, handle(async (ops, identity, request, reply) => {
     const { task, deduplicated } = await ops.tasks.submit(identity, request.body as TaskSpec);
     return reply.code(deduplicated ? 200 : 202).send({ ok: true, deduplicated, task });
+  }));
+
+  // D1: goals are what is wanted; tasks with spec.goalId are their stages.
+  app.get(`${ROOT}/goals`, handle(async (ops, identity, request) => {
+    const query = request.query as { state?: string; limit?: string };
+    return { ok: true, goals: ops.goals.list(identity, { states: query.state ? query.state.split(",") as GoalState[] : undefined, limit: Number(query.limit) || 100 }) };
+  }));
+  app.post(`${ROOT}/goals`, handle(async (ops, identity, request, reply) => reply.code(201).send({ ok: true, goal: ops.goals.view(await ops.goals.create(identity, (request.body ?? {}) as Record<string, unknown>)) })));
+  app.get(`${ROOT}/goals/:id`, handle(async (ops, identity, request) => ({ ok: true, goal: ops.goals.view(ops.goals.require((request.params as { id: string }).id, identity)) })));
+  app.post(`${ROOT}/goals/:id/close`, handle(async (ops, identity, request) => {
+    const body = (request.body ?? {}) as { state?: string; note?: string };
+    if (body.state !== "done" && body.state !== "cancelled") throw new AgentOpsError("BAD_GOAL", "state: done или cancelled.", {}, 400);
+    return { ok: true, goal: await ops.goals.close((request.params as { id: string }).id, identity, body.state, body.note) };
   }));
 
   app.get(`${ROOT}/tasks/:id`, handle(async (ops, identity, request) => {

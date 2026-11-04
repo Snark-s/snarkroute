@@ -122,6 +122,10 @@ export type TaskSpec = {
   requirements?: { kind?: TaskKind; quality?: "basic" | "normal" | "high"; contextTokens?: number };
   idempotencyKey?: string;
   parentTaskId?: string;
+  /** D1: the goal this task is a stage of; sub-tasks inherit it. */
+  goalId?: string;
+  /** D1: tasks that must be accepted before this one starts (stage order inside a goal). */
+  after?: string[];
   onPartial?: "block" | "continue";
   allowDuplicate?: boolean;
 };
