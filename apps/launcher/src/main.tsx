@@ -44,7 +44,6 @@ const workshopTabs = [
   { id: "goals", label: "Задачи", appIds: [] },
   { id: "agents", label: "Агенты", appIds: ["tove", "factory", "buzha", "persona"] },
   { id: "tools", label: "Инструменты", appIds: ["living-canvas", "boojum", "brandeshmyg", "h3", "yue2", "beamish", "cozyclay"] },
-  { id: "publishing", label: "Публикация", appIds: [] },
   { id: "system", label: "Система", appIds: ["snarkroute"] }
 ];
 
@@ -148,7 +147,7 @@ function Launcher() {
           {app.id === "yue2" ? <span className="cardActions"><button title="Открыть результаты" onClick={() => void yueAction("outputs")} disabled={!app.running}><FolderOpen /> Результаты</button><button title="Остановить YuE2" onClick={() => void yueAction("stop")} disabled={!app.running}><Square /> Остановить</button></span> : null}
         </div>;
       })}
-      {tab.id === "publishing" ? <ProjectPublisherCard /> : null}
+      {tab.id === "tools" ? <ProjectPublisherCard /> : null}
       {tab.id === "system" ? <ModelCatalogCard apiBase={apiBase} index={tab.appIds.length} /> : null}
       {tab.id === "system" ? <SnarkBridgeCard apiBase={apiBase} /> : null}
     </section>)}
