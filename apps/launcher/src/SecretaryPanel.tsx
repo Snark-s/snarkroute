@@ -12,7 +12,7 @@ async function request(apiBase: string, path: string, init?: RequestInit): Promi
   return body;
 }
 
-export function SecretaryPanel({ apiBase, onPendingChange }: { apiBase: string; onPendingChange: (pending: number) => void }) {
+export function SecretaryPanel({ apiBase, onPendingChange, bridgePending = 0 }: { apiBase: string; onPendingChange: (pending: number) => void; bridgePending?: number }) {
   const [inbox, setInbox] = useState<Inbox>();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -81,7 +81,7 @@ export function SecretaryPanel({ apiBase, onPendingChange }: { apiBase: string; 
     {notice ? <div className="successBanner" role="status">{notice}</div> : null}
     {loading ? <p className="secretarySummary" role="status"><LoaderCircle className="spin" /> Загружаю вопросы из реестра…</p> : null}
     {inbox ? <>
-      <p className="secretarySummary"><strong>{inbox.pending}</strong> ждут ответа</p>
+      <p className="secretarySummary"><strong>{inbox.pending}</strong> ждут ответа{bridgePending ? <> · ещё <a href="#bridge-panel"><strong>{bridgePending}</strong> ждут решения в «Мосте» ниже</a></> : null}</p>
       {!pending.length ? <div className="secretaryEmpty"><CheckCircle2 /> Все вопросы разобраны. Новые появятся здесь автоматически.</div> : null}
       {pending.map((question, index) => <article className="secretaryQuestion" key={`${question.id}-${index}`}>
         <div className="secretaryMeta"><strong>№{question.id} · {question.agent || "Агент"}</strong><span>{question.date}</span></div>

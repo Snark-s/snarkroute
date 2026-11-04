@@ -129,7 +129,7 @@ function Launcher() {
     {workshopTabs.map(tab => <section key={tab.id} className="appGrid workshopPanel"
       id={`workshop-panel-${tab.id}`} role="tabpanel" aria-labelledby={`workshop-tab-${tab.id}`}
       hidden={activeTab !== tab.id}>
-      {tab.id === "secretary" ? <><SecretaryPanel apiBase={apiBase} onPendingChange={updateSecretaryPending} /><BridgePanel apiBase={apiBase} onPendingChange={setBridgePending} /></> : null}
+      {tab.id === "secretary" ? <><SecretaryPanel apiBase={apiBase} onPendingChange={updateSecretaryPending} bridgePending={bridgePending} /><BridgePanel apiBase={apiBase} onPendingChange={setBridgePending} /></> : null}
       {tab.id === "goals" ? <GoalsPanel apiBase={apiBase} /> : null}
       {tab.id === "agents" ? <AgentOpsCard apiBase={apiBase} /> : null}
       {tab.id === "agents" && livingCanvas ? <TechRadarCard running={livingCanvas.running} busy={busy === "tech-radar"} index={0} onOpen={() => void openApp(livingCanvas, "/tech-radar")} /> : null}

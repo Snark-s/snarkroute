@@ -55,7 +55,7 @@ export function BridgePanel({ apiBase, onPendingChange }: { apiBase: string; onP
     return `Уровень клиента ${client.id} изменён; мост подхватит его без перезапуска.`;
   });
 
-  return <section className="secretaryWorkspace bridgePanel">
+  return <section className="secretaryWorkspace bridgePanel" id="bridge-panel">
     <header className="secretaryHeader">
       <div><h2>Мост</h2><p>Что SnarkBridge не стал делать без тебя, и права его клиентов. Одобрение действует один раз и ровно на этот запрос.</p></div>
       <button type="button" className="secretaryButton" onClick={() => void refresh()} disabled={Boolean(busy)}><RefreshCw /> Обновить</button>
