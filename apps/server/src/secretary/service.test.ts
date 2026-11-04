@@ -71,6 +71,7 @@ describe("D2: Secretary", () => {
     const [a, b] = [ops.tasks.get(dispatched.stageIds!.a)!, ops.tasks.get(dispatched.stageIds!.b)!];
     expect(a.spec.goalId).toBe(goal.id);
     expect(b.dependsOn).toEqual([a.id]);
+    expect(a.spec.permissions?.network).toBe(false);
 
     a.state = "verified"; b.state = "verified";
     await ops.secretary.tick();

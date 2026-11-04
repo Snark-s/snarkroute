@@ -16,10 +16,10 @@ import type { AgentIdentity, TaskKind } from "../agent-ops/types";
 export type SecretaryMessage = {
   id: string; requestKey: string; source: GoalSource; sender: string; text: string; createdAt: string;
   goalId?: string; planTaskId?: string; planAttempts: number; stageIds?: Record<string, string>;
-  state: "received" | "planning" | "dispatched" | "closed"; note?: string;
+  state: "received" | "planning" | "dispatched" | "closed"; note?: string; resolved?: string[];
 };
 export type SecretaryReport = { id: string; at: string; goalId?: string; kind: "goal_received" | "plan_ready" | "stage_accepted" | "needs_owner" | "goal_accepted" | "goal_stalled" | "replanned"; text: string };
-export type PlannedStage = { key: string; title: string; goal: string; acceptance: string[]; after: string[]; kind: TaskKind };
+export type PlannedStage = { key: string; title: string; goal: string; acceptance: string[]; after: string[]; kind: TaskKind; network: boolean };
 type State = { messages: SecretaryMessage[]; reports: SecretaryReport[]; seen: string[] };
 
 const SECRETARY = { id: "secretary", label: "Секретарь" } as const;
@@ -45,7 +45,7 @@ export function parsePlan(raw: string): PlannedStage[] {
     const acceptance = Array.isArray(item?.acceptance) ? item.acceptance.filter((line: unknown): line is string => typeof line === "string" && line.trim().length > 0).map((line: string) => line.slice(0, 2000)).slice(0, 15) : [];
     if (!acceptance.length) throw new Error(`Этап ${key}: нужен хотя бы один критерий приёмки (acceptance).`);
     const after: string[] = Array.isArray(item?.after) ? item.after.filter((k: unknown): k is string => typeof k === "string") : [];
-    return { key, title, goal, acceptance, after, kind: KINDS.includes(item?.kind) ? item.kind as TaskKind : "analysis" };
+    return { key, title, goal, acceptance, after, kind: KINDS.includes(item?.kind) ? item.kind as TaskKind : "analysis", network: item?.network === true };
   });
   // Stages are submitted in order, so a dependency must come earlier: this also rules out cycles.
   result.forEach((stage, index) => {
@@ -166,6 +166,7 @@ export class SecretaryService {
         "Разложи её на 1–12 последовательных проверяемых этапов и запиши plan.json в рабочей папке. Сами этапы не выполняй.",
         "Формат: {\"stages\":[{\"key\":\"s1\",\"title\":\"кратко\",\"goal\":\"самодостаточная постановка: исполнитель не увидит ничего, кроме неё\",\"acceptance\":[\"проверяемый критерий\"],\"after\":[\"ключи этапов, которые должны быть приняты раньше\"],\"kind\":\"analysis|text|code_edit|code_review|agent_tool\"}]}.",
         "Этап может зависеть только от более ранних этапов. Каждый этап даёт результат, который можно проверить независимо: answer.md с фактами, ссылками и ограничениями. Не планируй оплату, ввод паролей, юридические согласия и удаление аккаунтов: это остаётся за владельцем.",
+        "acceptance — только то, что видно в самом answer.md (содержание, полнота, источники). Запреты и рамки («ничего не менять», «никуда не отправлять») пиши в goal, а не в acceptance: отсутствие действия доказать нельзя. Поле \"network\": true ставь только этапу, которому нужен интернет.",
         problem ? `Предыдущий план отклонён: ${problem}. Исправь это.` : ""
       ].filter(Boolean).join("\n\n"),
       expectedResult: "plan.json с этапами в описанном формате.",
@@ -200,8 +201,8 @@ export class SecretaryService {
         inputs: [`Цель владельца: ${message.text.slice(0, 4000)}`],
         acceptance: stage.acceptance, expectedResult: "answer.md с проверяемым результатом этапа: факты, ссылки, что не удалось и почему.",
         checks: [{ type: "file_content", path: "answer.md" }],
-        criteria: [{ id: "stage", description: stage.acceptance.join("; "), review: "model", checkIndexes: [0] }],
-        requirements: { kind: stage.kind, quality: "normal" }, permissions: { fileWrite: true, shell: "tests", network: true },
+        criteria: [{ id: "stage", description: `answer.md показывает: ${stage.acceptance.join("; ")}`, review: "model", checkIndexes: [0] }],
+        requirements: { kind: stage.kind, quality: "normal" }, permissions: { fileWrite: true, shell: "tests", network: stage.network },
         budget: { wallMinutes: 60, subscriptionRuns: 6 }, idempotencyKey: `secretary:stage:${goalId}:${stage.key}`, allowDuplicate: true
       });
       ids[stage.key] = task.id;
@@ -216,6 +217,11 @@ export class SecretaryService {
     const stageIds = new Set(Object.values(message.stageIds ?? {}));
     const own = this.deps.goals.stages(goalId).filter(task => stageIds.has(task.id));
     for (const stage of own) {
+      // A stage with no declared external actions has nothing to reconcile: continue it once from its current result.
+      if (stage.state === "unknown_outcome" && !stage.effects?.length && !message.resolved?.includes(stage.id)) {
+        message.resolved = [...(message.resolved ?? []), stage.id];
+        await this.deps.tasks.resolve(stage.id, this.identity(), "continue", "Этап Секретаря без внешних действий: продолжить с текущего результата.");
+      }
       if (stage.state === "verified") this.report("stage_accepted", `Этап принят: «${stage.title}».${stage.result?.summary ? ` ${stage.result.summary.slice(0, 600)}` : ""}`, goalId, `accepted:${stage.id}`);
       if (stage.state === "blocked") this.report("needs_owner", `Нужен ты: «${stage.title}» — ${stage.reason}`, goalId, `blocked:${stage.id}:${stage.updatedAt}`);
     }
