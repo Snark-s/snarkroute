@@ -90,5 +90,60 @@ export function BridgePanel({ apiBase, onPendingChange }: { apiBase: string; onP
         </article>)}
       </div>
     </details>
+    <SecretsSection apiBase={apiBase} />
   </section>;
+}
+
+type Secret = { ref: string; origins: string[]; updated?: string };
+
+/** P-04: passwords agents may type into a bound site without ever seeing them. Values only go in. */
+function SecretsSection({ apiBase }: { apiBase: string }) {
+  const [secrets, setSecrets] = useState<Secret[]>();
+  const [ref, setRef] = useState("");
+  const [origins, setOrigins] = useState("");
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ error?: string; notice?: string }>({});
+  const load = useCallback(async () => {
+    try { setSecrets((await call<{ secrets: Secret[] }>(apiBase, "/secrets")).secrets); }
+    catch (reason) { setMessage({ error: reason instanceof Error ? reason.message : "Хранилище не ответило." }); }
+  }, [apiBase]);
+  useEffect(() => { void load(); }, [load]);
+  async function run(action: () => Promise<string>) {
+    if (busy) return;
+    setBusy(true); setMessage({});
+    try { const notice = await action(); setMessage({ notice }); await load(); }
+    catch (reason) { setMessage({ error: reason instanceof Error ? reason.message : "Не получилось." }); }
+    finally { setBusy(false); }
+  }
+  const save = () => run(async () => {
+    const result = await call<{ secret: Secret }>(apiBase, "/secrets", "POST", { ref: ref.trim(), origins, value });
+    setValue("");
+    return `Пароль «${result.secret.ref}» сохранён для ${result.secret.origins.join(", ")}. Агенты смогут вводить его только там и не увидят его.`;
+  });
+  const remove = (secret: Secret) => run(async () => {
+    await call(apiBase, `/secrets/${encodeURIComponent(secret.ref)}`, "DELETE");
+    return `Пароль «${secret.ref}» удалён.`;
+  });
+  return <details className="secretaryArchive">
+    <summary>Пароли для агентов ({secrets?.length ?? 0})</summary>
+    <div className="secretaryArchiveList">
+      <p className="secretaryContext">Пароль хранится в мосте зашифрованным (Windows DPAPI). Агент может только вписать его в поле входа на привязанном сайте — увидеть, прочитать или отправить его куда-то ещё он не может.</p>
+      {message.error ? <div className="errorBanner" role="alert">{message.error}</div> : null}
+      {message.notice ? <div className="successBanner" role="status">{message.notice}</div> : null}
+      {(secrets ?? []).map(secret => <article className="secretaryQuestion" key={secret.ref}>
+        <div className="secretaryMeta"><strong>{secret.ref}</strong><span>{secret.updated ? new Date(secret.updated).toLocaleString("ru-RU") : ""}</span></div>
+        <p className="secretaryContext">{secret.origins.join(", ")}</p>
+        <div className="secretaryForm"><button type="button" className="secretaryButton" disabled={busy} onClick={() => void remove(secret)}><X /> Удалить</button></div>
+      </article>)}
+      <form className="secretaryForm bridgeSecretForm" autoComplete="off" onSubmit={event => { event.preventDefault(); void save(); }}>
+        <input placeholder="имя, например fl-login" value={ref} onChange={event => setRef(event.target.value)} disabled={busy} />
+        <input placeholder="сайты: www.fl.ru, fl.ru" value={origins} onChange={event => setOrigins(event.target.value)} disabled={busy} />
+        <input type="password" autoComplete="new-password" placeholder="пароль" value={value} onChange={event => setValue(event.target.value)} disabled={busy} />
+        <button type="submit" className="secretaryButton primary" disabled={busy || !ref.trim() || !origins.trim() || !value}>
+          {busy ? <LoaderCircle className="spin" /> : <ShieldCheck />} Сохранить
+        </button>
+      </form>
+    </div>
+  </details>;
 }

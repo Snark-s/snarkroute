@@ -18,6 +18,7 @@ import { admissionForLocalRuntime, isLocalRuntimeId, LocalRuntimeAdmissionError,
 import { readSnarkBridgeLogs, readSnarkBridgeStatus, restartSnarkBridge } from "../services/snarkbridge-local";
 import { readYAccess, requestYAccessApproval, revokeYAccess } from "../services/snarkbridge-y-access";
 import { decideBridgePending, listBridgePending, readBridgePolicy, setBridgeClientLevel } from "../services/snarkbridge-policy";
+import { deleteBridgeSecret, listBridgeSecrets, setBridgeSecret } from "../services/snarkbridge-secrets";
 import { launchBackgroundService } from "../services/background-process";
 import { cozyClayUrl, cozyClayManagedLog, cozyClayManualLog, readCozyClayStatus, startCozyClay, stopCozyClay } from "../services/cozyclay-workshop";
 import { listServiceLogs, managedLogPath, readServiceLogChunk, registerServiceLogProvider, startServiceLogMaintenance, type ServiceLogSourceDef } from "../services/service-logs";
@@ -84,7 +85,7 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     // admission and leases), so the guard lists the protected surfaces instead of all of /api/system.
     const path = request.url.split("?")[0];
     // B3: SnarkBridge policy and pending approvals are owner-only for reads too (they show commands).
-    const bridgePolicy = ["/api/system/snarkbridge/policy", "/api/system/snarkbridge/pending"].some(prefix => path.startsWith(prefix));
+    const bridgePolicy = ["/api/system/snarkbridge/policy", "/api/system/snarkbridge/pending", "/api/system/snarkbridge/secrets"].some(prefix => path.startsWith(prefix));
     const ownerWrite = bridgePolicy || ["/api/system/apps/", "/api/system/model-exposure", "/api/system/secretary/", "/api/system/restart"].some(prefix => path.startsWith(prefix));
     const ownerRead = bridgePolicy || path.startsWith("/api/system/secretary/");
     if (["GET", "HEAD"].includes(request.method) ? !ownerRead : !ownerWrite) return;
@@ -267,6 +268,19 @@ export async function registerSystemRoutes(app: FastifyInstance) {
     const { digest, decision } = request.params;
     if (decision !== "approve" && decision !== "reject") return reply.code(404).send({ ok: false, error: "approve или reject." });
     try { return { ok: true, ...decideBridgePending(digest, decision) }; }
+    catch (error) { return reply.code(400).send({ ok: false, error: errorMessage(error) }); }
+  });
+  // P-04: site passwords for agents. Values only go in (stdin of the bridge CLI), never come out.
+  app.get("/api/system/snarkbridge/secrets", async (_request, reply) => {
+    try { return { ok: true, secrets: await listBridgeSecrets() }; }
+    catch (error) { return reply.code(503).send({ ok: false, error: errorMessage(error) }); }
+  });
+  app.post<{ Body: { ref?: string; origins?: string[] | string; value?: string } }>("/api/system/snarkbridge/secrets", async (request, reply) => {
+    try { return { ok: true, secret: await setBridgeSecret(request.body ?? {}) }; }
+    catch (error) { return reply.code(400).send({ ok: false, error: errorMessage(error) }); }
+  });
+  app.delete<{ Params: { ref: string } }>("/api/system/snarkbridge/secrets/:ref", async (request, reply) => {
+    try { return { ok: true, ...await deleteBridgeSecret(request.params.ref) }; }
     catch (error) { return reply.code(400).send({ ok: false, error: errorMessage(error) }); }
   });
 

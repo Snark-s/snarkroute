@@ -346,3 +346,6 @@ button:disabled { opacity: .5; cursor: wait; } .spin { animation: spin 1s linear
 .bridgePanel { margin-top: 1.5rem; }
 .bridgeSummary { white-space: pre-wrap; word-break: break-all; max-height: 12em; overflow: auto; font-size: .85em; }
 
+
+.bridgeSecretForm { flex-wrap: wrap; }
+.bridgeSecretForm input { flex: 1 1 12rem; min-width: 0; padding: 0.45rem 0.6rem; border-radius: 6px; border: 1px solid rgba(127, 127, 127, 0.4); background: transparent; color: inherit; font: inherit; }
