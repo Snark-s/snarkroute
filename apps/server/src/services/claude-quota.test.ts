@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 import { claudeEventWindow, claudeUsageReport, parseClaudeUsage, readClaudeUsage } from "./claude-quota";
 import { codexQuotaWindows } from "./codex-windows";
 import { mergeQuotaWindows } from "../agent-ops/quota-ledger";
+import { parseWindowsProxy } from "./system-proxy";
 
 describe("Claude plan usage (5-hour and weekly windows)", () => {
   const dirs: string[] = [];
@@ -33,6 +34,13 @@ describe("Claude plan usage (5-hour and weekly windows)", () => {
     const next = mergeQuotaWindows(first, [claudeEventWindow("five_hour", 0.2, undefined)!], "2026-11-04T15:00:00.000Z")!;
     expect(next).toMatchObject([{ id: "five_hour", usedPercent: 20, observedAt: "2026-11-04T15:00:00.000Z" }, { id: "week", usedPercent: 77, observedAt: "2026-11-04T14:00:00.000Z" }]);
     expect(mergeQuotaWindows(first, undefined, "x")).toBe(first);
+  });
+
+  it("turns the Windows system proxy into proxy variables for CLIs", () => {
+    expect(parseWindowsProxy(true, "socks=127.0.0.1:10808")).toMatchObject({ HTTPS_PROXY: "socks5h://127.0.0.1:10808", ALL_PROXY: "socks5h://127.0.0.1:10808" });
+    expect(parseWindowsProxy(true, "http=10.0.0.1:3128;https=10.0.0.1:3129")).toMatchObject({ HTTPS_PROXY: "http://10.0.0.1:3129" });
+    expect(parseWindowsProxy(true, "127.0.0.1:8080")).toMatchObject({ HTTPS_PROXY: "http://127.0.0.1:8080" });
+    expect(parseWindowsProxy(false, "socks=127.0.0.1:10808")).toEqual({});
   });
 
   it("asks the usage endpoint only with a valid token and never refreshes it", async () => {

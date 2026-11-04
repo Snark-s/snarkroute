@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { findCodexCliExecutable } from "./codex-desktop";
 import { redactSecrets } from "./errors";
+import { withSystemProxy } from "./system-proxy";
 
 /**
  * Transport to the official Codex CLI (`codex exec`) signed in with ChatGPT
@@ -162,7 +163,8 @@ export function codexCliEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Proce
     env[key] = value;
   }
   env.NO_COLOR = "1";
-  return env;
+  // Codex reaches chatgpt.com only through the owner's proxy, which the CLI does not read from Windows settings.
+  return withSystemProxy(env);
 }
 
 /** Plain text generation: user config, rules, MCP, skills, web search, shell and other tools off; read-only sandbox. */
