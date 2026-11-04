@@ -16,7 +16,7 @@ import { defaultCpuCount, ResourceDispatcher, type Decision, type Lease, type Re
 import { AgentOpsStore } from "./store";
 import { GoalService } from "./goals";
 import { AgentMail } from "./mail";
-import { factorySource, toveSource, WorkRegistry } from "./registry";
+import { factorySource, personaSource, toveSource, WorkRegistry } from "./registry";
 import { localServicePort } from "../services/local-service-endpoints";
 import { SecretaryService } from "../secretary/service";
 import { SecretaryTelegram } from "../secretary/telegram";
@@ -174,7 +174,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
   const mail = new AgentMail({ store });
   await mail.init();
   const port = (name: "tove" | "factory", fallback: number) => { try { return localServicePort(name); } catch { return fallback; } };
-  const work = new WorkRegistry({ store, includeRegistered: !options.adapters, sources: options.adapters ? [] : [toveSource(`http://127.0.0.1:${port("tove", 4890)}`), factorySource(`http://127.0.0.1:${port("factory", 4891)}`)] });
+  const work = new WorkRegistry({ store, includeRegistered: !options.adapters, sources: options.adapters ? [] : [toveSource(`http://127.0.0.1:${port("tove", 4890)}`), factorySource(`http://127.0.0.1:${port("factory", 4891)}`), personaSource(options.apiUrl ?? "http://127.0.0.1:4317")] });
   await work.init();
   // D2: what matters to the owner reaches him as a letter, and on the phone when Telegram is configured.
   let secretaryRef: SecretaryService | undefined;

@@ -178,6 +178,25 @@ function executorUsable(executor: ExecutorStatus): { usable: boolean; reason: st
   return executor.availability.usable ? { usable: true, reason: "доступен" } : { usable: false, reason: executor.availability.reason ?? "недоступен" };
 }
 
+function executorHint(executor: ExecutorStatus, usable: boolean): string {
+  if (!usable) {
+    const retryAt = (executor.availability as { retryAt?: string }).retryAt;
+    if (!retryAt) return "";
+    const at = new Date(retryAt);
+    if (Number.isNaN(at.getTime())) return "";
+    const sameDay = at.toDateString() === new Date().toDateString();
+    return ` до ${at.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}${sameDay ? "" : ` ${at.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })}`}`;
+  }
+  const quota = executor.ledger.quota as { state?: string; usedPercent?: number };
+  if (typeof quota.usedPercent !== "number") return "";
+  return ` ${quota.usedPercent}%${quota.state === "unknown" ? "?" : ""}`;
+}
+
+function loadLabel(reasons: string[]): string {
+  const cpu = reasons.join(" ").match(/(\d+)%/);
+  return cpu ? `нагрузка ${cpu[1]}%` : "нагрузка высокая";
+}
+
 function gb(mib: number) { return (mib / 1024).toFixed(1); }
 
 export function AgentOpsCard({ apiBase }: { apiBase: string }) {
@@ -224,9 +243,9 @@ export function AgentOpsStatusBar({ apiBase }: { apiBase: string }) {
     {status.locks.length ? <span className="opsMetric" title={status.locks.map(lock => `${lock.key} → ${lock.ownerTaskId}`).join("\n")}><Lock /> {status.locks.length}</span> : null}
     {status.executors.filter(executor => ["codex_cli", "claude_code"].includes(executor.id)).map(executor => { const state = executorUsable(executor); return <span key={executor.id} className={`opsMetric ${state.usable ? "" : "warn"}`}
       title={`${executor.label}: ${state.reason} · квота ${executor.ledger.quota.state}${executor.ledger.quota.source ? ` (${executor.ledger.quota.source})` : ""}`}>
-      {executor.id === "codex_cli" ? "Codex" : "Claude"} {state.usable ? "✓" : "⏸"}
+      {executor.id === "codex_cli" ? "Codex" : "Claude"} {state.usable ? "✓" : "⏸"}{executorHint(executor, state.usable)}
     </span>; })}
-    {status.ownerActivity?.busy ? <span className="opsMetric warn" title={status.ownerActivity.reasons.join("\n")}>{status.ownerActivity.confidence === "unknown" ? "нагрузка ?" : "компьютер занят"}</span>
+    {status.ownerActivity?.busy ? <span className="opsMetric warn" title={[...status.ownerActivity.reasons, status.mode.mode === "free" ? `Режим «${status.mode.label}» включён, но тяжёлые локальные задачи (GPU) ждут, пока нагрузка спадёт. Облачные Codex/Claude работают.` : "Тяжёлые локальные задачи ждут, пока нагрузка спадёт."].join("\n")}>{status.ownerActivity.confidence === "unknown" ? "нагрузка ?" : status.mode.mode === "free" ? loadLabel(status.ownerActivity.reasons) : "компьютер занят"}</span>
       : status.ownerActivity?.signals.length ? <span className="opsMetric" title={status.ownerActivity.signals.join("\n")}>приложения простаивают</span> : null}
   </div>;
 }

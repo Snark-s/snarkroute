@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { AgentOpsStore } from "./store";
-import { factorySource, jabberwockSource, registerProjectionSource, toveSource, WorkRegistry, type ProjectionSource } from "./registry";
+import { factorySource, jabberwockSource, personaSource, registerProjectionSource, toveSource, WorkRegistry, type ProjectionSource } from "./registry";
 import type { AgentIdentity } from "./types";
 
 const who = (id: string, kind: AgentIdentity["kind"] = "app") => ({ id, kind, label: id, policy: { level: 3 } }) as unknown as AgentIdentity;
@@ -22,11 +22,23 @@ describe("D4: work registry projections", () => {
       : url.endsWith("/api/status") ? { lines: [{ id: "adobe_stock", name: "Adobe Stock", status: "pilot", status_label: "пилот", sales: { note: "продаж нет" } }] }
       : { obstacles: [{ id: "o1", title: "Нет модели", status: "open", needs: "technical", line_id: "apparel_u2y" }, { id: "o2", title: "Закрыто", status: "resolved" }] }))));
     const tove = await toveSource("http://t").fetch();
-    expect(tove.map(item => [item.externalId, item.state])).toEqual([["g1", "stalled"], ["g2", "needs_owner"], ["g3", "active"]]);
-    expect(tove[0].progress).toBe("0 из 0.01");
+    // Open obstacles are Tove's questions to the owner and come first; resolved ones are not shown.
+    expect(tove.map(item => [item.externalId, item.state])).toEqual([["obstacle:o1", "needs_owner"], ["g1", "stalled"], ["g2", "needs_owner"], ["g3", "active"]]);
+    expect(tove[1].progress).toBe("0 из 0.01");
     const factory = await factorySource("http://f").fetch();
     expect(factory.map(item => [item.externalId, item.state])).toEqual([["line:adobe_stock", "active"], ["obstacle:o1", "stalled"]]);
     vi.unstubAllGlobals();
+  });
+
+  it("projects PersonaCore tasks, keeping finished ones only for three days", async () => {
+    const now = Date.parse("2026-11-04T12:00:00Z");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ tasks: [
+      { task_id: "a", objective: "Проверить подключение", status: "running", phase: "execute", updated_at: "2026-11-04T11:00:00Z" },
+      { task_id: "b", objective: "Старое", status: "completed", updated_at: "2026-10-20T11:00:00Z" },
+      { task_id: "c", objective: "Нужен ответ", status: "awaiting_user", updated_at: "2026-11-03T11:00:00Z" }] }))));
+    const items = await personaSource("http://p", () => now).fetch();
+    vi.unstubAllGlobals();
+    expect(items.map(item => [item.externalId, item.state])).toEqual([["a", "active"], ["c", "needs_owner"]]);
   });
 
   it("projects Jabberwock routes and includes sources registered by other modules", async () => {

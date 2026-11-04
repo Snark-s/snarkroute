@@ -109,8 +109,13 @@ async function json(url: string): Promise<any> {
 /** Tove goals: status and stall counter map onto the shared states. */
 export function toveSource(base = "http://127.0.0.1:4890"): ProjectionSource {
   return { system: "tove", label: "Шорёк (Tove)", fetch: async () => {
-    const data = await json(`${base}/api/goals`);
-    return (data.goals ?? []).map((goal: any) => {
+    const [data, obstacles] = await Promise.all([json(`${base}/api/goals`), json(`${base}/api/obstacles`).catch(() => ({ obstacles: [] }))]);
+    // Open obstacles are Tove's questions to the owner; the answer goes back as a letter to app:tove.
+    const questions = (obstacles.obstacles ?? []).filter((obstacle: any) => obstacle.status === "open").map((obstacle: any) => ({
+      externalId: `obstacle:${obstacle.id}`, title: String(obstacle.title ?? obstacle.kind ?? obstacle.id).slice(0, 200), state: "needs_owner" as ProjectionState,
+      detail: String(obstacle.detail ?? "").slice(0, 1000) || undefined, goalId: undefined, progress: obstacle.kind ? String(obstacle.kind) : undefined,
+      updatedAt: String(obstacle.created_at ?? new Date().toISOString()), url: base.replace(/\/$/, "") + "/" }));
+    return [...questions, ...(data.goals ?? []).map((goal: any) => {
       const status = String(goal.status ?? "");
       const state: ProjectionState = status === "needs_review" ? "needs_owner" : status === "done" || status === "achieved" ? "done" : status === "failed" || status === "abandoned" ? "failed"
         : status === "paused" ? "waiting" : Number(goal.stalled) >= 3 ? "stalled" : "active";
@@ -120,7 +125,24 @@ export function toveSource(base = "http://127.0.0.1:4890"): ProjectionSource {
         ? `Шорёк просит решить судьбу цели: ${goal.stalled ?? "?"} проверок подряд без прогресса. Варианты: продолжить, изменить или закрыть цель в Шорьке. Цель: ${String(goal.objective ?? "").slice(0, 300)}`
         : String(goal.objective ?? "").slice(0, 400);
       return { externalId: String(goal.id), title: String(goal.title ?? goal.id), state, detail, progress, updatedAt: String(goal.updated_at ?? new Date().toISOString()), url: base.replace(/\/$/, "") + "/" };
-    });
+    })];
+  } };
+}
+
+/** PersonaCore runtime tasks (Jabberwock / persona agent): open ones and those finished in the last 3 days. */
+export function personaSource(apiUrl = "http://127.0.0.1:4317", now = () => Date.now()): ProjectionSource {
+  return { system: "persona", label: "PersonaCore", fetch: async () => {
+    const response = await fetch(`${apiUrl}/api/persona/tasks`, { signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) throw new Error(`persona tasks: HTTP ${response.status}`);
+    const data = await response.json() as { tasks?: any[] };
+    return (data.tasks ?? []).map(task => {
+      const status = String(task.status ?? "").toLowerCase();
+      const state: ProjectionState = /complete|done|success/.test(status) ? "done" : /fail|error|cancel/.test(status) ? "failed"
+        : /block|need|await(ing)?_(user|owner)|input/.test(status) ? "needs_owner" : /run|progress|active/.test(status) ? "active" : "waiting";
+      const updatedAt = String(task.updated_at ?? task.created_at ?? new Date(now()).toISOString());
+      return { externalId: String(task.task_id ?? task.id), title: String(task.display_title || task.objective || task.task_id).slice(0, 200), state,
+        progress: task.phase ? String(task.phase) : undefined, detail: String(task.current_request ?? "").slice(0, 300) || undefined, updatedAt };
+    }).filter(item => !["done", "failed"].includes(item.state) || now() - Date.parse(item.updatedAt) < 3 * 86_400_000);
   } };
 }
 

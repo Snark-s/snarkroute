@@ -8,6 +8,9 @@ type Progress = { total: number; verified: number; failed: number; cancelled: nu
 type Goal = { id: string; title: string; description?: string; source: string; createdBy: string; assignee: string; state: "active" | "done" | "cancelled"; priority: number; deadline?: string; createdAt: string; updatedAt: string; note?: string; progress: Progress; stages: Stage[] };
 type Projected = { system: string; externalId: string; title: string; state: string; detail?: string; progress?: string; updatedAt: string };
 const PROJECTED: Record<string, string> = { needs_owner: "нужен ты", stalled: "застряло", active: "в работе", waiting: "ждёт", failed: "не вышло", done: "готово" };
+type Resources = { mode?: { label?: string }; resources?: { gpu?: { usedMiB: number; totalMiB: number }; memory?: { usedMiB: number; totalMiB: number } } | null;
+  leases?: Array<{ id: string; agentId: string; purpose?: string; class: string; vramMiB?: number }>; queue?: { active: number } };
+const gb = (mib?: number) => mib == null ? "?" : (mib / 1024).toFixed(1);
 type Letter = { id: string; from: string; subject: string; body: string; at: string; taskId?: string; goalId?: string };
 type Report = { id: string; at: string; goalId?: string; kind: string; text: string };
 type Task = { id: string; title: string; state: string; reason: string; agentId: string; updatedAt: string; spec: { goalId?: string } };
@@ -36,6 +39,7 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [letters, setLetters] = useState<Letter[]>([]);
+  const [resources, setResources] = useState<Resources>();
   const [work, setWork] = useState<{ items: Projected[]; sources: Record<string, { label: string; ok: boolean; error?: string }> }>({ items: [], sources: {} });
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -48,10 +52,11 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
     try {
       const [goalList, taskList, secretary] = await Promise.all([call<{ goals: Goal[] }>(apiBase, "/goals?limit=200"), call<{ tasks: Task[] }>(apiBase, "/tasks?limit=300"),
         call<{ reports: Report[] }>(apiBase, "/secretary").catch(() => ({ reports: [] as Report[] }))]);
-      const [inbox, registry] = await Promise.all([call<{ letters: Letter[] }>(apiBase, "/mail?unacknowledged=1").catch(() => ({ letters: [] as Letter[] })),
-        call<{ items: Projected[]; sources: Record<string, { label: string; ok: boolean; error?: string }> }>(apiBase, "/registry").catch(() => ({ items: [] as Projected[], sources: {} }))]);
+      const [inbox, registry, status] = await Promise.all([call<{ letters: Letter[] }>(apiBase, "/mail?unacknowledged=1").catch(() => ({ letters: [] as Letter[] })),
+        call<{ items: Projected[]; sources: Record<string, { label: string; ok: boolean; error?: string }> }>(apiBase, "/registry").catch(() => ({ items: [] as Projected[], sources: {} })),
+        call<Resources>(apiBase, "/status").catch(() => undefined)]);
       if (!mounted.current) return;
-      setGoals(goalList.goals); setTasks(taskList.tasks); setReports(secretary.reports); setLetters(inbox.letters); setWork(registry); setError("");
+      setGoals(goalList.goals); setTasks(taskList.tasks); setReports(secretary.reports); setLetters(inbox.letters); setWork(registry); setResources(status); setError("");
     } catch (reason) { if (mounted.current) setError(reason instanceof Error ? reason.message : "Не удалось прочитать реестр."); }
   }, [apiBase]);
 
@@ -79,6 +84,17 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
     return state === "done" ? `Цель «${goal.title}» закрыта как достигнутая.` : `Цель «${goal.title}» отменена вместе с незавершёнными этапами.`;
   });
 
+  // Tove's open obstacles are questions to the owner: the answer travels as a letter to app:tove,
+  // and Tove applies it on its next cycle (resolved, or dismissed for «снять»).
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const answer = (item: Projected, dismiss: boolean) => act(item.externalId, async () => {
+    const text = dismiss ? "снять — неактуально" : (answers[item.externalId] ?? "").trim();
+    if (!text) throw new Error("Напиши ответ или нажми «Снять».");
+    await call(apiBase, "/mail", "POST", { to: `app:${item.system}`, subject: `Ответ владельца: ${item.externalId}`, body: text });
+    setAnswers(current => { const next = { ...current }; delete next[item.externalId]; return next; });
+    return dismiss ? `Вопрос «${item.title}» снят: Шорёк закроет его в ближайший цикл.` : `Ответ отправлен Шорьку: применит в ближайший цикл.`;
+  });
+
   const active = (goals ?? []).filter(goal => goal.state === "active");
   const closed = (goals ?? []).filter(goal => goal.state !== "active");
   const loose = tasks.filter(task => !task.spec.goalId && !TERMINAL.has(task.state));
@@ -96,6 +112,8 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
       <button type="submit" className="secretaryButton primary" disabled={Boolean(busy) || !title.trim()}>{busy === "create" ? <LoaderCircle className="spin" /> : <Plus />} Поставить цель</button>
     </form>
     <p className="secretarySummary"><strong>{active.length}</strong> целей в работе · <strong>{loose.length}</strong> задач вне целей</p>
+    {resources ? <p className="secretaryContext goalResources">Ресурсы: {resources.mode?.label ?? "режим неизвестен"} · GPU {gb(resources.resources?.gpu?.usedMiB)}/{gb(resources.resources?.gpu?.totalMiB)} ГБ · RAM {gb(resources.resources?.memory?.usedMiB)}/{gb(resources.resources?.memory?.totalMiB)} ГБ
+      {resources.leases?.length ? ` · заняты: ${resources.leases.map(lease => `${lease.agentId}${lease.purpose ? ` (${lease.purpose})` : ""}${lease.vramMiB ? `, ${gb(lease.vramMiB)} ГБ VRAM` : ""}`).join("; ")}` : " · резервов нет"}</p> : null}
     {goals && !active.length ? <div className="secretaryEmpty"><CheckCircle2 /> Активных целей нет.</div> : null}
     {active.map(goal => <GoalCard key={goal.id} goal={goal} busy={busy} onClose={state => void close(goal, state)} />)}
     <SecretaryBotPanel apiBase={apiBase} />
@@ -120,6 +138,11 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
         <span className="goalStageState">{PROJECTED[item.state] ?? item.state}</span>
         <span className="goalStageTitle">{work.sources[item.system]?.label ?? item.system}: {item.title}{item.progress ? ` · ${item.progress}` : ""}</span>
         {item.detail ? <small>{item.detail}</small> : null}
+        {item.system === "tove" && item.externalId.startsWith("obstacle:") ? <form className="secretaryForm obstacleAnswer" onSubmit={event => { event.preventDefault(); void answer(item, false); }}>
+          <input placeholder="Ответ Шорьку" value={answers[item.externalId] ?? ""} maxLength={2000} disabled={Boolean(busy)} onChange={event => setAnswers(current => ({ ...current, [item.externalId]: event.target.value }))} />
+          <button type="submit" className="secretaryButton primary" disabled={Boolean(busy) || !(answers[item.externalId] ?? "").trim()}>{busy === item.externalId ? <LoaderCircle className="spin" /> : null} Ответить</button>
+          <button type="button" className="secretaryButton" disabled={Boolean(busy)} onClick={() => void answer(item, true)}>Снять</button>
+        </form> : null}
       </div>)}</div>
     </details> : null}
     {loose.length ? <details className="secretaryArchive" open>
