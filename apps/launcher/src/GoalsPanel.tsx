@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle2, Flag, LoaderCircle, Plus, RefreshCw, X } from "lucide-react";
 import { ownerHeaders } from "./AgentOpsPanel";
+import { SecretaryBotPanel } from "./SecretaryBotPanel";
 
 type Stage = { id: string; title: string; state: string; reason: string; after: string[]; agentId: string; updatedAt: string };
 type Progress = { total: number; verified: number; failed: number; cancelled: number; active: number; needsOwner: number; percent: number; status: string };
@@ -97,6 +98,7 @@ export function GoalsPanel({ apiBase }: { apiBase: string }) {
     <p className="secretarySummary"><strong>{active.length}</strong> целей в работе · <strong>{loose.length}</strong> задач вне целей</p>
     {goals && !active.length ? <div className="secretaryEmpty"><CheckCircle2 /> Активных целей нет.</div> : null}
     {active.map(goal => <GoalCard key={goal.id} goal={goal} busy={busy} onClose={state => void close(goal, state)} />)}
+    <SecretaryBotPanel apiBase={apiBase} />
     {letters.length ? <details className="secretaryArchive" open>
       <summary>Письма тебе ({letters.length})</summary>
       <div className="secretaryArchiveList">{letters.map(letter => <article key={letter.id} className="secretaryQuestion">

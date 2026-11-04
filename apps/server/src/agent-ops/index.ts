@@ -19,7 +19,7 @@ import { AgentMail } from "./mail";
 import { factorySource, toveSource, WorkRegistry } from "./registry";
 import { localServicePort } from "../services/local-service-endpoints";
 import { SecretaryService } from "../secretary/service";
-import { TelegramChannel, telegramConfigFromEnv } from "../secretary/telegram";
+import { SecretaryTelegram } from "../secretary/telegram";
 import { AgentTaskService } from "./tasks";
 import { CatalogAcceptanceReviewer } from "./acceptor-reviewer";
 import type { QuotaLedger } from "./quota-ledger";
@@ -177,7 +177,12 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
   const work = new WorkRegistry({ store, includeRegistered: !options.adapters, sources: options.adapters ? [] : [toveSource(`http://127.0.0.1:${port("tove", 4890)}`), factorySource(`http://127.0.0.1:${port("factory", 4891)}`)] });
   await work.init();
   // D2: what matters to the owner reaches him as a letter, and on the phone when Telegram is configured.
-  const telegram = options.adapters ? undefined : (() => { const config = telegramConfigFromEnv(); return config ? new TelegramChannel(config) : undefined; })();
+  let secretaryRef: SecretaryService | undefined;
+  const telegram = new SecretaryTelegram({ store, onGoal: async (text, requestKey) => {
+    if (!secretaryRef) throw new Error("Секретарь ещё запускается.");
+    const message = await secretaryRef.receive(registry.owner("telegram"), { text, source: "telegram", requestKey });
+    return `Цель принята: ${message.text.split(/\r?\n/)[0].slice(0, 200)}. Раскладываю на этапы.`;
+  } });
   const notifyKinds = new Set(["needs_owner", "goal_accepted", "goal_stalled", "daily_digest"]);
   const secretary = new SecretaryService({ store, tasks: taskService, goals, registry, sandbox: join(directory, "sandbox"), dailyDigest: !options.adapters,
     workSummary: async () => { const { items } = await work.list(); return { needsOwner: items.filter(item => item.state === "needs_owner").length, stalled: items.filter(item => item.state === "stalled").length, active: items.filter(item => item.state === "active").length }; },
@@ -185,14 +190,11 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
       if (!notifyKinds.has(report.kind)) return;
       const subject = { needs_owner: "Нужен ты", goal_accepted: "Цель достигнута", goal_stalled: "Цель застряла", daily_digest: "Утренняя сводка", plan_ready: "План готов" }[report.kind as string] ?? report.kind;
       void mail.send(registry.app("secretary", "Секретарь"), { to: "owner", subject, body: report.text, ...(report.goalId ? { goalId: report.goalId } : {}) }).catch(() => undefined);
-      void telegram?.send(`${subject}\n${report.text}`).catch(() => undefined);
+      telegram.notify(`${subject}\n${report.text}`);
     } });
   await secretary.init();
-  if (!options.adapters) secretary.start();
-  telegram?.start(async (text, requestKey) => {
-    const message = await secretary.receive(registry.owner("telegram"), { text, source: "telegram", requestKey });
-    return `Цель принята: ${message.text.split(/\r?\n/)[0].slice(0, 200)}. Раскладываю на этапы.`;
-  });
+  secretaryRef = secretary;
+  if (!options.adapters) { secretary.start(); await telegram.init(); }
   const buzha = new BuzhaAgentService({ tasks: taskService, registry, runtimeVersion });
   if (!options.adapters) buzha.start();
   const apiUrl = options.apiUrl ?? "http://127.0.0.1:4317";
@@ -310,9 +312,9 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     taskService.kick();
   }
 
-  function close(): void { clearInterval(sampler); clearInterval(appPidTimer); activityMonitor.stop(); secretary.close(); telegram?.stop(); taskService.close(); buzha.close(); void buzhaTools.close(); }
+  function close(): void { clearInterval(sampler); clearInterval(appPidTimer); activityMonitor.stop(); secretary.close(); telegram.stop(); taskService.close(); buzha.close(); void buzhaTools.close(); }
 
-  return { apiUrl, callers, store, registry, ledger, locks, dispatcher, tasks: taskService, goals, secretary, mail, work, catalog, adapters, buzha, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
+  return { apiUrl, callers, store, registry, ledger, locks, dispatcher, tasks: taskService, goals, secretary, telegram, mail, work, catalog, adapters, buzha, mode, status, setManualMode, setSchedule, setLimits, acquireAgentLease, releaseAgentLease, withRuntimeLease, close,
     modeState: () => modeState };
 }
 

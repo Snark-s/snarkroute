@@ -273,6 +273,21 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
   }));
   app.post(`${ROOT}/mail/:id/ack`, handle(async (ops, identity, request) => ({ ok: true, letter: await ops.mail.ack(identity, (request.params as { id: string }).id, ((request.body ?? {}) as { note?: string }).note) })));
 
+  // D2: the Secretary's Telegram bot, owner only. The token goes in and is never returned.
+  app.get(`${ROOT}/secretary/telegram`, handle(async (ops, identity) => { ownerOnly(identity, "бот Секретаря"); return { ok: true, telegram: ops.telegram.status() }; }));
+  app.post(`${ROOT}/secretary/telegram`, handle(async (ops, identity, request) => {
+    ownerOnly(identity, "бот Секретаря");
+    const body = (request.body ?? {}) as { token?: string; minIntervalMinutes?: number; disconnect?: boolean };
+    if (body.disconnect) return { ok: true, telegram: await ops.telegram.disconnect() };
+    if (typeof body.token === "string" && body.token.trim()) return { ok: true, telegram: await ops.telegram.connect(body.token) };
+    if (body.minIntervalMinutes !== undefined) {
+      if (!ops.telegram.channel) throw new AgentOpsError("BAD_REQUEST", "Сначала подключи бота.", {}, 400);
+      await ops.telegram.channel.setInterval(Number(body.minIntervalMinutes));
+      return { ok: true, telegram: ops.telegram.status() };
+    }
+    throw new AgentOpsError("BAD_REQUEST", "Нужен token, minIntervalMinutes или disconnect.", {}, 400);
+  }));
+
   // D2: a goal said to the Secretary is registered, planned into stages and handed to the queue.
   app.post(`${ROOT}/secretary/messages`, handle(async (ops, identity, request, reply) => reply.code(202).send({ ok: true, message: await ops.secretary.receive(identity, (request.body ?? {}) as Record<string, unknown>) })));
   app.get(`${ROOT}/secretary`, handle(async (ops, identity) => {
