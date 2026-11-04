@@ -12,6 +12,7 @@ import { SnarkBridgeCard } from "./SnarkBridgeCard";
 import { ModelCatalogCard } from "./ModelCatalogCard";
 import { TechRadarCard } from "./TechRadarCard";
 import { SecretaryPanel } from "./SecretaryPanel";
+import { BridgePanel } from "./BridgePanel";
 import { AgentOpsCard, AgentOpsPage, AgentOpsStatusBar, ownerHeaders, useAgentOpsStatus } from "./AgentOpsPanel";
 import { BuzhaPage } from "./BuzhaPanel";
 import { TerminalPage, TerminalPanel, TerminalsButton, useServiceLogs, useTerminalContextMenu, showTerminal } from "./ServiceTerminals";
@@ -59,6 +60,7 @@ function Launcher() {
   const [error, setError] = useState("");
   const livingCanvas = apps.find(app => app.id === "living-canvas");
   const secretary = apps.find(app => app.id === "secretary");
+  const [bridgePending, setBridgePending] = useState(0);
   const updateSecretaryPending = useCallback((pending: number) => setApps(current => current.map(app => app.id === "secretary" ? { ...app, pending } : app)), []);
   const refresh = async () => setApps((await api<{ apps: AppCard[] }>("/api/system/apps")).apps);
   useEffect(() => {
@@ -119,13 +121,13 @@ function Launcher() {
           event.preventDefault();
           setActiveTab(workshopTabs[nextIndex].id);
           document.getElementById(`workshop-tab-${workshopTabs[nextIndex].id}`)?.focus();
-        }}>{tab.label}{tab.id === "secretary" ? <span className={`secretaryTabCount ${secretary?.pending === 0 ? "empty" : ""}`} aria-hidden="true" title={secretary?.error}>{secretary?.pending ?? "…"}</span> : null}</button>)}
+        }}>{tab.label}{tab.id === "secretary" ? <span className={`secretaryTabCount ${secretary?.pending === 0 && bridgePending === 0 ? "empty" : ""}`} aria-hidden="true" title={secretary?.error}>{secretary?.pending == null ? "…" : secretary.pending + bridgePending}</span> : null}</button>)}
     </div>
     {/* Keep panels mounted so card state and status polling survive tab changes. */}
     {workshopTabs.map(tab => <section key={tab.id} className="appGrid workshopPanel"
       id={`workshop-panel-${tab.id}`} role="tabpanel" aria-labelledby={`workshop-tab-${tab.id}`}
       hidden={activeTab !== tab.id}>
-      {tab.id === "secretary" ? <SecretaryPanel apiBase={apiBase} onPendingChange={updateSecretaryPending} /> : null}
+      {tab.id === "secretary" ? <><SecretaryPanel apiBase={apiBase} onPendingChange={updateSecretaryPending} /><BridgePanel apiBase={apiBase} onPendingChange={setBridgePending} /></> : null}
       {tab.id === "agents" ? <AgentOpsCard apiBase={apiBase} /> : null}
       {tab.id === "agents" && livingCanvas ? <TechRadarCard running={livingCanvas.running} busy={busy === "tech-radar"} index={0} onOpen={() => void openApp(livingCanvas, "/tech-radar")} /> : null}
       {tab.appIds.flatMap(id => apps.filter(app => app.id === id)).map((app, appIndex) => {

@@ -341,3 +341,8 @@ button:disabled { opacity: .5; cursor: wait; } .spin { animation: spin 1s linear
 .opsBusy { color:#ffc85d; }
 
 .opsLogin { padding:4px 9px; border:1px solid #6d61a9; border-radius:8px; background:#755cff30; color:#f4f5fb; font-size:12px; cursor:pointer; }
+
+/* B3: SnarkBridge pending approvals in the Secretary tab */
+.bridgePanel { margin-top: 1.5rem; }
+.bridgeSummary { white-space: pre-wrap; word-break: break-all; max-height: 12em; overflow: auto; font-size: .85em; }
+
