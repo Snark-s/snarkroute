@@ -23,6 +23,8 @@ export type ExecutorProfile = {
   order: number;
   permissionBase?: string;
   gatewayManaged?: boolean;
+  /** Never chosen by ranking alone: only when the task names this executor. */
+  explicitOnly?: boolean;
 };
 
 export type ExecutorProbe = { installed: boolean; authenticated: boolean | null; detail?: string; checkedAt: string; source: string; model?: string; runtimeId?: string };

@@ -42,6 +42,7 @@ import { appMode, assertProductionSafety } from "./services/env";
 import { loadRootEnv } from "./services/env-loader";
 import { createDecisionRuntimeFromEnv } from "./services/decision-runtime";
 import { jabberwockSource, registerProjectionSource } from "./agent-ops/registry";
+import { registerJabberwockRuntime } from "./agent-ops/jabberwock-executor";
 import { localBrowserOriginAllowed, registerLocalHttpBoundary } from './services/local-http-boundary';
 export function buildServer() {
   loadRootEnv();
@@ -75,6 +76,8 @@ export function buildServer() {
   if (appMode() === "local" && process.env.AGENT_OPS_DISABLED !== "1" && (!process.env.VITEST || process.env.AGENT_OPS_IN_TESTS === "1")) registerAgentOpsRoutes(app);
   void registerPersonaAgentRoutes(app);
   const routeRunner = jabberwockMemory && supervisorBridge ? registerJabberwockSupervisorRoutes(app, jabberwockMemory, supervisorBridge) : null;
+  // D5: the agent-ops queue can hand a task to the Supervisor (opt-in executor "jabberwock").
+  registerJabberwockRuntime(jabberwockMemory && routeRunner ? { memory: jabberwockMemory, runner: routeRunner } : undefined);
   void registerMcpRoutes(app, jabberwockMemory && supervisorBridge && routeRunner ? { memory: jabberwockMemory, bridge: supervisorBridge, runner: routeRunner } : undefined);
   registerDecisionRoutes(app, decisionRuntime);
   void registerModelRoutes(app, decisionRuntime.executor);

@@ -90,14 +90,14 @@ export function registerProjectionSource(source: ProjectionSource): void {
 }
 export function registeredProjectionSources(): ProjectionSource[] { return [...extraSources]; }
 
-/** Jabberwock Supervisor routes: blocked routes wait for a decision, running ones are in work. */
-export function jabberwockSource(list: (limit: number) => Array<{ id: string; objective: string; status: string; summary: string | null; blocked: string | null; updatedAt: string; steps: number; done: number }>): ProjectionSource {
+/** Jabberwock Supervisor routes: blocked routes wait for a decision, running ones are in work; finished or stuck ones fade after 7 days. */
+export function jabberwockSource(list: (limit: number) => Array<{ id: string; objective: string; status: string; summary: string | null; blocked: string | null; updatedAt: string; steps: number; done: number }>, now = () => Date.now()): ProjectionSource {
   return { system: "jabberwock", label: "Jabberwock", fetch: async () => list(50).map(route => {
     const state: ProjectionState = route.status === "completed" ? "done" : route.status === "failed" || route.status === "cancelled" ? "failed" : route.status === "blocked" ? "stalled" : route.status === "pending" ? "waiting" : "active";
     let blocked = route.blocked ?? "";
     try { const parsed = JSON.parse(blocked); blocked = parsed?.message ?? parsed?.reason ?? blocked; } catch { /* plain text */ }
     return { externalId: route.id, title: route.objective, state, progress: `шагов ${route.done} из ${route.steps}`, detail: (blocked || route.summary || "").slice(0, 400) || undefined, updatedAt: route.updatedAt };
-  }) };
+  }).filter(item => item.state === "active" || item.state === "waiting" || now() - Date.parse(item.updatedAt) < 7 * 86_400_000) };
 }
 
 async function json(url: string): Promise<any> {

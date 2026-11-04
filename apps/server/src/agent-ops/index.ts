@@ -10,6 +10,7 @@ import { CapabilityCatalog, type ToolGroup } from "./catalog";
 import { defaultComputerModeState, effectiveComputerMode, validateScheduleRule, type ComputerModeState, type ManualMode, type ModeLimits, type ScheduleRule } from "./computer-mode";
 import { currentOpsContext, opsContext } from "./context";
 import { ClaudeCodeExecutor, CodexExecutor, LocalRouteExecutor, type ExecutorAdapter, type LocalTextModel } from "./executors";
+import { JabberwockExecutor } from "./jabberwock-executor";
 import { agentOpsDataDirectory, sharedQuotaLedgerReady } from "./ledger-instance";
 import { LockManager } from "./locks";
 import { defaultCpuCount, ResourceDispatcher, type Decision, type Lease, type ResourceRequest, type Telemetry } from "./resources";
@@ -140,7 +141,8 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
   const adapters = options.adapters ?? [
     new LocalRouteExecutor({ pickModel: pickLocalTextModel, runText: (model, prompt, signal) => textRunner ? textRunner(model, prompt, signal) : Promise.resolve({ ok: false, error: "Исполнитель маршрутов ещё не подключён." }) }),
     new CodexExecutor({ auth: force => subscriptions[1].chatGptSubscription().auth(force), refreshQuota: () => subscriptions[1].chatGptSubscription().refreshQuota(), model: () => process.env.AGENT_OPS_CODEX_MODEL?.trim() || undefined }),
-    new ClaudeCodeExecutor({ auth: force => subscriptions[0].claudeSubscription().auth(force), model: () => process.env.AGENT_OPS_CLAUDE_MODEL?.trim() || "sonnet" })
+    new ClaudeCodeExecutor({ auth: force => subscriptions[0].claudeSubscription().auth(force), model: () => process.env.AGENT_OPS_CLAUDE_MODEL?.trim() || "sonnet" }),
+    new JabberwockExecutor()
   ];
   const buzhaTools = new BuzhaTools({ observerFile: buzhaObserverFile(), effect: (task, key, phase, tool, reason) => { if (!tasks) throw new Error("Общая очередь ещё не подключена."); return tasks.toolEffect(task.id, tool, key, phase, reason); }, delegate: async (task, args) => {
     if (!tasks || !task.workdir || typeof args.goal !== "string" || !args.goal.trim() || args.goal.length > 10000) throw new Error("Нужна конкретная подзадача и общая очередь.");

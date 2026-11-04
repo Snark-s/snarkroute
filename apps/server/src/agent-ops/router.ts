@@ -36,6 +36,7 @@ export function rankExecutors(input: RoutingInput): RouteCandidate[] {
     const reasons: string[] = [];
     let suitable = true;
     if (!allowed.has(adapter.id)) { suitable = false; reasons.push("не разрешён политикой агента или поручения"); }
+    if (adapter.profile.explicitOnly && preferred !== adapter.id) { suitable = false; reasons.push(`только по явному выбору (executor: "${adapter.id}")`); }
     if (!adapter.profile.kinds.includes(kind)) { suitable = false; reasons.push(`не выполняет задачи типа ${kind}`); }
     if (needsEdits && !adapter.profile.editsFiles) { suitable = false; reasons.push("не умеет менять файлы"); }
     if (input.spec.checks?.some(check => check.type !== "command") && !adapter.profile.editsFiles && input.spec.workspace) { suitable = false; reasons.push("проверки требуют файлов в рабочей папке"); }

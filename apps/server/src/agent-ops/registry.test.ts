@@ -42,7 +42,8 @@ describe("D4: work registry projections", () => {
   });
 
   it("projects Jabberwock routes and includes sources registered by other modules", async () => {
-    const source = jabberwockSource(() => [{ id: "route_1", objective: "Собрать сайт", status: "blocked", summary: null, blocked: JSON.stringify({ message: "нет модели" }), updatedAt: "2026-11-04T09:00:00Z", steps: 4, done: 1 }]);
+    const source = jabberwockSource(() => [{ id: "route_1", objective: "Собрать сайт", status: "blocked", summary: null, blocked: JSON.stringify({ message: "нет модели" }), updatedAt: "2026-11-04T09:00:00Z", steps: 4, done: 1 },
+      { id: "route_old", objective: "Старый тупик", status: "blocked", summary: null, blocked: null, updatedAt: "2026-10-01T09:00:00Z", steps: 2, done: 0 }], () => Date.parse("2026-11-04T12:00:00Z"));
     expect(await source.fetch()).toMatchObject([{ externalId: "route_1", state: "stalled", progress: "шагов 1 из 4", detail: "нет модели" }]);
     registerProjectionSource(source);
     const registry = new WorkRegistry({ store: new AgentOpsStore(join(directory, "data-j")), sources: [], includeRegistered: true });
