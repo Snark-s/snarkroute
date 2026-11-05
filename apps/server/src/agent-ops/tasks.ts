@@ -236,7 +236,8 @@ export class AgentTaskService {
     const limits = {
       tasks: policy.chainBudget.tasks,
       wallMinutes: Math.min(policy.chainBudget.wallMinutes, root?.spec.budget?.wallMinutes ? root.spec.budget.wallMinutes * 4 : policy.chainBudget.wallMinutes),
-      subscriptionRuns: Math.min(policy.chainBudget.subscriptionRuns, root?.spec.budget?.subscriptionRuns ?? policy.chainBudget.subscriptionRuns)
+      // Runs the owner added himself («Продлить») come on top of every automatic ceiling.
+      subscriptionRuns: Math.min(policy.chainBudget.subscriptionRuns, root?.spec.budget?.subscriptionRuns ?? policy.chainBudget.subscriptionRuns) + (root?.ownerExtraRuns ?? 0)
     };
     const subscriptionRuns = members.reduce((sum, task) => sum + task.attempts.reduce((runs, attempt) => runs + (attempt.modelCalls ? attempt.modelCalls.filter(call => call.tier === "subscription").length : this.adapter(attempt.executor)?.profile.costTier === "subscription" ? 1 : 0), 0)
       + (task.reviewRuns ?? []).filter(run => this.adapter(run.executor)?.profile.costTier === "subscription").length, 0);
@@ -264,7 +265,7 @@ export class AgentTaskService {
       activeMinutesUsed: active, activeMinutesLeft: Math.max(0,activeLimit-active), activeMinutesLimit: activeLimit,
       waitingMinutes: (task.waiting?.minutes??0)+(WAITING_STATES.has(task.state)||task.waiting?.reason?interval:0), resourceWaitingMinutes: (task.waiting?.resourceMinutes??0)+(task.state==="waiting_resources"||task.waiting?.reason==="resource"?interval:0)+resourceWait,
       pausedMinutes: (task.waiting?.pausedMinutes??0)+(task.state==="paused"?interval:0),
-      subscriptionRunsUsed: runs, subscriptionRunsLimit: task.spec.budget?.subscriptionRuns ?? this.chainBudget(task.chain.rootTaskId).limits.subscriptionRuns,
+      subscriptionRunsUsed: runs, subscriptionRunsLimit: task.spec.budget?.subscriptionRuns !== undefined ? task.spec.budget.subscriptionRuns + (task.ownerExtraRuns ?? 0) : this.chainBudget(task.chain.rootTaskId).limits.subscriptionRuns,
       attemptsUsed: task.attempts.filter(attempt => attempt.executor !== "external").length, attemptsLimit: task.spec.retry?.maxAttempts ?? 4, providerCost: 0,
       deadline: task.spec.deadline ?? null };
   }
@@ -300,6 +301,28 @@ export class AgentTaskService {
     task.spec.budget=next; task.budgetPolicyId=identity.policy.id;
     if(maxAttempts!==undefined)task.spec.retry={...task.spec.retry,maxAttempts};
     await this.persist(task,"budget_revised",`${reason}; использовано ${used} подписочных шагов, счётчики не обнулены.`);
+    return task;
+  }
+
+  /**
+   * «Продлить» from the owner: subscription runs are a flat-fee quota, and only the owner may go past the automatic
+   * ceilings. The extra runs are added to the chain and to the task itself; history keeps who, when and why.
+   */
+  async ownerExtendRuns(id: string, identity: AgentIdentity, extra: number, reason: string): Promise<AgentTask> {
+    if (identity.kind !== "owner") throw new AgentOpsError("OWNER_ONLY", "Добавить запуски сверх потолка может только владелец.", {}, 403);
+    if (!Number.isInteger(extra) || extra < 1 || extra > 48) throw new AgentOpsError("BAD_REQUEST", "Добавить можно от 1 до 48 запусков за раз.", {}, 400);
+    const task = this.require(id);
+    const root = this.tasks.get(task.chain.rootTaskId) ?? task;
+    for (const target of new Set([root, task])) {
+      const chain = this.chainBudget(root.id);
+      const used = target === root ? chain.subscriptionRunsUsed : this.budgetUsage(target).subscriptionRunsUsed;
+      // Room is counted from what is already used: after the press there are always `extra` fresh runs.
+      const base = target === root ? chain.limits.subscriptionRuns - (root.ownerExtraRuns ?? 0) : target.spec.budget?.subscriptionRuns;
+      const current = target.ownerExtraRuns ?? 0;
+      target.ownerExtraRuns = base === undefined ? current + extra : Math.max(current + extra, used + extra - base);
+      (target.budgetHistory ??= []).push({ at: this.iso(), by: identity.id, reason: `+${extra} подписочных запусков от владельца: ${reason}`, previous: structuredClone(target.spec.budget), next: structuredClone(target.spec.budget), subscriptionRunsUsed: used });
+      await this.persist(target, "budget_revised", `Владелец добавил ${extra} подписочных запусков сверх автоматического потолка (использовано ${used}). ${reason}`);
+    }
     return task;
   }
 

@@ -302,15 +302,11 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
     const task = ops.tasks.requireReadable(id, identity);
     if (body.action === "stop") return { ok: true, task: await ops.tasks.cancel(id, identity, note || "Остановлено владельцем из «Вопросов агентов».") };
     if (body.action === "extend") {
-      // Subscription runs are a flat-fee quota: raise the chain and this task to the owner's own ceiling, then continue.
-      const ceiling = identity.policy.chainBudget.subscriptionRuns;
-      const reason = note || "Владелец продлил бюджет из «Вопросов агентов».";
-      const revised: string[] = [];
-      for (const target of [...new Set([task.chain.rootTaskId, id])]) {
-        try { await ops.tasks.reviseBudget(target, identity, { subscriptionRuns: ceiling }, reason); revised.push(target); }
-        catch (error) { if (target === id) throw error; }
-      }
-      return { ok: true, revised, task: await ops.tasks.resolve(id, identity, "continue", reason) };
+      // Subscription runs are a flat-fee quota: the owner adds a fresh portion on top of the automatic ceilings
+      // (raising to a ceiling the chain already reached would change nothing and the question would come back).
+      const reason = note || "Владелец продлил из «Вопросов агентов».";
+      await ops.tasks.ownerExtendRuns(id, identity, 12, reason);
+      return { ok: true, added: 12, rootTaskId: task.chain.rootTaskId, task: await ops.tasks.resolve(id, identity, "continue", reason) };
     }
     if (body.action === "answer") {
       if (!note) throw new AgentOpsError("BAD_REQUEST", "Напиши ответ.", {}, 400);
