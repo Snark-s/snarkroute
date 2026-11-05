@@ -1,610 +1,230 @@
 # SnarkRoute
 
-Open, local-first visual workflow system for portable AI/model/API routes.
+**Local-first orchestration for AI models, agents, tools, compute resources, and portable visual workflows.**
 
-SnarkRoute helps artists and developers build AI workflows as portable,
-inspectable route documents instead of locking them inside one platform.
+SnarkRoute started as a visual editor for the Open Route Protocol. It has grown into an experimental orchestration platform: a shared model gateway, an agent task dispatcher, resource-aware execution, verification of results, controlled access to local tools, and visual workflow editors.
 
-## Links
+> **Status: active development / work in progress.** This repository contains working components, prototypes, and integrations developed for a real local workstation. It is **not** yet a polished, turnkey multi-agent product. Implemented code, deployment-specific integrations, and planned capabilities are distinguished below.
 
-- [YouTube](https://www.youtube.com/@SnarkRoute)
-- [Telegram](https://t.me/snarkroutelab)
-- [Portable tools and collapsed nodes](docs/portable-tools.md)
-- [Adobe host adapters](docs/adobe-host-adapters.md)
-- [MiniMax H3 worker and 2K regeneration](docs/minimax-h3.md)
+## Why SnarkRoute exists
 
-## What Is It?
+AI systems are increasingly capable of doing work, but the surrounding infrastructure is fragmented. Models, subscriptions, local GPUs, coding agents, creative tools, browser automation, and project state often live in separate applications.
 
-SnarkRoute is an early open-source project for creating, inspecting,
-remixing, validating, and executing visual AI/model/API workflows.
+SnarkRoute explores a different approach:
 
-The current working public preview is **BoojumRoute Lab**: a local block editor
-for building routes from nodes, ports, providers, executors, schemas, prompt
-library assets, and installable `.snarknode` packages.
+- **Models are replaceable.** Work should not depend on a single provider, subscription, or model.
+- **Tasks should outlive chat sessions.** A task needs a goal, state, constraints, evidence, and a verifiable outcome.
+- **Agents should cooperate rather than compete for resources.** Routing, quotas, GPU/RAM reservations, and locks belong in shared infrastructure.
+- **An action is not a result.** Finishing a model call or clicking a button does not mean the requested work was completed.
+- **Tools and workflows should be inspectable and portable.** Visual routes remain part of the architecture, not the whole product.
+- **The owner keeps control.** Access to local files, browsers, credentials, external services, and costly actions is subject to explicit policies.
 
-The broader SnarkRoute project also includes **SnarkRoute Living Canvas**, an
-experimental shell for a future higher-level creative workspace. It is not the
-main public preview yet.
+The goal is a practical, local-first environment in which multiple AI agents can use different models and tools while working toward checked results.
 
-Both interfaces share the same Open Route Protocol engine/runtime. The route is
-the primary artifact: a readable workflow document that can describe models,
-APIs, assets, provenance, and execution metadata without embedding provider
-secrets.
+## Architecture at a glance
 
-## Why It Matters
+~~~mermaid
+flowchart TD
+    U["User / Workshop UI / connected agents"] --> Q["Task queue & dispatcher"]
+    Q --> R["Capability catalog & executor router"]
+    R --> E["Local models / Codex / Claude Code"]
+    R --> T["MCP tools / SnarkBridge / local services"]
+    Q --> S["Resource leases / quotas / locks"]
+    E --> V["Acceptor: checks, reviews & evidence"]
+    T --> V
+    W["Visual workflows / Open Route Protocol"] --> G["Model Gateway"]
+    E --> G
+    G --> P["Local and remote model providers"]
+    V --> Q
+~~~
 
-Most AI workflow tools make workflows hard to reproduce, hard to inspect, or
-hard to move between runtimes. Some hide execution details inside a hosted
-platform. Others are excellent for one creative domain, but do not try to define
-a portable route format across models, APIs, assets, providers, and local
-execution.
+This is an architectural overview, **not** a claim that all integrations are complete or universally available.
 
-SnarkRoute starts from a different idea: the workflow itself should be portable.
+## Main components
 
-A route should not belong to a platform. It should be a readable, shareable,
-inspectable document that can connect models, APIs, assets, and tools across
-providers without directly loading arbitrary external resources from the route
-itself.
+| Component | Role | Current state |
+| --- | --- | --- |
+| **Model Registry & Gateway** | Model metadata, capabilities, provider adapters, selection, invocation, and advisory cost estimates | Implemented core; provider coverage varies |
+| **Agent operations (agent-ops)** | Capability catalog, executor routing, persistent tasks, retries, budgets, and delegation | Implemented core; actively evolving |
+| **Resource manager** | GPU/VRAM, RAM, CPU and disk reservations; computer-use modes, runtime admission, quotas, and locks | Implemented for the local environment |
+| **Acceptor** | Task acceptance criteria, machine checks, model reviews, evidence, and explicit unverifiable states | Implemented; being refined |
+| **SnarkBridge integration** | Policy-controlled access to local files, processes, browser sessions, and services | External companion system; deployment-dependent |
+| **Workshop launcher** | Local application hub, agent/task views, status, and runtime controls | Working local UI |
+| **BoojumRoute Lab** | Visual node editor for portable, executable AI/model/API routes | Working public preview |
+| **SnarkRoute Living Canvas** | Higher-level visual creative workspace | Experimental |
+| **Autonomous agent applications** | Persistent agents connected through shared tasks and tools | Some running in the author's installation; not all included in this repository |
 
-The model is not the center. The route is.
+**Important:** A registered or discovered capability is not the same as an available or verified one. The catalog tracks these states separately. See [agent capabilities and delegation](docs/agent-capabilities-and-delegation.md).
 
-## What You Can Try Today
+## Agent orchestration
 
-Ready to try:
+The `apps/server/src/agent-ops` subsystem separates **who can do a task** from **when the task can run**.
 
-- BoojumRoute Lab
-- route creation and execution
-- prompt library nodes
-- installable `.snarknode` packages
-- drag-and-drop node import
-- missing-node placeholders
-- provider-backed nodes when local provider settings are configured
+- **Capability catalog:** models, coding agents, local services, and tool groups with observed availability.
+- **Executor router:** matches a task to an eligible local route, Codex CLI, or Claude Code based on task requirements and policy.
+- **Persistent dispatcher:** retains task state, attempts, event history, dependencies, and outcomes across sessions.
+- **Resource scheduling:** accounts for GPU and memory pressure, owner activity, shared subscription limits, and conflicting workspaces.
+- **Acceptance:** checks the requested result using files, tests, service observations, and review evidence rather than trusting a success message.
+- **Delegation:** allows tasks to be handed to other suitable executors under explicit constraints and budgets.
 
-Experimental:
+Task contracts include a goal, expected result, constraints, permissions, machine checks, and acceptance criteria. A task can remain blocked or unverifiable rather than being incorrectly called complete.
 
-- SnarkRoute Living Canvas
-- installer polish
-- provider setup UX
-- video/audio workflows
+Detailed design and interfaces: [Agent capabilities](docs/agent-capabilities-and-delegation.md) · [Task Acceptor](docs/agent-acceptor.md).
 
-## Demo
+## Local models, cloud providers, and subscriptions
+
+The Model Gateway abstracts provider-specific calls behind capability-oriented interfaces. The repository includes integrations and infrastructure for local runtimes as well as configured external model providers. Its catalog also supports subscription-backed coding executors in the local deployment.
+
+A few important distinctions:
+
+- A model listed in a catalog is **not** necessarily installed, authenticated, or currently runnable.
+- Provider pricing estimates are advisory; unknown costs remain unknown.
+- Local heavy inference must respect resource availability and the owner's computer-use mode.
+- Subscription execution depends on the corresponding installed CLI, login, eligibility, and quota.
+- Nothing in a route file should contain raw provider credentials.
+
+See [Model Gateway v0](docs/model-gateway-v0.md), [model registry principles](docs/model-registry-principles.md), and [agent delegation](docs/agent-capabilities-and-delegation.md).
+
+## The original visual workflow layer
+
+Open Route Protocol (ORP) remains an important part of SnarkRoute. It describes executable graphs of model/API/tool operations as inspectable documents rather than opaque application state.
+
+- `.orp` is the canonical route extension; `.orp.json` and `.orp.yaml` are developer-friendly variants.
+- `.route` is a compatibility alias.
+- Routes contain nodes, edges, parameters, execution metadata, and asset references.
+- `AssetRef` lets a host resolve reusable resources according to its own validation and trust rules.
+- BoojumRoute Lab supports editing, validating, importing, exporting, and executing supported routes.
+- Reusable `.snarknode` packages describe node capabilities and interfaces; downloaded arbitrary JavaScript is not implicitly trusted.
 
 ![BoojumRoute Lab: image route with Clarity Upscaler](docs/images/snarkroute-clarity-demo.png)
 
-A simple image-processing route:
+[Watch the BoojumRoute demo](docs/videos/snarkroute-clarity-demo.mp4) · [Example routes](examples) · [Portable tools and collapsed nodes](docs/portable-tools.md) · [Asset design](docs/assets.md) · [ORP commons principle](docs/commons-principle.md)
 
-```text
-local image input -> Replicate Clarity Upscaler -> local output preview
-```
+Some advanced asset/export features are still incomplete; see the related documentation before relying on them for interchange.
 
-[Watch a short demo video](docs/videos/snarkroute-clarity-demo.mp4)
+## Getting started (Windows)
 
-See `docs/demo-script.md` for a short recording plan.
+The most established public entry point is **BoojumRoute Lab**. The broader Workshop is currently tailored to the author's local environment and its connected services.
 
-## Windows Quick Start
+Prerequisites: Git, Node.js with Corepack, and a supported Windows development environment.
 
-Recommended path for the public preview:
-
-```bat
+~~~powershell
+git clone https://github.com/Snark-s/snarkroute.git
+cd snarkroute
 corepack pnpm install
+corepack pnpm -r build
+~~~
+
+**Start the visual route editor:**
+
+~~~bat
 start-boojumroute.bat
-```
+~~~
 
-`start-boojumroute.bat` prepares the required workspace package builds, starts the local API server, waits for `/api/health`, starts BoojumRoute Lab, and opens `http://127.0.0.1:5173`. It uses `corepack pnpm` directly and does not require global `pnpm` or a `.lnk` shortcut.
+**Start the local Workshop launcher (development setup):**
 
-For the local application hub, double-click `ОТКРЫТЬ МАСТЕРСКУЮ.vbs` (silent start) or `start-launcher.bat`. On Windows the launcher prefers an installed Google Chrome and falls back to the system browser only when Chrome is unavailable. It starts the shared SnarkRoute runtime when needed and opens the launcher at `http://127.0.0.1:5172`. The launcher can open Living Canvas, BoojumRoute, Brandeshmyg, H3, and Jabberwock. Jabberwock reads models and their available provider routes from the SnarkRoute model catalog; provider buttons are not hardcoded. Its **Continue in Codex** action checkpoints the same task and opens a Work task in Codex Desktop for the selected project; **Return from Codex** imports the completed visible exchange back into that task.
+~~~bat
+start-launcher.bat
+~~~
 
-If you downloaded the GitHub archive instead of cloning with Git:
+Or run individual development targets:
 
-1. Unzip the archive to a local folder.
-2. Open that folder in a terminal.
-3. Run the commands above.
-
-Optional: run `setup.bat` to create a local Windows shortcut for BoojumRoute Lab.
-
-## Who Is It For?
-
-- AI artists who want workflows they can inspect and keep.
-- Creative technologists building local or hybrid AI pipelines.
-- ComfyUI and node-graph users who care about portable route documents.
-- TouchDesigner and creative coding people exploring model/API pipelines.
-- Local-first AI users who do not want routes tied to one hosted account.
-- Developers building provider/model routing, adapters, and reusable nodes.
-- People who care about reproducible creative workflows.
-
-## Core Ideas
-
-- Portable route documents: workflows are files, not only platform state.
-- Local-first execution: credentials, runs, assets, and settings stay on the host
-  unless a route explicitly calls an external provider.
-- Provider-agnostic model routing: Replicate, Gemini, OpenRouter, Polza.ai, and
-  future providers are provider layers inside routes.
-- Provenance and run ledger: routes and runs can preserve authorship,
-  execution, economics, and provider metadata.
-- AssetRef instead of unsafe direct external loading: routes reference assets;
-  the host decides how to resolve, cache, validate, embed, bundle, or block them.
-- Reusable nodes and `.snarknode` packages: community nodes should be
-  declarative manifests with explicit permissions, not arbitrary downloaded
-  JavaScript.
-- Route as the unit of value: the workflow is the thing to share, remix, audit,
-  and execute.
-
-## How It Differs From Other Tools
-
-Different focus, not a claim of superiority:
-
-- **ComfyUI** is a great image-generation graph tool. SnarkRoute aims to be
-  broader route/protocol infrastructure across models, APIs, assets, provenance,
-  and execution providers.
-- **n8n** is a great automation tool. SnarkRoute focuses on portable
-  AI/model routes and creative pipelines where model outputs, assets, and run
-  metadata matter.
-- **Dify, LangChain-style tools, and agent app builders** are useful for apps,
-  chatbots, and agents. SnarkRoute focuses on inspectable visual routes,
-  local-first execution, and creative workflow portability.
-- **Closed AI workflow platforms** can be convenient. SnarkRoute is trying to
-  keep the workflow artifact readable, portable, and host-controlled.
-
-## Current Status
-
-BoojumRoute Lab is the working block editor and tool lab you can try today. It
-is the low-level graph interface for building tools from blocks, routes,
-providers, executors, schemas, and prompt/library assets.
-
-BoojumRoute Lab includes a first Dialogue Workbench block for
-conversation-heavy route steps. It opens as a large editor, stores
-manual/model-assisted messages, exposes selected outputs as graph ports, and
-emits `conversation_text`, `conversation_json`, and `conversation_capsule`.
-
-The first Model Registry layer defines portable Model Profiles and Agent
-Presets while provider credentials stay in local settings. SnarkRoute also
-includes a provider-neutral Model Gateway v0: model-executing nodes call
-registered provider adapters through the gateway, while route files remain
-provider-agnostic where possible and never store raw provider secrets.
-
-Model Gateway can show advisory pricing quotes when provider pricing metadata
-is available. OpenRouter and Polza pricing catalogs refresh automatically from
-machine-readable model catalogs, while manual prices are fallback overrides with
-freshness metadata. Unknown pricing is preferred over stale or guessed
-estimates, and the gateway still does not automatically pick the cheapest
-provider or guarantee final cost before execution.
-
-See `docs/model-registry-principles.md`, `docs/model-gateway-v0.md`, and
-`docs/dialogue-workbench.md`.
-
-## Feedback Wanted
-
-This is an early project, and feedback is especially useful from:
-
-- ComfyUI users
-- TouchDesigner users
-- local model users
-- creative coding people
-- people building reproducible AI pipelines
-
-Useful feedback: what feels unclear, what workflow formats you already use,
-what would make a route worth sharing, and which local/provider integrations
-matter first.
-
-## What Is Open Route Protocol?
-
-Open Route Protocol is a portable route format for describing AI/model/API
-workflows as graphs. Routes can reference external assets, but only through the
-AssetRef system. The host application controls how asset references are
-resolved, validated, cached, embedded, bundled, or blocked.
-
-Open Route Protocol uses explicit file extensions for portable route documents.
-`.orp` is the canonical user-facing extension for complete Open Route Protocol
-route documents; `.orp.json` and `.orp.yaml` are explicit developer-friendly
-variants; `.route` remains supported as a human-readable compatibility alias.
-
-Route files contain node instances, edges, params, provenance, economics
-metadata, and AssetRefs. In Open Route Protocol v0.1 these route nodes are
-executable BlockNodes unless a later documented protocol extension says
-otherwise. Reusable external resources are assets resolved by the host, not raw
-files or URLs loaded directly by the route.
-
-Node definition files such as `.node.json` describe reusable low-level
-BoojumRoute block types. Future Node Definition Assets may also describe
-interfaces and execution adapters through AssetRef, but they must not inject
-arbitrary executable code into the shared runtime.
-
-SnarkRoute is not a wrapper for any single provider. Replicate, Gemini,
-OpenRouter, Polza.ai, and future providers are provider layers inside routes;
-the route/workflow is the primary unit of value.
-
-## Commons Principle
-
-AI tools are becoming the new creative infrastructure. But most of that infrastructure is being built inside closed platforms: models, workflows, prompts, assets, APIs, billing systems, and execution environments are locked into separate services.
-
-SnarkRoute starts from a different idea: the workflow itself should be portable.
-
-A route should not belong to a platform. It should be a readable, shareable, inspectable document that can connect models, APIs, assets, and tools across providers without directly loading arbitrary external resources from the route itself.
-
-This project is not about hosting one more model, and not about building another central AI platform.
-
-The model is not the center. The route is.
-
-The long-term goal is to support a freer ecosystem of neural tools: not one central gatekeeper, but an open protocol where independent creators and developers can build, share, remix, and execute routes without giving up control of their workflows.
-
-We think of Open Route Protocol as infrastructure for a "free city" of AI tools: many providers, many creators, many routes, no single owner of the road.
-
-SnarkRoute, including BoojumRoute Lab, is the first reference implementation of this idea.
-
-SnarkRoute is designed as a portable route language, not a closed platform. Protocol block nodes are free components; paid value belongs to execution, services, APIs, support, route authorship, and final products. See `docs/commons-principle.md`.
-
-## Asset System
-
-SnarkRoute uses a two-level asset architecture:
-
-- Route level: routes contain nodes, edges, params, and AssetRefs. Routes do not directly load files, URLs, JSON, Markdown, node definitions, or executable resources.
-- Asset resolution level: the host application has configured AssetSources. AssetResolver takes an AssetRef and resolves it to a normalized asset, validating schema, kind, version, hash, permissions, and trust rules where applicable.
-
-An AssetRef stored in a route looks like:
-
-```json
-{
-  "uri": "asset://local/text/prompt/image-generation/retro-futuristic-editor-joke",
-  "kind": "text/prompt",
-  "expectedHash": "sha256:...",
-  "version": "1.0.0"
-}
-```
-
-AssetSources can be local folders, embedded route assets, bundles, remote manifests, GitHub repositories, or future provider-specific sources. The route stores the reference; the host decides whether the asset can be resolved, cached, embedded, bundled, or blocked.
-
-See `docs/assets.md`.
-
-## Terminology
-
-Node is an umbrella term for a generic graph item, not only an executable process block. Current and future node kinds include:
-
-- ArtifactNode: a creative content/media object on a SnarkRoute board, such as an image, video, audio clip, text, prompt, mask, reference, or generated output. ArtifactNodes can carry versions/stacks, a current version, provenance, prompt/model/style context, and attached input or reference materials. In the SnarkRoute UI, visible creative objects should preferably be called Artifacts.
-- BlockNode: an executable operation or process block, such as generate image, edit image, upscale, crop, animate, extract frame, transcribe audio, call model, or call API. In BoojumRoute, most traditional route nodes are BlockNodes.
-
-An Action is a user-facing invocation of a BlockNode or Boojum route. In SnarkRoute, Actions usually appear as contextual buttons on an Artifact card: Edit, Animate, Upscale, Crop, and similar commands. A Boojum compound route/block maps naturally to a SnarkRoute action button, and its result can become a new ArtifactNode or a new version in the source Artifact stack.
-
-A Board is an editable visual workspace/composition containing nodes, artifact cards, optional block nodes, relations, layout, groups/comments, versions/stacks, provenance, action history, and selected libraries/imports. A Route is an executable graph/process. Do not collapse Board and Route into the same concept.
-
-A Library is a portable reusable collection that may contain or reference artifacts, blocks, routes, boards, prompt chips, styles, model presets, and assets. Library imports are dependency/reference links rather than only nested folders; circular imports are invalid.
-
-Prompt Chips are reusable prompt fragments shown as visual chips in the prompt editor. A prompt may combine library prompt chips, inline text, inherited style/context, and references from the current artifact. Prompt chips are references to reusable prompt fragments, not just copied text.
-
-See `docs/terminology.md` for the full conceptual model.
-
-## Current MVP Features
-
-- Open Route Protocol v0.1 schema, parsing, validation, YAML and JSON support
-- DAG executor with topological sorting, cycle detection, template references, logs, and run results
-- Local filesystem run storage under `data/runs/`
-- Local ledger accounting under `data/ledger/runs.jsonl`
-- Built-in nodes for text, files, images, videos, templates, debug logs, text output, image preview, and file output
-- Provider adapters for local server-side execution
-- Vite + React + React Flow BoojumRoute Lab
-- Import/export Open Route Protocol documents, preferring `.orp`
-- Local provider settings through `.env` or Studio Settings where supported
-
-The SnarkRoute Living Canvas can also be started directly:
-
-```bat
-corepack pnpm install
-corepack pnpm -r build
-corepack pnpm start:snarkroute
-```
-
-It runs at `http://127.0.0.1:5174`.
-
-Default one-click ports:
-
-- API: `http://127.0.0.1:4317`
-- Launcher and Jabberwock: `http://127.0.0.1:5172`
-- BoojumRoute Lab: `http://127.0.0.1:5173`
-- SnarkRoute Living Canvas: `http://127.0.0.1:5174`
-
-If a port is busy, the launcher prints a message such as:
-
-```text
-Port 4317 is busy. Another shared API instance may already be running.
-```
-
-Close the other SnarkRoute windows or run `stop-snarkroute.bat`, then start again. The stop script is intentionally safe: it does not kill every `node.exe` process on your machine.
-
-If BoojumRoute Lab says the API is disconnected, check that the server window is running. The message will include the exact API URL the Lab is trying to reach.
-
-## Manual Start
-
-```bash
-corepack pnpm install
-corepack pnpm -r build
-corepack pnpm start:boojumroute
-```
-
-`corepack pnpm start:boojumroute` runs the local Fastify server and BoojumRoute Lab in parallel.
-
-For Living Canvas:
-
-```bash
-corepack pnpm start:snarkroute
-```
-
-You can also run workspaces separately:
-
-```bash
+~~~bash
 corepack pnpm dev:server
-corepack pnpm dev:studio
-corepack pnpm dev:snarkroute
-```
+corepack pnpm start:boojumroute
+corepack pnpm start:snarkroute
+~~~
 
-The API listens on `http://127.0.0.1:4317` by default. BoojumRoute Lab runs on `http://127.0.0.1:5173` and connects to `VITE_API_BASE_URL`, defaulting to `http://127.0.0.1:4317`. SnarkRoute Living Canvas runs on `http://127.0.0.1:5174`.
+The relevant local development URLs are:
 
-For checks:
+| Service | Default local URL |
+| --- | --- |
+| API and MCP endpoint | `http://127.0.0.1:4317` and `http://127.0.0.1:4317/mcp` |
+| Workshop launcher | `http://127.0.0.1:5172` |
+| BoojumRoute Lab | `http://127.0.0.1:5173` |
+| Living Canvas | `http://127.0.0.1:5174` |
 
-```bash
+These are development defaults, not public endpoints. Do not expose the local API or MCP service to the internet without appropriate authentication and access controls.
+
+**A clean clone will not recreate the author's autonomous agents, browser sessions, local models, external projects, private configuration, or credentials.** Some integrated features require separate installation and configuration.
+
+### Configuration and checks
+
+BoojumRoute Lab can start without third-party API keys. Provider-backed operations need the relevant credentials; use the application's local secrets settings or `.env` based on `.env.example` where supported. Never commit credentials.
+
+~~~bash
 corepack pnpm test
 corepack pnpm build
-```
+~~~
 
-## Codex Skill
+The Workshop also has a consistency checker:
 
-The Codex skill for creating Boojum `.snarknode` packages is included in this repository at `docs/boojum-node-builder/`.
+~~~bash
+node scripts/passport-check.mjs
+~~~
 
-To install it in Codex on Windows:
+Its checks include assumptions about the author's local setup; missing host-specific paths in another installation are not proof that the entire project is unusable.
 
-1. Download this repository as a GitHub archive or clone it.
-2. Copy the `docs/boojum-node-builder` folder to `%USERPROFILE%\.codex\skills\boojum-node-builder`.
-3. Restart Codex.
+For node-package authoring, see the [Boojum node builder skill](docs/boojum-node-builder/SKILL.md).
 
-The skill entry file is `docs/boojum-node-builder/SKILL.md`.
+## Repository map
 
-## Dev Ports
+| Location | Contents |
+| --- | --- |
+| `apps/server` | API, MCP server, model and agent operations, runtime integrations |
+| `apps/launcher` | Workshop launcher and agent/task interface |
+| `packages` | Shared protocol, execution, model, and other workspace packages |
+| `scripts` | Development tooling, checks, and utilities |
+| `examples` | Example Open Route Protocol routes |
+| `docs` | Architecture, implementation notes, integration guidance, and ongoing decisions |
 
-SnarkRoute uses explicit local dev ports so two clones do not accidentally talk to the same backend.
+Useful starting points for working on the system:
 
-Server:
+- [Workshop passport](docs/WORKSHOP-PASSPORT.md): system map and development state.
+- [Decision registry](docs/decisions/REGISTRY.md): accepted design decisions and proposals.
+- [Connecting new entities](docs/CONNECTING-NEW-ENTITY.md): integration rules.
+- [Persistent Buzha agent](docs/buzha-agent.md): example of agent/task integration.
+- [Repository instructions](AGENTS.md): developer and coding-agent rules.
 
-```bash
-API_PORT=4317 corepack pnpm dev:server
-```
+## What is still in progress?
 
-Studio:
+This is a research-and-development system, not a finished enterprise orchestrator.
 
-```bash
-VITE_API_BASE_URL=http://127.0.0.1:4317 corepack pnpm dev:studio
-```
+- Unifying task storage, schedules, and operational policies across independently developed agent applications.
+- Turning every planned agent role into a durable, independently running service.
+- Improving integration, packaging, configuration, and portability beyond one Windows workstation.
+- Broadening independent verification, diagnostics, and recovery for real-world external actions.
+- Continuing the Open Route Protocol asset/export work and the higher-level creative UI.
 
-For a second clone, use a different API port and point that clone's Studio at it:
+See the [Workshop passport](docs/WORKSHOP-PASSPORT.md) for known gaps and [visual-workflow roadmap](docs/roadmap.md) for the original protocol/editor roadmap.
 
-```bash
-# Clone A
-API_PORT=4317 corepack pnpm dev:server
-VITE_API_BASE_URL=http://127.0.0.1:4317 corepack pnpm dev:studio
+## Security and operational boundaries
 
-# Clone B
-API_PORT=4318 corepack pnpm dev:server
-VITE_API_BASE_URL=http://127.0.0.1:4318 corepack pnpm dev:studio
-```
+- Credentials and private data belong in local settings or approved secret stores, **not** committed files or portable routes.
+- External websites, retrieved content, and arbitrary downloaded code are not inherently trusted.
+- Local tool access is policy-controlled and differs by agent and installation.
+- Permission to attempt an operation is not proof that it succeeded.
+- Keep the API and MCP endpoint on trusted interfaces unless you have configured suitable protections.
+- Model output, external actions, subscription access, and cost estimates may be incomplete or unavailable.
 
-On Windows PowerShell:
-
-```powershell
-$env:API_PORT="4318"; corepack pnpm dev:server
-$env:VITE_API_BASE_URL="http://127.0.0.1:4318"; corepack pnpm dev:studio
-```
-
-Studio shows the active API URL, connection status, and provider token status in the UI. If the API is not reachable, it shows the API URL the Lab is trying to reach.
-
-## Configuring API Tokens
-
-The app should start without API keys. Provider-backed nodes will ask for the relevant local settings before they can execute against external services.
-
-In Studio:
-
-1. Open `Settings`.
-2. Open `Secrets`.
-3. Choose the provider.
-4. Paste the token and save it.
-
-Studio shows only whether the token is `configured` or `missing`. It never reads the token value back from the server.
-
-Fallback: copy `.env.example` to `.env` and add only the keys you use:
-
-```env
-REPLICATE_API_TOKEN=your_token_here
-GEMINI_API_KEY=your_token_here
-OPENROUTER_API_KEY=your_token_here
-POLZA_AI_API_KEY=your_token_here
-```
-
-Tokens are stored locally and used only by the server. They are not exported with routes or bundles. Do not commit `.env`.
-
-## Smoke Tests
-
-Live smoke tests are not part of the normal test suite because they call external providers.
-
-```bash
-corepack pnpm smoke:replicate
-corepack pnpm smoke:clarity
-```
-
-They require `REPLICATE_API_TOKEN`. They must not print or store the token.
-
-## Example Routes
-
-Canonical examples live in `examples`:
-
-- `basic.orp`
-- `upscale.orp`
-- `replicate-flux.orp`
-- `flux-to-upscale.orp`
-
-Compatibility YAML examples remain in `examples/routes`.
-
-Example route documents are licensed under CC BY-SA 4.0 unless otherwise stated.
-
-## Local Input Nodes
-
-Studio supports local input nodes:
-
-- `input.file`
-- `input.image`
-- `input.video`
-
-Add one from the node library, then use `Browse...` or drag a local image onto the canvas. The selected absolute path is stored in `params.path` and exported as part of the route document.
-
-Absolute local paths are an MVP limitation for direct input nodes: they work well on the current machine, but reduce portability when sharing routes. Reusable resources should move toward AssetRef instead of direct paths.
-
-## Prompt Library Node
-
-`library.prompt` is the first user-facing example of the Asset System. It outputs a saved prompt or text snippet as `{ "text": "..." }`, so other nodes can use it through normal text ports or template references such as `{{prompt1.output.text}}`.
-
-Prompt Library is a Text Asset source. The `library.prompt` BlockNode stores only `params.assetRef`; it does not store linked or embedded modes.
-
-Prompt files live under `data/prompt-library/`. The backend should discover files matching `data/prompt-library/**/*.prompt.md` on startup and when Studio's `Refresh Prompt Library` button is clicked.
-
-Each `.prompt.md` file uses YAML frontmatter plus a Markdown body:
-
-```markdown
----
-id: retro-futuristic-editor-joke
-title: Retro-futuristic editor joke
-kind: text/prompt
-category: image-generation
-description: Demo prompt for a playful SnarkRoute easter egg
-tags:
-  - demo
----
-
-A retro-futuristic easter egg illustration about building our own visual AI editor with blackjack and courtesans, playful but not explicit, cinematic, detailed, humorous.
-```
-
-The `.prompt.md` files are for human editing. Internally, discovered files are normalized into JSON-compatible asset metadata or manifest structures. Prompt files should not need manual registration in code, and one central `prompt-library.json` should not be the human editing surface.
-
-```json
-{
-  "id": "prompt1",
-  "type": "library.prompt",
-  "params": {
-    "assetRef": {
-      "uri": "asset://local/text/prompt/image-generation/retro-futuristic-editor-joke",
-      "kind": "text/prompt"
-    }
-  }
-}
-```
-
-At execution time, `library.prompt` asks AssetResolver to resolve `assetRef`. The resolved asset must be `text/prompt` or a compatible text asset kind. The node does not know whether the prompt came from a local `.prompt.md` file, generated manifest, embedded route asset, exported bundle, remote manifest, or future provider.
-
-See `docs/prompt-library.md`.
-
-## Export Modes
-
-Linked, embedded, and bundle are export modes, not node params.
-
-- Linked export keeps AssetRefs. The importing host must have compatible AssetSources.
-- Embedded export resolves selected assets during export and embeds them into the route document.
-- Bundle export packages the route and assets together, for example `my-route.orp.zip` with `route.json`, `assets.manifest.json`, and asset files.
-
-See `docs/export.md`.
-
-## Clarity Upscaler Example
-
-SnarkRoute includes a model-specific node for Replicate Clarity Upscaler:
-
-```text
-input.image -> replicate.clarity-upscaler -> preview.image -> output.file
-```
-
-In Studio:
-
-1. Add `Input Image`, choose or drop a local image.
-2. Add `Clarity Upscaler`.
-3. Connect the image port from `Input Image` to `Clarity Upscaler`.
-4. Adjust `prompt`, `negative_prompt`, `scale_factor`, `dynamic`, `creativity`, `resemblance`, `num_inference_steps`, and `seed` directly in the node.
-5. Use `Image Preview` to view the result, or `Save Text File`/`Output File` when you explicitly want a local route output artifact.
-
-Downloaded model outputs are stored under:
-
-```text
-data/runs/<runId>/assets/
-```
-
-Replicate output URLs may expire, so SnarkRoute downloads the first returned image locally when the Clarity run succeeds.
-
-## Economics Metadata And Run Accounting
-
-SnarkRoute v0.1 stores economics as metadata and local accounting only. It does not execute payments, settlements, marketplace actions, checkout, billing API calls, blockchain calls, or share payouts.
-
-Routes can include authors, contributors, revenue splits, provider cost hints, currency, and notes. Every run gets a local accounting summary with `paymentExecuted: false`, provider usage events such as Replicate prediction ids, and estimated/actual provider costs when known. Actual provider cost may be `null`.
-
-Model-executing nodes can also show pre-run advisory cost previews in Studio. These quotes come from local/runtime metadata such as cached OpenRouter catalog pricing, Polza catalog pricing, or `data/model-pricing/gemini.json`. Pricing metadata and secrets are not stored in ORP route files. If a price cannot be estimated, SnarkRoute shows `Unknown` rather than blocking execution.
-
-The ledger is local, ignored by git, and not exported with route documents:
-
-```text
-data/ledger/runs.jsonl
-```
-
-Secrets such as API tokens are not stored in economics metadata or ledger entries.
-
-## Security Notes
-
-- Do not commit `.env`, local runs, local assets, generated outputs, or private user files.
-- Routes and bundles must not contain secret values.
-- Routes do not directly fetch arbitrary files or URLs.
-- External AssetSources must be explicitly configured by the host.
-- Asset manifests must be schema-validated, and asset kind must match what the node expects.
-- Hash pinning should warn about changed assets and support reproducible routes.
-- SnarkRoute does not execute arbitrary community JavaScript.
-- Future community nodes and remote Node Definition Assets must be declarative manifests with explicit permissions and execution adapters, not arbitrary downloaded code.
-- Credentials remain host-side and are never embedded into routes.
-- External provider outputs are the user's responsibility and are subject to provider/model/service terms.
-
-See `SECURITY.md` and `docs/security.md` for more detail.
-
-## Current Limitations
-
-- No authentication
-- No cloud deployment
-- No user accounts
-- No marketplace
-- No payments
-- No arbitrary community JavaScript execution
-- No complex database
-- Absolute local input paths reduce route portability
-- AssetRef, AssetSource, and AssetResolver are not fully implemented yet
-- Linked, embedded, and bundle export modes are still roadmap items
-- Provider actual costs may be unknown
-
-## Roadmap
-
-See `docs/roadmap.md`.
-
-Short version:
-
-- Milestone A: stable MVP foundation
-- Milestone B: AssetRef foundation
-- Milestone C: Prompt Library as the first Text Asset source
-- Milestone D: linked, embedded, and bundle export modes
-- Milestone E: cautious remote AssetSources
-- Milestone F: Node Definition Assets
-- Milestone G: provider/API nodes and demo routes
-- Milestone H: Photoshop plugin integration
-- Milestone I: early-user preview
+See [SECURITY.md](SECURITY.md) and [security notes](docs/security.md).
 
 ## Contributing
 
-See `CONTRIBUTING.md`.
+Contributions, technical feedback, and discussions about orchestration, reproducible workflows, agent verification, local inference, and interoperable tools are welcome.
 
-Code contributions are accepted under AGPL-3.0-or-later. Documentation, specification, and example route contributions are accepted under CC BY-SA 4.0 unless otherwise stated.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) and the [repository instructions](AGENTS.md) before changing code. When modifying Workshop capabilities, follow the documentation and consistency-check conventions described in the [passport](docs/WORKSHOP-PASSPORT.md).
 
 ## License
 
-SnarkRoute source code is licensed under AGPL-3.0-or-later.
+Source code: **AGPL-3.0-or-later**.
 
-Open Route Protocol specification, documentation, and example route documents are licensed under CC BY-SA 4.0 unless otherwise stated.
+Open Route Protocol specifications, documentation, and example routes: **CC BY-SA 4.0**, unless otherwise stated.
 
-Generated outputs created by users through SnarkRoute are not automatically covered by AGPL or CC BY-SA and belong to their creators/users, subject to the terms of the models, APIs, routes, and services used.
+User-created outputs are not automatically covered by these project licenses; applicable model, API, service, and asset terms may still apply. Third-party dependencies retain their own licenses. See [LICENSES.md](LICENSES.md).
 
-Third-party dependencies are governed by their own licenses.
+---
 
-See `LICENSES.md` for the full project license map.
+**SnarkRoute is evolving from a node editor into a shared foundation for agents that can find tools, coordinate resources, do work, and demonstrate what they actually accomplished.**
+
+[YouTube](https://www.youtube.com/@SnarkRoute) · [Telegram](https://t.me/snarkroutelab)
