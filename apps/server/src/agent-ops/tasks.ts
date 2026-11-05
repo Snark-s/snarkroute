@@ -242,7 +242,7 @@ export class AgentTaskService {
     const subscriptionRuns = members.reduce((sum, task) => sum + task.attempts.reduce((runs, attempt) => runs + (attempt.modelCalls ? attempt.modelCalls.filter(call => call.tier === "subscription").length : this.adapter(attempt.executor)?.profile.costTier === "subscription" ? 1 : 0), 0)
       + (task.reviewRuns ?? []).filter(run => this.adapter(run.executor)?.profile.costTier === "subscription").length, 0);
     const activeMinutes = members.reduce((sum, task) => sum + this.activeMinutes(task), 0);
-    const activeLimit = root?.spec.budget?.activeMinutes ?? limits.wallMinutes;
+    const activeLimit = (root?.spec.budget?.activeMinutes ?? limits.wallMinutes) + (root?.ownerExtraMinutes ?? 0);
     const until = members.length && members.every(task => TERMINAL_STATES.has(task.state)) ? Math.max(...members.map(task => Date.parse(task.finishedAt ?? task.updatedAt))) : this.now();
     const wallMinutes = root ? (until - Date.parse(root.createdAt)) / 60_000 : 0;
     return { limits, tasksUsed: members.length, tasksLeft: limits.tasks - members.length, subscriptionRunsUsed: subscriptionRuns,
@@ -258,7 +258,7 @@ export class AgentTaskService {
     const until = TERMINAL_STATES.has(task.state) ? Date.parse(task.finishedAt ?? task.updatedAt) : this.now();
     const wall = Math.max(0, (until - Date.parse(task.createdAt)) / 60000), limit = task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES;
     const runs = task.attempts.reduce((sum, attempt) => sum + (attempt.modelCalls ? attempt.modelCalls.filter(call => call.tier === "subscription").length : this.adapter(attempt.executor)?.profile.costTier === "subscription" ? 1 : 0), 0) + (task.reviewRuns ?? []).filter(run => this.adapter(run.executor)?.profile.costTier === "subscription").length;
-    const active = this.activeMinutes(task), activeLimit = task.spec.budget?.activeMinutes ?? limit;
+    const active = this.activeMinutes(task), activeLimit = (task.spec.budget?.activeMinutes ?? limit) + (task.ownerExtraMinutes ?? 0);
     const interval = task.waiting ? Math.max(0,(this.now()-Date.parse(task.waiting.since))/60000) : 0;
     const resourceWait = task.attempts.filter(a=>a.resourceWait && !a.modelCalls?.some(call=>call.ok) && !a.toolCalls?.length).reduce((sum,a)=>sum+Math.max(0,(Date.parse(a.endedAt??a.startedAt)-Date.parse(a.startedAt))/60000),0);
     return { wallMinutesUsed: Math.round(wall * 10) / 10, wallMinutesLeft: Math.max(0, Math.round((limit - wall) * 10) / 10), wallMinutesLimit: limit,
@@ -276,7 +276,7 @@ export class AgentTaskService {
    * (wallMinutesUsed) is reported but never blocks; only `deadline` is a wall-clock limit.
    */
   timeLeftMs(task: AgentTask): { ms: number; reason: string } {
-    const own = (task.spec.budget?.activeMinutes ?? task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES) - this.activeMinutes(task);
+    const own = (task.spec.budget?.activeMinutes ?? task.spec.budget?.wallMinutes ?? DEFAULT_WALL_MINUTES) + (task.ownerExtraMinutes ?? 0) - this.activeMinutes(task);
     const chain = this.chainBudget(task.chain.rootTaskId).activeMinutesLeft;
     const deadline = deadlineLeftMs(task, this.now());
     return [
@@ -320,6 +320,8 @@ export class AgentTaskService {
       const base = target === root ? chain.limits.subscriptionRuns - (root.ownerExtraRuns ?? 0) : target.spec.budget?.subscriptionRuns;
       const current = target.ownerExtraRuns ?? 0;
       target.ownerExtraRuns = base === undefined ? current + extra : Math.max(current + extra, used + extra - base);
+      // Same for active time: when it is spent, the acceptor re-blocks the task at once, so each press adds an hour too.
+      target.ownerExtraMinutes = (target.ownerExtraMinutes ?? 0) + 60;
       (target.budgetHistory ??= []).push({ at: this.iso(), by: identity.id, reason: `+${extra} подписочных запусков от владельца: ${reason}`, previous: structuredClone(target.spec.budget), next: structuredClone(target.spec.budget), subscriptionRunsUsed: used });
       await this.persist(target, "budget_revised", `Владелец добавил ${extra} подписочных запусков сверх автоматического потолка (использовано ${used}). ${reason}`);
     }
