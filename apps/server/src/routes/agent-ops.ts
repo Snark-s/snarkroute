@@ -276,6 +276,15 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
   app.post(`${ROOT}/mail/:id/ack`, handle(async (ops, identity, request) => ({ ok: true, letter: await ops.mail.ack(identity, (request.params as { id: string }).id, ((request.body ?? {}) as { note?: string }).note) })));
 
   // D2: the Secretary's Telegram bot, owner only. The token goes in and is never returned.
+  // The owner's switch: a subscription (Claude, Codex) is not used by any automatic executor while paused.
+  app.post(`${ROOT}/executors/pause`, handle(async (ops, identity, request) => {
+    ownerOnly(identity, "Выключение подписки");
+    const body = (request.body ?? {}) as { family?: string; paused?: boolean; note?: string };
+    if (body.family !== "claude" && body.family !== "codex") throw new AgentOpsError("BAD_REQUEST", "family: claude или codex.", {}, 400);
+    await ops.ledger.setOwnerPause(body.family, body.paused !== false, body.note);
+    ops.tasks.kick();
+    return { ok: true, ownerPaused: ops.ledger.limits.ownerPaused ?? {} };
+  }));
   // Questions the queue put to the owner (blocked with an owner reason), answered from the Secretary tab.
   app.get(`${ROOT}/owner-questions`, handle(async (ops, identity) => {
     ownerOnly(identity, "Вопросы агентов");

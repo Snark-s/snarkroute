@@ -298,6 +298,9 @@ button:disabled { opacity: .5; cursor: wait; } .spin { animation: spin 1s linear
 .opsMetric { display:inline-flex; align-items:center; gap:4px; padding:3px 7px; border-radius:8px; background:#171c2a; white-space:nowrap; }
 .opsMetric svg { width:13px; height:13px; }
 .opsMetric.warn { color:#ffc85d; }
+.opsMetric.paused { color:#ff8b8b; background:#2a1620; }
+.opsToggle { border:0; font:inherit; color:inherit; cursor:pointer; }
+.opsToggle:hover { outline:1px solid #3b4560; }
 /* Plan quota as a small two-bar gauge: top 5-hour window, bottom week; fill = what is left. */
 .quotaGauge { display:inline-flex; align-items:center; gap:3px; }
 .quotaRows { display:flex; flex-direction:column; gap:2px; }

@@ -261,6 +261,12 @@ export function AgentOpsStatusBar({ apiBase }: { apiBase: string }) {
   const { status, error } = useAgentOpsStatus(apiBase);
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState("");
+  async function togglePause(family: "claude" | "codex", paused: boolean) {
+    setBusy(true); setLocalError("");
+    try { await call(apiBase, "/executors/pause", { method: "POST", body: JSON.stringify({ family, paused }) }); changed(); }
+    catch (reason) { setLocalError(reason instanceof Error ? reason.message : String(reason)); }
+    finally { setBusy(false); }
+  }
   async function setMode(value: string) {
     setBusy(true); setLocalError("");
     try { await call(apiBase, "/mode", { method: "PUT", body: JSON.stringify({ mode: value === "schedule" ? null : value }) }); changed(); }
@@ -285,10 +291,18 @@ export function AgentOpsStatusBar({ apiBase }: { apiBase: string }) {
     {status.resources ? <span className="opsMetric">RAM {gb(status.resources.memory.usedMiB)}/{gb(status.resources.memory.totalMiB)}</span> : null}
     <span className="opsMetric" title="Выполняются / ждут / нужен ответ"><ListChecks /> {status.queue.counts.running ?? 0} · {waiting}{attention ? <b className="opsAttention"> · {attention}!</b> : null}</span>
     {status.locks.length ? <span className="opsMetric" title={status.locks.map(lock => `${lock.key} → ${lock.ownerTaskId}`).join("\n")}><Lock /> {status.locks.length}</span> : null}
-    {status.executors.filter(executor => ["codex_cli", "claude_code"].includes(executor.id)).map(executor => { const state = executorUsable(executor); return <span key={executor.id} className={`opsMetric ${state.usable ? "" : "warn"}`}
-      title={executorTitle(executor, state.reason)}>
-      {executor.id === "codex_cli" ? "Codex" : "Claude"} {state.usable ? null : "⏸"}{executorHint(executor, state.usable)} <QuotaGauge executor={executor} />
-    </span>; })}
+    {status.executors.filter(executor => ["codex_cli", "claude_code"].includes(executor.id)).map(executor => {
+      const state = executorUsable(executor);
+      const family = executor.id === "codex_cli" ? "codex" : "claude";
+      const paused = (status as AgentOpsStatus & { ledgerLimits?: { ownerPaused?: Record<string, { since: string }> } }).ledgerLimits?.ownerPaused?.[family];
+      const label = family === "codex" ? "Codex" : "Claude";
+      const title = `${executorTitle(executor, state.reason)}\n\n${paused ? `Выключено тобой для агентов с ${new Date(paused.since).toLocaleString("ru-RU")}. Нажми, чтобы снова разрешить.` : "Нажми, чтобы запретить агентам автоматически тратить эту подписку (задачи подождут или пойдут через другую)."}`;
+      const content = <>{label} {paused ? "⛔" : state.usable ? null : "⏸"}{paused ? " выкл." : executorHint(executor, state.usable)} <QuotaGauge executor={executor} /></>;
+      return owner
+        ? <button type="button" key={executor.id} className={`opsMetric opsToggle ${paused ? "paused" : state.usable ? "" : "warn"}`} title={title} disabled={busy}
+            onClick={() => { if (window.confirm(paused ? `Снова разрешить агентам подписку ${label}?` : `Запретить агентам автоматически тратить подписку ${label}?`)) void togglePause(family, !paused); }}>{content}</button>
+        : <span key={executor.id} className={`opsMetric ${paused ? "paused" : state.usable ? "" : "warn"}`} title={title}>{content}</span>;
+    })}
     {status.ownerActivity?.busy ? <span className="opsMetric warn" title={[...status.ownerActivity.reasons, status.mode.mode === "free" ? `Режим «${status.mode.label}» включён, но тяжёлые локальные задачи (GPU) ждут, пока нагрузка спадёт. Облачные Codex/Claude работают.` : "Тяжёлые локальные задачи ждут, пока нагрузка спадёт."].join("\n")}>{status.ownerActivity.confidence === "unknown" ? "нагрузка ?" : status.mode.mode === "free" ? loadLabel(status.ownerActivity.reasons) : "компьютер занят"}</span>
       : status.ownerActivity?.signals.length ? <span className="opsMetric" title={status.ownerActivity.signals.join("\n")}>приложения простаивают</span> : null}
   </div>;

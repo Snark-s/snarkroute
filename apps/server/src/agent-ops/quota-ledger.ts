@@ -52,7 +52,14 @@ export type LedgerLimits = {
   maxConcurrentPerExecutor: Record<string, number>;
   dailyRunsPerExecutor: Record<string, number>;
   dailyTasksPerAgent: number;
+  /** Subscription families the owner switched off for automatic use («claude», «codex»), with when and why. */
+  ownerPaused?: Record<string, { since: string; note?: string }>;
 };
+
+/** Executors of one subscription: Claude Code and Buzha-on-Claude share the Claude plan, and so on. */
+export function subscriptionFamily(executorId: string): "claude" | "codex" | undefined {
+  return /claude/i.test(executorId) ? "claude" : /codex/i.test(executorId) ? "codex" : undefined;
+}
 
 export const DEFAULT_LEDGER_LIMITS: LedgerLimits = {
   maxConcurrentSubscriptionRuns: 2,
@@ -145,6 +152,9 @@ export class QuotaLedger {
 
   availability(executorId: string, tier: "local" | "subscription"): Availability {
     const entry = this.view(executorId);
+    const family = subscriptionFamily(executorId), paused = family ? this.limits.ownerPaused?.[family] : undefined;
+    // The owner's switch: tasks wait for another executor or for the switch; nothing is asked and nothing fails.
+    if (paused) return { usable: false, permanent: false, reason: `подписка ${family === "claude" ? "Claude" : "Codex"} выключена владельцем для автоматической работы${paused.note ? ` (${paused.note})` : ""}` };
     if (entry.auth.state === "not_installed") return { usable: false, permanent: true, reason: `не установлен${entry.auth.detail ? `: ${entry.auth.detail}` : ""}` };
     if (entry.auth.state === "not_logged_in" || entry.auth.state === "not_subscription") return { usable: false, permanent: true, reason: `нет входа по подписке${entry.auth.detail ? `: ${entry.auth.detail}` : ""}` };
     if (entry.nextAttemptAt && Date.parse(entry.nextAttemptAt) > this.now()) {
@@ -240,6 +250,15 @@ export class QuotaLedger {
     if (entry.quota.simulated) { entry.quota = { state: "unknown" }; entry.nextAttemptAt = undefined; }
     if (entry.lastFailure?.simulated) { entry.lastFailure = undefined; entry.nextAttemptAt = undefined; }
     void this.save();
+  }
+
+  /** Switches a subscription family off (or back on) for every automatic executor that uses it. */
+  async setOwnerPause(family: "claude" | "codex", paused: boolean, note?: string): Promise<void> {
+    const next = { ...(this.limits.ownerPaused ?? {}) };
+    if (paused) next[family] = { since: new Date(this.now()).toISOString(), ...(note?.trim() ? { note: note.trim().slice(0, 200) } : {}) };
+    else delete next[family];
+    this.limits = { ...this.limits, ownerPaused: next };
+    await this.save();
   }
 
   private async save(): Promise<void> {
