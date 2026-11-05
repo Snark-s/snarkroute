@@ -11,6 +11,8 @@ import type { AgentIdentity, FailureClass, TaskSpec, TaskState } from "../agent-
 import { SUBSCRIPTION_PROVIDERS } from "../services/model-routing-policy";
 import { errorMessage } from "../services/errors";
 import { registerBuzhaAgentRoutes } from "./buzha-agent";
+import { smsGateway } from "../services/sms-gateway";
+import { agentOpsDataDirectory } from "../agent-ops/ledger-instance";
 
 const ROOT = "/api/agent-ops";
 const OWNER_SESSION_TTL_MS = 30 * 24 * 60 * 60_000;
@@ -274,6 +276,17 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
   app.post(`${ROOT}/mail/:id/ack`, handle(async (ops, identity, request) => ({ ok: true, letter: await ops.mail.ack(identity, (request.params as { id: string }).id, ((request.body ?? {}) as { note?: string }).note) })));
 
   // D2: the Secretary's Telegram bot, owner only. The token goes in and is never returned.
+  // The owner's phone as a read-only SMS inbox for Buzha (registration codes, replies). Credentials never come back.
+  app.get(`${ROOT}/sms`, handle(async (_ops, identity) => { ownerOnly(identity, "SMS-шлюз"); return { ok: true, sms: await smsGateway(agentOpsDataDirectory()).status() }; }));
+  app.post(`${ROOT}/sms`, handle(async (_ops, identity, request) => {
+    ownerOnly(identity, "SMS-шлюз");
+    const body = (request.body ?? {}) as { url?: unknown; username?: unknown; password?: unknown; disconnect?: boolean; test?: boolean };
+    const gateway = smsGateway(agentOpsDataDirectory());
+    if (body.disconnect) return { ok: true, sms: await gateway.disconnect() };
+    if (body.test) { const { messages } = await gateway.inbox({ limit: 3 }); return { ok: true, sms: await gateway.status(), sample: messages.map(message => ({ sender: message.sender, receivedAt: message.receivedAt })) }; }
+    try { return { ok: true, sms: await gateway.configure(body) }; }
+    catch (error) { throw new AgentOpsError("SMS_GATEWAY", error instanceof Error ? error.message : String(error), {}, 400); }
+  }));
   app.get(`${ROOT}/secretary/telegram`, handle(async (ops, identity) => { ownerOnly(identity, "бот Секретаря"); return { ok: true, telegram: ops.telegram.status() }; }));
   app.post(`${ROOT}/secretary/telegram`, handle(async (ops, identity, request) => {
     ownerOnly(identity, "бот Секретаря");

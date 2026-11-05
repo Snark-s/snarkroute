@@ -7,11 +7,13 @@ import { isAbsolute, relative, resolve, dirname, join } from "node:path";
 import { localServiceHome, localServicePort } from "../services/local-service-endpoints";
 import { buzhaHome, buzhaMemory } from "./memory";
 import type { AgentTask, TaskCheck, CheckResult } from "../agent-ops/types";
+import { smsGateway } from "../services/sms-gateway";
+import { agentOpsDataDirectory } from "../agent-ops/ledger-instance";
 
 const BRIDGE_READ_TOOLS = ["bridge_status", "bridge_capabilities", "browser_sessions", "browser_tabs", "browser_snapshot", "browser_find", "browser_observe_url", "browser_prepare_action", "browser_wait"];
 export const BUZHA_READ_TOOLS = [...BRIDGE_READ_TOOLS,"material_read"];
 export const BUZHA_ACTION_TOOLS = ["browser_navigate", "browser_tab_action", "browser_fill", "browser_click", "browser_upload"];
-export const BUZHA_TOOLS = [...BUZHA_READ_TOOLS, ...BUZHA_ACTION_TOOLS, "material_list", "memory_read", "workspace_read", "workspace_write", "delegate"];
+export const BUZHA_TOOLS = [...BUZHA_READ_TOOLS, ...BUZHA_ACTION_TOOLS, "material_list", "memory_read", "workspace_read", "workspace_write", "delegate", "sms_inbox"];
 type ToolEffect = (task: AgentTask, key: string, phase: "begin" | "reconcile" | "refused", tool: string, reason?: string) => Promise<{ execute: boolean; state: string; result?: unknown }>;
 const admissionRefusals = ["Protected form or unaccepted legal consent requires the owner directly", "Credentials, verification and payment fields require the owner directly", "Payment, security, legal, identity and account deletion actions require the owner directly", "Sensitive browser action requires an owner-issued one-use approval"];
 /** Tools the task may actually call: its fixed toolset narrowed by every tool_scope check of the owner's contract. */
@@ -48,7 +50,7 @@ export class BuzhaTools {
     set: (origin: string, tab: string) => this.observerTabs.write({ ...this.observerTabs.read(), [origin]: tab }),
     delete: (origin: string) => { const all = { ...this.observerTabs.read() }; delete all[origin]; this.observerTabs.write(all); }
   };
-  constructor(private readonly deps: { bridge?: (name: string, args: Record<string, unknown>) => Promise<unknown>; memory?: typeof buzhaMemory; delegate?: (task: AgentTask, args: Record<string, unknown>) => Promise<unknown>; effect?: ToolEffect; observerFile?: string } = {}) {}
+  constructor(private readonly deps: { bridge?: (name: string, args: Record<string, unknown>) => Promise<unknown>; memory?: typeof buzhaMemory; delegate?: (task: AgentTask, args: Record<string, unknown>) => Promise<unknown>; effect?: ToolEffect; observerFile?: string; smsInbox?: (options: { since?: string; sender?: string; limit?: number }) => Promise<unknown> } = {}) {}
   private async bridge(name: string, args: Record<string, unknown>): Promise<any> {
     if (![...BRIDGE_READ_TOOLS, ...BUZHA_ACTION_TOOLS].includes(name)) throw new Error("Транспорт инструмента не подключён.");
     if (this.deps.bridge) return this.deps.bridge(name, args);
@@ -150,6 +152,12 @@ export class BuzhaTools {
       }
       if (!result || typeof result !== "object" || typeof result.action !== "string" || /unknown|refused|error|failed/i.test(result.status ?? "") || result.matched === false || result.ok === false) throw new Error(`SnarkBridge не подтвердил фактический результат действия ${key}; исход неизвестен, повтор запрещён. ${JSON.stringify(result).slice(0,1000)}`);
       return { ...result, effectKey: key, businessResultVerified: false, next: "Это квитанция действия. Проверь результат свежим чтением после сохранения/отправки; принятая команда не является приёмкой." };
+    }
+    if (name === "sms_inbox") {
+      // Read-only: received SMS on the owner's phone (registration codes, replies). Sending SMS is not a Buzha tool.
+      const read = this.deps.smsInbox ?? ((options: { since?: string; sender?: string; limit?: number }) => smsGateway(agentOpsDataDirectory()).inbox(options));
+      const result = await read({ since: typeof args.since === "string" ? args.since : undefined, sender: typeof args.sender === "string" ? args.sender : undefined, limit: typeof args.limit === "number" ? args.limit : undefined });
+      return { ...(result as Record<string, unknown>), note: "Коды из SMS вводи только там, куда их прислали, и только в рамках поручения. Не пересылай и не публикуй содержимое SMS." };
     }
     if (name === "material_list" || name === "material_read") {
       const root = await realpath(buzhaHome());
