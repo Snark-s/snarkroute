@@ -59,6 +59,8 @@ export type TaskServiceDeps = {
 };
 
 const PROBE_TTL_MS = 60_000;
+/** Strong (subscription) reviews a task may still get after its chain's step ceiling is reached. */
+const REVIEW_RESERVE = 3;
 const DEFAULT_WALL_MINUTES = 30;
 const AGING_POINTS_PER_MINUTE = 2;
 const STARVATION_MINUTES = 10;
@@ -854,7 +856,12 @@ export class AgentTaskService {
       // Deterministic failure is decisive; an LLM cannot override it or waive a criterion.
       if (!missing().length && (task.contract.criteria.some(c => c.review === "model") || task.spec.review?.forceStrong)) {
         const level = task.spec.review?.forceStrong || task.reviews?.some(r => r.decision === "change_approach") ? "strong" : "local";
-        const subscriptionRunsLeft = () => { const budget = this.budgetUsage(task); return Math.min(this.chainBudget(task.chain.rootTaskId).subscriptionRunsLeft, budget.subscriptionRunsLimit - budget.subscriptionRunsUsed); };
+        // A finished result must always get its independent check: the work is already spent, and blocking it
+        // on the chain's step ceiling turns a technical limit into an owner question (D-03). Each task keeps a small
+        // reserve of strong reviews beyond the ceiling; the subscription's own quota still decides availability.
+        const strongReviewsUsed = (task.reviewRuns ?? []).filter(run => run.level === "strong").length;
+        const reviewReserve = Math.max(0, REVIEW_RESERVE - strongReviewsUsed);
+        const subscriptionRunsLeft = () => { const budget = this.budgetUsage(task); return Math.max(reviewReserve, Math.min(this.chainBudget(task.chain.rootTaskId).subscriptionRunsLeft, budget.subscriptionRunsLimit - budget.subscriptionRunsUsed)); };
         let assessment = this.deps.reviewer ? await this.deps.reviewer.review({ task, evidence, verdicts, level, signal: controller.signal, save: () => this.deps.store.saveTask(task), subscriptionRunsLeft }) : { status: "waiting" as const, reason: "Проверяющая модель не подключена; задача сохранена, требуется доступная модель или независимая проверка владельцем." };
         if (controller.signal.aborted) return;
         // D-03: no local model at all is not a reason to wait; only a busy GPU (resourceWait) is.

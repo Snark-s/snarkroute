@@ -128,17 +128,17 @@ describe("Приёмщик: durable execution → evidence → acceptance", () =
     await writeFile(join(f.workspace,"profile.json"),'{"published":true}');
     const {task}=await f.service.submit(f.agent,{...f.spec,budget:{wallMinutes:5,subscriptionRuns:0},review:{forceStrong:true},criteria:[{...f.spec.criteria![0],review:"model"}]},{inspectExisting:true});
     const done=await until(f.service,task.id,t=>["verified","blocked"].includes(t.state));
+    // The check of a finished result draws on the review reserve; no owner question, no re-execution.
     expect(done.state).toBe("verified");expect(f.calls()).toBe(0);
-    expect(done.budgetHistory?.at(-1)).toMatchObject({by:"auto:quota-ledger"});expect(done.spec.budget?.subscriptionRuns).toBeGreaterThan(0);
   });
-  it("C4: stops at the owner's ceiling with owner_decision, never needs_money",async()=>{
+  it("C4: a finished result still gets its check at the owner's ceiling (review reserve), never an owner question",async()=>{
     const f=await fixture({review:budgetAwareReviewer});
     f.registry.restore({policies:{policies:{[f.agent.policy.id]:{...f.agent.policy,chainBudget:{...f.agent.policy.chainBudget,subscriptionRuns:0}}}}});
     const agent=f.registry.mcpClient("test");
     await writeFile(join(f.workspace,"profile.json"),'{"published":true}');
     const {task}=await f.service.submit(agent,{...f.spec,budget:{wallMinutes:5,subscriptionRuns:0},review:{forceStrong:true},criteria:[{...f.spec.criteria![0],review:"model"}]},{inspectExisting:true});
-    const done=await until(f.service,task.id,t=>t.state==="blocked");
-    expect(done.ownerReason).toBe("owner_decision");expect(done.reason).toMatch(/потолок/);expect(f.calls()).toBe(0);expect(done.attempts).toHaveLength(1);
+    const done=await until(f.service,task.id,t=>["verified","blocked"].includes(t.state));
+    expect(done.state).toBe("verified");expect(done.ownerReason).toBeUndefined();expect(f.calls()).toBe(0);expect(done.attempts).toHaveLength(1);
   });
   it("rejects evidence from an earlier attempt, stale observations and unrelated citations", async () => {
     const f = await fixture();
