@@ -58,7 +58,8 @@ export class SmsGateway {
   async configure(input: { url?: unknown; username?: unknown; password?: unknown }): Promise<SmsStatus> {
     const url = privateGatewayUrl(String(input.url ?? ""));
     const username = typeof input.username === "string" ? input.username.trim() : "";
-    const password = typeof input.password === "string" ? input.password : "";
+    // Copied from the phone, a password often brings a trailing space or line break; the app never generates those.
+    const password = typeof input.password === "string" ? input.password.trim() : "";
     if (!username || !password || username.length > 200 || password.length > 500) throw new Error("Нужны логин и пароль из приложения (вкладка «Главная»).");
     await this.request({ url, username, password }, "/inbox?type=SMS&limit=1");
     const iv = randomBytes(12);
@@ -85,7 +86,12 @@ export class SmsGateway {
       this.lastError = "Телефон не отвечает: проверь, что он в той же сети, приложение открыто и включён «Локальный сервер».";
       throw new Error(this.lastError);
     }
-    if (response.status === 401 || response.status === 403) { this.lastError = "Телефон отклонил логин или пароль."; throw new Error(this.lastError); }
+    if (response.status === 401) { this.lastError = "Телефон отклонил логин или пароль (HTTP 401). Возьми их из блока «Локальный сервер» на «Главной» приложения — не из «Облачного сервера»."; throw new Error(this.lastError); }
+    if (response.status === 403) {
+      const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200);
+      this.lastError = `Телефон узнал логин, но не дал читать входящие (HTTP 403${detail ? `: ${detail}` : ""}). Дай приложению разрешение на чтение SMS в настройках Android.`;
+      throw new Error(this.lastError);
+    }
     if (response.status === 404) { this.lastError = "В этой версии приложения нет чтения входящих (/inbox): обнови SMS Gateway."; throw new Error(this.lastError); }
     if (!response.ok) { this.lastError = `Телефон ответил HTTP ${response.status}.`; throw new Error(this.lastError); }
     this.lastError = null; this.lastOkAt = new Date(this.now()).toISOString();
