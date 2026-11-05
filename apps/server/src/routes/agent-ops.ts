@@ -276,6 +276,39 @@ export function registerAgentOpsRoutes(app: FastifyInstance, options: { ops?: Pr
   app.post(`${ROOT}/mail/:id/ack`, handle(async (ops, identity, request) => ({ ok: true, letter: await ops.mail.ack(identity, (request.params as { id: string }).id, ((request.body ?? {}) as { note?: string }).note) })));
 
   // D2: the Secretary's Telegram bot, owner only. The token goes in and is never returned.
+  // Questions the queue put to the owner (blocked with an owner reason), answered from the Secretary tab.
+  app.get(`${ROOT}/owner-questions`, handle(async (ops, identity) => {
+    ownerOnly(identity, "Вопросы агентов");
+    const questions = ops.tasks.list({ states: ["blocked"], limit: 500 }).filter(task => task.ownerReason).map(task => ({
+      id: task.id, agentId: task.agentId, title: task.spec.goal.split(/\r?\n/)[0].slice(0, 240), goal: task.spec.goal.slice(0, 1200),
+      reason: task.reason ?? "", ownerReason: task.ownerReason, nextStep: task.nextStep ?? "", updatedAt: task.updatedAt, rootTaskId: task.chain.rootTaskId,
+      budget: /потолок|бюджет/i.test(task.reason ?? ""), usage: ops.tasks.chainBudget(task.chain.rootTaskId) }));
+    return { ok: true, questions };
+  }));
+  app.post(`${ROOT}/owner-questions/:id`, handle(async (ops, identity, request) => {
+    ownerOnly(identity, "Вопросы агентов");
+    const id = (request.params as { id: string }).id;
+    const body = (request.body ?? {}) as { action?: string; note?: string };
+    const note = typeof body.note === "string" ? body.note.trim().slice(0, 4000) : "";
+    const task = ops.tasks.requireReadable(id, identity);
+    if (body.action === "stop") return { ok: true, task: await ops.tasks.cancel(id, identity, note || "Остановлено владельцем из «Вопросов агентов».") };
+    if (body.action === "extend") {
+      // Subscription runs are a flat-fee quota: raise the chain and this task to the owner's own ceiling, then continue.
+      const ceiling = identity.policy.chainBudget.subscriptionRuns;
+      const reason = note || "Владелец продлил бюджет из «Вопросов агентов».";
+      const revised: string[] = [];
+      for (const target of [...new Set([task.chain.rootTaskId, id])]) {
+        try { await ops.tasks.reviseBudget(target, identity, { subscriptionRuns: ceiling }, reason); revised.push(target); }
+        catch (error) { if (target === id) throw error; }
+      }
+      return { ok: true, revised, task: await ops.tasks.resolve(id, identity, "continue", reason) };
+    }
+    if (body.action === "answer") {
+      if (!note) throw new AgentOpsError("BAD_REQUEST", "Напиши ответ.", {}, 400);
+      return { ok: true, task: await ops.tasks.resolve(id, identity, "continue", note) };
+    }
+    throw new AgentOpsError("BAD_REQUEST", "action: extend, answer или stop.", {}, 400);
+  }));
   // The owner's phone as a read-only SMS inbox for Buzha (registration codes, replies). Credentials never come back.
   app.get(`${ROOT}/sms`, handle(async (_ops, identity) => { ownerOnly(identity, "SMS-шлюз"); return { ok: true, sms: await smsGateway(agentOpsDataDirectory()).status() }; }));
   app.post(`${ROOT}/sms`, handle(async (_ops, identity, request) => {

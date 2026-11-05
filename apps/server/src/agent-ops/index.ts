@@ -102,6 +102,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
 
   const inlineHolders = new Set<string>();
   let tasks: AgentTaskService | undefined;
+  let ownerQuestionSink: ((task: import("./types").AgentTask) => void) | undefined;
   const dispatcher = new ResourceDispatcher({
     telemetry,
     mode,
@@ -165,6 +166,7 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
 
   tasks = new AgentTaskService({ store, registry, ledger, locks, dispatcher, adapters, mode, apiUrl: options.apiUrl ?? "http://127.0.0.1:4317",
     worktreeRoot: join(directory, "worktrees"), tickMs: options.tickMs,
+    onOwnerQuestion: task => ownerQuestionSink?.(task),
     toolCheck: (task, check) => buzhaTools.check(task, check),
     toolObservations: task => buzhaTools.observations(task),
     reviewer: new CatalogAcceptanceReviewer({ adapters, registry, ledger, dispatcher, store,
@@ -201,6 +203,14 @@ export async function createAgentOps(options: { directory?: string; apiUrl?: str
     } });
   await secretary.init();
   secretaryRef = secretary;
+  // Every question the queue puts to the owner comes to him through the Secretary: a letter in the Workshop
+  // (answered in the Secretary tab, «Вопросы агентов») and a Telegram note when the bot is paired.
+  ownerQuestionSink = task => {
+    const title = task.spec.goal.split(/\r?\n/)[0].slice(0, 160);
+    const body = `${task.reason ?? "Нужно решение владельца."}\n\nЗадача ${task.id} (${task.agentId}): ${title}\n\nОтветить: Мастерская → Секретарь → «Вопросы агентов».`;
+    void mail.send(registry.app("secretary", "Секретарь"), { to: "owner", subject: `Нужен ты: ${title.slice(0, 120)}`, body, taskId: task.id }).catch(() => undefined);
+    telegram.notify(`Нужен ты\n${title}\n${task.reason ?? ""}\nОтветить: Мастерская → Секретарь → «Вопросы агентов».`);
+  };
   if (!options.adapters) { secretary.start(); await telegram.init(); }
   const buzha = new BuzhaAgentService({ tasks: taskService, registry, runtimeVersion });
   if (!options.adapters) buzha.start();

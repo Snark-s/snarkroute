@@ -56,6 +56,8 @@ export type TaskServiceDeps = {
   toolObservations?: (task: AgentTask) => Promise<import("./types").CheckResult>;
   /** Tests run without spawning a real `git`/checks. */
   workspace?: { snapshot?: typeof snapshotWorkspace; alive?: typeof processAlive };
+  /** Called when a task stops on a question only the owner can answer. */
+  onOwnerQuestion?: (task: AgentTask) => void;
 };
 
 const PROBE_TTL_MS = 60_000;
@@ -1104,6 +1106,8 @@ export class AgentTaskService {
     if (!OWNER_REASONS.includes(ownerReason)) throw new AgentOpsError("BAD_OWNER_REASON", `Недопустимая причина обращения к владельцу: ${ownerReason}`);
     task.ownerReason = ownerReason;
     await this.setState(task, "blocked", `${OWNER_REASON_LABEL[ownerReason]}. ${reason}`, eventType, { ownerReason });
+    // A question to the owner must reach him (Secretary letter, Telegram), not only sit in the Acceptor's list.
+    try { this.deps.onOwnerQuestion?.(task); } catch { /* notification is best-effort; the task stays blocked and listed */ }
   }
 
   /** Attempts of the current approach only: the limit is per approach, not per goal (D-03). */
